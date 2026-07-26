@@ -336,6 +336,17 @@ describe('assistant UI panel architecture', () => {
     // NO SILENT FALLBACKS: the active tier is observable in the DOM.
     expect(regionSource).toContain('data-thread-render-tier={tier}');
 
+    // `useVirtualizer` is on React Compiler's incompatible-library list, and the
+    // resulting opt-out is WANTED here (this component must re-render per scroll
+    // frame). Both engines are suppressed at the call site with a rationale —
+    // never with `use no memo`, which `lint:no-no-memo` forbids repo-wide, and
+    // never by widening the eslint warning budget.
+    expect(regionSource).toContain(
+      '// react-doctor-disable-next-line react-hooks-js/incompatible-library --'
+    );
+    expect(regionSource).toContain('/* eslint-disable react-hooks/incompatible-library --');
+    expect(regionSource).toContain('/* eslint-enable react-hooks/incompatible-library */');
+
     // Tier 2 is the library's documented virtualization escape hatch: message
     // ids drive the list, and the SAME components map renders both tiers.
     expect(regionSource).toContain('unstable_useThreadMessageIds');

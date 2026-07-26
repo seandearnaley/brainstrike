@@ -229,6 +229,28 @@ export const ThreadMessagesRegion = ({
     setScrollMargin((current) => (current === next ? current : next));
   }, [disabledReason, tier]);
 
+  /**
+   * The React Compiler skips memoizing this component because `useVirtualizer`
+   * returns functions that cannot be memoized safely. That is the DESIRED
+   * outcome here, not a defect to work around: the virtualizer's own
+   * `useReducer` re-render is the only signal that the visible range moved, so
+   * this component MUST re-render on every scroll frame. Memoizing it would
+   * freeze the row list — the exact failure the rule warns about is what the
+   * opt-out prevents.
+   *
+   * Nothing derived from the instance escapes into a memoizable boundary: the
+   * row list is rendered inline below, and the jump button receives plain
+   * `{ atEnd, jumpToEnd }` values rather than the instance itself.
+   *
+   * Suppressed inline rather than by the upstream canonical fix (`'use no
+   * memo'`), which `pnpm run lint:no-no-memo` forbids repo-wide, and rather
+   * than in doctor.config.ts, which would not quiet ESLint and would move the
+   * rationale away from the call site. Extraction does NOT help — the
+   * diagnostic follows the `useVirtualizer()` call into whatever file it lives
+   * in (measured), and tree-table.tsx:1050 carries the identical finding.
+   */
+  /* eslint-disable react-hooks/incompatible-library -- Re-enabled immediately after the call. A block form is required because react-doctor demands its own suppression be ADJACENT to the diagnostic, which leaves no room for an `eslint-disable-next-line` above it. */
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- The compiler opt-out is the intended behaviour: this component must re-render per scroll frame, and no virtualizer-derived value crosses a memoized boundary.
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     // End-anchored chat mode: prepends (branch switches, history hydration)
     // keep the visual position, and appends follow only while already pinned.
@@ -248,6 +270,7 @@ export const ThreadMessagesRegion = ({
     scrollEndThreshold: THREAD_END_THRESHOLD_PX,
     scrollMargin,
   });
+  /* eslint-enable react-hooks/incompatible-library */
 
   // Read in the component that owns the virtualizer, matching TreeTable's
   // long-standing shape: these move on every scroll frame while the instance
