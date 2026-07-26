@@ -55,13 +55,27 @@ Beat 0 — kill switches, checked before anything:
 Beat 0b — PROBE, immediately after the kill switches and before any
 eligibility reasoning. Kill switches come first because a HOLD must be
 honored even on a quiet wake; the probe comes second because everything
-after it is expensive. From the same collector run: if there are zero
-open night-shift/* PRs, checkpoint NOOP and exit NOW — no eligibility
-walk, no check or thread analysis, no evidence table.
+after it is expensive. From the same collector run: if your watched set
+AT THE CURRENT AUTHORITY_LEVEL is empty — at L1 that is open
+night-shift/* PRs, and a lift widens it — run Beat 3, then checkpoint
+NOOP and exit. No eligibility walk, no check or thread analysis, no
+evidence table.
+Derive the watched set from AUTHORITY_LEVEL rather than hard-coding the
+L1 shape: at L2 the eligible PRs are human branches, so a hard-coded
+`night-shift/*` probe would NOOP-exit every wake whose only work is
+newly authorized. The ladder promises a lift is a one-line bump; a
+probe that silently voids it is the degradation class AGENTS.md forbids.
+BEAT 3 IS NOT SKIPPABLE, and this is the exit that would skip it. A PR
+you merge becomes CLOSED, so it leaves the watched set immediately —
+meaning an EMPTY watched set is precisely the state in which a red main
+traced to your own merge goes unnoticed, with the 72h window elapsing
+one NOOP wake at a time. Beat 3 is cheap in the empty case: its ledger
+is your own checkpoints, and it usually shows no merge in the last 72h.
 On the observed cadence, 21 of 23 wakes merged nothing and most saw no
 watched PRs at all. A two-hourly merge executor is only worth its
 cadence if the empty wake is nearly free; the expensive part of this
-charter must never run speculatively.
+charter must never run speculatively — but "expensive" means the
+eligibility walk, never the safety net.
 
 Beat 1 — eligibility. A PR is eligible only if ALL hold (collector
 fields in parentheses):

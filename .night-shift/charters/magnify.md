@@ -26,12 +26,28 @@ of record. NOOP is success.
 First: read .night-shift/PROTOCOL.md, then run Beat 0. Contract reading
 is per-PR and belongs to Beat 2 — it happens only once a PR is selected.
 
+You are an EXTERNAL-STATE loop. Watched set = the eligible open
+risk-3/risk-4 `<pr, head-sha>` pairs at wake, each carrying whether your
+current-HEAD report already covers it ($magnify-automation emits exactly
+this as `watchedSet`, with a `covered` flag per entry). Watermark =
+`hash:` of it. PROTOCOL.md's "pairs already processed" phrasing
+describes the general EXTERNAL-STATE shape; for this loop the coverage
+flag lives INSIDE the set, which is what lets Beat 1 select from it.
+
 Beat 0 — PROBE, before reading anything beyond the protocol and this
-charter. Run the bundled collector ($magnify-automation), take its
-`watchedSet`, hash it per the protocol's typed grammar, and compare to
-your newest checkpoint's watermark. Unchanged watched set, OR a changed
-one containing zero eligible risk-3/risk-4 PRs lacking your current-HEAD
-report comment → checkpoint NOOP and exit NOW.
+charter. Run the bundled collector ($magnify-automation). Exit NOOP only
+when no eligible risk-3/risk-4 PR lacks a current-HEAD report — the
+collector answers that directly (`noop` is true exactly when nothing
+uncovered remains; `deferredByRunLimit` names what was left over).
+TEST ELIGIBILITY, NEVER SET EQUALITY. An unchanged watched-set hash can
+still hold uncovered work: Beat 1 caps at 2 PRs per run while your
+watermark hashes the WHOLE snapshot (PROTOCOL.md "Run boundaries"), so a
+third eligible PR would sit unreviewed until some head SHA happened to
+move — turning the 2-PR cap from a throttle into a silent drop. The same
+hole swallows a run that ended INCOMPLETE before reporting, and a human
+dismissal reply, neither of which moves a head SHA.
+If your newest checkpoint is INCOMPLETE or BLOCKED, run its stated next
+action instead of exiting.
 Do NOT read docs/agents contracts, open a diff, or spawn a subagent
 before this probe clears. On the observed cadence, 17 of 21 wakes ended
 `eligible open risk-3/risk-4 PRs=0`: reading contracts before selection
