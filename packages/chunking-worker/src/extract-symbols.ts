@@ -115,6 +115,7 @@ function nodeSpan(node: AstNode): { end: number; start: number } | null {
 // ---------------------------------------------------------------------------
 
 const FUNCTION_VALUED_INIT_TYPES = new Set(['ArrowFunctionExpression', 'FunctionExpression']);
+const CLASS_VALUED_INIT_TYPE = 'ClassExpression';
 const EXPORT_WRAPPER_TYPES = new Set(['ExportDefaultDeclaration', 'ExportNamedDeclaration']);
 /** Babel spells class methods `ClassMethod`; oxc (ESTree) wraps them in
  * `MethodDefinition`. Both carry `key`. */
@@ -207,9 +208,13 @@ function variableDeclaratorContext(ancestors: readonly AstNode[]): {
   };
 }
 
-function refLine(state: EstreeWalkState, node: AstNode): number {
+/** Null when the engine emitted no span — the caller SKIPS the ref rather
+ * than planting it on a fabricated line (no silent fallbacks). Both engines
+ * emit spans in practice, so a miss is a contract deviation worth dropping
+ * loudly-by-absence rather than mislabeling. */
+function refLine(state: EstreeWalkState, node: AstNode): number | null {
   const span = nodeSpan(node);
-  return span ? state.line(span.start) : 1;
+  return span ? state.line(span.start) : null;
 }
 
 function currentEnclosing(state: EstreeWalkState): number | undefined {
@@ -233,11 +238,11 @@ function recordImportRefs(state: EstreeWalkState, node: AstNode): void {
     if (!name) {
       continue;
     }
-    const ref: PortableSymbolRef = {
-      kind: 'import',
-      line: refLine(state, specifier),
-      name,
-    };
+    const line = refLine(state, specifier);
+    if (line === null) {
+      continue;
+    }
+    const ref: PortableSymbolRef = { kind: 'import', line, name };
     if (module !== undefined) {
       ref.module = module;
     }
@@ -266,7 +271,11 @@ function recordCallRef(state: EstreeWalkState, node: AstNode): void {
   if (!name) {
     return;
   }
-  const ref: PortableSymbolRef = { kind: 'call', line: refLine(state, node), name };
+  const line = refLine(state, node);
+  if (line === null) {
+    return;
+  }
+  const ref: PortableSymbolRef = { kind: 'call', line, name };
   const enclosing = currentEnclosing(state);
   if (enclosing !== undefined) {
     ref.enclosingSymbolIndex = enclosing;
@@ -277,11 +286,12 @@ function recordCallRef(state: EstreeWalkState, node: AstNode): void {
 function recordHeritageRefs(state: EstreeWalkState, node: AstNode, classIndex: number): void {
   const superClass = (node as { superClass?: unknown }).superClass;
   const superName = identifierName(superClass);
-  if (superName) {
+  const nodeLine = refLine(state, node);
+  if (superName && nodeLine !== null) {
     state.collector.add({
       enclosingSymbolIndex: classIndex,
       kind: 'extends',
-      line: refLine(state, node),
+      line: nodeLine,
       name: superName,
     });
   }
@@ -293,15 +303,49 @@ function recordHeritageRefs(state: EstreeWalkState, node: AstNode, classIndex: n
       continue;
     }
     const name = identifierName((entry as { expression?: unknown }).expression);
-    if (name) {
+    const entryLine = refLine(state, entry);
+    if (name && entryLine !== null) {
       state.collector.add({
         enclosingSymbolIndex: classIndex,
         kind: 'implements',
-        line: refLine(state, entry),
+        line: entryLine,
         name,
       });
     }
   }
+}
+
+/** Handles `const x = …` declarators, including function- and class-valued
+ * inits; separated from symbolForEstreeNode to keep both under the complexity
+ * ceiling. */
+function symbolForVariableDeclarator(
+  state: EstreeWalkState,
+  node: AstNode,
+  ancestors: readonly AstNode[]
+): number | null {
+  const context = variableDeclaratorContext(ancestors);
+  if (!context.topLevel) {
+    return null;
+  }
+  const name = identifierName((node as { id?: unknown }).id);
+  if (!name) {
+    return null;
+  }
+  const init = (node as { init?: unknown }).init;
+  let kind: PortableSymbolKind = 'variable';
+  if (isNode(init) && FUNCTION_VALUED_INIT_TYPES.has(init.type ?? '')) {
+    kind = 'function';
+  } else if (isNode(init) && init.type === CLASS_VALUED_INIT_TYPE) {
+    kind = 'class';
+  }
+  const index = pushSymbol(state, node, name, kind, context.exported);
+  // `const Pool = class extends Base {}`: the heritage lives on the class
+  // EXPRESSION, whose node never gets its own symbol — attribute it to the
+  // declarator's symbol so the extends edge is not lost.
+  if (index !== null && kind === 'class' && isNode(init)) {
+    recordHeritageRefs(state, init, index);
+  }
+  return index;
 }
 
 /** Returns the symbol index this node defines, or null. */
@@ -330,18 +374,7 @@ function symbolForEstreeNode(
   }
 
   if (nodeType === 'VariableDeclarator') {
-    const context = variableDeclaratorContext(ancestors);
-    if (!context.topLevel) {
-      return null;
-    }
-    const name = identifierName((node as { id?: unknown }).id);
-    if (!name) {
-      return null;
-    }
-    const init = (node as { init?: unknown }).init;
-    const kind: PortableSymbolKind =
-      isNode(init) && FUNCTION_VALUED_INIT_TYPES.has(init.type ?? '') ? 'function' : 'variable';
-    return pushSymbol(state, node, name, kind, context.exported);
+    return symbolForVariableDeclarator(state, node, ancestors);
   }
 
   return null;
@@ -354,13 +387,17 @@ function walkEstree(state: EstreeWalkState, node: AstNode, ancestors: AstNode[])
     recordImportRefs(state, node);
     return;
   }
+  // `export { x } from './y'` / `export * from './y'` re-exports are a stated
+  // v1 non-goal (like Python's aliased_import): a miss is an absent retrieval
+  // edge, and barrel traversal typically reaches the definition through the
+  // importing CONSUMERS' direct imports anyway.
   if (nodeType === 'CallExpression' || nodeType === 'NewExpression') {
     recordCallRef(state, node);
     // Fall through: arguments may contain calls and named function expressions.
   }
 
   const symbolIndex = symbolForEstreeNode(state, node, ancestors);
-  if (symbolIndex !== null && (nodeType === 'ClassDeclaration' || nodeType === 'ClassExpression')) {
+  if (symbolIndex !== null && nodeType === 'ClassDeclaration') {
     recordHeritageRefs(state, node, symbolIndex);
   }
 

@@ -239,7 +239,6 @@ export const fileChunks = pgTable(
 export const fileSymbols = pgTable(
   'file_symbols',
   {
-    embeddingSetId: text('embedding_set_id'),
     endLine: integer('end_line').notNull(),
     endOffset: integer('end_offset').notNull(),
     exported: boolean('exported').notNull().default(false),
@@ -263,7 +262,6 @@ export const fileSymbols = pgTable(
 export const fileSymbolRefs = pgTable(
   'file_symbol_refs',
   {
-    embeddingSetId: text('embedding_set_id'),
     fileRecordId: text('file_record_id')
       .notNull()
       .references(() => fileRecords.id, { onDelete: 'cascade' }),
@@ -276,7 +274,7 @@ export const fileSymbolRefs = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.fileRecordId, table.seq] }),
-    index('idx_file_symbol_refs_name').on(table.name),
+    index('idx_file_symbol_refs_name_kind').on(table.name, table.kind),
     // Composite FK to file_symbols(file_record_id, seq) is owned by the
     // migration DDL; drizzle-orm has no composite-FK builder in this version.
   ]

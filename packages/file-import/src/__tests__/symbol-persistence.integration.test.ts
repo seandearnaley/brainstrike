@@ -165,6 +165,44 @@ describe('symbol persistence seam', () => {
     expect(symbols.rows[0]?.n).toBe(0);
   });
 
+  it('re-chunking the same file REPLACES its symbols — no collision, no warn', async () => {
+    // seq is deterministic, so before replace semantics a second pass over the
+    // same file_record (full-reindex recovery, retry after a crash) collided
+    // on the PK, was caught as a warn, and the STALE graph kept answering
+    // traversals (#2032 review).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const importResults: FileImportResult[] = [{ existed: false, id: fileId, imported: true }];
+      const options = (symbols: PortableSymbol[], refs: PortableSymbolRef[]) => ({
+        chunkingWorkerPort: workerPortReturning({ symbolRefs: refs, symbols }),
+        symbolRepository: new FileSymbolRepository(db),
+        updateProgress: () => null,
+      });
+
+      await processChunking(importResults, chunkingDeps(), options(SYMBOLS, REFS));
+
+      const secondPass: PortableSymbol[] = [{ ...SYMBOLS[0]!, name: 'renamedWorker' }];
+      await processChunking(importResults, chunkingDeps(), options(secondPass, []));
+
+      const names = await db.query<{ name: string }>(
+        'SELECT name FROM file_symbols WHERE file_record_id = $1',
+        [fileId]
+      );
+      expect(names.rows).toEqual([{ name: 'renamedWorker' }]);
+      const refCount = await db.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM file_symbol_refs WHERE file_record_id = $1',
+        [fileId]
+      );
+      expect(refCount.rows[0]?.n).toBe(0);
+      expect(warn).not.toHaveBeenCalledWith(
+        '[chunking] symbol persistence failed; chunks remain indexed',
+        expect.anything()
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('a symbol-persistence failure degrades LOUDLY without failing the import', async () => {
     // Chunk indexing is the core capability; a broken enclosing index (a
     // worker contract violation) must cost the file its symbols, visibly —

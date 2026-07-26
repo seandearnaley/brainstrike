@@ -277,12 +277,7 @@ async function persistExtractedSymbols(
   }
   try {
     const { toFileSymbolInserts } = await import('./chunking-worker-port');
-    const inserts = toFileSymbolInserts(
-      fileRecordId,
-      symbols,
-      symbolRefs,
-      options.targetEmbeddingSetId
-    );
+    const inserts = toFileSymbolInserts(fileRecordId, symbols, symbolRefs);
     await symbolRepository.insertMany(inserts.symbols, inserts.refs);
   } catch (error) {
     // biome-ignore lint/suspicious/noConsole: visible signal that the symbol graph lost this file

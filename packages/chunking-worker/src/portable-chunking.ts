@@ -996,7 +996,14 @@ async function splitCodeByFunctions(
   collectTopLevelFunctionRanges(ast, [], ranges);
 
   if (!ranges.length) {
-    return null;
+    // No function-shaped ranges does NOT mean no symbols: an interfaces-only
+    // types.ts, a constants module, or a barrel index.ts parses fine and
+    // extracts fine — only the CHUNKING strategy has nothing to split on.
+    // Returning the symbols with empty pieces lets the caller fall back to
+    // separator chunking without discarding the graph rows (review finding on
+    // #2032: the import refs lost here are exactly the files whose whole job
+    // is importing).
+    return { pieces: [], symbols };
   }
 
   ranges.sort((a, b) => a.start - b.start || a.end - b.end);
@@ -1173,9 +1180,13 @@ export async function chunkContent(
         ...(resolvedFileName ? { fileName: resolvedFileName } : {}),
       });
 
-      if (astSplit && astSplit.pieces.length > 0) {
+      if (astSplit) {
+        // Symbols decouple from chunking strategy: keep them even when the
+        // splitter found no function ranges and we fall back to separators.
         symbolHolder.current = astSplit.symbols;
-        return [{ pieces: astSplit.pieces, type: 'recursive' }];
+        if (astSplit.pieces.length > 0) {
+          return [{ pieces: astSplit.pieces, type: 'recursive' }];
+        }
       }
 
       return chunkWithCodeSeparators();

@@ -24,7 +24,6 @@ export type FileSymbolKind =
 export type FileSymbolRefKind = 'call' | 'extends' | 'implements' | 'import';
 
 export interface FileSymbolInsert {
-  readonly embeddingSetId?: string;
   readonly endLine: number;
   readonly endOffset: number;
   readonly exported: boolean;
@@ -37,7 +36,6 @@ export interface FileSymbolInsert {
 }
 
 export interface FileSymbolRefInsert {
-  readonly embeddingSetId?: string;
   readonly fileRecordId: string;
   /** Enclosing definition's seq; MUST come from the same insert batch.
    * Absent = module-level code. */
@@ -61,8 +59,8 @@ interface SymbolDatabase {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
 
-const SYMBOL_COLUMNS = 10;
-const REF_COLUMNS = 8;
+const SYMBOL_COLUMNS = 9;
+const REF_COLUMNS = 7;
 
 /**
  * PostgreSQL's wire limit is 65,535 bind parameters. A file whose symbols and
@@ -106,6 +104,15 @@ export class FileSymbolRepository {
     if (symbols.length === 0 && refs.length === 0) {
       return;
     }
+    // REPLACE semantics: chunk persistence survives a re-chunk because its
+    // insert is an upsert; seq is deterministic here, so without this a
+    // re-chunk of the same file (full-reindex recovery, retry after a crash
+    // between insert and the chunk-count update) collides on the PK and the
+    // STALE graph keeps answering traversals (#2032 review). Deleting first
+    // makes persistence self-healing regardless of who re-chunks.
+    await deleteFileSymbolsForFileRecords(this.db, [
+      ...new Set([...symbols, ...refs].map((row) => row.fileRecordId)),
+    ]);
     const parameterCount = symbols.length * SYMBOL_COLUMNS + refs.length * REF_COLUMNS;
     if (parameterCount > MAX_INSERT_PARAMETERS) {
       throw new Error(
@@ -117,7 +124,6 @@ export class FileSymbolRepository {
     const symbolValues = symbols.flatMap((row) => [
       row.fileRecordId,
       row.seq,
-      row.embeddingSetId ?? null,
       row.name,
       row.kind,
       row.exported,
@@ -129,7 +135,6 @@ export class FileSymbolRepository {
     const refValues = refs.flatMap((row) => [
       row.fileRecordId,
       row.seq,
-      row.embeddingSetId ?? null,
       row.fromSymbolSeq ?? null,
       row.name,
       row.kind,
@@ -138,10 +143,10 @@ export class FileSymbolRepository {
     ]);
 
     const symbolInsert = `INSERT INTO file_symbols
-        (file_record_id, seq, embedding_set_id, name, kind, exported,
+        (file_record_id, seq, name, kind, exported,
          start_line, end_line, start_offset, end_offset)`;
     const refInsert = `INSERT INTO file_symbol_refs
-        (file_record_id, seq, embedding_set_id, from_symbol_seq, name, kind, module, line)`;
+        (file_record_id, seq, from_symbol_seq, name, kind, module, line)`;
 
     if (refs.length === 0) {
       await this.db.query(
@@ -167,21 +172,30 @@ export class FileSymbolRepository {
     );
   }
 
-  /** Removes all symbols and refs for the given files. Refs cascade from
-   * their enclosing symbol, but module-level refs have no enclosing symbol,
-   * so both tables are deleted explicitly. */
+  /** Removes all symbols and refs for the given files. */
   async deleteForFileRecords(fileRecordIds: readonly string[]): Promise<void> {
-    if (fileRecordIds.length === 0) {
-      return;
-    }
-    // Text-form comparison for the same legacy-id reason as the chunk delete
-    // in applyManagedCacheReplacements.
-    await this.db.query(
-      'DELETE FROM file_symbol_refs WHERE file_record_id::text = ANY($1::text[])',
-      [[...fileRecordIds]]
-    );
-    await this.db.query('DELETE FROM file_symbols WHERE file_record_id::text = ANY($1::text[])', [
-      [...fileRecordIds],
-    ]);
+    await deleteFileSymbolsForFileRecords(this.db, fileRecordIds);
   }
+}
+
+/**
+ * THE single implementation of symbol-row deletion, shared by the repository,
+ * the managed-cache REPLACE path, and full-reindex recovery — the lifecycle
+ * rule (refs first because module-level refs have no enclosing symbol to
+ * cascade from; text-form id comparison for the same legacy-id reason as the
+ * chunk delete) lives here once so the copies cannot drift (#2032 review).
+ */
+export async function deleteFileSymbolsForFileRecords(
+  db: SymbolDatabase,
+  fileRecordIds: readonly string[]
+): Promise<void> {
+  if (fileRecordIds.length === 0) {
+    return;
+  }
+  await db.query('DELETE FROM file_symbol_refs WHERE file_record_id::text = ANY($1::text[])', [
+    [...fileRecordIds],
+  ]);
+  await db.query('DELETE FROM file_symbols WHERE file_record_id::text = ANY($1::text[])', [
+    [...fileRecordIds],
+  ]);
 }

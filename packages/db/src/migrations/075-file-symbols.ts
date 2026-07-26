@@ -27,9 +27,11 @@ import type { Migration } from './migration-runner';
  * per recursion level, and without them each level is a seq scan whose planner
  * cost blows past the querySelf admission ceiling on a real workspace.
  *
- * `embedding_set_id` is denormalized with the same dual-form scoping contract
- * as `file_chunks` (legacy rows may be NULL; scoped queries must fall back to
- * the file_records join — `electron-file-chunk-repository.ts:669`).
+ * There is deliberately NO embedding_set_id column: scoped queries join
+ * through file_records (the root-scoping precedent — file_chunks has no
+ * root_id column either). Carrying the uuid text on every row, unindexed and
+ * unqueried, measured at ~4-5 MB of pure cost on this monorepo — the one
+ * combination that only loses (#2032 review).
  *
  * The `brainstrike_agent_readonly` role reads these tables via migration 074's
  * `ALTER DEFAULT PRIVILEGES`; `file-symbols.test.ts` pins that instead of
@@ -47,7 +49,7 @@ import type { Migration } from './migration-runner';
  */
 export const migration075FileSymbols: Migration = {
   down: `
-    DROP INDEX IF EXISTS idx_file_symbol_refs_name;
+    DROP INDEX IF EXISTS idx_file_symbol_refs_name_kind;
     --> statement-breakpoint
     DROP TABLE IF EXISTS file_symbol_refs;
     --> statement-breakpoint
@@ -60,7 +62,6 @@ export const migration075FileSymbols: Migration = {
     CREATE TABLE IF NOT EXISTS file_symbols (
       file_record_id   text NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,
       seq              integer NOT NULL,
-      embedding_set_id text,
       name             text NOT NULL,
       kind             text NOT NULL CHECK (kind IN ('function','class','method','variable','interface','type','enum')),
       exported         boolean NOT NULL DEFAULT false,
@@ -76,7 +77,6 @@ export const migration075FileSymbols: Migration = {
     CREATE TABLE IF NOT EXISTS file_symbol_refs (
       file_record_id   text NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,
       seq              integer NOT NULL,
-      embedding_set_id text,
       from_symbol_seq  integer,
       name             text NOT NULL,
       kind             text NOT NULL CHECK (kind IN ('call','import','extends','implements')),
@@ -87,7 +87,19 @@ export const migration075FileSymbols: Migration = {
         REFERENCES file_symbols (file_record_id, seq) ON DELETE CASCADE
     );
     --> statement-breakpoint
-    CREATE INDEX IF NOT EXISTS idx_file_symbol_refs_name ON file_symbol_refs (name);
+    CREATE INDEX IF NOT EXISTS idx_file_symbol_refs_name_kind ON file_symbol_refs (name, kind);
+    --> statement-breakpoint
+    -- BACKFILL: files chunked before this migration would otherwise never be
+    -- re-chunked (unchanged size/mtime = stat-cache hit), leaving the symbol
+    -- graph permanently empty on upgraded installs. chunks_processed_at = NULL
+    -- is the background sync's re-chunk marker; re-chunking upserts chunks in
+    -- place (same ids for unchanged content) and re-embedding is served by
+    -- embedding_cache, so the reset costs one re-chunk pass, not a re-embed.
+    UPDATE file_records
+       SET chunks_processed_at = NULL,
+           chunking_strategy = NULL
+     WHERE chunks_processed_at IS NOT NULL
+       AND content IS NOT NULL;
   `,
   version: 75,
 };

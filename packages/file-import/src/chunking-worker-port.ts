@@ -177,8 +177,7 @@ export function toFileChunkInserts(
 export function toFileSymbolInserts(
   fileRecordId: string,
   symbols: readonly PortableSymbol[],
-  refs: readonly PortableSymbolRef[],
-  embeddingSetId?: string
+  refs: readonly PortableSymbolRef[]
 ): { refs: FileSymbolRefInsert[]; symbols: FileSymbolInsert[] } {
   const symbolInserts: FileSymbolInsert[] = symbols.map((symbol, index) => ({
     endLine: symbol.endLine,
@@ -190,7 +189,6 @@ export function toFileSymbolInserts(
     seq: index,
     startLine: symbol.startLine,
     startOffset: symbol.startOffset,
-    ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
   }));
 
   const refInserts: FileSymbolRefInsert[] = refs.map((ref, index) => {
@@ -210,7 +208,6 @@ export function toFileSymbolInserts(
         ? {}
         : { fromSymbolSeq: ref.enclosingSymbolIndex }),
       ...(ref.module === undefined ? {} : { module: ref.module }),
-      ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
     };
   });
 

@@ -480,6 +480,13 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
       `);
       totalCleared += Number.parseInt(jobsResult.rows[0]?.count ?? '0', 10);
 
+      // 2b. Delete symbol-graph rows (BST-919): file_records rows survive this
+      // recovery, so the FK cascade never fires, and a re-chunk would otherwise
+      // collide with (or silently preserve) the pre-reset graph. Refs first —
+      // module-level refs have no enclosing symbol to cascade from.
+      await db.query('DELETE FROM file_symbol_refs');
+      await db.query('DELETE FROM file_symbols');
+
       // 3. Reset file_records embedding-related fields
       await db.query(`
         UPDATE file_records

@@ -250,3 +250,49 @@ describe('extractSymbols — Python (tree-sitter)', () => {
     );
   });
 });
+
+describe('extractSymbols — decoupled from chunking strategy (via chunkContent)', () => {
+  // An interfaces-only module has NO function-shaped chunk ranges, so the
+  // splitter falls back to separator chunking — but the parse and extraction
+  // both succeeded, and discarding the symbols removed types.ts, constants.ts,
+  // and barrel index.ts files from the graph entirely (#2032 review). The
+  // import refs are the ones that bite: "who imports X" was missing exactly
+  // the files whose whole job is importing.
+  it('keeps symbols for an interfaces-only module that falls back to separator chunking', async () => {
+    const { chunkContent } = await import('../portable-chunking');
+    const content = [
+      "import { Base } from './base';",
+      'export interface LeaseInfo { id: string }',
+      'export type LeaseId = string;',
+      'export const MAX_LEASES = 8;',
+      '',
+    ].join('\n');
+
+    const result = await chunkContent(content, {
+      fileName: 'types.ts',
+      filePath: 'src/types.ts',
+      strategy: 'auto',
+    });
+
+    expect(result.skipped).toBe(false);
+    expect(result.chunks.length).toBeGreaterThan(0);
+    const symbolNames = (result.symbols ?? []).map((symbol) => symbol.name).sort();
+    expect(symbolNames).toEqual(['LeaseId', 'LeaseInfo', 'MAX_LEASES']);
+    expect(result.symbolRefs ?? []).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'import', name: 'Base' })])
+    );
+  });
+});
+
+describe('extractSymbols — class expressions', () => {
+  it('records the extends edge of a class-valued const, attributed to the declarator', async () => {
+    const { refs, symbols } = await parseTs(
+      'export const Pool = class extends BasePool {};\nconst basePoolUser = new Pool();\n'
+    );
+    const pool = symbols.find((symbol) => symbol.name === 'Pool');
+    expect(pool).toMatchObject({ exported: true, kind: 'class' });
+    const heritage = refs.find((ref) => ref.kind === 'extends');
+    expect(heritage).toMatchObject({ name: 'BasePool' });
+    expect(symbols[heritage?.enclosingSymbolIndex ?? -1]?.name).toBe('Pool');
+  });
+});
