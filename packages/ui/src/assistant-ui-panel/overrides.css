@@ -357,6 +357,10 @@
 }
 
 .aui-composer-input {
+  /* Kill the library's 4px margin-bottom: it pushed the textarea's bottom
+     edge out of line with the action cluster (measured, not cosmetic). */
+  display: block;
+  margin: 0;
   min-height: 3rem;
   max-height: 12rem;
   resize: none;
