@@ -97,13 +97,19 @@ export function useThreadPanelSelection({
     visibleRows.visibleThreadIds.length > 0 &&
     visibleRows.visibleThreadIds.every((threadId) => selectedAvailableThreadIds.has(threadId));
 
+  // The direction is derived inside the updater so the decision and the write
+  // come from one snapshot, and so the callback identity does not churn on
+  // every selection change.
   const toggleVisibleSelection = useCallback((): void => {
     setSelectedThreadIds((currentIds) => {
       const nextIds = new Set(
         [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
       );
+      const shouldClear =
+        visibleRows.visibleThreadIds.length > 0 &&
+        visibleRows.visibleThreadIds.every((threadId) => nextIds.has(threadId));
       for (const threadId of visibleRows.visibleThreadIds) {
-        if (allVisibleSelected) {
+        if (shouldClear) {
           nextIds.delete(threadId);
         } else {
           nextIds.add(threadId);
@@ -111,7 +117,7 @@ export function useThreadPanelSelection({
       }
       return nextIds;
     });
-  }, [allVisibleSelected, selectableThreadIds, visibleRows.visibleThreadIds]);
+  }, [selectableThreadIds, visibleRows.visibleThreadIds]);
 
   return {
     allVisibleSelected,

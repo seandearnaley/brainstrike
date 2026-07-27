@@ -7,6 +7,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import { useAssistantThreadStore } from '../assistant-thread-store';
+import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
 
 const virtualizerState = vi.hoisted(() => ({ windowSize: Number.POSITIVE_INFINITY }));
@@ -185,6 +186,9 @@ beforeEach(() => {
   groupRows.splice(0, groupRows.length);
   placementRows.splice(0, placementRows.length);
   useAssistantThreadGroupsStore.getState().reset();
+  // Session-scoped and previously never reset here: a test that types into the
+  // search box left every later test rendering search results.
+  useThreadSearchStore.getState().clearSearch();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},
@@ -462,6 +466,38 @@ describe('ThreadsPanel', () => {
 
     expect(await screen.findByRole('button', { name: 'Select 1 visible thread' })).toBeVisible();
     expect(screen.getByTestId('threads-visible-count')).toHaveTextContent('1 thread visible');
+  });
+
+  it('withdraws the count and select-visible toggle while search replaces the list', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(screen.getByTestId('threads-visible-count')).toBeVisible();
+
+    // Search results replace the treegrid, and the bulk-selection overlay lives
+    // inside that now-hidden subtree. A live toggle here would select threads
+    // the user cannot see, with no action bar and no way to clear.
+    fireEvent.change(screen.getByTestId('thread-search-input'), { target: { value: 'alpha' } });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New thread' })).toBeVisible();
+  });
+
+  it('withdraws the count and select-visible toggle while a state card replaces the list', () => {
+    dbMocks.database = null;
+    dbMocks.initializing = true;
+    dbMocks.initializationStatus = 'initializing';
+
+    renderThreadsPanel();
+
+    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+    expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
   });
 
   it('drops the redundant Memory pill and its restated subtitle from the toolbar', async () => {
