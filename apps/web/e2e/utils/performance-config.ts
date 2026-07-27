@@ -14,6 +14,8 @@ export const BASE_THRESHOLDS = {
   MEMORY_INCREASE_MAX_MB: 10, // Decreased from 50 to 10MB for navigation
   MEMORY_TOTAL_MAX_MB: 100, // Baseline total memory threshold (no heavy local DB)
   RENDER_TIME_MAX_MS: 150, // Slightly increased from 100
+  SCROLL_FRAME_MAX_MS: 100, // One browser-side scroll interaction through presentation
+  SCROLL_FRAME_TOTAL_MAX_MS: 300, // Five browser-side scroll interactions through presentation
   SCROLL_PERFORMANCE_MAX_MS: 800, // Increased from 600 to handle large datasets
   STRESS_MEMORY_INCREASE_MAX_MB: 20, // Stress tests: default 20MB cap
   TREE_EXPANSION_MAX_MS: 3000, // Increased from 1500 for multiple expansions
@@ -80,6 +82,8 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
     MEMORY_INCREASE_MAX_MB: Math.floor(BASE_THRESHOLDS.MEMORY_INCREASE_MAX_MB * multiplier),
     MEMORY_TOTAL_MAX_MB: Math.floor(BASE_THRESHOLDS.MEMORY_TOTAL_MAX_MB * multiplier),
     RENDER_TIME_MAX_MS: Math.floor(BASE_THRESHOLDS.RENDER_TIME_MAX_MS * multiplier),
+    SCROLL_FRAME_MAX_MS: Math.floor(BASE_THRESHOLDS.SCROLL_FRAME_MAX_MS * multiplier),
+    SCROLL_FRAME_TOTAL_MAX_MS: Math.floor(BASE_THRESHOLDS.SCROLL_FRAME_TOTAL_MAX_MS * multiplier),
     SCROLL_PERFORMANCE_MAX_MS: Math.floor(BASE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS * multiplier),
     STRESS_MEMORY_INCREASE_MAX_MB: Math.floor(
       BASE_THRESHOLDS.STRESS_MEMORY_INCREASE_MAX_MB * multiplier

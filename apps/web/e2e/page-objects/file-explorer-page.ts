@@ -17,6 +17,10 @@ export class FileExplorerPage {
     return this.page.locator('[data-testid="file-tree-scroll-container"]');
   }
 
+  get fileTreeViewport(): Locator {
+    return this.page.locator('[data-testid="tree-table-viewport"]');
+  }
+
   get noDirectoryText(): Locator {
     return this.page.getByText('No folders in your workspace');
   }

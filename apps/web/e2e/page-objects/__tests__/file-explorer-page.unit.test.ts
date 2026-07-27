@@ -27,7 +27,8 @@ describe('FileExplorerPage (unit)', () => {
     const fe = new FileExplorerPage(page);
     calls.push((fe.selectRootButton as unknown as MockLocator).r ?? '');
     calls.push((fe.fileTreeScrollContainer as unknown as MockLocator).kind);
+    calls.push((fe.fileTreeViewport as unknown as MockLocator).s ?? '');
     calls.push((fe.filterInput as unknown as MockLocator).kind);
-    expect(calls.length).toBe(3);
+    expect(calls).toContain('[data-testid="tree-table-viewport"]');
   });
 });
