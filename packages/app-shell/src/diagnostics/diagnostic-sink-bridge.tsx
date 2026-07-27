@@ -79,6 +79,10 @@ export function DiagnosticSinkBridge({
     if (!db) {
       return;
     }
+    // A new database identity gets a new writer. Clear any failure owned by
+    // the disposed writer so health describes the active sink; if this writer
+    // also fails, its onDisabled callback below re-arms the warning.
+    useDiagnosticSinkHealthStore.getState().clear();
     const repository = new DiagnosticEventsRepository(db);
     const writer = new DiagnosticEventWriter({
       ...(flushBatchSize === undefined ? {} : { flushBatchSize }),

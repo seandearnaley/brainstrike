@@ -25,9 +25,8 @@ const queries: { sql: string; params?: unknown[] | undefined }[] = [];
 // driving the writer's own failure/retry accounting. Left false for every
 // other test so their inserts continue to succeed unchanged.
 let rejectInserts = false;
-vi.mock('@brainstrike/db', async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  useOptionalPGliteDatabase: () => ({
+function createDatabaseIdentity() {
+  return {
     query: async (sql: string, params?: unknown[]) => {
       queries.push({ params, sql });
       if (rejectInserts && sql.includes('INSERT INTO brainstrike_diagnostic_events')) {
@@ -35,13 +34,19 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
       }
       return { rows: [] };
     },
-  }),
+  };
+}
+let databaseIdentity = createDatabaseIdentity();
+vi.mock('@brainstrike/db', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useOptionalPGliteDatabase: () => databaseIdentity,
 }));
 
 describe('DiagnosticSinkBridge', () => {
   beforeEach(() => {
     queries.length = 0;
     rejectInserts = false;
+    databaseIdentity = createDatabaseIdentity();
     resetDiagnosticSinkHealthStore();
     __resetDiagnosticsRetentionStoreForTests();
   });
@@ -350,5 +355,44 @@ describe('DiagnosticSinkBridge', () => {
     logError('after disable, should not be attempted', { code: 'bridge_disable_test' });
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(insertAttempts()).toBe(5);
+  });
+
+  it('clears stale health on a new database writer and re-arms if the replacement fails', async () => {
+    rejectInserts = true;
+    const { rerender } = render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    const insertAttempts = () =>
+      queries.filter((entry) => entry.sql.includes('INSERT INTO brainstrike_diagnostic_events'))
+        .length;
+    const driveWriterToDisable = async (attemptOffset: number) => {
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        logError(`bridge replacement drive ${attemptOffset + attempt}`, {
+          code: 'bridge_replacement_test',
+        });
+        await vi.waitFor(() => {
+          expect(insertAttempts()).toBeGreaterThanOrEqual(attemptOffset + attempt);
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      await vi.waitFor(() => {
+        expect(useDiagnosticSinkHealthStore.getState().disabledReason).not.toBeNull();
+      });
+    };
+
+    await driveWriterToDisable(0);
+
+    rejectInserts = false;
+    databaseIdentity = createDatabaseIdentity();
+    rerender(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    await vi.waitFor(() => {
+      expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
+    });
+
+    rejectInserts = true;
+    await driveWriterToDisable(5);
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toContain(
+      'simulated sink insert failure'
+    );
   });
 });
