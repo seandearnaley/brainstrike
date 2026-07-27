@@ -290,16 +290,27 @@ the re-probe than on re-narration.
   Never deploy, migrate schemas, touch live data, weaken an
   assertion/threshold/timeout, or add a retry to make CI pass.
 - One open PR per loop, ever. Resume it or close it before starting another.
-- NEVER END A RUN HOLDING VALIDATED WORK. If you have a commit whose gates
-  passed, push your branch and open the PR in the SAME run. Your charter's
-  `AUTONOMY=propose-pr` is your standing authorization (AGENTS.md "Working
-  rules" carves this out explicitly) — there is no further approval to wait
-  for, and no one is awake to give one. You have no memory of previous runs:
-  an unpushed local commit is unreachable at your next wake, so "awaiting
-  push approval" does not defer the work, it destroys it and hides that it
-  ever existed. A run that validated a fix and did not push it is a FAILED
-  run — checkpoint BLOCKED naming what stopped you, never INCOMPLETE with a
-  local SHA, and never NOOP.
+- NEVER END A RUN HOLDING VALIDATED WORK. IF your charter grants PR-authoring
+  authority and you have a commit whose gates passed, push your branch and
+  open — or update — the PR in the SAME run. Your charter's `AUTONOMY` grant
+  is your standing authorization (AGENTS.md "Working rules" carves this out
+  explicitly), so there is no further approval to wait for and no one awake to
+  give one. A loop whose charter grants no such authority never reaches this
+  rule: it should be holding no commit at all, and if it somehow is, that is
+  the finding.
+  You have no memory of previous runs: an unpushed local commit is unreachable
+  at your next wake, so "awaiting push approval" does not defer the work, it
+  destroys it and hides that it ever existed.
+  BUDGET EXPIRY DOES NOT EXCUSE IT. The phase-boundary stop below means stop
+  starting NEW work; it never means abandon FINISHED work. Pushing a commit
+  that already exists costs seconds. Push, open or update the PR, then
+  checkpoint INCOMPLETE naming the stewardship that remains.
+  If something genuinely prevents the push, that is a DEFECT-class blocker
+  (Blocked-state recovery): file a fingerprinted `needs-human` ticket
+  recording the commit SHA and the diff so the work survives the run, then
+  checkpoint BLOCKED referencing that ticket. A bare BLOCKED line is the same
+  silent loss in a different field — by your next wake the commit is gone and
+  there is nothing left to re-probe.
 - Branch naming: `night-shift/<name>/bst-<id>-<fingerprint-slug>` when the run
   has an owning Linear ticket; `night-shift/<name>/<fingerprint-slug>` only
   when it genuinely has none. The ticket id is the fleet's JOIN KEY. Linear
