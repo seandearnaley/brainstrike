@@ -5,6 +5,13 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
+import {
+  ASSISTANT_THREAD_COLOR_PRESENTATION,
+  THREAD_CONTROL_HEIGHT_CLASS_NAME,
+  THREAD_CONTROL_MARK_CLASS_NAME,
+  THREAD_CONTROL_TITLE_CLASS_NAME,
+  UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION,
+} from '../assistant-thread-presentation';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
 
@@ -292,6 +299,56 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.getByTestId('assistant-thread-tab-icon-unassigned')).toBeVisible();
   });
 
+  it('tints the whole tab with the same color surface the threads panel row uses', async () => {
+    renderWorkspace();
+
+    const activeShell = (
+      await screen.findByRole('tab', { name: /Purchasing app search log/ })
+    ).closest('[data-thread-color]');
+    // Active tab = the panel row's selected fill, not a hardcoded neutral surface.
+    expect(activeShell).toHaveClass(
+      ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.selectedClassName.split(' ')
+    );
+    expect(activeShell).not.toHaveClass('bg-background');
+
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+
+    const idleShell = screen
+      .getByRole('tab', { name: /Purchasing app search log/ })
+      .closest('[data-thread-color]');
+    expect(idleShell).toHaveClass(
+      ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.idleClassName.split(' ')
+    );
+    expect(idleShell).not.toHaveClass('hover:bg-background/70');
+
+    // Unassigned threads still get a surface — neutral, never blue.
+    const neutralShell = screen
+      .getByRole('tab', { name: /Amazon Bedrock Converse/ })
+      .closest('[data-thread-color]');
+    expect(neutralShell).toHaveClass(
+      ...UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION.selectedClassName.split(' ')
+    );
+  });
+
+  it('sizes the tab from the shared thread control density contract', async () => {
+    renderWorkspace();
+
+    const shell = (await screen.findByRole('tab', { name: /Purchasing app search log/ })).closest(
+      '[data-thread-color]'
+    );
+    expect(shell).toHaveClass(THREAD_CONTROL_HEIGHT_CLASS_NAME);
+    // The selected fill supplies an inset ring, so the tab must not also draw a border.
+    expect(shell).not.toHaveClass('border');
+
+    const title = screen.getByText('Purchasing app search log');
+    expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
+    expect(screen.getByTestId('assistant-thread-tab-icon-rose')).toHaveClass(
+      ...THREAD_CONTROL_MARK_CLASS_NAME.split(' ')
+    );
+  });
+
   it('keeps the close affordance in flow and optically matched with the leading icon', async () => {
     renderWorkspace();
 
@@ -311,7 +368,7 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     // Leading and close glyphs share one optical size (12px in a 20px box).
     const leadingIcon = screen.getByTestId('assistant-thread-tab-icon-rose');
-    expect(leadingIcon).toHaveClass('h-5', 'w-5');
+    expect(leadingIcon).toHaveClass('size-5');
     expect(leadingIcon.querySelector('svg')).toHaveClass('h-3', 'w-3');
     expect(closeButton.querySelector('svg')).toHaveClass('h-3', 'w-3');
   });

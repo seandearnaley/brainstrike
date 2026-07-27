@@ -102,11 +102,60 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
 } satisfies Record<AssistantThreadColorId, AssistantThreadColorPresentation>;
 
+/**
+ * Neutral surface for a thread with no durable color. Tabs and rows both need a
+ * fill for every thread, so "unassigned" is a real presentation rather than an
+ * absence — but it stays neutral instead of guessing a color.
+ */
+export const UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION = {
+  accentClassName: 'bg-muted-foreground/40',
+  groupSurfaceClassName:
+    '[&>td]:bg-muted/30 hover:[&>td]:bg-muted/45 dark:[&>td]:bg-muted/20 dark:hover:[&>td]:bg-muted/30',
+  iconClassName: 'bg-muted/70 text-muted-foreground ring-border/70',
+  idleClassName: 'bg-muted/45 hover:bg-muted/70 dark:bg-muted/30 dark:hover:bg-muted/50',
+  label: 'Unassigned',
+  markClassName: 'border-border bg-muted/60 text-muted-foreground',
+  selectedClassName:
+    'bg-primary/15 shadow-xs ring-1 ring-inset ring-primary/60 dark:bg-primary/20 dark:ring-primary/70',
+} satisfies AssistantThreadColorPresentation;
+
+/**
+ * A thread tab and a threads-panel row render the same object, so they share one
+ * density and typography contract. Both call sites must consume these tokens
+ * instead of re-declaring heights and type sizes, which is how they drifted to
+ * 28px/12px and 36px/13px respectively.
+ */
+export const THREAD_CONTROL_HEIGHT_PX = 28;
+export const THREAD_CONTROL_HEIGHT_CLASS_NAME = 'h-7';
+export const THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME = 'min-h-7';
+/** Control height plus the 2px vertical margin on each side of a panel row. */
+export const THREAD_CONTROL_ROW_PITCH_PX = THREAD_CONTROL_HEIGHT_PX + 4;
+export const THREAD_CONTROL_TITLE_CLASS_NAME = 'min-w-0 truncate font-medium text-xs leading-4';
+/**
+ * `size-5` rather than `h-5 w-5`: shared button base rules guard on
+ * `:not([class*=size-])`, so the paired utilities lose to a 16px base rule.
+ */
+export const THREAD_CONTROL_MARK_CLASS_NAME =
+  'flex size-5 shrink-0 items-center justify-center rounded-sm ring-1 ring-inset';
+
 export function getAssistantThreadColorPresentation(
   colorId: AssistantThreadColorId | undefined
 ): AssistantThreadColorPresentation | null {
   if (!colorId) {
     return null;
+  }
+  return ASSISTANT_THREAD_COLOR_PRESENTATION[colorId];
+}
+
+/**
+ * Unlike {@link getAssistantThreadColorPresentation}, always resolves to a
+ * paintable surface — callers that must fill a control use this.
+ */
+export function getAssistantThreadColorSurface(
+  colorId: AssistantThreadColorId | null | undefined
+): AssistantThreadColorPresentation {
+  if (!colorId) {
+    return UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION;
   }
   return ASSISTANT_THREAD_COLOR_PRESENTATION[colorId];
 }

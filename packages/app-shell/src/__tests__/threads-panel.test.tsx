@@ -6,29 +6,43 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
+import {
+  THREAD_CONTROL_MARK_CLASS_NAME,
+  THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
+  THREAD_CONTROL_ROW_PITCH_PX,
+  THREAD_CONTROL_TITLE_CLASS_NAME,
+} from '../assistant-thread-presentation';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
 
-const virtualizerState = vi.hoisted(() => ({ windowSize: Number.POSITIVE_INFINITY }));
+const virtualizerState = vi.hoisted(() => ({
+  estimatedSizes: [] as number[],
+  windowSize: Number.POSITIVE_INFINITY,
+}));
 
 // TreeTable's real virtualizer depends on layout measurements that JSDOM does
 // not provide. Render its complete disclosed row model here; a dedicated
 // virtualization test covers the bounded mounted-window contract.
 vi.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: vi.fn(({ count }: { count: number }) => ({
-    getTotalSize: () => count * 40,
-    getVirtualItems: () =>
-      Array.from({ length: Math.min(count, virtualizerState.windowSize) }, (_, index) => ({
-        end: (index + 1) * 40,
-        index,
-        key: `thread-row-${index}`,
-        size: 40,
-        start: index * 40,
-      })),
-    measureElement: vi.fn(),
-    scrollToIndex: vi.fn(),
-  })),
+  useVirtualizer: vi.fn(
+    ({ count, estimateSize }: { count: number; estimateSize: (index: number) => number }) => {
+      virtualizerState.estimatedSizes.push(estimateSize(0));
+      return {
+        getTotalSize: () => count * 40,
+        getVirtualItems: () =>
+          Array.from({ length: Math.min(count, virtualizerState.windowSize) }, (_, index) => ({
+            end: (index + 1) * 40,
+            index,
+            key: `thread-row-${index}`,
+            size: 40,
+            start: index * 40,
+          })),
+        measureElement: vi.fn(),
+        scrollToIndex: vi.fn(),
+      };
+    }
+  ),
 }));
 
 const { dbMocks, fileExplorerMocks, groupRows, mockDb, placementRows, threadRows } = vi.hoisted(
@@ -535,6 +549,38 @@ describe('ThreadsPanel', () => {
     const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
     expect(idleThread).toHaveClass('bg-emerald-100/45', 'hover:bg-emerald-100/75');
     expect(idleThread).not.toHaveClass('hover:bg-accent/35');
+  });
+
+  it('sizes rows from the shared thread control density contract', async () => {
+    virtualizerState.estimatedSizes.length = 0;
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    const title = screen.getByText('First thread');
+    const row = title.closest<HTMLElement>('[data-testid="thread-row"]');
+    if (!row) {
+      throw new Error('expected the thread title to be inside a thread row');
+    }
+
+    // A row and a tab render the same object, so they share one height.
+    expect(row).toHaveClass(THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME);
+    expect(row).not.toHaveClass('min-h-9');
+    // The 28px control plus its 2px margins is the virtual row pitch — vertical
+    // padding would push the painted control past the tab's height.
+    expect(row).toHaveClass('my-0.5');
+    expect(row).not.toHaveClass('py-0.5');
+    expect(virtualizerState.estimatedSizes).toContain(THREAD_CONTROL_ROW_PITCH_PX);
+    expect(virtualizerState.estimatedSizes).not.toContain(40);
+
+    expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
+    expect(title).not.toHaveClass('text-[13px]');
+
+    const mark = within(row).getByTestId('thread-color-emerald');
+    expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
+    expect(mark).not.toHaveClass('size-6');
   });
 
   it('mounts only the virtual window for a large disclosed collection', async () => {
