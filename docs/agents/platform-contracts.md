@@ -651,15 +651,20 @@ chars>].md` — timestamp first so a Downloads folder sorts chronologically,
 and colon-free because Windows rejects `:` (an unmangled `toISOString()` in
 `anchor.download` does not survive there).
 
-**Every download in the app — filename AND save — goes through
+**The diagnostics downloads — filename AND save — go through
 `packages/utils/src/browser-download.ts`** (subpath
 `@brainstrike/utils/browser-download`; pure-half tests
 `packages/utils/src/__tests__/browser-download.test.ts`, DOM-half tests
 `packages/ui/src/__tests__/debug-bundle-download.test.ts` because the utils
-package's vitest environment is `node`). Three call sites and no fourth idiom:
+package's vitest environment is `node`). Exactly three call sites today:
 `formatDebugBundleFilename` / `downloadDebugBundleFile`, `log-viewer.tsx`'s
 `brainstrike-logs-….json`, and `logging-settings-section.tsx`'s
-`brainstrike-errors-…[-recent<N>].ndjson`.
+`brainstrike-errors-…[-recent<N>].ndjson`. It is the idiom for NEW download
+paths, but it is not yet the app's only one: the DB explorer's CSV/ZIP exports
+(`packages/db-explorer/src/hooks/use-export-handlers.ts`) still build names via
+their own `generateCSVFilename` (`csv-export-core.ts`) and hand-roll the save,
+so none of the guarantees below apply there. Migrating them is open work — do
+not read this section as already covering them.
 
 `formatTimestampedDownloadFilename` builds
 `${name}-${UTC ISO, colons→hyphens, no millis}[-${suffix}].${extension}` and is
