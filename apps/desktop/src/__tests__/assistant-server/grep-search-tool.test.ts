@@ -1,6 +1,7 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
+import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
 const queryMock = vi.fn();
 const { loggerErrorMock } = vi.hoisted(() => ({
@@ -180,6 +181,105 @@ describe('grep search tool', () => {
     expect(result.truncated).toBe(true);
     expect(result.hint).toContain('Pagination cap reached');
     expect(result.hint).not.toContain('offset: 2000');
+  });
+
+  it('projects an unprefilterable regex over a small workspace without crashing (BST-951)', async () => {
+    // Debug-bundle repro (run-da4fc85a): an alternation regex has no trigram
+    // literal, but the bounded scan covered the whole tiny workspace — the
+    // result is exhaustive, must NOT be scan-limited, and must project cleanly
+    // instead of killing the run.
+    queryMock.mockResolvedValue({
+      rows: [
+        { content: 'needle one\nplain', path: 'src/x.ts', start_line: 1 },
+        { content: 'thread two', path: 'src/y.ts', start_line: 1 },
+      ],
+    });
+    const result = await runGrepSearch({ isRegex: true, pattern: 'needle|thread' }, undefined);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.scanLimited).toBe(false);
+    expect(result.candidatesTruncated).toBe(false);
+    expect(result.truncated).toBe(false);
+    expect(result.hint).toBeUndefined();
+    expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
+  });
+
+  it('emits a refinement hint (not a dead offset) when candidate limits hide files-mode matches', async () => {
+    // 500 candidates hit the pool cap; only 2 survive the authoritative
+    // matcher and both are shown. Nothing more is pageable, so the hint must
+    // advise refinement — a "Continue with offset: 2" of totalFiles=2 would
+    // send the model to a guaranteed-empty page.
+    queryMock.mockResolvedValue({
+      rows: Array.from({ length: 500 }, (_, i) => ({
+        content: i < 2 ? 'needle here' : 'no match in this chunk',
+        path: `src/candidate-${i}.ts`,
+        start_line: 1,
+      })),
+    });
+    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.candidatesTruncated).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.files).toHaveLength(2);
+    expect(result.hint).toMatch(/narrow|specific|filePaths/i);
+    expect(result.hint).not.toContain('Continue with offset:');
+    expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
+  });
+
+  it('emits a hint when candidate limits leave a fully-shown content page incomplete', async () => {
+    // Same cap, content mode: truncated=false because every reachable match is
+    // shown, but candidatesTruncated means the pool may have hidden more. The
+    // projection contract requires guidance for ANY limited result — today this
+    // shape has no hint and crashes the whole run at the projection seam.
+    queryMock.mockResolvedValue({
+      rows: Array.from({ length: 500 }, (_, i) => ({
+        content: i < 2 ? 'needle here' : 'no match in this chunk',
+        path: `src/candidate-${i}.ts`,
+        start_line: 1,
+      })),
+    });
+    const result = await runGrepSearch(
+      { contextLines: 0, outputMode: 'content', pattern: 'needle' },
+      undefined
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.candidatesTruncated).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.matches).toHaveLength(2);
+    expect(result.hint).toMatch(/narrow|specific|filePaths/i);
+    expect(result.hint).not.toContain('Continue with offset:');
+    expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
+  });
+
+  it('steers scan-limited content results toward a prefilterable pattern', async () => {
+    // Unprefilterable regex AND the bounded scan hit its cap: the scan really
+    // was limited. The hint must say how to search the rest of the workspace
+    // (longer literal / isRegex: false), not offer an offset that cannot help.
+    queryMock.mockResolvedValue({
+      rows: Array.from({ length: 500 }, (_, i) => ({
+        content: i < 2 ? 'version 1.5 shipped' : 'no digits here',
+        path: `src/candidate-${i}.ts`,
+        start_line: 1,
+      })),
+    });
+    const result = await runGrepSearch(
+      { contextLines: 0, isRegex: true, outputMode: 'content', pattern: '\\d+\\.\\d+' },
+      undefined
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.scanLimited).toBe(true);
+    expect(result.candidatesTruncated).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.matches).toHaveLength(2);
+    expect(result.hint).toMatch(/literal|isRegex/i);
+    expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
   });
 
   it('passes the workspace-index embedding set id from runtimeData', async () => {

@@ -5,8 +5,9 @@
  *   Phase 1 (SQL): trigram-accelerated ILIKE/LIKE candidate selection via
  *     GrepSearchRepository (idx_file_chunks_content_trgm). Regex patterns are
  *     prefiltered on their longest guaranteed literal (extractTrigramLiteral);
- *     patterns with no such literal fall back to a bounded scan, surfaced via
- *     scanLimited (never silent).
+ *     patterns with no such literal fall back to a bounded unfiltered scan,
+ *     surfaced via scanLimited when (and only when) that scan hit its
+ *     candidate cap — under the cap the scan was exhaustive (never silent).
  *   Phase 2 (JS): authoritative per-line matching with real JS RegExp
  *     semantics, absolute line numbers from chunk startLine, context lines,
  *     (path, line) dedupe across overlapping chunks, and bounded output.
@@ -65,7 +66,12 @@ export interface GrepSearchResult {
   /** Phase-1 candidate pool hit its limit — more files may contain matches. */
   candidatesTruncated: boolean;
   matches: GrepMatch[];
-  /** Phase 1 ran without a trigram prefilter (regex had no extractable literal). */
+  /**
+   * Phase 1 ran without a trigram prefilter (regex had no extractable literal)
+   * AND its bounded scan hit the candidate cap, so matches may have been
+   * missed. False when the unfiltered scan stayed under the cap: it covered
+   * every chunk in scope and the results are exhaustive.
+   */
   scanLimited: boolean;
   /** Chunks that matched but lack startLine metadata (cannot report path:line). */
   skippedMissingLineMetadata: number;
@@ -286,7 +292,11 @@ export class GrepSearchService {
     return {
       candidatesTruncated: candidates.length >= candidateLimit,
       matches: capped,
-      scanLimited: likePattern === null,
+      // An unprefilterable pattern falls back to a bounded unfiltered scan,
+      // but the scan is only LIMITED when it actually hit the candidate cap —
+      // under the cap it covered every chunk in scope and results are
+      // exhaustive, so reporting scanLimited would falsely demand refinement.
+      scanLimited: likePattern === null && candidates.length >= candidateLimit,
       skippedMissingLineMetadata: accumulator.skippedMissingLineMetadata,
       totalMatches: accumulator.totalMatches,
       truncated: accumulator.totalMatches > capped.length,

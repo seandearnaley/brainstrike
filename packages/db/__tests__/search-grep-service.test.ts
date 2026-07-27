@@ -73,12 +73,37 @@ describe('GrepSearchService', () => {
     expect(result.matches.map((m) => m.line)).toEqual([11]);
   });
 
-  it('flags scanLimited when a regex has no extractable literal', async () => {
+  it('does not flag scanLimited when the unprefiltered scan stayed under the candidate cap', async () => {
+    // An unprefilterable regex falls back to a bounded unfiltered scan; when
+    // that scan returns FEWER candidates than the cap it covered every indexed
+    // chunk in scope, so the results are exhaustive — reporting scanLimited
+    // would falsely tell callers matches may have been missed.
     const calls: GrepCandidateOptions[] = [];
     const service = new GrepSearchService(stubRepository([CHUNK_A], calls));
     const result = await service.search({ isRegex: true, pattern: '\\d+\\.\\d+' });
     expect(calls[0]?.likePattern).toBeNull();
+    expect(result.scanLimited).toBe(false);
+    expect(result.candidatesTruncated).toBe(false);
+  });
+
+  it('flags scanLimited when the unprefiltered scan hits the candidate cap', async () => {
+    const calls: GrepCandidateOptions[] = [];
+    const service = new GrepSearchService(stubRepository([CHUNK_A], calls));
+    const result = await service.search({
+      candidateLimit: 1,
+      isRegex: true,
+      pattern: '\\d+\\.\\d+',
+    });
+    expect(calls[0]?.likePattern).toBeNull();
     expect(result.scanLimited).toBe(true);
+    expect(result.candidatesTruncated).toBe(true);
+  });
+
+  it('never flags scanLimited for a prefiltered search, even at the candidate cap', async () => {
+    const service = new GrepSearchService(stubRepository([CHUNK_A]));
+    const result = await service.search({ candidateLimit: 1, pattern: 'gate' });
+    expect(result.scanLimited).toBe(false);
+    expect(result.candidatesTruncated).toBe(true);
   });
 
   it('throws a structured error for an invalid regex (no literal fallback)', async () => {

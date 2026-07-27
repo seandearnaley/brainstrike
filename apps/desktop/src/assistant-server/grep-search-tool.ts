@@ -203,25 +203,41 @@ function aggregateFileSummaries(matches: readonly LabeledGrepMatch[]): GrepFileS
   );
 }
 
+/**
+ * Refinement guidance for a result whose search limits may have hidden matches
+ * but where offset paging cannot reach them. The model projection REQUIRES
+ * guidance on every limited result (truncated/scanLimited/candidatesTruncated)
+ * — a limited result without a hint fails the whole run (BST-951).
+ */
+function buildRefinementHint(scanLimited: boolean): string {
+  const scanNote = scanLimited
+    ? ' The regex had no long guaranteed literal for the index prefilter — include a ≥3-character literal or set isRegex: false to search more of the workspace.'
+    : '';
+  return (
+    'Search limits may have hidden additional matches that offset paging cannot reach. ' +
+    `Narrow with filePaths or use a more specific or different pattern.${scanNote}`
+  );
+}
+
 function buildFilesHint(args: {
   candidatesTruncated: boolean;
   filesShown: number;
   hasPagedFiles: boolean;
   offset: number;
+  scanLimited: boolean;
   totalFiles: number;
   truncated: boolean;
 }): string | undefined {
-  if (!(args.truncated || args.candidatesTruncated)) {
+  if (!(args.truncated || args.candidatesTruncated || args.scanLimited)) {
     return;
   }
 
   const nextOffset =
     args.filesShown === 0 && args.hasPagedFiles ? args.offset + 1 : args.offset + args.filesShown;
-  if (nextOffset <= args.offset) {
-    return (
-      'Search limits were reached before this page could return additional matching files. ' +
-      'Narrow with filePaths or use a more specific or different pattern; repeating this offset cannot make progress.'
-    );
+  // Paging only helps while unshown files remain; otherwise a "Continue with
+  // offset" would send the model to a guaranteed-empty page.
+  if (nextOffset <= args.offset || nextOffset >= args.totalFiles) {
+    return buildRefinementHint(args.scanLimited);
   }
 
   return (
@@ -246,6 +262,7 @@ function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepF
       filesShown: files.length,
       hasPagedFiles: pagedFiles.length > 0,
       offset,
+      scanLimited: mergedResult.scanLimited,
       totalFiles: allFiles.length,
       truncated,
     });
@@ -275,6 +292,11 @@ function buildContentHint(
 ): string | undefined {
   const truncated = offset + shownCount < mergedResult.totalMatches;
   if (!truncated) {
+    // Every reachable match is shown, but the candidate pool or bounded scan
+    // may still have hidden others — that limit needs guidance too (BST-951).
+    if (mergedResult.candidatesTruncated || mergedResult.scanLimited) {
+      return buildRefinementHint(mergedResult.scanLimited);
+    }
     return;
   }
   // A single match (long line × contextLines) can exceed the whole budget; a
