@@ -1583,7 +1583,7 @@ describe('assistant-tools', () => {
     const content = new TextEncoder().encode('artifact content');
     const artifactRef: ToolOutputArtifactReference = {
       byteLength: content.byteLength,
-      expiresAt: '2026-07-27T12:00:00.000Z',
+      expiresAt: '2099-07-27T12:00:00.000Z',
       format: 'text',
       id: 'artifact-id',
     };
