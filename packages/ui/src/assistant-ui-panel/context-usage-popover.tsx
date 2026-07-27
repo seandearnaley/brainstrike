@@ -417,21 +417,35 @@ interface CapacityBarProps {
 }
 
 /**
+ * Pure width math for the capacity bar: proportional widths clamped so an
+ * over-budget estimate can never overflow 100%. Kept OUTSIDE the component —
+ * the running `remaining` accumulator must not be a render-scope reassignment
+ * (React Compiler immutability).
+ */
+function computeSegmentWidths(
+  segments: readonly CategorySegment[],
+  effectiveInputBudget: number
+): (CategorySegment & { width: number })[] {
+  const widths: (CategorySegment & { width: number })[] = [];
+  let remaining = 100;
+  for (const segment of segments) {
+    const raw = (segment.tokens / effectiveInputBudget) * 100;
+    const width = Math.max(0.75, Math.min(raw, remaining));
+    remaining = Math.max(0, remaining - width);
+    widths.push({ ...segment, width });
+  }
+  return widths;
+}
+
+/**
  * Segmented capacity bar over the effective input budget. Segments render in
- * legend order; the unfilled remainder is the muted track (free space). Widths
- * clamp so an over-budget estimate can never overflow the bar.
+ * legend order; the unfilled remainder is the muted track (free space).
  */
 const CapacityBar = ({ effectiveInputBudget, segments }: CapacityBarProps) => {
   if (segments.length === 0) {
     return null;
   }
-  let remaining = 100;
-  const widths = segments.map((segment) => {
-    const raw = (segment.tokens / effectiveInputBudget) * 100;
-    const width = Math.max(0.75, Math.min(raw, remaining));
-    remaining = Math.max(0, remaining - width);
-    return { ...segment, width };
-  });
+  const widths = computeSegmentWidths(segments, effectiveInputBudget);
   return (
     <div
       aria-hidden="true"
