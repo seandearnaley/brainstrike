@@ -545,6 +545,19 @@ export class DataStreamMapper {
       return;
     }
     const toolName = chunk.name;
+    if (this.settledToolCallIds.has(callId)) {
+      // ANY trailing event for an already-settled call (GLM-5.2 via
+      // OpenRouter emits trailing deltas; a duplicate start/success/error is
+      // the same class): re-emitting would put a duplicate `b` on the wire
+      // (the renderer decoder throws on duplicate tool call ids) or a second
+      // result/args frame against a closed controller, failing the whole run.
+      logger.debug('Dropping tool event for a settled tool call', {
+        status: chunk.status,
+        toolCallId: callId,
+      });
+      return;
+    }
+
     if (chunk.status === 'start') {
       const existingState = this.toolState.get(callId);
       if (existingState) {
@@ -562,14 +575,6 @@ export class DataStreamMapper {
     }
 
     if (!this.toolState.has(callId)) {
-      if (chunk.status === 'progress' && this.settledToolCallIds.has(callId)) {
-        // Trailing progress for an already-settled call (GLM-5.2 via
-        // OpenRouter emits these): auto-starting again would put a duplicate
-        // `b` on the wire and the renderer decoder throws on duplicate tool
-        // call ids, failing the whole run.
-        logger.debug('Dropping tool progress for a settled tool call', { toolCallId: callId });
-        return;
-      }
       yield* this.handleToolStart(toolName, callId, chunk.payload);
     }
 

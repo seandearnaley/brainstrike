@@ -133,13 +133,13 @@ describe('provider-factory', () => {
     });
 
     it('gives OpenRouter persistent-memory models a spec version @mastra/memory can execute', () => {
-      // The OM observer agent runs inside @mastra/memory's BUNDLED core, which
-      // dispatches only spec 'v1'/'v2' language models. Wrapping the OpenRouter
-      // router descriptor in ModelRouterLanguageModel yields spec 'v3', and
-      // every observation cycle then dies with "Unsupported model version.
-      // AI SDK 4 only supports … v1" (BST-940 field failure on z-ai/glm-5.2
-      // chats). The persistent-memory factory must therefore construct a
-      // direct spec-'v2' OpenAI-compatible model against OpenRouter instead.
+      // The OM observer agent runs inside @mastra/memory's bundled core.
+      // ModelRouterLanguageModel declares specification 'v2', which that
+      // bundled agent executes — this pin keeps the wrapper from silently
+      // drifting to a spec literal the observer path cannot dispatch (the
+      // BST-947 field failure was the EMBEDDING model making exactly that
+      // class of mistake: a spec-'v4' embedder fell into @mastra/memory's
+      // legacy v1-only embed pipeline).
       const model = createLanguageModelProvider(
         'openrouter',
         'test-key',

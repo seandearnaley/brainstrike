@@ -306,11 +306,15 @@ function isOpenAICompatibleConfig(
  */
 function asSpecV3EmbeddingModel(model: unknown): MastraEmbeddingModel<string> {
   return new Proxy(model as object, {
-    get(target, prop, receiver) {
+    get(target, prop) {
       if (prop === 'specificationVersion') {
         return 'v3';
       }
-      return Reflect.get(target, prop, receiver);
+      // Bind methods (and run getters) against the TARGET, not the proxy:
+      // an embedding model whose method reads `this.#private` or checks its
+      // own identity must never observe the facade as `this`.
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
     },
   }) as MastraEmbeddingModel<string>;
 }

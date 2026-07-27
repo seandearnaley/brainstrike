@@ -223,14 +223,27 @@ describe('AssistantDataStreamSession', () => {
         status: 'success',
         type: 'tool-event',
       },
-      // Trailing delta AFTER the result (tool state already discarded) — the
+      // Trailing events AFTER the result (tool state already discarded) — the
       // auto-start defense for out-of-order events must NOT resurrect a
-      // duplicate `b` for a COMPLETED id (the renderer throws on duplicate
-      // tool call ids); the delta is dropped instead.
+      // settled id (the renderer throws on duplicate tool call ids, and a
+      // duplicate result would hit a closed controller). Deltas, a duplicate
+      // start, and a duplicate success are all dropped.
       {
         name: 'weather.lookup',
         payload: { argsTextDelta: ':"SF"}', step: 'input_stream_delta', toolCallId: 'call-late' },
         status: 'progress',
+        type: 'tool-event',
+      },
+      {
+        name: 'weather.lookup',
+        payload: { args: {}, toolCallId: 'call-late' },
+        status: 'start',
+        type: 'tool-event',
+      },
+      {
+        name: 'weather.lookup',
+        payload: { output: { tempC: 19 }, toolCallId: 'call-late' },
+        status: 'success',
         type: 'tool-event',
       },
       { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },

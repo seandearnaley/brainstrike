@@ -1147,6 +1147,13 @@ function processMastraStreamPart(
 ): ProcessStreamPartResult {
   const p = asMastraStreamPart(part);
 
+  // Dynamic OM bookkeeping branches before the typed switch: failure variants
+  // surface as run events (BST-947 — the only runtime evidence of a broken
+  // observer), the rest stay silent without unrecognized-chunk warnings.
+  if (isObservationalMemoryDataChunkType(p.type)) {
+    return mapObservationalMemoryDataPart(p);
+  }
+
   switch (p.type) {
     case 'start':
       return {
@@ -1376,25 +1383,19 @@ function processMastraStreamPart(
       return { chunks: progress ? [progress] : [], finished: false };
     }
     default:
-      return handleUnrecognizedMastraStreamPart(p, lifecycleState);
+      warnForUnrecognizedMastraStreamPart(p.type, lifecycleState);
+      return { chunks: [], finished: false };
   }
 }
 
-function handleUnrecognizedMastraStreamPart(
-  part: MastraStreamPart,
-  lifecycleState: ToolLifecycleState
-): { chunks: StreamChunk[]; finished: boolean } {
-  // Mastra streams observational-memory bookkeeping as DYNAMIC `data-om-*`
-  // chunks (not in the static disposition map). Failure variants surface as
-  // run events — in the BST-940 field failure they were the only runtime
-  // evidence of an observer dying on every cycle — while non-failure
-  // bookkeeping stays silent (Mastra persists it itself) instead of tripping
-  // unrecognized-chunk warnings.
-  if (typeof part.type === 'string' && part.type.startsWith('data-om-')) {
-    return mapObservationalMemoryDataPart(part);
-  }
-  warnForUnrecognizedMastraStreamPart(part.type, lifecycleState);
-  return { chunks: [], finished: false };
+/**
+ * Mastra streams observational-memory bookkeeping as DYNAMIC `data-om-*`
+ * chunks (not in the static disposition map, so they must branch BEFORE the
+ * typed switch whose default clause carries the R6 unrecognized-chunk
+ * diagnostic — see scripts/mastra-stream-chunk-contract.mjs).
+ */
+function isObservationalMemoryDataChunkType(type: unknown): type is string {
+  return typeof type === 'string' && type.startsWith('data-om-');
 }
 
 const OM_FAILURE_DETAIL_MAX_CHARS = 500;

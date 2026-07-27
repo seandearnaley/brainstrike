@@ -1715,9 +1715,19 @@ describe('mastra streaming integration', () => {
     expect(omFailures).toHaveLength(1);
     expect(omFailures[0]?.event.status).toBe('failed');
     expect(omFailures[0]?.event.detail).toContain('Unsupported model version');
-    // Non-failure OM bookkeeping produces no chunks at all.
-    const kinds = runEvents.map((chunk) => chunk.event.kind);
-    expect(kinds.filter((kind) => kind === 'memory.observation.failed')).toHaveLength(1);
+    // Non-failure OM bookkeeping (data-om-status / data-om-buffering-start)
+    // produces NO chunks of any kind: after the leading breakdown the stream
+    // is exactly the run lifecycle, the ONE om failure event, and the finish.
+    expect(runEvents.map((chunk) => chunk.event.kind)).toEqual([
+      'memory.observation.failed',
+      'run.finished',
+    ]);
+    expect(chunks.map((chunk) => (chunk as { type: string }).type)).toEqual([
+      'context-breakdown',
+      'run-event',
+      'run-event',
+      'message-finish',
+    ]);
   });
 
   it('surfaces Mastra reasoning and run lifecycle chunks', async () => {
