@@ -399,6 +399,7 @@ async function runTurnWithMemory(args: {
   toolName?: string;
   hookRunner?: AgentHookRunner;
   signal?: AbortSignal;
+  embedder?: PgliteMastraMemoryOptions['embedder'];
   observationDelayMs?: number;
   observationalMemoryModel?: LanguageModelV2;
   onToolResultPrompt?: (prompt: LanguageModelV2CallOptions['prompt']) => void;
@@ -411,6 +412,9 @@ async function runTurnWithMemory(args: {
     database: args.database as unknown as PgliteDatabase,
     memorySettings: args.memorySettings,
   };
+  if (args.embedder) {
+    memoryFactoryOptions.embedder = args.embedder;
+  }
   if (args.memorySettings.observationalMemory.enabled) {
     memoryFactoryOptions.observationalMemoryModel = (args.observationalMemoryModel ??
       createFakeObservationModel(args.observationDelayMs ?? 0)) as NonNullable<
@@ -1091,6 +1095,238 @@ describe('mastra memory persistence through the live stream path', () => {
       .filter((part) => part.type === 'text')
       .map((part) => part.text ?? '');
     expect(persistedTexts.join('\n')).toContain('21C in Paris');
+  }, 30_000);
+
+  it('executes the OpenRouter auto-observer against the real provider wire (BST-940 field failure)', async () => {
+    // Field failure (debug bundle 2026-07-27, z-ai/glm-5.2 chat): the
+    // openrouter observer produced by createLanguageModelProvider failed every
+    // observation cycle with "Unsupported model version. AI SDK 4 only
+    // supports … v1" — observations silently never ran. This drives the REAL
+    // observer model through a stubbed openrouter HTTP endpoint and requires
+    // the observation generation to actually reach the wire.
+    const { createLanguageModelProvider } = await import('../providers/provider-factory');
+    const openrouterRequests: { body: Record<string, unknown>; url: string }[] = [];
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes('openrouter.ai')) {
+        return realFetch(input as RequestInfo, init);
+      }
+      const rawBody =
+        typeof init?.body === 'string'
+          ? init.body
+          : await new Request(input as RequestInfo, init).text();
+      openrouterRequests.push({ body: JSON.parse(rawBody) as Record<string, unknown>, url });
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: 'stop',
+              index: 0,
+              message: {
+                content: 'Observed: the user asked about Paris weather.',
+                role: 'assistant',
+              },
+            },
+          ],
+          created: 1_753_600_000,
+          id: 'gen-observer-1',
+          model: 'google/gemini-2.5-flash',
+          object: 'chat.completion',
+          usage: { completion_tokens: 9, prompt_tokens: 42, total_tokens: 51 },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 }
+      );
+    });
+
+    try {
+      const threadId = 'thread-openrouter-observer';
+      const { finalText } = await runTurnWithMemory({
+        database,
+        memorySettings: OM_TINY_THRESHOLD_SETTINGS,
+        observationalMemoryModel: createLanguageModelProvider(
+          'openrouter',
+          'test-openrouter-key',
+          'google/gemini-2.5-flash'
+        ) as LanguageModelV2,
+        threadId,
+      });
+
+      expect(finalText).toContain('21C in Paris');
+
+      // The observation generation must actually reach the openrouter wire —
+      // a model-version rejection inside the observer agent never fetches.
+      await vi.waitFor(
+        () => {
+          expect(openrouterRequests.length).toBeGreaterThan(0);
+        },
+        { timeout: 10_000 }
+      );
+      const first = openrouterRequests[0];
+      expect(first?.url).toContain('openrouter.ai');
+      expect(first?.body['model']).toBe('google/gemini-2.5-flash');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 30_000);
+
+  it('executes a DIRECT-provider observer (openai) against the real wire (BST-940 field failure)', async () => {
+    // The field failure class: current @ai-sdk/* provider models implement
+    // spec 'v4', which the main chat agent (core 1.51) executes fine but
+    // @mastra/memory's BUNDLED older agent does NOT — every observation cycle
+    // died with "Unsupported model version. AI SDK 4 only supports … v1"
+    // (debug bundle 2026-07-27; persisted observer target openai/gpt-5.4-mini).
+    // The persistent-memory factory must hand the observer a model whose spec
+    // the memory-bundled agent can execute, proven by the generation actually
+    // reaching the provider wire.
+    const { createLanguageModelProvider } = await import('../providers/provider-factory');
+    const openaiRequests: { url: string }[] = [];
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes('api.openai.com')) {
+        return realFetch(input as RequestInfo, init);
+      }
+      openaiRequests.push({ url });
+      // Minimal OpenAI chat-completions-shaped response; the responses-API
+      // shape is also tolerated by the router's OpenAI-compatible client.
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: 'stop',
+              index: 0,
+              message: {
+                content: 'Observed: the user asked about Paris weather.',
+                role: 'assistant',
+              },
+            },
+          ],
+          created: 1_753_600_000,
+          id: 'chatcmpl-observer-1',
+          model: 'gpt-5.4-mini',
+          object: 'chat.completion',
+          usage: { completion_tokens: 9, prompt_tokens: 42, total_tokens: 51 },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 }
+      );
+    });
+
+    try {
+      const threadId = 'thread-openai-observer';
+      const { finalText } = await runTurnWithMemory({
+        database,
+        memorySettings: OM_TINY_THRESHOLD_SETTINGS,
+        observationalMemoryModel: createLanguageModelProvider(
+          'openai',
+          'test-openai-key',
+          'gpt-5.4-mini'
+        ) as LanguageModelV2,
+        threadId,
+      });
+
+      expect(finalText).toContain('21C in Paris');
+
+      await vi.waitFor(
+        () => {
+          expect(openaiRequests.length).toBeGreaterThan(0);
+        },
+        { timeout: 10_000 }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 30_000);
+
+  it('completes an observation cycle with VECTOR retrieval + the real OpenAI embedder wiring (BST-940 field failure)', async () => {
+    // Field failure (debug bundle 2026-07-27): observer LLM ran ~6.4s, then
+    // the cycle died with "Unsupported model version. AI SDK 4 only supports
+    // … v1" — the user's persisted config had retrievalMode 'vector', whose
+    // observation path EMBEDS observations. createEmbeddingProvider returns a
+    // spec-'v4' @ai-sdk/openai embedding model, and @mastra/memory's bundled
+    // embed pipeline rejects it. This drives the REAL embedder wiring through
+    // stubbed OpenAI endpoints and requires the observation to both reach the
+    // chat wire AND the embeddings wire without an om failure part.
+    const { createEmbeddingProvider } = await import('../providers/provider-factory');
+    const embeddingRequests: { url: string }[] = [];
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes('api.openai.com')) {
+        return realFetch(input as RequestInfo, init);
+      }
+      if (url.includes('/embeddings')) {
+        embeddingRequests.push({ url });
+        const rawBody =
+          typeof init?.body === 'string'
+            ? init.body
+            : await new Request(input as RequestInfo, init).text();
+        const parsed = JSON.parse(rawBody) as { input: string | readonly string[] };
+        const count = Array.isArray(parsed.input) ? parsed.input.length : 1;
+        return new Response(
+          JSON.stringify({
+            data: Array.from({ length: count }, (_, index) => ({
+              embedding: Array.from({ length: 1536 }, () => 0.001),
+              index,
+              object: 'embedding',
+            })),
+            model: 'text-embedding-3-small',
+            object: 'list',
+            usage: { prompt_tokens: 8, total_tokens: 8 },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      }
+      return new Response('unexpected openai endpoint', { status: 500 });
+    });
+
+    try {
+      const threadId = 'thread-vector-om-observer';
+      const vectorSettings: RuntimeAssistantMemorySettings = {
+        observationalMemory: {
+          ...OM_TINY_THRESHOLD_SETTINGS.observationalMemory,
+          retrievalMode: 'vector',
+        },
+        semanticRecall: {
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: true,
+          messageRange: 2,
+          scope: 'resource',
+          topK: 5,
+        },
+      };
+      const { finalText } = await runTurnWithMemory({
+        database,
+        embedder: createEmbeddingProvider('openai', 'test-openai-key', 'text-embedding-3-small'),
+        memorySettings: vectorSettings,
+        threadId,
+      });
+
+      // No om failure part may be persisted on the thread (checked FIRST so a
+      // failure surfaces the persisted error payload, not a downstream symptom).
+      const rows = await listThreadMessages(database, threadId);
+      const failureParts = rows
+        .flatMap(parseParts)
+        .filter(
+          (part) =>
+            typeof part.type === 'string' &&
+            (part.type === 'data-om-buffering-failed' || part.type === 'data-om-observation-failed')
+        );
+      expect(failureParts).toEqual([]);
+
+      expect(finalText).toContain('21C in Paris');
+
+      // The vector-retrieval observation must reach the embeddings wire — the
+      // bundled-embed spec rejection never fetches and fails the cycle.
+      await vi.waitFor(
+        () => {
+          expect(embeddingRequests.length).toBeGreaterThan(0);
+        },
+        { timeout: 10_000 }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   }, 30_000);
 
   it('persists the observer-extracted thread title to mastra_threads.title', async () => {

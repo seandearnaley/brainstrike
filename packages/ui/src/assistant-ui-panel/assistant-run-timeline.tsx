@@ -431,6 +431,12 @@ function getMatchingFailedKind(kind: AssistantRunEventKind): AssistantRunEventKi
   if (kind === 'tool.started') {
     return 'tool.failed';
   }
+  if (kind === 'memory.observation.started') {
+    // BST-947: an observation cycle can terminate in the durable
+    // memory.observation.failed event; without this pairing a failed cycle
+    // would leave the started row spinning forever.
+    return 'memory.observation.failed';
+  }
   return null;
 }
 

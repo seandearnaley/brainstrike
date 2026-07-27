@@ -298,11 +298,13 @@ request data, memory validation, and the OM meter alike, under the PRIVACY
 RULING (PR #2039 review — do not relitigate): the auto observer is only ever a
 Mastra-tested fast model FROM THE SELECTED CHAT PROVIDER — the party already
 receiving the conversation — never a different keyed provider (anthropic →
-claude-haiku-4-5, google → gemini-2.5-flash, openai → gpt-5.4-mini,
-openrouter → openrouter/google/gemini-2.5-flash, via the contract's pure
-`resolveAutoObservationalMemoryModelTarget`). A local/keyless/web chat, or a
-candidate the user disabled in the model catalog (the wrapper passes an
-`isTargetEligible` predicate over the loaded registry, same gate as the
+claude-haiku-4-5, google → gemini-2.5-flash, openai → gpt-5.4-mini; openrouter
+carries ORDERED fallbacks — gemini-2.5-flash → gemini-3.5-flash-lite →
+deepseek-v4-flash — because its catalog seeds the preferred Gemini targets
+disabled; via the contract's pure `listAutoObservationalMemoryCandidates`,
+first catalog-eligible candidate wins). A local/keyless/web chat, or a
+candidate set the user fully disabled in the model catalog (the wrapper passes
+an `isTargetEligible` predicate over the loaded registry, same gate as the
 settings dropdown), flips `enabled → false` with an explicit unresolved reason
 surfaced as the popover's 'awaiting-observer' OM state and the Settings auto
 note. An unresolved auto must NEVER disable thread memory, and `'auto'` must
@@ -318,6 +320,17 @@ Construction seams that receive no settings (memory factory default arg,
 desktop-server absent-field fallbacks) use
 `CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS` (observation OFF) — an
 absent settings object must never manufacture an enabled observer.
+Hosted EMBEDDERS for Mastra memory (`createEmbeddingProvider`) are wrapped in
+`asSpecV3EmbeddingModel`: current @ai-sdk embedding models declare
+specification 'v4', and @mastra/memory's embed dispatch switches on that
+literal ('v3'/'v2' → modern pipelines, anything else → a legacy v1-only
+pipeline that throws "AI SDK 4 only supports … v1"). A raw 'v4' embedder
+therefore failed EVERY observational-memory vector-retrieval cycle in the
+field (BST-940 debug bundle 2026-07-27) — the facade is load-bearing, not a
+type cast. OM cycle failures streamed as `data-om-*-failed` chunks surface as
+durable `memory.observation.failed` run events (see assistant-runtime.md).
+Pinned by the VECTOR-retrieval and observer wire cases in
+`mastra-memory-persistence.integration.spec.ts`.
 Known gap: WEB local turns still use the in-renderer LocalRuntimeChat (no
 history adapter) and remain session-only.
 

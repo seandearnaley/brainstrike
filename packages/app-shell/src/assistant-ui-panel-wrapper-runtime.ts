@@ -31,9 +31,9 @@ import {
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+  listAutoObservationalMemoryCandidates,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
   type RuntimeAssistantObservationalMemorySettings,
-  resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/assistant-contract/memory-settings';
 import {
   getProviderDefaultModel,
@@ -283,22 +283,28 @@ export function resolveEffectiveObservationalMemorySettings(args: {
   if (args.providerKeySources === undefined) {
     return unresolved('keys-unknown');
   }
-  const target = resolveAutoObservationalMemoryModelTarget({
+  const candidates = listAutoObservationalMemoryCandidates({
     chatProvider: args.selectedChatProvider,
     providersWithKeys: args.providerKeySources.map(({ provider }) => provider),
   });
-  if (target === null) {
+  if (candidates.length === 0) {
     return unresolved('no-hosted-chat-provider');
   }
-  if (args.isTargetEligible) {
-    const separatorIndex = target.indexOf('/');
-    const eligible = args.isTargetEligible({
-      modelId: target.slice(separatorIndex + 1),
-      provider: target.slice(0, separatorIndex),
-    });
-    if (!eligible) {
-      return unresolved('model-not-eligible');
-    }
+  // First catalog-eligible candidate wins (candidate order is the Mastra
+  // grounding; e.g. OpenRouter's preferred Gemini targets ship
+  // catalog-disabled, so the fallbacks matter). No predicate → registry not
+  // loaded yet → first candidate, key/chat-provider gates already applied.
+  const target = args.isTargetEligible
+    ? candidates.find((candidate) => {
+        const separatorIndex = candidate.indexOf('/');
+        return args.isTargetEligible?.({
+          modelId: candidate.slice(separatorIndex + 1),
+          provider: candidate.slice(0, separatorIndex),
+        });
+      })
+    : candidates[0];
+  if (target === undefined) {
+    return unresolved('model-not-eligible');
   }
   return {
     autoResolution: { kind: 'resolved', target },

@@ -54,11 +54,23 @@ export interface CumulativeUsageDisplay {
  *   error     → malformed OM row / live-query error (strict parse failed upstream).
  *   stats     → active/buffered OM, activation progress, and compaction saved.
  */
+/**
+ * Why the Auto observer could not resolve (mirrors the app-shell resolver's
+ * unresolved reasons; duplicated literals keep the dependency direction
+ * app-shell → ui). Drives ACTIONABLE popover copy — a paused observer must
+ * say why and what would unpause it.
+ */
+export type OmAwaitingObserverReason =
+  | 'keys-unknown'
+  | 'model-not-eligible'
+  | 'no-backend'
+  | 'no-hosted-chat-provider';
+
 export type OmMeterState =
   | { readonly kind: 'chat-only' }
   | { readonly kind: 'inactive' }
   /** OM is on (Auto) but no eligible observer model resolved — waiting, not off. */
-  | { readonly kind: 'awaiting-observer' }
+  | { readonly kind: 'awaiting-observer'; readonly reason: OmAwaitingObserverReason }
   | { readonly kind: 'loading' }
   | { readonly kind: 'empty' }
   | { readonly kind: 'error'; readonly reason: string }
