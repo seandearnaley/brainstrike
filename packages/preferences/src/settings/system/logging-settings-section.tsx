@@ -475,13 +475,11 @@ export function LoggingSettingsSection({
         pending={pending}
         preferences={preferences}
       />
-      {onPurgeNow ? (
-        <DiagnosticsRetentionCard
-          isPurgingNow={isPurgingNow}
-          onPurgeNow={handlePurgeNow}
-          pending={pending}
-        />
-      ) : null}
+      <DiagnosticsRetentionCard
+        {...(onPurgeNow ? { onPurgeNow: handlePurgeNow } : {})}
+        isPurgingNow={isPurgingNow}
+        pending={pending}
+      />
       {durableLogSource ? (
         <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
           <div>
@@ -843,13 +841,13 @@ function DiagnosticSinkHealthBanner({ reason }: { reason: string }) {
 
 interface DiagnosticsRetentionCardProps {
   isPurgingNow: boolean;
-  onPurgeNow: () => Promise<void>;
+  onPurgeNow?: () => Promise<void>;
   pending: boolean;
 }
 
 /** Flight Recorder P2b Task 4: retention thresholds (bound to the
  * `diagnostics-retention-store` persisted store) plus an on-demand "Purge
- * now" action. Rendered by the parent only when `onPurgeNow` is supplied. */
+ * now" action when the database capability is available. */
 function DiagnosticsRetentionCard({
   isPurgingNow,
   onPurgeNow,
@@ -918,24 +916,26 @@ function DiagnosticsRetentionCard({
           </div>
         </div>
 
-        <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
-          <div>
-            <div className="font-medium text-sm">Purge Now</div>
-            <p className="text-muted-foreground text-xs">
-              Immediately delete diagnostic events past the limits above.
-            </p>
+        {onPurgeNow ? (
+          <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+            <div>
+              <div className="font-medium text-sm">Purge Now</div>
+              <p className="text-muted-foreground text-xs">
+                Immediately delete diagnostic events past the limits above.
+              </p>
+            </div>
+            <Button
+              disabled={isPurgingNow}
+              onClick={onPurgeNow}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
+              Purge Now
+            </Button>
           </div>
-          <Button
-            disabled={isPurgingNow}
-            onClick={onPurgeNow}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
-            Purge Now
-          </Button>
-        </div>
+        ) : null}
       </CardContent>
     </Card>
   );

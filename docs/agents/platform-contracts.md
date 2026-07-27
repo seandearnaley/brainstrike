@@ -938,14 +938,17 @@ runs ONLY on a version mismatch, so a hand-edited payload written at the
 CURRENT version is shallow-merged unsanitized. The setter guard is the real
 enforcement; `migrate` covers version bumps only.
 
-**Purge path**: the settings card's "Purge now" reaches the repository through
-an `onPurgeNow?: () => Promise<number>` **callback prop**, never a repository
-import — `app-shell` already depends on `preferences`, so that direction is
-circular (same precedent as `onExportDurableNdjson`). Both apps build it from
-`useDiagnosticsPurge()` (`packages/app-shell/src/diagnostics/use-diagnostics-purge.ts`),
-gated on a db handle. Because a single `purge()` is per-call bounded, a
-returned count at or above the per-call limit toasts "more may remain" instead
-of implying a full drain; `logging-settings-section.tsx` mirrors that limit as
+**Purge path**: the settings card always renders its persisted retention
+selectors, including while no database handle is available. Only its "Purge
+now" row is capability-gated by the optional
+`onPurgeNow?: () => Promise<number>` **callback prop**. That callback reaches
+the repository without a repository import — `app-shell` already depends on
+`preferences`, so that direction is circular (same precedent as
+`onExportDurableNdjson`). Both apps build it from `useDiagnosticsPurge()`
+(`packages/app-shell/src/diagnostics/use-diagnostics-purge.ts`), gated on a db
+handle. Because a single `purge()` is per-call bounded, a returned count at or
+above the per-call limit toasts "more may remain" instead of implying a full
+drain; `logging-settings-section.tsx` mirrors that limit as
 `DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD` (it must not import `@brainstrike/db`
 at runtime) and the section test imports the REAL exported
 `DIAGNOSTIC_EVENTS_PURGE_LIMIT`, so drift fails RED rather than silently

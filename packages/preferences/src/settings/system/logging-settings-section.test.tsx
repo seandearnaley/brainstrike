@@ -529,10 +529,12 @@ describe('LoggingSettingsSection export NDJSON button', () => {
 });
 
 describe('LoggingSettingsSection diagnostics retention card', () => {
-  it('is absent when onPurgeNow is not supplied', () => {
+  it('keeps retention preferences visible when onPurgeNow is not supplied', () => {
     render(<LoggingSettingsSection logSource={createLogSource([])} runtime="browser" />);
 
-    expect(screen.queryByText('Diagnostics Retention')).not.toBeInTheDocument();
+    expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /keep events for/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /maximum events/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /purge now/i })).not.toBeInTheDocument();
   });
 
