@@ -3,6 +3,7 @@ import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { detectEnvironment, PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
+import { measureLocatorInteractionFrames } from '../utils/performance-helpers';
 import {
   type PerformanceMetric,
   recordMetric,
@@ -111,21 +112,13 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     );
 
     // 3. File Selection Performance
-    await page.evaluate(() => performance.mark('selection-start'));
-
     const fileCheckboxes = page.getByRole('checkbox', { name: /Select / });
     const selectionCount = Math.min(5, await fileCheckboxes.count());
-
-    for (let i = 0; i < selectionCount; i++) {
-      await fileCheckboxes.nth(i).click();
-    }
-
-    const selectionTime = await page.evaluate(() => {
-      performance.mark('selection-end');
-      performance.measure('selection', 'selection-start', 'selection-end');
-      const measure = performance.getEntriesByName('selection')[0];
-      return measure?.duration || 0;
+    const selectionMetrics = await measureLocatorInteractionFrames(fileCheckboxes, {
+      count: selectionCount,
+      kind: 'click-each',
     });
+    const selectionTime = selectionMetrics.totalDurationMs;
 
     performanceMetrics.push(
       recordMetric(
