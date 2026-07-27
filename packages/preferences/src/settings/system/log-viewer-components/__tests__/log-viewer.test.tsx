@@ -324,6 +324,52 @@ describe('LogViewer', () => {
     anchorClickSpy.mockRestore();
   });
 
+  // A raw `new Date().toISOString()` in `anchor.download` carries `:` and
+  // millis; Windows rejects `:` and browsers mangle the name silently. The
+  // revoke is deferred a macrotask because WebKit can fetch the blob a task
+  // after the click — revoking inline would drop the file with no error.
+  it('exports under a filesystem-safe filename and revokes the object URL a task after the click', async () => {
+    const logs = [createMockLogRecord({ message: 'Renderer log', timestamp: 1000 })];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+    const originalCreateElement = document.createElement.bind(document);
+    const mockAnchor = originalCreateElement('a');
+    const anchorClickSpy = vi.spyOn(mockAnchor, 'click').mockImplementation(() => {});
+    const createElementSpy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation(((tagName: string) =>
+        tagName === 'a'
+          ? mockAnchor
+          : originalCreateElement(tagName)) as typeof document.createElement);
+    // A URL distinct from the other export test's: that test leaves its own
+    // deferred revoke pending, which would otherwise land on this spy.
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:logs-named');
+    const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    try {
+      render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+      await waitFor(() => expect(screen.getByText('Renderer log')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
+
+      expect(mockAnchor.download).toMatch(
+        /^brainstrike-logs-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$/
+      );
+      expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
+      expect(anchorClickSpy).toHaveBeenCalledTimes(1);
+      expect(revokeObjectUrlSpy).not.toHaveBeenCalledWith('blob:logs-named');
+
+      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:logs-named'));
+    } finally {
+      createElementSpy.mockRestore();
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
+  });
+
   it('filters logs by search term', async () => {
     const logs = [
       createMockLogRecord({ message: 'Apple' }),

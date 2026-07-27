@@ -14,6 +14,7 @@ export * from './console-guard';
 export * from './create-debounce';
 export * from './crypto-utils';
 export * from './dev/hmr-utils';
+export * from './download-filename';
 export * from './env-utils';
 export * from './error-utils';
 export * from './file-content';

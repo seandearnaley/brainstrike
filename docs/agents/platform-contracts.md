@@ -649,13 +649,30 @@ component module, which is component-only by react-doctor's
 `brainstrike-debug-bundle-<UTC ISO, colons→hyphens, no millis>[-run-<first 8
 chars>].md` — timestamp first so a Downloads folder sorts chronologically,
 and colon-free because Windows rejects `:` (an unmangled `toISOString()` in
-`anchor.download`, the older idiom in `log-viewer.tsx`, does not survive
-there). The save path is the codebase's standard Blob → object URL → anchor →
-revoke, where the revoke is DEFERRED a macrotask on the success path and
-immediate only when the click threw: Chromium starts the download during click
-dispatch, but WebKit can fetch the blob a task later, so the synchronous revoke
-used by `log-viewer.tsx` would silently drop the file there. Outside a DOM it
-THROWS rather than no-opping. The button's phase
+`anchor.download` does not survive there).
+
+**Every download filename in the app is built by
+`formatTimestampedDownloadFilename`** (`packages/utils/src/download-filename.ts`,
+tests `packages/utils/src/__tests__/download-filename.test.ts`) —
+`${name}-${UTC ISO, colons→hyphens, no millis}[-${suffix}].${extension}`. It is
+the single owner of the safe-timestamp rule; `formatDebugBundleFilename` and
+the two log exports (`log-viewer.tsx`'s `brainstrike-logs-….json`,
+`logging-settings-section.tsx`'s `brainstrike-errors-…[-recent<N>].ndjson`)
+all delegate to it and only supply their own name/suffix/extension. `name`,
+`suffix` and `extension` are each sanitized to `[a-zA-Z0-9._-]`, emptiness is
+judged AFTER sanitizing (so a suffix of stripped characters cannot leave a
+dangling `-`), and a name/extension that sanitizes away or an invalid `Date`
+THROWS rather than producing a nameless or `Invalid Date` download. Do NOT put
+a raw `toISOString()` in `anchor.download` in new code.
+
+The save path is the codebase's standard Blob → object URL → anchor →
+revoke, where the revoke is DEFERRED a macrotask (`setTimeout(…, 0)`) on the
+success path and immediate only when the click threw: Chromium starts the
+download during click dispatch, but WebKit can fetch the blob a task later, so
+a synchronous revoke silently drops the file there. Both log-export paths were
+converted to the deferred revoke alongside the filename helper; their tests
+therefore assert the revoke through `waitFor`, not synchronously.
+`downloadDebugBundleFile` outside a DOM THROWS rather than no-opping. The button's phase
 machine tags every non-idle phase with its action (`copy` | `download`) so one
 action's spinner/result/error never appears on the other's button, and both
 failure paths render inline (`Copy failed: …` / `Download failed: …`) in an

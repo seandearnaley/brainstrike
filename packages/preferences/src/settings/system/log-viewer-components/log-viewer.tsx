@@ -9,6 +9,7 @@ import {
   TablePagination,
   type useToast,
 } from '@brainstrike/ui';
+import { formatTimestampedDownloadFilename } from '@brainstrike/utils';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import {
@@ -545,9 +546,16 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `brainstrike-logs-${new Date().toISOString()}.json`;
+    anchor.download = formatTimestampedDownloadFilename({
+      extension: 'json',
+      generatedAt: new Date(),
+      name: 'brainstrike-logs',
+    });
     anchor.click();
-    URL.revokeObjectURL(url);
+    // Deferred a macrotask, not revoked inline: Chromium starts the download
+    // during click dispatch, but WebKit can fetch the blob a task later, so a
+    // synchronous revoke there silently drops the file.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const handleSortNewestFirstChange = useCallback((value: boolean) => {

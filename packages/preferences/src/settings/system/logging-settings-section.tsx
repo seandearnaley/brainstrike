@@ -16,6 +16,7 @@ import {
   Switch,
   useToast,
 } from '@brainstrike/ui';
+import { formatTimestampedDownloadFilename } from '@brainstrike/utils';
 import { LogLevel } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
@@ -425,11 +426,17 @@ export function LoggingSettingsSection({
         // folder) and the toast below (with the exact N of M counts). The
         // NDJSON body stays pure NDJSON — no metadata line — so "every line
         // is a diagnostic event" still holds for the file contents.
-        anchor.download = truncated
-          ? `brainstrike-errors-${new Date().toISOString()}-recent${exportedCount}.ndjson`
-          : `brainstrike-errors-${new Date().toISOString()}.ndjson`;
+        anchor.download = formatTimestampedDownloadFilename({
+          extension: 'ndjson',
+          generatedAt: new Date(),
+          name: 'brainstrike-errors',
+          suffix: truncated ? `recent${exportedCount}` : null,
+        });
         anchor.click();
-        URL.revokeObjectURL(url);
+        // Deferred a macrotask, not revoked inline: Chromium starts the
+        // download during click dispatch, but WebKit can fetch the blob a task
+        // later, so a synchronous revoke there silently drops the file.
+        setTimeout(() => URL.revokeObjectURL(url), 0);
         if (truncated) {
           toast({
             description: `Exported the most recent ${exportedCount} of ${totalCount} warn+ events. Older events were not included.`,
