@@ -1,8 +1,10 @@
 import { useAuiState } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { ClipboardCopy, Download } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
 import { useDebugBundleContext } from './debug-bundle-context';
+import { downloadDebugBundleFile, formatDebugBundleFilename } from './debug-bundle-download';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -52,20 +54,36 @@ function formatKb(byteLength: number): string {
   return Math.max(1, Math.round(byteLength / 1024)).toString();
 }
 
+/** Which of the two delivery actions a phase belongs to. Carried on every
+ * non-idle phase so the OTHER button never borrows this one's spinner,
+ * result, or error. */
+type BundleAction = 'copy' | 'download';
+
 type ButtonPhase =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'building' }
-  | { readonly kind: 'copied'; readonly kb: string }
-  | { readonly kind: 'error'; readonly message: string };
+  | { readonly action: BundleAction; readonly kind: 'building' }
+  | { readonly action: BundleAction; readonly kb: string; readonly kind: 'done' }
+  | { readonly action: BundleAction; readonly kind: 'error'; readonly message: string };
 
 const COPIED_RESET_MS = 3000;
 
+const ACTION_ERROR_LABEL: Record<BundleAction, string> = {
+  copy: 'Copy failed',
+  download: 'Download failed',
+};
+
 /**
- * Copy-debug-bundle button (Flight Recorder capstone, Task 9). Renders null
- * without a `DebugBundleProvider` binding (capability gating) OR when the
- * message carries neither a `run.failed` run-event part nor assistant-ui's
- * own error state — the two failure signals a failed assistant turn can
- * surface. Clipboard/build failures are shown inline; never a silent drop.
+ * Debug-bundle delivery footer (Flight Recorder capstone, Task 9; download
+ * added in BST-946). Renders null without a `DebugBundleProvider` binding
+ * (capability gating) OR when the message carries neither a `run.failed`
+ * run-event part nor assistant-ui's own error state — the two failure signals
+ * a failed assistant turn can surface.
+ *
+ * Two peers, one bundle build each: **Copy** for a quick paste, **Download**
+ * for the realistic case — bundles run up to `DEBUG_BUNDLE_DEFAULT_MAX_BYTES`
+ * (200 KB), well past what a chat box or issue comment takes, so a
+ * timestamped `.md` on disk is the transport that actually survives. Build,
+ * clipboard, and download failures are all shown inline; never a silent drop.
  */
 export function CopyDebugBundleButton(): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
@@ -94,50 +112,81 @@ export function CopyDebugBundleButton(): ReactElement | null {
     return null;
   }
 
-  const handleClick = async (): Promise<void> => {
+  const run = async (action: BundleAction): Promise<void> => {
     if (resetTimeoutRef.current !== null) {
       clearTimeout(resetTimeoutRef.current);
       resetTimeoutRef.current = null;
     }
-    setPhase({ kind: 'building' });
+    setPhase({ action, kind: 'building' });
     try {
       const bundle = await context.buildBundle({ runId });
-      await navigator.clipboard.writeText(bundle);
-      setPhase({ kb: formatKb(new TextEncoder().encode(bundle).length), kind: 'copied' });
+      if (action === 'copy') {
+        await navigator.clipboard.writeText(bundle);
+      } else {
+        downloadDebugBundleFile({
+          contents: bundle,
+          filename: formatDebugBundleFilename({ generatedAt: new Date(), runId }),
+        });
+      }
+      setPhase({ action, kb: formatKb(new TextEncoder().encode(bundle).length), kind: 'done' });
       resetTimeoutRef.current = setTimeout(() => {
         resetTimeoutRef.current = null;
         setPhase({ kind: 'idle' });
       }, COPIED_RESET_MS);
     } catch (error) {
       setPhase({
+        action,
         kind: 'error',
         message: error instanceof Error ? error.message : String(error),
       });
     }
   };
 
-  const label =
-    phase.kind === 'building'
-      ? 'Building…'
-      : phase.kind === 'copied'
-        ? `Copied · ${phase.kb} KB`
-        : 'Copy debug bundle';
+  const labelFor = (action: BundleAction, idleLabel: string): string => {
+    if (phase.kind === 'idle' || phase.action !== action) {
+      return idleLabel;
+    }
+    if (phase.kind === 'building') {
+      return 'Building…';
+    }
+    if (phase.kind === 'done') {
+      return `${action === 'copy' ? 'Copied' : 'Saved'} · ${phase.kb} KB`;
+    }
+    return idleLabel;
+  };
+
+  const busy = phase.kind === 'building';
 
   return (
-    <div className="mt-1 flex items-center gap-1.5" data-testid="copy-debug-bundle-footer">
+    <div className="mt-1 flex flex-wrap items-center gap-1" data-testid="copy-debug-bundle-footer">
       <Button
-        className="h-5 px-1.5 text-[11px] text-muted-foreground"
+        className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
         data-testid="copy-debug-bundle"
-        disabled={phase.kind === 'building'}
-        onClick={() => void handleClick()}
+        disabled={busy}
+        onClick={() => void run('copy')}
         size="sm"
         variant="ghost"
       >
-        {label}
+        <ClipboardCopy aria-hidden="true" className="size-3" />
+        {labelFor('copy', 'Copy debug bundle')}
       </Button>
-      {phase.kind === 'error' ? (
-        <span className="text-[11px] text-destructive">Copy failed: {phase.message}</span>
-      ) : null}
+      <Button
+        className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
+        data-testid="download-debug-bundle"
+        disabled={busy}
+        onClick={() => void run('download')}
+        size="sm"
+        title="Save the debug bundle as a timestamped Markdown file"
+        variant="ghost"
+      >
+        <Download aria-hidden="true" className="size-3" />
+        {labelFor('download', 'Download .md')}
+      </Button>
+      {/* Live region: the result lands in the button label, but a failure is
+          the only place the reason appears at all. */}
+      <span aria-live="polite" className="text-[11px] text-destructive" role="status">
+        {phase.kind === 'error' ? `${ACTION_ERROR_LABEL[phase.action]}: ${phase.message}` : ''}
+      </span>
     </div>
   );
 }
