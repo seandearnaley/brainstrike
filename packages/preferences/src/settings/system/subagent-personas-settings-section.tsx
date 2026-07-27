@@ -62,7 +62,11 @@ const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.ma
  * It still gets a line, because a duplicate that disappears without one is
  * exactly the silence this panel exists to break (BST-936).
  */
-function renderRowDetail(item: AssistantPersonaListItem): React.JSX.Element {
+function PersonaRowDetail({
+  item,
+}: {
+  readonly item: AssistantPersonaListItem;
+}): React.JSX.Element {
   if (item.status === 'invalid') {
     return (
       <p className="flex items-center gap-1 text-destructive text-sm">
@@ -98,7 +102,7 @@ function PersonaRow(props: {
           {item.source === 'user' ? <Badge variant="outline">User</Badge> : null}
           {item.modelPin ? <Badge variant="secondary">{item.modelPin}</Badge> : null}
         </div>
-        {renderRowDetail(item)}
+        <PersonaRowDetail item={item} />
       </div>
       {item.status === 'ok' ? (
         <Switch
