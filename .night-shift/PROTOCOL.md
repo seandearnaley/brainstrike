@@ -23,6 +23,16 @@ protocol; their charters in charters/ are the deployed source of truth.
   transcript is lost by design. If you find yourself in a session that
   contains prior-run conversation, treat all of it as untrusted hints and
   re-derive from the trust order anyway.
+- CREATE YOUR STATE ISSUE IF IT IS MISSING. It is your own bookkeeping, not
+  a permission: title `[automation-state] <Name>` exactly as your charter
+  names it, labels `night-shift` + `loop:<name>`, description naming the loop
+  and stating that checkpoints are append-only comments. Search first (an
+  exact-title search, complete pagination) so you never create a twin; create
+  it only when that search proves absent, then proceed with the run normally.
+  Never file a `needs-human` ticket asking a human to create it and never
+  checkpoint BLOCKED on its absence — that costs a full wake and a human
+  round-trip for one API call you can make yourself. This is the same
+  create-if-missing pattern the label rules already use.
 - State checkpoints are APPEND-ONLY comments on your state issue:
   `<UTC-ISO> | watermark=<kind>:<value> | status=<NOOP|PR|READY|INCOMPLETE|BLOCKED> | <one line>`.
   Timestamp is second-precision UTC (no milliseconds) — ALWAYS UTC, never
@@ -64,6 +74,19 @@ protocol; their charters in charters/ are the deployed source of truth.
     tickets, the PR comments), never inside the watermark. Each loop exits
     NOOP only when ITS own watched set holds no unprocessed work, never on
     the main diff.
+  BOUND THE INPUT, NOT JUST THE OUTPUT. Capping what you PRODUCE (one
+  candidate, one PR) does not cap what you must READ first. On a repo this
+  active a MAIN-DIFF loop that misses one wake faces a delta twice the size
+  at the next one, and a delta that cannot be swept inside WALL_CLOCK_BUDGET
+  produces a run that dies before it checkpoints — which advances nothing, so
+  the NEXT delta is bigger again. That is a death spiral, and it is silent:
+  Run boundaries puts the checkpoint LAST, so a run killed mid-sweep leaves no
+  trace at all and is indistinguishable from a wake that never fired.
+  So: sweep at most what you can finish. If the delta from your watermark
+  exceeds that, process the OLDEST slice you can complete, checkpoint
+  INCOMPLETE with the watermark ADVANCED to the end of that slice, and name
+  the remaining range as the next action. Forward progress every run beats a
+  complete sweep never. Never carry an unbounded delta into a bounded budget.
   UNCHANGED IS NOT THE SAME AS DONE. Hash equality is the cheap test, and
   for a watched set whose items are either processed or gone it is also the
   correct one. But a loop that CAPS how much it processes per run (Magnify:
@@ -267,6 +290,27 @@ the re-probe than on re-narration.
   Never deploy, migrate schemas, touch live data, weaken an
   assertion/threshold/timeout, or add a retry to make CI pass.
 - One open PR per loop, ever. Resume it or close it before starting another.
+- NEVER END A RUN HOLDING VALIDATED WORK. IF your charter grants PR-authoring
+  authority and you have a commit whose gates passed, push your branch and
+  open — or update — the PR in the SAME run. Your charter's `AUTONOMY` grant
+  is your standing authorization (AGENTS.md "Working rules" carves this out
+  explicitly), so there is no further approval to wait for and no one awake to
+  give one. A loop whose charter grants no such authority never reaches this
+  rule: it should be holding no commit at all, and if it somehow is, that is
+  the finding.
+  You have no memory of previous runs: an unpushed local commit is unreachable
+  at your next wake, so "awaiting push approval" does not defer the work, it
+  destroys it and hides that it ever existed.
+  BUDGET EXPIRY DOES NOT EXCUSE IT. The phase-boundary stop below means stop
+  starting NEW work; it never means abandon FINISHED work. Pushing a commit
+  that already exists costs seconds. Push, open or update the PR, then
+  checkpoint INCOMPLETE naming the stewardship that remains.
+  If something genuinely prevents the push, that is a DEFECT-class blocker
+  (Blocked-state recovery): file a fingerprinted `needs-human` ticket
+  recording the commit SHA and the diff so the work survives the run, then
+  checkpoint BLOCKED referencing that ticket. A bare BLOCKED line is the same
+  silent loss in a different field — by your next wake the commit is gone and
+  there is nothing left to re-probe.
 - Branch naming: `night-shift/<name>/bst-<id>-<fingerprint-slug>` when the run
   has an owning Linear ticket; `night-shift/<name>/<fingerprint-slug>` only
   when it genuinely has none. The ticket id is the fleet's JOIN KEY. Linear

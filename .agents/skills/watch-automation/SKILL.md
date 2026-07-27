@@ -41,6 +41,8 @@ Pass the PREVIOUS RUN'S `window.until`, taken from its evidence JSON — not the
 
 Record that `window.until` in your checkpoint line so the next wake can read it back.
 
+BOOTSTRAP / RECOVERY. No prior checkpoint carries a `window.until` yet, because the field is newer than the checkpoint history. Until one does, use the UTC timestamp of your newest checkpoint as `--window-start` and say so in this run's checkpoint. That over-covers by the previous run's duration, which double-reports at worst and drops nothing — the watermark's completed-run keys already suppress runs you have processed. Never treat the missing field as unrecoverable state: a bootstrap gap is not a defect, and BLOCKING on it strands the loop permanently, since the value can only ever be produced by a run that actually collects.
+
 Omit both watermark arguments only for a proven first run or the documented one-time migration. When prior memory records an explicitly empty set, pass `--watermark none` with its matching `--checkpoint-watermark` instead of omitting either flag; empty prior state and first run are distinct.
 
 The collector performs no repository or external writes. It:

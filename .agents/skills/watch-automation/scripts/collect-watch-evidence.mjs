@@ -497,15 +497,33 @@ function normalizeRun(run, workflow) {
   };
 }
 
-function collectRunSnapshot(repo, repository, workflows, since, until) {
+// BST-889. The repository-wide /actions/runs stream is not a stable snapshot:
+// this repo produces 700+ runs a day, and unrelated runs kept entering the set
+// while `gh api --paginate` walked it, so total_count moved between pages and
+// the integrity check correctly failed closed — every run, forever. Query each
+// WATCHED workflow's own runs endpoint instead. Both bounds are frozen in the
+// query, and the result is scoped to what Watch actually owns, which is small
+// and quiet enough to paginate consistently.
+export function runEndpointsForWorkflows(repository, workflows, since, until) {
+  if (!(Array.isArray(workflows) && workflows.length > 0)) {
+    throw new Error('collect-watch-evidence: at least one watched workflow is required');
+  }
   const created = encodeURIComponent(`${since}..${until}`);
-  const endpoint = `/repos/${repository}/actions/runs?per_page=100&created=${created}`;
-  const workflowById = new Map(workflows.map((workflow) => [workflow.id, workflow]));
+  return workflows.map((workflow) => ({
+    endpoint: `/repos/${repository}/actions/workflows/${workflow.id}/runs?per_page=100&created=${created}`,
+    workflow,
+  }));
+}
+
+function collectRunSnapshot(repo, repository, workflows, since, until) {
   const sinceMs = Date.parse(since);
   const untilMs = Date.parse(until);
-  const runs = flattenObjectPages(apiPages(repo, endpoint), 'workflow_runs', endpoint)
-    .filter((runItem) => workflowById.has(runItem.workflow_id))
-    .map((runItem) => normalizeRun(runItem, workflowById.get(runItem.workflow_id)))
+  const runs = runEndpointsForWorkflows(repository, workflows, since, until)
+    .flatMap(({ endpoint, workflow }) =>
+      flattenObjectPages(apiPages(repo, endpoint), 'workflow_runs', endpoint).map((runItem) =>
+        normalizeRun(runItem, workflow)
+      )
+    )
     // BOTH endpoints. The charter's window is [previous checkpoint, wake time]
     // and PROTOCOL.md freezes it at wake: a run that starts after `until` —
     // including one that appears between the two snapshot reads — belongs to

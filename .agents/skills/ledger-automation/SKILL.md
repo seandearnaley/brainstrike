@@ -55,8 +55,8 @@ Only a confirmed missing registration line is Ledger work. Before editing, add o
 For a Ledger change, run these in one final command sequence from `packages/db`:
 
 ```bash
-node scripts/test-lanes.mjs check
-node scripts/coverage-lanes.mjs check
+pnpm --filter @brainstrike/db test:db:check-lanes
+pnpm --filter @brainstrike/db test:coverage:db:check-lanes
 pnpm test
 ```
 
