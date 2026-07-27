@@ -212,48 +212,67 @@ export function serializeModelOutputForTokenMeasurement(output: unknown): string
   return serialized;
 }
 
-function serializeToolDefinitions(tools: ToolsInput): string {
-  const definitions = Object.entries(tools)
+function toToolDefinitionEntry(name: string, tool: unknown): Record<string, unknown> {
+  const toolRecord = tool as Record<string, unknown>;
+  if (
+    toolRecord['type'] === 'provider' &&
+    toolRecord['isProviderExecuted'] === true &&
+    typeof toolRecord['id'] === 'string'
+  ) {
+    // AI SDK provider tools expose lazy function schemas, while the provider
+    // request is defined by the stable provider id and serializable args.
+    return {
+      name,
+      providerTool: {
+        args: toolRecord['args'] ?? {},
+        id: toolRecord['id'],
+        type: 'provider',
+      },
+    };
+  }
+  const inputSchema = toolRecord['inputSchema'] ?? toolRecord['parameters'];
+  return {
+    description: typeof toolRecord['description'] === 'string' ? toolRecord['description'] : '',
+    ...(inputSchema === undefined || inputSchema === null
+      ? { schemaAvailable: false }
+      : {
+          inputSchema: standardSchemaToJSONSchema(
+            toStandardSchema(inputSchema as Parameters<typeof toStandardSchema>[0]),
+            {
+              io: 'input',
+            }
+          ),
+        }),
+    name,
+  };
+}
+
+function sortedToolDefinitionEntries(tools: ToolsInput): [string, Record<string, unknown>][] {
+  return Object.entries(tools)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, tool]) => {
-      const toolRecord = tool as unknown as Record<string, unknown>;
-      if (
-        toolRecord['type'] === 'provider' &&
-        toolRecord['isProviderExecuted'] === true &&
-        typeof toolRecord['id'] === 'string'
-      ) {
-        // AI SDK provider tools expose lazy function schemas, while the provider
-        // request is defined by the stable provider id and serializable args.
-        return {
-          name,
-          providerTool: {
-            args: toolRecord['args'] ?? {},
-            id: toolRecord['id'],
-            type: 'provider',
-          },
-        };
-      }
-      const inputSchema = toolRecord['inputSchema'] ?? toolRecord['parameters'];
-      return {
-        description: typeof toolRecord['description'] === 'string' ? toolRecord['description'] : '',
-        ...(inputSchema === undefined || inputSchema === null
-          ? { schemaAvailable: false }
-          : {
-              inputSchema: standardSchemaToJSONSchema(
-                toStandardSchema(inputSchema as Parameters<typeof toStandardSchema>[0]),
-                {
-                  io: 'input',
-                }
-              ),
-            }),
-        name,
-      };
-    });
-  return JSON.stringify(definitions);
+    .map(([name, tool]) => [name, toToolDefinitionEntry(name, tool)]);
 }
 
 function failedMeasurement(code: TokenMeasurementFailureCode): FailedMeasurement {
   return { failureCode: code };
+}
+
+/** One tool's measured definition share, for the context-breakdown wire part. */
+export interface ToolDefinitionTokensEntry {
+  readonly name: string;
+  readonly tokens: number;
+}
+
+/**
+ * Per-tool definition token figures for the context usage popover. `provenance`
+ * distinguishes tokenizer-backed counts from the chars/4 backstop; `undefined`
+ * (from the diagnostics accessor) means measurement failed — the breakdown
+ * omits the fields rather than zero-faking them.
+ */
+export interface ToolDefinitionContextBreakdown {
+  readonly byTool: readonly ToolDefinitionTokensEntry[];
+  readonly provenance: 'heuristic' | 'measured';
+  readonly totalTokens: number;
 }
 
 export class RunTokenDiagnostics {
@@ -265,6 +284,7 @@ export class RunTokenDiagnostics {
     serializedCharacters: 0,
     tokenCount: 0,
   };
+  readonly #toolDefinitionBreakdown?: ToolDefinitionContextBreakdown;
   readonly #toolDefinitionCount: number;
   readonly #toolDefinitionFailure?: FailedMeasurement;
   readonly #toolDefinitionMeasurement?: TokenMeasurementSample;
@@ -272,6 +292,7 @@ export class RunTokenDiagnostics {
   constructor(params: {
     capability: TokenMeasurementCapability;
     measurement: PreparedTokenMeasurement;
+    toolDefinitionBreakdown?: ToolDefinitionContextBreakdown;
     toolDefinitionCount: number;
     toolDefinitionFailure?: FailedMeasurement;
     toolDefinitionMeasurement?: TokenMeasurementSample;
@@ -279,12 +300,24 @@ export class RunTokenDiagnostics {
     this.#capability = params.capability;
     this.#measurement = params.measurement;
     this.#toolDefinitionCount = params.toolDefinitionCount;
+    if (params.toolDefinitionBreakdown) {
+      this.#toolDefinitionBreakdown = params.toolDefinitionBreakdown;
+    }
     if (params.toolDefinitionFailure) {
       this.#toolDefinitionFailure = params.toolDefinitionFailure;
     }
     if (params.toolDefinitionMeasurement) {
       this.#toolDefinitionMeasurement = params.toolDefinitionMeasurement;
     }
+  }
+
+  /**
+   * Per-tool definition figures for the context-breakdown wire part, or
+   * undefined when measurement failed (the breakdown then omits its
+   * tool-definition fields — absent, never zero-faked).
+   */
+  toolDefinitionContextBreakdown(): ToolDefinitionContextBreakdown | undefined {
+    return this.#toolDefinitionBreakdown;
   }
 
   recordModelOutput(output: unknown): void {
@@ -351,6 +384,36 @@ export class RunTokenDiagnostics {
   }
 }
 
+/**
+ * Measure each already-serialized tool definition (sorted descending by
+ * tokens). Any counter failure yields undefined — the caller then omits the
+ * breakdown fields entirely rather than shipping partial figures.
+ */
+function measureToolDefinitionBreakdown(
+  serializedEntries: readonly [string, string][],
+  measurement: PreparedTokenMeasurement
+): ToolDefinitionContextBreakdown | undefined {
+  const byTool: ToolDefinitionTokensEntry[] = [];
+  let totalTokens = 0;
+  for (const [name, serialized] of serializedEntries) {
+    const sample = measurement.measure(serialized);
+    if (sample.status === 'failed') {
+      return;
+    }
+    byTool.push({ name, tokens: sample.tokenCount });
+    totalTokens += sample.tokenCount;
+  }
+  byTool.sort((left, right) => right.tokens - left.tokens || left.name.localeCompare(right.name));
+  return {
+    byTool,
+    provenance:
+      measurement.capability.mode === 'deterministic-serialized-character-backstop'
+        ? 'heuristic'
+        : 'measured',
+    totalTokens,
+  };
+}
+
 export async function createRunTokenDiagnostics(
   params: {
     capability: TokenMeasurementCapability;
@@ -361,10 +424,19 @@ export async function createRunTokenDiagnostics(
   const measurement = await createPreparedTokenMeasurement(params.capability, dependencies);
   const toolDefinitionCount = Object.keys(params.tools).length;
   try {
-    const toolDefinitions = serializeToolDefinitions(params.tools);
+    // ONE schema-conversion + serialization pass feeds both the aggregate
+    // measurement (log fields) and the per-tool breakdown — with large MCP
+    // tool surfaces the double toStandardSchema/JSON walk was measurable
+    // run-start latency (review fix).
+    const serializedEntries: [string, string][] = sortedToolDefinitionEntries(params.tools).map(
+      ([name, definition]) => [name, JSON.stringify(definition)]
+    );
+    const toolDefinitions = `[${serializedEntries.map(([, json]) => json).join(',')}]`;
+    const toolDefinitionBreakdown = measureToolDefinitionBreakdown(serializedEntries, measurement);
     return new RunTokenDiagnostics({
       capability: params.capability,
       measurement,
+      ...(toolDefinitionBreakdown ? { toolDefinitionBreakdown } : {}),
       toolDefinitionCount,
       toolDefinitionMeasurement: measurement.measure(toolDefinitions),
     });

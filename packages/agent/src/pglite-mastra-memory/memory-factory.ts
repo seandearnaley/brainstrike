@@ -1,6 +1,6 @@
 import {
+  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
   type RuntimeAssistantMemorySettings,
 } from '@brainstrike/assistant-contract/memory-settings';
@@ -116,7 +116,11 @@ export async function createPgliteMastraMemory({
   eventSink,
   id = 'brainstrike-pglite-memory',
   memoryOptions,
-  memorySettings = DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  // Construction-safe default: an absent settings object must never
+  // manufacture an enabled observer (the UI default's 'auto' sentinel is
+  // resolved upstream in app-shell; enabled OM here requires BOTH resolved
+  // settings and an explicit model).
+  memorySettings = CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   observationalMemoryModel,
   runId,
   semanticRecall = false,

@@ -31,6 +31,9 @@ import {
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  type RuntimeAssistantObservationalMemorySettings,
+  resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/assistant-contract/memory-settings';
 import {
   getProviderDefaultModel,
@@ -217,20 +220,116 @@ function resolveSemanticRecallDisabledReason(args: {
     : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn vector observation retrieval off.`;
 }
 
+/** Why an 'auto' observer target could not resolve to a concrete model. */
+export type ObservationalMemoryAutoUnresolvedReason =
+  | 'keys-unknown'
+  | 'model-not-eligible'
+  | 'no-backend'
+  | 'no-hosted-chat-provider';
+
+export interface EffectiveObservationalMemorySettings {
+  /**
+   * Present ONLY when the stored target was the 'auto' sentinel. 'resolved'
+   * carries the concrete target auto picked; 'unresolved' explains why OM is
+   * waiting (surfaced in Settings and the context popover — never a silent
+   * off, and never a thread-memory-disabling validation error).
+   */
+  readonly autoResolution?:
+    | { readonly kind: 'resolved'; readonly target: string }
+    | { readonly kind: 'unresolved'; readonly reason: ObservationalMemoryAutoUnresolvedReason };
+  readonly settings: RuntimeAssistantObservationalMemorySettings;
+}
+
+/**
+ * Resolve the stored observational-memory settings into the CONCRETE settings
+ * every downstream consumer uses (request data, memory validation, OM meter).
+ *
+ * The 'auto' sentinel adapts to the profile under the PRIVACY INVARIANT
+ * (review ruling on BST-940): the observer is only ever a Mastra-tested fast
+ * model from the SELECTED CHAT PROVIDER — the party already receiving the
+ * conversation. A local/keyless chat, an unkeyed hosted chat, or a candidate
+ * disabled in the user's model catalog (isTargetEligible) flips enabled→false
+ * with an explicit unresolved reason instead. Explicit (non-auto) targets pass
+ * through untouched so misconfiguration keeps its loud validation. 'auto' must
+ * never reach the provider/model validator.
+ */
+export function resolveEffectiveObservationalMemorySettings(args: {
+  readonly desktopAssistantBackendAvailable: boolean;
+  /**
+   * Model-catalog eligibility for a resolved candidate (provider enabled +
+   * model enabled, same gate as the settings dropdown). Omit while the
+   * registry has not loaded — the key/chat-provider gates still apply.
+   */
+  readonly isTargetEligible?: (target: {
+    readonly modelId: string;
+    readonly provider: string;
+  }) => boolean;
+  readonly providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  readonly selectedChatProvider: string | null | undefined;
+  readonly settings: RuntimeAssistantObservationalMemorySettings;
+}): EffectiveObservationalMemorySettings {
+  if (args.settings.modelTarget !== OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET) {
+    return { settings: args.settings };
+  }
+  const unresolved = (
+    reason: ObservationalMemoryAutoUnresolvedReason
+  ): EffectiveObservationalMemorySettings => ({
+    autoResolution: { kind: 'unresolved', reason },
+    settings: { ...args.settings, enabled: false },
+  });
+  if (!args.desktopAssistantBackendAvailable) {
+    return unresolved('no-backend');
+  }
+  if (args.providerKeySources === undefined) {
+    return unresolved('keys-unknown');
+  }
+  const target = resolveAutoObservationalMemoryModelTarget({
+    chatProvider: args.selectedChatProvider,
+    providersWithKeys: args.providerKeySources.map(({ provider }) => provider),
+  });
+  if (target === null) {
+    return unresolved('no-hosted-chat-provider');
+  }
+  if (args.isTargetEligible) {
+    const separatorIndex = target.indexOf('/');
+    const eligible = args.isTargetEligible({
+      modelId: target.slice(separatorIndex + 1),
+      provider: target.slice(0, separatorIndex),
+    });
+    if (!eligible) {
+      return unresolved('model-not-eligible');
+    }
+  }
+  return {
+    autoResolution: { kind: 'resolved', target },
+    settings: { ...args.settings, modelTarget: target },
+  };
+}
+
 function resolveObservationalMemoryDisabledReason(args: {
   desktopAssistantBackendAvailable: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
   providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
   providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
+  selectedProvider: SupportedProvider | null;
 }): string | undefined {
-  if (!args.memorySettings.observationalMemory.enabled) {
+  // Defense in depth: resolve the 'auto' sentinel with the SAME deterministic
+  // rules the wrapper uses, so a caller passing raw stored settings can never
+  // turn an unresolved auto observer into a memory-disabling validation error.
+  const { settings: observationalMemory } = resolveEffectiveObservationalMemorySettings({
+    desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
+    providerKeySources: args.providerKeySources,
+    selectedChatProvider: args.selectedProvider,
+    settings: args.memorySettings.observationalMemory,
+  });
+  if (!observationalMemory.enabled) {
     return;
   }
   if (!args.desktopAssistantBackendAvailable) {
     return 'Observational memory requires the desktop assistant backend.';
   }
 
-  const modelTarget = args.memorySettings.observationalMemory.modelTarget;
+  const modelTarget = observationalMemory.modelTarget;
   const separatorIndex = modelTarget.indexOf('/');
   if (separatorIndex <= 0 || separatorIndex === modelTarget.length - 1) {
     return 'Observational memory requires a valid provider/model target. Reconfigure Assistant Memory settings.';
@@ -306,6 +405,7 @@ export function resolveAssistantMemoryDisabledReason(args: {
     memorySettings: args.memorySettings,
     providerKeySources: args.providerKeySources,
     providerReadErrors: args.providerReadErrors,
+    selectedProvider: args.selectedProvider,
   });
   if (observationalMemoryDisabledReason) {
     return observationalMemoryDisabledReason;

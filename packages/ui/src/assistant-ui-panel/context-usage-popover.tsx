@@ -1,11 +1,13 @@
 /**
  * ContextUsagePopoverContent — the "Context Usage" detail panel opened from the
- * compact ring row (see context-usage-meter.tsx). Holds everything that used to
- * render inline in the bordered meter card: the usage header, the segmented
- * breakdown list, the OM informational stats, and the cumulative tokens + cost
- * row. The critical trimming-risk notice deliberately does NOT live here — a
- * warning must not hide inside a hover surface (it stays inline next to the
- * ring).
+ * compact ring row (see context-usage-meter.tsx). Cursor-style anatomy
+ * (BST-940): a "% full" header, a segmented capacity bar over the effective
+ * input budget, and a color-keyed legend of category rows (System instructions,
+ * Tool definitions, Task list, Conversation, Attachments, Unattributed) with
+ * per-tool and conversation-split sub-rows, then the OM informational stats and
+ * the cumulative tokens + cost row. The critical trimming-risk notice
+ * deliberately does NOT live here — a warning must not hide inside a hover
+ * surface (it stays inline next to the ring).
  */
 import type {
   AssistantContextBreakdown,
@@ -18,6 +20,7 @@ import {
   formatUsdCost,
 } from '@brainstrike/utils/token-counting-heuristics';
 import { cn } from '../lib/utils';
+import type { ConversationTokenEstimate } from './context-estimate';
 import type { CumulativeUsageDisplay, OmMeterState } from './context-usage-meter';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -48,6 +51,11 @@ function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } 
       return { text: 'Observations available on desktop', tone: 'muted' };
     case 'inactive':
       return { text: 'OM inactive', tone: 'muted' };
+    case 'awaiting-observer':
+      return {
+        text: 'Observations on (Auto) — runs with a hosted chat provider, paused for this chat',
+        tone: 'muted',
+      };
     case 'empty':
       return { text: 'No observations yet', tone: 'muted' };
     case 'error':
@@ -118,64 +126,75 @@ const OmMeterSection = ({ state }: OmMeterSectionProps) => {
 
 OmMeterSection.displayName = 'OmMeterSection';
 
+/** Legend/segment color classes per category (shared by bar and swatches). */
+const CATEGORY_COLORS = {
+  conversation: 'bg-emerald-500/80',
+  system: 'bg-violet-500/80',
+  taskList: 'bg-amber-500/80',
+  toolDefinitions: 'bg-sky-500/80',
+  unattributed: 'bg-rose-400/70',
+} as const;
+
+type CategoryId = keyof typeof CATEGORY_COLORS;
+
 interface BreakdownRow {
+  colorClass?: string;
   label: string;
   testId: string;
   value: string;
 }
 
+interface CategorySegment {
+  colorClass: string;
+  id: CategoryId;
+  tokens: number;
+}
+
+/** Sub-row cap: show the biggest consumers, aggregate the rest honestly. */
+const MAX_SUB_ROWS = 5;
+
 /**
- * The Conversation row: prefers the server-measured wire figure, else the
- * client-side heuristic walk (present only before exact usage is recorded —
- * the walk is skipped once exact usage exists). Returns the row plus the token
- * value that participates in the Unattributed remainder, or null when neither
- * figure exists (memory-backed thread after exact usage — the conversation
- * lands in Unattributed rather than being zero-faked).
+ * The Conversation figure: prefers the server-measured wire figure (non-memory
+ * transports), else the client full-part walk, else the legacy scalar estimate.
+ * Returns null when nothing measurable exists (the conversation then lands in
+ * Unattributed once exact usage exists, rather than being zero-faked).
  */
-function conversationRow(
+function conversationFigure(
   breakdown: AssistantContextBreakdown | undefined,
+  conversationEstimate: ConversationTokenEstimate | undefined,
   estimatedTokens: number | undefined
-): { row: BreakdownRow; tokens: number } | null {
+): { estimated: boolean; tokens: number } | null {
   if (breakdown?.historyMessagesTokens !== undefined) {
-    return {
-      row: {
-        label: 'Conversation',
-        testId: 'context-usage-breakdown-conversation',
-        value: `~${formatCompact(breakdown.historyMessagesTokens)}`,
-      },
-      tokens: breakdown.historyMessagesTokens,
-    };
+    return { estimated: false, tokens: breakdown.historyMessagesTokens };
+  }
+  if (conversationEstimate && conversationEstimate.totalTokens > 0) {
+    return { estimated: true, tokens: conversationEstimate.totalTokens };
   }
   if (estimatedTokens !== undefined && estimatedTokens > 0) {
-    return {
-      row: {
-        label: 'Conversation (estimated)',
-        testId: 'context-usage-breakdown-conversation',
-        value: `~${formatCompact(estimatedTokens)}`,
-      },
-      tokens: estimatedTokens,
-    };
+    return { estimated: true, tokens: estimatedTokens };
   }
   return null;
 }
 
 /**
  * "Unattributed" = exact last-turn input tokens minus every token category the
- * list displays (system instructions, task list, conversation). Shown ONLY once
- * exact usage exists — before that there is no exact total to attribute
- * against. Display math, not policy: a heuristic overshoot is clamped to 0
- * with a debug log, never rendered negative.
+ * list displays. Shown ONLY once exact usage exists — before that there is no
+ * exact total to attribute against. Display math, not policy: a heuristic
+ * overshoot is clamped to 0 with a debug log, never rendered negative.
  */
-function unattributedRow(
+function unattributedTokens(
   breakdown: AssistantContextBreakdown,
   conversationTokens: number,
   usage: ThreadTokenUsage | undefined
-): BreakdownRow | null {
+): number | null {
   if (!usage) {
     return null;
   }
   const attributed =
-    breakdown.systemInstructionsTokens + (breakdown.taskListTokens ?? 0) + conversationTokens;
+    breakdown.systemInstructionsTokens +
+    (breakdown.taskListTokens ?? 0) +
+    (breakdown.toolDefinitionsTokens ?? 0) +
+    conversationTokens;
   const remainder = usage.inputTokens - attributed;
   if (remainder < 0) {
     logger.debug('Context breakdown attribution exceeds exact input tokens; clamping to 0', {
@@ -183,67 +202,277 @@ function unattributedRow(
       exactInputTokens: usage.inputTokens,
     });
   }
-  return {
-    label: 'Unattributed',
-    testId: 'context-usage-breakdown-unattributed',
-    value: `~${formatCompact(Math.max(0, remainder))}`,
-  };
+  return Math.max(0, remainder);
+}
+
+interface ComposedBreakdown {
+  rows: BreakdownRow[];
+  segments: CategorySegment[];
+  subRowsByTestId: Record<string, BreakdownRow[]>;
+}
+
+interface BreakdownComposer {
+  rows: BreakdownRow[];
+  segments: CategorySegment[];
+  subRowsByTestId: Record<string, BreakdownRow[]>;
+}
+
+function pushCategory(
+  composer: BreakdownComposer,
+  id: CategoryId,
+  row: BreakdownRow,
+  tokens: number
+): void {
+  composer.rows.push({ ...row, colorClass: CATEGORY_COLORS[id] });
+  if (tokens > 0) {
+    composer.segments.push({ colorClass: CATEGORY_COLORS[id], id, tokens });
+  }
+}
+
+/** Cap a named-entry list to the top consumers plus an aggregated remainder row. */
+function toTopEntrySubRows(
+  entries: readonly { readonly name: string; readonly tokens: number }[],
+  options: { labelPrefix: string; restTestId: string; testIdPrefix: string }
+): BreakdownRow[] {
+  const top = entries.slice(0, MAX_SUB_ROWS);
+  const subRows = top.map((entry, index) => ({
+    label: `${options.labelPrefix}${entry.name}`,
+    testId: `${options.testIdPrefix}${index}`,
+    value: `~${formatCompact(entry.tokens)}`,
+  }));
+  const restCount = entries.length - top.length;
+  if (restCount > 0) {
+    subRows.push({
+      label: `${options.labelPrefix}+${restCount} more tools`,
+      testId: options.restTestId,
+      value: `~${formatCompact(
+        entries.slice(MAX_SUB_ROWS).reduce((sum, entry) => sum + entry.tokens, 0)
+      )}`,
+    });
+  }
+  return subRows;
+}
+
+/** Server-measured prompt-composition categories (system / tool defs / task list). */
+function composeServerCategories(
+  composer: BreakdownComposer,
+  breakdown: AssistantContextBreakdown
+): void {
+  pushCategory(
+    composer,
+    'system',
+    {
+      label: 'System instructions',
+      testId: 'context-usage-breakdown-system',
+      value: `~${formatCompact(breakdown.systemInstructionsTokens)}`,
+    },
+    breakdown.systemInstructionsTokens
+  );
+  if (breakdown.toolDefinitionsTokens !== undefined) {
+    pushCategory(
+      composer,
+      'toolDefinitions',
+      {
+        label: 'Tool definitions',
+        testId: 'context-usage-breakdown-tool-definitions',
+        value: `~${formatCompact(breakdown.toolDefinitionsTokens)}`,
+      },
+      breakdown.toolDefinitionsTokens
+    );
+    if (breakdown.toolDefinitionsByTool && breakdown.toolDefinitionsByTool.length > 0) {
+      composer.subRowsByTestId['context-usage-breakdown-tool-definitions'] = toTopEntrySubRows(
+        breakdown.toolDefinitionsByTool,
+        {
+          labelPrefix: '',
+          restTestId: 'context-usage-tooldef-rest',
+          testIdPrefix: 'context-usage-tooldef-',
+        }
+      );
+    }
+  }
+  if (breakdown.taskListTokens !== undefined) {
+    pushCategory(
+      composer,
+      'taskList',
+      {
+        label: 'Task list',
+        testId: 'context-usage-breakdown-task-list',
+        value: `~${formatCompact(breakdown.taskListTokens)}`,
+      },
+      breakdown.taskListTokens
+    );
+  }
+}
+
+/** Conversation split sub-rows (you/assistant/reasoning/tools + per-tool). */
+function toConversationSubRows(conversationEstimate: ConversationTokenEstimate): BreakdownRow[] {
+  const splitRows: BreakdownRow[] = [];
+  const split: [string, string, number][] = [
+    ['You', 'context-usage-conv-user', conversationEstimate.userTextTokens],
+    ['Assistant', 'context-usage-conv-assistant', conversationEstimate.assistantTextTokens],
+    ['Reasoning', 'context-usage-conv-reasoning', conversationEstimate.reasoningTokens],
+    ['Tool activity', 'context-usage-conv-tools', conversationEstimate.toolTokens],
+  ];
+  for (const [label, testId, tokens] of split) {
+    if (tokens > 0) {
+      splitRows.push({ label, testId, value: `~${formatCompact(tokens)}` });
+    }
+  }
+  splitRows.push(
+    ...toTopEntrySubRows(conversationEstimate.byTool, {
+      labelPrefix: '· ',
+      restTestId: 'context-usage-conv-tool-rest',
+      testIdPrefix: 'context-usage-conv-tool-',
+    })
+  );
+  return splitRows;
+}
+
+function composeConversationCategory(
+  composer: BreakdownComposer,
+  conversation: { estimated: boolean; tokens: number },
+  conversationEstimate: ConversationTokenEstimate | undefined
+): void {
+  pushCategory(
+    composer,
+    'conversation',
+    {
+      label: conversation.estimated ? 'Conversation (estimated)' : 'Conversation',
+      testId: 'context-usage-breakdown-conversation',
+      value: `~${formatCompact(conversation.tokens)}`,
+    },
+    conversation.tokens
+  );
+  if (conversationEstimate && conversationEstimate.totalTokens > 0) {
+    const splitRows = toConversationSubRows(conversationEstimate);
+    if (splitRows.length > 0) {
+      composer.subRowsByTestId['context-usage-breakdown-conversation'] = splitRows;
+    }
+  }
 }
 
 /**
- * Compose the segmented breakdown rows. With a server prompt breakdown the
- * categories are System instructions / Task list / Conversation / Attachments
- * plus the explicit Unattributed remainder once exact usage lands. Without one
- * (web local runtime, reload, pre-Phase-B server) the honest rows are the
- * client conversation estimate and the exact last-turn usage.
+ * Compose the legend rows + capacity-bar segments from the same figures so the
+ * bar and the list can never disagree. Absent categories stay absent.
  */
-function buildBreakdownRows(params: {
+function composeBreakdown(params: {
   breakdown: AssistantContextBreakdown | undefined;
+  conversationEstimate: ConversationTokenEstimate | undefined;
   estimatedTokens: number | undefined;
   usage: ThreadTokenUsage | undefined;
-}): BreakdownRow[] {
-  const rows: BreakdownRow[] = [];
-  const conversation = conversationRow(params.breakdown, params.estimatedTokens);
+}): ComposedBreakdown {
+  const composer: BreakdownComposer = { rows: [], segments: [], subRowsByTestId: {} };
+  const { breakdown, conversationEstimate } = params;
+  const conversation = conversationFigure(breakdown, conversationEstimate, params.estimatedTokens);
 
-  if (params.breakdown) {
-    rows.push({
-      label: 'System instructions',
-      testId: 'context-usage-breakdown-system',
-      value: `~${formatCompact(params.breakdown.systemInstructionsTokens)}`,
-    });
-    if (params.breakdown.taskListTokens !== undefined) {
-      rows.push({
-        label: 'Task list',
-        testId: 'context-usage-breakdown-task-list',
-        value: `~${formatCompact(params.breakdown.taskListTokens)}`,
-      });
-    }
+  if (breakdown) {
+    composeServerCategories(composer, breakdown);
   }
   if (conversation) {
-    rows.push(conversation.row);
+    composeConversationCategory(composer, conversation, conversationEstimate);
   }
-  if (params.breakdown && params.breakdown.attachmentsCount > 0) {
-    rows.push({
+
+  // Same authority split as the Conversation row: when the wire IS the
+  // conversation (historyMessagesTokens present), the server count is the
+  // measurement — including an honest 0 that must not be overridden by stale
+  // UI history. Memory-backed runs measure only the current turn on the wire,
+  // so the client walk (whole thread) speaks for the conversation instead.
+  const attachmentsCount =
+    breakdown?.historyMessagesTokens === undefined
+      ? (conversationEstimate?.attachmentsCount ?? breakdown?.attachmentsCount ?? 0)
+      : breakdown.attachmentsCount;
+  if (attachmentsCount > 0) {
+    composer.rows.push({
       label: 'Attachments',
       testId: 'context-usage-breakdown-attachments',
-      value: `${params.breakdown.attachmentsCount} attached`,
+      value: `${attachmentsCount} attached`,
     });
   }
-  if (params.breakdown) {
-    const unattributed = unattributedRow(params.breakdown, conversation?.tokens ?? 0, params.usage);
-    if (unattributed) {
-      rows.push(unattributed);
+
+  if (breakdown) {
+    const unattributed = unattributedTokens(breakdown, conversation?.tokens ?? 0, params.usage);
+    if (unattributed !== null) {
+      pushCategory(
+        composer,
+        'unattributed',
+        {
+          label: 'Unattributed',
+          testId: 'context-usage-breakdown-unattributed',
+          value: `~${formatCompact(unattributed)}`,
+        },
+        unattributed
+      );
     }
   }
+
   if (params.usage) {
-    rows.push({
+    composer.rows.push({
       label: 'Provider-effective context',
       testId: 'context-usage-breakdown-exact',
       value: formatCompact(params.usage.inputTokens + params.usage.outputTokens),
     });
   }
-  return rows;
+
+  return composer;
 }
+
+interface CapacityBarProps {
+  effectiveInputBudget: number;
+  segments: readonly CategorySegment[];
+}
+
+/**
+ * Pure width math for the capacity bar: proportional widths clamped so an
+ * over-budget estimate can never overflow 100%. Kept OUTSIDE the component —
+ * the running `remaining` accumulator must not be a render-scope reassignment
+ * (React Compiler immutability).
+ */
+function computeSegmentWidths(
+  segments: readonly CategorySegment[],
+  effectiveInputBudget: number
+): (CategorySegment & { width: number })[] {
+  const widths: (CategorySegment & { width: number })[] = [];
+  let remaining = 100;
+  for (const segment of segments) {
+    const raw = (segment.tokens / effectiveInputBudget) * 100;
+    // Floor tiny segments to a visible sliver, but the remaining-budget clamp
+    // wins LAST so the widths can never sum past 100 (an over-budget thread is
+    // the inline critical notice's job, not the bar's).
+    const width = Math.min(Math.max(raw, 0.75), remaining);
+    remaining = Math.max(0, remaining - width);
+    widths.push({ ...segment, width });
+  }
+  return widths;
+}
+
+/**
+ * Segmented capacity bar over the effective input budget. Segments render in
+ * legend order; the unfilled remainder is the muted track (free space).
+ */
+const CapacityBar = ({ effectiveInputBudget, segments }: CapacityBarProps) => {
+  if (segments.length === 0) {
+    return null;
+  }
+  const widths = computeSegmentWidths(segments, effectiveInputBudget);
+  return (
+    <div
+      aria-hidden="true"
+      className="mt-1 flex h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      data-testid="context-usage-bar"
+    >
+      {widths.map((segment) => (
+        <div
+          className={cn('h-full', segment.colorClass)}
+          data-segment={segment.id}
+          key={segment.id}
+          style={{ width: `${segment.width}%` }}
+        />
+      ))}
+    </div>
+  );
+};
+
+CapacityBar.displayName = 'CapacityBar';
 
 export interface ContextUsagePopoverContentProps {
   /**
@@ -254,6 +483,8 @@ export interface ContextUsagePopoverContentProps {
    */
   breakdownState?: AssistantContextBreakdownState | undefined;
   contextWindow: number;
+  /** Full-part client walk (per-tool + conversation split sub-rows). */
+  conversationEstimate?: ConversationTokenEstimate | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   effectiveInputBudget: number;
   estimatedTokens?: number | undefined;
@@ -267,6 +498,7 @@ export interface ContextUsagePopoverContentProps {
 export const ContextUsagePopoverContent = ({
   breakdownState,
   contextWindow,
+  conversationEstimate,
   cumulativeUsage,
   effectiveInputBudget,
   estimatedTokens,
@@ -277,8 +509,9 @@ export const ContextUsagePopoverContent = ({
   usedTokens,
 }: ContextUsagePopoverContentProps) => {
   const breakdownInvalid = breakdownState?.invalid === true;
-  const rows = buildBreakdownRows({
+  const { rows, segments, subRowsByTestId } = composeBreakdown({
     breakdown: breakdownState && !breakdownState.invalid ? breakdownState.breakdown : undefined,
+    conversationEstimate,
     estimatedTokens,
     usage,
   });
@@ -299,6 +532,9 @@ export const ContextUsagePopoverContent = ({
         model window {formatTokenCount(contextWindow)}
       </p>
 
+      {/* Segmented capacity bar — same figures as the legend rows below. */}
+      <CapacityBar effectiveInputBudget={effectiveInputBudget} segments={segments} />
+
       {/* Malformed wire part → surfaced honestly, never coerced into rows. */}
       {breakdownInvalid && (
         <p
@@ -312,13 +548,33 @@ export const ContextUsagePopoverContent = ({
       {rows.length > 0 && (
         <ul className="mt-1 flex flex-col gap-0.5" data-testid="context-usage-breakdown">
           {rows.map((row) => (
-            <li
-              className="flex items-center justify-between gap-2 text-muted-foreground"
-              data-testid={row.testId}
-              key={row.testId}
-            >
-              <span>{row.label}</span>
-              <span className="tabular-nums">{row.value}</span>
+            <li className="flex flex-col gap-0.5" data-testid={row.testId} key={row.testId}>
+              <span className="flex items-center justify-between gap-2 text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  {row.colorClass && (
+                    <span
+                      aria-hidden="true"
+                      className={cn('h-2 w-2 shrink-0 rounded-[3px]', row.colorClass)}
+                    />
+                  )}
+                  {row.label}
+                </span>
+                <span className="tabular-nums">{row.value}</span>
+              </span>
+              {subRowsByTestId[row.testId] && (
+                <ul className="ml-3.5 flex flex-col gap-px border-border/60 border-l pl-2">
+                  {subRowsByTestId[row.testId]?.map((subRow) => (
+                    <li
+                      className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/70"
+                      data-testid={subRow.testId}
+                      key={subRow.testId}
+                    >
+                      <span className="truncate">{subRow.label}</span>
+                      <span className="shrink-0 tabular-nums">{subRow.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>

@@ -1053,6 +1053,8 @@ describe('agent-runtime edge cases', () => {
         type: string;
       };
       expect(first.type).toBe('context-breakdown');
+      // Whole-breakdown provenance is always the heuristic; tool-definition
+      // precision rides toolDefinitionsProvenance separately.
       expect(first.breakdown?.provenance).toBe('heuristic');
       // Composed hosted instructions are always non-empty.
       expect(first.breakdown?.systemInstructionsTokens).toBeGreaterThan(0);

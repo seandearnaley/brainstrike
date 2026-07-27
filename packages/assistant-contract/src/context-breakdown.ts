@@ -18,6 +18,12 @@
  */
 export const CONTEXT_BREAKDOWN_DATA_NAME = 'brainstrike.context-breakdown';
 
+/** One tool definition's measured share of the prompt (name + schema + description). */
+export interface AssistantToolDefinitionTokens {
+  readonly name: string;
+  readonly tokens: number;
+}
+
 export interface AssistantContextBreakdown {
   /**
    * Number of inline file (image) parts carried by the outgoing wire messages.
@@ -32,17 +38,39 @@ export interface AssistantContextBreakdown {
    * client-side heuristic walk for the Conversation row.
    */
   readonly historyMessagesTokens?: number;
-  /** Counting method — the shared chars/4 heuristic (see prompt-breakdown.ts). */
+  /**
+   * Counting method for the instruction/message figures — always the shared
+   * chars/4 heuristic (see prompt-breakdown.ts). Deliberately NOT upgraded when
+   * the tool-definition figures are tokenizer-measured: a whole-breakdown
+   * 'measured' would assert more precision than the payload has (provenance
+   * must never lie). Tool-definition precision rides its own field below.
+   */
   readonly provenance: 'heuristic';
   /**
    * Heuristic tokens of the composed system instructions EXCLUDING the task
    * list note (which has its own row). Tool guidance is interleaved in the
-   * instructions and not separable, so it is counted here — there is
-   * deliberately no toolGuidanceTokens field until it can be measured honestly.
+   * instructions and not separable, so it is counted here.
    */
   readonly systemInstructionsTokens: number;
   /** Heuristic tokens of the per-thread task list note. ABSENT when no task list block was injected. */
   readonly taskListTokens?: number;
+  /**
+   * Per-tool definition token counts, sorted descending by tokens. ABSENT when
+   * the run's tool-definition measurement failed (never zero-faked).
+   */
+  readonly toolDefinitionsByTool?: readonly AssistantToolDefinitionTokens[];
+  /**
+   * Counting method for the tool-definition figures ONLY: 'measured' when the
+   * run's tokenizer-backed measurement (RunTokenDiagnostics) counted them,
+   * 'heuristic' on the chars/4 backstop. Present iff the tool-definition
+   * fields are present.
+   */
+  readonly toolDefinitionsProvenance?: 'heuristic' | 'measured';
+  /**
+   * Total serialized tool-definition tokens on this run's provider request
+   * (names + descriptions + JSON schemas). ABSENT when measurement failed.
+   */
+  readonly toolDefinitionsTokens?: number;
 }
 
 /**
@@ -62,12 +90,28 @@ function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
+function isToolDefinitionTokensEntry(value: unknown): value is AssistantToolDefinitionTokens {
+  return (
+    isRecord(value) &&
+    typeof value['name'] === 'string' &&
+    value['name'].length > 0 &&
+    isCount(value['tokens'])
+  );
+}
+
 /** True when the value is a well-formed {@link AssistantContextBreakdown}. */
 export function isAssistantContextBreakdown(value: unknown): value is AssistantContextBreakdown {
   if (!isRecord(value)) {
     return false;
   }
   if (value['provenance'] !== 'heuristic') {
+    return false;
+  }
+  if (
+    value['toolDefinitionsProvenance'] !== undefined &&
+    value['toolDefinitionsProvenance'] !== 'heuristic' &&
+    value['toolDefinitionsProvenance'] !== 'measured'
+  ) {
     return false;
   }
   if (!(isCount(value['systemInstructionsTokens']) && isCount(value['attachmentsCount']))) {
@@ -79,6 +123,18 @@ export function isAssistantContextBreakdown(value: unknown): value is AssistantC
     return false;
   }
   if (value['historyMessagesTokens'] !== undefined && !isCount(value['historyMessagesTokens'])) {
+    return false;
+  }
+  if (value['toolDefinitionsTokens'] !== undefined && !isCount(value['toolDefinitionsTokens'])) {
+    return false;
+  }
+  if (
+    value['toolDefinitionsByTool'] !== undefined &&
+    !(
+      Array.isArray(value['toolDefinitionsByTool']) &&
+      value['toolDefinitionsByTool'].every(isToolDefinitionTokensEntry)
+    )
+  ) {
     return false;
   }
   return true;
@@ -103,6 +159,20 @@ export function parseAssistantContextBreakdown(value: unknown): AssistantContext
       provenance: value.provenance,
       systemInstructionsTokens: value.systemInstructionsTokens,
       ...(value.taskListTokens === undefined ? {} : { taskListTokens: value.taskListTokens }),
+      ...(value.toolDefinitionsByTool === undefined
+        ? {}
+        : {
+            toolDefinitionsByTool: value.toolDefinitionsByTool.map(({ name, tokens }) => ({
+              name,
+              tokens,
+            })),
+          }),
+      ...(value.toolDefinitionsProvenance === undefined
+        ? {}
+        : { toolDefinitionsProvenance: value.toolDefinitionsProvenance }),
+      ...(value.toolDefinitionsTokens === undefined
+        ? {}
+        : { toolDefinitionsTokens: value.toolDefinitionsTokens }),
     },
     invalid: false,
   };

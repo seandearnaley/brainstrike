@@ -12,11 +12,14 @@ import {
 } from '../assistant-ui-panel/context-usage-store.js';
 
 // useAuiState must be mocked so ThreadContextMeter can be tested without a
-// live AssistantRuntimeProvider. The mock returns a configurable messages list.
+// live AssistantRuntimeProvider. The mock returns a configurable messages list
+// and running flag.
 let mockMessages: unknown[] = [];
+let mockIsRunning = false;
 vi.mock('@assistant-ui/react', () => ({
-  useAuiState: <T,>(selector: (state: { thread: { messages: unknown[] } }) => T) =>
-    selector({ thread: { messages: mockMessages } }),
+  useAuiState: <T,>(
+    selector: (state: { thread: { isRunning: boolean; messages: unknown[] } }) => T
+  ) => selector({ thread: { isRunning: mockIsRunning, messages: mockMessages } }),
 }));
 
 /** Open the meter's detail popover through the focus affordance. */
@@ -487,5 +490,253 @@ describe('ThreadContextMeter', () => {
     mockMessages = [{ parts: [{ text: 'Legacy parts-only text.', type: 'text' }] }];
     render(<ThreadContextMeter {...meterProps} />);
     expect(screen.getByText(/est\./)).toBeInTheDocument();
+  });
+
+  it('counts tool results in the estimate (the v1 text-only walk read absurdly low)', () => {
+    mockMessages = [
+      { content: [{ text: 'read the file', type: 'text' }], role: 'user' },
+      {
+        content: [
+          {
+            argsText: '{"path":"src/big.ts"}',
+            result: { content: 'x'.repeat(80_000) },
+            toolName: 'brainstrike.readWorkspaceFile',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+    ];
+    render(<ThreadContextMeter {...meterProps} />);
+    // ~20K tokens of tool result must show up, not the ~4 tokens of text.
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/20\.0K/);
+    expect(screen.getByText(/est\./)).toBeInTheDocument();
+  });
+
+  it('keeps moving WHILE a run streams even after exact usage exists (live estimate)', () => {
+    useContextUsageStore
+      .getState()
+      .recordUsage('test-thread', { inputTokens: 5000, outputTokens: 500 });
+    mockIsRunning = true;
+    mockMessages = [
+      {
+        content: [
+          {
+            argsText: '{}',
+            result: { content: 'y'.repeat(120_000) },
+            toolName: 'run_shell',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+    ];
+    render(<ThreadContextMeter {...meterProps} />);
+    // Live estimate (~30K) exceeds the stale exact figure (5.5K) → the gauge
+    // must lead with the estimate and flag it.
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/30\.0K/);
+    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    mockIsRunning = false;
+  });
+
+  it('floors the live streaming estimate at the last exact figure (context never shrinks)', () => {
+    useContextUsageStore
+      .getState()
+      .recordUsage('test-thread', { inputTokens: 50_000, outputTokens: 2000 });
+    mockIsRunning = true;
+    mockMessages = [{ content: [{ text: 'short new turn', type: 'text' }], role: 'user' }];
+    render(<ThreadContextMeter {...meterProps} />);
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/52\.0K/);
+    expect(screen.getByText(/est\./)).toBeInTheDocument();
+    mockIsRunning = false;
+  });
+});
+
+describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
+  beforeEach(() => {
+    resetContextUsageStore();
+    mockMessages = [];
+    mockIsRunning = false;
+  });
+
+  const props = {
+    contextWindow: 200_000,
+    effectiveInputBudget: 126_000,
+    threadKey: 't1',
+  };
+
+  const v2Breakdown = {
+    breakdown: {
+      attachmentsCount: 0,
+      provenance: 'heuristic',
+      systemInstructionsTokens: 1400,
+      taskListTokens: 120,
+      toolDefinitionsByTool: [
+        { name: 'brainstrike.readWorkspaceFile', tokens: 800 },
+        { name: 'run_shell', tokens: 700 },
+        { name: 'brainstrike.querySelf', tokens: 600 },
+        { name: 'skill_search', tokens: 500 },
+        { name: 'manageTaskList', tokens: 400 },
+        { name: 'tiny_one', tokens: 100 },
+        { name: 'tiny_two', tokens: 50 },
+      ],
+      toolDefinitionsProvenance: 'measured',
+      toolDefinitionsTokens: 3150,
+    },
+    invalid: false,
+  } as const;
+
+  it('renders the Tool definitions category with per-tool sub-rows capped at five plus a remainder', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', v2Breakdown);
+    render(<ContextUsageMeter {...props} />);
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-breakdown-tool-definitions')).toHaveTextContent(
+      /Tool definitions/
+    );
+    expect(screen.getByTestId('context-usage-breakdown-tool-definitions')).toHaveTextContent(
+      /3\.2K|3\.1K/
+    );
+    expect(screen.getByTestId('context-usage-tooldef-0')).toHaveTextContent(
+      /brainstrike\.readWorkspaceFile/
+    );
+    expect(screen.getByTestId('context-usage-tooldef-4')).toHaveTextContent(/manageTaskList/);
+    expect(screen.queryByTestId('context-usage-tooldef-5')).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-tooldef-rest')).toHaveTextContent(/\+2 more tools/);
+  });
+
+  it('renders the segmented capacity bar with one segment per non-zero category', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', v2Breakdown);
+    render(
+      <ContextUsageMeter
+        {...props}
+        conversationEstimate={{
+          assistantTextTokens: 500,
+          attachmentsCount: 0,
+          byTool: [{ name: 'run_shell', tokens: 9000 }],
+          reasoningTokens: 200,
+          toolTokens: 9000,
+          totalTokens: 10_000,
+          userTextTokens: 300,
+        }}
+      />
+    );
+    openMeterPopover();
+    const bar = screen.getByTestId('context-usage-bar');
+    const segments = [...bar.querySelectorAll('[data-segment]')].map((el) =>
+      el.getAttribute('data-segment')
+    );
+    expect(segments).toEqual(['system', 'toolDefinitions', 'taskList', 'conversation']);
+  });
+
+  it('splits the conversation into user/assistant/reasoning/tool rows with per-tool attribution', () => {
+    render(
+      <ContextUsageMeter
+        {...props}
+        conversationEstimate={{
+          assistantTextTokens: 500,
+          attachmentsCount: 1,
+          byTool: [
+            { name: 'run_shell', tokens: 9000 },
+            { name: 'brainstrike.search', tokens: 1000 },
+          ],
+          reasoningTokens: 200,
+          toolTokens: 10_000,
+          totalTokens: 11_000,
+          userTextTokens: 300,
+        }}
+      />
+    );
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(/11\.0K/);
+    expect(screen.getByTestId('context-usage-conv-user')).toHaveTextContent(/You/);
+    expect(screen.getByTestId('context-usage-conv-assistant')).toHaveTextContent(/Assistant/);
+    expect(screen.getByTestId('context-usage-conv-reasoning')).toHaveTextContent(/Reasoning/);
+    expect(screen.getByTestId('context-usage-conv-tools')).toHaveTextContent(/10\.0K/);
+    expect(screen.getByTestId('context-usage-conv-tool-0')).toHaveTextContent(/run_shell/);
+    expect(screen.getByTestId('context-usage-conv-tool-1')).toHaveTextContent(
+      /brainstrike\.search/
+    );
+    // Client-walk attachments render without a fabricated token figure.
+    expect(screen.getByTestId('context-usage-breakdown-attachments')).toHaveTextContent(
+      /1 attached/
+    );
+  });
+
+  it('includes tool definitions in the Unattributed subtraction once exact usage lands', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        historyMessagesTokens: 1000,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 2000,
+        toolDefinitionsTokens: 3000,
+      },
+      invalid: false,
+    });
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 10_000, outputTokens: 100 });
+    render(<ContextUsageMeter {...props} />);
+    openMeterPopover();
+    // 10_000 − (2000 + 3000 + 1000) = 4_000
+    expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/4\.0K/);
+  });
+
+  it('preserves a measured ZERO wire attachment count over stale client history (review fix)', () => {
+    // Wire IS the conversation (historyMessagesTokens present) and measured 0
+    // attachments — an older image lingering in UI history must not render an
+    // Attachments row claiming it participates in the prompt.
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        historyMessagesTokens: 500,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 100,
+      },
+      invalid: false,
+    });
+    render(
+      <ContextUsageMeter
+        {...props}
+        conversationEstimate={{
+          assistantTextTokens: 0,
+          attachmentsCount: 2,
+          byTool: [],
+          reasoningTokens: 0,
+          toolTokens: 0,
+          totalTokens: 10,
+          userTextTokens: 10,
+        }}
+      />
+    );
+    openMeterPopover();
+    expect(screen.queryByTestId('context-usage-breakdown-attachments')).not.toBeInTheDocument();
+  });
+
+  it('lets the client walk speak for attachments on memory-backed runs (wire is only the turn)', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 100,
+      },
+      invalid: false,
+    });
+    render(
+      <ContextUsageMeter
+        {...props}
+        conversationEstimate={{
+          assistantTextTokens: 0,
+          attachmentsCount: 2,
+          byTool: [],
+          reasoningTokens: 0,
+          toolTokens: 0,
+          totalTokens: 10,
+          userTextTokens: 10,
+        }}
+      />
+    );
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-breakdown-attachments')).toHaveTextContent(
+      /2 attached/
+    );
   });
 });

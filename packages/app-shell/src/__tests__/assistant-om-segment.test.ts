@@ -99,6 +99,18 @@ describe('resolveOmMeterState', () => {
     });
   });
 
+  it('auto target unresolved with the user toggle ON → awaiting-observer, not inactive (BST-940)', () => {
+    expect(
+      resolveOmMeterState(input({ omAwaitingObserver: true, omEnabled: false }))
+    ).toEqual<OmMeterState>({ kind: 'awaiting-observer' });
+    // Capability still wins first — web stays chat-only.
+    expect(
+      resolveOmMeterState(
+        input({ hasDurableCapability: false, omAwaitingObserver: true, omEnabled: false })
+      )
+    ).toEqual<OmMeterState>({ kind: 'chat-only' });
+  });
+
   it('loading + no row yet → loading (NOT the empty flash)', () => {
     expect(resolveOmMeterState(input({ loading: true, row: null }))).toEqual<OmMeterState>({
       kind: 'loading',

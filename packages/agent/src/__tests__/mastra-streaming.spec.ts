@@ -260,6 +260,8 @@ vi.mock('../mcp/explicit-stdio-client', () => ({
  */
 function expectLeadingContextBreakdown(chunks: unknown[]): unknown[] {
   expect(chunks[0]).toMatchObject({
+    // Whole-breakdown provenance is ALWAYS the heuristic — tool-definition
+    // precision rides toolDefinitionsProvenance (provenance must never lie).
     breakdown: { provenance: 'heuristic' },
     type: 'context-breakdown',
   });

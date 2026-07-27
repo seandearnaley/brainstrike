@@ -174,4 +174,75 @@ describe('run token diagnostics', () => {
     expect(logFields).not.toHaveProperty('toolDefinitionTokens');
     expect(JSON.stringify(logFields)).not.toContain('secret-model-output');
   });
+
+  it('exposes a per-tool definition breakdown for the context popover (BST-940)', async () => {
+    const small = createTool({
+      description: 'Tiny helper.',
+      execute: async () => ({}),
+      id: 'small_tool',
+      inputSchema: z.object({ a: z.string() }),
+    });
+    const big = createTool({
+      description: `Large tool. ${'schema detail '.repeat(50)}`,
+      execute: async () => ({}),
+      id: 'big_tool',
+      inputSchema: z.object({
+        alpha: z.string().describe('first field with a long description'),
+        beta: z.number().describe('second field with a long description'),
+        gamma: z.boolean().describe('third field with a long description'),
+      }),
+    });
+    const diagnostics = await createRunTokenDiagnostics({
+      capability: EXACT_O200K,
+      tools: { big_tool: big, small_tool: small },
+    });
+
+    const breakdown = diagnostics.toolDefinitionContextBreakdown();
+    expect(breakdown).toBeDefined();
+    if (!breakdown) {
+      throw new Error('expected a tool definition breakdown');
+    }
+    expect(breakdown.provenance).toBe('measured');
+    expect(breakdown.byTool.map((entry) => entry.name)).toEqual(['big_tool', 'small_tool']);
+    const bigEntry = breakdown.byTool[0];
+    const smallEntry = breakdown.byTool[1];
+    expect(bigEntry?.tokens ?? 0).toBeGreaterThan(smallEntry?.tokens ?? 0);
+    expect(breakdown.totalTokens).toBe(
+      breakdown.byTool.reduce((sum, entry) => sum + entry.tokens, 0)
+    );
+  });
+
+  it('reports the backstop provenance as heuristic in the per-tool breakdown', async () => {
+    const tool = createTool({
+      description: 'Backstop-counted tool.',
+      execute: async () => ({}),
+      id: 'plain_tool',
+      inputSchema: z.object({ q: z.string() }),
+    });
+    const diagnostics = await createRunTokenDiagnostics({
+      capability: { charactersPerToken: 4, mode: 'deterministic-serialized-character-backstop' },
+      tools: { plain_tool: tool },
+    });
+    const breakdown = diagnostics.toolDefinitionContextBreakdown();
+    expect(breakdown?.provenance).toBe('heuristic');
+    expect(breakdown?.byTool).toHaveLength(1);
+  });
+
+  it('returns undefined from the per-tool breakdown when measurement failed (never zero-faked)', async () => {
+    const tool = createTool({
+      description: 'Unmeasurable under a broken counter.',
+      execute: async () => ({}),
+      id: 'any_tool',
+      inputSchema: z.object({}),
+    });
+    const diagnostics = await createRunTokenDiagnostics(
+      { capability: EXACT_O200K, tools: { any_tool: tool } },
+      {
+        loadCounter: async () => {
+          throw new Error('counter unavailable');
+        },
+      }
+    );
+    expect(diagnostics.toolDefinitionContextBreakdown()).toBeUndefined();
+  });
 });
