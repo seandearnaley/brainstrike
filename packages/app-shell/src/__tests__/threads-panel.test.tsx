@@ -430,6 +430,21 @@ describe('ThreadsPanel', () => {
     expect(within(search).getByTestId('thread-search-input')).toBeVisible();
     expect(toolbar.nextElementSibling).toBe(search);
     expect(screen.queryByTestId('threads-panel-select-band')).not.toBeInTheDocument();
+
+    // One row of controls only reads as a row when the controls are the same
+    // size; the view-options trigger used to be 32px next to 28px neighbours.
+    for (const label of ['Select 2 visible threads', 'View options', 'New group']) {
+      expect(within(toolbar).getByRole('button', { name: label })).toHaveClass('size-7');
+    }
+  });
+
+  it('reads the visible count as singular when one thread is disclosed', async () => {
+    threadRows.splice(1);
+
+    renderThreadsPanel();
+
+    expect(await screen.findByRole('button', { name: 'Select 1 visible thread' })).toBeVisible();
+    expect(screen.getByTestId('threads-visible-count')).toHaveTextContent('1 thread visible');
   });
 
   it('drops the redundant Memory pill and its restated subtitle from the toolbar', async () => {

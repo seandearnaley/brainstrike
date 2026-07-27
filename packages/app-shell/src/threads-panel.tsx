@@ -1183,7 +1183,7 @@ function ThreadsViewOptionsPopover({
       <PopoverTrigger asChild>
         <Button
           aria-label="View options"
-          className="relative h-8 w-8 p-0"
+          className="relative size-7 p-0"
           size="sm"
           title="View options"
           type="button"
@@ -2697,11 +2697,13 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           data-testid="threads-visible-count"
         >
           {visibleThreadCount}
-          <span className="sr-only"> threads visible</span>
+          <span className="sr-only">
+            {visibleThreadCount === 1 ? ' thread visible' : ' threads visible'}
+          </span>
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <Button
-            aria-label={`${selection.allVisibleSelected ? 'Clear' : 'Select'} ${visibleThreadCount} visible threads`}
+            aria-label={`${selection.allVisibleSelected ? 'Clear' : 'Select'} ${visibleThreadCount} visible ${visibleThreadCount === 1 ? 'thread' : 'threads'}`}
             aria-pressed={selection.allVisibleSelected}
             className="size-7 p-0"
             disabled={visibleThreadCount === 0}
