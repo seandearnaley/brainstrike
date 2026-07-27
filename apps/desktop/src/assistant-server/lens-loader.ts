@@ -21,7 +21,12 @@
  */
 
 import type { LensDefinition } from '@brainstrike/assistant-contract';
-import { MAX_USER_LENSES, parseLensFile, USER_LENS_DIRNAME } from '@brainstrike/assistant-contract';
+import {
+  deriveLensId,
+  MAX_USER_LENSES,
+  parseLensFile,
+  USER_LENS_DIRNAME,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import type {
   UserSlashCommandDirEntry,
@@ -66,27 +71,27 @@ export type UserLensScanEntry = {
 } & (
   | { readonly lens: LensDefinition; readonly status: 'ok' }
   | { readonly error: string; readonly status: 'invalid' }
+  | {
+      /** The file that KEPT this id (skill-scan / persona-loader shape). */
+      readonly shadowedBy: { readonly absPath: string; readonly sourceRootId?: string };
+      readonly status: 'shadowed';
+    }
 );
 
 export interface UserLensScanResult {
   /** Every discovered file in priority order (valid and invalid). */
   readonly entries: readonly UserLensScanEntry[];
+  /**
+   * Directories NOT fully scanned, with why — same shape and rationale as the
+   * persona loader (BST-936): 'cap-reached' means the budget was exhausted
+   * before this directory was read at all.
+   */
+  readonly incompleteDirs: readonly {
+    readonly dir: string;
+    readonly reason: 'cap-reached' | 'listing-truncated';
+  }[];
   /** The valid lenses, in priority order. */
   readonly lenses: readonly LensDefinition[];
-  /** Same-id files SUPPRESSED by first-wins — visible, because a cloned repo
-   * silently replacing the body of a lens id the user trusts globally is the
-   * case where a listing line matters most (#2034 review). */
-  readonly shadowed: readonly {
-    readonly fileName: string;
-    /** Root that owns the KEPT lens; undefined = the global tier. */
-    readonly keptRootId?: string;
-    /** Root whose file was suppressed; undefined = the global tier. */
-    readonly sourceRootId?: string;
-  }[];
-  /** Directories whose listing hit the scan bound — later files were never
-   * read, and silence about that would be the one posture this module
-   * otherwise refuses. */
-  readonly truncatedDirs: readonly string[];
 }
 
 /**
@@ -126,6 +131,12 @@ interface ScanSource {
   readonly sourceRootId?: string;
 }
 
+/** The file currently holding an id — reported to whoever it shadows. */
+interface LensIdOwner {
+  readonly absPath: string;
+  readonly sourceRootId?: string;
+}
+
 function warnCollision(id: string, source: ScanSource, firstOwner: string | undefined): void {
   if (warnedCollisionIds.has(id)) {
     return;
@@ -155,24 +166,35 @@ function loadLensFile(
   baseDir: string,
   source: ScanSource,
   deps: UserLensScanDeps,
-  seen: Map<string, string | undefined>,
-  shadowed: { fileName: string; keptRootId?: string; sourceRootId?: string }[]
-): UserLensScanEntry | null {
+  seen: Map<string, LensIdOwner>
+): UserLensScanEntry {
   const absPath = joinPath(baseDir, [fileName]);
   const sourceRootField = source.sourceRootId ? { sourceRootId: source.sourceRootId } : {};
 
-  const id = fileName.replace(/\.sql$/i, '');
-  if (seen.has(id)) {
-    warnCollision(id, source, seen.get(id));
-    const keptRootId = seen.get(id);
-    shadowed.push({
-      fileName,
-      ...(keptRootId === undefined ? {} : { keptRootId }),
+  // The SAME derivation the parser uses (contract-owned), so the reserved key
+  // and the parsed lens id can never disagree. A filename that derives no
+  // valid id reserves nothing — a same-named file lower down fails identically.
+  const derived = deriveLensId(fileName);
+  if (derived.ok) {
+    const owner = seen.get(derived.id);
+    if (owner) {
+      warnCollision(derived.id, source, owner.sourceRootId);
+      return {
+        absPath,
+        fileName,
+        shadowedBy: {
+          absPath: owner.absPath,
+          ...(owner.sourceRootId === undefined ? {} : { sourceRootId: owner.sourceRootId }),
+        },
+        status: 'shadowed',
+        ...sourceRootField,
+      };
+    }
+    seen.set(derived.id, {
+      absPath,
       ...(source.sourceRootId === undefined ? {} : { sourceRootId: source.sourceRootId }),
     });
-    return null;
   }
-  seen.set(id, source.sourceRootId);
 
   const read = deps.readFile(absPath);
   if (!read.ok) {
@@ -195,11 +217,10 @@ function ingestDirectory(
   baseDir: string,
   source: ScanSource,
   deps: UserLensScanDeps,
-  seen: Map<string, string | undefined>,
+  seen: Map<string, LensIdOwner>,
   entries: UserLensScanEntry[],
   lenses: LensDefinition[],
-  shadowed: { fileName: string; keptRootId?: string; sourceRootId?: string }[],
-  truncatedDirs: string[]
+  incompleteDirs: { dir: string; reason: 'cap-reached' | 'listing-truncated' }[]
 ): void {
   // The cap counts ENTRIES (valid + invalid), not accepted lenses — a
   // directory full of malformed files must consume the scan bound rather
@@ -208,6 +229,7 @@ function ingestDirectory(
   const remaining = MAX_USER_LENSES_SCAN - entries.length;
   if (remaining <= 0) {
     warnCountCapReached();
+    incompleteDirs.push({ dir: baseDir, reason: 'cap-reached' });
     return;
   }
   const listing = deps.listDir(baseDir, source.containmentRoot, LENS_DIR_LISTING_BOUND);
@@ -219,7 +241,7 @@ function ingestDirectory(
       bound: LENS_DIR_LISTING_BOUND,
       dir: baseDir,
     });
-    truncatedDirs.push(baseDir);
+    incompleteDirs.push({ dir: baseDir, reason: 'listing-truncated' });
   }
   const fileNames = listing.entries
     .filter((entry) => entry.isFile && SQL_EXTENSION.test(entry.name))
@@ -229,12 +251,10 @@ function ingestDirectory(
   for (const fileName of fileNames) {
     if (entries.length >= MAX_USER_LENSES_SCAN) {
       warnCountCapReached();
+      incompleteDirs.push({ dir: baseDir, reason: 'cap-reached' });
       return;
     }
-    const entry = loadLensFile(fileName, baseDir, source, deps, seen, shadowed);
-    if (entry === null) {
-      continue;
-    }
+    const entry = loadLensFile(fileName, baseDir, source, deps, seen);
     entries.push(entry);
     if (entry.status === 'ok') {
       lenses.push(entry.lens);
@@ -250,11 +270,10 @@ export function scanUserLenses(
   input: UserLensScanInput,
   deps: UserLensScanDeps
 ): UserLensScanResult {
-  const seen = new Map<string, string | undefined>();
+  const seen = new Map<string, LensIdOwner>();
   const entries: UserLensScanEntry[] = [];
   const lenses: LensDefinition[] = [];
-  const shadowed: { fileName: string; keptRootId?: string; sourceRootId?: string }[] = [];
-  const truncatedDirs: string[] = [];
+  const incompleteDirs: { dir: string; reason: 'cap-reached' | 'listing-truncated' }[] = [];
 
   // Tier 1: <root>/.brainstrike/lenses (mounted order).
   for (const root of input.roots) {
@@ -265,8 +284,7 @@ export function scanUserLenses(
       seen,
       entries,
       lenses,
-      shadowed,
-      truncatedDirs
+      incompleteDirs
     );
   }
   // Tier 2: ~/.brainstrike/lenses.
@@ -277,9 +295,8 @@ export function scanUserLenses(
     seen,
     entries,
     lenses,
-    shadowed,
-    truncatedDirs
+    incompleteDirs
   );
 
-  return { entries, lenses, shadowed, truncatedDirs };
+  return { entries, incompleteDirs, lenses };
 }

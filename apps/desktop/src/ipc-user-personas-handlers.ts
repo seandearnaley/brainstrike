@@ -25,6 +25,20 @@ import {
 export type UserPersonasListDeps = UserCommandsListDeps;
 
 function toListItem(entry: UserPersonaScanEntry): AssistantPersonaListItem {
+  if (entry.status === 'shadowed') {
+    // No persona was built, so id/label fall back to the filename — and the
+    // row names the WINNER, which is what the author needs to act.
+    return {
+      absPath: entry.absPath,
+      description: '',
+      id: entry.fileName,
+      label: entry.fileName,
+      shadowedBy: entry.shadowedBy,
+      source: 'user',
+      status: 'shadowed',
+      ...(entry.sourceRootId ? { sourceRootId: entry.sourceRootId } : {}),
+    };
+  }
   if (entry.status === 'invalid') {
     return {
       absPath: entry.absPath,
@@ -62,7 +76,12 @@ export async function listUserPersonas(
   }));
   const roots = await resolveScanRoots(deps.getDatabase);
   const scan = scanUserPersonas({ homeDir: deps.homedir(), roots }, deps.fs);
-  return { personas: [...builtIns, ...scan.entries.map(toListItem)] };
+  // Shadowed files ride `entries` like every other outcome (the skill-scan
+  // convention), so nothing needs a separate list to stay visible.
+  return {
+    personas: [...builtIns, ...scan.entries.map(toListItem)],
+    ...(scan.incompleteDirs.length > 0 ? { incompleteDirs: [...scan.incompleteDirs] } : {}),
+  };
 }
 
 /**

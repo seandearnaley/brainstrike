@@ -79,7 +79,17 @@ const LENS_SCAN: UserLensScanResult = {
       sourceRootId: 'root-a',
       status: 'invalid',
     },
+    {
+      absPath: '/home/user/.brainstrike/lenses/callers-hybrid.sql',
+      fileName: 'callers-hybrid.sql',
+      shadowedBy: {
+        absPath: '/work/a/.brainstrike/lenses/callers-hybrid.sql',
+        sourceRootId: 'root-a',
+      },
+      status: 'shadowed',
+    },
   ],
+  incompleteDirs: [],
   lenses: [
     {
       description: 'Caller-graph hybrid retrieval',
@@ -91,8 +101,6 @@ const LENS_SCAN: UserLensScanResult = {
       sql: 'SELECT path FROM t WHERE name = $1 AND depth < $2',
     },
   ],
-  shadowed: [{ fileName: 'callers-hybrid.sql' }],
-  truncatedDirs: [],
 };
 
 beforeEach(() => {
@@ -126,9 +134,13 @@ describe('mode=listLenses', () => {
         source: 'root-a',
       },
     ]);
-    // Shadowing is visible with tier provenance ('global' = ~/.brainstrike).
+    // Shadowing is visible and names the file that WON.
     expect(result.shadowed).toEqual([
-      { fileName: 'callers-hybrid.sql', keptSource: 'global', source: 'global' },
+      {
+        fileName: 'callers-hybrid.sql',
+        shadowedByPath: '/work/a/.brainstrike/lenses/callers-hybrid.sql',
+        source: 'global',
+      },
     ]);
     // Discovery is a pure directory scan; the database is never touched.
     expect(getDatabaseMock).not.toHaveBeenCalled();

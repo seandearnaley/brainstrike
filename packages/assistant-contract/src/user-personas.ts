@@ -305,7 +305,8 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
 /**
  * One persona row as the discovery IPC reports it to the settings panel:
  * built-ins and user personas in one list, INCLUDING invalid user files (with
- * their error) so authors see exactly why a persona did not load.
+ * their error) and files SHADOWED by a higher-priority tier, so authors see
+ * exactly why a persona did not load.
  */
 export interface AssistantPersonaListItem {
   /** Absolute file path (user personas only). */
@@ -317,14 +318,37 @@ export interface AssistantPersonaListItem {
   readonly label: string;
   /** Serialized `provider::modelId` pin, for display. */
   readonly modelPin?: string;
+  /** The file that KEPT this id, for status 'shadowed'. Shaped like
+   * skill-scan's `shadowedBy` so both features answer the author's actual
+   * question — WHICH file won — rather than only naming a tier. */
+  readonly shadowedBy?: { readonly absPath: string; readonly sourceRootId?: string };
   readonly source: 'built-in' | 'user';
   /** Owning root id for project-scoped user personas. */
   readonly sourceRootId?: string;
-  readonly status: 'invalid' | 'ok';
+  /**
+   * 'shadowed' is deliberately its OWN state rather than an error: a
+   * suppressed duplicate is a precedence outcome, not an authoring mistake,
+   * and reporting it as invalid would send the author hunting for a defect
+   * that is not there. It shares 'invalid''s lack of a toggle, since neither
+   * is a loadable persona (BST-936).
+   */
+  readonly status: 'invalid' | 'ok' | 'shadowed';
 }
 
 /** The persona discovery IPC payload. */
 export interface AssistantPersonasListResult {
+  /**
+   * Directories that were NOT fully scanned, with why. Both causes make
+   * personas silently absent, which is the failure this panel exists to
+   * break: 'listing-truncated' = the directory had more entries than the
+   * listing bound; 'cap-reached' = the scan cap was exhausted before this
+   * directory was read at all (so a root full of malformed files can no
+   * longer quietly starve `~/.brainstrike/agents`).
+   */
+  readonly incompleteDirs?: readonly {
+    readonly dir: string;
+    readonly reason: 'cap-reached' | 'listing-truncated';
+  }[];
   readonly personas: readonly AssistantPersonaListItem[];
 }
 
@@ -355,7 +379,14 @@ type PersonaFieldResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly error: string; readonly ok: false };
 
-function resolvePersonaId(fileName: string): PersonaFieldResult<string> {
+/**
+ * The FULL persona-id gate: filename derivation PLUS the built-in collision
+ * check. Exported because the desktop loader reserves ids before parsing, and
+ * reserving through only the derivation half mislabels built-in collisions —
+ * the second same-named file would be reported as "shadowed by another file"
+ * when in truth NEITHER can load, because a built-in owns the name (BST-936).
+ */
+export function resolveUserPersonaId(fileName: string): PersonaFieldResult<string> {
   const derived = deriveUserPersonaId(fileName);
   if (!derived.ok) {
     return { error: derived.error, ok: false };
@@ -427,7 +458,7 @@ export function buildUserPersona(input: BuildUserPersonaInput): BuildUserPersona
     };
   }
 
-  const id = resolvePersonaId(input.fileName);
+  const id = resolveUserPersonaId(input.fileName);
   if (!id.ok) {
     return { error: id.error, ok: false };
   }

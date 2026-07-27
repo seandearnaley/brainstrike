@@ -168,12 +168,12 @@ function projectLenses(result: Extract<QuerySelfResult, { kind: 'lenses' }>): st
   }
   for (const item of result.shadowed) {
     body.push(
-      `SHADOWED${CELL_SEPARATOR}${escapeCell(item.fileName)}${CELL_SEPARATOR}[${escapeCell(item.source)}] suppressed by [${escapeCell(item.keptSource)}]`
+      `SHADOWED${CELL_SEPARATOR}${escapeCell(item.fileName)}${CELL_SEPARATOR}[${escapeCell(item.source)}] inactive; ${escapeCell(item.shadowedByPath)} owns this id`
     );
   }
-  for (const dir of result.truncatedDirs) {
+  for (const entry of result.incompleteDirs) {
     body.push(
-      `TRUNCATED${CELL_SEPARATOR}${escapeCell(dir)}${CELL_SEPARATOR}listing hit the scan bound; later files unread`
+      `INCOMPLETE${CELL_SEPARATOR}${escapeCell(entry.dir)}${CELL_SEPARATOR}${escapeCell(entry.reason)}; some lenses were not read`
     );
   }
   body.push(

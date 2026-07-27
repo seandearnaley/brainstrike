@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   coerceLensValues,
+  deriveLensId,
   MAX_USER_LENS_PARAMS,
   MAX_USER_LENS_SQL_CHARS,
   parseLensFile,
@@ -127,6 +128,28 @@ describe('parseLensFile', () => {
       throw new Error(result.error);
     }
     expect(result.lens.sql).toContain('interior comment');
+  });
+});
+
+describe('deriveLensId', () => {
+  it('derives the stem and agrees with parseLensFile', () => {
+    const derived = deriveLensId('callers-hybrid.sql');
+    expect(derived).toEqual({ id: 'callers-hybrid', ok: true });
+
+    const parsed = parseLensFile('callers-hybrid.sql', VALID);
+    expect(parsed.ok && parsed.lens.id).toBe('callers-hybrid');
+  });
+
+  it.each([
+    ['uppercase stem', 'MyLens.sql'],
+    ['uppercase extension with uppercase stem', 'MyLens.SQL'],
+    ['non-sql extension', 'lens.txt'],
+  ])('rejects %s — the loader must not reserve an id the parser refuses', (_label, fileName) => {
+    // The drift this function exists to remove: the loader once accepted
+    // `MyLens.SQL` as the id `MyLens` while the parser rejected the file, so
+    // the reserved key and the real id disagreed (BST-936).
+    expect(deriveLensId(fileName).ok).toBe(false);
+    expect(parseLensFile(fileName, VALID).ok).toBe(false);
   });
 });
 

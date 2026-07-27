@@ -56,6 +56,35 @@ function isLensParamType(value: string): value is LensParamType {
   return (LENS_PARAM_TYPES as readonly string[]).includes(value);
 }
 
+export type DeriveLensIdResult =
+  | { readonly id: string; readonly ok: true }
+  | { readonly error: string; readonly ok: false };
+
+/**
+ * A lens id IS its filename stem — the SINGLE derivation, shared by the
+ * parser and by the desktop loader's pre-parse id reservation.
+ *
+ * Exported because the loader must reserve an id BEFORE reading the file (a
+ * broken project lens has to block a same-named global one), and a second
+ * hand-rolled `replace(/\.sql$/i, '')` there had already drifted: it accepted
+ * `MyLens.SQL` as the id `MyLens`, which this validator rejects, so the
+ * reserved key and the real id disagreed. Mirrors `deriveUserPersonaId`
+ * (BST-936).
+ */
+export function deriveLensId(fileName: string): DeriveLensIdResult {
+  if (!fileName.toLowerCase().endsWith('.sql')) {
+    return { error: `Lens file must have a .sql extension: ${fileName}`, ok: false };
+  }
+  const id = fileName.slice(0, -'.sql'.length);
+  if (!LENS_ID_PATTERN.test(id)) {
+    return {
+      error: `Lens id (the filename) must match ${String(LENS_ID_PATTERN)}: ${fileName}`,
+      ok: false,
+    };
+  }
+  return { id, ok: true };
+}
+
 /**
  * Parses one lens file. The header is the leading run of `--` comment lines;
  * the first line that is neither a comment nor blank ends it, and EVERYTHING
@@ -70,16 +99,11 @@ function isLensParamType(value: string): value is LensParamType {
  * the author renames the literal.)
  */
 export function parseLensFile(fileName: string, content: string): ParseLensFileResult {
-  if (!fileName.toLowerCase().endsWith('.sql')) {
-    return { error: `Lens file must have a .sql extension: ${fileName}`, ok: false };
+  const derived = deriveLensId(fileName);
+  if (!derived.ok) {
+    return { error: derived.error, ok: false };
   }
-  const id = fileName.slice(0, -'.sql'.length);
-  if (!LENS_ID_PATTERN.test(id)) {
-    return {
-      error: `Lens id (the filename) must match ${String(LENS_ID_PATTERN)}: ${fileName}`,
-      ok: false,
-    };
-  }
+  const id = derived.id;
   if (content.length > MAX_USER_LENS_FILE_CHARS) {
     return { error: `Lens file exceeds ${MAX_USER_LENS_FILE_CHARS} characters.`, ok: false };
   }

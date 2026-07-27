@@ -25,7 +25,7 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   subagentPersonasSelectors,
@@ -52,6 +52,43 @@ const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.ma
   status: 'ok',
 }));
 
+/**
+ * The row's second line: the error for a broken file, the shadowing
+ * explanation for a suppressed one, otherwise the description.
+ *
+ * A shadowed file is styled MUTED, not destructive: it is a precedence
+ * outcome (a higher-priority tier owns the id), not an authoring mistake, and
+ * a red alert would send the author hunting for a defect that is not there.
+ * It still gets a line, because a duplicate that disappears without one is
+ * exactly the silence this panel exists to break (BST-936).
+ */
+function PersonaRowDetail({
+  item,
+}: {
+  readonly item: AssistantPersonaListItem;
+}): React.JSX.Element {
+  if (item.status === 'invalid') {
+    return (
+      <p className="flex items-center gap-1 text-destructive text-sm">
+        <AlertTriangle className="size-3.5 shrink-0" />
+        {item.error}
+      </p>
+    );
+  }
+  if (item.status === 'shadowed') {
+    // Same wording shape as the skills panel: name the WINNING file, because
+    // "which copy is live" is the question the author actually has.
+    return (
+      <p className="flex items-center gap-1 text-muted-foreground text-sm">
+        <Layers className="size-3.5 shrink-0" />
+        Shadowed by a higher-priority persona of the same name in{' '}
+        <code>{item.shadowedBy?.absPath}</code> — this copy is inactive.
+      </p>
+    );
+  }
+  return <p className="text-muted-foreground text-sm">{item.description}</p>;
+}
+
 function PersonaRow(props: {
   readonly disabled: boolean;
   readonly enabled: boolean;
@@ -67,14 +104,7 @@ function PersonaRow(props: {
           {item.source === 'user' ? <Badge variant="outline">User</Badge> : null}
           {item.modelPin ? <Badge variant="secondary">{item.modelPin}</Badge> : null}
         </div>
-        {item.status === 'invalid' ? (
-          <p className="flex items-center gap-1 text-destructive text-sm">
-            <AlertTriangle className="size-3.5 shrink-0" />
-            {item.error}
-          </p>
-        ) : (
-          <p className="text-muted-foreground text-sm">{item.description}</p>
-        )}
+        <PersonaRowDetail item={item} />
       </div>
       {item.status === 'ok' ? (
         <Switch
@@ -96,6 +126,9 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
   const setPersonaEnabled = useSubagentPersonasStore((state) => state.setPersonaEnabled);
 
   const [bridgeItems, setBridgeItems] = useState<readonly AssistantPersonaListItem[] | null>(null);
+  const [incompleteDirs, setIncompleteDirs] = useState<
+    readonly { dir: string; reason: 'cap-reached' | 'listing-truncated' }[]
+  >([]);
   const hasBridge = getPersonasBridge() !== null;
 
   useEffect(() => {
@@ -109,6 +142,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
       .then((result) => {
         if (!cancelled) {
           setBridgeItems(result.personas);
+          setIncompleteDirs(result.incompleteDirs ?? []);
         }
       })
       .catch(() => {
@@ -117,6 +151,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
         // personas themselves, which the server resolves independently.
         if (!cancelled) {
           setBridgeItems(null);
+          setIncompleteDirs([]);
         }
       });
     return () => {
@@ -156,6 +191,22 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
             onCheckedChange={(value) => setDelegationEnabled(value === true)}
           />
         </div>
+
+        {incompleteDirs.length > 0 ? (
+          <div className="space-y-1" data-testid="subagent-personas-incomplete">
+            {incompleteDirs.map((entry) => (
+              <p
+                className="flex items-center gap-1 text-amber-600 text-sm dark:text-amber-500"
+                key={`${entry.reason}:${entry.dir}`}
+              >
+                <AlertTriangle className="size-3.5 shrink-0" />
+                {entry.reason === 'cap-reached'
+                  ? `Persona scan limit reached before ${entry.dir} was read — personas there were not loaded.`
+                  : `Too many files to scan in ${entry.dir} — some personas were not read.`}
+              </p>
+            ))}
+          </div>
+        ) : null}
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!delegationEnabled}>
           <legend className="font-medium text-sm">Personas</legend>
