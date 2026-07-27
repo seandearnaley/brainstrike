@@ -66,6 +66,21 @@ export const measureLocatorInteractionFrames = async (
           requestAnimationFrame(() => resolve());
         });
       });
+    const readCheckedState = (element: Element, index: number): boolean | string => {
+      const ariaChecked = element.getAttribute('aria-checked');
+      if (ariaChecked !== null) {
+        return ariaChecked;
+      }
+
+      const checked = (element as { checked?: unknown }).checked;
+      if (typeof checked === 'boolean') {
+        return checked;
+      }
+
+      throw new Error(
+        `Interaction benchmark element ${index} does not expose observable checked state`
+      );
+    };
     const samplesMs: number[] = [];
 
     for (let index = 0; index < requestedInteraction.count; index++) {
@@ -73,15 +88,37 @@ export const measureLocatorInteractionFrames = async (
       if (!element) {
         throw new Error(`Interaction benchmark element ${index} disappeared before measurement`);
       }
+      if (!element.isConnected) {
+        throw new Error(`Interaction benchmark element ${index} detached before its click`);
+      }
+      if (
+        (element as { disabled?: unknown }).disabled === true ||
+        element.getAttribute('aria-disabled') === 'true'
+      ) {
+        throw new Error(
+          `Interaction benchmark element ${index} is disabled; the click would be a silent no-op`
+        );
+      }
 
       const click = (element as { click?: unknown }).click;
       if (typeof click !== 'function') {
         throw new Error(`Interaction benchmark element ${index} is not clickable`);
       }
 
+      const checkedBefore = readCheckedState(element, index);
+
       const startedAt = performance.now();
       click.call(element);
       await waitForPaint();
+      if (!element.isConnected) {
+        throw new Error(`Interaction benchmark element ${index} detached after its click`);
+      }
+      const checkedAfter = readCheckedState(element, index);
+      if (checkedAfter === checkedBefore) {
+        throw new Error(
+          `Interaction benchmark element ${index} did not change checked state after its click`
+        );
+      }
       samplesMs.push(performance.now() - startedAt);
     }
 

@@ -17,6 +17,23 @@ function createLocator(elements: unknown[]): Locator {
   } as unknown as Locator;
 }
 
+function createCheckbox(): {
+  click: ReturnType<typeof vi.fn>;
+  disabled: boolean;
+  getAttribute: (name: string) => string | null;
+  isConnected: boolean;
+} {
+  let checked = false;
+  return {
+    click: vi.fn(() => {
+      checked = !checked;
+    }),
+    disabled: false,
+    getAttribute: (name: string) => (name === 'aria-checked' ? String(checked) : null),
+    isConnected: true,
+  };
+}
+
 describe('performance helpers (unit)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -36,13 +53,16 @@ describe('performance helpers (unit)', () => {
   });
 
   it('PERFORMANCE_THRESHOLDS is defined', () => {
+    expect(PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_AVERAGE_MAX_MS).toBeGreaterThan(0);
+    expect(PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS).toBeGreaterThan(0);
+    expect(PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS).toBeGreaterThan(0);
     expect(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB).toBeGreaterThan(0);
   });
 
   it('measures checkbox interactions inside the browser through the next painted frame', async () => {
-    const clickFirst = vi.fn();
-    const clickSecond = vi.fn();
-    const clickThird = vi.fn();
+    const first = createCheckbox();
+    const second = createCheckbox();
+    const third = createCheckbox();
     vi.spyOn(performance, 'now')
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(32)
@@ -53,14 +73,14 @@ describe('performance helpers (unit)', () => {
       return 1;
     });
 
-    const metrics = await measureLocatorInteractionFrames(
-      createLocator([{ click: clickFirst }, { click: clickSecond }, { click: clickThird }]),
-      { count: 2, kind: 'click-each' }
-    );
+    const metrics = await measureLocatorInteractionFrames(createLocator([first, second, third]), {
+      count: 2,
+      kind: 'click-each',
+    });
 
-    expect(clickFirst).toHaveBeenCalledOnce();
-    expect(clickSecond).toHaveBeenCalledOnce();
-    expect(clickThird).not.toHaveBeenCalled();
+    expect(first.click).toHaveBeenCalledOnce();
+    expect(second.click).toHaveBeenCalledOnce();
+    expect(third.click).not.toHaveBeenCalled();
     expect(metrics).toEqual({
       averageDurationMs: 32,
       maxDurationMs: 32,
@@ -71,10 +91,70 @@ describe('performance helpers (unit)', () => {
 
   it('fails visibly when the requested interaction count exceeds the locator results', async () => {
     await expect(
-      measureLocatorInteractionFrames(createLocator([{ click: vi.fn() }]), {
+      measureLocatorInteractionFrames(createLocator([createCheckbox()]), {
         count: 2,
         kind: 'click-each',
       })
     ).rejects.toThrow('requested 2 elements, but the locator matched 1');
+  });
+
+  it('fails visibly instead of measuring a disabled checkbox no-op', async () => {
+    const checkbox = createCheckbox();
+    checkbox.disabled = true;
+
+    await expect(
+      measureLocatorInteractionFrames(createLocator([checkbox]), {
+        count: 1,
+        kind: 'click-each',
+      })
+    ).rejects.toThrow('disabled');
+  });
+
+  it('fails visibly instead of measuring a detached checkbox no-op', async () => {
+    const checkbox = createCheckbox();
+    checkbox.isConnected = false;
+
+    await expect(
+      measureLocatorInteractionFrames(createLocator([checkbox]), {
+        count: 1,
+        kind: 'click-each',
+      })
+    ).rejects.toThrow('detached');
+  });
+
+  it('fails visibly when a click does not change checked state', async () => {
+    const checkbox = createCheckbox();
+    checkbox.click = vi.fn();
+
+    await expect(
+      measureLocatorInteractionFrames(createLocator([checkbox]), {
+        count: 1,
+        kind: 'click-each',
+      })
+    ).rejects.toThrow('did not change checked state');
+  });
+
+  it('observes checked state on native checkboxes without aria-checked', async () => {
+    const checkbox = {
+      checked: false,
+      click: vi.fn(() => {
+        checkbox.checked = true;
+      }),
+      disabled: false,
+      getAttribute: () => null,
+      isConnected: true,
+    };
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(32);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    await expect(
+      measureLocatorInteractionFrames(createLocator([checkbox]), {
+        count: 1,
+        kind: 'click-each',
+      })
+    ).resolves.toMatchObject({ samplesMs: [32] });
   });
 });
