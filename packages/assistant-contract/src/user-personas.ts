@@ -318,9 +318,10 @@ export interface AssistantPersonaListItem {
   readonly label: string;
   /** Serialized `provider::modelId` pin, for display. */
   readonly modelPin?: string;
-  /** Which tier kept the id when this file was shadowed: a root id, or
-   * 'global' for `~/.brainstrike`. Set only for status 'shadowed'. */
-  readonly shadowedBy?: string;
+  /** The file that KEPT this id, for status 'shadowed'. Shaped like
+   * skill-scan's `shadowedBy` so both features answer the author's actual
+   * question — WHICH file won — rather than only naming a tier. */
+  readonly shadowedBy?: { readonly absPath: string; readonly sourceRootId?: string };
   readonly source: 'built-in' | 'user';
   /** Owning root id for project-scoped user personas. */
   readonly sourceRootId?: string;
@@ -336,10 +337,19 @@ export interface AssistantPersonaListItem {
 
 /** The persona discovery IPC payload. */
 export interface AssistantPersonasListResult {
+  /**
+   * Directories that were NOT fully scanned, with why. Both causes make
+   * personas silently absent, which is the failure this panel exists to
+   * break: 'listing-truncated' = the directory had more entries than the
+   * listing bound; 'cap-reached' = the scan cap was exhausted before this
+   * directory was read at all (so a root full of malformed files can no
+   * longer quietly starve `~/.brainstrike/agents`).
+   */
+  readonly incompleteDirs?: readonly {
+    readonly dir: string;
+    readonly reason: 'cap-reached' | 'listing-truncated';
+  }[];
   readonly personas: readonly AssistantPersonaListItem[];
-  /** Directories whose listing hit the scan bound; later files were never
-   * read. Surfaced so "my persona is missing" has a visible cause. */
-  readonly truncatedDirs?: readonly string[];
 }
 
 export interface BuildUserPersonaInput {
@@ -369,7 +379,14 @@ type PersonaFieldResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly error: string; readonly ok: false };
 
-function resolvePersonaId(fileName: string): PersonaFieldResult<string> {
+/**
+ * The FULL persona-id gate: filename derivation PLUS the built-in collision
+ * check. Exported because the desktop loader reserves ids before parsing, and
+ * reserving through only the derivation half mislabels built-in collisions —
+ * the second same-named file would be reported as "shadowed by another file"
+ * when in truth NEITHER can load, because a built-in owns the name (BST-936).
+ */
+export function resolveUserPersonaId(fileName: string): PersonaFieldResult<string> {
   const derived = deriveUserPersonaId(fileName);
   if (!derived.ok) {
     return { error: derived.error, ok: false };
@@ -441,7 +458,7 @@ export function buildUserPersona(input: BuildUserPersonaInput): BuildUserPersona
     };
   }
 
-  const id = resolvePersonaId(input.fileName);
+  const id = resolveUserPersonaId(input.fileName);
   if (!id.ok) {
     return { error: id.error, ok: false };
   }

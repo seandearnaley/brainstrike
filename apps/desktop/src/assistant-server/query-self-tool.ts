@@ -90,6 +90,8 @@ export interface QuerySelfPlanResult {
 }
 
 export interface QuerySelfLensesResult {
+  /** Directories not fully scanned, with why. */
+  incompleteDirs: { dir: string; reason: string }[];
   /** Broken lens files, VISIBLE with their parse errors (fail closed, never silent). */
   invalid: { error: string; fileName: string; source: string }[];
   kind: 'lenses';
@@ -101,10 +103,9 @@ export interface QuerySelfLensesResult {
      * this" is the load-bearing fact for a reviewable artifact. */
     source: string;
   }[];
-  /** Same-id files suppressed by first-wins — shadowing must be visible. */
-  shadowed: { fileName: string; keptSource: string; source: string }[];
-  /** Directories whose listing hit the scan bound (later files unread). */
-  truncatedDirs: string[];
+  /** Same-id files suppressed by first-wins — shadowing must be visible,
+   * naming the file that WON (skill-scan / persona-loader shape). */
+  shadowed: { fileName: string; shadowedByPath: string; source: string }[];
 }
 
 export type QuerySelfResult =
@@ -217,6 +218,10 @@ function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
   const sourceOf = (rootId: string | undefined): string => rootId ?? 'global';
   const okEntries = scan.entries.filter((entry) => entry.status === 'ok');
   return {
+    incompleteDirs: scan.incompleteDirs.map((entry) => ({
+      dir: entry.dir,
+      reason: entry.reason,
+    })),
     invalid: scan.entries
       .filter((entry) => entry.status === 'invalid')
       .map((entry) => ({
@@ -235,12 +240,13 @@ function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
       })),
       source: sourceOf(entry.sourceRootId),
     })),
-    shadowed: scan.shadowed.map((item) => ({
-      fileName: item.fileName,
-      keptSource: sourceOf(item.keptRootId),
-      source: sourceOf(item.sourceRootId),
-    })),
-    truncatedDirs: [...scan.truncatedDirs],
+    shadowed: scan.entries
+      .filter((entry) => entry.status === 'shadowed')
+      .map((entry) => ({
+        fileName: entry.fileName,
+        shadowedByPath: entry.shadowedBy.absPath,
+        source: sourceOf(entry.sourceRootId),
+      })),
   };
 }
 

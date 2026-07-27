@@ -108,7 +108,7 @@ describe('listUserPersonas', () => {
     const shadowed = result.personas.find((row) => row.status === 'shadowed');
     expect(shadowed).toMatchObject({
       id: 'reviewer.md',
-      shadowedBy: 'global',
+      shadowedBy: { absPath: `${HOME}/.brainstrike/agents/reviewer.markdown` },
       source: 'user',
     });
     expect(shadowed?.error).toBeUndefined();
@@ -129,7 +129,9 @@ describe('listUserPersonas', () => {
       homedir: () => HOME,
     });
 
-    expect(result.truncatedDirs).toEqual([`${HOME}/.brainstrike/agents`]);
+    expect(result.incompleteDirs).toEqual([
+      { dir: `${HOME}/.brainstrike/agents`, reason: 'listing-truncated' },
+    ]);
   });
 
   it('returns only built-ins when no persona dirs exist', async () => {

@@ -148,7 +148,7 @@ describe('SubagentPersonasSettingsSection', () => {
               description: '',
               id: 'reviewer.md',
               label: 'reviewer.md',
-              shadowedBy: 'root-a',
+              shadowedBy: { absPath: '/work/a/.brainstrike/agents/reviewer.md' },
               source: 'user' as const,
               status: 'shadowed' as const,
             },
@@ -157,26 +157,35 @@ describe('SubagentPersonasSettingsSection', () => {
     });
     render(<SubagentPersonasSettingsSection />);
 
-    const detail = await screen.findByText(/already owns this persona name/i);
+    const detail = await screen.findByText(/this copy is inactive/i);
     expect(detail).toBeInTheDocument();
     expect(detail).toHaveClass('text-muted-foreground');
     expect(detail).not.toHaveClass('text-destructive');
     expect(screen.queryByTestId('subagent-persona-toggle-reviewer.md')).not.toBeInTheDocument();
   });
 
-  it('warns when a persona directory listing was truncated', async () => {
+  it('warns about directories that were not fully scanned, in amber not red', async () => {
+    // Neither cause is an authoring mistake, so red is reserved for "you must
+    // fix a file"; and the notice sits OUTSIDE the delegation fieldset,
+    // because it is about disk state (#2035 review).
     setBridge({
       list: () =>
         Promise.resolve({
+          incompleteDirs: [
+            { dir: '/work/a/.brainstrike/agents', reason: 'listing-truncated' as const },
+            { dir: '/home/user/.brainstrike/agents', reason: 'cap-reached' as const },
+          ],
           personas: [],
-          truncatedDirs: ['/work/a/.brainstrike/agents'],
         }),
     });
     render(<SubagentPersonasSettingsSection />);
 
-    const warning = await screen.findByTestId('subagent-personas-truncated');
-    expect(warning).toHaveTextContent('/work/a/.brainstrike/agents');
-    expect(warning).toHaveTextContent(/not read/i);
+    const warnings = await screen.findByTestId('subagent-personas-incomplete');
+    expect(warnings).toHaveTextContent('/work/a/.brainstrike/agents');
+    expect(warnings).toHaveTextContent(/not read/i);
+    expect(warnings).toHaveTextContent(/scan limit reached/i);
+    expect(warnings.querySelector('.text-destructive')).toBeNull();
+    expect(warnings.closest('fieldset')).toBeNull();
   });
 
   it('without the bridge, shows the desktop-only note for user personas', () => {

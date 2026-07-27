@@ -83,9 +83,13 @@ describe('scanUserLenses', () => {
     const result = scanUserLenses({ homeDir: HOME, roots: [ROOT_A] }, deps);
     expect(result.lenses).toHaveLength(1);
     expect(result.lenses[0]?.description).toBe('project lens');
-    // The duplicate produces no ENTRY, but the suppression is visible.
-    expect(result.entries).toHaveLength(1);
-    expect(result.shadowed).toEqual([{ fileName: 'shared.sql', keptRootId: 'root-a' }]);
+    // The duplicate is an ENTRY naming the winner (converged with the
+    // persona loader / skill-scan shape).
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[1]).toMatchObject({
+      shadowedBy: { absPath: '/work/a/.brainstrike/lenses/shared.sql', sourceRootId: 'root-a' },
+      status: 'shadowed',
+    });
   });
 
   it('a BROKEN project lens blocks a same-named global lens — no silent fallback', () => {
@@ -98,9 +102,12 @@ describe('scanUserLenses', () => {
     });
     const result = scanUserLenses({ homeDir: HOME, roots: [ROOT_A] }, deps);
     expect(result.lenses).toHaveLength(0);
-    expect(result.entries).toHaveLength(1);
-    expect(result.entries[0]).toMatchObject({ sourceRootId: 'root-a', status: 'invalid' });
-    expect(result.shadowed).toEqual([{ fileName: 'shared.sql', keptRootId: 'root-a' }]);
+    const [broken, suppressed] = result.entries;
+    expect(broken).toMatchObject({ sourceRootId: 'root-a', status: 'invalid' });
+    expect(suppressed).toMatchObject({
+      shadowedBy: { absPath: '/work/a/.brainstrike/lenses/shared.sql', sourceRootId: 'root-a' },
+      status: 'shadowed',
+    });
   });
 
   it('invalid files consume the scan cap — malformed dirs cannot extend the scan', () => {
@@ -127,7 +134,9 @@ describe('scanUserLenses', () => {
       readFile: () => ({ content: lensFile('present'), ok: true }),
     };
     const result = scanUserLenses({ homeDir: HOME, roots: [ROOT_A] }, deps);
-    expect(result.truncatedDirs).toEqual(['/work/a/.brainstrike/lenses']);
+    expect(result.incompleteDirs).toEqual([
+      { dir: '/work/a/.brainstrike/lenses', reason: 'listing-truncated' },
+    ]);
     expect(result.lenses).toHaveLength(1);
   });
 

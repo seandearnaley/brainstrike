@@ -173,15 +173,15 @@ describe('scanUserPersonas', () => {
     const result = scanUserPersonas({ homeDir: HOME, roots: [ROOT_A] }, deps);
 
     expect(result.personas).toHaveLength(0);
-    expect(result.entries).toHaveLength(1);
-    expect(result.entries[0]).toMatchObject({ sourceRootId: 'root-a', status: 'invalid' });
-    expect(result.shadowed).toEqual([
-      {
-        absPath: `${HOME}/.brainstrike/agents/reviewer.md`,
-        fileName: 'reviewer.md',
-        keptRootId: 'root-a',
-      },
-    ]);
+    const [broken, suppressed] = result.entries;
+    expect(broken).toMatchObject({ sourceRootId: 'root-a', status: 'invalid' });
+    // The global file is reported as shadowed BY the broken project file —
+    // naming the winner's path, the author's actual question.
+    expect(suppressed).toMatchObject({
+      absPath: `${HOME}/.brainstrike/agents/reviewer.md`,
+      shadowedBy: { absPath: '/work/a/.brainstrike/agents/reviewer.md', sourceRootId: 'root-a' },
+      status: 'shadowed',
+    });
   });
 
   it('a suppressed duplicate is VISIBLE in shadowed, not merely logged', () => {
@@ -193,12 +193,49 @@ describe('scanUserPersonas', () => {
 
     expect(result.personas).toHaveLength(1);
     expect(result.personas[0]?.description).toBe('project reviewer');
-    expect(result.shadowed).toEqual([
-      {
-        absPath: `${HOME}/.brainstrike/agents/reviewer.md`,
-        fileName: 'reviewer.md',
-        keptRootId: 'root-a',
-      },
+    const suppressed = result.entries.find((entry) => entry.status === 'shadowed');
+    expect(suppressed).toMatchObject({
+      absPath: `${HOME}/.brainstrike/agents/reviewer.md`,
+      shadowedBy: { absPath: '/work/a/.brainstrike/agents/reviewer.md', sourceRootId: 'root-a' },
+    });
+  });
+
+  it('a built-in collision does NOT reserve — both files get the accurate error', () => {
+    // Reserving through only the derivation half would report the second file
+    // as "shadowed by another file" when the truth is that a BUILT-IN owns
+    // the name and neither can ever load (#2035 review).
+    const deps = makeDeps({
+      '/work/a/.brainstrike/agents': { 'explore.md': personaFile('shadow explore') },
+      [`${HOME}/.brainstrike/agents`]: { 'explore.md': personaFile('also explore') },
+    });
+    const result = scanUserPersonas({ homeDir: HOME, roots: [ROOT_A] }, deps);
+
+    expect(result.personas).toHaveLength(0);
+    expect(result.entries).toHaveLength(2);
+    for (const entry of result.entries) {
+      expect(entry.status).toBe('invalid');
+      expect(entry.status === 'invalid' && entry.error).toMatch(/built-in/i);
+    }
+  });
+
+  it('an exhausted cap reports the directories it skipped', () => {
+    // The entries-based cap is the right bound, but it must not silently
+    // starve later tiers: 50 malformed files in a root would otherwise make
+    // the user's long-standing GLOBAL personas simply stop existing, with
+    // one main-process log line as the only trace (#2035 review).
+    const files: Record<string, string> = {};
+    for (let index = 0; index < MAX_USER_PERSONAS_SCAN; index += 1) {
+      files[`p${String(index).padStart(3, '0')}.md`] = 'no frontmatter at all';
+    }
+    const deps = makeDeps({
+      '/work/a/.brainstrike/agents': files,
+      [`${HOME}/.brainstrike/agents`]: { 'mine.md': personaFile('my global persona') },
+    });
+    const result = scanUserPersonas({ homeDir: HOME, roots: [ROOT_A] }, deps);
+
+    expect(result.personas).toHaveLength(0);
+    expect(result.incompleteDirs).toEqual([
+      { dir: `${HOME}/.brainstrike/agents`, reason: 'cap-reached' },
     ]);
   });
 
@@ -227,7 +264,9 @@ describe('scanUserPersonas', () => {
     const result = scanUserPersonas({ homeDir: HOME, roots: [] }, deps);
 
     expect(result.personas).toHaveLength(1);
-    expect(result.truncatedDirs).toEqual([`${HOME}/.brainstrike/agents`]);
+    expect(result.incompleteDirs).toEqual([
+      { dir: `${HOME}/.brainstrike/agents`, reason: 'listing-truncated' },
+    ]);
   });
 
   it('junk files do not evict real personas from the listing', () => {

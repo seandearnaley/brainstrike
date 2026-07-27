@@ -23,8 +23,8 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract';
 import {
   buildUserPersona,
-  deriveUserPersonaId,
   MAX_USER_PERSONAS,
+  resolveUserPersonaId,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import type {
@@ -70,30 +70,31 @@ export type UserPersonaScanEntry = {
 } & (
   | { readonly persona: AssistantPersonaDefinition; readonly status: 'ok' }
   | { readonly error: string; readonly status: 'invalid' }
+  | {
+      /** The file that KEPT this id — the author's actual question is WHICH
+       * file won, not merely which tier. Same shape as skill-scan's. */
+      readonly shadowedBy: { readonly absPath: string; readonly sourceRootId?: string };
+      readonly status: 'shadowed';
+    }
 );
 
 export interface UserPersonaScanResult {
   /** Every discovered file in priority order (valid and invalid). */
   readonly entries: readonly UserPersonaScanEntry[];
+  /**
+   * Directories NOT fully scanned, with why. Both causes make personas
+   * silently absent: 'listing-truncated' = more entries than the listing
+   * bound; 'cap-reached' = the scan cap was exhausted before this directory
+   * was read at all. The second matters most — an entries-based cap means a
+   * root full of malformed files could otherwise starve `~/.brainstrike`
+   * entirely, and one main-process log line is not "visible" (BST-936).
+   */
+  readonly incompleteDirs: readonly {
+    readonly dir: string;
+    readonly reason: 'cap-reached' | 'listing-truncated';
+  }[];
   /** The valid personas, in priority order. */
   readonly personas: readonly AssistantPersonaDefinition[];
-  /** Same-id files SUPPRESSED by first-wins. Visible rather than log-only:
-   * a lower-priority file quietly replacing (or being replaced by) the
-   * persona an author thinks they control is the one case where a listing
-   * line matters most (BST-936). */
-  readonly shadowed: readonly {
-    /** Absolute path of the SUPPRESSED file — the identifying fact for the
-     * author, and a unique key for the settings row. */
-    readonly absPath: string;
-    readonly fileName: string;
-    /** Root that owns the KEPT file; undefined = the global tier. */
-    readonly keptRootId?: string;
-    /** Root whose file was suppressed; undefined = the global tier. */
-    readonly sourceRootId?: string;
-  }[];
-  /** Directories whose listing hit the scan bound — later files were never
-   * read, and silence about that is indistinguishable from "no such file". */
-  readonly truncatedDirs: readonly string[];
 }
 
 /**
@@ -133,6 +134,12 @@ interface ScanSource {
   readonly sourceRootId?: string;
 }
 
+/** The file currently holding an id — reported to whoever it shadows. */
+interface PersonaIdOwner {
+  readonly absPath: string;
+  readonly sourceRootId?: string;
+}
+
 function warnCollision(id: string, source: ScanSource, firstOwner: string | undefined): void {
   if (warnedCollisionIds.has(id)) {
     return;
@@ -166,26 +173,36 @@ function loadPersonaFile(
   baseDir: string,
   source: ScanSource,
   deps: UserPersonaScanDeps,
-  seen: Map<string, string | undefined>,
-  shadowed: { absPath: string; fileName: string; keptRootId?: string; sourceRootId?: string }[]
-): UserPersonaScanEntry | null {
+  seen: Map<string, PersonaIdOwner>
+): UserPersonaScanEntry {
   const absPath = joinPath(baseDir, [fileName]);
   const sourceRootField = source.sourceRootId ? { sourceRootId: source.sourceRootId } : {};
 
-  const derived = deriveUserPersonaId(fileName);
-  if (derived.ok) {
-    if (seen.has(derived.id)) {
-      const keptRootId = seen.get(derived.id);
-      warnCollision(derived.id, source, keptRootId);
-      shadowed.push({
+  // Reserve through the FULL id gate (derivation + built-in collision), not
+  // half of it: a file whose name collides with a BUILT-IN can never load in
+  // any tier, so it must not reserve — otherwise the next same-named file is
+  // mislabelled "shadowed by another file" when the real answer is "a
+  // built-in owns this name", and both files deserve that accurate error.
+  const resolved = resolveUserPersonaId(fileName);
+  if (resolved.ok) {
+    const owner = seen.get(resolved.value);
+    if (owner) {
+      warnCollision(resolved.value, source, owner.sourceRootId);
+      return {
         absPath,
         fileName,
-        ...(keptRootId === undefined ? {} : { keptRootId }),
-        ...(source.sourceRootId === undefined ? {} : { sourceRootId: source.sourceRootId }),
-      });
-      return null;
+        shadowedBy: {
+          absPath: owner.absPath,
+          ...(owner.sourceRootId === undefined ? {} : { sourceRootId: owner.sourceRootId }),
+        },
+        status: 'shadowed',
+        ...sourceRootField,
+      };
     }
-    seen.set(derived.id, source.sourceRootId);
+    seen.set(resolved.value, {
+      absPath,
+      ...(source.sourceRootId === undefined ? {} : { sourceRootId: source.sourceRootId }),
+    });
   }
 
   const read = deps.readFile(absPath);
@@ -211,18 +228,22 @@ function ingestDirectory(
   baseDir: string,
   source: ScanSource,
   deps: UserPersonaScanDeps,
-  seen: Map<string, string | undefined>,
+  seen: Map<string, PersonaIdOwner>,
   entries: UserPersonaScanEntry[],
   personas: AssistantPersonaDefinition[],
-  shadowed: { absPath: string; fileName: string; keptRootId?: string; sourceRootId?: string }[],
-  truncatedDirs: string[]
+  incompleteDirs: { dir: string; reason: 'cap-reached' | 'listing-truncated' }[]
 ): void {
   // The cap counts ENTRIES (valid + invalid), not accepted personas: a
   // directory full of malformed files must consume the scan bound rather
   // than extend it across every mounted root (BST-936).
   const remaining = MAX_USER_PERSONAS_SCAN - entries.length;
   if (remaining <= 0) {
+    // Reported, not merely logged: an entries-based cap means an earlier root
+    // stuffed with malformed files can exhaust the budget before this
+    // directory is read at all, and "my global personas vanished" must have a
+    // visible cause.
     warnCountCapReached();
+    incompleteDirs.push({ dir: baseDir, reason: 'cap-reached' });
     return;
   }
   const listing = deps.listDir(baseDir, source.containmentRoot, PERSONA_DIR_LISTING_BOUND);
@@ -234,7 +255,7 @@ function ingestDirectory(
       bound: PERSONA_DIR_LISTING_BOUND,
       dir: baseDir,
     });
-    truncatedDirs.push(baseDir);
+    incompleteDirs.push({ dir: baseDir, reason: 'listing-truncated' });
   }
   const fileNames = listing.entries
     .filter((entry) => entry.isFile && MD_EXTENSION.test(entry.name))
@@ -244,12 +265,10 @@ function ingestDirectory(
   for (const fileName of fileNames) {
     if (entries.length >= MAX_USER_PERSONAS_SCAN) {
       warnCountCapReached();
+      incompleteDirs.push({ dir: baseDir, reason: 'cap-reached' });
       return;
     }
-    const entry = loadPersonaFile(fileName, baseDir, source, deps, seen, shadowed);
-    if (entry === null) {
-      continue;
-    }
+    const entry = loadPersonaFile(fileName, baseDir, source, deps, seen);
     entries.push(entry);
     if (entry.status === 'ok') {
       personas.push(entry.persona);
@@ -265,16 +284,10 @@ export function scanUserPersonas(
   input: UserPersonaScanInput,
   deps: UserPersonaScanDeps
 ): UserPersonaScanResult {
-  const seen = new Map<string, string | undefined>();
+  const seen = new Map<string, PersonaIdOwner>();
   const entries: UserPersonaScanEntry[] = [];
   const personas: AssistantPersonaDefinition[] = [];
-  const shadowed: {
-    absPath: string;
-    fileName: string;
-    keptRootId?: string;
-    sourceRootId?: string;
-  }[] = [];
-  const truncatedDirs: string[] = [];
+  const incompleteDirs: { dir: string; reason: 'cap-reached' | 'listing-truncated' }[] = [];
 
   // Tier 1: <root>/.brainstrike/agents (mounted order).
   for (const root of input.roots) {
@@ -285,8 +298,7 @@ export function scanUserPersonas(
       seen,
       entries,
       personas,
-      shadowed,
-      truncatedDirs
+      incompleteDirs
     );
   }
   // Tier 2: ~/.brainstrike/agents.
@@ -297,9 +309,8 @@ export function scanUserPersonas(
     seen,
     entries,
     personas,
-    shadowed,
-    truncatedDirs
+    incompleteDirs
   );
 
-  return { entries, personas, shadowed, truncatedDirs };
+  return { entries, incompleteDirs, personas };
 }

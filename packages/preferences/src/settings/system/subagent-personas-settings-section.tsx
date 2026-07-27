@@ -76,11 +76,13 @@ function PersonaRowDetail({
     );
   }
   if (item.status === 'shadowed') {
+    // Same wording shape as the skills panel: name the WINNING file, because
+    // "which copy is live" is the question the author actually has.
     return (
       <p className="flex items-center gap-1 text-muted-foreground text-sm">
         <Layers className="size-3.5 shrink-0" />
-        Not loaded — another {item.shadowedBy === 'global' ? 'home-directory' : 'workspace'} file
-        already owns this persona name.
+        Shadowed by a higher-priority persona of the same name in{' '}
+        <code>{item.shadowedBy?.absPath}</code> — this copy is inactive.
       </p>
     );
   }
@@ -124,7 +126,9 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
   const setPersonaEnabled = useSubagentPersonasStore((state) => state.setPersonaEnabled);
 
   const [bridgeItems, setBridgeItems] = useState<readonly AssistantPersonaListItem[] | null>(null);
-  const [truncatedDirs, setTruncatedDirs] = useState<readonly string[]>([]);
+  const [incompleteDirs, setIncompleteDirs] = useState<
+    readonly { dir: string; reason: 'cap-reached' | 'listing-truncated' }[]
+  >([]);
   const hasBridge = getPersonasBridge() !== null;
 
   useEffect(() => {
@@ -138,7 +142,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
       .then((result) => {
         if (!cancelled) {
           setBridgeItems(result.personas);
-          setTruncatedDirs(result.truncatedDirs ?? []);
+          setIncompleteDirs(result.incompleteDirs ?? []);
         }
       })
       .catch(() => {
@@ -147,7 +151,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
         // personas themselves, which the server resolves independently.
         if (!cancelled) {
           setBridgeItems(null);
-          setTruncatedDirs([]);
+          setIncompleteDirs([]);
         }
       });
     return () => {
@@ -188,17 +192,24 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
           />
         </div>
 
+        {incompleteDirs.length > 0 ? (
+          <div className="space-y-1" data-testid="subagent-personas-incomplete">
+            {incompleteDirs.map((entry) => (
+              <p
+                className="flex items-center gap-1 text-amber-600 text-sm dark:text-amber-500"
+                key={`${entry.reason}:${entry.dir}`}
+              >
+                <AlertTriangle className="size-3.5 shrink-0" />
+                {entry.reason === 'cap-reached'
+                  ? `Persona scan limit reached before ${entry.dir} was read — personas there were not loaded.`
+                  : `Too many files to scan in ${entry.dir} — some personas were not read.`}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
         <fieldset className="space-y-3 border-0 p-0" disabled={!delegationEnabled}>
           <legend className="font-medium text-sm">Personas</legend>
-          {truncatedDirs.length > 0 ? (
-            <p
-              className="flex items-center gap-1 text-destructive text-sm"
-              data-testid="subagent-personas-truncated"
-            >
-              <AlertTriangle className="size-3.5 shrink-0" />
-              Too many files to scan in {truncatedDirs.join(', ')} — some personas were not read.
-            </p>
-          ) : null}
           {items.map((item) => (
             <PersonaRow
               disabled={!delegationEnabled}
