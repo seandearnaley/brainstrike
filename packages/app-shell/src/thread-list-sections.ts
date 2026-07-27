@@ -150,3 +150,18 @@ export function buildThreadListSections({
   const ungrouped = sortSection(ungroupedThreads, sortBy, rankByThreadId);
   return { kind: 'grouped', sections, ungrouped };
 }
+
+/** Thread ids belonging to a group section (`null` = the Ungrouped section). */
+export function getGroupMemberIds(view: ThreadListView, groupId: string | null): readonly string[] {
+  if (view.kind === 'flat') {
+    return [];
+  }
+  if (groupId === null) {
+    return view.ungrouped.map((thread) => thread.id);
+  }
+  return (
+    view.sections
+      .find((section) => section.group.id === groupId)
+      ?.threads.map((thread) => thread.id) ?? []
+  );
+}

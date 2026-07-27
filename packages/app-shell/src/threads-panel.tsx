@@ -40,6 +40,7 @@ import {
   Folder,
   FolderMinus,
   FolderPlus,
+  ListChecks,
   type LucideIcon,
   MessageSquare,
   MoreHorizontal,
@@ -78,14 +79,17 @@ import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   buildThreadListSections,
   buildThreadMembership,
+  getGroupMemberIds,
   type ThreadListView,
   type ThreadsPanelGroupBy,
   type ThreadsPanelSortBy,
 } from './thread-list-sections';
 import {
-  buildThreadPanelVisibleRows,
+  resolveThreadPanelContentState,
+  type ThreadPanelLoadState,
+} from './thread-panel-content-state';
+import {
   THREAD_PANEL_DISCLOSURE_INCREMENT,
-  THREAD_PANEL_INITIAL_VISIBLE_LIMIT,
   THREAD_PANEL_UNGROUPED_NODE_ID,
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
@@ -103,15 +107,12 @@ import {
   useThreadsPanelDropMonitor,
 } from './threads-panel-dnd-elements';
 import { ThreadsPanelSearch } from './threads-panel-search';
+import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
 
 // Stable fallback so `threads` keeps referential identity across renders when
 // the resource has no entry yet (the membership/view useMemos depend on it).
 const EMPTY_THREADS: readonly AssistantMemoryThread[] = [];
-
-type ThreadPanelLoadState =
-  | { readonly status: 'idle' | 'loading' | 'ready' }
-  | { readonly error: string; readonly status: 'error' };
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -1182,13 +1183,13 @@ function ThreadsViewOptionsPopover({
       <PopoverTrigger asChild>
         <Button
           aria-label="View options"
-          className="relative h-8 w-8 p-0"
-          size="sm"
+          className="relative"
+          size="icon-xs"
           title="View options"
           type="button"
           variant="ghost"
         >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
+          <SlidersHorizontal className="size-3.5" />
           {hasNonDefaultView ? (
             <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
           ) : null}
@@ -1631,20 +1632,6 @@ function buildThreadGroupChassisByRowId(
   return chassisByRowId;
 }
 
-function getGroupMemberIds(view: ThreadListView, groupId: string | null): readonly string[] {
-  if (view.kind === 'flat') {
-    return [];
-  }
-  if (groupId === null) {
-    return view.ungrouped.map((thread) => thread.id);
-  }
-  return (
-    view.sections
-      .find((section) => section.group.id === groupId)
-      ?.threads.map((thread) => thread.id) ?? []
-  );
-}
-
 function getSelectionState(
   memberIds: readonly string[],
   selectedThreadIds: ReadonlySet<string>
@@ -2039,7 +2026,7 @@ function ThreadPanelTree({
   onSelectThread,
   onUpdateThreadMetadata,
   selectedThreadId,
-  threads,
+  selection,
   view,
 }: {
   readonly groupHandlers: ThreadGroupSectionHandlers;
@@ -2060,22 +2047,17 @@ function ThreadPanelTree({
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
   readonly selectedThreadId: string | undefined;
-  readonly threads: readonly AssistantMemoryThread[];
+  readonly selection: ThreadPanelSelection;
   readonly view: ThreadListView;
 }): ReactElement {
-  const [limitsBySectionKey, setLimitsBySectionKey] = useState<Readonly<Record<string, number>>>(
-    {}
-  );
-  const [selectedThreadIds, setSelectedThreadIds] = useState<ReadonlySet<string>>(() => new Set());
-  const visibleRows = useMemo(
-    () =>
-      buildThreadPanelVisibleRows({
-        collapsedGroupIds: groupHandlers.collapsedGroupIds,
-        limitsBySectionKey,
-        view,
-      }),
-    [groupHandlers.collapsedGroupIds, limitsBySectionKey, view]
-  );
+  const {
+    clearSelection,
+    onShowMore: handleShowMore,
+    replaceSelection,
+    selectGroup,
+    selectedThreadIds: selectedAvailableThreadIds,
+    visibleRows,
+  } = selection;
   const nodes = useMemo(() => buildThreadPanelTreeNodes(visibleRows.rows), [visibleRows.rows]);
   const colorByGroupId = useMemo(
     () =>
@@ -2101,47 +2083,11 @@ function ThreadPanelTree({
       ),
     [visibleRows.rows]
   );
-  const selectableThreadIds = useMemo(() => new Set(threads.map((thread) => thread.id)), [threads]);
-  const selectedAvailableThreadIds = useMemo(
-    () => new Set([...selectedThreadIds].filter((threadId) => selectableThreadIds.has(threadId))),
-    [selectableThreadIds, selectedThreadIds]
-  );
-
-  const replaceSelection = useCallback(
-    (nextIds: ReadonlySet<string>): void => {
-      setSelectedThreadIds(
-        new Set([...nextIds].filter((threadId) => selectableThreadIds.has(threadId)))
-      );
-    },
-    [selectableThreadIds]
-  );
-
-  const selectGroup = useCallback(
-    (groupId: string | null, nextState: 'checked' | 'unchecked'): void => {
-      const memberIds = getGroupMemberIds(view, groupId);
-      setSelectedThreadIds((currentIds) => {
-        const nextIds = new Set(
-          [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
-        );
-        for (const threadId of memberIds) {
-          if (nextState === 'checked') {
-            nextIds.add(threadId);
-          } else {
-            nextIds.delete(threadId);
-          }
-        }
-        return nextIds;
-      });
-    },
-    [selectableThreadIds, view]
-  );
-
-  const clearSelectedThreadIds = useCallback((): void => setSelectedThreadIds(new Set()), []);
   const bulkSelectionController = useThreadBulkSelectionController({
     onBulkColor,
     onBulkDelete,
     onBulkMove,
-    onClearSelection: clearSelectedThreadIds,
+    onClearSelection: clearSelection,
     selectedThreadIds: selectedAvailableThreadIds,
   });
 
@@ -2167,14 +2113,6 @@ function ThreadPanelTree({
       selectedThreadId,
     ]
   );
-  const handleShowMore = useCallback((sectionKey: string): void => {
-    setLimitsBySectionKey((currentLimits) => ({
-      ...currentLimits,
-      [sectionKey]:
-        (currentLimits[sectionKey] ?? THREAD_PANEL_INITIAL_VISIBLE_LIMIT) +
-        THREAD_PANEL_DISCLOSURE_INCREMENT,
-    }));
-  }, []);
   const columns = useMemo<TreeTableColumn<ThreadPanelVisibleRow>[]>(
     () => [
       {
@@ -2197,49 +2135,8 @@ function ThreadPanelTree({
     [groupHandlers, handleShowMore, rowsProps]
   );
 
-  const allVisibleSelected =
-    visibleRows.visibleThreadIds.length > 0 &&
-    visibleRows.visibleThreadIds.every((threadId) => selectedAvailableThreadIds.has(threadId));
-
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex items-center justify-between border-border/70 border-y px-3 py-1.5">
-        <span className="text-[11px] text-muted-foreground">
-          {visibleRows.visibleThreadIds.length} visible
-        </span>
-        <Button
-          aria-label={`${allVisibleSelected ? 'Clear' : 'Select'} ${visibleRows.visibleThreadIds.length} visible threads`}
-          className="h-7 px-2 text-[11px]"
-          disabled={visibleRows.visibleThreadIds.length === 0}
-          onClick={() => {
-            setSelectedThreadIds((currentIds) => {
-              const nextIds = new Set(
-                [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
-              );
-              for (const threadId of visibleRows.visibleThreadIds) {
-                if (allVisibleSelected) {
-                  nextIds.delete(threadId);
-                } else {
-                  nextIds.add(threadId);
-                }
-              }
-              return nextIds;
-            });
-          }}
-          onKeyDown={(event) => {
-            if (event.defaultPrevented || event.key !== 'Escape') {
-              return;
-            }
-            event.preventDefault();
-            clearSelectedThreadIds();
-          }}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          {allVisibleSelected ? 'Clear visible' : 'Select visible'}
-        </Button>
-      </div>
       <TreeTable
         ariaLabel="Workspace threads"
         className="table-fixed border-separate border-spacing-0 outline-none"
@@ -2348,6 +2245,7 @@ function ThreadsPanelContent({
   onUpdateThreadMetadata,
   repository,
   selectedThreadId,
+  selection,
   threads,
   view,
 }: {
@@ -2373,63 +2271,25 @@ function ThreadsPanelContent({
   ) => Promise<void>;
   readonly repository: AssistantThreadRepository | null;
   readonly selectedThreadId: string | undefined;
+  readonly selection: ThreadPanelSelection;
   readonly threads: readonly AssistantMemoryThread[];
   readonly view: ThreadListView;
 }): ReactElement {
-  if (!repository && databaseStartupLoading) {
+  const contentState = resolveThreadPanelContentState({
+    databaseError,
+    databaseStartupLoading,
+    loadState,
+    repositoryReady: Boolean(repository),
+    threads,
+    view,
+  });
+  if (contentState.kind === 'card') {
     return (
       <ThreadStateCard
-        description="Reading Mastra memory from PGlite."
-        testId="threads-loading-card"
-        title="Loading threads..."
-      />
-    );
-  }
-  if (!repository && databaseError) {
-    return (
-      <ThreadStateCard
-        description={databaseError.message}
-        testId="threads-error-card"
-        title="Assistant memory database failed"
-        variant="error"
-      />
-    );
-  }
-  if (!repository) {
-    return (
-      <ThreadStateCard
-        description="The assistant is unavailable until PGlite memory initializes."
-        testId="threads-error-card"
-        title="Assistant memory database unavailable"
-        variant="error"
-      />
-    );
-  }
-  if (loadState?.status === 'error') {
-    return (
-      <ThreadStateCard
-        description={loadState.error}
-        testId="threads-error-card"
-        title="Failed to load threads"
-        variant="error"
-      />
-    );
-  }
-  if (loadState?.status === 'loading' && threads.length === 0) {
-    return (
-      <ThreadStateCard
-        description="Reading Mastra memory from PGlite."
-        testId="threads-loading-card"
-        title="Loading threads..."
-      />
-    );
-  }
-  if (threads.length === 0 && view.kind === 'flat') {
-    return (
-      <ThreadStateCard
-        description="Create a new Mastra memory thread for this workspace."
-        testId="threads-placeholder-card"
-        title="No threads found"
+        description={contentState.description}
+        testId={contentState.testId}
+        title={contentState.title}
+        variant={contentState.variant}
       />
     );
   }
@@ -2447,7 +2307,7 @@ function ThreadsPanelContent({
       onSelectThread={onSelectThread}
       onUpdateThreadMetadata={onUpdateThreadMetadata}
       selectedThreadId={selectedThreadId}
-      threads={threads}
+      selection={selection}
       view={view}
     />
   );
@@ -2460,6 +2320,125 @@ export interface ThreadsPanelProps {
    * unavailable; lexical search still works.
    */
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+}
+
+/**
+ * Row one of the panel chrome: the heading, the live disclosed-thread count,
+ * and every panel-level control.
+ *
+ * `treeOnScreen` gates the count and the select-visible toggle. Both describe
+ * the treegrid, so when a state card or search results stand in for it they
+ * withdraw rather than report a list that is not on screen.
+ */
+function ThreadsPanelToolbar({
+  groupBy,
+  newGroupDisabled,
+  newThreadDisabled,
+  newThreadTitle,
+  onCreateGroup,
+  onCreateThread,
+  onGroupByChange,
+  onSortByChange,
+  selection,
+  sortBy,
+  treeOnScreen,
+}: {
+  readonly groupBy: ThreadsPanelGroupBy;
+  readonly newGroupDisabled: boolean;
+  readonly newThreadDisabled: boolean;
+  readonly newThreadTitle: string;
+  readonly onCreateGroup: () => void;
+  readonly onCreateThread: () => void;
+  readonly onGroupByChange: (groupBy: ThreadsPanelGroupBy) => void;
+  readonly onSortByChange: (sortBy: ThreadsPanelSortBy) => void;
+  readonly selection: ThreadPanelSelection;
+  readonly sortBy: ThreadsPanelSortBy;
+  readonly treeOnScreen: boolean;
+}): ReactElement {
+  const visibleThreadCount = selection.visibleRows.visibleThreadIds.length;
+  // Two rows of chrome, not three: this row carries the live visible count and
+  // the select-visible toggle that used to occupy a third band under the search
+  // field. The old "Memory" pill and the "Workspace-scoped Mastra history"
+  // subtitle both restated what the panel already is, so they are gone rather
+  // than shrunk.
+  //
+  // pl-5, not px-3: the search field below is a bordered surface whose box edge
+  // sits at 12px but whose first ink — the search icon — sits at 20px. Matching
+  // the box edge left the heading looking 8px adrift of everything visible
+  // under it, so the heading ink lines up with the icon instead.
+  return (
+    <div className="flex items-center gap-2 py-2 pr-3 pl-5" data-testid="threads-panel-toolbar">
+      <h2 className="min-w-0 shrink-0 truncate font-medium text-sm leading-none">Threads</h2>
+      {treeOnScreen ? (
+        <span
+          className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 font-medium text-[11px] text-muted-foreground tabular-nums leading-none"
+          data-testid="threads-visible-count"
+          title={`${visibleThreadCount} ${visibleThreadCount === 1 ? 'thread' : 'threads'} visible`}
+        >
+          {visibleThreadCount}
+          <span className="sr-only">
+            {visibleThreadCount === 1 ? ' thread visible' : ' threads visible'}
+          </span>
+        </span>
+      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        {treeOnScreen ? (
+          <Button
+            aria-label={`${selection.allVisibleSelected ? 'Clear' : 'Select'} ${visibleThreadCount} visible ${visibleThreadCount === 1 ? 'thread' : 'threads'}`}
+            disabled={visibleThreadCount === 0}
+            onClick={selection.toggleVisibleSelection}
+            onKeyDown={(event) => {
+              if (event.defaultPrevented || event.key !== 'Escape') {
+                return;
+              }
+              event.preventDefault();
+              selection.clearSelection();
+            }}
+            size="icon-xs"
+            title={selection.allVisibleSelected ? 'Clear visible' : 'Select visible'}
+            type="button"
+            variant="ghost"
+          >
+            <ListChecks className="size-3.5" />
+          </Button>
+        ) : null}
+        <ThreadsViewOptionsPopover
+          groupBy={groupBy}
+          onGroupByChange={onGroupByChange}
+          onSortByChange={onSortByChange}
+          sortBy={sortBy}
+        />
+        <Button
+          aria-label="New group"
+          disabled={newGroupDisabled}
+          onClick={onCreateGroup}
+          size="icon-xs"
+          title="New group"
+          type="button"
+          variant="ghost"
+        >
+          <FolderPlus className="size-3.5" />
+        </Button>
+        <Button
+          aria-label="New thread"
+          // Icon-only, this is a 28px square exactly like its ghost
+          // neighbours; it only grows into a labelled pill once the panel is
+          // wide enough to show the label.
+          className="ml-1 size-7 @[360px]/threads:w-auto @[360px]/threads:gap-1 @[360px]/threads:px-2 px-0 hover:bg-accent hover:text-accent-foreground"
+          data-testid="new-agent-button"
+          disabled={newThreadDisabled}
+          onClick={onCreateThread}
+          size="xs"
+          title={newThreadTitle}
+          type="button"
+          variant="secondary"
+        >
+          <Plus className="size-3.5" />
+          <span className="@[360px]/threads:inline hidden">New Thread</span>
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = {}): ReactElement {
@@ -2565,6 +2544,17 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     () => groups.map((group) => ({ id: group.id, name: group.name })),
     [groups]
   );
+  // Disclosure limits + bulk selection live here so the toolbar's count and
+  // select-visible toggle read the same state the treegrid renders.
+  const selection = useThreadPanelSelection({ collapsedGroupIds, threads, view });
+  const contentState = resolveThreadPanelContentState({
+    databaseError,
+    databaseStartupLoading,
+    loadState,
+    repositoryReady: Boolean(repository),
+    threads,
+    view,
+  });
 
   // Thread hybrid search: repository + controller (debounce, sync, embedding
   // backlog) + honest semantic availability. See use-thread-search-controller.
@@ -2583,6 +2573,11 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     resourceId,
   });
   const searchActive = useThreadSearchStore((state) => state.status !== 'idle');
+  // The count and the select-visible toggle describe the treegrid. Withdraw
+  // them whenever something else stands in for it — a state card, or search
+  // results (whose bulk-selection overlay lives inside the hidden subtree, so a
+  // live toggle would select threads the user cannot see or clear).
+  const treeOnScreen = contentState.kind === 'tree' && !searchActive;
   const threadsById = useMemo(
     () => new Map(threads.map((thread) => [thread.id, thread])),
     [threads]
@@ -2780,67 +2775,30 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       className="@container/threads flex h-full min-h-0 flex-col overflow-hidden border-border border-b bg-muted/20"
       data-testid="threads-panel"
     >
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <div className="font-medium text-sm">Threads</div>
-            <span
-              className="rounded-full border border-border bg-background px-2 py-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.18em]"
-              data-testid="threads-preview-badge"
-            >
-              Memory
-            </span>
-          </div>
-          <div className="@[380px]/threads:block hidden truncate text-muted-foreground text-xs">
-            Workspace-scoped Mastra history
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <ThreadsViewOptionsPopover
-            groupBy={groupBy}
-            onGroupByChange={setGroupBy}
-            onSortByChange={(nextSortBy) => setSortBy(sortPresentation, nextSortBy)}
-            sortBy={sortBy}
-          />
-          <Button
-            aria-label="New group"
-            className="h-8 w-8 p-0"
-            disabled={!groupsRepository}
-            onClick={handleCreateGroup}
-            size="sm"
-            title="New group"
-            type="button"
-            variant="ghost"
-          >
-            <FolderPlus className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            aria-label="New thread"
-            className="h-8 gap-1.5 px-2.5"
-            data-testid="new-agent-button"
-            disabled={!(repository && resourceId) || loadState?.status === 'loading'}
-            onClick={() => {
-              if (!(repository && resourceId)) {
-                return;
-              }
-              createThread(repository, resourceId).catch(() => {
-                // The store records the explicit error state; no fallback thread source is used.
-              });
-            }}
-            size="sm"
-            title={
-              repository
-                ? 'Create a new Mastra memory thread for this workspace.'
-                : 'The assistant memory database is still initializing.'
-            }
-            type="button"
-            variant="secondary"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span className="@[360px]/threads:inline hidden text-xs">New Thread</span>
-          </Button>
-        </div>
-      </div>
+      <ThreadsPanelToolbar
+        groupBy={groupBy}
+        newGroupDisabled={!groupsRepository}
+        newThreadDisabled={!(repository && resourceId) || loadState?.status === 'loading'}
+        newThreadTitle={
+          repository
+            ? 'Create a new Mastra memory thread for this workspace.'
+            : 'The assistant memory database is still initializing.'
+        }
+        onCreateGroup={handleCreateGroup}
+        onCreateThread={() => {
+          if (!(repository && resourceId)) {
+            return;
+          }
+          createThread(repository, resourceId).catch(() => {
+            // The store records the explicit error state; no fallback thread source is used.
+          });
+        }}
+        onGroupByChange={setGroupBy}
+        onSortByChange={(nextSortBy) => setSortBy(sortPresentation, nextSortBy)}
+        selection={selection}
+        sortBy={sortBy}
+        treeOnScreen={treeOnScreen}
+      />
 
       <ThreadsPanelSearch
         groupNameByThreadId={groupNameByThreadId}
@@ -2921,6 +2879,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           onUpdateThreadMetadata={handleUpdateThreadMetadata}
           repository={repository}
           selectedThreadId={selectedThreadId}
+          selection={selection}
           threads={threads}
           view={view}
         />

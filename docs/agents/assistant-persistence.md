@@ -779,12 +779,29 @@ Where state lives (do not relitigate):
   Disclosed section rows are virtualized and capped at 50 initially, with an
   explicit 50-row Show more action; folder selection still targets the complete
   section, while Select visible targets only disclosed threads.
+- Panel chrome is TWO rows, not three: `ThreadsPanelToolbar` (heading + live
+  disclosed count + select-visible toggle + view options / new group / new
+  thread) then the search row. The count and the toggle describe the treegrid,
+  so they render only when `resolveThreadPanelContentState` says the treegrid —
+  not a state card — is on screen AND search is idle. Search results replace the
+  tree in a hidden subtree that also contains the bulk-action overlay, so a live
+  toggle there would select threads with no feedback and no way to clear.
 
 Layers: repository `assistant-thread-groups-repository.ts` → store
 `assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`
 (grouping/sorting; `buildThreadMembership` is the single source of effective
-membership) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
-element wiring `threads-panel-dnd-elements.tsx`. Semantic color presentation is
+membership; `getGroupMemberIds` answers section membership) → panel state
+`use-thread-panel-selection.ts` (disclosure limits + bulk selection, owned by
+`ThreadsPanel` so the toolbar and the treegrid read one source of truth rather
+than two copies) → body arbitration `thread-panel-content-state.ts` (pure: tree
+or which state card, read by BOTH the body and the toolbar so they cannot
+disagree) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
+element wiring `threads-panel-dnd-elements.tsx`.
+
+Cost of that ownership: a checkbox toggle or Show more now re-renders all of
+`ThreadsPanel` rather than only `ThreadPanelTree`. `buildThreadPanelVisibleRows`
+is memoized on the same deps, so this is render breadth, not recomputation —
+fine at user-paced click rates, worth revisiting if the panel grows. Semantic color presentation is
 owned once in `assistant-thread-presentation.ts` and shared by rows, folders,
 and tabs. Keyboard/a11y fallback for
 every drag operation: row context-menu "Move to <group>" / "Remove from Group".

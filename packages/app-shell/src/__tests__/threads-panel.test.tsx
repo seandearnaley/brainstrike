@@ -7,6 +7,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import { useAssistantThreadStore } from '../assistant-thread-store';
+import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
 
 const virtualizerState = vi.hoisted(() => ({ windowSize: Number.POSITIVE_INFINITY }));
@@ -185,6 +186,9 @@ beforeEach(() => {
   groupRows.splice(0, groupRows.length);
   placementRows.splice(0, placementRows.length);
   useAssistantThreadGroupsStore.getState().reset();
+  // Session-scoped and previously never reset here: a test that types into the
+  // search box left every later test rendering search results.
+  useThreadSearchStore.getState().clearSearch();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},
@@ -411,6 +415,102 @@ beforeEach(() => {
 });
 
 describe('ThreadsPanel', () => {
+  it('spends exactly two chrome rows above the list: a toolbar and the search row', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    const toolbar = screen.getByTestId('threads-panel-toolbar');
+    const search = screen.getByTestId('threads-panel-search');
+    // The toolbar owns the heading, the live count, and the select-visible
+    // control; the count/select band that used to sit below the search row is
+    // gone, so the panel chrome is two rows instead of three.
+    expect(within(toolbar).getByRole('heading', { name: 'Threads' })).toBeVisible();
+    expect(within(toolbar).getByTestId('threads-visible-count')).toHaveTextContent('2');
+    expect(within(toolbar).getByRole('button', { name: 'Select 2 visible threads' })).toBeVisible();
+    expect(within(toolbar).getByRole('button', { name: 'New thread' })).toBeVisible();
+    expect(within(search).getByTestId('thread-search-input')).toBeVisible();
+    expect(toolbar.nextElementSibling).toBe(search);
+    expect(screen.queryByTestId('threads-panel-select-band')).not.toBeInTheDocument();
+
+    // One row of controls only reads as a row when the controls are the same
+    // size; the view-options trigger used to be 32px next to 28px neighbours.
+    // Same 28px square for every control, New Thread included — it only grows
+    // into a labelled pill at @[360px]/threads, where the label appears.
+    for (const label of ['Select 2 visible threads', 'View options', 'New group', 'New thread']) {
+      expect(within(toolbar).getByRole('button', { name: label })).toHaveClass('size-7');
+    }
+    // Every control hovers toward the same accent. New Thread keeps a resting
+    // fill because it is the primary action, but `secondary/80` alone hovered
+    // LIGHTER while its ghost neighbours hovered darker — opposite directions
+    // in one row.
+    for (const label of ['Select 2 visible threads', 'View options', 'New group', 'New thread']) {
+      expect(within(toolbar).getByRole('button', { name: label })).toHaveClass(
+        'hover:bg-accent',
+        'hover:text-accent-foreground'
+      );
+    }
+    // Declared icon metrics must be the rendered ones: `h-3.5 w-3.5` loses to
+    // the button base rule's `size-4`, so the icons render 16px, not 14px.
+    for (const icon of toolbar.querySelectorAll('svg')) {
+      expect(icon).toHaveClass('size-3.5');
+    }
+  });
+
+  it('reads the visible count as singular when one thread is disclosed', async () => {
+    threadRows.splice(1);
+
+    renderThreadsPanel();
+
+    expect(await screen.findByRole('button', { name: 'Select 1 visible thread' })).toBeVisible();
+    expect(screen.getByTestId('threads-visible-count')).toHaveTextContent('1 thread visible');
+  });
+
+  it('withdraws the count and select-visible toggle while search replaces the list', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(screen.getByTestId('threads-visible-count')).toBeVisible();
+
+    // Search results replace the treegrid, and the bulk-selection overlay lives
+    // inside that now-hidden subtree. A live toggle here would select threads
+    // the user cannot see, with no action bar and no way to clear.
+    fireEvent.change(screen.getByTestId('thread-search-input'), { target: { value: 'alpha' } });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New thread' })).toBeVisible();
+  });
+
+  it('withdraws the count and select-visible toggle while a state card replaces the list', () => {
+    dbMocks.database = null;
+    dbMocks.initializing = true;
+    dbMocks.initializationStatus = 'initializing';
+
+    renderThreadsPanel();
+
+    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+    expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
+  });
+
+  it('drops the redundant Memory pill and its restated subtitle from the toolbar', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    expect(screen.queryByTestId('threads-preview-badge')).not.toBeInTheDocument();
+    expect(screen.queryByText('Workspace-scoped Mastra history')).not.toBeInTheDocument();
+  });
+
   it('renders the disclosed collection through the shared virtual treegrid scroll owner', async () => {
     renderThreadsPanel();
 
@@ -577,7 +677,6 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    expect(screen.getByTestId('threads-preview-badge')).toHaveTextContent('Memory');
     expect(screen.queryByText('No workspace open')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New thread' })).toBeEnabled();
   });
