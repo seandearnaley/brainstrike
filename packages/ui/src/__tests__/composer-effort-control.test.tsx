@@ -44,7 +44,9 @@ describe('ComposerEffortControl', () => {
       );
       const trigger = screen.getByTestId('composer-effort-trigger');
       expect(trigger).toHaveTextContent('High');
-      expect(trigger).toHaveAccessibleName('Reasoning effort: High');
+      // WCAG 2.5.3 Label in Name: the accessible name must CONTAIN the
+      // visible "Effort High" (sr-only "Reasoning" prefix is a superset).
+      expect(trigger).toHaveAccessibleName('Reasoning Effort High');
     });
 
     it('reads Auto when no effort is persisted', () => {
@@ -69,7 +71,7 @@ describe('ComposerEffortControl', () => {
         />
       );
       const trigger = screen.getByTestId('composer-effort-trigger');
-      expect(trigger).toHaveAccessibleName('Thinking: Off');
+      expect(trigger).toHaveAccessibleName('Thinking Off');
       expect(trigger).toHaveTextContent('Off');
     });
 
@@ -83,7 +85,21 @@ describe('ComposerEffortControl', () => {
         />
       );
       const trigger = screen.getByTestId('composer-effort-trigger');
-      expect(trigger).toHaveAccessibleName('Thinking: High');
+      expect(trigger).toHaveAccessibleName('Thinking High');
+    });
+
+    it('reads Thinking On (not "Auto") when the anthropic budget is set with no explicit effort', () => {
+      render(
+        <ComposerEffortControl
+          onProviderSettingsChange={vi.fn()}
+          providerSettings={{ anthropic: { anthropicThinkingBudgetTokens: 12_000 } }}
+          selectedModel="anthropic::claude-sonnet-5"
+          selectedProvider="anthropic"
+        />
+      );
+      // "Thinking Auto" would be ambiguous against "Thinking Off" at a
+      // glance — an implicit Auto effort reads as the explicit word "On".
+      expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking On');
     });
 
     it('reads Thinking On/Off for the local provider (no effort axis)', () => {
@@ -95,7 +111,7 @@ describe('ComposerEffortControl', () => {
           selectedProvider="local"
         />
       );
-      expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking: On');
+      expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking On');
 
       rerender(
         <ComposerEffortControl
@@ -105,7 +121,7 @@ describe('ComposerEffortControl', () => {
           selectedProvider="local"
         />
       );
-      expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking: Off');
+      expect(screen.getByTestId('composer-effort-trigger')).toHaveAccessibleName('Thinking Off');
     });
 
     it('disables the trigger (readout stays visible) when settings updates are unavailable', () => {

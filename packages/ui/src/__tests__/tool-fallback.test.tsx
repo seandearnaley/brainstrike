@@ -20,21 +20,28 @@ function wrap(ui: ReactElement) {
 
 describe('extractPrimaryArg display truncation (BST-949)', () => {
   it('passes short values through with whitespace collapsed', () => {
-    expect(extractPrimaryArg({ query: '  hybrid\n search ' }, undefined)).toBe('hybrid search');
+    expect(extractPrimaryArg({ query: '  hybrid\n search ' }, undefined)).toEqual({
+      display: 'hybrid search',
+      full: 'hybrid search',
+    });
   });
 
-  it('caps prose-like values at 64 visible characters with a trailing ellipsis', () => {
+  it('caps prose-like values at 64 visible characters, keeping the full value for the tooltip', () => {
     const longQuery = `find every reference to the composer control dock ${'x'.repeat(80)}`;
-    const display = extractPrimaryArg({ query: longQuery }, undefined);
-    expect(display).toHaveLength(64);
-    expect(display?.endsWith('…')).toBe(true);
-    expect(display?.startsWith('find every reference')).toBe(true);
+    const summary = extractPrimaryArg({ query: longQuery }, undefined);
+    expect(summary?.display).toHaveLength(64);
+    expect(summary?.display.endsWith('…')).toBe(true);
+    expect(summary?.display.startsWith('find every reference')).toBe(true);
+    // The untruncated (normalized) value must survive for hover inspection —
+    // Compact detail mode has no expander, so the tooltip is the only way in.
+    expect(summary?.full).toBe(longQuery);
   });
 
   it('middle-ellipsizes long paths so the basename stays readable', () => {
     const longPath =
       'packages/ui/src/assistant-ui-panel/deeply/nested/directories/for/testing/composer-effort-control.tsx';
-    const display = extractPrimaryArg({ path: longPath }, undefined);
+    const summary = extractPrimaryArg({ path: longPath }, undefined);
+    const display = summary?.display;
     expect(display).toHaveLength(64);
     expect(display).toContain('…');
     // The tail (basename) survives; the head keeps the path root.
@@ -42,6 +49,33 @@ describe('extractPrimaryArg display truncation (BST-949)', () => {
     expect(display?.startsWith('packages/ui/')).toBe(true);
     // Ellipsis is in the middle, not at the end.
     expect(display?.endsWith('…')).toBe(false);
+    expect(summary?.full).toBe(longPath);
+  });
+
+  it('treats Windows separators and spaced directories under path keys as paths', () => {
+    const windowsPath = String.raw`C:\Users\sean\Documents\My Project\deeply\nested\workspace folders\composer-effort-control.tsx`;
+    const summary = extractPrimaryArg({ filePath: windowsPath }, undefined);
+    expect(summary?.display).toHaveLength(64);
+    // Basename survives even though the path contains spaces + backslashes.
+    expect(summary?.display.endsWith('composer-effort-control.tsx')).toBe(true);
+    expect(summary?.display.endsWith('…')).toBe(false);
+
+    const spacedPosixPath = `/Users/sean/Documents/My Project/${'nested dir/'.repeat(6)}notes file.md`;
+    const spacedSummary = extractPrimaryArg({ path: spacedPosixPath }, undefined);
+    expect(spacedSummary?.display.endsWith('notes file.md')).toBe(true);
+  });
+
+  it('never splits a surrogate pair at a truncation seam', () => {
+    const emojiQuery = `${'🧠'.repeat(80)} trailing prose`;
+    const summary = extractPrimaryArg({ query: emojiQuery }, undefined);
+    expect(summary?.display).not.toContain('\uFFFD');
+    // Cap counts CODE POINTS, so 63 emoji + ellipsis.
+    expect([...(summary?.display ?? '')]).toHaveLength(64);
+
+    const emojiPath = `packages/📁-assets/${'🧠'.repeat(60)}/notes.md`;
+    const pathSummary = extractPrimaryArg({ path: emojiPath }, undefined);
+    expect(pathSummary?.display.endsWith('notes.md')).toBe(true);
+    expect(pathSummary?.display).not.toContain('\uFFFD');
   });
 
   it('never exceeds the cap for any long value', () => {
@@ -50,8 +84,8 @@ describe('extractPrimaryArg display truncation (BST-949)', () => {
       `a${' b'.repeat(200)}`,
       `${'segment/'.repeat(40)}file.ts`,
     ]) {
-      const display = extractPrimaryArg({ path: value }, undefined);
-      expect((display ?? '').length).toBeLessThanOrEqual(64);
+      const summary = extractPrimaryArg({ path: value }, undefined);
+      expect((summary?.display ?? '').length).toBeLessThanOrEqual(64);
     }
   });
 });
@@ -101,6 +135,22 @@ describe('ToolFallback', () => {
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
       expect(screen.getByLabelText(/Completed/)).toBeInTheDocument();
+    });
+
+    it('shows the truncated arg while the hover title keeps the full value', () => {
+      const longQuery = `find every reference to the composer control dock ${'x'.repeat(80)}`;
+      wrap(
+        <ToolFallback
+          {...mockBaseProps}
+          args={{ query: longQuery }}
+          argsText={JSON.stringify({ query: longQuery })}
+          status={{ type: 'complete' }}
+        />
+      );
+
+      const argSpan = screen.getByTitle(longQuery);
+      expect(argSpan.textContent).toHaveLength(64);
+      expect(argSpan.textContent?.endsWith('…')).toBe(true);
     });
 
     it('surfaces the resolved workspace root from a native tool result', () => {

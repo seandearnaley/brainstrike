@@ -169,15 +169,31 @@ const PRIMARY_ARG_KEYS = [
 ] as const;
 
 /**
- * Visible cap for the inline header summary (BST-949). The full value always
- * survives in the `title` tooltip and the expanded Arguments pane — this cap
+ * Visible cap for the inline header summary (BST-949). The `full` value always
+ * survives for the `title` tooltip and the expanded Arguments pane — this cap
  * only bounds how much of the thread the summary is allowed to occupy.
  */
 const MAX_PRIMARY_ARG_LENGTH = 64;
 /** Middle-ellipsis split for path-like values: tail keeps the basename. */
 const PATH_TAIL_LENGTH = 39;
+/** Head + '…' + tail must land exactly on the cap: 24 + 1 + 39 = 64. */
+const PATH_HEAD_LENGTH = MAX_PRIMARY_ARG_LENGTH - PATH_TAIL_LENGTH - 1;
 
-export function extractPrimaryArg(args: unknown, argsText: string | undefined): string | undefined {
+/** Argument keys whose values are paths by construction (not by heuristic). */
+const PATH_ARG_KEYS: ReadonlySet<string> = new Set(['path', 'filePath', 'file', 'url']);
+
+export interface PrimaryArgSummary {
+  /** Capped text for the inline header. */
+  display: string;
+  /** Normalized but UNtruncated value — the hover tooltip. Compact detail
+      mode has no expander, so this is the only way to inspect long args. */
+  full: string;
+}
+
+export function extractPrimaryArg(
+  args: unknown,
+  argsText: string | undefined
+): PrimaryArgSummary | undefined {
   let record: Record<string, unknown> | undefined;
   if (args && typeof args === 'object' && !Array.isArray(args)) {
     record = args as Record<string, unknown>;
@@ -198,29 +214,34 @@ export function extractPrimaryArg(args: unknown, argsText: string | undefined): 
   for (const key of PRIMARY_ARG_KEYS) {
     const value = record[key];
     if (typeof value === 'string' && value.trim().length > 0) {
-      return truncatePrimaryArg(value);
+      return summarizePrimaryArg(value, PATH_ARG_KEYS.has(key));
     }
   }
   const firstString = Object.values(record).find(
     (value): value is string => typeof value === 'string' && value.trim().length > 0
   );
-  return firstString ? truncatePrimaryArg(firstString) : undefined;
+  return firstString ? summarizePrimaryArg(firstString, false) : undefined;
 }
 
-function truncatePrimaryArg(value: string): string {
-  const singleLine = value.replaceAll(/\s+/g, ' ').trim();
-  if (singleLine.length <= MAX_PRIMARY_ARG_LENGTH) {
-    return singleLine;
+function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSummary {
+  const full = value.replaceAll(/\s+/g, ' ').trim();
+  // Cut on CODE POINTS, not UTF-16 units — a slice landing inside a
+  // surrogate pair would render U+FFFD at the truncation seam.
+  const codePoints = [...full];
+  if (codePoints.length <= MAX_PRIMARY_ARG_LENGTH) {
+    return { display: full, full };
   }
   // Paths lose their identity when the END is cut (the basename is the part
   // users recognize), so path-like values ellipsize in the MIDDLE instead.
-  const isPathLike = !singleLine.includes(' ') && singleLine.includes('/');
+  // A path-typed key is authoritative (Windows roots and spaced directories
+  // are still paths); the separator heuristic only covers untyped keys.
+  const isPathLike = isPathKey || (!full.includes(' ') && /[/\\]/.test(full));
   if (isPathLike) {
-    const head = singleLine.slice(0, MAX_PRIMARY_ARG_LENGTH - PATH_TAIL_LENGTH - 1);
-    const tail = singleLine.slice(-PATH_TAIL_LENGTH);
-    return `${head}…${tail}`;
+    const head = codePoints.slice(0, PATH_HEAD_LENGTH).join('');
+    const tail = codePoints.slice(-PATH_TAIL_LENGTH).join('');
+    return { display: `${head}…${tail}`, full };
   }
-  return `${singleLine.slice(0, MAX_PRIMARY_ARG_LENGTH - 1)}…`;
+  return { display: `${codePoints.slice(0, MAX_PRIMARY_ARG_LENGTH - 1).join('')}…`, full };
 }
 
 function useDisplayToolArguments(
@@ -358,9 +379,9 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           {primaryArg ? (
             <span
               className="truncate font-mono text-[11px] text-muted-foreground"
-              title={primaryArg}
+              title={primaryArg.full}
             >
-              {primaryArg}
+              {primaryArg.display}
             </span>
           ) : null}
         </span>

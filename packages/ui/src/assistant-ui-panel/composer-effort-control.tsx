@@ -162,23 +162,25 @@ export const ComposerEffortControl = ({
 
   // The trigger IS the readout: what runs next must be legible without a
   // single click. Thinking-capable families lead with the on/off state
-  // (an effort label alone would imply thinking even when it's off).
+  // (an effort label alone would imply thinking even when it's off), and an
+  // implicit "Auto" effort reads as the explicit word "On" — "Thinking Auto"
+  // is ambiguous against "Thinking Off" at a glance.
+  const explicitEffortLabel =
+    effortModel && effortModel.currentValue !== 'auto' ? effortModel.currentLabel : undefined;
   const readout = thinkingModel
     ? {
         label: 'Thinking',
-        value: thinkingModel.checked ? (effortModel?.currentLabel ?? 'On') : 'Off',
+        value: thinkingModel.checked ? (explicitEffortLabel ?? 'On') : 'Off',
       }
     : { label: 'Effort', value: effortModel?.currentLabel ?? 'Auto' };
-  const accessibleName =
-    readout.label === 'Thinking'
-      ? `Thinking: ${readout.value}`
-      : `Reasoning effort: ${readout.value}`;
 
   return (
     <Popover>
       <PopoverTrigger asChild>
+        {/* No aria-label: the accessible name must contain the visible text
+            (WCAG 2.5.3 Label in Name — speech input says "click Effort High").
+            The sr-only qualifier keeps the name a superset, never a rewrite. */}
         <Button
-          aria-label={accessibleName}
           className="h-8 gap-1.5 rounded-full border-border/70 bg-background/85 px-3 text-xs"
           data-testid="composer-effort-trigger"
           disabled={!onProviderSettingsChange}
@@ -186,6 +188,7 @@ export const ComposerEffortControl = ({
           variant="outline"
         >
           <Brain aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          {readout.label === 'Effort' ? <span className="sr-only">Reasoning</span> : null}
           <span className="text-muted-foreground">{readout.label}</span>
           <span className="max-w-24 truncate font-medium">{readout.value}</span>
           <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />

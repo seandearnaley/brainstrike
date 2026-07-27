@@ -59,9 +59,10 @@
 /* Restore host theme variables that assistant-ui's default theme overrides */
 .bs-thread {
   /*
-   * The thread root is an inline-size container so message width/centering and
-   * the composer dock layout respond to the PANEL width (resizable split), not
-   * the viewport. See the `@container bs-thread` rules below.
+   * The thread root is an inline-size container so message width/centering
+   * responds to the PANEL width (resizable split), not the viewport. One
+   * consumer remains: the wide-panel `@container bs-thread (min-width: 56rem)`
+   * message-sizing rule below (the composer dock now wraps via flexbox).
    */
   container: bs-thread / inline-size;
   --background: var(--bs-background, 0 0% 100%);
@@ -507,9 +508,11 @@
 
 /*
  * Model picker + effort readout on the left, Controls on the right. Flex with
- * wrap replaces the old 3-column grid + container query: in a narrow panel the
- * chips wrap onto the next row instead of clipping, and every control shares
- * one 2rem-tall centered row (heights pinned by the e2e alignment check).
+ * wrap replaces the old 3-column grid + container query. The slots keep their
+ * content-based size (NO min-width: 0 — that would let them shrink under
+ * their nowrap buttons and overlap on a shared line); when a line can't fit,
+ * whole chips wrap onto the next row. Chips sharing a row share one 2rem-tall
+ * centered line (pinned by the e2e alignment check, which is row-aware).
  */
 .bs-composer-primary-controls {
   align-items: center;
@@ -519,16 +522,10 @@
   min-width: 0;
 }
 
-.bs-composer-model-slot {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
 .bs-composer-controls-slot {
   display: flex;
   justify-content: flex-end;
   margin-left: auto;
-  min-width: 0;
 }
 
 .bs-composer-model-picker :where(button, [role="combobox"]) {

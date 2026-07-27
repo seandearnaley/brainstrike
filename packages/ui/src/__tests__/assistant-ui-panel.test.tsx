@@ -1318,8 +1318,9 @@ describe('AssistantUiPanel model picker', () => {
     const controls = screen.getByTestId('assistant-composer-controls');
     const trigger = within(controls).getByTestId('composer-effort-trigger');
     expect(trigger).toBeEnabled();
-    // The active effort is legible without opening any menu.
-    expect(trigger).toHaveAccessibleName('Reasoning effort: High');
+    // The active effort is legible without opening any menu. (Accessible-name
+    // whitespace joining differs between jsdom setups, so match tolerantly.)
+    expect(trigger).toHaveAccessibleName(/Reasoning\s*Effort\s*High/);
     // And it sits in the same dock as the model menu.
     expect(within(controls).getByTestId('assistant-model-dropdown')).toBeInTheDocument();
   });

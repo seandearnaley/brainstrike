@@ -61,7 +61,7 @@ export function summarizeToolActivity(parts: readonly unknown[]): ToolActivitySu
       // Last running tool wins — it is the most recent "current step".
       activeLabel = partToolName(part);
       const argsText = typeof part['argsText'] === 'string' ? part['argsText'] : undefined;
-      activeArg = extractPrimaryArg(part['args'], argsText) ?? null;
+      activeArg = extractPrimaryArg(part['args'], argsText)?.display ?? null;
     } else if (status === 'incomplete') {
       failedCount++;
     }
