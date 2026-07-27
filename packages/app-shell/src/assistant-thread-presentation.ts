@@ -131,6 +131,22 @@ export const THREAD_CONTROL_MARK_CLASS_NAME =
   'flex size-5 shrink-0 items-center justify-center rounded-sm border';
 
 /**
+ * Secondary affordances that sit *inside* a thread control — the tab's close
+ * button, the row's expand and actions buttons.
+ *
+ * 20px, not the Button `icon-xs` 28px: the control itself is 28px tall now, so
+ * a 28px chip fills it edge to edge and the hover fill reads as a block rather
+ * than a button. 20px leaves 4px above and below. The `after` inset restores a
+ * 28px pointer target, keeping it above the 24px guidance.
+ *
+ * `hover:bg-foreground/10` rather than `bg-muted`/`bg-accent` for the same
+ * reason the mark uses `markClassName`: these now sit on a tinted surface, and
+ * an opaque neutral fill paints a grey blotch into the tint.
+ */
+export const THREAD_CONTROL_ACTION_CLASS_NAME =
+  "relative size-5 shrink-0 rounded-sm after:absolute after:-inset-1 after:content-[''] hover:bg-foreground/10 hover:text-foreground";
+
+/**
  * Always resolves to a paintable surface. There is deliberately no nullable
  * sibling accessor: a call site that receives `null` has to invent its own
  * unassigned fallback, which is exactly the per-call-site drift this module

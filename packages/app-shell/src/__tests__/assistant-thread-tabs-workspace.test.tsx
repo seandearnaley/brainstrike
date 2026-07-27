@@ -7,6 +7,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
+  THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
@@ -377,7 +378,9 @@ describe('AssistantThreadTabsWorkspace', () => {
     // by the row), not an absolutely positioned overlay pinned to a corner.
     expect(closeButton).not.toHaveClass('absolute');
     expect(closeButton.parentElement).toBe(tab.parentElement);
-    expect(closeButton).toHaveClass('h-5', 'w-5');
+    // Same affordance token the threads-panel row actions use, so the two
+    // surfaces cannot drift apart again.
+    expect(closeButton).toHaveClass(...THREAD_CONTROL_ACTION_CLASS_NAME.split(' '));
     // The tab body is tinted now, so an opaque neutral hover chip paints a grey
     // blotch into the tint (measured rgb(242, 240, 237) on an amber tab). The
     // hover fill has to ride the surface instead of covering it.

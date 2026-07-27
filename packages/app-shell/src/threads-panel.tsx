@@ -77,6 +77,7 @@ import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   getAssistantThreadColorSurface,
+  THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
@@ -799,6 +800,7 @@ function ThreadRowDisplay({
         <div className="-mr-px flex shrink-0 items-center gap-0.5">
           <Button
             aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
+            className={THREAD_CONTROL_ACTION_CLASS_NAME}
             onClick={(event) => {
               event.stopPropagation();
               onExpandedThreadToggle();
@@ -807,11 +809,7 @@ function ThreadRowDisplay({
             type="button"
             variant="ghost"
           >
-            {expanded ? (
-              <ChevronUp className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronDown className="h-3.5 w-3.5" />
-            )}
+            {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
           </Button>
           <Popover
             onOpenChange={(open) => {
@@ -826,12 +824,13 @@ function ThreadRowDisplay({
             <PopoverTrigger asChild>
               <Button
                 aria-label={`Thread actions ${thread.title}`}
+                className={THREAD_CONTROL_ACTION_CLASS_NAME}
                 onClick={(event) => event.stopPropagation()}
                 size="icon-xs"
                 type="button"
                 variant="ghost"
               >
-                <MoreHorizontal className="size-3.5" />
+                <MoreHorizontal className="size-3" />
               </Button>
             </PopoverTrigger>
             <PopoverContent
@@ -898,7 +897,7 @@ function ThreadRowDisplay({
         </div>
       </div>
       {pendingDelete ? (
-        <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+        <div className="mt-2 mb-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
           <p className="text-[11px] text-destructive">
             Delete this thread and its Mastra memory rows permanently?
           </p>
@@ -1056,7 +1055,7 @@ function ThreadExpandedDetails({
   const maxOutputValue = getMaxOutputValue(thread);
   return (
     <div
-      className="mt-2 rounded-md border border-border bg-background/70 p-2"
+      className="mt-2 mb-2 rounded-md border border-border bg-background/70 p-2"
       data-testid="thread-expanded-details"
     >
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">

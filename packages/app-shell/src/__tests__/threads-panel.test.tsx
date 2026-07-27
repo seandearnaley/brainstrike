@@ -8,6 +8,7 @@ import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
+  THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_ROW_PITCH_PX,
@@ -559,6 +560,48 @@ describe('ThreadsPanel', () => {
     const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
     expect(idleThread).toHaveClass('bg-emerald-100/45', 'hover:bg-emerald-100/75');
     expect(idleThread).not.toHaveClass('hover:bg-accent/35');
+  });
+
+  it('keeps row action chips inside the row instead of filling its full height', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    const expand = screen.getByRole('button', { name: /Show thread details First thread/ });
+    const actions = screen.getByRole('button', { name: /Thread actions First thread/ });
+
+    for (const control of [expand, actions]) {
+      // icon-xs paints a 28px chip, which is now the entire row height, so the
+      // hover fill runs edge to edge. 20px leaves 4px above and below and
+      // matches the tab's close affordance.
+      expect(control).toHaveClass(...THREAD_CONTROL_ACTION_CLASS_NAME.split(' '));
+      expect(control).not.toHaveClass('size-7');
+      // Hover rides the tinted row rather than punching a neutral chip into it.
+      expect(control).not.toHaveClass('hover:bg-accent');
+      // Visual box shrinks but the pointer target stays >= 24px.
+      expect(control.className).toMatch(/after:-inset-1/);
+      expect(control.querySelector('svg')).toHaveClass('size-3');
+    }
+  });
+
+  it('pads the expanded details block evenly against the row edges', async () => {
+    const user = userEvent.setup();
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await user.click(screen.getByRole('button', { name: /Show thread details First thread/ }));
+
+    // The row supplies px-2 horizontally and no vertical padding (vertical
+    // padding would push the collapsed control past the tab's 28px). So the
+    // block itself has to carry a matching 8px below, or it sits flush against
+    // the row's bottom edge while both sides are inset.
+    const details = await screen.findByTestId('thread-expanded-details');
+    expect(details).toHaveClass('mb-2');
+    expect(details.closest('[data-testid="thread-row"]')).toHaveClass('px-2');
   });
 
   it('sizes rows from the shared thread control density contract', async () => {
