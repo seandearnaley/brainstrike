@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 export interface PerformanceMetric {
   name: string;
@@ -23,6 +23,114 @@ export interface RenderMetrics {
   renderTimes: number[];
   totalRenders: number;
 }
+
+export interface InteractionFrameMetrics {
+  averageDurationMs: number;
+  maxDurationMs: number;
+  samplesMs: number[];
+  totalDurationMs: number;
+}
+
+export interface ClickEachInteraction {
+  count: number;
+  kind: 'click-each';
+}
+
+/**
+ * Measure application interaction work entirely inside the browser process.
+ *
+ * Playwright locator clicks include driver transport and actionability checks,
+ * so their wall-clock duration is not a renderer benchmark. Each sample here
+ * starts immediately before the DOM interaction and ends on the second
+ * animation frame, after React has had a frame to commit and the browser has
+ * had a frame to present the result.
+ */
+export const measureLocatorInteractionFrames = async (
+  locator: Locator,
+  interaction: ClickEachInteraction
+): Promise<InteractionFrameMetrics> => {
+  if (!Number.isInteger(interaction.count) || interaction.count <= 0) {
+    throw new Error(`Interaction count must be a positive integer; received ${interaction.count}`);
+  }
+
+  return await locator.evaluateAll(async (elements, requestedInteraction) => {
+    if (elements.length < requestedInteraction.count) {
+      throw new Error(
+        `Interaction benchmark requested ${requestedInteraction.count} elements, but the locator matched ${elements.length}`
+      );
+    }
+
+    const waitForPaint = async (): Promise<void> =>
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+    const readCheckedState = (element: Element, index: number): boolean | string => {
+      const ariaChecked = element.getAttribute('aria-checked');
+      if (ariaChecked !== null) {
+        return ariaChecked;
+      }
+
+      const checked = (element as { checked?: unknown }).checked;
+      if (typeof checked === 'boolean') {
+        return checked;
+      }
+
+      throw new Error(
+        `Interaction benchmark element ${index} does not expose observable checked state`
+      );
+    };
+    const samplesMs: number[] = [];
+
+    for (let index = 0; index < requestedInteraction.count; index++) {
+      const element = elements[index];
+      if (!element) {
+        throw new Error(`Interaction benchmark element ${index} disappeared before measurement`);
+      }
+      if (!element.isConnected) {
+        throw new Error(`Interaction benchmark element ${index} detached before its click`);
+      }
+      if (
+        (element as { disabled?: unknown }).disabled === true ||
+        element.getAttribute('aria-disabled') === 'true'
+      ) {
+        throw new Error(
+          `Interaction benchmark element ${index} is disabled; the click would be a silent no-op`
+        );
+      }
+
+      const click = (element as { click?: unknown }).click;
+      if (typeof click !== 'function') {
+        throw new Error(`Interaction benchmark element ${index} is not clickable`);
+      }
+
+      const checkedBefore = readCheckedState(element, index);
+
+      const startedAt = performance.now();
+      click.call(element);
+      await waitForPaint();
+      if (!element.isConnected) {
+        throw new Error(`Interaction benchmark element ${index} detached after its click`);
+      }
+      const checkedAfter = readCheckedState(element, index);
+      if (checkedAfter === checkedBefore) {
+        throw new Error(
+          `Interaction benchmark element ${index} did not change checked state after its click`
+        );
+      }
+      samplesMs.push(performance.now() - startedAt);
+    }
+
+    const totalDurationMs = samplesMs.reduce((total, duration) => total + duration, 0);
+    return {
+      averageDurationMs: totalDurationMs / samplesMs.length,
+      maxDurationMs: Math.max(...samplesMs),
+      samplesMs,
+      totalDurationMs,
+    };
+  }, interaction);
+};
 
 /**
  * Get current memory usage from the browser

@@ -3,6 +3,7 @@ import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { detectEnvironment, PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
+import { measureLocatorInteractionFrames } from '../utils/performance-helpers';
 import {
   type PerformanceMetric,
   recordMetric,
@@ -111,27 +112,29 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     );
 
     // 3. File Selection Performance
-    await page.evaluate(() => performance.mark('selection-start'));
-
-    const fileCheckboxes = page.getByRole('checkbox', { name: /Select / });
-    const selectionCount = Math.min(5, await fileCheckboxes.count());
-
-    for (let i = 0; i < selectionCount; i++) {
-      await fileCheckboxes.nth(i).click();
-    }
-
-    const selectionTime = await page.evaluate(() => {
-      performance.mark('selection-end');
-      performance.measure('selection', 'selection-start', 'selection-end');
-      const measure = performance.getEntriesByName('selection')[0];
-      return measure?.duration || 0;
+    const fileCheckboxes = page.getByRole('checkbox', {
+      name: /^Select (file1\.ts|file2\.js|README\.md)$/,
+    });
+    await expect(fileCheckboxes.first()).toBeVisible();
+    const selectionCount = await fileCheckboxes.count();
+    const selectionMetrics = await measureLocatorInteractionFrames(fileCheckboxes, {
+      count: selectionCount,
+      kind: 'click-each',
     });
 
     performanceMetrics.push(
       recordMetric(
-        'File Selection Time',
-        selectionTime,
-        PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS,
+        'File Selection Interaction-to-Paint Total',
+        selectionMetrics.totalDurationMs,
+        PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS,
+        'ms'
+      )
+    );
+    performanceMetrics.push(
+      recordMetric(
+        'File Selection Interaction-to-Paint Max',
+        selectionMetrics.maxDurationMs,
+        PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS,
         'ms'
       )
     );
@@ -149,7 +152,12 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // Assert all metrics meet thresholds
     expect(treeLoadTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_LOAD_MAX_MS);
     expect(expansionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS);
-    expect(selectionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS);
+    expect(selectionMetrics.totalDurationMs).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS
+    );
+    expect(selectionMetrics.maxDurationMs).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS
+    );
     expect(memoryUsage).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB);
   });
 

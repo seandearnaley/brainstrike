@@ -6,6 +6,9 @@
 export const BASE_THRESHOLDS = {
   AVG_FILE_LOAD_TIME_MAX_MS: 800, // New: average file loading time
   BULK_FILE_SELECTION_MAX_MS: 12_000, // New: for bulk operations
+  CHECKBOX_FRAME_AVERAGE_MAX_MS: 100, // Browser-side checkbox interaction through presentation
+  CHECKBOX_FRAME_MAX_MS: 100, // Slowest browser-side checkbox interaction through presentation
+  CHECKBOX_FRAME_TOTAL_MAX_MS: 300, // Three browser-side checkbox interactions through presentation
   FILE_SELECTION_MAX_MS: 1000, // Increased from 800 for file loading
   LARGE_TREE_LOAD_MAX_MS: 20_000, // New: for stress tests
   MEMORY_INCREASE_MAX_MB: 10, // Decreased from 50 to 10MB for navigation
@@ -65,6 +68,13 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
   let thresholds = {
     AVG_FILE_LOAD_TIME_MAX_MS: Math.floor(BASE_THRESHOLDS.AVG_FILE_LOAD_TIME_MAX_MS * multiplier),
     BULK_FILE_SELECTION_MAX_MS: Math.floor(BASE_THRESHOLDS.BULK_FILE_SELECTION_MAX_MS * multiplier),
+    CHECKBOX_FRAME_AVERAGE_MAX_MS: Math.floor(
+      BASE_THRESHOLDS.CHECKBOX_FRAME_AVERAGE_MAX_MS * multiplier
+    ),
+    CHECKBOX_FRAME_MAX_MS: Math.floor(BASE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS * multiplier),
+    CHECKBOX_FRAME_TOTAL_MAX_MS: Math.floor(
+      BASE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS * multiplier
+    ),
     FILE_SELECTION_MAX_MS: Math.floor(BASE_THRESHOLDS.FILE_SELECTION_MAX_MS * multiplier),
     LARGE_TREE_LOAD_MAX_MS: Math.floor(BASE_THRESHOLDS.LARGE_TREE_LOAD_MAX_MS * multiplier),
     MEMORY_INCREASE_MAX_MB: Math.floor(BASE_THRESHOLDS.MEMORY_INCREASE_MAX_MB * multiplier),
