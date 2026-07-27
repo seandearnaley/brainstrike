@@ -3,6 +3,11 @@ import {
   __resetAssistantBudgetPreferencesStoreForTests,
   useAssistantBudgetPreferencesStore,
 } from '../stores/assistant-budget-preferences-store';
+import type { PersistApi } from './persist-api-test-helper';
+
+const storeWithPersist = useAssistantBudgetPreferencesStore as PersistApi<
+  typeof useAssistantBudgetPreferencesStore
+>;
 
 describe('assistant budget preferences store', () => {
   afterEach(() => {
@@ -35,6 +40,32 @@ describe('assistant budget preferences store', () => {
       expect(() => store.setPerRunCapUsd(invalid)).toThrow(/finite/i);
     }
     // A rejected write never lands.
+    expect(useAssistantBudgetPreferencesStore.getState().dailyCapUsd).toBeNull();
+    expect(useAssistantBudgetPreferencesStore.getState().perRunCapUsd).toBeNull();
+  });
+
+  it('sanitizes malformed persisted data at the current version during rehydration', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const storage = options.storage as unknown as {
+      setItem: (
+        name: string,
+        value: {
+          state: { dailyCapUsd: unknown; perRunCapUsd: unknown };
+          version: number;
+        }
+      ) => void;
+    };
+    storage.setItem(options.name, {
+      state: { dailyCapUsd: -5, perRunCapUsd: 'unlimited' },
+      version: options.version ?? 1,
+    });
+
+    await storeWithPersist.persist.rehydrate();
+
     expect(useAssistantBudgetPreferencesStore.getState().dailyCapUsd).toBeNull();
     expect(useAssistantBudgetPreferencesStore.getState().perRunCapUsd).toBeNull();
   });

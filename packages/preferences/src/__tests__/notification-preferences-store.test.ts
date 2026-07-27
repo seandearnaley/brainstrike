@@ -89,6 +89,46 @@ describe('notification-preferences-store', () => {
     });
   });
 
+  it('sanitizes malformed persisted data at the current version during rehydration', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const storage = options.storage as unknown as {
+      setItem: (
+        name: string,
+        value: {
+          state: {
+            events: Record<string, unknown>;
+            masterEnabled: unknown;
+          };
+          version: number;
+        }
+      ) => void;
+    };
+    storage.setItem(options.name, {
+      state: {
+        events: {
+          removedEvent: false,
+          runFailed: 'nope',
+          runFinished: false,
+        },
+        masterEnabled: 'yes',
+      },
+      version: options.version ?? 1,
+    });
+
+    await storeWithPersist.persist.rehydrate();
+
+    expect(useNotificationPreferencesStore.getState().masterEnabled).toBe(false);
+    expect(useNotificationPreferencesStore.getState().events).toEqual({
+      runFailed: true,
+      runFinished: false,
+      toolApprovalRequired: true,
+    });
+  });
+
   it('resets to defaults', () => {
     const store = useNotificationPreferencesStore.getState();
     store.setMasterEnabled(true);
