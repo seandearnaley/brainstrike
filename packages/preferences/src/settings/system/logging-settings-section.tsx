@@ -95,8 +95,9 @@ export interface LoggingSettingsSectionProps {
    * here would be circular. Callers build this from
    * `useDiagnosticsPurge()` (`@brainstrike/app-shell/diagnostics`), which
    * wraps `DiagnosticEventsRepository.purge()` with the Task 1 store's
-   * `maxAgeDays`/`maxRows`. The card renders only when this prop is
-   * present.
+   * `maxAgeDays`/`maxRows`. When it is absent (no database handle), the card
+   * still renders its persisted retention selectors and omits only the
+   * "Purge now" row.
    */
   onPurgeNow?: () => Promise<number>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
@@ -483,13 +484,11 @@ export function LoggingSettingsSection({
         pending={pending}
         preferences={preferences}
       />
-      {onPurgeNow ? (
-        <DiagnosticsRetentionCard
-          isPurgingNow={isPurgingNow}
-          onPurgeNow={handlePurgeNow}
-          pending={pending}
-        />
-      ) : null}
+      <DiagnosticsRetentionCard
+        {...(onPurgeNow ? { onPurgeNow: handlePurgeNow } : {})}
+        isPurgingNow={isPurgingNow}
+        pending={pending}
+      />
       {durableLogSource ? (
         <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
           <div>
@@ -851,13 +850,13 @@ function DiagnosticSinkHealthBanner({ reason }: { reason: string }) {
 
 interface DiagnosticsRetentionCardProps {
   isPurgingNow: boolean;
-  onPurgeNow: () => Promise<void>;
+  onPurgeNow?: () => Promise<void>;
   pending: boolean;
 }
 
 /** Flight Recorder P2b Task 4: retention thresholds (bound to the
  * `diagnostics-retention-store` persisted store) plus an on-demand "Purge
- * now" action. Rendered by the parent only when `onPurgeNow` is supplied. */
+ * now" action when the database capability is available. */
 function DiagnosticsRetentionCard({
   isPurgingNow,
   onPurgeNow,
@@ -926,24 +925,30 @@ function DiagnosticsRetentionCard({
           </div>
         </div>
 
-        <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
-          <div>
-            <div className="font-medium text-sm">Purge Now</div>
-            <p className="text-muted-foreground text-xs">
-              Immediately delete diagnostic events past the limits above.
-            </p>
+        {onPurgeNow ? (
+          <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+            <div>
+              <div className="font-medium text-sm">Purge Now</div>
+              <p className="text-muted-foreground text-xs">
+                Immediately delete diagnostic events past the limits above.
+              </p>
+            </div>
+            <Button
+              disabled={isPurgingNow}
+              onClick={onPurgeNow}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
+              Purge Now
+            </Button>
           </div>
-          <Button
-            disabled={isPurgingNow}
-            onClick={onPurgeNow}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
-            Purge Now
-          </Button>
-        </div>
+        ) : (
+          <p className="rounded-md border border-border/60 p-3 text-muted-foreground text-xs">
+            These limits apply once the local database is available.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
