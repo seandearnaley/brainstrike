@@ -18,6 +18,7 @@ import {
   fingerprint,
   parseArgs,
   parseLsofOutput,
+  runEndpointsForWorkflows,
 } from './collect-watch-evidence.mjs';
 
 test('deriveCharter fails closed while deriving live Watch values', () => {
@@ -128,6 +129,37 @@ test('parseArgs validates watermark keys, empty watermark, and preflight ports',
   );
   assert.throws(() => parseArgs(['--repo', '/x', '--preflight-port', '8080abc']), /integer/);
   assert.throws(() => parseArgs(['--repo', '/x', '--preflight-port', ' 8080']), /integer/);
+});
+
+test('runEndpointsForWorkflows queries each watched workflow, never the repo-wide stream', () => {
+  // BST-889: the repository-wide /actions/runs stream carries every run in the
+  // repo (700+/day here), so unrelated runs entered the lower-bounded set while
+  // gh was paging and total_count moved between pages. Per-workflow endpoints
+  // scope the query to what Watch actually owns.
+  const endpoints = runEndpointsForWorkflows(
+    'owner/repo',
+    [
+      { id: 11, name: 'Web E2E', path: '.github/workflows/web.yml' },
+      { id: 22, name: 'Nightly Coverage', path: '.github/workflows/coverage.yml' },
+    ],
+    '2026-07-26T00:00:00.000Z',
+    '2026-07-27T00:00:00.000Z'
+  );
+  assert.equal(endpoints.length, 2);
+  for (const { endpoint } of endpoints) {
+    assert.match(endpoint, /\/repos\/owner\/repo\/actions\/workflows\/\d+\/runs\?/);
+    assert.doesNotMatch(endpoint, /\/actions\/runs\?/);
+    // Both bounds frozen in the query itself.
+    assert.match(
+      endpoint,
+      /created=2026-07-26T00%3A00%3A00\.000Z\.\.2026-07-27T00%3A00%3A00\.000Z/
+    );
+  }
+  assert.deepEqual(
+    endpoints.map((entry) => entry.workflow.id),
+    [11, 22]
+  );
+  assert.throws(() => runEndpointsForWorkflows('owner/repo', [], 'a', 'b'), /at least one watched/);
 });
 
 test('parseArgs requires an explicit run-window start and never infers one', () => {
