@@ -39,47 +39,62 @@ export const DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY = {
 export const OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET = 'auto';
 
 /**
- * Per-provider auto-observer targets, grounded in Mastra's observational-memory
- * docs: `google/gemini-2.5-flash` is Mastra's default OM model; Haiku and the
- * fast OpenAI mini are on their tested list; the OpenRouter entry routes to the
- * same Mastra default through the gateway. The built-in local Gemma is
- * intentionally NOT a candidate: its 8K runtime budget cannot observe the 30K
- * message threshold, so auto-resolving to it would configure a structurally
- * broken observer.
+ * Ordered per-provider auto-observer candidates, grounded in Mastra's
+ * observational-memory docs: `google/gemini-2.5-flash` is Mastra's default OM
+ * model; Haiku, the fast OpenAI mini, Gemini Flash variants, and DeepSeek V4
+ * Flash are on their tested list. OpenRouter needs FALLBACKS because its
+ * catalog seeds the preferred Gemini targets disabled by default. The built-in
+ * local Gemma is intentionally NOT a candidate: its 8K runtime budget cannot
+ * observe the 30K message threshold, so auto-resolving to it would configure a
+ * structurally broken observer.
  */
-const AUTO_OBSERVATIONAL_MEMORY_TARGET_BY_CHAT_PROVIDER: Readonly<Record<string, string>> = {
-  anthropic: 'anthropic/claude-haiku-4-5',
-  google: 'google/gemini-2.5-flash',
-  openai: 'openai/gpt-5.4-mini',
-  openrouter: 'openrouter/google/gemini-2.5-flash',
+const AUTO_OBSERVATIONAL_MEMORY_CANDIDATES_BY_CHAT_PROVIDER: Readonly<
+  Record<string, readonly string[]>
+> = {
+  anthropic: ['anthropic/claude-haiku-4-5'],
+  google: ['google/gemini-2.5-flash'],
+  openai: ['openai/gpt-5.4-mini'],
+  openrouter: [
+    'openrouter/google/gemini-2.5-flash',
+    'openrouter/google/gemini-3.5-flash-lite',
+    'openrouter/deepseek/deepseek-v4-flash',
+  ],
 };
 
 /**
- * Resolve the 'auto' observer target to a concrete provider/model, or null.
+ * Ordered auto-observer candidates for a chat provider, or an empty list.
  *
  * PRIVACY INVARIANT (review ruling on BST-940): auto only ever selects an
  * observer from the SELECTED CHAT PROVIDER — the party already receiving the
  * conversation — never a different keyed provider. A local/keyless/unsupported
- * chat therefore resolves to null and observational memory WAITS visibly
+ * chat therefore yields no candidates and observational memory WAITS visibly
  * (surfaced in settings and the context popover); it must never disable thread
  * memory as a whole, and it must never create new data egress or charges the
- * user didn't already opt into by picking their chat provider.
+ * user didn't already opt into by picking their chat provider. Callers with a
+ * model-catalog view (the app-shell resolver) pick the FIRST catalog-eligible
+ * candidate; callers without one (the desktop server's raw-client intake) use
+ * the first candidate and keep loud downstream credential/model errors.
  */
+export function listAutoObservationalMemoryCandidates(args: {
+  chatProvider: string | null | undefined;
+  providersWithKeys: readonly string[];
+}): readonly string[] {
+  if (!args.chatProvider) {
+    return [];
+  }
+  const candidates = AUTO_OBSERVATIONAL_MEMORY_CANDIDATES_BY_CHAT_PROVIDER[args.chatProvider];
+  if (candidates === undefined || !args.providersWithKeys.includes(args.chatProvider)) {
+    return [];
+  }
+  return candidates;
+}
+
+/** First auto-observer candidate for the chat provider, or null. */
 export function resolveAutoObservationalMemoryModelTarget(args: {
   chatProvider: string | null | undefined;
   providersWithKeys: readonly string[];
 }): string | null {
-  if (!args.chatProvider) {
-    return null;
-  }
-  const target = AUTO_OBSERVATIONAL_MEMORY_TARGET_BY_CHAT_PROVIDER[args.chatProvider];
-  if (target === undefined) {
-    return null;
-  }
-  if (!args.providersWithKeys.includes(args.chatProvider)) {
-    return null;
-  }
-  return target;
+  return listAutoObservationalMemoryCandidates(args)[0] ?? null;
 }
 
 /**

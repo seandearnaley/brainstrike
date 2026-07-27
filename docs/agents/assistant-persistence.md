@@ -298,11 +298,13 @@ request data, memory validation, and the OM meter alike, under the PRIVACY
 RULING (PR #2039 review — do not relitigate): the auto observer is only ever a
 Mastra-tested fast model FROM THE SELECTED CHAT PROVIDER — the party already
 receiving the conversation — never a different keyed provider (anthropic →
-claude-haiku-4-5, google → gemini-2.5-flash, openai → gpt-5.4-mini,
-openrouter → openrouter/google/gemini-2.5-flash, via the contract's pure
-`resolveAutoObservationalMemoryModelTarget`). A local/keyless/web chat, or a
-candidate the user disabled in the model catalog (the wrapper passes an
-`isTargetEligible` predicate over the loaded registry, same gate as the
+claude-haiku-4-5, google → gemini-2.5-flash, openai → gpt-5.4-mini; openrouter
+carries ORDERED fallbacks — gemini-2.5-flash → gemini-3.5-flash-lite →
+deepseek-v4-flash — because its catalog seeds the preferred Gemini targets
+disabled; via the contract's pure `listAutoObservationalMemoryCandidates`,
+first catalog-eligible candidate wins). A local/keyless/web chat, or a
+candidate set the user fully disabled in the model catalog (the wrapper passes
+an `isTargetEligible` predicate over the loaded registry, same gate as the
 settings dropdown), flips `enabled → false` with an explicit unresolved reason
 surfaced as the popover's 'awaiting-observer' OM state and the Settings auto
 note. An unresolved auto must NEVER disable thread memory, and `'auto'` must

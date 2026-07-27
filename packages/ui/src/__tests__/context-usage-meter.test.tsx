@@ -410,6 +410,26 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     expect(screen.getByTestId('context-usage-meter')).toBeInTheDocument();
   });
 
+  it('renders ACTIONABLE reason copy for the awaiting-observer states (BST-947 CDT finding)', () => {
+    const { rerender } = render(
+      <ContextUsageMeter
+        {...props}
+        omSegment={{ kind: 'awaiting-observer', reason: 'model-not-eligible' }}
+      />
+    );
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(
+      /no recommended observer model is enabled in your model catalog/i
+    );
+    rerender(
+      <ContextUsageMeter
+        {...props}
+        omSegment={{ kind: 'awaiting-observer', reason: 'no-hosted-chat-provider' }}
+      />
+    );
+    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(/paused for this chat/i);
+  });
+
   it('renders "OM inactive" (never "0 saved") when OM is disabled', () => {
     render(<ContextUsageMeter {...props} omSegment={{ kind: 'inactive' }} />);
     openMeterPopover();

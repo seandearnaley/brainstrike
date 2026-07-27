@@ -1519,21 +1519,23 @@ export function AssistantUiPanelWrapper({
     scope: observationalMemorySettings.scope,
     threadId: selectedMemoryThreadId,
   });
-  const omAwaitingObserver =
-    storedObservationalMemorySettings.enabled && omAutoResolution?.kind === 'unresolved';
+  const omAwaitingObserverReason =
+    storedObservationalMemorySettings.enabled && omAutoResolution?.kind === 'unresolved'
+      ? omAutoResolution.reason
+      : undefined;
   const omSegment = useMemo<OmMeterState>(
     () =>
       resolveOmMeterState({
         hasDurableCapability: hasDurableOmCapability,
         loading: omRowResult.loading,
-        omAwaitingObserver,
+        ...(omAwaitingObserverReason ? { omAwaitingObserverReason } : {}),
         omEnabled: observationalMemorySettings.enabled,
         queryError: omRowResult.error,
         row: omRowResult.row,
       }),
     [
       hasDurableOmCapability,
-      omAwaitingObserver,
+      omAwaitingObserverReason,
       observationalMemorySettings.enabled,
       omRowResult.error,
       omRowResult.loading,

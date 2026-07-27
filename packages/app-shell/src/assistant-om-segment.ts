@@ -34,10 +34,10 @@
  *   - no OM row yet               → 'empty'     — NOT a throw, NOT zeros.
  *   - malformed OM row            → 'error'     (strict parser throws, caught here) — NEVER fabricated 0.
  */
-import type { OmMeterState } from '@brainstrike/ui/assistant-ui-panel';
+import type { OmAwaitingObserverReason, OmMeterState } from '@brainstrike/ui/assistant-ui-panel';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 
-export type { OmMeterState };
+export type { OmAwaitingObserverReason, OmMeterState };
 
 /** The strictly parsed meter state read from `mastra_observational_memory`. */
 export interface ObservationalMemoryMeterRow {
@@ -143,11 +143,12 @@ export interface OmMeterInput {
    */
   readonly loading: boolean;
   /**
-   * True when the user's OM toggle is ON with the 'auto' observer target but
-   * no eligible observer resolved (keyless profile / web). Rendered as the
-   * honest "waiting for an observer" state instead of 'inactive'.
+   * Set when the user's OM toggle is ON with the 'auto' observer target but
+   * no eligible observer resolved (keyless profile / web / catalog-disabled
+   * candidates). Rendered as the honest "waiting for an observer" state
+   * instead of 'inactive', with reason-specific actionable copy.
    */
-  readonly omAwaitingObserver?: boolean;
+  readonly omAwaitingObserverReason?: OmAwaitingObserverReason;
   /** Whether observational memory is enabled in settings (observationalMemory.enabled). */
   readonly omEnabled: boolean;
   /**
@@ -170,8 +171,8 @@ export function resolveOmMeterState(input: OmMeterInput): OmMeterState {
   if (!input.hasDurableCapability) {
     return { kind: 'chat-only' };
   }
-  if (input.omAwaitingObserver) {
-    return { kind: 'awaiting-observer' };
+  if (input.omAwaitingObserverReason) {
+    return { kind: 'awaiting-observer', reason: input.omAwaitingObserverReason };
   }
   if (!input.omEnabled) {
     return { kind: 'inactive' };

@@ -10,7 +10,7 @@ export {
   CheckpointTurnRevert,
   CheckpointTurnRevertControl,
 } from './checkpoint-turn-revert';
-export type { OmMeterState } from './context-usage-meter';
+export type { OmAwaitingObserverReason, OmMeterState } from './context-usage-meter';
 export {
   resetContextUsageStore,
   type ThreadTokenUsage,

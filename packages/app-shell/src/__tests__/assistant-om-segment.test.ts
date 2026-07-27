@@ -99,14 +99,20 @@ describe('resolveOmMeterState', () => {
     });
   });
 
-  it('auto target unresolved with the user toggle ON → awaiting-observer, not inactive (BST-940)', () => {
+  it('auto target unresolved with the user toggle ON → awaiting-observer with its reason (BST-940)', () => {
     expect(
-      resolveOmMeterState(input({ omAwaitingObserver: true, omEnabled: false }))
-    ).toEqual<OmMeterState>({ kind: 'awaiting-observer' });
+      resolveOmMeterState(
+        input({ omAwaitingObserverReason: 'model-not-eligible', omEnabled: false })
+      )
+    ).toEqual<OmMeterState>({ kind: 'awaiting-observer', reason: 'model-not-eligible' });
     // Capability still wins first — web stays chat-only.
     expect(
       resolveOmMeterState(
-        input({ hasDurableCapability: false, omAwaitingObserver: true, omEnabled: false })
+        input({
+          hasDurableCapability: false,
+          omAwaitingObserverReason: 'no-hosted-chat-provider',
+          omEnabled: false,
+        })
       )
     ).toEqual<OmMeterState>({ kind: 'chat-only' });
   });
