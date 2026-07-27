@@ -305,12 +305,14 @@ function buildContentHint(
   hadPageItems: boolean,
   serviceCap: number
 ): string | undefined {
-  const truncated = offset + shownCount < mergedResult.totalMatches;
-  if (!truncated) {
-    // Every reachable match is shown, but the candidate pool or bounded scan
-    // may still have hidden others — that limit needs guidance too (BST-951).
+  const morePagedMatches = offset + shownCount < mergedResult.totalMatches;
+  if (!morePagedMatches) {
+    // Every reachable match is shown, but the candidate pool, bounded scan, or
+    // a match cap (index cap, live candidate/walk caps — live-capped matches
+    // are unreached on disk and never counted in totalMatches) may still have
+    // hidden others — those limits need guidance too (BST-951).
     // (scanLimited implies candidatesTruncated today; kept for defence-in-depth.)
-    if (mergedResult.candidatesTruncated || mergedResult.scanLimited) {
+    if (mergedResult.truncated || mergedResult.candidatesTruncated || mergedResult.scanLimited) {
       return buildRefinementHint({
         scanLimited: mergedResult.scanLimited,
         suggestContentMode: false,
@@ -357,7 +359,10 @@ function buildContentResult(
     .map(toModelFacingMatch);
 
   const { result } = fitItemsToCharBudget(pagedMatches, (matches): GrepContentToolResult => {
-    const truncated = offset + matches.length < mergedResult.totalMatches;
+    // Truncated when matches were dropped (by paging or budget fitting) or
+    // either pass hit its own cap — same formula as files mode; the modes
+    // must not diverge (BST-951).
+    const truncated = offset + matches.length < mergedResult.totalMatches || mergedResult.truncated;
     const hint = buildContentHint(
       mergedResult,
       offset,
