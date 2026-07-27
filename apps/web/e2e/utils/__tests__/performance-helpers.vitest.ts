@@ -157,4 +157,30 @@ describe('performance helpers (unit)', () => {
       })
     ).resolves.toMatchObject({ samplesMs: [32] });
   });
+
+  it('measures scroll interactions through each painted frame', async () => {
+    const scrollContainer = { scrollTop: 0 };
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(20)
+      .mockReturnValueOnce(20)
+      .mockReturnValueOnce(40);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    const metrics = await measureLocatorInteractionFrames(createLocator([scrollContainer]), {
+      kind: 'scroll-first',
+      positions: [0, 200],
+    });
+
+    expect(scrollContainer.scrollTop).toBe(200);
+    expect(metrics).toEqual({
+      averageDurationMs: 20,
+      maxDurationMs: 20,
+      samplesMs: [20, 20],
+      totalDurationMs: 40,
+    });
+  });
 });

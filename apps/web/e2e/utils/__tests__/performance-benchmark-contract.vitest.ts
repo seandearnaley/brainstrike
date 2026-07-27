@@ -42,4 +42,16 @@ describe('performance benchmark measurement contracts', () => {
     expect(rerenderBenchmark).not.toContain('__renderTracker');
     expect(rerenderBenchmark).not.toContain('waitForTimeout(50)');
   });
+
+  it('measures scroll latency at the browser interaction-to-paint boundary', async () => {
+    const source = await benchmarkSource();
+    const scrollBenchmark = source.slice(
+      source.indexOf("test('scroll performance with large datasets'"),
+      source.indexOf("test('memory usage under stress'")
+    );
+
+    expect(scrollBenchmark).toContain("kind: 'scroll-first'");
+    expect(scrollBenchmark).not.toContain("performance.mark('scroll-test-start')");
+    expect(scrollBenchmark).not.toContain('waitForTimeout(100)');
+  });
 });

@@ -245,24 +245,11 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     await explorer.selectRoot();
 
     const treeContainer = explorer.fileTreeScrollContainer;
-
-    // Measure scroll performance
-    await page.evaluate(() => performance.mark('scroll-test-start'));
-
-    // Perform multiple scroll operations
-    for (let i = 0; i < 5; i++) {
-      await treeContainer.evaluate((element, scrollPos) => {
-        element.scrollTop = scrollPos;
-      }, i * 200);
-      await page.waitForTimeout(100);
-    }
-
-    const scrollTime = await page.evaluate(() => {
-      performance.mark('scroll-test-end');
-      performance.measure('scroll-test', 'scroll-test-start', 'scroll-test-end');
-      const measure = performance.getEntriesByName('scroll-test')[0];
-      return measure?.duration || 0;
+    const scrollMetrics = await measureLocatorInteractionFrames(treeContainer, {
+      kind: 'scroll-first',
+      positions: Array.from({ length: 5 }, (_, index) => index * 200),
     });
+    const scrollTime = scrollMetrics.totalDurationMs;
 
     performanceMetrics.push(
       recordMetric(

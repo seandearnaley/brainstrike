@@ -36,6 +36,13 @@ export interface ClickEachInteraction {
   kind: 'click-each';
 }
 
+export interface ScrollFirstInteraction {
+  kind: 'scroll-first';
+  positions: number[];
+}
+
+export type LocatorFrameInteraction = ClickEachInteraction | ScrollFirstInteraction;
+
 /**
  * Measure application interaction work entirely inside the browser process.
  *
@@ -47,19 +54,22 @@ export interface ClickEachInteraction {
  */
 export const measureLocatorInteractionFrames = async (
   locator: Locator,
-  interaction: ClickEachInteraction
+  interaction: LocatorFrameInteraction
 ): Promise<InteractionFrameMetrics> => {
-  if (!Number.isInteger(interaction.count) || interaction.count <= 0) {
-    throw new Error(`Interaction count must be a positive integer; received ${interaction.count}`);
+  if (interaction.kind === 'click-each') {
+    if (!Number.isInteger(interaction.count) || interaction.count <= 0) {
+      throw new Error(
+        `Interaction count must be a positive integer; received ${interaction.count}`
+      );
+    }
+  } else if (
+    interaction.positions.length === 0 ||
+    interaction.positions.some((position) => !Number.isFinite(position) || position < 0)
+  ) {
+    throw new Error('Scroll positions must contain at least one finite, non-negative number');
   }
 
   return await locator.evaluateAll(async (elements, requestedInteraction) => {
-    if (elements.length < requestedInteraction.count) {
-      throw new Error(
-        `Interaction benchmark requested ${requestedInteraction.count} elements, but the locator matched ${elements.length}`
-      );
-    }
-
     const waitForPaint = async (): Promise<void> =>
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => {
@@ -83,43 +93,62 @@ export const measureLocatorInteractionFrames = async (
     };
     const samplesMs: number[] = [];
 
-    for (let index = 0; index < requestedInteraction.count; index++) {
-      const element = elements[index];
-      if (!element) {
-        throw new Error(`Interaction benchmark element ${index} disappeared before measurement`);
+    if (requestedInteraction.kind === 'scroll-first') {
+      const scrollContainer = elements[0];
+      if (!scrollContainer) {
+        throw new Error('Scroll benchmark locator did not match an element');
       }
-      if (!element.isConnected) {
-        throw new Error(`Interaction benchmark element ${index} detached before its click`);
+
+      for (const position of requestedInteraction.positions) {
+        const startedAt = performance.now();
+        scrollContainer.scrollTop = position;
+        await waitForPaint();
+        samplesMs.push(performance.now() - startedAt);
       }
-      if (
-        (element as { disabled?: unknown }).disabled === true ||
-        element.getAttribute('aria-disabled') === 'true'
-      ) {
+    } else {
+      if (elements.length < requestedInteraction.count) {
         throw new Error(
-          `Interaction benchmark element ${index} is disabled; the click would be a silent no-op`
+          `Interaction benchmark requested ${requestedInteraction.count} elements, but the locator matched ${elements.length}`
         );
       }
 
-      const click = (element as { click?: unknown }).click;
-      if (typeof click !== 'function') {
-        throw new Error(`Interaction benchmark element ${index} is not clickable`);
-      }
+      for (let index = 0; index < requestedInteraction.count; index++) {
+        const element = elements[index];
+        if (!element) {
+          throw new Error(`Interaction benchmark element ${index} disappeared before measurement`);
+        }
+        if (!element.isConnected) {
+          throw new Error(`Interaction benchmark element ${index} detached before its click`);
+        }
+        if (
+          (element as { disabled?: unknown }).disabled === true ||
+          element.getAttribute('aria-disabled') === 'true'
+        ) {
+          throw new Error(
+            `Interaction benchmark element ${index} is disabled; the click would be a silent no-op`
+          );
+        }
 
-      const checkedBefore = readCheckedState(element, index);
+        const click = (element as { click?: unknown }).click;
+        if (typeof click !== 'function') {
+          throw new Error(`Interaction benchmark element ${index} is not clickable`);
+        }
 
-      const startedAt = performance.now();
-      click.call(element);
-      await waitForPaint();
-      if (!element.isConnected) {
-        throw new Error(`Interaction benchmark element ${index} detached after its click`);
+        const checkedBefore = readCheckedState(element, index);
+        const startedAt = performance.now();
+        click.call(element);
+        await waitForPaint();
+        if (!element.isConnected) {
+          throw new Error(`Interaction benchmark element ${index} detached after its click`);
+        }
+        const checkedAfter = readCheckedState(element, index);
+        if (checkedAfter === checkedBefore) {
+          throw new Error(
+            `Interaction benchmark element ${index} did not change checked state after its click`
+          );
+        }
+        samplesMs.push(performance.now() - startedAt);
       }
-      const checkedAfter = readCheckedState(element, index);
-      if (checkedAfter === checkedBefore) {
-        throw new Error(
-          `Interaction benchmark element ${index} did not change checked state after its click`
-        );
-      }
-      samplesMs.push(performance.now() - startedAt);
     }
 
     const totalDurationMs = samplesMs.reduce((total, duration) => total + duration, 0);
