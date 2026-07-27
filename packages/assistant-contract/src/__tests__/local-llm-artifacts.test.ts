@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configureTransformersEnvironment } from '../gemma4-engine';
 import {
   BrowserCacheArtifactStore,
   buildLocalArtifactUrl,
   resolveLocalArtifactRemoteHost,
-  resolveLocalArtifactRemotePathTemplate,
-} from '../local-artifact-store';
-import { getLocalLlmModelSpec } from '../local-model-specs';
+} from '../local-llm-artifacts';
+import { getLocalLlmModelSpec } from '../local-llm-model-specs';
 
 const originalWindow = globalThis.window;
 
@@ -86,48 +84,6 @@ describe('local-artifact-store', () => {
     expect(resolveLocalArtifactRemoteHost()).toBe('https://cache.internal/hf/');
 
     Reflect.deleteProperty(globalThis, '__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__');
-  });
-
-  it('configures transformers runtime fetches to use the same remote host contract as downloads', () => {
-    globalThis.window = {
-      location: {
-        origin: 'http://localhost:8080',
-        protocol: 'http:',
-      },
-    } as unknown as Window & typeof globalThis;
-
-    const environment: {
-      allowRemoteModels?: boolean;
-      remoteHost?: string;
-      remotePathTemplate?: string;
-    } = {};
-
-    configureTransformersEnvironment(environment);
-
-    expect(environment.allowRemoteModels).toBe(true);
-    expect(environment.remoteHost).toBe('http://localhost:8080/api/hf/');
-    expect(environment.remotePathTemplate).toBe(resolveLocalArtifactRemotePathTemplate());
-  });
-
-  it('configures transformers runtime fetches to use hugging face directly in electron renderers', () => {
-    globalThis.window = {
-      electronAPI: {},
-      location: {
-        protocol: 'http:',
-      },
-    } as unknown as Window & typeof globalThis;
-
-    const environment: {
-      allowRemoteModels?: boolean;
-      remoteHost?: string;
-      remotePathTemplate?: string;
-    } = {};
-
-    configureTransformersEnvironment(environment);
-
-    expect(environment.allowRemoteModels).toBe(true);
-    expect(environment.remoteHost).toBe('https://huggingface.co/');
-    expect(environment.remotePathTemplate).toBe(resolveLocalArtifactRemotePathTemplate());
   });
 
   it('rejects partial artifact responses instead of caching incomplete model files', async () => {

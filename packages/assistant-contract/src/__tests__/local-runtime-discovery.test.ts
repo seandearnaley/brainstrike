@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LocalRuntimeDiscoveryService } from '../providers/local-runtime-discovery';
+import { LocalRuntimeDiscoveryService } from '../local-runtime-discovery';
 
 type FetchMockInput = string | URL | Request;
 type FetchMock = (input: FetchMockInput, init?: RequestInit) => Promise<Response>;
