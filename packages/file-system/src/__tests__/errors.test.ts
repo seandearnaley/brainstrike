@@ -132,6 +132,7 @@ describe('getFileTooLargeMessage', () => {
       'Object size limit'
     );
     expect(getFileTooLargeMessage({ code: 'TOO_LARGE', message: 42 })).toBe('File too large');
+    expect(getFileTooLargeMessage({ code: 'TOO_LARGE', message: '' })).toBe('File too large');
   });
 
   it('accepts only read AccessErrors with the file-size marker', () => {

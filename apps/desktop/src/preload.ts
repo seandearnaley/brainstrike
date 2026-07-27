@@ -157,8 +157,10 @@ import type {
 } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 
-// Sandboxed preloads cannot depend on additional local modules at runtime.
-// Keep all IPC contracts used here self-contained in this file.
+// BST-338 preload duplicate contract: sandboxed preloads cannot import the
+// canonical runtime module. This code and the file-read payload declarations
+// below intentionally duplicate `file-read-errors.ts`; conformance tests
+// source-evaluate this preload's own constants and predicate.
 const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;
 const EMBEDDING_HOST_STATUS_EVENT = 'embedding-host:status' as const;
 const EMBEDDING_HOST_COMMAND_EVENT = 'embedding-host:command' as const;
@@ -504,10 +506,7 @@ interface LlmHostResponseReport {
   readonly type: 'error' | 'progress' | 'result';
 }
 
-// BST-338 preload duplicate contract: this sandboxed CJS preload cannot import
-// the canonical runtime module, so these codes, FileReadErrorPayload, and
-// isFileReadErrorPayload intentionally duplicate `file-read-errors.ts`.
-// A source-evaluated conformance test keeps their accepted shapes in parity.
+// See the BST-338 preload duplicate contract beside the first duplicated code.
 const FILE_READ_ERROR_CODE_NOT_FOUND = 'NOT_FOUND' as const;
 
 interface FileReadErrorPayload {

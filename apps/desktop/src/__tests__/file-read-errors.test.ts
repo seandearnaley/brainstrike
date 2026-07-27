@@ -11,21 +11,60 @@ import {
 } from '../file-read-errors';
 
 const PRELOAD_DUPLICATE_CONTRACT_ANCHOR = 'BST-338 preload duplicate contract';
+const PRELOAD_PATH = path.resolve(import.meta.dirname, '..', 'preload.ts');
 
-function loadPreloadFileReadErrorPredicate(): (value: unknown) => boolean {
-  const preloadSource = readFileSync(path.resolve(process.cwd(), 'src', 'preload.ts'), 'utf8');
-  const functionStart = preloadSource.indexOf('function isFileReadErrorPayload');
-  const functionEndMarker = '\n}\n\nfunction unwrapFileReadResult';
-  const functionEnd = preloadSource.indexOf(functionEndMarker, functionStart);
-  if (functionStart < 0 || functionEnd < 0) {
-    throw new Error('Preload file-read payload predicate was not found.');
+interface PreloadFileReadErrorContract {
+  readonly notFoundCode: string;
+  readonly predicate: (value: unknown) => boolean;
+  readonly tooLargeCode: string;
+}
+
+function extractConstString(source: string, name: string): string {
+  const match = new RegExp(`const ${name} = '([^']+)' as const;`).exec(source);
+  if (!match?.[1]) {
+    throw new Error(`Preload constant ${name} was not found.`);
+  }
+  return match[1];
+}
+
+function extractFunctionDeclaration(source: string, name: string): string {
+  const functionStart = source.indexOf(`function ${name}`);
+  const bodyStart = source.indexOf('{', functionStart);
+  if (functionStart < 0 || bodyStart < 0) {
+    throw new Error(`Preload function ${name} was not found.`);
   }
 
-  const predicateSource = preloadSource.slice(functionStart, functionEnd + 2);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') {
+      depth += 1;
+    } else if (source[index] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(functionStart, index + 1);
+      }
+    }
+  }
+  throw new Error(`Preload function ${name} has an unbalanced body.`);
+}
+
+function loadPreloadFileReadErrorContract(
+  preloadSource = readFileSync(PRELOAD_PATH, 'utf8')
+): PreloadFileReadErrorContract {
+  const tooLargeCode = extractConstString(preloadSource, 'FILE_READ_ERROR_CODE_TOO_LARGE');
+  const notFoundCode = extractConstString(preloadSource, 'FILE_READ_ERROR_CODE_NOT_FOUND');
+  if (tooLargeCode !== FILE_READ_ERROR_CODE_TOO_LARGE) {
+    throw new Error('Preload TOO_LARGE code differs from the canonical contract.');
+  }
+  if (notFoundCode !== FILE_READ_ERROR_CODE_NOT_FOUND) {
+    throw new Error('Preload NOT_FOUND code differs from the canonical contract.');
+  }
+
+  const predicateSource = extractFunctionDeclaration(preloadSource, 'isFileReadErrorPayload');
   const executableSource = transpileModule(
     `
-      const FILE_READ_ERROR_CODE_TOO_LARGE = ${JSON.stringify(FILE_READ_ERROR_CODE_TOO_LARGE)};
-      const FILE_READ_ERROR_CODE_NOT_FOUND = ${JSON.stringify(FILE_READ_ERROR_CODE_NOT_FOUND)};
+      const FILE_READ_ERROR_CODE_TOO_LARGE = ${JSON.stringify(tooLargeCode)};
+      const FILE_READ_ERROR_CODE_NOT_FOUND = ${JSON.stringify(notFoundCode)};
       ${predicateSource}
       globalThis.__fileReadPredicate = isFileReadErrorPayload;
     `,
@@ -42,7 +81,11 @@ function loadPreloadFileReadErrorPredicate(): (value: unknown) => boolean {
   if (typeof predicate !== 'function') {
     throw new Error('Preload file-read payload predicate did not evaluate to a function.');
   }
-  return predicate as (value: unknown) => boolean;
+  return {
+    notFoundCode,
+    predicate: predicate as (value: unknown) => boolean,
+    tooLargeCode,
+  };
 }
 
 describe('file-read-errors', () => {
@@ -72,7 +115,7 @@ describe('file-read-errors', () => {
   });
 
   it('keeps the sandboxed preload predicate in semantic parity with the canonical guard', () => {
-    const preloadPredicate = loadPreloadFileReadErrorPredicate();
+    const preloadContract = loadPreloadFileReadErrorContract();
     const candidates: unknown[] = [
       null,
       'nope',
@@ -84,17 +127,36 @@ describe('file-read-errors', () => {
       { code: FILE_READ_ERROR_CODE_NOT_FOUND, message: '' },
     ];
 
-    expect(candidates.map(preloadPredicate)).toEqual(candidates.map(isFileReadErrorPayload));
+    expect(preloadContract.tooLargeCode).toBe(FILE_READ_ERROR_CODE_TOO_LARGE);
+    expect(preloadContract.notFoundCode).toBe(FILE_READ_ERROR_CODE_NOT_FOUND);
+    expect(candidates.map(preloadContract.predicate)).toEqual(
+      candidates.map(isFileReadErrorPayload)
+    );
+  });
+
+  it('rejects drift in the preload duplicated constant values', () => {
+    const preloadSource = readFileSync(PRELOAD_PATH, 'utf8');
+    const driftedSource = preloadSource.replace(
+      "const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;",
+      "const FILE_READ_ERROR_CODE_TOO_LARGE = 'FILE_TOO_LARGE' as const;"
+    );
+
+    expect(() => loadPreloadFileReadErrorContract(driftedSource)).toThrow(
+      'Preload TOO_LARGE code differs from the canonical contract.'
+    );
   });
 
   it('cross-references the intentional preload duplication in both implementations', () => {
-    const preloadSource = readFileSync(path.resolve(process.cwd(), 'src', 'preload.ts'), 'utf8');
+    const preloadSource = readFileSync(PRELOAD_PATH, 'utf8');
     const canonicalSource = readFileSync(
-      path.resolve(process.cwd(), 'src', 'file-read-errors.ts'),
+      path.resolve(import.meta.dirname, '..', 'file-read-errors.ts'),
       'utf8'
     );
 
     expect(preloadSource).toContain(PRELOAD_DUPLICATE_CONTRACT_ANCHOR);
+    expect(preloadSource).toMatch(
+      /BST-338 preload duplicate contract:[\s\S]{0,300}const FILE_READ_ERROR_CODE_TOO_LARGE/
+    );
     expect(canonicalSource).toContain(PRELOAD_DUPLICATE_CONTRACT_ANCHOR);
   });
 });

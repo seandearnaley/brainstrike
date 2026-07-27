@@ -69,7 +69,9 @@ export function getFileTooLargeMessage(error: unknown): string | null {
   if (error && typeof error === 'object') {
     const candidate = error as { code?: unknown; message?: unknown };
     if (candidate.code === 'TOO_LARGE') {
-      return typeof candidate.message === 'string' ? candidate.message : 'File too large';
+      return typeof candidate.message === 'string' && candidate.message.length > 0
+        ? candidate.message
+        : 'File too large';
     }
   }
 
