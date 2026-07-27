@@ -153,6 +153,105 @@ describe('scanUserPersonas', () => {
     expect(result.personas).toHaveLength(MAX_USER_PERSONAS_SCAN);
   });
 
+  /**
+   * BST-936 — the three defects the #2034 lens review found here first. Each
+   * is a "silently different behaviour" bug, which is the class this codebase
+   * refuses everywhere else.
+   */
+  it('a BROKEN project persona blocks a same-named global one — no silent fallback', () => {
+    // The bug: the project file failed to parse, never reserved `reviewer`,
+    // and the GLOBAL file then loaded under that id — so a broken project
+    // persona silently swapped in different instructions under the name the
+    // project author controls. The id comes from the FILENAME
+    // (deriveUserPersonaId), so it can be reserved before parsing.
+    const deps = makeDeps({
+      '/work/a/.brainstrike/agents': {
+        'reviewer.md': personaFile('project reviewer', 'tools: writeWorkspaceFile'),
+      },
+      [`${HOME}/.brainstrike/agents`]: { 'reviewer.md': personaFile('global reviewer') },
+    });
+    const result = scanUserPersonas({ homeDir: HOME, roots: [ROOT_A] }, deps);
+
+    expect(result.personas).toHaveLength(0);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({ sourceRootId: 'root-a', status: 'invalid' });
+    expect(result.shadowed).toEqual([
+      {
+        absPath: `${HOME}/.brainstrike/agents/reviewer.md`,
+        fileName: 'reviewer.md',
+        keptRootId: 'root-a',
+      },
+    ]);
+  });
+
+  it('a suppressed duplicate is VISIBLE in shadowed, not merely logged', () => {
+    const deps = makeDeps({
+      '/work/a/.brainstrike/agents': { 'reviewer.md': personaFile('project reviewer') },
+      [`${HOME}/.brainstrike/agents`]: { 'reviewer.md': personaFile('global reviewer') },
+    });
+    const result = scanUserPersonas({ homeDir: HOME, roots: [ROOT_A] }, deps);
+
+    expect(result.personas).toHaveLength(1);
+    expect(result.personas[0]?.description).toBe('project reviewer');
+    expect(result.shadowed).toEqual([
+      {
+        absPath: `${HOME}/.brainstrike/agents/reviewer.md`,
+        fileName: 'reviewer.md',
+        keptRootId: 'root-a',
+      },
+    ]);
+  });
+
+  it('invalid files consume the scan cap — a malformed dir cannot extend the scan', () => {
+    const files: Record<string, string> = {};
+    for (let index = 0; index < MAX_USER_PERSONAS_SCAN + 5; index += 1) {
+      // Valid filename (so the id is reserved) but an invalid body.
+      files[`p${String(index).padStart(3, '0')}.md`] = 'no frontmatter at all';
+    }
+    const deps = makeDeps({ [`${HOME}/.brainstrike/agents`]: files });
+    const result = scanUserPersonas({ homeDir: HOME, roots: [] }, deps);
+
+    expect(result.personas).toHaveLength(0);
+    expect(result.entries).toHaveLength(MAX_USER_PERSONAS_SCAN);
+  });
+
+  it('a truncated directory listing is reported, never silent', () => {
+    const deps: UserPersonaScanDeps = {
+      listDir: () => ({
+        entries: [{ isDirectory: false, isFile: true, name: 'ok.md' }],
+        inspected: 1,
+        truncated: true,
+      }),
+      readFile: () => ({ content: personaFile('present'), ok: true }),
+    };
+    const result = scanUserPersonas({ homeDir: HOME, roots: [] }, deps);
+
+    expect(result.personas).toHaveLength(1);
+    expect(result.truncatedDirs).toEqual([`${HOME}/.brainstrike/agents`]);
+  });
+
+  it('junk files do not evict real personas from the listing', () => {
+    // The listing bound counts DIRECTORY ENTRIES, so it must not be derived
+    // from the persona cap: a directory padded with non-.md files would
+    // otherwise push real personas past the requested maxEntries.
+    const junk = Array.from({ length: MAX_USER_PERSONAS_SCAN + 5 }, (_, index) => ({
+      isDirectory: false,
+      isFile: true,
+      name: `notes-${index}.txt`,
+    }));
+    const deps: UserPersonaScanDeps = {
+      listDir: (_absDir, _containmentRoot, maxEntries) => {
+        const all = [...junk, { isDirectory: false, isFile: true, name: 'real.md' }];
+        const kept = all.slice(0, maxEntries);
+        return { entries: kept, inspected: kept.length, truncated: kept.length < all.length };
+      },
+      readFile: () => ({ content: personaFile('the real one'), ok: true }),
+    };
+    const result = scanUserPersonas({ homeDir: HOME, roots: [] }, deps);
+
+    expect(result.personas.map((persona) => persona.id)).toEqual(['real']);
+  });
+
   it('an unreadable file is an invalid entry with an honest reason', () => {
     const deps: UserPersonaScanDeps = {
       listDir: () => ({

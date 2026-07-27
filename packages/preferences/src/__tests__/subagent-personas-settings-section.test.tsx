@@ -136,6 +136,49 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(screen.getAllByText('bad.md')).toHaveLength(2);
   });
 
+  it('renders a shadowed file as an informational row, not an error', async () => {
+    // BST-936: a suppressed duplicate must be VISIBLE, but it is a precedence
+    // outcome — so no destructive styling, and no toggle (it is not loaded).
+    setBridge({
+      list: () =>
+        Promise.resolve({
+          personas: [
+            {
+              absPath: '/home/user/.brainstrike/agents/reviewer.md',
+              description: '',
+              id: 'reviewer.md',
+              label: 'reviewer.md',
+              shadowedBy: 'root-a',
+              source: 'user' as const,
+              status: 'shadowed' as const,
+            },
+          ],
+        }),
+    });
+    render(<SubagentPersonasSettingsSection />);
+
+    const detail = await screen.findByText(/already owns this persona name/i);
+    expect(detail).toBeInTheDocument();
+    expect(detail).toHaveClass('text-muted-foreground');
+    expect(detail).not.toHaveClass('text-destructive');
+    expect(screen.queryByTestId('subagent-persona-toggle-reviewer.md')).not.toBeInTheDocument();
+  });
+
+  it('warns when a persona directory listing was truncated', async () => {
+    setBridge({
+      list: () =>
+        Promise.resolve({
+          personas: [],
+          truncatedDirs: ['/work/a/.brainstrike/agents'],
+        }),
+    });
+    render(<SubagentPersonasSettingsSection />);
+
+    const warning = await screen.findByTestId('subagent-personas-truncated');
+    expect(warning).toHaveTextContent('/work/a/.brainstrike/agents');
+    expect(warning).toHaveTextContent(/not read/i);
+  });
+
   it('without the bridge, shows the desktop-only note for user personas', () => {
     render(<SubagentPersonasSettingsSection />);
     expect(screen.getByText(/desktop/i)).toBeInTheDocument();

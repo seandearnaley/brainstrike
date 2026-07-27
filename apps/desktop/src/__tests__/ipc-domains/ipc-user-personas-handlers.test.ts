@@ -86,6 +86,52 @@ describe('listUserPersonas', () => {
     expect(invalid?.source).toBe('user');
   });
 
+  it('includes SHADOWED files as their own row, not as an error', async () => {
+    // `reviewer.markdown` and `reviewer.md` both derive the id `reviewer`, so
+    // one suppresses the other inside a single directory — no multi-root
+    // setup needed. The loser must appear (BST-936), and must NOT be reported
+    // as invalid: it is a precedence outcome, not an authoring mistake.
+    const result = await listUserPersonas({
+      fs: makeFs({
+        [`${HOME}/.brainstrike/agents`]: {
+          'reviewer.markdown': '---\ndescription: first\n---\nBody.',
+          'reviewer.md': '---\ndescription: second\n---\nBody.',
+        },
+      }),
+      getDatabase: () => Promise.resolve(null),
+      homedir: () => HOME,
+    });
+
+    expect(
+      result.personas.filter((row) => row.status === 'ok' && row.source === 'user')
+    ).toHaveLength(1);
+    const shadowed = result.personas.find((row) => row.status === 'shadowed');
+    expect(shadowed).toMatchObject({
+      id: 'reviewer.md',
+      shadowedBy: 'global',
+      source: 'user',
+    });
+    expect(shadowed?.error).toBeUndefined();
+    expect(result.personas.some((row) => row.status === 'invalid')).toBe(false);
+  });
+
+  it('reports a truncated persona directory listing', async () => {
+    const result = await listUserPersonas({
+      fs: {
+        listDir: () => ({
+          entries: [{ isDirectory: false, isFile: true, name: 'ok.md' }],
+          inspected: 1,
+          truncated: true,
+        }),
+        readFile: () => ({ content: '---\ndescription: d\n---\nBody.', ok: true }) as const,
+      },
+      getDatabase: () => Promise.resolve(null),
+      homedir: () => HOME,
+    });
+
+    expect(result.truncatedDirs).toEqual([`${HOME}/.brainstrike/agents`]);
+  });
+
   it('returns only built-ins when no persona dirs exist', async () => {
     const result = await listUserPersonas({
       fs: makeFs({}),

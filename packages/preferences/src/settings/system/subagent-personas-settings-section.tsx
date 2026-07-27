@@ -25,7 +25,7 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   subagentPersonasSelectors,
@@ -52,6 +52,37 @@ const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.ma
   status: 'ok',
 }));
 
+/**
+ * The row's second line: the error for a broken file, the shadowing
+ * explanation for a suppressed one, otherwise the description.
+ *
+ * A shadowed file is styled MUTED, not destructive: it is a precedence
+ * outcome (a higher-priority tier owns the id), not an authoring mistake, and
+ * a red alert would send the author hunting for a defect that is not there.
+ * It still gets a line, because a duplicate that disappears without one is
+ * exactly the silence this panel exists to break (BST-936).
+ */
+function renderRowDetail(item: AssistantPersonaListItem): React.JSX.Element {
+  if (item.status === 'invalid') {
+    return (
+      <p className="flex items-center gap-1 text-destructive text-sm">
+        <AlertTriangle className="size-3.5 shrink-0" />
+        {item.error}
+      </p>
+    );
+  }
+  if (item.status === 'shadowed') {
+    return (
+      <p className="flex items-center gap-1 text-muted-foreground text-sm">
+        <Layers className="size-3.5 shrink-0" />
+        Not loaded — another {item.shadowedBy === 'global' ? 'home-directory' : 'workspace'} file
+        already owns this persona name.
+      </p>
+    );
+  }
+  return <p className="text-muted-foreground text-sm">{item.description}</p>;
+}
+
 function PersonaRow(props: {
   readonly disabled: boolean;
   readonly enabled: boolean;
@@ -67,14 +98,7 @@ function PersonaRow(props: {
           {item.source === 'user' ? <Badge variant="outline">User</Badge> : null}
           {item.modelPin ? <Badge variant="secondary">{item.modelPin}</Badge> : null}
         </div>
-        {item.status === 'invalid' ? (
-          <p className="flex items-center gap-1 text-destructive text-sm">
-            <AlertTriangle className="size-3.5 shrink-0" />
-            {item.error}
-          </p>
-        ) : (
-          <p className="text-muted-foreground text-sm">{item.description}</p>
-        )}
+        {renderRowDetail(item)}
       </div>
       {item.status === 'ok' ? (
         <Switch
@@ -96,6 +120,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
   const setPersonaEnabled = useSubagentPersonasStore((state) => state.setPersonaEnabled);
 
   const [bridgeItems, setBridgeItems] = useState<readonly AssistantPersonaListItem[] | null>(null);
+  const [truncatedDirs, setTruncatedDirs] = useState<readonly string[]>([]);
   const hasBridge = getPersonasBridge() !== null;
 
   useEffect(() => {
@@ -109,6 +134,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
       .then((result) => {
         if (!cancelled) {
           setBridgeItems(result.personas);
+          setTruncatedDirs(result.truncatedDirs ?? []);
         }
       })
       .catch(() => {
@@ -117,6 +143,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
         // personas themselves, which the server resolves independently.
         if (!cancelled) {
           setBridgeItems(null);
+          setTruncatedDirs([]);
         }
       });
     return () => {
@@ -159,6 +186,15 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!delegationEnabled}>
           <legend className="font-medium text-sm">Personas</legend>
+          {truncatedDirs.length > 0 ? (
+            <p
+              className="flex items-center gap-1 text-destructive text-sm"
+              data-testid="subagent-personas-truncated"
+            >
+              <AlertTriangle className="size-3.5 shrink-0" />
+              Too many files to scan in {truncatedDirs.join(', ')} — some personas were not read.
+            </p>
+          ) : null}
           {items.map((item) => (
             <PersonaRow
               disabled={!delegationEnabled}

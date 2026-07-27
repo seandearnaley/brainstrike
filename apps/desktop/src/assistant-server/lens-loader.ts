@@ -21,7 +21,12 @@
  */
 
 import type { LensDefinition } from '@brainstrike/assistant-contract';
-import { MAX_USER_LENSES, parseLensFile, USER_LENS_DIRNAME } from '@brainstrike/assistant-contract';
+import {
+  deriveLensId,
+  MAX_USER_LENSES,
+  parseLensFile,
+  USER_LENS_DIRNAME,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import type {
   UserSlashCommandDirEntry,
@@ -161,18 +166,23 @@ function loadLensFile(
   const absPath = joinPath(baseDir, [fileName]);
   const sourceRootField = source.sourceRootId ? { sourceRootId: source.sourceRootId } : {};
 
-  const id = fileName.replace(/\.sql$/i, '');
-  if (seen.has(id)) {
-    warnCollision(id, source, seen.get(id));
-    const keptRootId = seen.get(id);
-    shadowed.push({
-      fileName,
-      ...(keptRootId === undefined ? {} : { keptRootId }),
-      ...(source.sourceRootId === undefined ? {} : { sourceRootId: source.sourceRootId }),
-    });
-    return null;
+  // The SAME derivation the parser uses (contract-owned), so the reserved key
+  // and the parsed lens id can never disagree. A filename that derives no
+  // valid id reserves nothing — a same-named file lower down fails identically.
+  const derived = deriveLensId(fileName);
+  if (derived.ok) {
+    if (seen.has(derived.id)) {
+      const keptRootId = seen.get(derived.id);
+      warnCollision(derived.id, source, keptRootId);
+      shadowed.push({
+        fileName,
+        ...(keptRootId === undefined ? {} : { keptRootId }),
+        ...(source.sourceRootId === undefined ? {} : { sourceRootId: source.sourceRootId }),
+      });
+      return null;
+    }
+    seen.set(derived.id, source.sourceRootId);
   }
-  seen.set(id, source.sourceRootId);
 
   const read = deps.readFile(absPath);
   if (!read.ok) {

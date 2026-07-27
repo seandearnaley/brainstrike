@@ -62,7 +62,25 @@ export async function listUserPersonas(
   }));
   const roots = await resolveScanRoots(deps.getDatabase);
   const scan = scanUserPersonas({ homeDir: deps.homedir(), roots }, deps.fs);
-  return { personas: [...builtIns, ...scan.entries.map(toListItem)] };
+  // Shadowed files get rows too: a duplicate that vanishes without a line is
+  // exactly the "silently different behaviour" this list exists to prevent
+  // (BST-936). They carry no persona, so id/label fall back to the filename.
+  const shadowedItems: AssistantPersonaListItem[] = scan.shadowed.map((item) => ({
+    // absPath keeps the settings row key unique: the same file NAME can be
+    // shadowed once per root, and those rows must not collide.
+    absPath: item.absPath,
+    description: '',
+    id: item.fileName,
+    label: item.fileName,
+    shadowedBy: item.keptRootId ?? 'global',
+    source: 'user',
+    status: 'shadowed',
+    ...(item.sourceRootId ? { sourceRootId: item.sourceRootId } : {}),
+  }));
+  return {
+    personas: [...builtIns, ...scan.entries.map(toListItem), ...shadowedItems],
+    ...(scan.truncatedDirs.length > 0 ? { truncatedDirs: [...scan.truncatedDirs] } : {}),
+  };
 }
 
 /**

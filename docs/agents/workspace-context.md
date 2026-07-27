@@ -194,6 +194,35 @@ fourth MUST reuse one of these two shapes rather than inventing a third:
 | personas | `agents/` | `user-personas-loader.ts` | flat, `entries` + visible invalid, first-id-wins |
 | lenses (BST-921) | `lenses/` | `lens-loader.ts` | mirrors personas exactly; grammar in `assistant-contract/src/lenses.ts`; surfaced via `querySelf` `listLenses`/`lens` (see `docs/agents/agent-self-query.md` § Lenses) |
 
+### Four rules every flat-scan loader must follow (BST-936)
+
+Learned the hard way: the lens loader mirrored the persona loader faithfully
+and inherited three real defects with it. Both now follow these; a fourth
+loader must too, and `/commands` should adopt them if it ever grows an
+authoring UI.
+
+1. **Reserve the id from the FILENAME, before reading or parsing.** Ids derive
+   from the filename in both features, through ONE exported contract function
+   (`deriveUserPersonaId`, `deriveLensId`) shared by the loader and the parser
+   so the reserved key and the real id cannot drift. Without pre-parse
+   reservation, a BROKEN project-tier file silently hands its name to a
+   same-named global file carrying different behaviour — the worst failure
+   mode available to a config system. A filename that derives no valid id
+   reserves nothing.
+2. **The count cap counts ENTRIES (valid + invalid), not accepted items** —
+   otherwise a directory of malformed files extends the scan across every
+   mounted root instead of consuming the bound.
+3. **The directory-listing bound is NOT the item cap.** `listDir`'s
+   `maxEntries` counts every directory entry (READMEs, subdirs, backups), so
+   deriving it from the cap lets junk evict real files from the listing before
+   they are read. Both use `cap * 2 + 1`, and a truncated listing is reported
+   (`truncatedDirs`), never silent.
+4. **Suppressed duplicates are VISIBLE** (`shadowed`), carrying the suppressed
+   file's absolute path and which tier kept the id. A shadowed file is
+   presented as its own state — not an error — because it is a precedence
+   outcome, not an authoring mistake: the settings panel styles it muted, and
+   `listLenses` prints a `SHADOWED` line.
+
 ## USER-DEFINED SLASH COMMANDS
 
 Prompt-template `/commands` authored as `*.md` files, projected into the SAME

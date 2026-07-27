@@ -305,7 +305,8 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
 /**
  * One persona row as the discovery IPC reports it to the settings panel:
  * built-ins and user personas in one list, INCLUDING invalid user files (with
- * their error) so authors see exactly why a persona did not load.
+ * their error) and files SHADOWED by a higher-priority tier, so authors see
+ * exactly why a persona did not load.
  */
 export interface AssistantPersonaListItem {
   /** Absolute file path (user personas only). */
@@ -317,15 +318,28 @@ export interface AssistantPersonaListItem {
   readonly label: string;
   /** Serialized `provider::modelId` pin, for display. */
   readonly modelPin?: string;
+  /** Which tier kept the id when this file was shadowed: a root id, or
+   * 'global' for `~/.brainstrike`. Set only for status 'shadowed'. */
+  readonly shadowedBy?: string;
   readonly source: 'built-in' | 'user';
   /** Owning root id for project-scoped user personas. */
   readonly sourceRootId?: string;
-  readonly status: 'invalid' | 'ok';
+  /**
+   * 'shadowed' is deliberately its OWN state rather than an error: a
+   * suppressed duplicate is a precedence outcome, not an authoring mistake,
+   * and reporting it as invalid would send the author hunting for a defect
+   * that is not there. It shares 'invalid''s lack of a toggle, since neither
+   * is a loadable persona (BST-936).
+   */
+  readonly status: 'invalid' | 'ok' | 'shadowed';
 }
 
 /** The persona discovery IPC payload. */
 export interface AssistantPersonasListResult {
   readonly personas: readonly AssistantPersonaListItem[];
+  /** Directories whose listing hit the scan bound; later files were never
+   * read. Surfaced so "my persona is missing" has a visible cause. */
+  readonly truncatedDirs?: readonly string[];
 }
 
 export interface BuildUserPersonaInput {
