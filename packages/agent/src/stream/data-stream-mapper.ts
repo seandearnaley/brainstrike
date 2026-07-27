@@ -600,19 +600,15 @@ export class DataStreamMapper {
     if (!callId) {
       return;
     }
-    if (this.settledToolCallIds.has(callId)) {
-      // A settled call already has its result on the wire; it cannot be
-      // legitimately awaiting approval, and re-starting it would emit a
-      // duplicate `b` (renderer decoder throws on duplicate ids) — the same
-      // crash class the settled-id guard in handleToolEvent closes.
-      logger.warn('Dropping tool approval request for a settled tool call', {
-        toolCallId: callId,
-      });
-      return;
-    }
     yield* this.flushPendingRunEvents();
 
-    if (!this.toolState.has(callId)) {
+    // Settled-id rule, frames only: never AUTO-START a settled call (a
+    // duplicate `b` throws in the renderer decoder — the crash class the
+    // handleToolEvent guard closes). The approval NOTICE below is a plain
+    // aui-data part that touches no tool controller, so it still flows — a
+    // genuinely suspended run must keep its pause UI even when the call's
+    // frames already settled (legacy error-then-suspend ordering, #1606).
+    if (!(this.toolState.has(callId) || this.settledToolCallIds.has(callId))) {
       yield* this.handleToolStart(chunk.toolName, callId, {
         args: chunk.args,
         input: chunk.args,
@@ -670,24 +666,17 @@ export class DataStreamMapper {
     // false "tool failed" message; do NOT cite it as evidence of current
     // behaviour (a PR #1977 review round did, and was wrong).
     this.pendingToolErrorTexts.delete(callId);
-    if (this.settledToolCallIds.has(callId)) {
-      // Settled-id rule (same class as handleToolEvent/handleToolApprovalRequired):
-      // restarting a settled call would put a duplicate `b` on the wire and the
-      // renderer decoder throws on duplicate ids. Deliberately AFTER the #1606
-      // defensive error discard above — in the legacy error-then-suspend
-      // ordering the transient error text must still be dropped even though
-      // the suspend part itself no longer replays a settled call.
-      logger.warn('Dropping tool suspend request for a settled tool call', {
-        toolCallId: callId,
-      });
-      return;
-    }
     // Text-part deferral contract: finalize any open text/reasoning append and
     // flush deferred run events BEFORE emitting the data part (a data part
     // mid-text slices visible text).
     yield* this.flushPendingRunEvents();
 
-    if (!this.toolState.has(callId)) {
+    // Settled-id rule, frames only (mirrors handleToolApprovalRequired): the
+    // suspend NOTICE below still flows for a settled call — in the legacy
+    // error-then-suspend ordering (#1606 above) the run IS genuinely
+    // suspended and must keep its pause UI — but a settled call is never
+    // auto-started (duplicate `b` throws in the renderer decoder).
+    if (!(this.toolState.has(callId) || this.settledToolCallIds.has(callId))) {
       yield* this.handleToolStart(chunk.toolName, callId, {});
     }
 
@@ -724,12 +713,14 @@ export class DataStreamMapper {
       },
     } satisfies EncodedChunk;
 
-    if (chunk.resumeSupported === false) {
+    if (chunk.resumeSupported === false && !this.settledToolCallIds.has(callId)) {
       // BST-558: this build has no registered resume UI for the tool, so nothing
       // will ever produce this call's result. Leaving it open would keep a
       // Running ToolFallback forever — and the notice above is dismissible, so a
       // dismissed notice would strand an unactionable spinner. Settle the part
-      // as an error instead. NOT recorded in `pendingToolErrorTexts`: that would
+      // as an error instead (skipped for an ALREADY-settled call — a second
+      // result frame against a responded controller is the settled-id crash
+      // class). NOT recorded in `pendingToolErrorTexts`: that would
       // append "I couldn't complete the tool action because it failed" and mark
       // the step errored, which is false — no tool failed, and the run stays
       // suspended and resumable by a build that registers the tool.

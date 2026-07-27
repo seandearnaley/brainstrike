@@ -246,24 +246,6 @@ describe('AssistantDataStreamSession', () => {
         status: 'success',
         type: 'tool-event',
       },
-      // Trailing APPROVAL and SUSPEND requests for the settled id — the same
-      // duplicate-`b` crash class through their own auto-start seams; both are
-      // dropped (a settled call cannot legitimately pause).
-      {
-        args: {},
-        resumeSchema: '{}',
-        runId: 'run-late',
-        toolCallId: 'call-late',
-        toolName: 'weather.lookup',
-        type: 'tool-approval-required',
-      },
-      {
-        runId: 'run-late',
-        suspendPayload: { title: 'stale pause' },
-        toolCallId: 'call-late',
-        toolName: 'weather.lookup',
-        type: 'tool-suspend-required',
-      },
       { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ];
 
@@ -283,6 +265,102 @@ describe('AssistantDataStreamSession', () => {
       'e', // finish-step
       'd', // finish-message
     ]);
+  });
+
+  it('keeps the approval NOTICE for a settled tool call without re-emitting frames', async () => {
+    // Settled-id rule, frames only: a trailing tool-approval-required for a
+    // call whose result is already on the wire must not auto-start a
+    // duplicate `b` (renderer decoder throws on duplicate ids), but the
+    // approval notice is a plain aui-data part and still flows.
+    const chunks: StreamChunk[] = [
+      {
+        name: 'weather.lookup',
+        payload: { args: { city: 'SF' }, toolCallId: 'call-settled-approval' },
+        status: 'start',
+        type: 'tool-event',
+      },
+      {
+        name: 'weather.lookup',
+        payload: { output: { tempC: 18 }, toolCallId: 'call-settled-approval' },
+        status: 'success',
+        type: 'tool-event',
+      },
+      {
+        args: {},
+        resumeSchema: '{}',
+        runId: 'run-settled-approval',
+        toolCallId: 'call-settled-approval',
+        toolName: 'weather.lookup',
+        type: 'tool-approval-required',
+      },
+      { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-settled-approval',
+      sessionId: 'sess-settled-approval',
+    });
+
+    const parsed = parseLines(await readResponse(session.createResponse()));
+    // ONE b / ONE 9 / ONE a — the approval leg adds only its aui data part.
+    expect(parsed.map((entry) => entry.code)).toStrictEqual([
+      'f',
+      'b',
+      '9',
+      'a',
+      'aui-data',
+      'e',
+      'd',
+    ]);
+  });
+
+  it('keeps the suspend NOTICE for a settled tool call without re-emitting frames (#1606 legacy ordering)', async () => {
+    // The pinned legacy error-then-suspend ordering: the "error" was really
+    // the suspension's transport, so the run IS suspended and must keep its
+    // pause UI — while the settled call is never restarted (no duplicate `b`)
+    // and no second result frame is emitted even with resumeSupported: false.
+    const chunks: StreamChunk[] = [
+      {
+        name: 'brainstrike.submitPlan',
+        payload: { error: 'Tool execution failed', toolCallId: 'call-settled-suspend' },
+        status: 'error',
+        type: 'tool-event',
+      },
+      {
+        resumeSupported: false,
+        runId: 'run-settled-suspend',
+        suspendPayload: { title: 'Implementation plan' },
+        toolCallId: 'call-settled-suspend',
+        toolName: 'brainstrike.submitPlan',
+        type: 'tool-suspend-required',
+      },
+      { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-settled-suspend',
+      sessionId: 'sess-settled-suspend',
+    });
+
+    const parsed = parseLines(await readResponse(session.createResponse()));
+    const codes = parsed.map((entry) => entry.code);
+    // ONE b (from the error path's auto-start), ONE 9, ONE a — the suspend leg
+    // adds only its data part; no duplicate frames and no second result.
+    expect(codes.filter((code) => code === 'b')).toHaveLength(1);
+    expect(codes.filter((code) => code === '9')).toHaveLength(1);
+    expect(codes.filter((code) => code === 'a')).toHaveLength(1);
+    const suspendPart = parsed.find(
+      (entry) =>
+        entry.code === 'aui-data' &&
+        JSON.stringify(entry.value).includes('brainstrike.tool-suspend')
+    );
+    expect(suspendPart).toBeDefined();
+    // And the transient error text stays discarded (the original #1606 pin).
+    const visibleText = parsed
+      .filter((entry) => entry.code === '0')
+      .map((entry) => entry.value)
+      .join('');
+    expect(visibleText).not.toContain('Tool execution failed');
   });
 
   it('emits completed tool-call args before successful non-streaming tool results', async () => {
