@@ -430,6 +430,18 @@ describe('SearchResultsTree', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows only the scanLimited notice when both limit flags are set (scanLimited implies the cap)', () => {
+    // The grep service reports scanLimited only when the unprefiltered scan hit
+    // the candidate cap, so scanLimited ⟹ candidatesTruncated; stacking both
+    // notices would double-report the same limitation.
+    seedResults(makeResults([fileResult()], { candidatesTruncated: true, scanLimited: true }));
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    expect(screen.getByText('Broad pattern — results limited')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Match list may be incomplete (candidate pool capped) — narrow the query.')
+    ).not.toBeInTheDocument();
+  });
+
   it('aligns file/chunk checkboxes per level: chunk rows indent further AND reserve toggle space (semantic)', () => {
     // Semantic mode: file (depth 0, has a child chunk) → chunk (depth 1, LEAF).
     seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });

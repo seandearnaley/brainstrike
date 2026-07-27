@@ -226,6 +226,9 @@ describe('grep search tool', () => {
     expect(result.files).toHaveLength(2);
     expect(result.hint).toMatch(/narrow|specific|filePaths/i);
     expect(result.hint).not.toContain('Continue with offset:');
+    // Files mode is a survey — the terminal hint must keep the content-mode
+    // drill-down pointer so the happy path doesn't lose a round trip.
+    expect(result.hint).toContain("outputMode: 'content'");
     expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
   });
 
@@ -278,7 +281,10 @@ describe('grep search tool', () => {
     expect(result.candidatesTruncated).toBe(true);
     expect(result.truncated).toBe(false);
     expect(result.matches).toHaveLength(2);
-    expect(result.hint).toMatch(/literal|isRegex/i);
+    expect(result.hint).toMatch(/literal/i);
+    // This branch only fires for regex patterns; advising isRegex: false would
+    // turn the regex into a literal-string search for different matches.
+    expect(result.hint).not.toContain('isRegex: false');
     expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
   });
 

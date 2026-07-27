@@ -208,14 +208,23 @@ function aggregateFileSummaries(matches: readonly LabeledGrepMatch[]): GrepFileS
  * but where offset paging cannot reach them. The model projection REQUIRES
  * guidance on every limited result (truncated/scanLimited/candidatesTruncated)
  * — a limited result without a hint fails the whole run (BST-951).
+ *
+ * The scan-limited note must preserve regex semantics: this state only arises
+ * for isRegex: true patterns, so advising isRegex: false would turn the
+ * pattern into a literal-string search for DIFFERENT matches.
  */
-function buildRefinementHint(scanLimited: boolean): string {
-  const scanNote = scanLimited
-    ? ' The regex had no long guaranteed literal for the index prefilter — include a ≥3-character literal or set isRegex: false to search more of the workspace.'
+function buildRefinementHint(args: { scanLimited: boolean; suggestContentMode: boolean }): string {
+  const scanNote = args.scanLimited
+    ? ' The regex had no long guaranteed literal for the index prefilter — rewrite it to include a ≥3-character literal, or split alternations into separate searches, to cover more of the workspace.'
     : '';
+  // Files mode is a survey; when its file list is complete enough, the natural
+  // next step is drilling into content, not only re-running a narrower search.
+  const nextStep = args.suggestContentMode
+    ? "Call again with outputMode: 'content' and filePaths set to the most relevant paths to see the matching lines, or narrow"
+    : 'Narrow';
   return (
     'Search limits may have hidden additional matches that offset paging cannot reach. ' +
-    `Narrow with filePaths or use a more specific or different pattern.${scanNote}`
+    `${nextStep} with filePaths or use a more specific or different pattern.${scanNote}`
   );
 }
 
@@ -228,6 +237,9 @@ function buildFilesHint(args: {
   totalFiles: number;
   truncated: boolean;
 }): string | undefined {
+  // scanLimited currently implies candidatesTruncated (the service reports it
+  // only when the unprefiltered scan hit the candidate cap); it stays in the
+  // gate as defence-in-depth because the contract types the flags independently.
   if (!(args.truncated || args.candidatesTruncated || args.scanLimited)) {
     return;
   }
@@ -237,7 +249,10 @@ function buildFilesHint(args: {
   // Paging only helps while unshown files remain; otherwise a "Continue with
   // offset" would send the model to a guaranteed-empty page.
   if (nextOffset <= args.offset || nextOffset >= args.totalFiles) {
-    return buildRefinementHint(args.scanLimited);
+    return buildRefinementHint({
+      scanLimited: args.scanLimited,
+      suggestContentMode: args.filesShown > 0,
+    });
   }
 
   return (
@@ -294,8 +309,12 @@ function buildContentHint(
   if (!truncated) {
     // Every reachable match is shown, but the candidate pool or bounded scan
     // may still have hidden others — that limit needs guidance too (BST-951).
+    // (scanLimited implies candidatesTruncated today; kept for defence-in-depth.)
     if (mergedResult.candidatesTruncated || mergedResult.scanLimited) {
-      return buildRefinementHint(mergedResult.scanLimited);
+      return buildRefinementHint({
+        scanLimited: mergedResult.scanLimited,
+        suggestContentMode: false,
+      });
     }
     return;
   }
