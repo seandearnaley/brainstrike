@@ -39,6 +39,40 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `assistantPersonas:list` IPC / `window.assistantPersonas` bridge —
   capability-gated, absent on web). The read-only invariant applies to user
   personas EXACTLY as to built-ins.
+
+  **Scan invariants (BST-936) — do not regress these.** The full rules and
+  rationale, shared with the lens loader, are in
+  `docs/agents/workspace-context.md` § `.brainstrike/` SCAN CONVENTIONS;
+  persona-specific facts:
+  - The id is RESERVED before the file is read, through
+    `resolveUserPersonaId` (filename derivation **+** the built-in-collision
+    check — the SAME gate `buildUserPersona` uses). Reserving pre-parse is
+    what stops a BROKEN `<root>/.brainstrike/agents/x.md` from silently
+    handing its name to `~/.brainstrike/agents/x.md`, which would swap in
+    entirely different child instructions under the id the project author
+    controls. Reserving through only `deriveUserPersonaId` would be wrong:
+    a built-in-owned name can never load in any tier, so it must NOT
+    reserve, and every same-named file gets the accurate
+    `collides with a built-in persona` error instead of a bogus "shadowed".
+  - `MAX_USER_PERSONAS` counts scan ENTRIES (valid + invalid), so a
+    directory of malformed files consumes the bound instead of extending
+    the scan across roots — and because that can starve a later tier, an
+    exhausted cap is REPORTED per directory in `incompleteDirs`
+    (`reason: 'cap-reached'`), never only logged.
+  - The directory-listing bound is `MAX_USER_PERSONAS * 2 + 1`, decoupled
+    from the cap because `listDir`'s `maxEntries` counts every entry
+    (READMEs, subdirs); a truncated listing lands in `incompleteDirs`
+    (`reason: 'listing-truncated'`).
+  - A duplicate id yields a `status: 'shadowed'` ENTRY carrying
+    `shadowedBy: { absPath, sourceRootId? }` — the shape
+    `packages/agent/src/skills/skill-scan.ts` already uses — so the panel
+    names the file that WON. Shadowed is NOT an error state: it renders
+    muted (precedence, not an authoring mistake), and `incompleteDirs`
+    renders amber, with destructive red reserved for "you must fix a file".
+
+  Paired tests: `apps/desktop/src/__tests__/assistant-server/user-personas-loader.test.ts`,
+  `apps/desktop/src/__tests__/ipc-domains/ipc-user-personas-handlers.test.ts`,
+  `packages/preferences/src/__tests__/subagent-personas-settings-section.test.tsx`.
 - **Per-request resolution:** `apps/desktop/src/assistant-server/request-personas.ts`
   (`resolveRequestPersonas`) merges built-ins + scanned user personas, applies
   the renderer's `subagentPersonasRequest` availability preference
