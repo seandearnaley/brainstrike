@@ -267,6 +267,16 @@ the re-probe than on re-narration.
   Never deploy, migrate schemas, touch live data, weaken an
   assertion/threshold/timeout, or add a retry to make CI pass.
 - One open PR per loop, ever. Resume it or close it before starting another.
+- NEVER END A RUN HOLDING VALIDATED WORK. If you have a commit whose gates
+  passed, push your branch and open the PR in the SAME run. Your charter's
+  `AUTONOMY=propose-pr` is your standing authorization (AGENTS.md "Working
+  rules" carves this out explicitly) — there is no further approval to wait
+  for, and no one is awake to give one. You have no memory of previous runs:
+  an unpushed local commit is unreachable at your next wake, so "awaiting
+  push approval" does not defer the work, it destroys it and hides that it
+  ever existed. A run that validated a fix and did not push it is a FAILED
+  run — checkpoint BLOCKED naming what stopped you, never INCOMPLETE with a
+  local SHA, and never NOOP.
 - Branch naming: `night-shift/<name>/bst-<id>-<fingerprint-slug>` when the run
   has an owning Linear ticket; `night-shift/<name>/<fingerprint-slug>` only
   when it genuinely has none. The ticket id is the fleet's JOIN KEY. Linear
