@@ -344,9 +344,12 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     const title = screen.getByText('Purchasing app search log');
     expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
-    expect(screen.getByTestId('assistant-thread-tab-icon-rose')).toHaveClass(
-      ...THREAD_CONTROL_MARK_CLASS_NAME.split(' ')
-    );
+    const mark = screen.getByTestId('assistant-thread-tab-icon-rose');
+    expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
+    // Now that the tab body is tinted, the mark must not reuse that same fill
+    // or it vanishes into the control it identifies.
+    expect(mark).toHaveClass(...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.markClassName.split(' '));
+    expect(mark).not.toHaveClass('bg-rose-100');
   });
 
   it('keeps the close affordance in flow and optically matched with the leading icon', async () => {

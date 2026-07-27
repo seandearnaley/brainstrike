@@ -26,7 +26,7 @@ describe('assistant thread presentation', () => {
       accentClassName: 'bg-rose-500',
       label: 'Rose',
     });
-    expect(getAssistantThreadColorPresentation('rose')?.iconClassName).toContain('dark:');
+    expect(getAssistantThreadColorPresentation('rose')?.markClassName).toContain('dark:');
   });
 
   it('styles rows with tinted fills and inset rings instead of borders and stripes', () => {
@@ -65,7 +65,28 @@ describe('assistant thread presentation', () => {
     expect(THREAD_CONTROL_TITLE_CLASS_NAME).toContain('text-xs');
     expect(THREAD_CONTROL_TITLE_CLASS_NAME).not.toContain('text-[13px]');
     expect(THREAD_CONTROL_MARK_CLASS_NAME).toContain('size-5');
-    expect(THREAD_CONTROL_MARK_CLASS_NAME).toContain('ring-inset');
-    expect(THREAD_CONTROL_MARK_CLASS_NAME).not.toContain('border');
+    // The mark sits on a tinted surface, so it needs its own outline to read.
+    expect(THREAD_CONTROL_MARK_CLASS_NAME).toContain('border');
+  });
+
+  it('keeps the identity mark legible against the tinted surface it sits on', () => {
+    const fills = (classNames: string): string[] =>
+      classNames.split(' ').filter((token) => token.startsWith('bg-'));
+
+    for (const presentation of [
+      ...Object.values(ASSISTANT_THREAD_COLOR_PRESENTATION),
+      UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION,
+    ]) {
+      const surfaceFills = [
+        ...fills(presentation.selectedClassName),
+        ...fills(presentation.idleClassName),
+      ];
+      // Both the tab and the panel row now paint themselves with the surface
+      // fill, so a mark that reuses it disappears into its own control.
+      for (const markFill of fills(presentation.markClassName)) {
+        expect(surfaceFills).not.toContain(markFill);
+      }
+      expect(presentation.markClassName).toContain('border-');
+    }
   });
 });

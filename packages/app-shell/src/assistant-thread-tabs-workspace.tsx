@@ -702,7 +702,7 @@ export function AssistantThreadTabsWorkspace({
                           type="button"
                         >
                           <span
-                            className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorSurface.iconClassName}`}
+                            className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorSurface.markClassName}`}
                             data-testid={`assistant-thread-tab-icon-${colorId ?? 'unassigned'}`}
                           >
                             <MessageSquare className="h-3 w-3" />

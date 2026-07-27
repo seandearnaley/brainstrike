@@ -939,7 +939,7 @@ function ThreadIdentityMark({ thread }: { readonly thread: AssistantMemoryThread
   const colorConfig = getThreadColorConfig(thread);
   return (
     <span
-      className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.iconClassName}`}
+      className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.markClassName}`}
       data-testid={`thread-color-${colorId ?? 'unassigned'}`}
     >
       <Icon className="size-3" data-testid={`thread-icon-${iconId}`} />

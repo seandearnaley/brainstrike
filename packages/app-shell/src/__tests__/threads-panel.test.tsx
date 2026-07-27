@@ -7,6 +7,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import {
+  ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_ROW_PITCH_PX,
@@ -581,6 +582,12 @@ describe('ThreadsPanel', () => {
     const mark = within(row).getByTestId('thread-color-emerald');
     expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
     expect(mark).not.toHaveClass('size-6');
+    // The row is tinted with the same token family; the mark keeps its own
+    // lighter fill and border so it stays visible on idle and selected rows.
+    expect(mark).toHaveClass(
+      ...ASSISTANT_THREAD_COLOR_PRESENTATION.emerald.markClassName.split(' ')
+    );
+    expect(mark).not.toHaveClass('bg-emerald-100');
   });
 
   it('mounts only the virtual window for a large disclosed collection', async () => {
