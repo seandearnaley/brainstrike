@@ -22,4 +22,16 @@ describe('performance benchmark measurement contracts', () => {
     expect(baselineBenchmark).toContain('CHECKBOX_FRAME_MAX_MS');
     expect(baselineBenchmark).not.toContain('PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS');
   });
+
+  it('measures re-render latency at the browser interaction-to-paint boundary', async () => {
+    const source = await benchmarkSource();
+    const rerenderBenchmark = source.slice(
+      source.indexOf("test('re-render performance tracking'"),
+      source.indexOf("test('scroll performance with large datasets'")
+    );
+
+    expect(rerenderBenchmark).toContain('measureLocatorInteractionFrames');
+    expect(rerenderBenchmark).not.toContain('__renderTracker');
+    expect(rerenderBenchmark).not.toContain('waitForTimeout(50)');
+  });
 });

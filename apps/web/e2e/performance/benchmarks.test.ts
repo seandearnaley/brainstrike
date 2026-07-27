@@ -182,61 +182,18 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
 
-    // Track render count and timing
-    await page.evaluate(() => {
-      // Install render tracking
-      let renderCount = 0;
-
-      (window as any).__renderTracker = {
-        endRender: () => {
-          performance.mark(`render-${renderCount}-end`);
-          performance.measure(
-            `render-${renderCount}`,
-            `render-${renderCount}-start`,
-            `render-${renderCount}-end`
-          );
-          const measure = performance.getEntriesByName(`render-${renderCount}`)[0];
-          if (measure) {
-            (window as any).__renderTracker.renderTimes.push(measure.duration);
-          }
-        },
-        renderCount: 0,
-        renderTimes: [],
-        startRender: () => {
-          renderCount++;
-          performance.mark(`render-${renderCount}-start`);
-        },
-      };
-    });
-
-    // Trigger multiple state changes that might cause re-renders
+    // Measure each state change from DOM interaction through the next painted frame.
     const fileCheckboxes = page.getByRole('checkbox', { name: /Select / });
     const checkboxCount = await fileCheckboxes.count();
-
-    for (let i = 0; i < checkboxCount; i++) {
-      await page.evaluate(() => (window as any).__renderTracker?.startRender());
-      await fileCheckboxes.nth(i).click();
-      await page.evaluate(() => (window as any).__renderTracker?.endRender());
-      await page.waitForTimeout(50);
-    }
-
-    const renderMetrics = await page.evaluate(() => {
-      const tracker = (window as any).__renderTracker;
-      return {
-        averageRenderTime:
-          tracker?.renderTimes?.length > 0
-            ? tracker.renderTimes.reduce((a: number, b: number) => a + b, 0) /
-              tracker.renderTimes.length
-            : 0,
-        maxRenderTime: tracker?.renderTimes?.length > 0 ? Math.max(...tracker.renderTimes) : 0,
-        totalRenders: tracker?.renderTimes?.length || 0,
-      };
+    const renderMetrics = await measureLocatorInteractionFrames(fileCheckboxes, {
+      count: checkboxCount,
+      kind: 'click-each',
     });
 
     performanceMetrics.push(
       recordMetric(
         'Average Render Time',
-        renderMetrics.averageRenderTime,
+        renderMetrics.averageDurationMs,
         PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS,
         'ms'
       )
@@ -245,17 +202,17 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     performanceMetrics.push(
       recordMetric(
         'Max Render Time',
-        renderMetrics.maxRenderTime,
+        renderMetrics.maxDurationMs,
         PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2,
         'ms'
       )
     );
 
-    console.log(`Total renders: ${renderMetrics.totalRenders}`);
+    console.log(`Total render samples: ${renderMetrics.samplesMs.length}`);
 
     // Assert reasonable render performance
-    expect(renderMetrics.averageRenderTime).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS);
-    expect(renderMetrics.maxRenderTime).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2);
+    expect(renderMetrics.averageDurationMs).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS);
+    expect(renderMetrics.maxDurationMs).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2);
   });
 
   test('scroll performance with large datasets', async ({ page }) => {
