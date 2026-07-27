@@ -84,6 +84,7 @@ import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import { ComposerAttachmentsBar, UserMessageAttachments } from './composer-attachments';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
+import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
@@ -1763,15 +1764,21 @@ const ProviderModelHeader = ({
         <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
           <ComposerModelMenu
             onModelChange={onModelChange}
-            onProviderSettingsChange={onProviderSettingsChange}
             pickerModels={pickerModels}
             providerGroups={groups}
-            providerSettings={providerSettings}
             recentModels={recentModels}
             selectedModel={selectedModel}
-            selectedProvider={selectedProvider}
           />
         </div>
+        {/* Always-visible reasoning readout/control — one click, never nested
+            inside the model menu (BST-948). Renders nothing for models
+            without reasoning controls. */}
+        <ComposerEffortControl
+          onProviderSettingsChange={onProviderSettingsChange}
+          providerSettings={providerSettings}
+          selectedModel={selectedModel}
+          selectedProvider={selectedProvider}
+        />
         <div className="bs-composer-controls-slot">
           <ControlsMenu
             modelName={modelName}

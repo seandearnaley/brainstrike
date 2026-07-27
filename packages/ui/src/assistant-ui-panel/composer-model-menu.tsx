@@ -1,30 +1,18 @@
 /**
  * Claude-style composer model menu: curated top-level rows (selected model +
- * recents) with taglines and capability icons, an inline Effort slider, a primary
- * Thinking toggle, and a "More models" drill-down over the full catalog.
+ * recents) with taglines and capability icons and a "More models" drill-down
+ * over the full catalog. Selection ONLY — the reasoning Effort/Thinking
+ * controls live in the always-visible ComposerEffortControl beside this menu
+ * (BST-948), so picking a model and tuning effort are two visible one-click
+ * controls instead of one nested menu.
  *
  * Selection is COMPOSITE-KEY ("provider::model") end-to-end — the menu never
  * resolves a bare model id back to a provider (the old modelToProviderMap
  * silently mis-resolved duplicate bare ids across providers).
  */
-import {
-  type OpenRouterModelMetadataLookup,
-  resolveReasoningControlsAvailability,
-} from '@brainstrike/assistant-contract';
-import type {
-  AssistantProviderSettings,
-  AssistantProviderSettingsMap,
-  AssistantProviderSettingsUpdate,
-} from '@brainstrike/types';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { Brain, Check, ChevronDown, Eye } from 'lucide-react';
-import {
-  type ComponentPropsWithoutRef,
-  Fragment,
-  type ReactNode,
-  useCallback,
-  useMemo,
-} from 'react';
+import { type ComponentPropsWithoutRef, Fragment, useCallback, useMemo } from 'react';
 import { Button } from '../button';
 import {
   DropdownMenu,
@@ -41,16 +29,7 @@ import { cn } from '../lib/utils';
 import type { ModelPickerModel } from '../model-picker';
 import { formatContextWindow } from '../model-picker/utils/format-context-window';
 import { getProviderColor } from '../model-picker/utils/provider-colors';
-import { Switch } from '../switch';
 import type { ProviderGroupConfig, ProviderRuntimeCategory } from './assistant-ui-panel';
-import { useOpenRouterModelMetadataLookup } from './openrouter-model-metadata-context';
-import {
-  buildEffortControlModel,
-  buildEffortSliderModel,
-  buildThinkingToggleModel,
-  type EffortControlModel,
-  type ThinkingToggleModel,
-} from './reasoning-effort-controls';
 
 const MAX_RECENT_ROWS = 4;
 
@@ -135,17 +114,12 @@ interface ComposerModelGroup {
 export interface ComposerModelMenuProps {
   disabled?: boolean | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
   pickerModels: ModelPickerModel[];
   providerGroups: ProviderGroupConfig[];
-  providerSettings?: AssistantProviderSettingsMap | undefined;
   /** Composite keys, newest first; invalid entries are filtered upstream. */
   recentModels?: readonly string[] | undefined;
   /** Composite key "provider::model". */
   selectedModel?: string | undefined;
-  selectedProvider?: string | undefined;
 }
 
 /**
@@ -233,108 +207,13 @@ const DenseModelRow = ({ option }: { option: ComposerModelOption }) => (
   </ModelMenuRadioItem>
 );
 
-const EffortSliderRow = ({
-  disabled,
-  effortModel,
-  onPick,
-}: {
-  disabled: boolean;
-  effortModel: EffortControlModel;
-  onPick: (updates: AssistantProviderSettingsUpdate) => void;
-}) => {
-  const slider = buildEffortSliderModel(effortModel);
-  const maxIndex = slider.stops.length - 1;
-  return (
-    <DropdownMenuPrimitive.Item
-      className="relative flex cursor-default select-none flex-col gap-1.5 rounded-sm px-2 py-1.5 outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
-      data-testid="composer-effort-row"
-      disabled={disabled}
-      // Dragging the thumb must not dismiss the menu.
-      onSelect={(event) => event.preventDefault()}
-    >
-      <span className="flex items-baseline justify-between gap-3">
-        <span className="font-medium text-sm">Effort</span>
-        <span className="text-muted-foreground text-xs" data-testid="composer-effort-value">
-          {slider.valueText}
-        </span>
-      </span>
-      <input
-        aria-label="Reasoning effort"
-        aria-valuetext={slider.valueText}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary disabled:cursor-not-allowed"
-        data-testid="composer-effort-slider"
-        disabled={disabled}
-        max={maxIndex}
-        min={0}
-        onChange={(event) => onPick(slider.buildUpdateForIndex(Number(event.target.value)))}
-        step={1}
-        type="range"
-        value={slider.index}
-      />
-      <span aria-hidden="true" className="flex justify-between text-[10px] text-muted-foreground">
-        {slider.stops.map((stop) => (
-          <span className={stop.isModelDefault ? 'text-foreground' : undefined} key={stop.value}>
-            {stop.label}
-            {stop.isModelDefault ? '•' : ''}
-          </span>
-        ))}
-      </span>
-    </DropdownMenuPrimitive.Item>
-  );
-};
-
-const ThinkingToggleRow = ({
-  disabled,
-  onPick,
-  thinkingModel,
-}: {
-  disabled: boolean;
-  onPick: (updates: AssistantProviderSettingsUpdate) => void;
-  thinkingModel: ThinkingToggleModel;
-}) => (
-  <DropdownMenuPrimitive.Item
-    className="relative flex cursor-default select-none items-start justify-between gap-3 rounded-sm px-2 py-1.5 text-sm outline-hidden transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
-    data-testid="composer-thinking-row"
-    disabled={disabled}
-    // Keep the menu open across toggles (same pattern as the tools menu).
-    onSelect={(event) => event.preventDefault()}
-  >
-    <span className="min-w-0">
-      <span className="block font-medium text-sm">Thinking</span>
-      <span className="block text-muted-foreground text-xs">Can think for more complex tasks</span>
-    </span>
-    <Switch
-      aria-label="Toggle thinking"
-      checked={thinkingModel.checked}
-      className="mt-0.5"
-      disabled={disabled}
-      onCheckedChange={(checked) => onPick(thinkingModel.buildUpdate(checked))}
-    />
-  </DropdownMenuPrimitive.Item>
-);
-
-function resolveSelectedReasoningAvailability(
-  providerId: string | undefined,
-  modelId: string | undefined,
-  lookup: OpenRouterModelMetadataLookup | undefined
-): ReturnType<typeof resolveReasoningControlsAvailability> | undefined {
-  if (!providerId) {
-    return;
-  }
-  const metadata = lookup?.state === 'resolved' ? lookup.snapshot.metadata : undefined;
-  return resolveReasoningControlsAvailability(providerId, modelId, metadata);
-}
-
 export const ComposerModelMenu = ({
   disabled,
   onModelChange,
-  onProviderSettingsChange,
   pickerModels,
   providerGroups,
-  providerSettings,
   recentModels,
   selectedModel,
-  selectedProvider,
 }: ComposerModelMenuProps) => {
   const metaByCompositeKey = useMemo(() => {
     const map = new Map<string, ModelPickerModel>();
@@ -409,33 +288,6 @@ export const ComposerModelMenu = ({
 
   const hasOptions = optionByCompositeKey.size > 0;
   const canSelect = Boolean(onModelChange) && hasOptions && !disabled;
-  const canUpdateSettings = Boolean(onProviderSettingsChange);
-
-  const selectedModelId = modelIdFromCompositeKey(selectedModel);
-  const openRouterMetadataLookup = useOpenRouterModelMetadataLookup();
-  const availability = resolveSelectedReasoningAvailability(
-    selectedProvider,
-    selectedModelId,
-    openRouterMetadataLookup
-  );
-  const activeSettings: AssistantProviderSettings =
-    (selectedProvider ? providerSettings?.[selectedProvider] : undefined) ?? {};
-  const effortModel = availability
-    ? buildEffortControlModel(availability, activeSettings)
-    : undefined;
-  const thinkingModel = availability
-    ? buildThinkingToggleModel(availability, activeSettings)
-    : undefined;
-
-  const handleSettingsUpdate = useCallback(
-    (updates: AssistantProviderSettingsUpdate) => {
-      if (!(onProviderSettingsChange && selectedProvider)) {
-        return;
-      }
-      onProviderSettingsChange(selectedProvider, updates);
-    },
-    [onProviderSettingsChange, selectedProvider]
-  );
 
   const handleModelSelect = useCallback(
     (compositeKey: string) => {
@@ -449,29 +301,6 @@ export const ComposerModelMenu = ({
     : hasOptions
       ? 'Select a model...'
       : 'No models enabled';
-
-  let settingsRows: ReactNode = null;
-  if (effortModel || thinkingModel) {
-    settingsRows = (
-      <>
-        <DropdownMenuSeparator />
-        {effortModel ? (
-          <EffortSliderRow
-            disabled={!canUpdateSettings}
-            effortModel={effortModel}
-            onPick={handleSettingsUpdate}
-          />
-        ) : null}
-        {thinkingModel ? (
-          <ThinkingToggleRow
-            disabled={!canUpdateSettings}
-            onPick={handleSettingsUpdate}
-            thinkingModel={thinkingModel}
-          />
-        ) : null}
-      </>
-    );
-  }
 
   return (
     <DropdownMenu>
@@ -500,7 +329,6 @@ export const ComposerModelMenu = ({
           {topOptions.map((option) => (
             <ModelRow key={option.compositeKey} option={option} />
           ))}
-          {settingsRows}
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger

@@ -313,7 +313,9 @@
   background:
     linear-gradient(to top, hsl(var(--background)) 78%, hsl(var(--background) / 0.84)),
     hsl(var(--background));
-  padding: 0.5rem 0.625rem;
+  /* Equidistant: the card sits the same 0.625rem from the left, right, and
+     bottom edges of the shell (measured 10/10/8 before this change). */
+  padding: 0.5rem 0.625rem 0.625rem;
 }
 
 /* Composer: fixed at bottom with proper spacing and constraints */
@@ -499,40 +501,35 @@
   padding-top: 0.5rem;
 }
 
+/*
+ * Model picker + effort readout on the left, Controls on the right. Flex with
+ * wrap replaces the old 3-column grid + container query: in a narrow panel the
+ * chips wrap onto the next row instead of clipping, and every control shares
+ * one 2rem-tall centered row (heights pinned by the e2e alignment check).
+ */
 .bs-composer-primary-controls {
   align-items: center;
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: minmax(12rem, 22rem) minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   min-width: 0;
 }
 
 .bs-composer-model-slot {
-  grid-column: 1;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
 .bs-composer-controls-slot {
   display: flex;
-  grid-column: 3;
   justify-content: flex-end;
+  margin-left: auto;
   min-width: 0;
 }
 
 .bs-composer-model-picker :where(button, [role="combobox"]) {
   min-height: 1.75rem;
   width: 100%;
-}
-
-/*
- * Panel-correct narrow layout: keyed on the .bs-thread container (the panel's
- * own width), not the viewport — a narrow assistant panel in a wide window
- * still collapses the dock to one column.
- */
-@container bs-thread (max-width: 34rem) {
-  .bs-composer-primary-controls {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
 }
 
 /* Message content sizing */

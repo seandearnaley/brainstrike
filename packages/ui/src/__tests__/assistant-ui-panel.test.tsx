@@ -1305,6 +1305,25 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.queryByText(/OpenAI \/ GPT-5\.2/)).not.toBeInTheDocument();
   });
 
+  it('renders the always-visible effort readout beside the model menu (BST-948)', () => {
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        onModelChange={() => {}}
+        onProviderSettingsChange={() => {}}
+        providerSettings={{ openai: { reasoningEffort: 'high' } }}
+      />
+    );
+
+    const controls = screen.getByTestId('assistant-composer-controls');
+    const trigger = within(controls).getByTestId('composer-effort-trigger');
+    expect(trigger).toBeEnabled();
+    // The active effort is legible without opening any menu.
+    expect(trigger).toHaveAccessibleName('Reasoning effort: High');
+    // And it sits in the same dock as the model menu.
+    expect(within(controls).getByTestId('assistant-model-dropdown')).toBeInTheDocument();
+  });
+
   it('keeps model and controls inside the composer surface with icon send controls', () => {
     render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
 
