@@ -114,7 +114,8 @@ export const UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION = {
   iconClassName: 'bg-muted/70 text-muted-foreground ring-border/70',
   idleClassName: 'bg-muted/45 hover:bg-muted/70 dark:bg-muted/30 dark:hover:bg-muted/50',
   label: 'Unassigned',
-  markClassName: 'border-border bg-muted/60 text-muted-foreground',
+  markClassName:
+    'border-border bg-muted/70 text-muted-foreground dark:border-border dark:bg-muted/45 dark:text-muted-foreground',
   selectedClassName:
     'bg-primary/15 shadow-xs ring-1 ring-inset ring-primary/60 dark:bg-primary/20 dark:ring-primary/70',
 } satisfies AssistantThreadColorPresentation;

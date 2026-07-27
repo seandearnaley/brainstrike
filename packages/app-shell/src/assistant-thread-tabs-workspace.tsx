@@ -27,7 +27,12 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
-import { getAssistantThreadColorPresentation } from './assistant-thread-presentation';
+import {
+  getAssistantThreadColorSurface,
+  THREAD_CONTROL_HEIGHT_CLASS_NAME,
+  THREAD_CONTROL_MARK_CLASS_NAME,
+  THREAD_CONTROL_TITLE_CLASS_NAME,
+} from './assistant-thread-presentation';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   AssistantThreadTabDndShell,
@@ -669,16 +674,14 @@ export function AssistantThreadTabsWorkspace({
                 const title = thread?.title ?? threadId;
                 const isActive = threadId === activeThreadId;
                 const colorId = thread?.metadata?.color;
-                const colorPresentation = getAssistantThreadColorPresentation(colorId);
+                const colorSurface = getAssistantThreadColorSurface(colorId);
                 return (
                   <AssistantThreadTabDndShell key={threadId} threadId={threadId}>
                     {(dragHandleRef) => (
                       // biome-ignore lint/a11y/noStaticElementInteractions: composite tab shell claims context-menu identity for its focusable controls
                       <div
-                        className={`group flex h-7 min-w-0 items-center overflow-hidden rounded-md border pr-1.5 text-xs transition-[color,background-color,border-color,box-shadow,opacity] duration-150 motion-reduce:transition-none ${
-                          isActive
-                            ? 'border-border/90 bg-background text-foreground shadow-xs'
-                            : 'border-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                        className={`group flex ${THREAD_CONTROL_HEIGHT_CLASS_NAME} min-w-0 items-center overflow-hidden rounded-md pr-1.5 text-foreground text-xs transition-[color,background-color,box-shadow,opacity] duration-150 motion-reduce:transition-none ${
+                          isActive ? colorSurface.selectedClassName : colorSurface.idleClassName
                         }`}
                         data-thread-color={colorId ?? 'unassigned'}
                         onContextMenu={() => handleThreadTabContextMenu(threadId)}
@@ -699,17 +702,12 @@ export function AssistantThreadTabsWorkspace({
                           type="button"
                         >
                           <span
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-sm ring-1 ring-inset ${
-                              colorPresentation?.iconClassName ??
-                              'bg-muted/70 text-muted-foreground ring-border/70'
-                            }`}
+                            className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorSurface.iconClassName}`}
                             data-testid={`assistant-thread-tab-icon-${colorId ?? 'unassigned'}`}
                           >
                             <MessageSquare className="h-3 w-3" />
                           </span>
-                          <span className={`min-w-0 truncate ${isActive ? 'font-medium' : ''}`}>
-                            {title}
-                          </span>
+                          <span className={THREAD_CONTROL_TITLE_CLASS_NAME}>{title}</span>
                         </button>
                         <button
                           aria-label={`Close thread ${title}`}

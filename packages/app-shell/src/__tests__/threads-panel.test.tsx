@@ -1058,7 +1058,7 @@ describe('ThreadsPanel', () => {
     // no accent stripe. Idle rows keep a visible tint of their thread color.
     expect(activeThread).toHaveClass(
       'my-0.5',
-      'min-h-9',
+      THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
       'bg-sky-100',
       'ring-1',
       'ring-inset',
@@ -1066,7 +1066,11 @@ describe('ThreadsPanel', () => {
       'shadow-xs'
     );
     expect(activeThread).not.toHaveClass('border', 'border-sky-500');
-    expect(idleThread).toHaveClass('my-0.5', 'min-h-9', 'bg-emerald-100/45');
+    expect(idleThread).toHaveClass(
+      'my-0.5',
+      THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
+      'bg-emerald-100/45'
+    );
     expect(idleThread).not.toHaveClass('shadow-xs', 'border');
 
     // The content stack is shorter than the row's min-height; the row must
