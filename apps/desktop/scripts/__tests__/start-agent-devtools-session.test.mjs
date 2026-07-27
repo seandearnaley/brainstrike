@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
+  captureChildSpawnError,
   cleanupChildAndProfile,
   createAgentDevtoolsProfile,
   createMacAgentDebugElectronDist,
@@ -17,8 +18,10 @@ import {
   removeUserDataDir,
   reportSweep,
   resolveEndpoint,
+  resolvePnpmInvocation,
   resolvePnpmSpawnOptions,
   rewriteMacAgentDebugInfoPlist,
+  runPnpmCommandSync,
   shutdownChildProcessTree,
   signalProcessGroup,
   sweepStaleProfiles,
@@ -75,6 +78,133 @@ test('formatMcpConfig renders chrome-devtools-mcp browser-url config', () => {
 test('keeps the Windows dev tree in the launcher console for graceful Ctrl-C delivery', () => {
   assert.equal(resolvePnpmSpawnOptions('win32').detached, false);
   assert.equal(resolvePnpmSpawnOptions('darwin').detached, true);
+});
+
+test('re-enters the active pnpm CLI without a Windows command shim', () => {
+  assert.deepEqual(
+    resolvePnpmInvocation({
+      env: { npm_execpath: 'C:\\tools\\pnpm.cjs' },
+      execPath: 'C:\\tools\\node.exe',
+      platform: 'win32',
+    }),
+    {
+      argsPrefix: ['C:\\tools\\pnpm.cjs'],
+      command: 'C:\\tools\\node.exe',
+    }
+  );
+});
+
+test('uses Windows path semantics for a Windows pnpm entrypoint on every test host', () => {
+  assert.deepEqual(
+    resolvePnpmInvocation({
+      env: { npm_execpath: 'C:\\tools\\pnpm.js' },
+      execPath: 'C:\\tools\\node.exe',
+      platform: 'win32',
+    }),
+    {
+      argsPrefix: ['C:\\tools\\pnpm.js'],
+      command: 'C:\\tools\\node.exe',
+    }
+  );
+});
+
+test('rejects npm_execpath values that are not pnpm JavaScript entrypoints', () => {
+  for (const npmExecPath of ['C:\\tools\\npm-cli.js', 'C:\\tools\\pnpm.cmd', 'tools\\pnpm.cjs']) {
+    assert.throws(
+      () =>
+        resolvePnpmInvocation({
+          env: { npm_execpath: npmExecPath },
+          execPath: 'C:\\tools\\node.exe',
+          platform: 'win32',
+        }),
+      /must point to an absolute pnpm\.cjs or pnpm\.js entry/
+    );
+  }
+});
+
+test('fails before creating a profile when Windows is not launched through pnpm', () => {
+  assert.throws(
+    () =>
+      resolvePnpmInvocation({
+        env: {},
+        execPath: 'C:\\tools\\node.exe',
+        platform: 'win32',
+      }),
+    /must be launched through pnpm on Windows/
+  );
+});
+
+test('keeps the direct pnpm executable fallback on POSIX', () => {
+  assert.deepEqual(
+    resolvePnpmInvocation({
+      env: {},
+      execPath: '/usr/bin/node',
+      platform: 'linux',
+    }),
+    {
+      argsPrefix: [],
+      command: 'pnpm',
+    }
+  );
+});
+
+test('runs the dependency preflight through the resolved pnpm invocation', () => {
+  let received;
+  runPnpmCommandSync(
+    ['run', 'predev'],
+    { MARKER: 'value' },
+    {
+      invocation: {
+        argsPrefix: ['C:\\tools\\pnpm.cjs'],
+        command: 'C:\\tools\\node.exe',
+      },
+      spawnSyncImpl(command, args, options) {
+        received = { args, command, options };
+        return { status: 0 };
+      },
+    }
+  );
+
+  assert.equal(received.command, 'C:\\tools\\node.exe');
+  assert.deepEqual(received.args, ['C:\\tools\\pnpm.cjs', 'run', 'predev']);
+  assert.deepEqual(received.options.env, { MARKER: 'value' });
+  assert.equal(received.options.stdio, 'inherit');
+});
+
+test('surfaces a dependency preflight failure before runtime startup', () => {
+  assert.throws(
+    () =>
+      runPnpmCommandSync(
+        ['run', 'predev'],
+        {},
+        {
+          invocation: {
+            argsPrefix: ['C:\\tools\\pnpm.cjs'],
+            command: 'C:\\tools\\node.exe',
+          },
+          spawnSyncImpl: () => ({ status: 1 }),
+        }
+      ),
+    /pnpm run predev exited with code 1/
+  );
+});
+
+test('surfaces the signal that terminated the dependency preflight', () => {
+  assert.throws(
+    () =>
+      runPnpmCommandSync(
+        ['run', 'predev'],
+        {},
+        {
+          invocation: {
+            argsPrefix: ['C:\\tools\\pnpm.cjs'],
+            command: 'C:\\tools\\node.exe',
+          },
+          spawnSyncImpl: () => ({ signal: 'SIGTERM', status: null }),
+        }
+      ),
+    /pnpm run predev was terminated by SIGTERM/
+  );
 });
 
 test('fails closed when the Windows Job Object capability cannot load', () => {
@@ -212,6 +342,42 @@ test('waitForEndpointOrChildExit rejects when the dev server exits before the en
   }
 });
 
+test('waitForEndpointOrChildExit handles spawn errors without an unhandled child error', async () => {
+  const originalFetch = globalThis.fetch;
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  globalThis.fetch = async () => ({ ok: false });
+
+  const wait = waitForEndpointOrChildExit('http://127.0.0.1:9222', child);
+  child.emit('error', new Error('spawn failed'));
+
+  try {
+    await assert.rejects(wait, /dev server failed to start/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('waitForEndpointOrChildExit consumes a spawn error captured before the waiter starts', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  const spawnError = new Error('spawn failed before first await');
+  const capture = captureChildSpawnError(child);
+
+  child.emit('error', spawnError);
+
+  await assert.rejects(
+    waitForEndpointOrChildExit('http://127.0.0.1:9222', child, capture),
+    (error) => {
+      assert.match(error.message, /dev server failed to start/);
+      assert.equal(error.cause, spawnError);
+      return true;
+    }
+  );
+});
+
 test('shutdownChildProcessTree reaps a late-writing grandchild after the direct child exits', {
   skip: process.platform === 'win32',
 }, async () => {
@@ -345,6 +511,7 @@ test('cleanupChildAndProfile surfaces profile removal failures', async () => {
   try {
     await assert.rejects(
       cleanupChildAndProfile({ exitCode: 0, pid: undefined, signalCode: null }, profile, {
+        platform: 'linux',
         removeUserDataDir: async () => {
           throw removalError;
         },

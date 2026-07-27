@@ -477,6 +477,9 @@ TypeScript and app packages remove local `dist`/`.tsbuildinfo`, while native
 addon packages remove their local node-gyp `build` directory. The command,
 complete build-package coverage, and resolved task graph are guarded by
 `scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
+That test invokes Turbo's JavaScript entrypoint through `process.execPath`;
+do not execute the generated `turbo.cmd` shim directly, because Node 24 rejects
+batch files passed to `execFileSync` on Windows.
 
 ### Agent declaration build split
 
@@ -601,8 +604,13 @@ Never replace this with a code-only or package-wide warning suppression.
 ### Desktop development dependency freshness
 
 `apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every
-development launch, including `dev:agent-debug`. The helper must always ask
-Turbo to build the exact `build-utils` + `agent` + `ui` dependency graph.
+development launch, including `dev:agent-debug`. Agent-debug runs that preflight
+to completion before loading the Windows Job Object addon, then starts the
+internal `dev:runtime` script under the initialized Job. This order is
+mandatory on Windows: a loaded native addon cannot be replaced by node-gyp, so
+loading the Job Object first would make a cold dependency build fail with
+`EPERM`. The helper must always ask Turbo to build the exact `build-utils` +
+`agent` + `ui` dependency graph.
 Turbo's content hashes and cache are the freshness authority; checking only
 whether `dist` files exist is forbidden because branch updates can leave
 tool schemas, prompts, or provider code silently pinned to an older commit.
@@ -632,6 +640,15 @@ profile. Shim construction is fail-closed: an unexpected Electron bundle
 layout or malformed plist aborts startup rather than falling back to the
 ambiguous `com.github.Electron` identity. Agent-debug windows pin the native
 and accessibility title `BrainStrike Agent Debug`.
+
+The launcher re-enters the exact pnpm CLI recorded in `npm_execpath` through
+`process.execPath`. On Windows this is required because Corepack exposes a
+`pnpm.cmd` shim rather than an executable that `child_process.spawn` can invoke
+directly without a shell. Missing pnpm launch context fails before the
+disposable profile is created; child spawn errors are observed and flow through
+the normal owned-tree/profile cleanup path. Do not replace this with the shared
+shell-based spawn helper: the extra `cmd.exe` process would sit between the
+launcher and the process tree whose ownership the Windows Job Object enforces.
 
 The launcher owns its development subprocess tree. On POSIX, `pnpm dev` is the
 leader of a detached process group; shutdown signals that exact group with

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
 
 /**
  * Guards the canonical shape of the per-package `clean` and `type-check` scripts
@@ -237,13 +240,10 @@ test('root clean routes every package clean script through an uncached Turbo tas
 
   const dryRun = JSON.parse(
     execFileSync(
-      path.join(
-        repoRoot,
-        'node_modules',
-        '.bin',
-        process.platform === 'win32' ? 'turbo.cmd' : 'turbo'
-      ),
-      ['run', 'clean', '--dry=json'],
+      process.execPath,
+      // Node 24 rejects Windows batch shims passed to execFileSync, so execute
+      // Turbo's package-resolved JavaScript entrypoint through Node itself.
+      [require.resolve('turbo/bin/turbo'), 'run', 'clean', '--dry=json'],
       {
         cwd: repoRoot,
         encoding: 'utf8',
