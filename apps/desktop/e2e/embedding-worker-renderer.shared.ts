@@ -3046,7 +3046,10 @@ export async function prepareRealWorldMixedStateScenario(
   await selectAllButton.click({ timeout: 5000 });
 
   await expect(activeWindow.getByTestId('selection-count')).toHaveText(
-    String(REAL_WORLD_MIXED_STATE_FILE_COUNT),
+    new Intl.NumberFormat('en-US', {
+      maximumFractionDigits: 1,
+      notation: 'compact',
+    }).format(REAL_WORLD_MIXED_STATE_FILE_COUNT),
     {
       timeout: 60_000,
     }
