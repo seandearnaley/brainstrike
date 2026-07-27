@@ -129,6 +129,7 @@ describe('provider-factory', () => {
       const model = createLanguageModelProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
 
       expect(model.modelId).toBe('z-ai/glm-5.2');
+      expect(model.provider).toBe('openrouter');
       expect(model.doStream).toBeTypeOf('function');
     });
 

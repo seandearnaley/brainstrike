@@ -602,7 +602,13 @@ export class DataStreamMapper {
     }
     yield* this.flushPendingRunEvents();
 
-    if (!this.toolState.has(callId)) {
+    // Settled-id rule, frames only: never AUTO-START a settled call (a
+    // duplicate `b` throws in the renderer decoder — the crash class the
+    // handleToolEvent guard closes). The approval NOTICE below is a plain
+    // aui-data part that touches no tool controller, so it still flows — a
+    // genuinely suspended run must keep its pause UI even when the call's
+    // frames already settled (legacy error-then-suspend ordering, #1606).
+    if (!(this.toolState.has(callId) || this.settledToolCallIds.has(callId))) {
       yield* this.handleToolStart(chunk.toolName, callId, {
         args: chunk.args,
         input: chunk.args,
@@ -665,7 +671,12 @@ export class DataStreamMapper {
     // mid-text slices visible text).
     yield* this.flushPendingRunEvents();
 
-    if (!this.toolState.has(callId)) {
+    // Settled-id rule, frames only (mirrors handleToolApprovalRequired): the
+    // suspend NOTICE below still flows for a settled call — in the legacy
+    // error-then-suspend ordering (#1606 above) the run IS genuinely
+    // suspended and must keep its pause UI — but a settled call is never
+    // auto-started (duplicate `b` throws in the renderer decoder).
+    if (!(this.toolState.has(callId) || this.settledToolCallIds.has(callId))) {
       yield* this.handleToolStart(chunk.toolName, callId, {});
     }
 
@@ -702,12 +713,14 @@ export class DataStreamMapper {
       },
     } satisfies EncodedChunk;
 
-    if (chunk.resumeSupported === false) {
+    if (chunk.resumeSupported === false && !this.settledToolCallIds.has(callId)) {
       // BST-558: this build has no registered resume UI for the tool, so nothing
       // will ever produce this call's result. Leaving it open would keep a
       // Running ToolFallback forever — and the notice above is dismissible, so a
       // dismissed notice would strand an unactionable spinner. Settle the part
-      // as an error instead. NOT recorded in `pendingToolErrorTexts`: that would
+      // as an error instead (skipped for an ALREADY-settled call — a second
+      // result frame against a responded controller is the settled-id crash
+      // class). NOT recorded in `pendingToolErrorTexts`: that would
       // append "I couldn't complete the tool action because it failed" and mark
       // the step errored, which is false — no tool failed, and the run stays
       // suspended and resumable by a build that registers the tool.
