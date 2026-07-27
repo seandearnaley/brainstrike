@@ -89,6 +89,37 @@ describe('notification-preferences-store', () => {
     });
   });
 
+  it('sanitizes malformed persisted data at the current version during rehydration', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    if (options.version === undefined) {
+      throw new Error('persist version unavailable for test');
+    }
+    options.storage.setItem(options.name, {
+      state: {
+        events: {
+          removedEvent: false,
+          runFailed: 'nope',
+          runFinished: false,
+        },
+        masterEnabled: 'yes',
+      },
+      version: options.version,
+    });
+
+    await storeWithPersist.persist.rehydrate();
+
+    expect(useNotificationPreferencesStore.getState().masterEnabled).toBe(false);
+    expect(useNotificationPreferencesStore.getState().events).toEqual({
+      runFailed: true,
+      runFinished: false,
+      toolApprovalRequired: true,
+    });
+  });
+
   it('resets to defaults', () => {
     const store = useNotificationPreferencesStore.getState();
     store.setMasterEnabled(true);

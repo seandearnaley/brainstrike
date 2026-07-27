@@ -24,6 +24,7 @@ import type { HookTrustApproval, HookTrustRequest } from '@brainstrike/assistant
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 interface HookTrustApprovalRecord {
   readonly approvedAt: number;
@@ -148,6 +149,16 @@ function sanitizeApprovals(value: unknown): ApprovalsByRootId {
   return result;
 }
 
+function sanitizePersistedData(persistedState: unknown): HookTrustData {
+  const candidate =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as Partial<HookTrustData>)
+      : {};
+  return {
+    approvalsByRootId: sanitizeApprovals(candidate.approvalsByRootId),
+  };
+}
+
 export const useHookTrustStore = create<HookTrustStore>()(
   persist(
     (set) => ({
@@ -170,6 +181,7 @@ export const useHookTrustStore = create<HookTrustStore>()(
         }),
     }),
     {
+      merge: createSanitizedPersistMerge<HookTrustStore, HookTrustData>(sanitizePersistedData),
       migrate: (persistedState, version) => {
         // Pre-v2 approvals were keyed by the ephemeral adapter id and are
         // unremappable to the DB roots.id the server now matches on — drop them
@@ -177,13 +189,7 @@ export const useHookTrustStore = create<HookTrustStore>()(
         if (version < FIRST_DB_KEYED_VERSION) {
           return defaultData();
         }
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return defaultData();
-        }
-        const candidate = persistedState as Partial<HookTrustData>;
-        return {
-          approvalsByRootId: sanitizeApprovals(candidate.approvalsByRootId),
-        } satisfies HookTrustData;
+        return sanitizePersistedData(persistedState);
       },
       name: STORE_NAME,
       partialize: (state) => ({ approvalsByRootId: state.approvalsByRootId }),

@@ -10,9 +10,8 @@
  *   it. PERSISTED.
  *
  * Validation is STRICT on set: a cap must be a finite number > 0 or `null`;
- * anything else THROWS (no silent coercion — see AGENTS.md). The persisted
- * `migrate` path sanitizes unknown payloads back to the null default, matching
- * the notification-store precedent for corrupt storage.
+ * anything else THROWS (no silent coercion — see AGENTS.md). Persisted
+ * hydration sanitizes unknown payloads back to the null default.
  *
  * Factory reset: the persisted slice is wiped by `clearPersistentUiState`'s
  * blanket `localStorage.clear()` and the live store is reset explicitly via
@@ -23,6 +22,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 interface AssistantBudgetPreferencesData {
   /** Rolling last-24h spend cap in USD; null = off. PERSISTED. */
@@ -65,12 +65,23 @@ function assertValidCapUsd(value: number | null, fieldName: string): void {
   }
 }
 
-/** Persisted-payload sanitizer (migrate path only): invalid → null (cap off). */
+/** Persisted-payload sanitizer: invalid → null (cap off). */
 function sanitizeCapUsd(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 const storage = createJSONStorage(() => createBrowserJsonStorage());
+
+function sanitizePersistedData(persistedState: unknown): AssistantBudgetPreferencesData {
+  if (!(persistedState && typeof persistedState === 'object')) {
+    return defaultData();
+  }
+  const candidate = persistedState as Partial<AssistantBudgetPreferencesData>;
+  return {
+    dailyCapUsd: sanitizeCapUsd(candidate.dailyCapUsd),
+    perRunCapUsd: sanitizeCapUsd(candidate.perRunCapUsd),
+  };
+}
 
 export const useAssistantBudgetPreferencesStore = create<AssistantBudgetPreferencesStore>()(
   persist(
@@ -87,16 +98,8 @@ export const useAssistantBudgetPreferencesStore = create<AssistantBudgetPreferen
       },
     }),
     {
-      migrate: (persistedState) => {
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return defaultData();
-        }
-        const candidate = persistedState as Partial<AssistantBudgetPreferencesData>;
-        return {
-          dailyCapUsd: sanitizeCapUsd(candidate.dailyCapUsd),
-          perRunCapUsd: sanitizeCapUsd(candidate.perRunCapUsd),
-        } satisfies AssistantBudgetPreferencesData;
-      },
+      merge: createSanitizedPersistMerge(sanitizePersistedData),
+      migrate: sanitizePersistedData,
       name: STORE_NAME,
       partialize: (state) => ({
         dailyCapUsd: state.dailyCapUsd,

@@ -85,6 +85,28 @@ describe('diagnostics-retention-store', () => {
     expect(migratedFromNonObject.maxRows).toBe(DIAGNOSTIC_RETENTION_MAX_ROWS);
   });
 
+  it('sanitizes malformed persisted data at the current version during rehydration', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    if (options.version === undefined) {
+      throw new Error('persist version unavailable for test');
+    }
+    options.storage.setItem(options.name, {
+      state: { maxAgeDays: 9999, maxRows: -1 },
+      version: options.version,
+    });
+
+    await storeWithPersist.persist.rehydrate();
+
+    expect(useDiagnosticsRetentionStore.getState().maxAgeDays).toBe(
+      DIAGNOSTIC_RETENTION_MAX_AGE_MS / MS_PER_DAY
+    );
+    expect(useDiagnosticsRetentionStore.getState().maxRows).toBe(DIAGNOSTIC_RETENTION_MAX_ROWS);
+  });
+
   it('resetDiagnosticsRetentionStoreToDefaults restores defaults and clears persisted storage', () => {
     const options = storeWithPersist.persist?.getOptions?.();
     if (!(options?.storage && options.name)) {

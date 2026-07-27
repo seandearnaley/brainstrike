@@ -17,7 +17,7 @@ unexplained startup failure with no pointer to the cause.
 The trigger is an import *edge*, not a code change. "My diff doesn't touch that
 file" is not a defence.
 
-### The class has four recorded scars, not two
+### The class has five recorded scars, not two
 
 | # | Symptom | Mitigation in place |
 | --- | --- | --- |
@@ -25,8 +25,9 @@ file" is not a defence.
 | BST-580 | `L is not a function`; blank startup shell | `browser-events` chunk pin |
 | — | `createWithEqualityFn is not a function`; blank shell | `zustand` chunk pin |
 | BST-558 / #1988 | `Cannot read properties of undefined (reading 'threads')` | lazified reads + family AST guard |
+| BST-858 | `a is not a function`; blank startup shell | `sanitized-persist-merge` chunk pin |
 
-Three of the four are held by `codeSplitting.groups` entries in **both**
+Four of the five are held by `codeSplitting.groups` entries in **both**
 `apps/web/vite.config.mts` and `apps/desktop/vite.config.mts`. Every one was
 found by a production failure after the fact. Nothing detects a *new* instance.
 
@@ -51,9 +52,14 @@ initializing.
 > binding before it is initialized — and the chunk graph reports no cycle at all,
 > because there is only one node. Proved empirically against this repo's rolldown
 > with a throwaway fixture: `ReferenceError: Cannot access 'A' before
-> initialization`. The accurate statement is **acyclic chunk graph AND acyclic
-> source-module graph ⇒ safe**; this design enforces only the first conjunct.
-> All four recorded scars are the cross-chunk form, which is what this catches.
+> initialization`. For synchronous chunks, the accurate statement is **acyclic
+> chunk graph AND acyclic source-module graph ⇒ safe**; this design enforces only
+> the first conjunct.
+> The first four recorded scars are the cross-chunk cycle form, which is what
+> this catches. BST-858 later exposed a second remaining gap: a helper export
+> assigned inside a top-level-await transformed chunk can still be observed as
+> `undefined` by an eager importer even when the emitted static chunk graph is
+> acyclic. The dedicated synchronous helper chunk prevents that concrete case.
 
 Measured on `657cd3538`:
 
@@ -71,11 +77,11 @@ than aspirational.
 
 Properties this buys, which no AST rule can:
 
-- **Complete for the CROSS-CHUNK form.** Zero chunk cycles ⇒ no cross-chunk
-  instance can fire, regardless of how many module-scope reads exist. Covers all
-  four recorded scars and every future family, because it never inspects source
-  at all. It does NOT cover an intra-chunk source cycle — see the corrected
-  premise above and the "Known remaining gap" note below.
+- **Complete for the synchronous cross-chunk cycle form.** Zero chunk cycles
+  removes that form regardless of how many module-scope reads exist. It does
+  NOT cover an intra-chunk source cycle or an export assigned after transformed
+  top-level await — see the corrected premise above and the "Known remaining
+  gap" note below.
 - **No allowlist, no registration.** Nothing to remember when adding a family —
   the 431-hit noise floor never arises, because source code is never inspected.
 - **Zero false positives by construction.** It reports on emitted artifacts, so
@@ -188,7 +194,7 @@ Instrument controls
   invariant makes that unnecessary. It is kept because it does something the
   cycle check cannot: enforce the *coding rule* ("read inside a function") at
   review time, in seconds, with a file and line number.
-- **The three chunk pins are untouched.** Note for a future reader: removing the
+- **The original three chunk pins are untouched.** Note for a future reader: removing the
   `context-action-system` pin from `apps/web` and rebuilding produced zero cycles
   and a normally-mounting app (83 KB in `#root`), so that pin measures
   non-load-bearing today. That is one pin, one bundle, one local check — far
@@ -200,15 +206,18 @@ Instrument controls
   chunk are concatenated in an arbitrary order by rolldown, which can throw
   the identical `ReferenceError: Cannot access 'X' before initialization` at
   init — and the chunk graph reports no cycle, because there is only one
-  chunk. The accurate invariant is "acyclic chunk graph AND acyclic
-  source-module graph ⇒ safe"; only the first conjunct is enforced. This
-  guard removes the cross-chunk form (the shape behind all four recorded
-  scars) but does not detect an intra-chunk source cycle. Tracked as
+  chunk. For synchronous chunks, the accurate invariant is "acyclic chunk graph
+  AND acyclic source-module graph ⇒ safe"; only the first conjunct is enforced.
+  This guard removes the synchronous cross-chunk cycle form (the shape behind
+  the first four recorded scars) but does not detect an intra-chunk source cycle
+  or a top-level-await transformed export timing hazard. The source-cycle gap
+  was tracked as
   **BST-890 — now closed** by `scripts/verify-no-source-cycles.mjs` on the lint
   lane, which found and fixed a real `packages/ui` self-barrel cycle on its
-  first run. The ticket also notes that the three existing `codeSplitting.groups`
-  pins are safe only because those source graphs happen to be acyclic —
-  nothing currently verifies that.
+  first run. The ticket also notes that the original three
+  `codeSplitting.groups` pins are safe only because those source graphs happen
+  to be acyclic. BST-858 adds a fourth pin specifically to keep the shared
+  sanitizer factory out of a top-level-await chunk.
 
 ## Verification plan
 

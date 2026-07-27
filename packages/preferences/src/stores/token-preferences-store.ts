@@ -1,6 +1,7 @@
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { clearPersistedStorageForTests } from './persist-api';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 interface TokenPreferencesData {
   accurateCounting: boolean;
@@ -85,6 +86,15 @@ function createTokenPreferencesStorage(): StateStorage {
 
 const storage = createJSONStorage(() => createTokenPreferencesStorage());
 
+function sanitizePersistedData(state: unknown): TokenPreferencesData {
+  const snapshot =
+    state && typeof state === 'object' ? (state as Partial<TokenPreferencesData>) : {};
+  return {
+    accurateCounting:
+      typeof snapshot.accurateCounting === 'boolean' ? snapshot.accurateCounting : true,
+  };
+}
+
 export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
   persist(
     (set) => ({
@@ -92,18 +102,10 @@ export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
       setAccurateCounting: (enabled) => set({ accurateCounting: !!enabled }),
     }),
     {
-      migrate: (state) => {
-        const snapshot = state as Partial<TokenPreferencesStore> | undefined;
-        if (!snapshot) {
-          return snapshot;
-        }
-
-        return {
-          ...snapshot,
-          accurateCounting:
-            typeof snapshot.accurateCounting === 'boolean' ? snapshot.accurateCounting : true,
-        } satisfies Partial<TokenPreferencesStore>;
-      },
+      merge: createSanitizedPersistMerge<TokenPreferencesStore, TokenPreferencesData>(
+        sanitizePersistedData
+      ),
+      migrate: sanitizePersistedData,
       name: STORE_NAME,
       partialize: (store) => ({
         accurateCounting: store.accurateCounting,

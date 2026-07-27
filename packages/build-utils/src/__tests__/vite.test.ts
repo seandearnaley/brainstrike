@@ -17,6 +17,7 @@ const {
   getWorkerpoolBrowserStubAliases,
   isBrowserEventsModule,
   isContextActionSystemModule,
+  isSanitizedPersistMergeModule,
   isZustandModule,
 } = await import('../vite');
 
@@ -238,6 +239,29 @@ describe('assistant vite helpers', () => {
     expect(isZustandModule('/workspace/node_modules/zustand/esm/index.mjs')).toBe(true);
     expect(isZustandModule(String.raw`C:\workspace\node_modules\zustand\index.js`)).toBe(true);
     expect(isZustandModule('/workspace/packages/ui/src/zustand-store.ts')).toBe(false);
+  });
+
+  test('classifies only the shared sanitized persist merge helper', () => {
+    expect(
+      isSanitizedPersistMergeModule(
+        '/workspace/packages/preferences/src/stores/sanitized-persist-merge.ts'
+      )
+    ).toBe(true);
+    expect(
+      isSanitizedPersistMergeModule(
+        String.raw`C:\workspace\packages\preferences\dist\stores\sanitized-persist-merge.js`
+      )
+    ).toBe(true);
+    expect(
+      isSanitizedPersistMergeModule(
+        '/workspace/node_modules/preferences/src/stores/sanitized-persist-merge.ts'
+      )
+    ).toBe(false);
+    expect(
+      isSanitizedPersistMergeModule(
+        '/workspace/packages/preferences/src/stores/diagnostics-retention-store.ts'
+      )
+    ).toBe(false);
   });
 });
 

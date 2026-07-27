@@ -101,6 +101,23 @@ export function isZustandModule(id: string): boolean {
   return /[\\/]node_modules[\\/]zustand[\\/]/.test(id);
 }
 
+/**
+ * Keep the zero-dependency sanitized persist merge factory in a synchronous
+ * chunk of its own. It is imported by preference stores that initialize in
+ * multiple renderer chunks. Default reachability splitting can fold the
+ * factory into a top-level-await database chunk while an eager store chunk
+ * calls it during module initialization, producing "a is not a function" and
+ * a blank startup shell even though the emitted chunk graph is acyclic.
+ */
+export function isSanitizedPersistMergeModule(id: string): boolean {
+  if (id.includes('node_modules')) {
+    return false;
+  }
+  return /[\\/]preferences[\\/](?:src|dist)[\\/]stores[\\/]sanitized-persist-merge\.[cm]?[jt]s$/.test(
+    id
+  );
+}
+
 const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
   'idb',
   'minimatch',

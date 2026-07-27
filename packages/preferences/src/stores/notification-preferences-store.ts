@@ -25,6 +25,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 export const NOTIFICATION_EVENT_KINDS = [
   'runFinished',
@@ -96,6 +97,17 @@ function sanitizeEvents(value: unknown): NotificationEventToggles {
 
 const storage = createJSONStorage(() => createBrowserJsonStorage());
 
+function sanitizePersistedData(persistedState: unknown): NotificationPreferencesData {
+  if (!(persistedState && typeof persistedState === 'object')) {
+    return defaultData();
+  }
+  const candidate = persistedState as Partial<NotificationPreferencesData>;
+  return {
+    events: sanitizeEvents(candidate.events),
+    masterEnabled: typeof candidate.masterEnabled === 'boolean' ? candidate.masterEnabled : false,
+  };
+}
+
 export const useNotificationPreferencesStore = create<NotificationPreferencesStore>()(
   persist(
     (set) => ({
@@ -106,17 +118,8 @@ export const useNotificationPreferencesStore = create<NotificationPreferencesSto
       setMasterEnabled: (enabled) => set({ masterEnabled: enabled }),
     }),
     {
-      migrate: (persistedState) => {
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return defaultData();
-        }
-        const candidate = persistedState as Partial<NotificationPreferencesData>;
-        return {
-          events: sanitizeEvents(candidate.events),
-          masterEnabled:
-            typeof candidate.masterEnabled === 'boolean' ? candidate.masterEnabled : false,
-        } satisfies NotificationPreferencesData;
-      },
+      merge: createSanitizedPersistMerge(sanitizePersistedData),
+      migrate: sanitizePersistedData,
       name: STORE_NAME,
       partialize: (state) => ({
         events: state.events,

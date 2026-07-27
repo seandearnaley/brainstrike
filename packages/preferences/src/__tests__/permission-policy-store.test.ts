@@ -204,6 +204,49 @@ describe('permission-policy-store', () => {
     expect(migrated.sessionGrants.size).toBe(0);
   });
 
+  it('sanitizes malformed current-version policy data without dropping session grants', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (
+      !(
+        options?.storage &&
+        options.name &&
+        options.version !== undefined &&
+        storeWithPersist.persist?.rehydrate
+      )
+    ) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    usePermissionPolicyStore.getState().grantSessionCategory('read');
+    await options.storage.setItem(options.name, {
+      state: {
+        enforce: 0,
+        perToolOverrides: {
+          'brainstrike.bad': 'maybe',
+          'brainstrike.ok': 'deny',
+        },
+        policies: { bogus: 'allow', edit: 'prompt', read: 'deny' },
+        sessionGrants: ['execute'],
+        yolo: 'yes',
+      },
+      version: options.version,
+    });
+
+    await storeWithPersist.persist.rehydrate();
+
+    const state = usePermissionPolicyStore.getState();
+    expect(state.enforce).toBe(true);
+    expect(state.policies).toEqual({
+      edit: 'ask',
+      execute: 'ask',
+      mcp: 'allow',
+      read: 'deny',
+    });
+    expect(state.perToolOverrides).toEqual({ 'brainstrike.ok': 'deny' });
+    expect(state.yolo).toBe(false);
+    expect(state.sessionGrants).toEqual(new Set(['read']));
+  });
+
   it('reset clears both in-memory state and persisted storage', () => {
     usePermissionPolicyStore.getState().setEnforce(false);
     usePermissionPolicyStore.getState().setYolo(true);

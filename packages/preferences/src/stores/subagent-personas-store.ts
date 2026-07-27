@@ -17,6 +17,7 @@ import type { SubagentPersonasAvailabilityRequest } from '@brainstrike/assistant
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 export interface SubagentPersonasData {
   delegationEnabled: boolean;
@@ -79,6 +80,18 @@ function sanitizeDisabledIds(value: unknown): readonly string[] {
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
+function sanitizePersistedData(persistedState: unknown): SubagentPersonasData {
+  const candidate =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as Partial<SubagentPersonasData>)
+      : {};
+  return {
+    delegationEnabled:
+      typeof candidate.delegationEnabled === 'boolean' ? candidate.delegationEnabled : true,
+    disabledPersonaIds: sanitizeDisabledIds(candidate.disabledPersonaIds),
+  };
+}
+
 export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
   persist(
     (set) => ({
@@ -102,17 +115,10 @@ export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
         }),
     }),
     {
-      migrate: (persistedState) => {
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return defaultData();
-        }
-        const candidate = persistedState as Partial<SubagentPersonasData>;
-        return {
-          delegationEnabled:
-            typeof candidate.delegationEnabled === 'boolean' ? candidate.delegationEnabled : true,
-          disabledPersonaIds: sanitizeDisabledIds(candidate.disabledPersonaIds),
-        } satisfies SubagentPersonasData;
-      },
+      merge: createSanitizedPersistMerge<SubagentPersonasStore, SubagentPersonasData>(
+        sanitizePersistedData
+      ),
+      migrate: sanitizePersistedData,
       name: STORE_NAME,
       partialize: (state) => ({
         delegationEnabled: state.delegationEnabled,

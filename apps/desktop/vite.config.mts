@@ -14,6 +14,7 @@ import {
   getWorkerpoolBrowserStubAliases,
   isBrowserEventsModule,
   isContextActionSystemModule,
+  isSanitizedPersistMergeModule,
   isZustandModule,
 } from '@brainstrike/build-utils';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
@@ -70,6 +71,9 @@ export default defineConfig({
                 }
                 if (isBrowserEventsModule(moduleId)) {
                   return 'browser-events';
+                }
+                if (isSanitizedPersistMergeModule(moduleId)) {
+                  return 'sanitized-persist-merge';
                 }
                 return isContextActionSystemModule(moduleId) ? 'context-action-system' : null;
               },

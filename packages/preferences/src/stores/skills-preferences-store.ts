@@ -29,6 +29,7 @@ import type { SkillsContextRequest } from '@brainstrike/assistant-contract';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 interface SkillsPreferencesData {
   /**
@@ -76,6 +77,18 @@ function sanitizeDisabledKeys(value: unknown): Record<string, boolean> {
   return result;
 }
 
+function sanitizePersistedData(persistedState: unknown): SkillsPreferencesData {
+  const candidate =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as Partial<SkillsPreferencesData>)
+      : {};
+  return {
+    disabledSkillKeys: sanitizeDisabledKeys(candidate.disabledSkillKeys),
+    // A malformed master flag falls back to the ON default (feature enabled).
+    masterEnabled: typeof candidate.masterEnabled === 'boolean' ? candidate.masterEnabled : true,
+  };
+}
+
 const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 export const useSkillsPreferencesStore = create<SkillsPreferencesStore>()(
@@ -96,18 +109,10 @@ export const useSkillsPreferencesStore = create<SkillsPreferencesStore>()(
         }),
     }),
     {
-      migrate: (persistedState) => {
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return defaultData();
-        }
-        const candidate = persistedState as Partial<SkillsPreferencesData>;
-        return {
-          disabledSkillKeys: sanitizeDisabledKeys(candidate.disabledSkillKeys),
-          // A malformed master flag falls back to the ON default (feature enabled).
-          masterEnabled:
-            typeof candidate.masterEnabled === 'boolean' ? candidate.masterEnabled : true,
-        } satisfies SkillsPreferencesData;
-      },
+      merge: createSanitizedPersistMerge<SkillsPreferencesStore, SkillsPreferencesData>(
+        sanitizePersistedData
+      ),
+      migrate: sanitizePersistedData,
       name: STORE_NAME,
       partialize: (state) => ({
         disabledSkillKeys: state.disabledSkillKeys,
@@ -127,10 +132,10 @@ export const skillsPreferencesSelectors = {
 
 /**
  * Derive the serializable request snapshot (`runtimeData.skillsPreference`).
- * Defensive against corrupted persisted state (zustand's `migrate` runs only
- * on VERSION mismatches, so a hand-mangled same-version slice can rehydrate
- * malformed): a non-object disable map derives as empty rather than throwing
- * in a render path. The server-side strict parse remains the honest gate.
+ * Defensive against an invalid caller-provided snapshot: a non-object disable
+ * map derives as empty rather than throwing in a render path. Persisted state is
+ * sanitized during every hydration; the server-side strict parse remains the
+ * honest gate.
  */
 export function buildSkillsContextRequest(
   state: Pick<SkillsPreferencesStore, 'disabledSkillKeys' | 'masterEnabled'>

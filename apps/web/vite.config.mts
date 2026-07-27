@@ -40,8 +40,9 @@ const {
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   isBrowserEventsModule,
-  isZustandModule,
   isContextActionSystemModule,
+  isSanitizedPersistMergeModule,
+  isZustandModule,
 } = await import('@brainstrike/build-utils');
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 const wasmPath = findPGliteWasm(__dirname);
@@ -100,6 +101,9 @@ export default defineConfig({
                 }
                 if (isBrowserEventsModule(moduleId)) {
                   return 'browser-events';
+                }
+                if (isSanitizedPersistMergeModule(moduleId)) {
+                  return 'sanitized-persist-merge';
                 }
                 return isContextActionSystemModule(moduleId) ? 'context-action-system' : null;
               },

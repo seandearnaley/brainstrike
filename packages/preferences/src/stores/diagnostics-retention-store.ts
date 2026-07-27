@@ -13,13 +13,11 @@
  *
  * Validation is STRICT on set: a value outside the allowed option list
  * THROWS — no silent coercion (AGENTS.md "NO SILENT FALLBACKS"). This is
- * deliberately asymmetric with the persisted `migrate` path below, which
- * SANITIZES an unknown/corrupt payload back to the defaults: a programming
+ * deliberately asymmetric with persisted hydration below, which SANITIZES an
+ * unknown/corrupt payload back to the defaults: a programming
  * error calling a setter with a bad value must surface immediately, but a
  * corrupt persisted blob (e.g. from a future/rolled-back app version) must
- * not brick the settings UI on load. Matches the
- * assistant-budget-preferences-store precedent (assert-on-set,
- * sanitize-on-migrate).
+ * not brick the settings UI on load.
  *
  * Defaults mirror `DIAGNOSTIC_RETENTION_MAX_AGE_MS` (30 days) and
  * `DIAGNOSTIC_RETENTION_MAX_ROWS` (20_000) exported from
@@ -42,6 +40,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 export const DIAGNOSTICS_RETENTION_DAY_OPTIONS = [7, 14, 30, 90] as const;
 export const DIAGNOSTICS_RETENTION_ROW_OPTIONS = [5000, 20_000, 50_000] as const;
@@ -108,17 +107,28 @@ function assertValidMaxRows(value: number): void {
   }
 }
 
-/** Persisted-payload sanitizer (migrate path only): invalid -> default. */
+/** Persisted-payload sanitizer: invalid -> default. */
 function sanitizeMaxAgeDays(value: unknown): number {
   return typeof value === 'number' && isValidMaxAgeDays(value) ? value : DEFAULT_MAX_AGE_DAYS;
 }
 
-/** Persisted-payload sanitizer (migrate path only): invalid -> default. */
+/** Persisted-payload sanitizer: invalid -> default. */
 function sanitizeMaxRows(value: unknown): number {
   return typeof value === 'number' && isValidMaxRows(value) ? value : DEFAULT_MAX_ROWS;
 }
 
 const storage = createJSONStorage(() => createBrowserJsonStorage());
+
+function sanitizePersistedData(persistedState: unknown): DiagnosticsRetentionData {
+  if (!(persistedState && typeof persistedState === 'object')) {
+    return defaultData();
+  }
+  const candidate = persistedState as Partial<DiagnosticsRetentionData>;
+  return {
+    maxAgeDays: sanitizeMaxAgeDays(candidate.maxAgeDays),
+    maxRows: sanitizeMaxRows(candidate.maxRows),
+  };
+}
 
 export const useDiagnosticsRetentionStore = create<DiagnosticsRetentionStore>()(
   persist(
@@ -135,16 +145,8 @@ export const useDiagnosticsRetentionStore = create<DiagnosticsRetentionStore>()(
       },
     }),
     {
-      migrate: (persistedState) => {
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return defaultData();
-        }
-        const candidate = persistedState as Partial<DiagnosticsRetentionData>;
-        return {
-          maxAgeDays: sanitizeMaxAgeDays(candidate.maxAgeDays),
-          maxRows: sanitizeMaxRows(candidate.maxRows),
-        } satisfies DiagnosticsRetentionData;
-      },
+      merge: createSanitizedPersistMerge(sanitizePersistedData),
+      migrate: sanitizePersistedData,
       name: STORE_NAME,
       partialize: (state) => ({
         maxAgeDays: state.maxAgeDays,

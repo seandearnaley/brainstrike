@@ -968,11 +968,19 @@ Defaults MUST equal `DIAGNOSTIC_RETENTION_MAX_AGE_MS` / `_MAX_ROWS` so
 behavior is unchanged until a user edits them (a test asserts the equality by
 importing both, rather than hardcoding the numbers twice). Setters **throw**
 on a value outside the option list — malformed config is loud, never coerced.
-`migrate` sanitizes an unknown persisted payload back to defaults, but note
-the standard zustand caveat this repo's other preference stores share: it
-runs ONLY on a version mismatch, so a hand-edited payload written at the
-CURRENT version is shallow-merged unsanitized. The setter guard is the real
-enforcement; `migrate` covers version bumps only.
+Both `migrate` and the store's sanitized `merge` validate an unknown persisted
+payload back to defaults. The merge is required because Zustand skips
+`migrate` when the stored version already matches; it preserves live actions
+and applies only the sanitizer's complete persisted-data shape. When storage
+has no snapshot (`persistedState === undefined`), the shared merge returns the
+current store unchanged so defaults or a late hydration cannot overwrite live
+state. Hydration sanitizes in memory but deliberately does not rewrite storage.
+The shared merge is also installed on the notification, assistant-budget,
+permission-policy, skills, background-indexing, hook-trust, subagent-personas,
+token, vector, and workspace-instructions preference stores. Stores with custom
+storage parsers (panel layouts) and the assistant-memory store's explicit
+rehydration sanitizer already enforce the same current-version boundary through
+their own specialized paths.
 
 **Purge path**: the settings card's "Purge now" reaches the repository through
 an `onPurgeNow?: () => Promise<number>` **callback prop**, never a repository

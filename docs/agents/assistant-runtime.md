@@ -1100,6 +1100,12 @@ for ANY pre-v2 slice (a genuine v1 opt-out gets re-prompted once, the safe
 direction). Only a v2+ persisted boolean is honored verbatim. Skipping this would
 leave upgrading `enforce:false` users with the now-always-registered, ungated
 `executeCommand` — the regression this guards against.
+The store also sanitizes every current-version hydration through the shared
+persist merge: malformed `enforce`/`yolo` values take secure defaults, invalid
+policy and override entries are dropped/defaulted, and persisted action-shaped
+keys or `sessionGrants` never enter live state. The merge returns live state
+unchanged when no persisted snapshot exists and preserves the session-only grant
+set across a late hydration.
 
 Web: the in-renderer LocalRuntimeChat never reaches `streamMastraAgent` (no
 assistant server / storage), so ask tools are fail-safe-omitted there and web

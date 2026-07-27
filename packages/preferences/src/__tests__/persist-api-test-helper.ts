@@ -8,12 +8,13 @@
 export type PersistApi<T> = T & {
   persist?: {
     getOptions?: () => {
+      merge?: (persistedState: unknown, currentState: unknown) => unknown;
       migrate?: (persistedState: unknown, version: number) => unknown;
       name?: string;
       storage?: {
-        getItem: (name: string) => string | null;
-        setItem: (name: string, value: string) => void;
-        removeItem: (name: string) => void;
+        getItem: (name: string) => PersistedStoreSnapshot | null;
+        setItem: (name: string, value: PersistedStoreSnapshot) => Promise<void> | void;
+        removeItem: (name: string) => Promise<void> | void;
       };
       version?: number;
     };
@@ -22,3 +23,8 @@ export type PersistApi<T> = T & {
     clearStorage?: () => void;
   };
 };
+
+export interface PersistedStoreSnapshot {
+  state: Record<string, unknown>;
+  version: number;
+}
