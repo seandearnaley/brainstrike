@@ -74,6 +74,19 @@ protocol; their charters in charters/ are the deployed source of truth.
     tickets, the PR comments), never inside the watermark. Each loop exits
     NOOP only when ITS own watched set holds no unprocessed work, never on
     the main diff.
+  BOUND THE INPUT, NOT JUST THE OUTPUT. Capping what you PRODUCE (one
+  candidate, one PR) does not cap what you must READ first. On a repo this
+  active a MAIN-DIFF loop that misses one wake faces a delta twice the size
+  at the next one, and a delta that cannot be swept inside WALL_CLOCK_BUDGET
+  produces a run that dies before it checkpoints — which advances nothing, so
+  the NEXT delta is bigger again. That is a death spiral, and it is silent:
+  Run boundaries puts the checkpoint LAST, so a run killed mid-sweep leaves no
+  trace at all and is indistinguishable from a wake that never fired.
+  So: sweep at most what you can finish. If the delta from your watermark
+  exceeds that, process the OLDEST slice you can complete, checkpoint
+  INCOMPLETE with the watermark ADVANCED to the end of that slice, and name
+  the remaining range as the next action. Forward progress every run beats a
+  complete sweep never. Never carry an unbounded delta into a bounded budget.
   UNCHANGED IS NOT THE SAME AS DONE. Hash equality is the cheap test, and
   for a watched set whose items are either processed or gone it is also the
   correct one. But a loop that CAPS how much it processes per run (Magnify:
