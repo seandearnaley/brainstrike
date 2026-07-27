@@ -8,7 +8,7 @@ import {
   isRecord,
   normalizeRuntimeBaseUrl,
   sanitizeDuration,
-} from '../providers/local-runtime-utils';
+} from '../local-runtime-utils';
 
 describe('local-runtime-utils', () => {
   it('identifies plain records and rejects arrays/null', () => {

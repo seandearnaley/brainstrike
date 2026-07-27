@@ -22,8 +22,8 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vite
 import {
   LocalRuntimeDiscoveryService,
   type LocalRuntimeDiscoveryServiceOptions,
-} from '../providers/local-runtime-discovery';
-import { LocalRuntimeModelCatalogService } from '../providers/local-runtime-model-catalog';
+} from '../local-runtime-discovery';
+import { LocalRuntimeModelCatalogService } from '../local-runtime-model-catalog';
 
 // `LocalRuntimeLogger` is not re-exported through the `local-runtime` barrel;
 // derive it from the discovery-service options instead of touching prod code.

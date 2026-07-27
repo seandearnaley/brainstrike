@@ -39,6 +39,15 @@ describe('db test lane manifest', () => {
     expect(assignedFiles).toEqual(testFiles);
   });
 
+  it('keeps the compiler-only migration type contract out of the PGlite-heavy lane', () => {
+    const testFiles = collectDbTestFiles({ includeBrowserTests: false });
+    const { failures, laneMap } = buildDbCoverageLaneMap(testFiles);
+
+    expect(failures).toEqual([]);
+    expect(laneMap.get('architecture')).toContain('migration-runner-types.test.ts');
+    expect(laneMap.get('migrations')).not.toContain('migration-runner-types.test.ts');
+  });
+
   it('differs between the unit and coverage views by exactly the browser tests', () => {
     // Pins the ONE intentional asymmetry between the two lane scripts' views of "all
     // tests" (test-lanes.mjs passes true, coverage-lanes.mjs passes false). It is

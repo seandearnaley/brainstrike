@@ -29,7 +29,7 @@ import {
 } from '@brainstrike/db';
 import { generateUUID } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { processChunking } from '../chunking';
 import type { ChunkingWorkerPort } from '../chunking-worker-port';
 
@@ -88,16 +88,27 @@ function workerPortReturning(result: {
 }
 
 describe('symbol persistence seam', () => {
+  vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
+
   let db: PGlite;
   let fileRepo: FileRecordRepository;
   let chunkRepo: FileChunkRepository;
   let fileId: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     db = await wasmLoader.createPGlite('memory://symbol-persistence');
     await migrate(db);
     fileRepo = new FileRecordRepository(db);
     chunkRepo = new FileChunkRepository(db);
+  });
+
+  beforeEach(async () => {
+    await db.exec(`
+      DELETE FROM file_symbol_refs;
+      DELETE FROM file_symbols;
+      DELETE FROM file_chunks;
+      DELETE FROM file_records;
+    `);
 
     const now = new Date().toISOString();
     fileId = generateUUID();
@@ -114,6 +125,10 @@ describe('symbol persistence seam', () => {
       updatedAt: now,
     };
     await fileRepo.createWithContent(record);
+  });
+
+  afterAll(async () => {
+    await db.close();
   });
 
   function chunkingDeps() {

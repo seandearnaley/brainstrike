@@ -15,7 +15,9 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
+  isBrowserEventsModule,
   isContextActionSystemModule,
+  isZustandModule,
 } = await import('../vite');
 
 afterEach(() => {
@@ -219,6 +221,23 @@ describe('assistant vite helpers', () => {
       false
     );
     expect(isContextActionSystemModule('/workspace/packages/ui/src/button.tsx')).toBe(false);
+  });
+
+  test('classifies browser-events modules without matching dependency copies', () => {
+    expect(isBrowserEventsModule('/workspace/packages/utils/src/browser-events.ts')).toBe(true);
+    expect(
+      isBrowserEventsModule(String.raw`C:\workspace\packages\utils\dist\browser-events.js`)
+    ).toBe(true);
+    expect(isBrowserEventsModule('/workspace/node_modules/utils/src/browser-events.js')).toBe(
+      false
+    );
+    expect(isBrowserEventsModule('/workspace/packages/utils/src/logger.ts')).toBe(false);
+  });
+
+  test('classifies only the installed zustand package as its vendor chunk', () => {
+    expect(isZustandModule('/workspace/node_modules/zustand/esm/index.mjs')).toBe(true);
+    expect(isZustandModule(String.raw`C:\workspace\node_modules\zustand\index.js`)).toBe(true);
+    expect(isZustandModule('/workspace/packages/ui/src/zustand-store.ts')).toBe(false);
   });
 });
 

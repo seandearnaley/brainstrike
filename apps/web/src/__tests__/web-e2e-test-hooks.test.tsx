@@ -14,6 +14,7 @@ vi.mock('../create-embedding-queue', () => ({
 }));
 
 interface TestDbHandle {
+  readonly exec?: ReturnType<typeof vi.fn>;
   readonly query: ReturnType<typeof vi.fn>;
   readonly syncToFs?: ReturnType<typeof vi.fn>;
   readonly transaction?: ReturnType<typeof vi.fn>;
@@ -242,6 +243,146 @@ describe('WebE2ETestHooks', () => {
 
     await expect(window.__brainstrikeWebE2ETestHooks__?.syncDatabase()).rejects.toThrow(
       'Web E2E database handle does not expose syncToFs'
+    );
+  });
+
+  it('exposes reset seed, link, and count helpers with observable SQL contracts', async () => {
+    setWebDriver(true);
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ count: '2' }] })
+      .mockResolvedValueOnce({ rows: [{ count: 3 }] })
+      .mockResolvedValueOnce({ rows: [{ count: 4 }] })
+      .mockResolvedValueOnce({ rows: [{ count: '5' }] })
+      .mockResolvedValueOnce({ rows: [{ count: 6 }] });
+    const transactionQuery = vi.fn().mockResolvedValue({ rows: [{ id: 'updated-row' }] });
+    const transaction = vi.fn(
+      async (callback: (tx: TestDbHandle) => Promise<unknown>): Promise<unknown> =>
+        callback({ query: transactionQuery })
+    );
+    const exec = vi.fn().mockResolvedValue(undefined);
+    usePGliteDatabaseMock.mockReturnValue({
+      exec,
+      query,
+      transaction,
+    } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+    const hooks = window.__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected webdriver hooks to be installed');
+    }
+
+    await expect(hooks.readFileRowCounts()).resolves.toEqual({
+      fileChunks: 2,
+      fileRecords: 3,
+    });
+    await expect(hooks.readResetRowCounts()).resolves.toEqual({
+      fileChunks: 4,
+      fileRecords: 5,
+      workflowSnapshots: 6,
+    });
+    await hooks.linkResetProbeRowsToCollection('collection-1');
+    await hooks.seedFileRowsOnly();
+    await hooks.seedResetProbeRows();
+
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      'SELECT COUNT(*)::int AS count FROM file_chunks',
+      'SELECT COUNT(*)::int AS count FROM file_records',
+      'SELECT COUNT(*)::int AS count FROM file_chunks',
+      'SELECT COUNT(*)::int AS count FROM file_records',
+      'SELECT COUNT(*)::int AS count FROM mastra_workflow_snapshot',
+    ]);
+    expect(transactionQuery).toHaveBeenCalledWith(
+      "UPDATE file_records SET embedding_set_id = $1 WHERE path LIKE 'reset-probe://%' RETURNING id",
+      ['collection-1']
+    );
+    expect(transactionQuery).toHaveBeenCalledWith(
+      "UPDATE file_chunks SET embedding_set_id = $1 WHERE content = 'reset probe chunk' RETURNING id",
+      ['collection-1']
+    );
+    expect(transactionQuery).toHaveBeenCalledWith(
+      'INSERT INTO file_records (id, name, path, size) VALUES ($1, $2, $3, $4)',
+      [expect.any(String), 'reset-probe.txt', expect.stringMatching(/^reset-probe:\/\//), 42]
+    );
+    expect(transactionQuery).toHaveBeenCalledWith(
+      'INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ($1, $2, 0, $3)',
+      [expect.any(String), expect.any(String), 'reset probe chunk']
+    );
+    expect(transactionQuery).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO mastra_workflow_snapshot'),
+      ['reset-probe-workflow', expect.any(String), 'reset-probe-resource', '{"status":"suspended"}']
+    );
+    expect(
+      transactionQuery.mock.calls.filter(([sql]) =>
+        String(sql).includes('mastra_workflow_snapshot')
+      )
+    ).toHaveLength(1);
+    expect(exec).toHaveBeenCalledWith(expect.stringContaining('mastra_workflow_snapshot'));
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails loudly when reset helpers cannot prove their database effects', async () => {
+    setWebDriver(true);
+    const transactionQuery = vi.fn().mockResolvedValue({ rows: [] });
+    usePGliteDatabaseMock.mockReturnValue({
+      query: vi.fn().mockResolvedValue({ rows: [{ count: 'not-a-number' }] }),
+      transaction: vi.fn(async (callback: (tx: TestDbHandle) => Promise<unknown>) =>
+        callback({ query: transactionQuery })
+      ),
+    } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+    const hooks = window.__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected webdriver hooks to be installed');
+    }
+
+    await expect(hooks.readFileRowCounts()).rejects.toThrow(
+      'Count for file_chunks was not numeric'
+    );
+    await expect(hooks.linkResetProbeRowsToCollection('collection-1')).rejects.toThrow(
+      'UPDATE file_records matched zero rows'
+    );
+    await expect(hooks.seedResetProbeRows()).rejects.toThrow(
+      'Web E2E database handle does not expose exec'
+    );
+  });
+
+  it('fails loudly when reset helpers require unavailable transactions', async () => {
+    setWebDriver(true);
+    usePGliteDatabaseMock.mockReturnValue({
+      exec: vi.fn(),
+      query: vi.fn(),
+    } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+    const hooks = window.__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected webdriver hooks to be installed');
+    }
+
+    await expect(hooks.linkResetProbeRowsToCollection('collection-1')).rejects.toThrow(
+      'Web E2E database handle does not expose transactions'
+    );
+    await expect(hooks.seedFileRowsOnly()).rejects.toThrow(
+      'Web E2E database handle does not expose transactions'
+    );
+    await expect(hooks.seedResetProbeRows()).rejects.toThrow(
+      'Web E2E database handle does not expose transactions'
     );
   });
 });

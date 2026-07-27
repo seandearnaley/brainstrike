@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LocalRuntimeModelCatalogService } from '../providers/local-runtime-model-catalog';
+import { LocalRuntimeModelCatalogService } from '../local-runtime-model-catalog';
 
 type FetchMockInput = string | URL | Request;
 type FetchMock = (input: FetchMockInput, init?: RequestInit) => Promise<Response>;
