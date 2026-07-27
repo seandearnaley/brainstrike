@@ -16,6 +16,7 @@ import { runGrepSearch } from '../../assistant-server/grep-search-tool';
 import {
   hasDotGitSegmentForTests,
   resetRipgrepAvailabilityForTests,
+  setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
 import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
@@ -67,6 +68,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   resetRipgrepAvailabilityForTests();
+  setMaxLiveCandidateFilesForTests();
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
@@ -264,6 +266,56 @@ describe('grepSearch hybrid — candidate path filtering', () => {
     } finally {
       splitSpy.mockRestore();
     }
+  });
+});
+
+describe('grepSearch hybrid — live caps surface in truncated (mode parity)', () => {
+  /** Two matching files with a 1-file live candidate cap: the cap is hit and one on-disk match is unreached. */
+  async function makeCappedWorkspace(): Promise<string> {
+    setMaxLiveCandidateFilesForTests(1);
+    const root = await makeWorkspace({
+      'src/a.ts': 'CAP_TOKEN one\n',
+      'src/b.ts': 'CAP_TOKEN two\n',
+    });
+    indexEmpty();
+    return root;
+  }
+
+  it('content mode ORs the live candidate cap into truncated with terminal guidance', async () => {
+    const root = await makeCappedWorkspace();
+
+    const result = await runGrepSearch(
+      { outputMode: 'content', pattern: 'CAP_TOKEN' },
+      singleRoot(root)
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content result');
+    }
+    // Only the capped candidate's match is counted, so pagination looks
+    // "complete" — but the live cap left an on-disk match unreached, and that
+    // MUST surface as truncated (same semantics as files mode), with terminal
+    // guidance instead of an offset (offsets cannot reach uncounted matches).
+    expect(result.matches).toHaveLength(1);
+    expect(result.totalMatches).toBe(1);
+    expect(result.truncated).toBe(true);
+    expect(result.liveNote).toMatch(/candidate-file cap/i);
+    expect(result.hint).toMatch(/narrow|different|specific/i);
+    expect(result.hint).not.toContain('Continue with offset:');
+    expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
+  });
+
+  it('files mode reports the same truncated=true for the same capped live pass', async () => {
+    const root = await makeCappedWorkspace();
+
+    const result = await runGrepSearch({ pattern: 'CAP_TOKEN' }, singleRoot(root));
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files result');
+    }
+    expect(result.files).toHaveLength(1);
+    expect(result.truncated).toBe(true);
+    expect(result.liveNote).toMatch(/candidate-file cap/i);
+    expect(result.hint).toBeDefined();
+    expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
   });
 });
 

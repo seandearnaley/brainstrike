@@ -142,6 +142,32 @@ describe('grep search tool', () => {
     expect(result.hint).not.toContain('Continue with offset:');
   });
 
+  it('content mode: candidate limits with complete pagination still carry terminal guidance', async () => {
+    // 500 prefilter candidates (limit hit) but the authoritative matcher keeps
+    // nothing: pagination is "complete", yet matches may exist in unexamined
+    // candidates. The result must carry a hint (the model projection throws on
+    // flagged results without guidance) and must not advertise an offset.
+    queryMock.mockResolvedValue({
+      rows: Array.from({ length: 500 }, (_, i) => ({
+        content: 'authoritative matcher finds no result',
+        path: `src/candidate-${i}.ts`,
+        start_line: 1,
+      })),
+    });
+
+    const result = await runGrepSearch({ outputMode: 'content', pattern: 'needle' }, undefined);
+
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.candidatesTruncated).toBe(true);
+    expect(result.matches).toEqual([]);
+    expect(result.truncated).toBe(false);
+    expect(result.hint).toMatch(/narrow|different|specific/i);
+    expect(result.hint).not.toContain('Continue with offset:');
+    expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
+  });
+
   it('advances the offset past a single match too large to fit the budget', async () => {
     // One indexed line larger than the whole output budget (e.g. minified bundle).
     queryMock.mockResolvedValue({
