@@ -1,6 +1,10 @@
 import path from 'node:path';
 import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
-import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
+import {
+  AccessError,
+  getFileTooLargeMessage,
+  getTestDirectoryStructure,
+} from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -301,32 +305,6 @@ async function ipcPathExists(
   }
 
   return fileSystem.exists(resolved.path);
-}
-
-function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-  const candidate = error as { code?: unknown };
-  return candidate.code === 'TOO_LARGE';
-}
-
-function getFileTooLargeMessage(error: unknown): string | null {
-  if (hasTooLargeCode(error)) {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    const message = (error as { message?: unknown }).message;
-    return typeof message === 'string' ? message : 'File too large';
-  }
-
-  if (error instanceof AccessError && error.operation === 'read') {
-    return error.message.includes('File too large') ? error.message : null;
-  }
-  if (error instanceof Error && error.message.startsWith('File too large:')) {
-    return error.message;
-  }
-  return null;
 }
 
 function toFileReadErrorPayload(error: unknown, filePath: string): FileReadErrorPayload | null {

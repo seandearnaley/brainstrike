@@ -1,9 +1,9 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import {
-  AccessError,
   DEFAULT_MAX_FILE_SIZE,
   formatFileSize,
   getFileSizeConfig,
+  getFileTooLargeMessage,
 } from '@brainstrike/file-system';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import {
@@ -57,37 +57,6 @@ function getKnownFileSize(request: FileReadRequest): number | null {
     return null;
   }
   return size;
-}
-
-function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE' } {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-  const candidate = error as { code?: unknown };
-  return candidate.code === 'TOO_LARGE';
-}
-
-function isTooLargeAccessError(error: unknown): error is AccessError {
-  return (
-    error instanceof AccessError &&
-    error.operation === 'read' &&
-    error.message.includes('File too large')
-  );
-}
-
-function getTooLargeMessage(error: unknown): string | null {
-  // This helper classifies raw adapter errors. FileContentError instances are re-thrown upstream.
-  if (hasTooLargeCode(error)) {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    const message = (error as { message?: unknown }).message;
-    return typeof message === 'string' ? message : 'File too large';
-  }
-  if (isTooLargeAccessError(error)) {
-    return error.message;
-  }
-  return null;
 }
 
 function normalizeMaxFileSize(maxFileSize: unknown): number {
@@ -246,7 +215,7 @@ export function createFileContentWorker({
       if (error instanceof FileContentError) {
         throw error;
       }
-      const tooLargeMessage = getTooLargeMessage(error);
+      const tooLargeMessage = getFileTooLargeMessage(error);
       if (tooLargeMessage) {
         throw new FileContentError(tooLargeMessage, req.path, 'TOO_LARGE');
       }
