@@ -75,7 +75,7 @@ describe('scanUserLenses', () => {
     expect(result.entries[0]).toMatchObject({ sourceRootId: 'root-a', status: 'ok' });
   });
 
-  it('project tier beats the global tier for the same id (first-wins)', () => {
+  it('project tier beats the global tier for the same id (first-wins, shadow VISIBLE)', () => {
     const deps = makeDeps({
       '/work/a/.brainstrike/lenses': { 'shared.sql': lensFile('project lens') },
       [`${HOME}/.brainstrike/lenses`]: { 'shared.sql': lensFile('global lens') },
@@ -83,8 +83,52 @@ describe('scanUserLenses', () => {
     const result = scanUserLenses({ homeDir: HOME, roots: [ROOT_A] }, deps);
     expect(result.lenses).toHaveLength(1);
     expect(result.lenses[0]?.description).toBe('project lens');
-    // The duplicate produces NO entry — first-wins, warned once.
+    // The duplicate produces no ENTRY, but the suppression is visible.
     expect(result.entries).toHaveLength(1);
+    expect(result.shadowed).toEqual([{ fileName: 'shared.sql', keptRootId: 'root-a' }]);
+  });
+
+  it('a BROKEN project lens blocks a same-named global lens — no silent fallback', () => {
+    // The id is reserved from the FILENAME before parsing: a malformed
+    // project-tier file must never let a global file's different SQL run
+    // under the id the project author thinks they control (#2034 P1).
+    const deps = makeDeps({
+      '/work/a/.brainstrike/lenses': { 'shared.sql': 'SELECT 1' }, // no header
+      [`${HOME}/.brainstrike/lenses`]: { 'shared.sql': lensFile('global lens') },
+    });
+    const result = scanUserLenses({ homeDir: HOME, roots: [ROOT_A] }, deps);
+    expect(result.lenses).toHaveLength(0);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({ sourceRootId: 'root-a', status: 'invalid' });
+    expect(result.shadowed).toEqual([{ fileName: 'shared.sql', keptRootId: 'root-a' }]);
+  });
+
+  it('invalid files consume the scan cap — malformed dirs cannot extend the scan', () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < MAX_USER_LENSES_SCAN + 5; i += 1) {
+      files[`broken-${String(i).padStart(3, '0')}.sql`] = 'SELECT 1'; // all invalid
+    }
+    const deps = makeDeps({ '/work/a/.brainstrike/lenses': files });
+    const result = scanUserLenses({ homeDir: HOME, roots: [ROOT_A] }, deps);
+    expect(result.entries).toHaveLength(MAX_USER_LENSES_SCAN);
+    expect(result.lenses).toHaveLength(0);
+  });
+
+  it('a truncated directory listing is reported, never silent', () => {
+    const deps: UserLensScanDeps = {
+      listDir: (absDir) =>
+        absDir === '/work/a/.brainstrike/lenses'
+          ? {
+              entries: [{ isDirectory: false, isFile: true, name: 'a.sql' }],
+              inspected: 1,
+              truncated: true,
+            }
+          : null,
+      readFile: () => ({ content: lensFile('present'), ok: true }),
+    };
+    const result = scanUserLenses({ homeDir: HOME, roots: [ROOT_A] }, deps);
+    expect(result.truncatedDirs).toEqual(['/work/a/.brainstrike/lenses']);
+    expect(result.lenses).toHaveLength(1);
   });
 
   it('cross-root collision keeps the first-mounted root', () => {

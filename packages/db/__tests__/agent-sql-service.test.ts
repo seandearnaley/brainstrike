@@ -700,6 +700,16 @@ describe('AgentSqlService sandbox', () => {
       ).rejects.toThrow(/parameter/i);
     });
 
+    it('a statement ending in a line comment still wraps cleanly', {
+      timeout: 120_000,
+    }, async () => {
+      // The row-cap wrapper closes the subquery on a NEW line; a single-line
+      // wrapper swallowed `) AS … LIMIT n` into the trailing comment — the
+      // exact shape a multi-line reviewed lens file ends with (#2034 review).
+      const result = await service.query('SELECT 1 AS x\n-- ranked by RRF, see BST-935');
+      expect(result.rows).toEqual([[1]]);
+    });
+
     it('params reach the admission EXPLAIN too', { timeout: 120_000 }, async () => {
       // If admit() dropped the params, planning `$1` would fail before
       // execution ever started. A cost estimate proves the plan was built

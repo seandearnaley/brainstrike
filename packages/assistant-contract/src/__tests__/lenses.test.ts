@@ -103,6 +103,17 @@ describe('parseLensFile', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('a placeholder inside a -- comment does not count (commented-out fragments)', () => {
+    const content = [
+      '-- description: d',
+      '-- param: a text',
+      'SELECT $1',
+      '-- was: AND depth < $2 (dropped in review)',
+    ].join('\n');
+    const result = parseLensFile('lens.sql', content);
+    expect(result.ok).toBe(true);
+  });
+
   it('keeps interior comments as part of the SQL body', () => {
     const content = [
       '-- description: d',

@@ -472,7 +472,11 @@ export class AgentSqlService {
     const unterminated = statement.replace(/;\s*$/, '');
 
     // Fetch one extra row so truncation is detected without a second query.
-    const wrapped = `SELECT * FROM (${unterminated}) AS _bs_agent_q LIMIT ${maxRows + 1}`;
+    // The newline before the closing paren is load-bearing: a statement
+    // ending in a `-- line comment` (plausible in a multi-line lens file)
+    // would otherwise swallow `) AS _bs_agent_q LIMIT n` into the comment and
+    // fail with a cryptic `syntax error at end of input` (#2034 review).
+    const wrapped = `SELECT * FROM (${unterminated}\n) AS _bs_agent_q LIMIT ${maxRows + 1}`;
 
     return await this.db.transaction(async (tx) => {
       await tx.exec('SET TRANSACTION READ ONLY');

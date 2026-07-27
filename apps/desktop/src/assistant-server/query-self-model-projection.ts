@@ -153,15 +153,27 @@ function projectLenses(result: Extract<QuerySelfResult, { kind: 'lenses' }>): st
           : `${param.name} ${param.type}`
       )
       .join('; ');
-    return `${escapeCell(lens.id)}${CELL_SEPARATOR}${escapeCell(lens.description)}${
+    return `${escapeCell(lens.id)}${CELL_SEPARATOR}[${escapeCell(lens.source)}]${CELL_SEPARATOR}${escapeCell(lens.description)}${
       params.length > 0 ? `${CELL_SEPARATOR}params: ${escapeCell(params)}` : ''
     }`;
   });
   // Broken files are part of the answer: a lens author asking "why is my lens
-  // not listed" must see the parse error here, not silence.
+  // not listed" must see the parse error here, not silence. Shadowing and
+  // listing truncation get the same treatment — a suppressed or unread file
+  // that vanishes without a line is the failure mode this feature refuses.
   for (const invalid of result.invalid) {
     body.push(
-      `INVALID${CELL_SEPARATOR}${escapeCell(invalid.fileName)}${CELL_SEPARATOR}${escapeCell(invalid.error)}`
+      `INVALID${CELL_SEPARATOR}${escapeCell(invalid.fileName)}${CELL_SEPARATOR}[${escapeCell(invalid.source)}]${CELL_SEPARATOR}${escapeCell(invalid.error)}`
+    );
+  }
+  for (const item of result.shadowed) {
+    body.push(
+      `SHADOWED${CELL_SEPARATOR}${escapeCell(item.fileName)}${CELL_SEPARATOR}[${escapeCell(item.source)}] suppressed by [${escapeCell(item.keptSource)}]`
+    );
+  }
+  for (const dir of result.truncatedDirs) {
+    body.push(
+      `TRUNCATED${CELL_SEPARATOR}${escapeCell(dir)}${CELL_SEPARATOR}listing hit the scan bound; later files unread`
     );
   }
   body.push(

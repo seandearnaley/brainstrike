@@ -91,13 +91,20 @@ export interface QuerySelfPlanResult {
 
 export interface QuerySelfLensesResult {
   /** Broken lens files, VISIBLE with their parse errors (fail closed, never silent). */
-  invalid: { error: string; fileName: string }[];
+  invalid: { error: string; fileName: string; source: string }[];
   kind: 'lenses';
   lenses: {
     description: string;
     id: string;
     params: { description: string; name: string; type: string }[];
+    /** Owning root id, or 'global' for `~/.brainstrike` — "which file is
+     * this" is the load-bearing fact for a reviewable artifact. */
+    source: string;
   }[];
+  /** Same-id files suppressed by first-wins — shadowing must be visible. */
+  shadowed: { fileName: string; keptSource: string; source: string }[];
+  /** Directories whose listing hit the scan bound (later files unread). */
+  truncatedDirs: string[];
 }
 
 export type QuerySelfResult =
@@ -207,20 +214,33 @@ function scanLensesFromDisk(workspaceRoots: RuntimeData['workspaceRoots']): User
 }
 
 function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
+  const sourceOf = (rootId: string | undefined): string => rootId ?? 'global';
+  const okEntries = scan.entries.filter((entry) => entry.status === 'ok');
   return {
     invalid: scan.entries
       .filter((entry) => entry.status === 'invalid')
-      .map((entry) => ({ error: entry.error, fileName: entry.fileName })),
+      .map((entry) => ({
+        error: entry.error,
+        fileName: entry.fileName,
+        source: sourceOf(entry.sourceRootId),
+      })),
     kind: 'lenses',
-    lenses: scan.lenses.map((lens) => ({
-      description: lens.description,
-      id: lens.id,
-      params: lens.params.map((param: LensParamSpec) => ({
+    lenses: okEntries.map((entry) => ({
+      description: entry.lens.description,
+      id: entry.lens.id,
+      params: entry.lens.params.map((param: LensParamSpec) => ({
         description: param.description,
         name: param.name,
         type: param.type,
       })),
+      source: sourceOf(entry.sourceRootId),
     })),
+    shadowed: scan.shadowed.map((item) => ({
+      fileName: item.fileName,
+      keptSource: sourceOf(item.keptRootId),
+      source: sourceOf(item.sourceRootId),
+    })),
+    truncatedDirs: [...scan.truncatedDirs],
   };
 }
 
@@ -241,6 +261,15 @@ function resolveLensInvocation(
   }
   const lens = scan.lenses.find((candidate) => candidate.id === id);
   if (!lens) {
+    // A broken file RESERVES its id (a malformed project lens must never
+    // silently fall through to a same-named global one), so the honest
+    // answer here is the parse error, not "unknown".
+    const invalid = scan.entries.find(
+      (entry) => entry.status === 'invalid' && entry.fileName.replace(/\.sql$/i, '') === id
+    );
+    if (invalid && invalid.status === 'invalid') {
+      throw new AgentSqlInputError(`Lens "${id}" exists but is invalid: ${invalid.error}`);
+    }
     const available = scan.lenses.map((candidate) => candidate.id).join(', ');
     throw new AgentSqlInputError(
       `Unknown lens "${id}". Available: ${available.length > 0 ? available : '(none)'}. Use mode="listLenses" for details.`

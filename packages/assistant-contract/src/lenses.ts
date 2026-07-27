@@ -175,10 +175,19 @@ function ingestParamLine(comment: string, line: string, params: LensParamSpec[])
   return null;
 }
 
-/** The parse-time placeholder discipline (see parseLensFile docs). */
+/**
+ * The parse-time placeholder discipline (see parseLensFile docs).
+ *
+ * `--` line comments are stripped before the scan: the parser deliberately
+ * keeps interior comments in the SQL body, and a commented-out fragment
+ * (`-- was: AND depth < $2`) must not count as a live placeholder — that
+ * would reject a valid lens with an error pointing at SQL the engine never
+ * sees. String literals remain unskipped (documented fail-closed heuristic).
+ */
 function validatePlaceholders(sql: string, params: readonly LensParamSpec[]): string | null {
+  const scannable = sql.replace(/--[^\n]*/g, '');
   const seen = new Set<number>();
-  for (const match of sql.matchAll(/\$(\d+)/g)) {
+  for (const match of scannable.matchAll(/\$(\d+)/g)) {
     const index = Number(match[1]);
     if (index === 0) {
       return 'Placeholder $0 is invalid; placeholders start at $1.';

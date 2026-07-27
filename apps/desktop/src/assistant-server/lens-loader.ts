@@ -73,7 +73,30 @@ export interface UserLensScanResult {
   readonly entries: readonly UserLensScanEntry[];
   /** The valid lenses, in priority order. */
   readonly lenses: readonly LensDefinition[];
+  /** Same-id files SUPPRESSED by first-wins — visible, because a cloned repo
+   * silently replacing the body of a lens id the user trusts globally is the
+   * case where a listing line matters most (#2034 review). */
+  readonly shadowed: readonly {
+    readonly fileName: string;
+    /** Root that owns the KEPT lens; undefined = the global tier. */
+    readonly keptRootId?: string;
+    /** Root whose file was suppressed; undefined = the global tier. */
+    readonly sourceRootId?: string;
+  }[];
+  /** Directories whose listing hit the scan bound — later files were never
+   * read, and silence about that would be the one posture this module
+   * otherwise refuses. */
+  readonly truncatedDirs: readonly string[];
 }
+
+/**
+ * Directory-listing request bound. DELIBERATELY larger than the lens cap:
+ * `listDir`'s maxEntries counts every directory entry (READMEs, subdirs,
+ * backups), so a bound equal to the cap would let junk files evict real
+ * lenses from the listing before they were ever read. Junk beyond this bound
+ * surfaces in `truncatedDirs` rather than vanishing.
+ */
+const LENS_DIR_LISTING_BOUND = MAX_USER_LENSES * 2 + 1;
 
 // App-lifetime warn-once sets (mirrors the persona loader).
 const warnedCollisionIds = new Set<string>();
@@ -118,16 +141,38 @@ function warnCollision(id: string, source: ScanSource, firstOwner: string | unde
 /**
  * Read + parse one candidate lens file into a scan entry, or `null` for a
  * DUPLICATE id (first-wins, warned) — the only outcome that produces no entry.
+ *
+ * The id is RESERVED from the filename BEFORE reading or parsing (a lens id
+ * IS its filename stem, so it is known up front — unlike personas, whose id
+ * comes from frontmatter). This is load-bearing: a BROKEN project-tier lens
+ * must block a same-named global lens rather than silently falling through
+ * to it — a fallback would swap in different SQL under the id the author
+ * thinks they control (#2034 review, P1). The invalid entry keeps the id's
+ * slot, and invoking it surfaces the project file's parse error.
  */
 function loadLensFile(
   fileName: string,
   baseDir: string,
   source: ScanSource,
   deps: UserLensScanDeps,
-  seen: Map<string, string | undefined>
+  seen: Map<string, string | undefined>,
+  shadowed: { fileName: string; keptRootId?: string; sourceRootId?: string }[]
 ): UserLensScanEntry | null {
   const absPath = joinPath(baseDir, [fileName]);
   const sourceRootField = source.sourceRootId ? { sourceRootId: source.sourceRootId } : {};
+
+  const id = fileName.replace(/\.sql$/i, '');
+  if (seen.has(id)) {
+    warnCollision(id, source, seen.get(id));
+    const keptRootId = seen.get(id);
+    shadowed.push({
+      fileName,
+      ...(keptRootId === undefined ? {} : { keptRootId }),
+      ...(source.sourceRootId === undefined ? {} : { sourceRootId: source.sourceRootId }),
+    });
+    return null;
+  }
+  seen.set(id, source.sourceRootId);
 
   const read = deps.readFile(absPath);
   if (!read.ok) {
@@ -143,12 +188,6 @@ function loadLensFile(
     return { absPath, error: parsed.error, fileName, status: 'invalid', ...sourceRootField };
   }
 
-  const id = parsed.lens.id;
-  if (seen.has(id)) {
-    warnCollision(id, source, seen.get(id));
-    return null;
-  }
-  seen.set(id, source.sourceRootId);
   return { absPath, fileName, lens: parsed.lens, status: 'ok', ...sourceRootField };
 }
 
@@ -158,16 +197,29 @@ function ingestDirectory(
   deps: UserLensScanDeps,
   seen: Map<string, string | undefined>,
   entries: UserLensScanEntry[],
-  lenses: LensDefinition[]
+  lenses: LensDefinition[],
+  shadowed: { fileName: string; keptRootId?: string; sourceRootId?: string }[],
+  truncatedDirs: string[]
 ): void {
-  const remaining = MAX_USER_LENSES_SCAN - lenses.length;
+  // The cap counts ENTRIES (valid + invalid), not accepted lenses — a
+  // directory full of malformed files must consume the scan bound rather
+  // than extend it, or `listLenses` over many roots becomes an unbounded
+  // synchronous main-process scan (#2034 review, P2).
+  const remaining = MAX_USER_LENSES_SCAN - entries.length;
   if (remaining <= 0) {
     warnCountCapReached();
     return;
   }
-  const listing = deps.listDir(baseDir, source.containmentRoot, remaining + 1);
+  const listing = deps.listDir(baseDir, source.containmentRoot, LENS_DIR_LISTING_BOUND);
   if (!listing) {
     return;
+  }
+  if (listing.truncated) {
+    logger.warn('Lens directory listing truncated; later files were not scanned', {
+      bound: LENS_DIR_LISTING_BOUND,
+      dir: baseDir,
+    });
+    truncatedDirs.push(baseDir);
   }
   const fileNames = listing.entries
     .filter((entry) => entry.isFile && SQL_EXTENSION.test(entry.name))
@@ -175,11 +227,11 @@ function ingestDirectory(
     .sort((left, right) => left.localeCompare(right));
 
   for (const fileName of fileNames) {
-    if (lenses.length >= MAX_USER_LENSES_SCAN) {
+    if (entries.length >= MAX_USER_LENSES_SCAN) {
       warnCountCapReached();
       return;
     }
-    const entry = loadLensFile(fileName, baseDir, source, deps, seen);
+    const entry = loadLensFile(fileName, baseDir, source, deps, seen, shadowed);
     if (entry === null) {
       continue;
     }
@@ -201,6 +253,8 @@ export function scanUserLenses(
   const seen = new Map<string, string | undefined>();
   const entries: UserLensScanEntry[] = [];
   const lenses: LensDefinition[] = [];
+  const shadowed: { fileName: string; keptRootId?: string; sourceRootId?: string }[] = [];
+  const truncatedDirs: string[] = [];
 
   // Tier 1: <root>/.brainstrike/lenses (mounted order).
   for (const root of input.roots) {
@@ -210,7 +264,9 @@ export function scanUserLenses(
       deps,
       seen,
       entries,
-      lenses
+      lenses,
+      shadowed,
+      truncatedDirs
     );
   }
   // Tier 2: ~/.brainstrike/lenses.
@@ -220,8 +276,10 @@ export function scanUserLenses(
     deps,
     seen,
     entries,
-    lenses
+    lenses,
+    shadowed,
+    truncatedDirs
   );
 
-  return { entries, lenses };
+  return { entries, lenses, shadowed, truncatedDirs };
 }

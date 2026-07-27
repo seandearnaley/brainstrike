@@ -91,6 +91,8 @@ const LENS_SCAN: UserLensScanResult = {
       sql: 'SELECT path FROM t WHERE name = $1 AND depth < $2',
     },
   ],
+  shadowed: [{ fileName: 'callers-hybrid.sql' }],
+  truncatedDirs: [],
 };
 
 beforeEach(() => {
@@ -114,10 +116,19 @@ describe('mode=listLenses', () => {
           { description: 'Seed symbol', name: 'symbol', type: 'text' },
           { description: 'Max depth', name: 'depth', type: 'integer' },
         ],
+        source: 'root-a',
       },
     ]);
     expect(result.invalid).toEqual([
-      { error: 'Missing required "-- description:" header line.', fileName: 'broken.sql' },
+      {
+        error: 'Missing required "-- description:" header line.',
+        fileName: 'broken.sql',
+        source: 'root-a',
+      },
+    ]);
+    // Shadowing is visible with tier provenance ('global' = ~/.brainstrike).
+    expect(result.shadowed).toEqual([
+      { fileName: 'callers-hybrid.sql', keptSource: 'global', source: 'global' },
     ]);
     // Discovery is a pure directory scan; the database is never touched.
     expect(getDatabaseMock).not.toHaveBeenCalled();
@@ -150,6 +161,16 @@ describe('mode=lens', () => {
     // Admission planned with the SAME binds.
     const admission = calls.find((call) => call.sql.startsWith('EXPLAIN'));
     expect(admission?.params).toEqual(['startWorker', 5]);
+  });
+
+  it('invoking a RESERVED-but-invalid lens id surfaces its parse error', async () => {
+    // A broken project file reserves its id; the honest answer is the parse
+    // error, not "unknown lens" (and never a same-named global fallback).
+    await expect(
+      runQuerySelf({ lens: 'broken', mode: 'lens', values: [] }, undefined, {
+        scanLenses: () => LENS_SCAN,
+      })
+    ).rejects.toThrow(/exists but is invalid.*description/i);
   });
 
   it('rejects an unknown lens id naming the available ones', async () => {
