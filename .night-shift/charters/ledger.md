@@ -49,8 +49,8 @@ containing only the missing registration line(s) and a regression test
 proving both runners now produce identical schema from a fresh DB.
 
 Beat 5 — verify, all green in the same run:
-node scripts/test-lanes.mjs check
-node scripts/coverage-lanes.mjs check
+pnpm --filter @brainstrike/db test:db:check-lanes
+pnpm --filter @brainstrike/db test:coverage:db:check-lanes
 pnpm --filter @brainstrike/db test
 
 Beat 6 — checkpoint watermark. Learning only for a new parity failure

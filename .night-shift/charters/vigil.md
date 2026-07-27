@@ -58,10 +58,17 @@ severity rises), never files a twin. Routing per package:
   version and that it sits in Quartermaster's territory. If the bump
   is trivially in-range, also note it as a Forge candidate — the human
   decides whether to apply `agent-ready`.
-- Plausibly exploitable in context → DISCLOSURE RULE: the public
-  ticket carries only the advisory ID, package, and severity — never
-  the reachability analysis. Full analysis goes through Sentinel's
-  private-escalation channel; add `needs-human`.
+- Plausibly exploitable in context → the ticket carries the FULL
+  reachability analysis: the advisory, the installed version, the call
+  path that reaches the vulnerable code, and what an attacker would
+  need. This repository and this Linear workspace are both PRIVATE
+  (see sentinel.md's DISCLOSURE RULE) — the ticket IS the private
+  channel, and there is no separate one to route to. A ticket carrying
+  only "advisory ID, package, severity" is unreviewable, and the
+  analysis you withheld is destroyed when your run ends. Add
+  `needs-human` only when the fix needs a human decision (a doctrine
+  pin, a major bump), not merely because the finding is a
+  vulnerability.
 - Not affecting any installed version (false positive from a coarse
   range) → record the reasoning on your state issue, no ticket.
 - A pinned-by-doctrine package (Biome, PGlite family, Playwright —

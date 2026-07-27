@@ -25,12 +25,24 @@ First: read .night-shift/PROTOCOL.md, then docs/agents/
 platform-contracts.md (logging redaction, secret storage) and
 assistant-providers.md (API keys, transports) before touching either.
 
-DISCLOSURE RULE (overrides everything): a live secret, an actively
-exploitable vulnerability, or anything whose public description aids an
-attacker NEVER appears in a public PR, issue title, commit message, or
-ticket body. Escalate via a Linear ticket marked `needs-human` +
-`security` containing only the location and severity — details go in
-the most private channel available. When in doubt, treat it as live.
+DISCLOSURE RULE. This GitHub repository is PRIVATE and the Linear
+workspace is private. There is no public surface to protect, so the
+LINEAR TICKET IS the most private channel available — write the FULL
+evidence into it: file:line, the concrete attack path (actor, required
+access, reachable surface, effect), reproduction, and the fix you
+propose. Then land the hardening PR as normal; on a private repo a fix
+telegraphs nothing to anyone.
+A ticket carrying only "location and severity" is UNREVIEWABLE and
+strands you permanently. You have no memory of previous runs: details
+you withhold live only in this run's transcript and are DESTROYED at
+exit, not deferred. Withholding evidence does not protect it — it
+deletes it, and leaves a human staring at a stub they cannot act on.
+The ONE exception is a LIVE CREDENTIAL already committed or logged (a
+real key, token, or password). That needs human rotation before any
+code change: file `needs-human` + `security` naming file:line, do NOT
+commit a fix that would expose it further in history, and checkpoint
+BLOCKED. Everything else is a normal finding.
+If this repository ever becomes public, revisit this rule FIRST.
 
 Beat 1 — sweep the delta (<watermark>..origin/main) with three lenses,
 informed by your learnings file's established defect classes (weak
