@@ -1183,13 +1183,13 @@ function ThreadsViewOptionsPopover({
       <PopoverTrigger asChild>
         <Button
           aria-label="View options"
-          className="relative size-7 p-0"
-          size="sm"
+          className="relative"
+          size="icon-xs"
           title="View options"
           type="button"
           variant="ghost"
         >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
+          <SlidersHorizontal className="size-3.5" />
           {hasNonDefaultView ? (
             <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
           ) : null}
@@ -2705,7 +2705,6 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           <Button
             aria-label={`${selection.allVisibleSelected ? 'Clear' : 'Select'} ${visibleThreadCount} visible ${visibleThreadCount === 1 ? 'thread' : 'threads'}`}
             aria-pressed={selection.allVisibleSelected}
-            className="size-7 p-0"
             disabled={visibleThreadCount === 0}
             onClick={selection.toggleVisibleSelection}
             onKeyDown={(event) => {
@@ -2715,12 +2714,12 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
               event.preventDefault();
               selection.clearSelection();
             }}
-            size="sm"
+            size="icon-xs"
             title={selection.allVisibleSelected ? 'Clear visible' : 'Select visible'}
             type="button"
             variant="ghost"
           >
-            <ListChecks className="h-3.5 w-3.5" />
+            <ListChecks className="size-3.5" />
           </Button>
           <ThreadsViewOptionsPopover
             groupBy={groupBy}
@@ -2730,19 +2729,21 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           />
           <Button
             aria-label="New group"
-            className="size-7 p-0"
             disabled={!groupsRepository}
             onClick={handleCreateGroup}
-            size="sm"
+            size="icon-xs"
             title="New group"
             type="button"
             variant="ghost"
           >
-            <FolderPlus className="h-3.5 w-3.5" />
+            <FolderPlus className="size-3.5" />
           </Button>
           <Button
             aria-label="New thread"
-            className="@[300px]/threads:ml-1 h-7 gap-1.5 px-2"
+            // Icon-only, this is a 28px square exactly like its ghost
+            // neighbours; it only grows into a labelled pill once the panel is
+            // wide enough to show the label.
+            className="ml-1 size-7 @[360px]/threads:w-auto @[360px]/threads:gap-1 @[360px]/threads:px-2 px-0 hover:bg-accent hover:text-accent-foreground"
             data-testid="new-agent-button"
             disabled={!(repository && resourceId) || loadState?.status === 'loading'}
             onClick={() => {
@@ -2753,7 +2754,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
                 // The store records the explicit error state; no fallback thread source is used.
               });
             }}
-            size="sm"
+            size="xs"
             title={
               repository
                 ? 'Create a new Mastra memory thread for this workspace.'
@@ -2762,8 +2763,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
             type="button"
             variant="secondary"
           >
-            <Plus className="h-3.5 w-3.5" />
-            <span className="@[360px]/threads:inline hidden text-xs">New Thread</span>
+            <Plus className="size-3.5" />
+            <span className="@[360px]/threads:inline hidden">New Thread</span>
           </Button>
         </div>
       </div>

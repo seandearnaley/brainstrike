@@ -433,8 +433,25 @@ describe('ThreadsPanel', () => {
 
     // One row of controls only reads as a row when the controls are the same
     // size; the view-options trigger used to be 32px next to 28px neighbours.
-    for (const label of ['Select 2 visible threads', 'View options', 'New group']) {
+    // Same 28px square for every control, New Thread included — it only grows
+    // into a labelled pill at @[360px]/threads, where the label appears.
+    for (const label of ['Select 2 visible threads', 'View options', 'New group', 'New thread']) {
       expect(within(toolbar).getByRole('button', { name: label })).toHaveClass('size-7');
+    }
+    // Every control hovers toward the same accent. New Thread keeps a resting
+    // fill because it is the primary action, but `secondary/80` alone hovered
+    // LIGHTER while its ghost neighbours hovered darker — opposite directions
+    // in one row.
+    for (const label of ['Select 2 visible threads', 'View options', 'New group', 'New thread']) {
+      expect(within(toolbar).getByRole('button', { name: label })).toHaveClass(
+        'hover:bg-accent',
+        'hover:text-accent-foreground'
+      );
+    }
+    // Declared icon metrics must be the rendered ones: `h-3.5 w-3.5` loses to
+    // the button base rule's `size-4`, so the icons render 16px, not 14px.
+    for (const icon of toolbar.querySelectorAll('svg')) {
+      expect(icon).toHaveClass('size-3.5');
     }
   });
 
