@@ -411,6 +411,38 @@ beforeEach(() => {
 });
 
 describe('ThreadsPanel', () => {
+  it('spends exactly two chrome rows above the list: a toolbar and the search row', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    const toolbar = screen.getByTestId('threads-panel-toolbar');
+    const search = screen.getByTestId('threads-panel-search');
+    // The toolbar owns the heading, the live count, and the select-visible
+    // control; the count/select band that used to sit below the search row is
+    // gone, so the panel chrome is two rows instead of three.
+    expect(within(toolbar).getByRole('heading', { name: 'Threads' })).toBeVisible();
+    expect(within(toolbar).getByTestId('threads-visible-count')).toHaveTextContent('2');
+    expect(within(toolbar).getByRole('button', { name: 'Select 2 visible threads' })).toBeVisible();
+    expect(within(toolbar).getByRole('button', { name: 'New thread' })).toBeVisible();
+    expect(within(search).getByTestId('thread-search-input')).toBeVisible();
+    expect(toolbar.nextElementSibling).toBe(search);
+    expect(screen.queryByTestId('threads-panel-select-band')).not.toBeInTheDocument();
+  });
+
+  it('drops the redundant Memory pill and its restated subtitle from the toolbar', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    expect(screen.queryByTestId('threads-preview-badge')).not.toBeInTheDocument();
+    expect(screen.queryByText('Workspace-scoped Mastra history')).not.toBeInTheDocument();
+  });
+
   it('renders the disclosed collection through the shared virtual treegrid scroll owner', async () => {
     renderThreadsPanel();
 
@@ -577,7 +609,6 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    expect(screen.getByTestId('threads-preview-badge')).toHaveTextContent('Memory');
     expect(screen.queryByText('No workspace open')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New thread' })).toBeEnabled();
   });
