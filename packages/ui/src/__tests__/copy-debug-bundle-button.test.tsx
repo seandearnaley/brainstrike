@@ -90,6 +90,55 @@ describe('CopyDebugBundleButton', () => {
     expect(screen.getByTestId('copy-debug-bundle')).toBeInTheDocument();
   });
 
+  it('downloads the bundle as a timestamped Markdown file', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-27T14:32:05.123Z'));
+    messagePartsMock.push(
+      runEventPart({ id: 'e1', kind: 'run.failed', runId: '1a2b3c4d-5e6f-7890', status: 'failed' })
+    );
+    const bundle = '# BrainStrike Debug Bundle\n\nsome content';
+    const buildBundle = vi.fn().mockResolvedValue(bundle);
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:bundle');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+    wrap({ buildBundle }, <CopyDebugBundleButton />);
+    const button = screen.getByTestId('download-debug-bundle');
+
+    // Mocked only AFTER render so React's own element creation is untouched.
+    const anchor = document.createElement('a');
+    const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
+    vi.spyOn(document, 'createElement').mockReturnValue(anchor);
+
+    await act(async () => {
+      fireEvent.click(button);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(buildBundle).toHaveBeenCalledWith({ runId: '1a2b3c4d-5e6f-7890' });
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(anchor.download).toBe('brainstrike-debug-bundle-2026-07-27T14-32-05Z-run-1a2b3c4d.md');
+    expect(button).toHaveTextContent(/^Saved · \d+ KB$/);
+    // The copy action stays untouched by the download cycle.
+    expect(screen.getByTestId('copy-debug-bundle')).toHaveTextContent('Copy debug bundle');
+    expect(clipboardWriteText).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('shows a visible error naming the download action when the binding rejects', async () => {
+    messagePartsMock.push(
+      runEventPart({ id: 'e1', kind: 'run.failed', runId: 'run-1', status: 'failed' })
+    );
+    const buildBundle = vi.fn().mockRejectedValue(new Error('db unavailable'));
+    wrap({ buildBundle }, <CopyDebugBundleButton />);
+
+    await userEvent.click(screen.getByTestId('download-debug-bundle'));
+
+    expect(await screen.findByText('Download failed: db unavailable')).toBeInTheDocument();
+  });
+
   it('shows a visible error when the binding rejects', async () => {
     messagePartsMock.push(
       runEventPart({ id: 'e1', kind: 'run.failed', runId: 'run-1', status: 'failed' })

@@ -635,7 +635,27 @@ consumed through the `DebugBundleProvider` seam
 (`packages/ui/src/assistant-ui-panel/debug-bundle-context.tsx` +
 `packages/app-shell/src/hooks/use-debug-bundle.ts`) by the
 `CopyDebugBundleButton` (`packages/ui/src/assistant-ui-panel/copy-debug-bundle-button.tsx`)
-on failed assistant messages. `DEBUG_BUNDLE_FORMAT_VERSION = 1` is stamped in
+on failed assistant messages. That footer offers TWO deliveries of the same
+single build — **Copy** (clipboard) and **Download** (a `.md` file on disk,
+BST-946). Download is the realistic transport at this size: bundles run up to
+the 200 KB budget below, past what a chat box or issue comment accepts.
+Filename + save live in `packages/ui/src/assistant-ui-panel/debug-bundle-download.ts`
+(`formatDebugBundleFilename` / `downloadDebugBundleFile`) rather than in the
+component module, which is component-only by react-doctor's
+`only-export-components` contract. The filename is
+`brainstrike-debug-bundle-<UTC ISO, colons→hyphens, no millis>[-run-<first 8
+chars>].md` — timestamp first so a Downloads folder sorts chronologically,
+and colon-free because Windows rejects `:` (an unmangled `toISOString()` in
+`anchor.download`, the older idiom in `log-viewer.tsx`, does not survive
+there). The save path is the codebase's standard Blob → object URL → anchor →
+revoke, with the revoke in a `finally` so a blocked click cannot leak a 200 KB
+blob; outside a DOM it THROWS rather than no-opping. The button's phase
+machine tags every non-idle phase with its action (`copy` | `download`) so one
+action's spinner/result/error never appears on the other's button, and both
+failure paths render inline (`Copy failed: …` / `Download failed: …`) in an
+`aria-live` region. A destination picker (File System Access
+`showSaveFilePicker`) was deliberately NOT added — anchor download is the
+codebase idiom and needs no capability branch. `DEBUG_BUNDLE_FORMAT_VERSION = 1` is stamped in
 the rendered header (`bundle_format: 1`) so future format changes are
 detectable by consumers. Bounded to `DEBUG_BUNDLE_DEFAULT_MAX_BYTES` (200,000
 bytes measured via `TextEncoder`, byte length not char length); when over
@@ -672,6 +692,7 @@ push channel), `apps/desktop/src/__tests__/renderer/main.test.tsx`
 `packages/app-shell/src/__tests__/debug-bundle.test.ts` (includes a golden
 snapshot), `packages/app-shell/src/__tests__/secret-scrub.test.ts`,
 `packages/ui/src/__tests__/copy-debug-bundle-button.test.tsx`,
+`packages/ui/src/__tests__/debug-bundle-download.test.ts`,
 `packages/app-shell/src/__tests__/use-debug-bundle.test.ts`.
 
 ### P2a: NDJSON backstop + persistent Log Viewer source
