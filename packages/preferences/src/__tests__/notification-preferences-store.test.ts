@@ -95,19 +95,10 @@ describe('notification-preferences-store', () => {
       throw new Error('persist storage unavailable for test');
     }
 
-    const storage = options.storage as unknown as {
-      setItem: (
-        name: string,
-        value: {
-          state: {
-            events: Record<string, unknown>;
-            masterEnabled: unknown;
-          };
-          version: number;
-        }
-      ) => void;
-    };
-    storage.setItem(options.name, {
+    if (options.version === undefined) {
+      throw new Error('persist version unavailable for test');
+    }
+    options.storage.setItem(options.name, {
       state: {
         events: {
           removedEvent: false,
@@ -116,7 +107,7 @@ describe('notification-preferences-store', () => {
         },
         masterEnabled: 'yes',
       },
-      version: options.version ?? 1,
+      version: options.version,
     });
 
     await storeWithPersist.persist.rehydrate();

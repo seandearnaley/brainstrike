@@ -5,12 +5,15 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
+import type { PersistApi } from '../../__tests__/persist-api-test-helper';
 import {
   __resetSkillsPreferencesStoreForTests,
   buildSkillsContextRequest,
   resetSkillsPreferencesStoreToDefaults,
   useSkillsPreferencesStore,
 } from '../skills-preferences-store';
+
+const storeWithPersist = useSkillsPreferencesStore as PersistApi<typeof useSkillsPreferencesStore>;
 
 afterEach(() => {
   __resetSkillsPreferencesStoreForTests();
@@ -54,14 +57,45 @@ describe('skills preferences store', () => {
   });
 
   it('derives defensively from corrupted persisted state (never throws in a render path)', () => {
-    // zustand's migrate only runs on VERSION mismatches, so a hand-mangled
-    // same-version localStorage slice can rehydrate malformed shapes.
     expect(
       buildSkillsContextRequest({
         disabledSkillKeys: null as unknown as Record<string, boolean>,
         masterEnabled: 'yes' as unknown as boolean,
       })
     ).toEqual({ disabledSkillKeys: [], masterEnabled: false });
+  });
+
+  it('sanitizes malformed persisted data at the current version during rehydration', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (
+      !(
+        options?.storage &&
+        options.name &&
+        options.version !== undefined &&
+        storeWithPersist.persist?.rehydrate
+      )
+    ) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    await options.storage.setItem(options.name, {
+      state: {
+        disabledSkillKeys: {
+          'global:disabled': true,
+          'global:false-residue': false,
+          'global:malformed': 'yes',
+        },
+        masterEnabled: 'yes',
+      },
+      version: options.version,
+    });
+
+    await storeWithPersist.persist.rehydrate();
+
+    expect(useSkillsPreferencesStore.getState().disabledSkillKeys).toEqual({
+      'global:disabled': true,
+    });
+    expect(useSkillsPreferencesStore.getState().masterEnabled).toBe(true);
   });
 
   it('factory reset restores defaults', () => {

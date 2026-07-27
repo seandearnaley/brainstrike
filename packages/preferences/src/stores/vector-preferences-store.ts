@@ -1,6 +1,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 type DevicePref = 'webgpu' | 'wasm';
 
@@ -76,9 +77,31 @@ function normalizePersistedVectorPreferences(
   return {
     devicePref: devicePrefConfigured ? parsedDevicePref : 'webgpu',
     devicePrefConfigured,
-    reinitEveryN: persistedState.reinitEveryN ?? 200,
-    verboseOrtLogs: persistedState.verboseOrtLogs ?? false,
+    reinitEveryN:
+      typeof persistedState.reinitEveryN === 'number' &&
+      Number.isFinite(persistedState.reinitEveryN) &&
+      persistedState.reinitEveryN > 0
+        ? Math.floor(persistedState.reinitEveryN)
+        : 200,
+    verboseOrtLogs:
+      typeof persistedState.verboseOrtLogs === 'boolean' ? persistedState.verboseOrtLogs : false,
   };
+}
+
+type PersistedVectorPreferencesData = Pick<
+  VectorPreferencesData,
+  'devicePref' | 'devicePrefConfigured' | 'reinitEveryN' | 'verboseOrtLogs'
+>;
+
+function sanitizePersistedData(persistedState: unknown): PersistedVectorPreferencesData {
+  const state =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as Partial<VectorPreferencesStore> & {
+          devicePrefConfigured?: boolean | null;
+          devicePref?: string | null;
+        })
+      : {};
+  return normalizePersistedVectorPreferences(state) as PersistedVectorPreferencesData;
 }
 
 interface VectorPreferencesPersistApi {
@@ -173,6 +196,9 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
       verboseOrtLogs: false,
     }),
     {
+      merge: createSanitizedPersistMerge<VectorPreferencesStore, PersistedVectorPreferencesData>(
+        sanitizePersistedData
+      ),
       migrate: (persistedState) => {
         if (!persistedState) {
           // Return explicit defaults so Zustand never sees undefined fields
@@ -189,7 +215,7 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
           devicePrefConfigured?: boolean | null;
           devicePref?: string | null;
         };
-        return normalizePersistedVectorPreferences(state);
+        return sanitizePersistedData(state);
       },
       name: STORE_NAME,
       partialize: (s) => ({

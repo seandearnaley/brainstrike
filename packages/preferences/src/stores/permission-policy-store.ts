@@ -37,6 +37,7 @@ import {
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 interface PermissionPolicyData {
   /**
@@ -107,6 +108,10 @@ interface PermissionPolicyActions {
 }
 
 export type PermissionPolicyStore = PermissionPolicyData & PermissionPolicyActions;
+type PersistedPermissionPolicyData = Pick<
+  PermissionPolicyData,
+  'enforce' | 'perToolOverrides' | 'policies' | 'yolo'
+>;
 
 const STORE_NAME = 'permission-policy.v1' as const;
 // v2: enforce-on-by-default (P1 security fix). The persistence KEY stays
@@ -244,6 +249,19 @@ function sanitizeOverrides(value: unknown): PerToolPermissionOverrides {
   return result;
 }
 
+function sanitizePersistedData(persistedState: unknown): PersistedPermissionPolicyData {
+  const candidate =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as Partial<PermissionPolicyData>)
+      : {};
+  return {
+    enforce: typeof candidate.enforce === 'boolean' ? candidate.enforce : true,
+    perToolOverrides: sanitizeOverrides(candidate.perToolOverrides),
+    policies: sanitizePolicies(candidate.policies),
+    yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
+  };
+}
+
 export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
   persist(
     (set) => ({
@@ -295,11 +313,11 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
       setYolo: (yolo) => set({ yolo }),
     }),
     {
+      merge: createSanitizedPersistMerge<PermissionPolicyStore, PersistedPermissionPolicyData>(
+        sanitizePersistedData
+      ),
       migrate: (persistedState, version) => {
-        if (!(persistedState && typeof persistedState === 'object')) {
-          return defaultData();
-        }
-        const candidate = persistedState as Partial<PermissionPolicyData>;
+        const sanitized = sanitizePersistedData(persistedState);
         return {
           // enforce-on-by-default (P1 SECURITY fix). Under v1, `enforce` defaulted
           // to `false` AND `partialize` always wrote it, so a persisted `false`
@@ -311,15 +329,12 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
           // honored verbatim. Skipping this lets upgrading `enforce:false` users
           // get the now-always-registered, ungated `executeCommand` — the exact
           // regression this PR exists to prevent.
-          enforce:
-            version >= STORE_VERSION && typeof candidate.enforce === 'boolean'
-              ? candidate.enforce
-              : true,
-          perToolOverrides: sanitizeOverrides(candidate.perToolOverrides),
-          policies: sanitizePolicies(candidate.policies),
+          enforce: version >= STORE_VERSION ? sanitized.enforce : true,
+          perToolOverrides: sanitized.perToolOverrides,
+          policies: sanitized.policies,
           // Session grants are never persisted; always start empty after rehydration.
           sessionGrants: new Set<ToolRiskCategory>(),
-          yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
+          yolo: sanitized.yolo,
         } satisfies PermissionPolicyData;
       },
       name: STORE_NAME,

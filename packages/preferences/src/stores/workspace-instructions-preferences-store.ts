@@ -31,6 +31,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 interface WorkspaceInstructionsPreferencesData {
   /** Master opt-out switch for the whole feature. Defaults ON. PERSISTED. */
@@ -79,6 +80,18 @@ function sanitizeOptIns(value: unknown): Record<string, boolean> {
   return result;
 }
 
+function sanitizePersistedData(persistedState: unknown): WorkspaceInstructionsPreferencesData {
+  const candidate =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as Partial<WorkspaceInstructionsPreferencesData>)
+      : {};
+  return {
+    // A malformed master flag falls back to the ON default (feature enabled).
+    masterEnabled: typeof candidate.masterEnabled === 'boolean' ? candidate.masterEnabled : true,
+    oversizedOptInByRootId: sanitizeOptIns(candidate.oversizedOptInByRootId),
+  };
+}
+
 const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 export const useWorkspaceInstructionsPreferencesStore =
@@ -100,18 +113,11 @@ export const useWorkspaceInstructionsPreferencesStore =
           }),
       }),
       {
-        migrate: (persistedState) => {
-          if (!(persistedState && typeof persistedState === 'object')) {
-            return defaultData();
-          }
-          const candidate = persistedState as Partial<WorkspaceInstructionsPreferencesData>;
-          return {
-            // A malformed master flag falls back to the ON default (feature enabled).
-            masterEnabled:
-              typeof candidate.masterEnabled === 'boolean' ? candidate.masterEnabled : true,
-            oversizedOptInByRootId: sanitizeOptIns(candidate.oversizedOptInByRootId),
-          } satisfies WorkspaceInstructionsPreferencesData;
-        },
+        merge: createSanitizedPersistMerge<
+          WorkspaceInstructionsPreferencesStore,
+          WorkspaceInstructionsPreferencesData
+        >(sanitizePersistedData),
+        migrate: sanitizePersistedData,
         name: STORE_NAME,
         partialize: (state) => ({
           masterEnabled: state.masterEnabled,

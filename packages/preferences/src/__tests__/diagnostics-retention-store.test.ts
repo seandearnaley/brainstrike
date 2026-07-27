@@ -91,18 +91,12 @@ describe('diagnostics-retention-store', () => {
       throw new Error('persist storage unavailable for test');
     }
 
-    const storage = options.storage as unknown as {
-      setItem: (
-        name: string,
-        value: {
-          state: { maxAgeDays: number; maxRows: number };
-          version: number;
-        }
-      ) => void;
-    };
-    storage.setItem(options.name, {
+    if (options.version === undefined) {
+      throw new Error('persist version unavailable for test');
+    }
+    options.storage.setItem(options.name, {
       state: { maxAgeDays: 9999, maxRows: -1 },
-      version: options.version ?? 1,
+      version: options.version,
     });
 
     await storeWithPersist.persist.rehydrate();

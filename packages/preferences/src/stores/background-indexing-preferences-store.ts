@@ -2,6 +2,7 @@ import { createBrowserJsonStorage } from '@brainstrike/storage';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 export type BackgroundIndexingMode = 'root-folder-cache';
 
@@ -180,12 +181,19 @@ function migrateBackgroundIndexingPreferencesState(
 
   const candidate = persistedState as Partial<BackgroundIndexingPreferencesData>;
   return {
-    enabled: candidate.enabled ?? DEFAULT_STATE.enabled,
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_STATE.enabled,
     hasHydrated: false,
-    indexingPolicyPreset: candidate.indexingPolicyPreset ?? DEFAULT_STATE.indexingPolicyPreset,
-    managedCollectionId: candidate.managedCollectionId ?? DEFAULT_STATE.managedCollectionId,
-    mode: candidate.mode ?? DEFAULT_STATE.mode,
-    paused: candidate.paused ?? DEFAULT_STATE.paused,
+    indexingPolicyPreset:
+      candidate.indexingPolicyPreset === 'balanced' ||
+      candidate.indexingPolicyPreset === 'full-root'
+        ? candidate.indexingPolicyPreset
+        : DEFAULT_STATE.indexingPolicyPreset,
+    managedCollectionId:
+      typeof candidate.managedCollectionId === 'string' || candidate.managedCollectionId === null
+        ? candidate.managedCollectionId
+        : DEFAULT_STATE.managedCollectionId,
+    mode: candidate.mode === 'root-folder-cache' ? candidate.mode : DEFAULT_STATE.mode,
+    paused: typeof candidate.paused === 'boolean' ? candidate.paused : DEFAULT_STATE.paused,
   };
 }
 
@@ -230,6 +238,10 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
         setPaused: (paused: boolean) => set({ paused }),
       }),
       {
+        merge: createSanitizedPersistMerge<
+          BackgroundIndexingPreferencesStore,
+          BackgroundIndexingPreferencesData
+        >(migrateBackgroundIndexingPreferencesState),
         migrate: (persistedState: unknown) =>
           migrateBackgroundIndexingPreferencesState(persistedState),
         name: STORE_NAME,
