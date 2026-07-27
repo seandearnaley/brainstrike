@@ -381,7 +381,7 @@
   support. Declare those efforts on the static
   model definition; `resolveReasoningControlsAvailability` in
   packages/assistant-contract/src/model-reasoning.ts is the single resolver
-  that filters the UI controls (the composer model menu's Effort submenu) to
+  that filters the UI controls (the composer ComposerEffortControl slider) to
   the declared set, and the request boundary rejects incompatible settings at
   construction. Matching live metadata overrides the static entry for both
   controls and request construction. Optional models expose Off even when
@@ -394,14 +394,18 @@
   provider-wide effort override so the newly selected model uses its documented
   default; do not map it to a guessed nearest level.
 - Reasoning-control placement: effort/level selection and the primary Thinking
-  toggle live in the composer model menu (packages/ui/src/assistant-ui-panel/
-  composer-model-menu.tsx, backed by reasoning-effort-controls.tsx). The
-  Controls menu's provider section is now "Output & Limits" (formerly
+  toggle live in the always-visible ComposerEffortControl chip beside the
+  model picker in the composer control dock (packages/ui/src/
+  assistant-ui-panel/composer-effort-control.tsx, backed by
+  reasoning-effort-controls.tsx). The chip's trigger doubles as the readout
+  ("Effort High" / "Thinking Off") so the active reasoning config is legible
+  without opening anything (BST-948); the model menu itself is selection-only.
+  The Controls menu's provider section is now "Output & Limits" (formerly
   "Reasoning & Output") and keeps only agent runtime limits, max output,
   the shared "Reasoning output" summary control, the Anthropic numeric thinking budget, and the
   Google include-thoughts debug toggle. Moved controls must emit
   byte-identical settings updates to the old panel sections (pinned by
-  write-through tests in composer-model-menu.test.tsx).
+  write-through tests in composer-effort-control.test.tsx).
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.

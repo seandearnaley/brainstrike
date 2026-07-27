@@ -479,7 +479,9 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     const modelCenterY = modelBox.y + modelBox.height / 2;
     const controlsCenterY = controlsBox.y + controlsBox.height / 2;
-    expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(6);
+    // Both chips share one 2rem-tall centered flex row (BST-950), so their
+    // centers must coincide — 2px absorbs sub-pixel rounding only.
+    expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(2);
 
     const longPrompt = [
       'thread scroll turn 1',
