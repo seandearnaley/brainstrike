@@ -12,7 +12,11 @@ model-catalog-migration-contract.mjs → wired/paired/armed → dual migration r
 secret-scan.mjs → wired/paired/armed → committed credential patterns
 unit-shard-partition.mjs → wired/paired/armed → exact Unit shard partition
 verify-catalog-references.mjs → wired/paired/armed → pnpm catalog consistency
+verify-codecov-status-contract.mjs → wired/paired/armed → Codecov status contexts remaining non-gating
 verify-config-load-hash-coverage.mjs → wired/paired/armed → Turbo config-load hash coverage
+verify-mastra-schema-init-order.mjs → wired/paired/armed → lazy initialization of Mastra memory-schema constants
+verify-no-cross-chunk-cycles.mjs → wired/paired/armed → acyclic emitted renderer chunk graph
+verify-no-source-cycles.mjs → wired/paired/armed → acyclic renderer source module graph
 verify-no-vitest-worker-mutation.mjs → wired/paired/armed → Vitest worker-global mutation
 verify-playwright-pin-sync.mjs → wired/paired/armed → Playwright package and container pin parity
 verify-tokenizer-asset-bundle.mjs → wired/paired/armed → tokenizer data staying out of JavaScript bundles
