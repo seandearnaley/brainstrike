@@ -58,6 +58,35 @@ export class AccessError extends FileSystemError {
 }
 
 /**
+ * Classify file-size errors from every supported adapter shape.
+ *
+ * Precedence is deliberate: an explicit TOO_LARGE code is authoritative,
+ * including when the same object is also an AccessError for a non-read
+ * operation. Uncoded errors must match a known read AccessError shape or the
+ * legacy desktop message prefix.
+ */
+export function getFileTooLargeMessage(error: unknown): string | null {
+  if (error && typeof error === 'object') {
+    const candidate = error as { code?: unknown; message?: unknown };
+    if (candidate.code === 'TOO_LARGE') {
+      return typeof candidate.message === 'string' ? candidate.message : 'File too large';
+    }
+  }
+
+  if (error instanceof AccessError) {
+    if (error.operation !== 'read') {
+      return null;
+    }
+    return error.message.includes('File too large') ? error.message : null;
+  }
+
+  if (!(error instanceof Error)) {
+    return null;
+  }
+  return error.message.startsWith('File too large:') ? error.message : null;
+}
+
+/**
  * Thrown when the file system dialog fails to open
  */
 export class DialogError extends FileSystemError {}

@@ -3,6 +3,7 @@ import {
   AccessError,
   DialogError,
   FileSystemError,
+  getFileTooLargeMessage,
   isAccessError,
   isDialogError,
   isFileSystemError,
@@ -113,5 +114,47 @@ describe('error type guards', () => {
     expect(isDialogError(dialog)).toBe(true);
     expect(isDialogError(access)).toBe(false);
     expect(isDialogError({})).toBe(false);
+  });
+});
+
+describe('getFileTooLargeMessage', () => {
+  it('prefers an explicit TOO_LARGE code over overlapping error shapes', () => {
+    const error = Object.assign(
+      new AccessError('Coded adapter size limit', '/large.txt', 'write'),
+      { code: 'TOO_LARGE' as const }
+    );
+
+    expect(getFileTooLargeMessage(error)).toBe('Coded adapter size limit');
+  });
+
+  it('classifies non-Error coded payloads and supplies a stable default message', () => {
+    expect(getFileTooLargeMessage({ code: 'TOO_LARGE', message: 'Object size limit' })).toBe(
+      'Object size limit'
+    );
+    expect(getFileTooLargeMessage({ code: 'TOO_LARGE', message: 42 })).toBe('File too large');
+  });
+
+  it('accepts only read AccessErrors with the file-size marker', () => {
+    expect(
+      getFileTooLargeMessage(
+        new AccessError('File too large: 2MB (max: 1MB)', '/large.txt', 'read')
+      )
+    ).toBe('File too large: 2MB (max: 1MB)');
+    expect(
+      getFileTooLargeMessage(
+        new AccessError('File too large: 2MB (max: 1MB)', '/large.txt', 'write')
+      )
+    ).toBeNull();
+    expect(
+      getFileTooLargeMessage(new AccessError('Permission denied', '/large.txt', 'read'))
+    ).toBeNull();
+  });
+
+  it('preserves the generic Error prefix fallback used by desktop IPC', () => {
+    expect(getFileTooLargeMessage(new Error('File too large: 2MB (max: 1MB)'))).toBe(
+      'File too large: 2MB (max: 1MB)'
+    );
+    expect(getFileTooLargeMessage(new Error('File too large enough'))).toBeNull();
+    expect(getFileTooLargeMessage('File too large: 2MB')).toBeNull();
   });
 });
