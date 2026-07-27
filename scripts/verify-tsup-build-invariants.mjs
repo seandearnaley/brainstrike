@@ -214,6 +214,7 @@ const FIELD_ANYWHERE_RE = /\b(experimentalDts|clean|dts)\s*:/g;
  */
 export function blankComments(source) {
   return source
+    .replace(/\r\n?/g, '\n')
     .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
     .split('\n')
     .map((line) => line.replace(/(^|\s)\/\/.*$/, '$1'))

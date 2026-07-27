@@ -199,6 +199,50 @@ export const migrations = [
     ]);
   });
 
+  it('preserves the historical remap cutoff for Windows migration paths', () => {
+    const result = analyzeModelCatalogMigrationContract({
+      assistantPreferencesSource: `
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openrouter: {},
+};
+`,
+      drizzleMigrateSource: `
+const customMigrations = [
+  customMigration('custom-031-previous-catalog', migration031PreviousCatalog),
+  customMigration('custom-032-historical-refresh', migration032HistoricalRefresh),
+];
+`,
+      memoryPreferencesSource: `
+const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {};
+`,
+      migrationFiles: [
+        migrationFile(
+          'packages\\db\\src\\migrations\\031-previous-catalog.ts',
+          'migration031PreviousCatalog',
+          `
+            INSERT INTO models (id, provider_id, name, capabilities) VALUES
+              ('anthropic/claude-sonnet-3.5', 'openrouter', 'Claude Sonnet 3.5', '{"type":"llm","streaming":true}');
+          `
+        ),
+        migrationFile(
+          'packages\\db\\src\\migrations\\032-historical-refresh.ts',
+          'migration032HistoricalRefresh',
+          `
+            DELETE FROM models WHERE id IN ('anthropic/claude-sonnet-3.5');
+          `
+        ),
+      ],
+      migrationIndexSource: `
+export const migrations = [
+  migration031PreviousCatalog,
+  migration032HistoricalRefresh,
+];
+`,
+    });
+
+    assert.deepEqual(result.failures, []);
+  });
+
   it('checks every assistant model delete migration for preference remaps', () => {
     const result = analyzeModelCatalogMigrationContract({
       assistantPreferencesSource: `

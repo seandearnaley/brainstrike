@@ -622,7 +622,7 @@ function memoryModelTarget(row) {
 }
 
 function migrationFileVersion(file) {
-  const match = file.match(/(?:^|\/)(\d{3})-/);
+  const match = file.match(/(?:^|[\\/])(\d{3})-/);
   return match ? Number.parseInt(match[1], 10) : null;
 }
 

@@ -475,6 +475,20 @@ test('COMMENTS: blanking preserves line numbers so the report points at the real
   assert.equal(occurrences[0].line, 9, 'line number must survive the block comment');
 });
 
+test('WINDOWS: CRLF config lines retain the same guarded field parsing', () => {
+  const windowsConfig =
+    "import { defineConfig } from 'tsup';\r\n" +
+    'export default defineConfig({\r\n' +
+    '  clean: false, // tsc owns declarations\r\n' +
+    '  dts: false,\r\n' +
+    '});\r\n';
+
+  assert.deepEqual(findGuardedFieldOccurrences(windowsConfig, 'fixture.ts'), [
+    { expression: 'false', field: 'clean', kind: 'false', line: 3 },
+    { expression: 'false', field: 'dts', kind: 'false', line: 4 },
+  ]);
+});
+
 test('NO SILENT FALLBACK: a `clean:` written in an unmodelled shape THROWS', () => {
   // The line shape is what the repo writes today; anything else must fail loudly
   // rather than be silently skipped. An unparsed `clean: true` is precisely the
