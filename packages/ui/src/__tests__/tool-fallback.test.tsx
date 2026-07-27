@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { ToolFallback } from '../assistant-ui-panel/tool-fallback';
+import { extractPrimaryArg, ToolFallback } from '../assistant-ui-panel/tool-fallback';
 import { TooltipProvider } from '../tooltip';
 
 beforeAll(() => {
@@ -17,6 +17,44 @@ beforeAll(() => {
 function wrap(ui: ReactElement) {
   return render(<TooltipProvider>{ui}</TooltipProvider>);
 }
+
+describe('extractPrimaryArg display truncation (BST-949)', () => {
+  it('passes short values through with whitespace collapsed', () => {
+    expect(extractPrimaryArg({ query: '  hybrid\n search ' }, undefined)).toBe('hybrid search');
+  });
+
+  it('caps prose-like values at 64 visible characters with a trailing ellipsis', () => {
+    const longQuery = `find every reference to the composer control dock ${'x'.repeat(80)}`;
+    const display = extractPrimaryArg({ query: longQuery }, undefined);
+    expect(display).toHaveLength(64);
+    expect(display?.endsWith('…')).toBe(true);
+    expect(display?.startsWith('find every reference')).toBe(true);
+  });
+
+  it('middle-ellipsizes long paths so the basename stays readable', () => {
+    const longPath =
+      'packages/ui/src/assistant-ui-panel/deeply/nested/directories/for/testing/composer-effort-control.tsx';
+    const display = extractPrimaryArg({ path: longPath }, undefined);
+    expect(display).toHaveLength(64);
+    expect(display).toContain('…');
+    // The tail (basename) survives; the head keeps the path root.
+    expect(display?.endsWith('composer-effort-control.tsx')).toBe(true);
+    expect(display?.startsWith('packages/ui/')).toBe(true);
+    // Ellipsis is in the middle, not at the end.
+    expect(display?.endsWith('…')).toBe(false);
+  });
+
+  it('never exceeds the cap for any long value', () => {
+    for (const value of [
+      '/'.repeat(300),
+      `a${' b'.repeat(200)}`,
+      `${'segment/'.repeat(40)}file.ts`,
+    ]) {
+      const display = extractPrimaryArg({ path: value }, undefined);
+      expect((display ?? '').length).toBeLessThanOrEqual(64);
+    }
+  });
+});
 
 describe('ToolFallback', () => {
   const mockBaseProps = {

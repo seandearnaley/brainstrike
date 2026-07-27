@@ -168,7 +168,14 @@ const PRIMARY_ARG_KEYS = [
   'command',
 ] as const;
 
-const MAX_PRIMARY_ARG_LENGTH = 120;
+/**
+ * Visible cap for the inline header summary (BST-949). The full value always
+ * survives in the `title` tooltip and the expanded Arguments pane — this cap
+ * only bounds how much of the thread the summary is allowed to occupy.
+ */
+const MAX_PRIMARY_ARG_LENGTH = 64;
+/** Middle-ellipsis split for path-like values: tail keeps the basename. */
+const PATH_TAIL_LENGTH = 39;
 
 export function extractPrimaryArg(args: unknown, argsText: string | undefined): string | undefined {
   let record: Record<string, unknown> | undefined;
@@ -202,9 +209,18 @@ export function extractPrimaryArg(args: unknown, argsText: string | undefined): 
 
 function truncatePrimaryArg(value: string): string {
   const singleLine = value.replaceAll(/\s+/g, ' ').trim();
-  return singleLine.length > MAX_PRIMARY_ARG_LENGTH
-    ? `${singleLine.slice(0, MAX_PRIMARY_ARG_LENGTH)}…`
-    : singleLine;
+  if (singleLine.length <= MAX_PRIMARY_ARG_LENGTH) {
+    return singleLine;
+  }
+  // Paths lose their identity when the END is cut (the basename is the part
+  // users recognize), so path-like values ellipsize in the MIDDLE instead.
+  const isPathLike = !singleLine.includes(' ') && singleLine.includes('/');
+  if (isPathLike) {
+    const head = singleLine.slice(0, MAX_PRIMARY_ARG_LENGTH - PATH_TAIL_LENGTH - 1);
+    const tail = singleLine.slice(-PATH_TAIL_LENGTH);
+    return `${head}…${tail}`;
+  }
+  return `${singleLine.slice(0, MAX_PRIMARY_ARG_LENGTH - 1)}…`;
 }
 
 function useDisplayToolArguments(
