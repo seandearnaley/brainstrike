@@ -159,7 +159,7 @@ describe('performance helpers (unit)', () => {
   });
 
   it('measures scroll interactions through each painted frame', async () => {
-    const scrollContainer = { scrollTop: 0 };
+    const scrollContainer = { clientHeight: 200, scrollHeight: 1000, scrollTop: 0 };
     vi.spyOn(performance, 'now')
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(20)
@@ -172,15 +172,27 @@ describe('performance helpers (unit)', () => {
 
     const metrics = await measureLocatorInteractionFrames(createLocator([scrollContainer]), {
       kind: 'scroll-first',
-      positions: [0, 200],
+      steps: 2,
     });
 
-    expect(scrollContainer.scrollTop).toBe(200);
+    expect(scrollContainer.scrollTop).toBe(800);
     expect(metrics).toEqual({
       averageDurationMs: 20,
       maxDurationMs: 20,
       samplesMs: [20, 20],
       totalDurationMs: 40,
     });
+  });
+
+  it('fails visibly when the scroll target is not scrollable', async () => {
+    await expect(
+      measureLocatorInteractionFrames(
+        createLocator([{ clientHeight: 200, scrollHeight: 200, scrollTop: 0 }]),
+        {
+          kind: 'scroll-first',
+          steps: 2,
+        }
+      )
+    ).rejects.toThrow('not scrollable');
   });
 });

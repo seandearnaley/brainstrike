@@ -45,12 +45,17 @@ describe('performance benchmark measurement contracts', () => {
 
   it('measures scroll latency at the browser interaction-to-paint boundary', async () => {
     const source = await benchmarkSource();
-    const scrollBenchmark = source.slice(
-      source.indexOf("test('scroll performance with large datasets'"),
-      source.indexOf("test('memory usage under stress'")
-    );
+    const start = source.indexOf("test('scroll performance with large datasets'");
+    const end = source.indexOf('\n  test(', start + 1);
 
+    expect(start).toBeGreaterThan(-1);
+    const scrollBenchmark = source.slice(start, end === -1 ? undefined : end);
+    expect(scrollBenchmark).toContain('explorer.fileTreeViewport');
     expect(scrollBenchmark).toContain("kind: 'scroll-first'");
+    expect(scrollBenchmark).toContain('steps: 5');
+    expect(scrollBenchmark).toContain('SCROLL_FRAME_TOTAL_MAX_MS');
+    expect(scrollBenchmark).toContain('SCROLL_FRAME_MAX_MS');
+    expect(scrollBenchmark).not.toContain('SCROLL_PERFORMANCE_MAX_MS');
     expect(scrollBenchmark).not.toContain("performance.mark('scroll-test-start')");
     expect(scrollBenchmark).not.toContain('waitForTimeout(100)');
   });

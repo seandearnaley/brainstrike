@@ -38,7 +38,7 @@ export interface ClickEachInteraction {
 
 export interface ScrollFirstInteraction {
   kind: 'scroll-first';
-  positions: number[];
+  steps: number;
 }
 
 export type LocatorFrameInteraction = ClickEachInteraction | ScrollFirstInteraction;
@@ -62,11 +62,8 @@ export const measureLocatorInteractionFrames = async (
         `Interaction count must be a positive integer; received ${interaction.count}`
       );
     }
-  } else if (
-    interaction.positions.length === 0 ||
-    interaction.positions.some((position) => !Number.isFinite(position) || position < 0)
-  ) {
-    throw new Error('Scroll positions must contain at least one finite, non-negative number');
+  } else if (!Number.isInteger(interaction.steps) || interaction.steps <= 0) {
+    throw new Error(`Scroll steps must be a positive integer; received ${interaction.steps}`);
   }
 
   return await locator.evaluateAll(async (elements, requestedInteraction) => {
@@ -99,11 +96,37 @@ export const measureLocatorInteractionFrames = async (
         throw new Error('Scroll benchmark locator did not match an element');
       }
 
-      for (const position of requestedInteraction.positions) {
+      const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+      if (maxScrollTop <= 0) {
+        throw new Error(
+          `Scroll benchmark container is not scrollable (scrollHeight ${scrollContainer.scrollHeight} <= clientHeight ${scrollContainer.clientHeight})`
+        );
+      }
+
+      scrollContainer.scrollTop = 0;
+      if (scrollContainer.scrollTop !== 0) {
+        throw new Error('Scroll benchmark container could not be reset to scrollTop 0');
+      }
+
+      let previousScrollTop = 0;
+      for (let step = 1; step <= requestedInteraction.steps; step++) {
+        const position = Math.round((maxScrollTop * step) / requestedInteraction.steps);
+        if (position === previousScrollTop) {
+          throw new Error(
+            `Scroll benchmark step ${step} does not advance beyond scrollTop ${previousScrollTop}`
+          );
+        }
+
         const startedAt = performance.now();
         scrollContainer.scrollTop = position;
+        if (scrollContainer.scrollTop <= previousScrollTop) {
+          throw new Error(
+            `Scroll benchmark step ${step} did not advance beyond scrollTop ${previousScrollTop}; settled at ${scrollContainer.scrollTop}`
+          );
+        }
         await waitForPaint();
         samplesMs.push(performance.now() - startedAt);
+        previousScrollTop = scrollContainer.scrollTop;
       }
     } else {
       if (elements.length < requestedInteraction.count) {

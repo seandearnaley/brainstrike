@@ -244,22 +244,32 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
 
-    const treeContainer = explorer.fileTreeScrollContainer;
-    const scrollMetrics = await measureLocatorInteractionFrames(treeContainer, {
+    const treeViewport = explorer.fileTreeViewport;
+    const scrollMetrics = await measureLocatorInteractionFrames(treeViewport, {
       kind: 'scroll-first',
-      positions: Array.from({ length: 5 }, (_, index) => index * 200),
+      steps: 5,
     });
-    const scrollTime = scrollMetrics.totalDurationMs;
 
     performanceMetrics.push(
       recordMetric(
-        'Scroll Performance',
-        scrollTime,
-        PERFORMANCE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS,
+        'Scroll Frame Total',
+        scrollMetrics.totalDurationMs,
+        PERFORMANCE_THRESHOLDS.SCROLL_FRAME_TOTAL_MAX_MS,
+        'ms'
+      )
+    );
+    performanceMetrics.push(
+      recordMetric(
+        'Scroll Frame Max',
+        scrollMetrics.maxDurationMs,
+        PERFORMANCE_THRESHOLDS.SCROLL_FRAME_MAX_MS,
         'ms'
       )
     );
 
-    expect(scrollTime).toBeLessThan(PERFORMANCE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS);
+    expect(scrollMetrics.totalDurationMs).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.SCROLL_FRAME_TOTAL_MAX_MS
+    );
+    expect(scrollMetrics.maxDurationMs).toBeLessThan(PERFORMANCE_THRESHOLDS.SCROLL_FRAME_MAX_MS);
   });
 });
