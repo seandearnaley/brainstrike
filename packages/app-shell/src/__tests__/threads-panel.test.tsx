@@ -14,6 +14,7 @@ import {
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
 import { useAssistantThreadStore } from '../assistant-thread-store';
+import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
 
@@ -28,16 +29,21 @@ const virtualizerState = vi.hoisted(() => ({
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(
     ({ count, estimateSize }: { count: number; estimateSize: (index: number) => number }) => {
-      virtualizerState.estimatedSizes.push(estimateSize(0));
+      // Geometry derives from the callback rather than a hardcoded pitch, so the
+      // mock can't contradict the density contract the tests below assert.
+      const sizes = Array.from({ length: count }, (_, index) => estimateSize(index));
+      virtualizerState.estimatedSizes.push(...sizes);
+      const offset = (index: number): number =>
+        sizes.slice(0, index).reduce((total, size) => total + size, 0);
       return {
-        getTotalSize: () => count * 40,
+        getTotalSize: () => offset(count),
         getVirtualItems: () =>
           Array.from({ length: Math.min(count, virtualizerState.windowSize) }, (_, index) => ({
-            end: (index + 1) * 40,
+            end: offset(index) + (sizes[index] ?? 0),
             index,
             key: `thread-row-${index}`,
-            size: 40,
-            start: index * 40,
+            size: sizes[index] ?? 0,
+            start: offset(index),
           })),
         measureElement: vi.fn(),
         scrollToIndex: vi.fn(),
@@ -188,6 +194,9 @@ function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
 
 beforeEach(() => {
   virtualizerState.windowSize = Number.POSITIVE_INFINITY;
+  // Shared across every render in this file; without a reset it becomes
+  // order-dependent state the next test to read it silently inherits.
+  virtualizerState.estimatedSizes.length = 0;
   fileExplorerMocks.rootDirectoryHandle = {
     name: 'workspace-a',
     path: '/tmp/workspace-a',
@@ -573,8 +582,11 @@ describe('ThreadsPanel', () => {
     // padding would push the painted control past the tab's height.
     expect(row).toHaveClass('my-0.5');
     expect(row).not.toHaveClass('py-0.5');
+    // A flat view is all thread rows, so every estimate is the shared pitch.
+    expect(new Set(virtualizerState.estimatedSizes)).toEqual(
+      new Set([getThreadPanelRowHeightPx('thread')])
+    );
     expect(virtualizerState.estimatedSizes).toContain(THREAD_CONTROL_ROW_PITCH_PX);
-    expect(virtualizerState.estimatedSizes).not.toContain(40);
 
     expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
     expect(title).not.toHaveClass('text-[13px]');
@@ -1260,6 +1272,22 @@ describe('ThreadsPanel groups', () => {
       threadId,
     });
   }
+
+  it('estimates group headers at their own height, not the thread pitch', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+    await screen.findByTestId('thread-group-section');
+
+    // Group headers paint 40px while thread rows paint 32px. Estimating every
+    // node at the thread pitch under-sizes each header by 8px, so first-paint
+    // scrollbar length and scrollToIndex drift by an amount that grows with
+    // group count — and grouped is the default view.
+    expect(virtualizerState.estimatedSizes).toContain(getThreadPanelRowHeightPx('group'));
+    expect(virtualizerState.estimatedSizes).toContain(getThreadPanelRowHeightPx('thread'));
+    expect(getThreadPanelRowHeightPx('group')).not.toBe(getThreadPanelRowHeightPx('thread'));
+  });
 
   it('renders group sections with the ungrouped section below', async () => {
     seedGroup('group-research', 'Research', 'a0');

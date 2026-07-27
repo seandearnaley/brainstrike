@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { AssistantMemoryThread } from '../assistant-memory-repository';
 import type { AssistantThreadGroup } from '../assistant-thread-groups-repository';
+import { THREAD_CONTROL_ROW_PITCH_PX } from '../assistant-thread-presentation';
 import type { ThreadListView } from '../thread-list-sections';
 import {
   buildThreadPanelVisibleRows,
+  getThreadPanelRowHeightPx,
   THREAD_PANEL_DISCLOSURE_INCREMENT,
   THREAD_PANEL_INITIAL_VISIBLE_LIMIT,
 } from '../thread-panel-visible-rows';
@@ -154,5 +156,25 @@ describe('buildThreadPanelVisibleRows', () => {
       'group:ungrouped',
       'thread-b',
     ]);
+  });
+});
+
+describe('getThreadPanelRowHeightPx', () => {
+  it('gives every row kind the height it actually paints', () => {
+    // Measured in the running renderer (303.5px and 218.5px panel width), not
+    // derived from the Tailwind classes: group header 40, drop-zone/empty 40,
+    // thread 32, show-more 36. One blanket estimate mis-sizes three of the four.
+    expect(getThreadPanelRowHeightPx('group')).toBe(40);
+    expect(getThreadPanelRowHeightPx('empty')).toBe(40);
+    expect(getThreadPanelRowHeightPx('show-more')).toBe(36);
+    expect(getThreadPanelRowHeightPx('thread')).toBe(THREAD_CONTROL_ROW_PITCH_PX);
+    expect(getThreadPanelRowHeightPx('thread')).toBe(32);
+  });
+
+  it('keeps the thread estimate tied to the shared control pitch', () => {
+    // If the density contract moves, the estimate must move with it rather than
+    // drifting back into a magic number.
+    expect(getThreadPanelRowHeightPx('thread')).toBe(THREAD_CONTROL_ROW_PITCH_PX);
+    expect(getThreadPanelRowHeightPx('group')).not.toBe(THREAD_CONTROL_ROW_PITCH_PX);
   });
 });

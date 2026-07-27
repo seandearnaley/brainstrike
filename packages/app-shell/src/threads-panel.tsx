@@ -79,7 +79,6 @@ import {
   getAssistantThreadColorSurface,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
-  THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from './assistant-thread-presentation';
 import { useAssistantThreadStore } from './assistant-thread-store';
@@ -96,6 +95,7 @@ import {
   type ThreadPanelLoadState,
 } from './thread-panel-content-state';
 import {
+  getThreadPanelRowHeightPx,
   THREAD_PANEL_DISCLOSURE_INCREMENT,
   THREAD_PANEL_UNGROUPED_NODE_ID,
   type ThreadPanelVisibleRow,
@@ -2201,7 +2201,7 @@ function ThreadPanelTree({
           }
           return 'border-0 bg-transparent hover:bg-muted/20';
         }}
-        rowHeight={() => THREAD_CONTROL_ROW_PITCH_PX}
+        rowHeight={(node) => getThreadPanelRowHeightPx(node.data.kind)}
         selectionMode="multi"
         selectOnRowClick={false}
         showCheckbox

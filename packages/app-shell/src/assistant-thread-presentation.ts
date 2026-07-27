@@ -130,18 +130,11 @@ export const THREAD_CONTROL_TITLE_CLASS_NAME = 'min-w-0 truncate font-medium tex
 export const THREAD_CONTROL_MARK_CLASS_NAME =
   'flex size-5 shrink-0 items-center justify-center rounded-sm border';
 
-export function getAssistantThreadColorPresentation(
-  colorId: AssistantThreadColorId | undefined
-): AssistantThreadColorPresentation | null {
-  if (!colorId) {
-    return null;
-  }
-  return ASSISTANT_THREAD_COLOR_PRESENTATION[colorId];
-}
-
 /**
- * Unlike {@link getAssistantThreadColorPresentation}, always resolves to a
- * paintable surface — callers that must fill a control use this.
+ * Always resolves to a paintable surface. There is deliberately no nullable
+ * sibling accessor: a call site that receives `null` has to invent its own
+ * unassigned fallback, which is exactly the per-call-site drift this module
+ * exists to prevent.
  */
 export function getAssistantThreadColorSurface(
   colorId: AssistantThreadColorId | null | undefined

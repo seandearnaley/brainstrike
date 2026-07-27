@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
-  getAssistantThreadColorPresentation,
   getAssistantThreadColorSurface,
   THREAD_CONTROL_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_HEIGHT_PX,
@@ -22,11 +21,11 @@ describe('assistant thread presentation', () => {
       'slate',
       'violet',
     ]);
-    expect(getAssistantThreadColorPresentation('rose')).toMatchObject({
+    expect(ASSISTANT_THREAD_COLOR_PRESENTATION.rose).toMatchObject({
       accentClassName: 'bg-rose-500',
       label: 'Rose',
     });
-    expect(getAssistantThreadColorPresentation('rose')?.markClassName).toContain('dark:');
+    expect(ASSISTANT_THREAD_COLOR_PRESENTATION.rose.markClassName).toContain('dark:');
   });
 
   it('styles rows with tinted fills and inset rings instead of borders and stripes', () => {
@@ -37,10 +36,6 @@ describe('assistant thread presentation', () => {
       expect(presentation.selectedClassName).toContain('ring-inset');
       expect(presentation.groupSurfaceClassName).not.toContain('border');
     }
-  });
-
-  it('keeps unassigned thread color neutral instead of guessing blue', () => {
-    expect(getAssistantThreadColorPresentation(undefined)).toBeNull();
   });
 
   it('resolves an unassigned thread to a neutral surface so every control can be tinted', () => {
@@ -54,6 +49,14 @@ describe('assistant thread presentation', () => {
     expect(UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION.selectedClassName).toContain(
       'ring-inset'
     );
+    // Neutral means theme tokens only — an unassigned thread must never borrow a
+    // palette hue and read as though the user had picked one.
+    const paletteHue = new RegExp(
+      `-(?:${Object.keys(ASSISTANT_THREAD_COLOR_PRESENTATION).join('|')}|sky)-\\d`
+    );
+    for (const className of Object.values(UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION)) {
+      expect(className).not.toMatch(paletteHue);
+    }
   });
 
   it('publishes one density contract for every surface that renders a thread', () => {

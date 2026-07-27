@@ -680,8 +680,10 @@ export function AssistantThreadTabsWorkspace({
                     {(dragHandleRef) => (
                       // biome-ignore lint/a11y/noStaticElementInteractions: composite tab shell claims context-menu identity for its focusable controls
                       <div
-                        className={`group flex ${THREAD_CONTROL_HEIGHT_CLASS_NAME} min-w-0 items-center overflow-hidden rounded-md pr-1.5 text-foreground text-xs transition-[color,background-color,box-shadow,opacity] duration-150 motion-reduce:transition-none ${
-                          isActive ? colorSurface.selectedClassName : colorSurface.idleClassName
+                        className={`group flex ${THREAD_CONTROL_HEIGHT_CLASS_NAME} min-w-0 items-center overflow-hidden rounded-md pr-1.5 text-xs transition-[color,background-color,box-shadow,opacity] duration-150 motion-reduce:transition-none ${
+                          isActive
+                            ? `text-foreground ${colorSurface.selectedClassName}`
+                            : `text-muted-foreground hover:text-foreground ${colorSurface.idleClassName}`
                         }`}
                         data-thread-color={colorId ?? 'unassigned'}
                         onContextMenu={() => handleThreadTabContextMenu(threadId)}
@@ -711,7 +713,7 @@ export function AssistantThreadTabsWorkspace({
                         </button>
                         <button
                           aria-label={`Close thread ${title}`}
-                          className={`relative ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-[color,background-color,opacity] duration-150 after:absolute after:-inset-1 after:content-[''] hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                          className={`relative ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-[color,background-color,opacity] duration-150 after:absolute after:-inset-1 after:content-[''] hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                             isActive
                               ? 'opacity-70 hover:opacity-100'
                               : 'pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100'

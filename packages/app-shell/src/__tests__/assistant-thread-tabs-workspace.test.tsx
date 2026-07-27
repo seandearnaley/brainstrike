@@ -344,6 +344,19 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     const title = screen.getByText('Purchasing app search log');
     expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
+    // Size and weight come from the shared contract, but active vs idle still
+    // needs a text-colour cue — fill alpha plus a ring is a thin distinction to
+    // carry alone once both states are the same hue.
+    expect(shell).toHaveClass('text-foreground');
+
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const idleShell = screen
+      .getByRole('tab', { name: /Purchasing app search log/ })
+      .closest('[data-thread-color]');
+    expect(idleShell).toHaveClass('text-muted-foreground');
+    expect(idleShell).not.toHaveClass('text-foreground');
     const mark = screen.getByTestId('assistant-thread-tab-icon-rose');
     expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
     // Now that the tab body is tinted, the mark must not reuse that same fill
@@ -365,6 +378,11 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(closeButton).not.toHaveClass('absolute');
     expect(closeButton.parentElement).toBe(tab.parentElement);
     expect(closeButton).toHaveClass('h-5', 'w-5');
+    // The tab body is tinted now, so an opaque neutral hover chip paints a grey
+    // blotch into the tint (measured rgb(242, 240, 237) on an amber tab). The
+    // hover fill has to ride the surface instead of covering it.
+    expect(closeButton).not.toHaveClass('hover:bg-muted');
+    expect(closeButton.className).toMatch(/hover:bg-foreground\//);
     // Visual box is 20px, but the pseudo-element extends the hit target to
     // 28px so the pointer target stays above the 24px minimum guidance.
     expect(closeButton.className).toMatch(/after:-inset-1/);
