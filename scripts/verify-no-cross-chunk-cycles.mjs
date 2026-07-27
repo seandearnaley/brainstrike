@@ -26,13 +26,14 @@
 // alone, nearly all benign (createLogger(), lazy(), memo(), zustand create()).
 // The CHUNK, not the file or the package, is the unit of risk for that form.
 //
-// FOUR RECORDED SCARS, all found by a production failure after the fact:
+// FIVE RECORDED SCARS, all found by a production failure after the fact:
 //   - #1292        defineContextAction TDZ; #root stays empty
 //   - BST-580      browser-events; "L is not a function", blank shell
 //   - (zustand)    "createWithEqualityFn is not a function", blank shell
 //   - BST-558/#1988 mastra schema; "Cannot read properties of undefined
 //                  (reading 'threads')" — renderer never becomes ready
-// Three are still held by codeSplitting.groups pins in BOTH apps' vite configs.
+//   - BST-858      sanitized persist merge; "a is not a function", blank shell
+// Four are still held by codeSplitting.groups pins in BOTH apps' vite configs.
 //
 // Nothing else in the toolchain can see this class: tsc types ESM live bindings
 // identically either way, there is no lint rule for chunk-evaluation order, and
