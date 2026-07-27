@@ -300,28 +300,35 @@ describe('LogViewer', () => {
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(() => {});
 
-    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    try {
+      render(<LogViewer logSource={logSource} toast={mockToast} />);
 
-    await waitFor(() => expect(screen.getByText('Renderer log')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
+      await waitFor(() => expect(screen.getByText('Renderer log')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
 
-    expect(exportedBlob).not.toBeNull();
-    const exportedText = await exportedBlob!.text();
-    const exportedPayload = JSON.parse(exportedText) as {
-      recordCount: number;
-      records: readonly unknown[];
-      sourceCoverage: Record<string, number>;
-    };
-    expect(exportedPayload.recordCount).toBe(2);
-    expect(exportedPayload.sourceCoverage).toEqual({
-      'electron-main': 1,
-      'electron-renderer': 1,
-    });
-    expect(exportedPayload.records).toHaveLength(2);
+      expect(exportedBlob).not.toBeNull();
+      const exportedText = await exportedBlob!.text();
+      const exportedPayload = JSON.parse(exportedText) as {
+        recordCount: number;
+        records: readonly unknown[];
+        sourceCoverage: Record<string, number>;
+      };
+      expect(exportedPayload.recordCount).toBe(2);
+      expect(exportedPayload.sourceCoverage).toEqual({
+        'electron-main': 1,
+        'electron-renderer': 1,
+      });
+      expect(exportedPayload.records).toHaveLength(2);
 
-    createObjectUrlSpy.mockRestore();
-    revokeObjectUrlSpy.mockRestore();
-    anchorClickSpy.mockRestore();
+      // Drain this export's DEFERRED revoke before restoring the spies:
+      // restoring while the macrotask is still pending would land it on
+      // whichever `URL.revokeObjectURL` spy the next test installs.
+      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:logs'));
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
   });
 
   // A raw `new Date().toISOString()` in `anchor.download` carries `:` and
@@ -343,8 +350,6 @@ describe('LogViewer', () => {
         tagName === 'a'
           ? mockAnchor
           : originalCreateElement(tagName)) as typeof document.createElement);
-    // A URL distinct from the other export test's: that test leaves its own
-    // deferred revoke pending, which would otherwise land on this spy.
     const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:logs-named');
     const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
 
@@ -359,7 +364,7 @@ describe('LogViewer', () => {
       );
       expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
       expect(anchorClickSpy).toHaveBeenCalledTimes(1);
-      expect(revokeObjectUrlSpy).not.toHaveBeenCalledWith('blob:logs-named');
+      expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
 
       await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:logs-named'));
     } finally {

@@ -9,7 +9,10 @@ import {
   TablePagination,
   type useToast,
 } from '@brainstrike/ui';
-import { formatTimestampedDownloadFilename } from '@brainstrike/utils';
+import {
+  downloadBlobFile,
+  formatTimestampedDownloadFilename,
+} from '@brainstrike/utils/browser-download';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import {
@@ -543,19 +546,16 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
       type: 'application/json',
     });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = formatTimestampedDownloadFilename({
-      extension: 'json',
-      generatedAt: new Date(),
-      name: 'brainstrike-logs',
+    // `downloadBlobFile` owns the object URL's lifetime — deferred revoke on
+    // the success path, immediate on the throwing one.
+    downloadBlobFile({
+      blob,
+      filename: formatTimestampedDownloadFilename({
+        extension: 'json',
+        generatedAt: new Date(),
+        name: 'brainstrike-logs',
+      }),
     });
-    anchor.click();
-    // Deferred a macrotask, not revoked inline: Chromium starts the download
-    // during click dispatch, but WebKit can fetch the blob a task later, so a
-    // synchronous revoke there silently drops the file.
-    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const handleSortNewestFirstChange = useCallback((value: boolean) => {

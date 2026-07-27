@@ -16,7 +16,10 @@ import {
   Switch,
   useToast,
 } from '@brainstrike/ui';
-import { formatTimestampedDownloadFilename } from '@brainstrike/utils';
+import {
+  downloadBlobFile,
+  formatTimestampedDownloadFilename,
+} from '@brainstrike/utils/browser-download';
 import { LogLevel } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
@@ -417,26 +420,24 @@ export function LoggingSettingsSection({
           title: 'No diagnostics to export',
         });
       } else {
-        const blob = new Blob([ndjson], { type: 'application/x-ndjson' });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
         // Truncation is visible in two places, never silently: the filename
         // itself (so it survives outside this session, e.g. in a Downloads
         // folder) and the toast below (with the exact N of M counts). The
         // NDJSON body stays pure NDJSON — no metadata line — so "every line
         // is a diagnostic event" still holds for the file contents.
-        anchor.download = formatTimestampedDownloadFilename({
-          extension: 'ndjson',
-          generatedAt: new Date(),
-          name: 'brainstrike-errors',
-          suffix: truncated ? `recent${exportedCount}` : null,
+        //
+        // `downloadBlobFile` owns the object URL's lifetime, so a click that
+        // throws into the catch below cannot leak one export's worth of NDJSON
+        // per retry.
+        downloadBlobFile({
+          blob: new Blob([ndjson], { type: 'application/x-ndjson' }),
+          filename: formatTimestampedDownloadFilename({
+            extension: 'ndjson',
+            generatedAt: new Date(),
+            name: 'brainstrike-errors',
+            suffix: truncated ? `recent${exportedCount}` : null,
+          }),
         });
-        anchor.click();
-        // Deferred a macrotask, not revoked inline: Chromium starts the
-        // download during click dispatch, but WebKit can fetch the blob a task
-        // later, so a synchronous revoke there silently drops the file.
-        setTimeout(() => URL.revokeObjectURL(url), 0);
         if (truncated) {
           toast({
             description: `Exported the most recent ${exportedCount} of ${totalCount} warn+ events. Older events were not included.`,

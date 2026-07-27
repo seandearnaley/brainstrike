@@ -77,6 +77,11 @@
       "import": "./dist/color-utils.mjs",
       "require": "./dist/color-utils.js"
     },
+    "./browser-download": {
+      "types": "./dist/browser-download.d.ts",
+      "import": "./dist/browser-download.mjs",
+      "require": "./dist/browser-download.js"
+    },
     "./collator": {
       "types": "./dist/collator.d.ts",
       "import": "./dist/collator.mjs",
