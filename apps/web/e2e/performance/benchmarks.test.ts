@@ -183,7 +183,10 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     await explorer.selectRoot();
 
     // Measure each state change from DOM interaction through the next painted frame.
-    const fileCheckboxes = page.getByRole('checkbox', { name: /Select / });
+    const fileCheckboxes = page.getByRole('checkbox', {
+      name: /^Select test[1-3]\.js$/,
+    });
+    await expect(fileCheckboxes.first()).toBeVisible();
     const checkboxCount = await fileCheckboxes.count();
     const renderMetrics = await measureLocatorInteractionFrames(fileCheckboxes, {
       count: checkboxCount,
@@ -192,27 +195,28 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     performanceMetrics.push(
       recordMetric(
-        'Average Render Time',
+        'Checkbox Interaction-to-Paint Average',
         renderMetrics.averageDurationMs,
-        PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS,
+        PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_AVERAGE_MAX_MS,
         'ms'
       )
     );
 
     performanceMetrics.push(
       recordMetric(
-        'Max Render Time',
+        'Checkbox Interaction-to-Paint Max',
         renderMetrics.maxDurationMs,
-        PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2,
+        PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS,
         'ms'
       )
     );
 
     console.log(`Total render samples: ${renderMetrics.samplesMs.length}`);
 
-    // Assert reasonable render performance
-    expect(renderMetrics.averageDurationMs).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS);
-    expect(renderMetrics.maxDurationMs).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2);
+    expect(renderMetrics.averageDurationMs).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_AVERAGE_MAX_MS
+    );
+    expect(renderMetrics.maxDurationMs).toBeLessThan(PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS);
   });
 
   test('scroll performance with large datasets', async ({ page }) => {
