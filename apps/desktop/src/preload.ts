@@ -504,9 +504,10 @@ interface LlmHostResponseReport {
   readonly type: 'error' | 'progress' | 'result';
 }
 
-// NOTE: preload is sandboxed CJS and can't import from workspace TS files,
-// so these constants are intentionally duplicated from
-// `apps/desktop/src/file-read-errors.ts`. Keep in sync.
+// BST-338 preload duplicate contract: this sandboxed CJS preload cannot import
+// the canonical runtime module, so these codes, FileReadErrorPayload, and
+// isFileReadErrorPayload intentionally duplicate `file-read-errors.ts`.
+// A source-evaluated conformance test keeps their accepted shapes in parity.
 const FILE_READ_ERROR_CODE_NOT_FOUND = 'NOT_FOUND' as const;
 
 interface FileReadErrorPayload {
