@@ -4,22 +4,31 @@
  * Split out of `copy-debug-bundle-button.tsx` because that module is
  * component-only by contract (react-doctor `only-export-components` / Fast
  * Refresh boundary) — these are pure/DOM helpers with their own unit test.
+ *
+ * Both are thin bundle-specific wrappers over `@brainstrike/utils`'s shared
+ * download path, which the log and diagnostics exports use too.
  */
+
+import {
+  downloadBlobFile,
+  formatTimestampedDownloadFilename,
+  sanitizeFilenameSegment,
+} from '@brainstrike/utils/browser-download';
 
 const FILENAME_PREFIX = 'brainstrike-debug-bundle';
 const RUN_ID_CHARS = 8;
-/** Everything a filesystem (Windows in particular) rejects, plus separators. */
-const UNSAFE_FILENAME_CHARS = /[^a-zA-Z0-9._-]/g;
+const BUNDLE_MIME_TYPE = 'text/markdown;charset=utf-8';
 
 /**
  * `brainstrike-debug-bundle-2026-07-27T14-32-05Z[-run-1a2b3c4d].md`.
  *
- * UTC, second-resolution, colons swapped for hyphens: an ISO string pasted
- * straight into `anchor.download` (the idiom in `log-viewer.tsx`) carries
- * `:` and `.`-millis, which Windows rejects and browsers silently mangle.
- * Timestamp-first so a Downloads folder sorts chronologically; the short run
- * id disambiguates two failures in the same second and lets a reader match
- * the file back to a ledger row without opening it.
+ * The filesystem-safe timestamp — and the guarantee that an all-stripped run
+ * id leaves no dangling `-run-` segment — come from the shared helper. The
+ * only bundle-specific part is the short run id, which disambiguates two
+ * failures in the same second and lets a reader match the file back to a
+ * ledger row without opening it. It is sanitized with the shared
+ * `sanitizeFilenameSegment` BEFORE truncating, so the 8 characters kept are 8
+ * USABLE ones rather than 8 pre-strip ones.
  */
 export function formatDebugBundleFilename({
   generatedAt,
@@ -28,29 +37,20 @@ export function formatDebugBundleFilename({
   readonly generatedAt: Date;
   readonly runId: string | null;
 }): string {
-  const timestamp = generatedAt
-    .toISOString()
-    .replace(/\.\d+Z$/, 'Z')
-    .replace(/:/g, '-');
-  // Emptiness is judged AFTER sanitizing: a run id made entirely of stripped
-  // characters would otherwise leave a dangling `-run-` in the filename.
-  const shortRunId = runId?.replace(UNSAFE_FILENAME_CHARS, '').slice(0, RUN_ID_CHARS) ?? '';
-  const suffix = shortRunId ? `-run-${shortRunId}` : '';
-  return `${FILENAME_PREFIX}-${timestamp}${suffix}.md`;
+  const shortRunId = sanitizeFilenameSegment(runId ?? '').slice(0, RUN_ID_CHARS);
+  return formatTimestampedDownloadFilename({
+    extension: 'md',
+    generatedAt,
+    name: FILENAME_PREFIX,
+    suffix: shortRunId ? `run-${shortRunId}` : null,
+  });
 }
 
 /**
- * Blob → object URL → anchor click → revoke, the same download idiom used by
- * `log-viewer.tsx` and `logging-settings-section.tsx`. Throws (never
- * no-ops silently) outside a DOM; the caller surfaces the message inline.
- *
- * The revoke is deferred a macrotask on the SUCCESS path and immediate on the
- * throwing path — deliberately not a `finally`. Chromium starts the download
- * during click dispatch, but WebKit can fetch the blob a task later, so a
- * synchronous revoke there silently drops the file (a silent degradation on
- * the web target). Immediate revoke when the click threw is safe: no download
- * started, and a leaked 200 KB blob would otherwise live as long as the
- * document.
+ * Saves the bundle as Markdown through the shared `downloadBlobFile`, which
+ * owns the object URL's lifetime (deferred revoke on the success path,
+ * immediate on the throwing path) and throws — never no-ops silently —
+ * outside a DOM. The caller surfaces the message inline.
  */
 export function downloadDebugBundleFile({
   contents,
@@ -59,19 +59,5 @@ export function downloadDebugBundleFile({
   readonly contents: string;
   readonly filename: string;
 }): void {
-  if (typeof document === 'undefined') {
-    throw new Error('Downloads are unavailable outside a browser document.');
-  }
-  const url = URL.createObjectURL(new Blob([contents], { type: 'text/markdown;charset=utf-8' }));
-  try {
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.rel = 'noopener';
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  } catch (error) {
-    URL.revokeObjectURL(url);
-    throw error;
-  }
+  downloadBlobFile({ blob: new Blob([contents], { type: BUNDLE_MIME_TYPE }), filename });
 }

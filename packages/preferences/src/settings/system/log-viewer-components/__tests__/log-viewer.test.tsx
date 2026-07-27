@@ -300,28 +300,79 @@ describe('LogViewer', () => {
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(() => {});
 
-    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    try {
+      render(<LogViewer logSource={logSource} toast={mockToast} />);
 
-    await waitFor(() => expect(screen.getByText('Renderer log')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
+      await waitFor(() => expect(screen.getByText('Renderer log')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
 
-    expect(exportedBlob).not.toBeNull();
-    const exportedText = await exportedBlob!.text();
-    const exportedPayload = JSON.parse(exportedText) as {
-      recordCount: number;
-      records: readonly unknown[];
-      sourceCoverage: Record<string, number>;
+      expect(exportedBlob).not.toBeNull();
+      const exportedText = await exportedBlob!.text();
+      const exportedPayload = JSON.parse(exportedText) as {
+        recordCount: number;
+        records: readonly unknown[];
+        sourceCoverage: Record<string, number>;
+      };
+      expect(exportedPayload.recordCount).toBe(2);
+      expect(exportedPayload.sourceCoverage).toEqual({
+        'electron-main': 1,
+        'electron-renderer': 1,
+      });
+      expect(exportedPayload.records).toHaveLength(2);
+
+      // Drain this export's DEFERRED revoke before restoring the spies:
+      // restoring while the macrotask is still pending would land it on
+      // whichever `URL.revokeObjectURL` spy the next test installs.
+      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:logs'));
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
+  });
+
+  // A raw `new Date().toISOString()` in `anchor.download` carries `:` and
+  // millis; Windows rejects `:` and browsers mangle the name silently. The
+  // revoke is deferred a macrotask because WebKit can fetch the blob a task
+  // after the click — revoking inline would drop the file with no error.
+  it('exports under a filesystem-safe filename and revokes the object URL a task after the click', async () => {
+    const logs = [createMockLogRecord({ message: 'Renderer log', timestamp: 1000 })];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
     };
-    expect(exportedPayload.recordCount).toBe(2);
-    expect(exportedPayload.sourceCoverage).toEqual({
-      'electron-main': 1,
-      'electron-renderer': 1,
-    });
-    expect(exportedPayload.records).toHaveLength(2);
+    const originalCreateElement = document.createElement.bind(document);
+    const mockAnchor = originalCreateElement('a');
+    const anchorClickSpy = vi.spyOn(mockAnchor, 'click').mockImplementation(() => {});
+    const createElementSpy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation(((tagName: string) =>
+        tagName === 'a'
+          ? mockAnchor
+          : originalCreateElement(tagName)) as typeof document.createElement);
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:logs-named');
+    const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
 
-    createObjectUrlSpy.mockRestore();
-    revokeObjectUrlSpy.mockRestore();
-    anchorClickSpy.mockRestore();
+    try {
+      render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+      await waitFor(() => expect(screen.getByText('Renderer log')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
+
+      expect(mockAnchor.download).toMatch(
+        /^brainstrike-logs-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$/
+      );
+      expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
+      expect(anchorClickSpy).toHaveBeenCalledTimes(1);
+      expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
+
+      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:logs-named'));
+    } finally {
+      createElementSpy.mockRestore();
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
   });
 
   it('filters logs by search term', async () => {

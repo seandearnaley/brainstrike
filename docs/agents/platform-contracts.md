@@ -649,13 +649,49 @@ component module, which is component-only by react-doctor's
 `brainstrike-debug-bundle-<UTC ISO, colons→hyphens, no millis>[-run-<first 8
 chars>].md` — timestamp first so a Downloads folder sorts chronologically,
 and colon-free because Windows rejects `:` (an unmangled `toISOString()` in
-`anchor.download`, the older idiom in `log-viewer.tsx`, does not survive
-there). The save path is the codebase's standard Blob → object URL → anchor →
-revoke, where the revoke is DEFERRED a macrotask on the success path and
-immediate only when the click threw: Chromium starts the download during click
-dispatch, but WebKit can fetch the blob a task later, so the synchronous revoke
-used by `log-viewer.tsx` would silently drop the file there. Outside a DOM it
-THROWS rather than no-opping. The button's phase
+`anchor.download` does not survive there).
+
+**The diagnostics downloads — filename AND save — go through
+`packages/utils/src/browser-download.ts`** (subpath
+`@brainstrike/utils/browser-download`; pure-half tests
+`packages/utils/src/__tests__/browser-download.test.ts`, DOM-half tests
+`packages/ui/src/__tests__/debug-bundle-download.test.ts` because the utils
+package's vitest environment is `node`). Exactly three call sites today:
+`formatDebugBundleFilename` / `downloadDebugBundleFile`, `log-viewer.tsx`'s
+`brainstrike-logs-….json`, and `logging-settings-section.tsx`'s
+`brainstrike-errors-…[-recent<N>].ndjson`. It is the idiom for NEW download
+paths, but it is not yet the app's only one: the DB explorer's CSV/ZIP exports
+(`packages/db-explorer/src/hooks/use-export-handlers.ts`) still build names via
+their own `generateCSVFilename` (`csv-export-core.ts`) and hand-roll the save,
+so none of the guarantees below apply there. Migrating them is open work — do
+not read this section as already covering them.
+
+`formatTimestampedDownloadFilename` builds
+`${name}-${UTC ISO, colons→hyphens, no millis}[-${suffix}].${extension}` and is
+the single owner of the safe-timestamp rule — callers supply only their own
+name/suffix/extension. `name`, `suffix` and `extension` are each sanitized to
+`[a-zA-Z0-9._-]`, emptiness is judged AFTER sanitizing (so a suffix of stripped
+characters cannot leave a dangling `-`), and a name/extension that sanitizes
+away or an invalid `Date` THROWS rather than producing a nameless or
+`Invalid Date` download. Do NOT put a raw `toISOString()` in `anchor.download`
+in new code. `sanitizeFilenameSegment` is exported for the one caller that must
+measure a segment before handing it over (the debug bundle truncates a run id
+to 8 characters and wants 8 USABLE ones) — do not keep a private copy of that
+charset; two copies that must agree would drift silently.
+
+`downloadBlobFile` owns the Blob → object URL → anchor → revoke save and the
+object URL's whole lifetime: the revoke is DEFERRED a macrotask
+(`setTimeout(…, 0)`) on the success path and IMMEDIATE when the click threw.
+Chromium starts the download during click dispatch, but WebKit can fetch the
+blob a task later, so a synchronous revoke silently drops the file there; the
+immediate revoke on the throwing path is what stops a user retrying a failing
+export from pinning one full payload per attempt. Because the helper owns both
+halves, no call site restates either — a call site that hand-rolls the anchor
+will get one half wrong (all three did, in different ways, before BST-946).
+Tests must therefore assert the revoke through `waitFor`/timer-drain rather
+than synchronously, and a test that mocks `URL.revokeObjectURL` must drain the
+pending macrotask before restoring the spy or the timer lands on the next
+test's spy. Outside a DOM it THROWS rather than no-opping. The button's phase
 machine tags every non-idle phase with its action (`copy` | `download`) so one
 action's spinner/result/error never appears on the other's button, and both
 failure paths render inline (`Copy failed: …` / `Download failed: …`) in an

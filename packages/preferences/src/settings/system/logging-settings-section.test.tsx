@@ -312,7 +312,9 @@ describe('LoggingSettingsSection export NDJSON button', () => {
       expect((exportedBlob as unknown as Blob).type).toBe('application/x-ndjson');
       expect(await (exportedBlob as unknown as Blob).text()).toBe(ndjsonPayload);
       expect(anchorClickSpy).toHaveBeenCalledTimes(1);
-      expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:ndjson-export');
+      // Deferred a macrotask (WebKit can fetch the blob after the click task),
+      // so this is a `waitFor` rather than a synchronous assertion.
+      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:ndjson-export'));
     } finally {
       createObjectUrlSpy.mockRestore();
       revokeObjectUrlSpy.mockRestore();
@@ -370,7 +372,11 @@ describe('LoggingSettingsSection export NDJSON button', () => {
           })
         )
       );
-      expect(mockAnchor.download).toMatch(/-recent2000\.ndjson$/);
+      expect(mockAnchor.download).toMatch(
+        /^brainstrike-errors-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-recent2000\.ndjson$/
+      );
+      // Windows rejects `:`; a raw ISO timestamp here gets silently mangled.
+      expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
     } finally {
       createElementSpy.mockRestore();
       createObjectUrlSpy.mockRestore();
