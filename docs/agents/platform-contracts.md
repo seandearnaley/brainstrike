@@ -961,7 +961,14 @@ being recorded". It travels through a module-level store rather than React
 context because `DiagnosticSinkBridge` mounts inside `<DbProvider>` but
 OUTSIDE `RootLayoutContent`, so no shared provider spans both. `markDisabled`
 is idempotent — first reason wins, so a later failure racing the disable
-cannot overwrite the root cause shown to the user.
+cannot overwrite the root cause shown to the user. A new database identity
+constructs a replacement writer and clears the prior writer's reason; changing
+other bridge props for the same database MUST NOT clear it. Each writer's
+`onDisabled` callback is generation-scoped, so a retired writer's asynchronous
+dispose/flush cannot re-arm stale health after replacement. The replacement
+starts clean and re-arms the warning only after its own bounded
+`maxConsecutiveFailures` window, so the banner can be briefly clear while that
+failure threshold accumulates.
 
 **Factory reset (all three P2b stores)**: the two session stores
 (`resetDiagnosticsSeenStore`, `resetDiagnosticSinkHealthStore`) are registered
