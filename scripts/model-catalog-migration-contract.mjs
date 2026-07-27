@@ -875,7 +875,7 @@ async function readMigrationFiles(rootDir) {
 
   return Promise.all(
     migrationFiles.map(async (entry) => {
-      const file = path.join('packages/db/src/migrations', entry);
+      const file = path.posix.join('packages/db/src/migrations', entry);
       return {
         file,
         source: await readFile(path.join(rootDir, file), 'utf8'),
