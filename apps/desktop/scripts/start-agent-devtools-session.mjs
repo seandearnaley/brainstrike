@@ -188,8 +188,18 @@ export function resolvePnpmInvocation({
   platform = process.platform,
 } = {}) {
   const npmExecPath = env.npm_execpath;
-  if (typeof npmExecPath === 'string' && path.isAbsolute(npmExecPath)) {
-    return { argsPrefix: [npmExecPath], command: execPath };
+  if (typeof npmExecPath === 'string') {
+    const pathApi = platform === 'win32' ? path.win32 : path.posix;
+    const entrypoint = pathApi.basename(npmExecPath).toLowerCase();
+    if (
+      pathApi.isAbsolute(npmExecPath) &&
+      (entrypoint === 'pnpm.cjs' || entrypoint === 'pnpm.js')
+    ) {
+      return { argsPrefix: [npmExecPath], command: execPath };
+    }
+    throw new Error(
+      'Agent DevTools npm_execpath must point to an absolute pnpm.cjs or pnpm.js entry.'
+    );
   }
   if (platform === 'win32') {
     throw new Error(
@@ -208,6 +218,20 @@ function spawnPnpm(args, env, platform = process.platform, invocation = resolveP
   });
 }
 
+export function captureChildSpawnError(child) {
+  const capture = {
+    error: null,
+    stop() {
+      child.off('error', onError);
+    },
+  };
+  function onError(error) {
+    capture.error ??= error;
+  }
+  child.once('error', onError);
+  return capture;
+}
+
 export function runPnpmCommandSync(
   args,
   env,
@@ -222,6 +246,9 @@ export function runPnpmCommandSync(
     throw new Error(`Agent DevTools could not start pnpm ${args.join(' ')}.`, {
       cause: result.error,
     });
+  }
+  if (result.signal) {
+    throw new Error(`Agent DevTools pnpm ${args.join(' ')} was terminated by ${result.signal}.`);
   }
   if (result.status !== 0) {
     throw new Error(`Agent DevTools pnpm ${args.join(' ')} exited with code ${result.status}.`);
@@ -599,7 +626,13 @@ function describeChildExit(code, signal) {
   return 'dev server exited';
 }
 
-export async function waitForEndpointOrChildExit(endpoint, child) {
+export async function waitForEndpointOrChildExit(endpoint, child, spawnErrorCapture) {
+  if (spawnErrorCapture?.error) {
+    spawnErrorCapture.stop();
+    throw new Error(`dev server failed to start before ${endpoint} was ready.`, {
+      cause: spawnErrorCapture.error,
+    });
+  }
   if (!isChildRunning(child)) {
     throw new Error(
       `${describeChildExit(child.exitCode, child.signalCode)} before ${endpoint} was ready.`
@@ -621,6 +654,9 @@ export async function waitForEndpointOrChildExit(endpoint, child) {
     child.once('exit', onExit);
     child.once('error', onError);
   });
+  // Transfer error ownership only after the waiter is attached, leaving no
+  // next-tick gap in which a failed spawn could become an unhandled event.
+  spawnErrorCapture?.stop();
 
   try {
     await Promise.race([waitForEndpoint(endpoint, { signal: controller.signal }), childExit]);
@@ -837,6 +873,7 @@ async function main() {
   }
 
   const child = spawnPnpm(['run', 'dev:runtime'], env, process.platform, pnpmInvocation);
+  const spawnErrorCapture = captureChildSpawnError(child);
   const cleanupOptions = windowsJob ? { windowsJob } : {};
   const uninstallSignalCleanup = installSignalCleanup(child, userDataDir, cleanupOptions);
   try {
@@ -851,12 +888,13 @@ async function main() {
     // hygiene and must not sit in front of the dev server the user asked for.
     // It now overlaps with startup instead.
     reportSweep(await sweepStaleProfiles({ currentUserDataDir: userDataDir }));
-    await waitForEndpointOrChildExit(endpoint, child);
+    await waitForEndpointOrChildExit(endpoint, child, spawnErrorCapture);
     console.log('\nMCP config:\n');
     console.log(formatMcpConfig(endpoint));
     const exitCode = await waitForChildExit(child);
     process.exitCode = exitCode;
   } finally {
+    spawnErrorCapture.stop();
     uninstallSignalCleanup();
     await cleanupChildAndProfile(child, userDataDir, cleanupOptions);
   }

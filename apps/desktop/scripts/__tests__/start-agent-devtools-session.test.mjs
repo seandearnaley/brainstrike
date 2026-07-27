@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
+  captureChildSpawnError,
   cleanupChildAndProfile,
   createAgentDevtoolsProfile,
   createMacAgentDebugElectronDist,
@@ -93,6 +94,34 @@ test('re-enters the active pnpm CLI without a Windows command shim', () => {
   );
 });
 
+test('uses Windows path semantics for a Windows pnpm entrypoint on every test host', () => {
+  assert.deepEqual(
+    resolvePnpmInvocation({
+      env: { npm_execpath: 'C:\\tools\\pnpm.js' },
+      execPath: 'C:\\tools\\node.exe',
+      platform: 'win32',
+    }),
+    {
+      argsPrefix: ['C:\\tools\\pnpm.js'],
+      command: 'C:\\tools\\node.exe',
+    }
+  );
+});
+
+test('rejects npm_execpath values that are not pnpm JavaScript entrypoints', () => {
+  for (const npmExecPath of ['C:\\tools\\npm-cli.js', 'C:\\tools\\pnpm.cmd', 'tools\\pnpm.cjs']) {
+    assert.throws(
+      () =>
+        resolvePnpmInvocation({
+          env: { npm_execpath: npmExecPath },
+          execPath: 'C:\\tools\\node.exe',
+          platform: 'win32',
+        }),
+      /must point to an absolute pnpm\.cjs or pnpm\.js entry/
+    );
+  }
+});
+
 test('fails before creating a profile when Windows is not launched through pnpm', () => {
   assert.throws(
     () =>
@@ -157,6 +186,24 @@ test('surfaces a dependency preflight failure before runtime startup', () => {
         }
       ),
     /pnpm run predev exited with code 1/
+  );
+});
+
+test('surfaces the signal that terminated the dependency preflight', () => {
+  assert.throws(
+    () =>
+      runPnpmCommandSync(
+        ['run', 'predev'],
+        {},
+        {
+          invocation: {
+            argsPrefix: ['C:\\tools\\pnpm.cjs'],
+            command: 'C:\\tools\\node.exe',
+          },
+          spawnSyncImpl: () => ({ signal: 'SIGTERM', status: null }),
+        }
+      ),
+    /pnpm run predev was terminated by SIGTERM/
   );
 });
 
@@ -310,6 +357,25 @@ test('waitForEndpointOrChildExit handles spawn errors without an unhandled child
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('waitForEndpointOrChildExit consumes a spawn error captured before the waiter starts', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  const spawnError = new Error('spawn failed before first await');
+  const capture = captureChildSpawnError(child);
+
+  child.emit('error', spawnError);
+
+  await assert.rejects(
+    waitForEndpointOrChildExit('http://127.0.0.1:9222', child, capture),
+    (error) => {
+      assert.match(error.message, /dev server failed to start/);
+      assert.equal(error.cause, spawnError);
+      return true;
+    }
+  );
 });
 
 test('shutdownChildProcessTree reaps a late-writing grandchild after the direct child exits', {

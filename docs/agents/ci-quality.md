@@ -646,7 +646,9 @@ The launcher re-enters the exact pnpm CLI recorded in `npm_execpath` through
 `pnpm.cmd` shim rather than an executable that `child_process.spawn` can invoke
 directly without a shell. Missing pnpm launch context fails before the
 disposable profile is created; child spawn errors are observed and flow through
-the normal owned-tree/profile cleanup path.
+the normal owned-tree/profile cleanup path. Do not replace this with the shared
+shell-based spawn helper: the extra `cmd.exe` process would sit between the
+launcher and the process tree whose ownership the Windows Job Object enforces.
 
 The launcher owns its development subprocess tree. On POSIX, `pnpm dev` is the
 leader of a detached process group; shutdown signals that exact group with
