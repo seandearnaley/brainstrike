@@ -9,7 +9,7 @@ import {
   logRecordToDiagnosticEvent,
 } from '@brainstrike/utils/diagnostics';
 import { addLogListener, createLogger, type LogRecord } from '@brainstrike/utils/logger';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useDiagnosticSinkHealthStore } from './diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE, getDiagnosticSessionId } from './diagnostic-sink-session';
 
@@ -74,16 +74,29 @@ export function DiagnosticSinkBridge({
   source,
 }: DiagnosticSinkBridgeProps): null {
   const db = useOptionalPGliteDatabase();
+  const activeDatabaseRef = useRef<unknown>(null);
 
   useEffect(() => {
     if (!db) {
+      activeDatabaseRef.current = null;
       return;
     }
+    const databaseChanged = activeDatabaseRef.current !== db;
+    activeDatabaseRef.current = db;
+    if (databaseChanged) {
+      // Clear only for a new database identity. Other dependencies can rebuild
+      // the writer but must not erase a genuine failure for the same database.
+      useDiagnosticSinkHealthStore.getState().clear();
+    }
+    let active = true;
     const repository = new DiagnosticEventsRepository(db);
     const writer = new DiagnosticEventWriter({
       ...(flushBatchSize === undefined ? {} : { flushBatchSize }),
       makeDroppedEvent: makeDroppedEvent(source),
       onDisabled: (cause) => {
+        if (!active) {
+          return;
+        }
         const reason = boundWithMarker(
           cause instanceof Error ? cause.message : String(cause),
           DIAGNOSTIC_MESSAGE_MAX_CHARS
@@ -155,6 +168,9 @@ export function DiagnosticSinkBridge({
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
+      // Disposal can finish an in-flight flush asynchronously. Retire this
+      // generation first so its late failure cannot describe the next writer.
+      active = false;
       document.removeEventListener('visibilitychange', onVisibility);
       unsubscribe();
       unsubscribeForwarded?.();

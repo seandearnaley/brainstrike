@@ -25,23 +25,62 @@ const queries: { sql: string; params?: unknown[] | undefined }[] = [];
 // driving the writer's own failure/retry accounting. Left false for every
 // other test so their inserts continue to succeed unchanged.
 let rejectInserts = false;
-vi.mock('@brainstrike/db', async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  useOptionalPGliteDatabase: () => ({
+let deferredInsertFailure: Promise<never> | null = null;
+function createDatabaseIdentity() {
+  return {
     query: async (sql: string, params?: unknown[]) => {
       queries.push({ params, sql });
       if (rejectInserts && sql.includes('INSERT INTO brainstrike_diagnostic_events')) {
+        if (deferredInsertFailure) {
+          const failure = deferredInsertFailure;
+          deferredInsertFailure = null;
+          return failure;
+        }
         throw new Error('simulated sink insert failure');
       }
       return { rows: [] };
     },
-  }),
+  };
+}
+let databaseIdentity = createDatabaseIdentity();
+vi.mock('@brainstrike/db', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useOptionalPGliteDatabase: () => databaseIdentity,
 }));
+
+function insertAttempts(): number {
+  return queries.filter((entry) => entry.sql.includes('INSERT INTO brainstrike_diagnostic_events'))
+    .length;
+}
+
+async function driveWriterFailures(
+  attemptCount: number,
+  code: string,
+  messagePrefix: string
+): Promise<void> {
+  const attemptOffset = insertAttempts();
+  for (let attempt = 1; attempt <= attemptCount; attempt += 1) {
+    logError(`${messagePrefix} ${attemptOffset + attempt}`, { code });
+    await vi.waitFor(() => {
+      expect(insertAttempts()).toBeGreaterThanOrEqual(attemptOffset + attempt);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+async function driveWriterToDisable(code: string, messagePrefix: string): Promise<void> {
+  await driveWriterFailures(5, code, messagePrefix);
+  await vi.waitFor(() => {
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).not.toBeNull();
+  });
+}
 
 describe('DiagnosticSinkBridge', () => {
   beforeEach(() => {
     queries.length = 0;
+    deferredInsertFailure = null;
     rejectInserts = false;
+    databaseIdentity = createDatabaseIdentity();
     resetDiagnosticSinkHealthStore();
     __resetDiagnosticsRetentionStoreForTests();
   });
@@ -302,10 +341,6 @@ describe('DiagnosticSinkBridge', () => {
     rejectInserts = true;
     render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
 
-    const insertAttempts = () =>
-      queries.filter((entry) => entry.sql.includes('INSERT INTO brainstrike_diagnostic_events'))
-        .length;
-
     expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
 
     // The writer's default maxConsecutiveFailures is 5
@@ -320,27 +355,7 @@ describe('DiagnosticSinkBridge', () => {
     // `setTimeout`) forces that cleanup to fully settle before the next
     // attempt, so this genuinely drives 5 CONSECUTIVE writer-level failures
     // rather than asserting the health store directly.
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      logError(`bridge disable drive ${attempt}`, { code: 'bridge_disable_test' });
-      // Sequential await is required: each attempt must observably land
-      // before the next enqueue, or several events would bunch into one
-      // flush cycle and understate the failure count.
-      // `toBeGreaterThanOrEqual`, not `toBe`: if a slow runner ever let two
-      // enqueues bunch into one flush cycle, the counter would jump PAST
-      // `attempt` and a strict equality could never be satisfied — the
-      // waitFor would hard-timeout rather than retry. Nothing is lost by
-      // relaxing it, because the terminal `toBe(5)` below still pins the
-      // exact total.
-      await vi.waitFor(() => {
-        expect(insertAttempts()).toBeGreaterThanOrEqual(attempt);
-      });
-      // Forces the macrotask boundary described above between each attempt.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-
-    await vi.waitFor(() => {
-      expect(useDiagnosticSinkHealthStore.getState().disabledReason).not.toBeNull();
-    });
+    await driveWriterToDisable('bridge_disable_test', 'bridge disable drive');
     expect(useDiagnosticSinkHealthStore.getState().disabledReason).toContain(
       'simulated sink insert failure'
     );
@@ -350,5 +365,81 @@ describe('DiagnosticSinkBridge', () => {
     logError('after disable, should not be attempted', { code: 'bridge_disable_test' });
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(insertAttempts()).toBe(5);
+  });
+
+  it('clears stale health on a new database writer and re-arms if the replacement fails', async () => {
+    rejectInserts = true;
+    const { rerender } = render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    await driveWriterToDisable('bridge_replacement_test', 'bridge replacement drive');
+
+    rejectInserts = false;
+    databaseIdentity = createDatabaseIdentity();
+    rerender(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    await vi.waitFor(() => {
+      expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
+    });
+
+    logError('replacement writer accepts events', { code: 'bridge_replacement_healthy' });
+    await vi.waitFor(() => {
+      expect(
+        queries.some(
+          (entry) =>
+            entry.sql.includes('INSERT INTO brainstrike_diagnostic_events') &&
+            JSON.stringify(entry.params).includes('bridge_replacement_healthy')
+        )
+      ).toBe(true);
+    });
+
+    rejectInserts = true;
+    await driveWriterToDisable('bridge_replacement_test', 'bridge replacement drive');
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toContain(
+      'simulated sink insert failure'
+    );
+  });
+
+  it('ignores a disable callback that settles after its writer is retired', async () => {
+    rejectInserts = true;
+    const { rerender } = render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+
+    await driveWriterFailures(4, 'bridge_retired_writer_test', 'bridge retired writer drive');
+
+    const deferredInsert = {
+      reject: (_cause: Error): void => {
+        throw new Error('deferred insert rejection unavailable for test');
+      },
+    };
+    deferredInsertFailure = new Promise<never>((_resolve, reject) => {
+      deferredInsert.reject = reject;
+    });
+    logError('bridge retired writer pending failure', { code: 'bridge_retired_writer_test' });
+    await vi.waitFor(() => {
+      expect(insertAttempts()).toBe(5);
+    });
+
+    rejectInserts = false;
+    databaseIdentity = createDatabaseIdentity();
+    rerender(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+    await vi.waitFor(() => {
+      expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
+    });
+
+    deferredInsert.reject(new Error('retired writer insert failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toBeNull();
+  });
+
+  it('does not clear a disabled warning when non-database props rebuild the writer', async () => {
+    rejectInserts = true;
+    const { rerender } = render(<DiagnosticSinkBridge flushBatchSize={1} source="web-renderer" />);
+    await driveWriterToDisable('bridge_same_database_test', 'bridge same database drive');
+
+    rerender(<DiagnosticSinkBridge flushBatchSize={1} source="desktop-renderer" />);
+
+    expect(useDiagnosticSinkHealthStore.getState().disabledReason).toContain(
+      'simulated sink insert failure'
+    );
   });
 });
