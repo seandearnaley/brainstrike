@@ -413,9 +413,14 @@ export class AgentSqlService {
   private async admit(
     tx: AgentSqlTransaction,
     statement: string,
-    options: { boundedByRowCap: boolean }
+    options: { boundedByRowCap: boolean },
+    params: readonly unknown[] = []
   ): Promise<number> {
-    const explained = await tx.query<ExplainRow>(`EXPLAIN (FORMAT JSON) ${statement}`);
+    // The SAME binds the statement will execute with. PGlite plans
+    // parameterized statements over the extended protocol (verified on
+    // 0.5.3), and planning with the real values is what makes the cost
+    // estimate honest for a parameterized lens.
+    const explained = await tx.query<ExplainRow>(`EXPLAIN (FORMAT JSON) ${statement}`, params);
     const { cost, plan } = readPlanRoot(explained.rows);
 
     // Reported before a cost rejection when both would fire: this names a
@@ -437,11 +442,20 @@ export class AgentSqlService {
    * pg_read_file`, teaches the model to write a correct query. Collapsing them
    * into a generic failure would make the tool unusable.
    */
-  async query(sql: string, options: { maxRows?: number } = {}): Promise<AgentSqlQueryResult> {
+  async query(
+    sql: string,
+    options: { maxRows?: number; params?: readonly unknown[] } = {}
+  ): Promise<AgentSqlQueryResult> {
     const statement = sql.trim();
     if (statement.length === 0) {
       throw new AgentSqlInputError('SQL statement must not be empty.');
     }
+    // Positional binds (BST-921 lenses). The row-cap wrapper below never
+    // renumbers `$n` — its LIMIT is a literal — so caller positions pass
+    // through unchanged, and a count mismatch is the ENGINE's error, surfaced
+    // verbatim. Values ride the extended protocol; they are never
+    // interpolated into the SQL text.
+    const params = options.params ?? [];
 
     const maxRows = options.maxRows ?? DEFAULT_AGENT_SQL_MAX_ROWS;
     if (!Number.isInteger(maxRows) || maxRows < 1 || maxRows > MAX_AGENT_SQL_MAX_ROWS) {
@@ -458,7 +472,11 @@ export class AgentSqlService {
     const unterminated = statement.replace(/;\s*$/, '');
 
     // Fetch one extra row so truncation is detected without a second query.
-    const wrapped = `SELECT * FROM (${unterminated}) AS _bs_agent_q LIMIT ${maxRows + 1}`;
+    // The newline before the closing paren is load-bearing: a statement
+    // ending in a `-- line comment` (plausible in a multi-line lens file)
+    // would otherwise swallow `) AS _bs_agent_q LIMIT n` into the comment and
+    // fail with a cryptic `syntax error at end of input` (#2034 review).
+    const wrapped = `SELECT * FROM (${unterminated}\n) AS _bs_agent_q LIMIT ${maxRows + 1}`;
 
     return await this.db.transaction(async (tx) => {
       await tx.exec('SET TRANSACTION READ ONLY');
@@ -466,9 +484,9 @@ export class AgentSqlService {
 
       // boundedByRowCap: the LIMIT wrapper above can stop a recursion, but only
       // when every plan node between them forwards its demand AND emits rows.
-      const estimatedCost = await this.admit(tx, wrapped, { boundedByRowCap: true });
+      const estimatedCost = await this.admit(tx, wrapped, { boundedByRowCap: true }, params);
 
-      const result = await tx.query<unknown[]>(wrapped, [], { rowMode: 'array' });
+      const result = await tx.query<unknown[]>(wrapped, params, { rowMode: 'array' });
       const truncated = result.rows.length > maxRows;
 
       return {

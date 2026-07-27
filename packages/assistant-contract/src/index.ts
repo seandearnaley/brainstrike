@@ -10,6 +10,7 @@ export * from './edit-checkpoints.js';
 export * from './file-mention-directive.js';
 export * from './guarded-tool-error.js';
 export * from './hook-trust-request.js';
+export * from './lenses.js';
 export * from './local-llm.js';
 export * from './local-llm-artifacts.js';
 export * from './local-llm-device.js';

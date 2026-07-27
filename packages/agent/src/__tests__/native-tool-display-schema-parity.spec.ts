@@ -126,7 +126,14 @@ describe('native tool display schema parity', () => {
     const modeField = unwrap(zodShape['mode'] as z.ZodTypeAny);
     expect(modeField).toBeInstanceOf(z.ZodEnum);
     const modes = [...((modeField as z.ZodEnum<[string, ...string[]]>).options as string[])];
-    expect(modes.sort()).toEqual(['describeTable', 'explain', 'listTables', 'query']);
+    expect(modes.sort()).toEqual([
+      'describeTable',
+      'explain',
+      'lens',
+      'listLenses',
+      'listTables',
+      'query',
+    ]);
 
     const modeDescription =
       display.parameters.find((parameter) => parameter.name === 'mode')?.description ?? '';

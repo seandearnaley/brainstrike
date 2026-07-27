@@ -742,11 +742,25 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     parameters: [
       {
         description:
-          "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql, 'explain' returns sql's query plan. Fields the chosen mode does not use are ignored",
-        enumValues: ['query', 'listTables', 'describeTable', 'explain'],
+          "What to do: 'listTables' lists readable tables, 'describeTable' lists one table's columns, 'query' runs sql, 'explain' returns sql's query plan, 'listLenses' lists saved lenses (.brainstrike/lenses/*.sql), 'lens' runs one by id. Fields the chosen mode does not use are ignored",
+        enumValues: ['query', 'listTables', 'describeTable', 'explain', 'listLenses', 'lens'],
         name: 'mode',
         required: true,
         type: 'enum',
+      },
+      {
+        description: 'Lens id. Required for mode=lens',
+        maxLength: 64,
+        name: 'lens',
+        required: false,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'string',
+        description: 'mode=lens: one string per declared lens param, in order',
+        name: 'values',
+        required: false,
+        type: 'array',
       },
       {
         description: 'A single SQL SELECT. Required for mode=query and mode=explain',

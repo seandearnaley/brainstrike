@@ -20,8 +20,14 @@
  * trusted input errors rather than being redacted.
  */
 
+import { homedir } from 'node:os';
 import { fitItemsToCharBudget, type QuerySelfInput, type RuntimeData } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  coerceLensValues,
+  type LensParamSpec,
+  NATIVE_TOOL_ID,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import {
   AgentSqlCostRejectedError,
   AgentSqlInputError,
@@ -30,6 +36,8 @@ import {
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getDatabase } from '../db-main';
+import { createNodeFsScanDeps } from '../ipc-user-commands-handlers';
+import { scanUserLenses, type UserLensScanResult } from './lens-loader';
 
 const logger = createLogger('AssistantQuerySelfTool');
 
@@ -38,6 +46,7 @@ export const QUERY_SELF_TOOL_ID = NATIVE_TOOL_ID.querySelf;
 export const QUERY_SELF_ERROR_MESSAGES = {
   analyzeOutsideExplain:
     'analyze is only meaningful with mode="explain". Set mode="explain" to execute the statement for real timings, or drop analyze.',
+  missingLens: 'mode="lens" requires a lens id. Use mode="listLenses" to see them.',
   missingSql: 'mode="query" and mode="explain" require a sql statement.',
   missingTable: 'mode="describeTable" requires a table name. Use mode="listTables" to see them.',
   queryFailed: 'Self-query failed. Please try again.',
@@ -80,11 +89,30 @@ export interface QuerySelfPlanResult {
   plan: string[];
 }
 
+export interface QuerySelfLensesResult {
+  /** Broken lens files, VISIBLE with their parse errors (fail closed, never silent). */
+  invalid: { error: string; fileName: string; source: string }[];
+  kind: 'lenses';
+  lenses: {
+    description: string;
+    id: string;
+    params: { description: string; name: string; type: string }[];
+    /** Owning root id, or 'global' for `~/.brainstrike` — "which file is
+     * this" is the load-bearing fact for a reviewable artifact. */
+    source: string;
+  }[];
+  /** Same-id files suppressed by first-wins — shadowing must be visible. */
+  shadowed: { fileName: string; keptSource: string; source: string }[];
+  /** Directories whose listing hit the scan bound (later files unread). */
+  truncatedDirs: string[];
+}
+
 export type QuerySelfResult =
   | QuerySelfQueryResult
   | QuerySelfTablesResult
   | QuerySelfColumnsResult
-  | QuerySelfPlanResult;
+  | QuerySelfPlanResult
+  | QuerySelfLensesResult;
 
 /**
  * Renders one value for the model.
@@ -164,10 +192,107 @@ function handleQuerySelfError(error: unknown): never {
   throw new Error(QUERY_SELF_ERROR_MESSAGES.queryFailed);
 }
 
+/**
+ * Scan lenses from disk over the request's already-resolved workspace roots
+ * (SecureRoot-backed fs; disposed after the scan). Mirrors
+ * `scanUserPersonasFromDisk` in assistant-server.ts.
+ */
+function scanLensesFromDisk(workspaceRoots: RuntimeData['workspaceRoots']): UserLensScanResult {
+  const filesystem = createNodeFsScanDeps();
+  try {
+    const scanRoots = (workspaceRoots ?? [])
+      .filter((root) => Boolean(root.path))
+      .map((root) => ({
+        absPath: root.path,
+        displayName: root.displayName,
+        id: root.rootId,
+      }));
+    return scanUserLenses({ homeDir: homedir(), roots: scanRoots }, filesystem);
+  } finally {
+    filesystem.dispose();
+  }
+}
+
+function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
+  const sourceOf = (rootId: string | undefined): string => rootId ?? 'global';
+  const okEntries = scan.entries.filter((entry) => entry.status === 'ok');
+  return {
+    invalid: scan.entries
+      .filter((entry) => entry.status === 'invalid')
+      .map((entry) => ({
+        error: entry.error,
+        fileName: entry.fileName,
+        source: sourceOf(entry.sourceRootId),
+      })),
+    kind: 'lenses',
+    lenses: okEntries.map((entry) => ({
+      description: entry.lens.description,
+      id: entry.lens.id,
+      params: entry.lens.params.map((param: LensParamSpec) => ({
+        description: param.description,
+        name: param.name,
+        type: param.type,
+      })),
+      source: sourceOf(entry.sourceRootId),
+    })),
+    shadowed: scan.shadowed.map((item) => ({
+      fileName: item.fileName,
+      keptSource: sourceOf(item.keptRootId),
+      source: sourceOf(item.sourceRootId),
+    })),
+    truncatedDirs: [...scan.truncatedDirs],
+  };
+}
+
+/**
+ * Resolve a lens invocation to `{ sql, params }`. The lens file already passed
+ * the parse-time placeholder discipline; values arrive as positional strings
+ * and are coerced by the DECLARED types — both failure shapes are
+ * model-correctable input errors, and the values themselves only ever travel
+ * as bind parameters (never interpolated into the SQL).
+ */
+function resolveLensInvocation(
+  input: QuerySelfInput,
+  scan: UserLensScanResult
+): { params: readonly unknown[]; sql: string } {
+  const id = input.lens?.trim();
+  if (!id) {
+    throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingLens);
+  }
+  const lens = scan.lenses.find((candidate) => candidate.id === id);
+  if (!lens) {
+    // A broken file RESERVES its id (a malformed project lens must never
+    // silently fall through to a same-named global one), so the honest
+    // answer here is the parse error, not "unknown".
+    const invalid = scan.entries.find(
+      (entry) => entry.status === 'invalid' && entry.fileName.replace(/\.sql$/i, '') === id
+    );
+    if (invalid && invalid.status === 'invalid') {
+      throw new AgentSqlInputError(`Lens "${id}" exists but is invalid: ${invalid.error}`);
+    }
+    const available = scan.lenses.map((candidate) => candidate.id).join(', ');
+    throw new AgentSqlInputError(
+      `Unknown lens "${id}". Available: ${available.length > 0 ? available : '(none)'}. Use mode="listLenses" for details.`
+    );
+  }
+  const coerced = coerceLensValues(lens.params, input.values ?? []);
+  if (!coerced.ok) {
+    throw new AgentSqlInputError(coerced.error);
+  }
+  return { params: coerced.values, sql: lens.sql };
+}
+
+/** Test seam: inject the lens scan; production scans the request's roots. */
+export interface QuerySelfToolOptions {
+  readonly scanLenses?: () => UserLensScanResult;
+}
+
 export async function runQuerySelf(
   input: QuerySelfInput,
-  _runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  options: QuerySelfToolOptions = {}
 ): Promise<QuerySelfResult> {
+  const scanLenses = options.scanLenses ?? (() => scanLensesFromDisk(runtimeData?.workspaceRoots));
   try {
     // NO SILENT FALLBACKS: `analyze` means "execute it and give me real
     // timings". Ignoring it outside explain would discard the model's stated
@@ -177,6 +302,12 @@ export async function runQuerySelf(
     // and broke 100% of calls once already (see QuerySelfInputSchema).
     if (input.analyze === true && input.mode !== 'explain') {
       throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.analyzeOutsideExplain);
+    }
+
+    if (input.mode === 'listLenses') {
+      // No database needed: the listing is a pure directory scan, and invalid
+      // files are part of the answer.
+      return toLensListing(scanLenses());
     }
 
     const db = await getDatabase();
@@ -197,6 +328,11 @@ export async function runQuerySelf(
       return { columns, kind: 'columns', table };
     }
 
+    if (input.mode === 'lens') {
+      const invocation = resolveLensInvocation(input, scanLenses());
+      return await runRowsQuery(service, invocation.sql, input.maxRows, invocation.params);
+    }
+
     const sql = input.sql?.trim();
     if (!sql) {
       throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingSql);
@@ -209,41 +345,56 @@ export async function runQuerySelf(
       return { analyzed: explained.analyzed, kind: 'plan', plan: explained.plan };
     }
 
-    const result = await service.query(sql, {
-      ...(input.maxRows === undefined ? {} : { maxRows: input.maxRows }),
-    });
-
-    const rows: QuerySelfRow[] = result.rows.map((row) => ({
-      cells: row.map(renderCell),
-    }));
-
-    // Self-bound to the native tool output budget: return a SUCCESSFUL partial
-    // result with an explicit hint rather than a size error. A short result the
-    // model believes is complete would be a silent correctness failure.
-    const buildResult = (kept: QuerySelfRow[]): QuerySelfQueryResult => {
-      const budgetTruncated = kept.length < rows.length;
-      const truncated = result.truncated || budgetTruncated;
-      return {
-        columns: result.columns,
-        estimatedCost: result.estimatedCost,
-        kind: 'rows',
-        rowCount: kept.length,
-        rows: kept,
-        truncated,
-        ...(truncated
-          ? {
-              hint: budgetTruncated
-                ? `Showing ${kept.length} of ${rows.length} returned rows (output budget). Select fewer columns, or aggregate.`
-                : `More rows matched than the ${result.maxRows}-row cap. Add a LIMIT, narrow the WHERE clause, or aggregate.`,
-            }
-          : {}),
-      };
-    };
-
-    return fitItemsToCharBudget(rows, buildResult).result;
+    return await runRowsQuery(service, sql, input.maxRows);
   } catch (error) {
     handleQuerySelfError(error);
   }
+}
+
+/**
+ * Execute one statement and shape its rows for the model — shared by
+ * mode="query" and mode="lens" so a lens result is EXACTLY a query result
+ * (same rendering, same budget behaviour, same truncation hints).
+ */
+async function runRowsQuery(
+  service: AgentSqlService,
+  sql: string,
+  maxRows: number | undefined,
+  params?: readonly unknown[]
+): Promise<QuerySelfQueryResult> {
+  const result = await service.query(sql, {
+    ...(maxRows === undefined ? {} : { maxRows }),
+    ...(params === undefined ? {} : { params }),
+  });
+
+  const rows: QuerySelfRow[] = result.rows.map((row) => ({
+    cells: row.map(renderCell),
+  }));
+
+  // Self-bound to the native tool output budget: return a SUCCESSFUL partial
+  // result with an explicit hint rather than a size error. A short result the
+  // model believes is complete would be a silent correctness failure.
+  const buildResult = (kept: QuerySelfRow[]): QuerySelfQueryResult => {
+    const budgetTruncated = kept.length < rows.length;
+    const truncated = result.truncated || budgetTruncated;
+    return {
+      columns: result.columns,
+      estimatedCost: result.estimatedCost,
+      kind: 'rows',
+      rowCount: kept.length,
+      rows: kept,
+      truncated,
+      ...(truncated
+        ? {
+            hint: budgetTruncated
+              ? `Showing ${kept.length} of ${rows.length} returned rows (output budget). Select fewer columns, or aggregate.`
+              : `More rows matched than the ${result.maxRows}-row cap. Add a LIMIT, narrow the WHERE clause, or aggregate.`,
+          }
+        : {}),
+    };
+  };
+
+  return fitItemsToCharBudget(rows, buildResult).result;
 }
 
 /**
@@ -273,6 +424,6 @@ export function toQuerySelfInputError(error: unknown): Error {
     .join('; ');
 
   return new ToolInputError(
-    `Invalid querySelf input — ${detail}. Required: mode = "listTables" | "describeTable" | "query" | "explain"; pass sql for mode="query" or "explain", table for mode="describeTable".`
+    `Invalid querySelf input — ${detail}. Required: mode = "listTables" | "describeTable" | "query" | "explain" | "listLenses" | "lens"; pass sql for mode="query" or "explain", table for mode="describeTable", lens (+ values) for mode="lens".`
   );
 }
