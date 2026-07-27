@@ -129,8 +129,25 @@ describe('provider-factory', () => {
       const model = createLanguageModelProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
 
       expect(model.modelId).toBe('z-ai/glm-5.2');
-      expect(model.provider).toBe('openrouter');
       expect(model.doStream).toBeTypeOf('function');
+    });
+
+    it('gives OpenRouter persistent-memory models a spec version @mastra/memory can execute', () => {
+      // The OM observer agent runs inside @mastra/memory's BUNDLED core, which
+      // dispatches only spec 'v1'/'v2' language models. Wrapping the OpenRouter
+      // router descriptor in ModelRouterLanguageModel yields spec 'v3', and
+      // every observation cycle then dies with "Unsupported model version.
+      // AI SDK 4 only supports … v1" (BST-940 field failure on z-ai/glm-5.2
+      // chats). The persistent-memory factory must therefore construct a
+      // direct spec-'v2' OpenAI-compatible model against OpenRouter instead.
+      const model = createLanguageModelProvider(
+        'openrouter',
+        'test-key',
+        'google/gemini-2.5-flash'
+      );
+
+      expect(model.specificationVersion).toBe('v2');
+      expect(model.modelId).toBe('google/gemini-2.5-flash');
     });
 
     it('rejects a hosted router model without an explicit credential', () => {

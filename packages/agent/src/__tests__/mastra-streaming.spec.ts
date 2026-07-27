@@ -1676,6 +1676,50 @@ describe('mastra streaming integration', () => {
     }
   });
 
+  it('surfaces observational-memory FAILURE data chunks as visible run events (BST-940 field failure)', async () => {
+    // Mastra 1.51 streams OM bookkeeping as dynamic `data-om-*` chunks. The
+    // failure variants carried the ONLY runtime evidence of a broken observer
+    // in the field (every cycle dying with a model-version error) yet the
+    // mapper dropped them as "unrecognized" — a silent degradation. Failures
+    // must surface as run events; non-failure bookkeeping stays silent
+    // (Mastra persists it itself) without unrecognized-chunk warn spam.
+    setMockStreamParts([
+      { payload: { phase: 'buffering' }, type: 'data-om-status' },
+      { payload: {}, type: 'data-om-buffering-start' },
+      {
+        payload: {
+          error: 'Unsupported model version. AI SDK 4 only supports v1.',
+          operationType: 'observation',
+        },
+        type: 'data-om-buffering-failed',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'observe', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const runEvents = chunks.filter(
+      (chunk) => (chunk as { type?: string }).type === 'run-event'
+    ) as { event: { detail?: string; kind: string; status: string } }[];
+    const omFailures = runEvents.filter(
+      (chunk) => chunk.event.kind === 'memory.observation.failed'
+    );
+    expect(omFailures).toHaveLength(1);
+    expect(omFailures[0]?.event.status).toBe('failed');
+    expect(omFailures[0]?.event.detail).toContain('Unsupported model version');
+    // Non-failure OM bookkeeping produces no chunks at all.
+    const kinds = runEvents.map((chunk) => chunk.event.kind);
+    expect(kinds.filter((kind) => kind === 'memory.observation.failed')).toHaveLength(1);
+  });
+
   it('surfaces Mastra reasoning and run lifecycle chunks', async () => {
     setMockStreamParts([
       { messageId: 'msg-1', type: 'start' },

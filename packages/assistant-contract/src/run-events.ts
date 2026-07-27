@@ -9,6 +9,12 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'memory.configured',
   'memory.history.loaded',
   'memory.observation.completed',
+  // A background observation/buffering cycle FAILED (streamed by Mastra as a
+  // `data-om-*-failed` chunk). Deliberately its own kind: this was the only
+  // runtime evidence of the BST-940 field failure (a broken observer failing
+  // every cycle) and must stay visible in the run timeline, never dropped as
+  // an unrecognized chunk.
+  'memory.observation.failed',
   'memory.observation.started',
   'memory.reflection.completed',
   'memory.reflection.started',

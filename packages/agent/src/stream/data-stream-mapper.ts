@@ -264,6 +264,14 @@ function toArgsObject(value: unknown, fallbackText?: string): unknown {
 export class DataStreamMapper {
   private readonly messageId: string;
   private readonly toolState = new Map<string, ToolState>();
+  /**
+   * Tool calls whose result/error already settled on the wire. Late events for
+   * these ids must never resurrect the call through the out-of-order
+   * auto-start (a duplicate `b` frame throws in the renderer decoder) or emit
+   * further args deltas (the renderer closed that call's argsText on `9`).
+   * Bounded by the number of tool calls in one stream (session-lived).
+   */
+  private readonly settledToolCallIds = new Set<string>();
   private currentStep: StepState | null = null;
   private nextStepIndex = 0;
   private finishEmitted = false;
@@ -554,6 +562,14 @@ export class DataStreamMapper {
     }
 
     if (!this.toolState.has(callId)) {
+      if (chunk.status === 'progress' && this.settledToolCallIds.has(callId)) {
+        // Trailing progress for an already-settled call (GLM-5.2 via
+        // OpenRouter emits these): auto-starting again would put a duplicate
+        // `b` on the wire and the renderer decoder throws on duplicate tool
+        // call ids, failing the whole run.
+        logger.debug('Dropping tool progress for a settled tool call', { toolCallId: callId });
+        return;
+      }
       yield* this.handleToolStart(toolName, callId, chunk.payload);
     }
 
@@ -691,6 +707,7 @@ export class DataStreamMapper {
       // the step errored, which is false — no tool failed, and the run stays
       // suspended and resumable by a build that registers the tool.
       this.toolState.delete(callId);
+      this.settledToolCallIds.add(callId);
       yield {
         code: DataStreamCode.toolCallResult,
         value: {
@@ -734,9 +751,20 @@ export class DataStreamMapper {
         return;
       }
       const state = this.toolState.get(callId);
-      if (state) {
-        state.pendingArgsText += delta;
+      // Emit the `c` frame ONLY while this call's args are still streaming.
+      // The renderer's assistant-stream decoder closes the call's argsText
+      // controller on the complete `9` frame (and throws on unknown ids), so
+      // a trailing delta after args completion / after the result — GLM-5.2
+      // via OpenRouter emits these — would crash the whole run with an
+      // unhandled "Cannot enqueue a chunk into a readable stream that is
+      // closed" TypeError. The full args were already assembled from
+      // `pendingArgsText`/`lastInput`, so a swallowed trailing delta loses
+      // nothing visible.
+      if (!state || state.argsEmitted) {
+        logger.debug('Dropping tool args delta after args completion', { toolCallId: callId });
+        return;
       }
+      state.pendingArgsText += delta;
       yield {
         code: DataStreamCode.toolCallArgsTextDelta,
         value: { argsTextDelta: delta, toolCallId: callId },
@@ -781,6 +809,7 @@ export class DataStreamMapper {
         } satisfies EncodedChunk;
       }
       this.toolState.delete(callId);
+      this.settledToolCallIds.add(callId);
       yield {
         code: DataStreamCode.toolCallResult,
         value: { isError: true, result: bounded.output, toolCallId: callId },
@@ -798,6 +827,7 @@ export class DataStreamMapper {
       } satisfies EncodedChunk;
     }
     this.toolState.delete(callId);
+    this.settledToolCallIds.add(callId);
     yield {
       code: DataStreamCode.toolCallResult,
       value: { result: bounded.output, toolCallId: callId },
@@ -824,6 +854,7 @@ export class DataStreamMapper {
     }
 
     this.toolState.delete(callId);
+    this.settledToolCallIds.add(callId);
     yield {
       code: DataStreamCode.toolCallResult,
       value: { isError: true, result: output, toolCallId: callId },

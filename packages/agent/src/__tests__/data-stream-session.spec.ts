@@ -181,6 +181,79 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 5, outputTokens: 7 });
   });
 
+  it('drops trailing args deltas after the tool call completed (renderer closes argsText on `9`)', async () => {
+    // GLM-5.2 via OpenRouter emits trailing tool-call input deltas after the
+    // complete tool call. A `c` frame after `9` makes assistant-stream's
+    // decoder append into a CLOSED argsText controller — an unhandled
+    // "Cannot enqueue a chunk into a readable stream that is closed"
+    // TypeError that fails the whole run. The mapper must swallow them.
+    const chunks: StreamChunk[] = [
+      {
+        name: 'weather.lookup',
+        payload: { args: {}, toolCallId: 'call-late' },
+        status: 'start',
+        type: 'tool-event',
+      },
+      {
+        name: 'weather.lookup',
+        payload: {
+          argsTextDelta: '{"city":"SF"}',
+          step: 'input_stream_delta',
+          toolCallId: 'call-late',
+        },
+        status: 'progress',
+        type: 'tool-event',
+      },
+      {
+        name: 'weather.lookup',
+        payload: { step: 'input_stream_end', toolCallId: 'call-late' },
+        status: 'progress',
+        type: 'tool-event',
+      },
+      // Trailing delta AFTER the args completed — must not reach the wire.
+      {
+        name: 'weather.lookup',
+        payload: { argsTextDelta: '{"city"', step: 'input_stream_delta', toolCallId: 'call-late' },
+        status: 'progress',
+        type: 'tool-event',
+      },
+      {
+        name: 'weather.lookup',
+        payload: { output: { tempC: 18 }, toolCallId: 'call-late' },
+        status: 'success',
+        type: 'tool-event',
+      },
+      // Trailing delta AFTER the result (tool state already discarded) — the
+      // auto-start defense for out-of-order events must NOT resurrect a
+      // duplicate `b` for a COMPLETED id (the renderer throws on duplicate
+      // tool call ids); the delta is dropped instead.
+      {
+        name: 'weather.lookup',
+        payload: { argsTextDelta: ':"SF"}', step: 'input_stream_delta', toolCallId: 'call-late' },
+        status: 'progress',
+        type: 'tool-event',
+      },
+      { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-late-delta',
+      sessionId: 'sess-late-delta',
+    });
+
+    const lines = await readResponse(session.createResponse());
+    const codes = lines.map((line) => line.slice(0, 1));
+    expect(codes).toStrictEqual([
+      'f', // start-step
+      'b', // tool call start
+      'c', // the one legitimate args delta
+      '9', // complete tool call (renderer closes argsText here)
+      'a', // result
+      'e', // finish-step
+      'd', // finish-message
+    ]);
+  });
+
   it('emits completed tool-call args before successful non-streaming tool results', async () => {
     const chunks: StreamChunk[] = [
       {

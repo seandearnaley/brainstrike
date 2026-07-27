@@ -294,6 +294,28 @@ function isOpenAICompatibleConfig(
 }
 
 /**
+ * Present a current @ai-sdk embedding model (specification 'v4') as spec 'v3'
+ * for Mastra memory. V3 and V4 are structurally identical apart from the
+ * `specificationVersion` literal, but the literal is LOAD-BEARING inside
+ * @mastra/memory: its embed dispatch switches on it ('v3' → embedMany3,
+ * 'v2' → embedMany2, anything else → a legacy v1-only pipeline that throws
+ * "AI SDK 4 only supports … v1"). A raw 'v4' model therefore fails every
+ * observational-memory VECTOR retrieval cycle and semantic-recall embed
+ * (BST-940 field failure, debug bundle 2026-07-27). Same facade technique
+ * @mastra/memory itself uses internally (`asEmbeddingModelV3`).
+ */
+function asSpecV3EmbeddingModel(model: unknown): MastraEmbeddingModel<string> {
+  return new Proxy(model as object, {
+    get(target, prop, receiver) {
+      if (prop === 'specificationVersion') {
+        return 'v3';
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as MastraEmbeddingModel<string>;
+}
+
+/**
  * Create a hosted embedding model instance for Mastra semantic recall.
  *
  * Local/browser embedders are intentionally excluded here: desktop local
@@ -318,20 +340,12 @@ export function createEmbeddingProvider(
   switch (provider) {
     case 'openai': {
       const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
-      // @ai-sdk/provider@4.x's EmbeddingModelV4 is not yet in @mastra/core's
-      // MastraEmbeddingModel union (which caps at EmbeddingModelV2|V3 as of
-      // 1.49.0 -- Mastra's AI SDK v7/V4 support, PR #18477, only covers
-      // language models). V3 and V4 are structurally identical apart from
-      // the `specificationVersion` literal ('v3' vs 'v4'), so this cast is
-      // safe pending an upstream Mastra embedding-model update. See
-      // docs/dependency-updates-breaking-changes.md.
-      return openaiProvider.embeddingModel(model) as unknown as MastraEmbeddingModel<string>;
+      return asSpecV3EmbeddingModel(openaiProvider.embeddingModel(model));
     }
 
     case 'google': {
       const googleProvider = createGoogleGenerativeAI(apiKey ? { apiKey } : undefined);
-      // Same upstream gap as the openai branch above.
-      return googleProvider.embeddingModel(model) as unknown as MastraEmbeddingModel<string>;
+      return asSpecV3EmbeddingModel(googleProvider.embeddingModel(model));
     }
 
     case 'anthropic':

@@ -318,6 +318,17 @@ Construction seams that receive no settings (memory factory default arg,
 desktop-server absent-field fallbacks) use
 `CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS` (observation OFF) — an
 absent settings object must never manufacture an enabled observer.
+Hosted EMBEDDERS for Mastra memory (`createEmbeddingProvider`) are wrapped in
+`asSpecV3EmbeddingModel`: current @ai-sdk embedding models declare
+specification 'v4', and @mastra/memory's embed dispatch switches on that
+literal ('v3'/'v2' → modern pipelines, anything else → a legacy v1-only
+pipeline that throws "AI SDK 4 only supports … v1"). A raw 'v4' embedder
+therefore failed EVERY observational-memory vector-retrieval cycle in the
+field (BST-940 debug bundle 2026-07-27) — the facade is load-bearing, not a
+type cast. OM cycle failures streamed as `data-om-*-failed` chunks surface as
+durable `memory.observation.failed` run events (see assistant-runtime.md).
+Pinned by the VECTOR-retrieval and observer wire cases in
+`mastra-memory-persistence.integration.spec.ts`.
 Known gap: WEB local turns still use the in-renderer LocalRuntimeChat (no
 history adapter) and remain session-only.
 
