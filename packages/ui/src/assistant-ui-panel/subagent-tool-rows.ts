@@ -1,5 +1,5 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { extractPrimaryArg } from './tool-fallback';
+import { extractPrimaryArg } from './tool-summaries';
 
 export type SubAgentToolRowStatus = 'error' | 'running' | 'success';
 

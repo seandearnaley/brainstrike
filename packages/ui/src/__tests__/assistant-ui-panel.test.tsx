@@ -87,8 +87,8 @@ vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Stub the heavy ToolFallback card but keep the real `extractPrimaryArg`
-// helper — the Activity group summary imports it from this module.
+// Stub the heavy ToolFallback card. (The summary helpers the Activity group
+// uses live in tool-summaries.ts and stay real.)
 vi.mock('../../src/assistant-ui-panel/tool-fallback', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../src/assistant-ui-panel/tool-fallback')>();
