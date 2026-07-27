@@ -1,5 +1,6 @@
 import type { AssistantMemoryThread } from './assistant-memory-repository';
 import type { AssistantThreadGroup } from './assistant-thread-groups-repository';
+import { THREAD_CONTROL_ROW_PITCH_PX } from './assistant-thread-presentation';
 import type { ThreadListView } from './thread-list-sections';
 
 export const THREAD_PANEL_INITIAL_VISIBLE_LIMIT = 50;
@@ -39,6 +40,29 @@ export type ThreadPanelVisibleRow =
       readonly parentId: `group:${string}`;
       readonly sectionKey: Exclude<ThreadPanelSectionKey, 'flat'>;
     };
+
+/**
+ * Pre-measurement height estimate per row kind, in px. TreeTable re-measures
+ * after mount, so these only govern first-paint scrollbar length and
+ * `scrollToIndex` accuracy into an unmeasured region — but one blanket estimate
+ * gets three of the four kinds wrong, and the error scales with group count.
+ *
+ * Measured in the running renderer, not derived from the Tailwind classes:
+ * group header 40, drop-zone/empty 40, show-more 36, thread 28 + 2px margin
+ * either side — the same values at 303.5px and 218.5px panel width. The empty
+ * and show-more rows carry text that can wrap at extreme widths, so those two
+ * are their unwrapped min-height; re-measurement corrects the rest.
+ */
+const THREAD_PANEL_ROW_HEIGHT_PX = {
+  empty: 40,
+  group: 40,
+  'show-more': 36,
+  thread: THREAD_CONTROL_ROW_PITCH_PX,
+} as const satisfies Record<ThreadPanelVisibleRow['kind'], number>;
+
+export function getThreadPanelRowHeightPx(kind: ThreadPanelVisibleRow['kind']): number {
+  return THREAD_PANEL_ROW_HEIGHT_PX[kind];
+}
 
 export interface ThreadPanelVisibleRowsResult {
   readonly rows: readonly ThreadPanelVisibleRow[];

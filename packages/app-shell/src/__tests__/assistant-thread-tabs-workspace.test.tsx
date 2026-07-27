@@ -5,6 +5,14 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
+import {
+  ASSISTANT_THREAD_COLOR_PRESENTATION,
+  THREAD_CONTROL_ACTION_CLASS_NAME,
+  THREAD_CONTROL_HEIGHT_CLASS_NAME,
+  THREAD_CONTROL_MARK_CLASS_NAME,
+  THREAD_CONTROL_TITLE_CLASS_NAME,
+  UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION,
+} from '../assistant-thread-presentation';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
 
@@ -292,6 +300,72 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(screen.getByTestId('assistant-thread-tab-icon-unassigned')).toBeVisible();
   });
 
+  it('tints the whole tab with the same color surface the threads panel row uses', async () => {
+    renderWorkspace();
+
+    const activeShell = (
+      await screen.findByRole('tab', { name: /Purchasing app search log/ })
+    ).closest('[data-thread-color]');
+    // Active tab = the panel row's selected fill, not a hardcoded neutral surface.
+    expect(activeShell).toHaveClass(
+      ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.selectedClassName.split(' ')
+    );
+    expect(activeShell).not.toHaveClass('bg-background');
+
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+
+    const idleShell = screen
+      .getByRole('tab', { name: /Purchasing app search log/ })
+      .closest('[data-thread-color]');
+    expect(idleShell).toHaveClass(
+      ...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.idleClassName.split(' ')
+    );
+    expect(idleShell).not.toHaveClass('hover:bg-background/70');
+
+    // Unassigned threads still get a surface — neutral, never blue.
+    const neutralShell = screen
+      .getByRole('tab', { name: /Amazon Bedrock Converse/ })
+      .closest('[data-thread-color]');
+    expect(neutralShell).toHaveClass(
+      ...UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION.selectedClassName.split(' ')
+    );
+  });
+
+  it('sizes the tab from the shared thread control density contract', async () => {
+    renderWorkspace();
+
+    const shell = (await screen.findByRole('tab', { name: /Purchasing app search log/ })).closest(
+      '[data-thread-color]'
+    );
+    expect(shell).toHaveClass(THREAD_CONTROL_HEIGHT_CLASS_NAME);
+    // The selected fill supplies an inset ring, so the tab must not also draw a border.
+    expect(shell).not.toHaveClass('border');
+
+    const title = screen.getByText('Purchasing app search log');
+    expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
+    // Size and weight come from the shared contract, but active vs idle still
+    // needs a text-colour cue — fill alpha plus a ring is a thin distinction to
+    // carry alone once both states are the same hue.
+    expect(shell).toHaveClass('text-foreground');
+
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const idleShell = screen
+      .getByRole('tab', { name: /Purchasing app search log/ })
+      .closest('[data-thread-color]');
+    expect(idleShell).toHaveClass('text-muted-foreground');
+    expect(idleShell).not.toHaveClass('text-foreground');
+    const mark = screen.getByTestId('assistant-thread-tab-icon-rose');
+    expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
+    // Now that the tab body is tinted, the mark must not reuse that same fill
+    // or it vanishes into the control it identifies.
+    expect(mark).toHaveClass(...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.markClassName.split(' '));
+    expect(mark).not.toHaveClass('bg-rose-100');
+  });
+
   it('keeps the close affordance in flow and optically matched with the leading icon', async () => {
     renderWorkspace();
 
@@ -304,14 +378,21 @@ describe('AssistantThreadTabsWorkspace', () => {
     // by the row), not an absolutely positioned overlay pinned to a corner.
     expect(closeButton).not.toHaveClass('absolute');
     expect(closeButton.parentElement).toBe(tab.parentElement);
-    expect(closeButton).toHaveClass('h-5', 'w-5');
+    // Same affordance token the threads-panel row actions use, so the two
+    // surfaces cannot drift apart again.
+    expect(closeButton).toHaveClass(...THREAD_CONTROL_ACTION_CLASS_NAME.split(' '));
+    // The tab body is tinted now, so an opaque neutral hover chip paints a grey
+    // blotch into the tint (measured rgb(242, 240, 237) on an amber tab). The
+    // hover fill has to ride the surface instead of covering it.
+    expect(closeButton).not.toHaveClass('hover:bg-muted');
+    expect(closeButton.className).toMatch(/hover:bg-foreground\//);
     // Visual box is 20px, but the pseudo-element extends the hit target to
     // 28px so the pointer target stays above the 24px minimum guidance.
     expect(closeButton.className).toMatch(/after:-inset-1/);
 
     // Leading and close glyphs share one optical size (12px in a 20px box).
     const leadingIcon = screen.getByTestId('assistant-thread-tab-icon-rose');
-    expect(leadingIcon).toHaveClass('h-5', 'w-5');
+    expect(leadingIcon).toHaveClass('size-5');
     expect(leadingIcon.querySelector('svg')).toHaveClass('h-3', 'w-3');
     expect(closeButton.querySelector('svg')).toHaveClass('h-3', 'w-3');
   });

@@ -74,7 +74,14 @@ import {
   createPgliteAssistantThreadGroupsRepository,
 } from './assistant-thread-groups-repository';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
-import { ASSISTANT_THREAD_COLOR_PRESENTATION } from './assistant-thread-presentation';
+import {
+  ASSISTANT_THREAD_COLOR_PRESENTATION,
+  getAssistantThreadColorSurface,
+  THREAD_CONTROL_ACTION_CLASS_NAME,
+  THREAD_CONTROL_MARK_CLASS_NAME,
+  THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
+  THREAD_CONTROL_TITLE_CLASS_NAME,
+} from './assistant-thread-presentation';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   buildThreadListSections,
@@ -89,6 +96,7 @@ import {
   type ThreadPanelLoadState,
 } from './thread-panel-content-state';
 import {
+  getThreadPanelRowHeightPx,
   THREAD_PANEL_DISCLOSURE_INCREMENT,
   THREAD_PANEL_UNGROUPED_NODE_ID,
   type ThreadPanelVisibleRow,
@@ -148,18 +156,8 @@ function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId
   return thread.metadata?.color ?? null;
 }
 
-const UNASSIGNED_THREAD_COLOR_CONFIG = {
-  idleClassName: 'bg-muted/45 hover:bg-muted/70 dark:bg-muted/30 dark:hover:bg-muted/50',
-  label: 'Unassigned',
-  markClassName:
-    'border-border bg-muted/70 text-muted-foreground dark:border-border dark:bg-muted/45 dark:text-muted-foreground',
-  selectedClassName:
-    'bg-primary/15 shadow-xs ring-1 ring-inset ring-primary/60 dark:bg-primary/20 dark:ring-primary/70',
-} as const;
-
 function getThreadColorConfig(thread: AssistantMemoryThread) {
-  const colorId = getThreadColorId(thread);
-  return colorId ? ASSISTANT_THREAD_COLOR_PRESENTATION[colorId] : UNASSIGNED_THREAD_COLOR_CONFIG;
+  return getAssistantThreadColorSurface(getThreadColorId(thread));
 }
 
 function getReasoningValue(thread: AssistantMemoryThread): string | null {
@@ -589,7 +587,7 @@ function ThreadRowItem({
   ]);
   return (
     <div
-      className={`my-0.5 flex min-h-9 w-auto flex-col justify-center overflow-hidden rounded-md px-2 py-0.5 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
+      className={`my-0.5 flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} w-auto flex-col justify-center overflow-hidden rounded-md px-2 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
         isSelected ? colorConfig.selectedClassName : colorConfig.idleClassName
       }`}
       data-testid="thread-row"
@@ -787,14 +785,14 @@ function ThreadRowDisplay({
           }}
           type="button"
         >
-          <div className="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-x-2">
-            <div className="flex min-h-7 items-center">
+          <div className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-2">
+            <div className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} items-center`}>
               <ThreadIdentityMark thread={thread} />
             </div>
-            <div className="flex min-h-7 min-w-0 items-center gap-1.5">
-              <div className="min-w-0 truncate font-medium text-[13px] leading-4">
-                {thread.title}
-              </div>
+            <div
+              className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
+            >
+              <div className={THREAD_CONTROL_TITLE_CLASS_NAME}>{thread.title}</div>
               <ThreadMetadataBadges thread={thread} />
             </div>
           </div>
@@ -802,6 +800,7 @@ function ThreadRowDisplay({
         <div className="-mr-px flex shrink-0 items-center gap-0.5">
           <Button
             aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
+            className={THREAD_CONTROL_ACTION_CLASS_NAME}
             onClick={(event) => {
               event.stopPropagation();
               onExpandedThreadToggle();
@@ -810,11 +809,7 @@ function ThreadRowDisplay({
             type="button"
             variant="ghost"
           >
-            {expanded ? (
-              <ChevronUp className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronDown className="h-3.5 w-3.5" />
-            )}
+            {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
           </Button>
           <Popover
             onOpenChange={(open) => {
@@ -829,12 +824,13 @@ function ThreadRowDisplay({
             <PopoverTrigger asChild>
               <Button
                 aria-label={`Thread actions ${thread.title}`}
+                className={THREAD_CONTROL_ACTION_CLASS_NAME}
                 onClick={(event) => event.stopPropagation()}
                 size="icon-xs"
                 type="button"
                 variant="ghost"
               >
-                <MoreHorizontal className="size-3.5" />
+                <MoreHorizontal className="size-3" />
               </Button>
             </PopoverTrigger>
             <PopoverContent
@@ -901,7 +897,7 @@ function ThreadRowDisplay({
         </div>
       </div>
       {pendingDelete ? (
-        <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+        <div className="mt-2 mb-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
           <p className="text-[11px] text-destructive">
             Delete this thread and its Mastra memory rows permanently?
           </p>
@@ -942,7 +938,7 @@ function ThreadIdentityMark({ thread }: { readonly thread: AssistantMemoryThread
   const colorConfig = getThreadColorConfig(thread);
   return (
     <span
-      className={`flex size-6 shrink-0 items-center justify-center rounded-md border ${colorConfig.markClassName}`}
+      className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.markClassName}`}
       data-testid={`thread-color-${colorId ?? 'unassigned'}`}
     >
       <Icon className="size-3" data-testid={`thread-icon-${iconId}`} />
@@ -1059,7 +1055,7 @@ function ThreadExpandedDetails({
   const maxOutputValue = getMaxOutputValue(thread);
   return (
     <div
-      className="mt-2 rounded-md border border-border bg-background/70 p-2"
+      className="mt-2 mb-2 rounded-md border border-border bg-background/70 p-2"
       data-testid="thread-expanded-details"
     >
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
@@ -1297,9 +1293,7 @@ function ThreadGroupHeader({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const colorConfig = group.color
-    ? ASSISTANT_THREAD_COLOR_PRESENTATION[group.color]
-    : UNASSIGNED_THREAD_COLOR_CONFIG;
+  const colorConfig = getAssistantThreadColorSurface(group.color);
   const GroupIcon = group.icon ? THREAD_ICON_CONFIG[group.icon].iconComponent : Folder;
   return (
     <div className="min-w-0" data-testid="thread-group-header">
@@ -2206,7 +2200,7 @@ function ThreadPanelTree({
           }
           return 'border-0 bg-transparent hover:bg-muted/20';
         }}
-        rowHeight={() => 40}
+        rowHeight={(node) => getThreadPanelRowHeightPx(node.data.kind)}
         selectionMode="multi"
         selectOnRowClick={false}
         showCheckbox

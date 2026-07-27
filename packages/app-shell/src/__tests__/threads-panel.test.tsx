@@ -6,29 +6,51 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
+import {
+  ASSISTANT_THREAD_COLOR_PRESENTATION,
+  THREAD_CONTROL_ACTION_CLASS_NAME,
+  THREAD_CONTROL_MARK_CLASS_NAME,
+  THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
+  THREAD_CONTROL_ROW_PITCH_PX,
+  THREAD_CONTROL_TITLE_CLASS_NAME,
+} from '../assistant-thread-presentation';
 import { useAssistantThreadStore } from '../assistant-thread-store';
+import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
 
-const virtualizerState = vi.hoisted(() => ({ windowSize: Number.POSITIVE_INFINITY }));
+const virtualizerState = vi.hoisted(() => ({
+  estimatedSizes: [] as number[],
+  windowSize: Number.POSITIVE_INFINITY,
+}));
 
 // TreeTable's real virtualizer depends on layout measurements that JSDOM does
 // not provide. Render its complete disclosed row model here; a dedicated
 // virtualization test covers the bounded mounted-window contract.
 vi.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: vi.fn(({ count }: { count: number }) => ({
-    getTotalSize: () => count * 40,
-    getVirtualItems: () =>
-      Array.from({ length: Math.min(count, virtualizerState.windowSize) }, (_, index) => ({
-        end: (index + 1) * 40,
-        index,
-        key: `thread-row-${index}`,
-        size: 40,
-        start: index * 40,
-      })),
-    measureElement: vi.fn(),
-    scrollToIndex: vi.fn(),
-  })),
+  useVirtualizer: vi.fn(
+    ({ count, estimateSize }: { count: number; estimateSize: (index: number) => number }) => {
+      // Geometry derives from the callback rather than a hardcoded pitch, so the
+      // mock can't contradict the density contract the tests below assert.
+      const sizes = Array.from({ length: count }, (_, index) => estimateSize(index));
+      virtualizerState.estimatedSizes.push(...sizes);
+      const offset = (index: number): number =>
+        sizes.slice(0, index).reduce((total, size) => total + size, 0);
+      return {
+        getTotalSize: () => offset(count),
+        getVirtualItems: () =>
+          Array.from({ length: Math.min(count, virtualizerState.windowSize) }, (_, index) => ({
+            end: offset(index) + (sizes[index] ?? 0),
+            index,
+            key: `thread-row-${index}`,
+            size: sizes[index] ?? 0,
+            start: offset(index),
+          })),
+        measureElement: vi.fn(),
+        scrollToIndex: vi.fn(),
+      };
+    }
+  ),
 }));
 
 const { dbMocks, fileExplorerMocks, groupRows, mockDb, placementRows, threadRows } = vi.hoisted(
@@ -173,6 +195,9 @@ function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
 
 beforeEach(() => {
   virtualizerState.windowSize = Number.POSITIVE_INFINITY;
+  // Shared across every render in this file; without a reset it becomes
+  // order-dependent state the next test to read it silently inherits.
+  virtualizerState.estimatedSizes.length = 0;
   fileExplorerMocks.rootDirectoryHandle = {
     name: 'workspace-a',
     path: '/tmp/workspace-a',
@@ -535,6 +560,89 @@ describe('ThreadsPanel', () => {
     const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
     expect(idleThread).toHaveClass('bg-emerald-100/45', 'hover:bg-emerald-100/75');
     expect(idleThread).not.toHaveClass('hover:bg-accent/35');
+  });
+
+  it('keeps row action chips inside the row instead of filling its full height', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    const expand = screen.getByRole('button', { name: /Show thread details First thread/ });
+    const actions = screen.getByRole('button', { name: /Thread actions First thread/ });
+
+    for (const control of [expand, actions]) {
+      // icon-xs paints a 28px chip, which is now the entire row height, so the
+      // hover fill runs edge to edge. 20px leaves 4px above and below and
+      // matches the tab's close affordance.
+      expect(control).toHaveClass(...THREAD_CONTROL_ACTION_CLASS_NAME.split(' '));
+      expect(control).not.toHaveClass('size-7');
+      // Hover rides the tinted row rather than punching a neutral chip into it.
+      expect(control).not.toHaveClass('hover:bg-accent');
+      // Visual box shrinks but the pointer target stays >= 24px.
+      expect(control.className).toMatch(/after:-inset-1/);
+      expect(control.querySelector('svg')).toHaveClass('size-3');
+    }
+  });
+
+  it('pads the expanded details block evenly against the row edges', async () => {
+    const user = userEvent.setup();
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await user.click(screen.getByRole('button', { name: /Show thread details First thread/ }));
+
+    // The row supplies px-2 horizontally and no vertical padding (vertical
+    // padding would push the collapsed control past the tab's 28px). So the
+    // block itself has to carry a matching 8px below, or it sits flush against
+    // the row's bottom edge while both sides are inset.
+    const details = await screen.findByTestId('thread-expanded-details');
+    expect(details).toHaveClass('mb-2');
+    expect(details.closest('[data-testid="thread-row"]')).toHaveClass('px-2');
+  });
+
+  it('sizes rows from the shared thread control density contract', async () => {
+    virtualizerState.estimatedSizes.length = 0;
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    const title = screen.getByText('First thread');
+    const row = title.closest<HTMLElement>('[data-testid="thread-row"]');
+    if (!row) {
+      throw new Error('expected the thread title to be inside a thread row');
+    }
+
+    // A row and a tab render the same object, so they share one height.
+    expect(row).toHaveClass(THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME);
+    expect(row).not.toHaveClass('min-h-9');
+    // The 28px control plus its 2px margins is the virtual row pitch — vertical
+    // padding would push the painted control past the tab's height.
+    expect(row).toHaveClass('my-0.5');
+    expect(row).not.toHaveClass('py-0.5');
+    // A flat view is all thread rows, so every estimate is the shared pitch.
+    expect(new Set(virtualizerState.estimatedSizes)).toEqual(
+      new Set([getThreadPanelRowHeightPx('thread')])
+    );
+    expect(virtualizerState.estimatedSizes).toContain(THREAD_CONTROL_ROW_PITCH_PX);
+
+    expect(title).toHaveClass(...THREAD_CONTROL_TITLE_CLASS_NAME.split(' '));
+    expect(title).not.toHaveClass('text-[13px]');
+
+    const mark = within(row).getByTestId('thread-color-emerald');
+    expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
+    expect(mark).not.toHaveClass('size-6');
+    // The row is tinted with the same token family; the mark keeps its own
+    // lighter fill and border so it stays visible on idle and selected rows.
+    expect(mark).toHaveClass(
+      ...ASSISTANT_THREAD_COLOR_PRESENTATION.emerald.markClassName.split(' ')
+    );
+    expect(mark).not.toHaveClass('bg-emerald-100');
   });
 
   it('mounts only the virtual window for a large disclosed collection', async () => {
@@ -1012,7 +1120,7 @@ describe('ThreadsPanel', () => {
     // no accent stripe. Idle rows keep a visible tint of their thread color.
     expect(activeThread).toHaveClass(
       'my-0.5',
-      'min-h-9',
+      THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
       'bg-sky-100',
       'ring-1',
       'ring-inset',
@@ -1020,7 +1128,11 @@ describe('ThreadsPanel', () => {
       'shadow-xs'
     );
     expect(activeThread).not.toHaveClass('border', 'border-sky-500');
-    expect(idleThread).toHaveClass('my-0.5', 'min-h-9', 'bg-emerald-100/45');
+    expect(idleThread).toHaveClass(
+      'my-0.5',
+      THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
+      'bg-emerald-100/45'
+    );
     expect(idleThread).not.toHaveClass('shadow-xs', 'border');
 
     // The content stack is shorter than the row's min-height; the row must
@@ -1203,6 +1315,22 @@ describe('ThreadsPanel groups', () => {
       threadId,
     });
   }
+
+  it('estimates group headers at their own height, not the thread pitch', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+    await screen.findByTestId('thread-group-section');
+
+    // Group headers paint 40px while thread rows paint 32px. Estimating every
+    // node at the thread pitch under-sizes each header by 8px, so first-paint
+    // scrollbar length and scrollToIndex drift by an amount that grows with
+    // group count — and grouped is the default view.
+    expect(virtualizerState.estimatedSizes).toContain(getThreadPanelRowHeightPx('group'));
+    expect(virtualizerState.estimatedSizes).toContain(getThreadPanelRowHeightPx('thread'));
+    expect(getThreadPanelRowHeightPx('group')).not.toBe(getThreadPanelRowHeightPx('thread'));
+  });
 
   it('renders group sections with the ungrouped section below', async () => {
     seedGroup('group-research', 'Research', 'a0');
