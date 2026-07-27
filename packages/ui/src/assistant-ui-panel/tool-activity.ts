@@ -1,5 +1,5 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { extractPrimaryArg } from './tool-fallback';
+import { extractPrimaryArg } from './tool-summaries';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -61,7 +61,7 @@ export function summarizeToolActivity(parts: readonly unknown[]): ToolActivitySu
       // Last running tool wins — it is the most recent "current step".
       activeLabel = partToolName(part);
       const argsText = typeof part['argsText'] === 'string' ? part['argsText'] : undefined;
-      activeArg = extractPrimaryArg(part['args'], argsText) ?? null;
+      activeArg = extractPrimaryArg(part['args'], argsText)?.display ?? null;
     } else if (status === 'incomplete') {
       failedCount++;
     }

@@ -1,5 +1,5 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { extractPrimaryArg } from './tool-fallback';
+import { extractPrimaryArg } from './tool-summaries';
 
 export type SubAgentToolRowStatus = 'error' | 'running' | 'success';
 
@@ -31,7 +31,7 @@ export function readSubAgentToolRows(result: unknown): SubAgentToolRow[] {
     const toolName = typeof record['toolName'] === 'string' ? record['toolName'] : 'tool';
     const toolCallId = typeof record['toolCallId'] === 'string' ? record['toolCallId'] : undefined;
     return {
-      argSummary: extractPrimaryArg(record['args'], undefined),
+      argSummary: extractPrimaryArg(record['args'], undefined)?.display,
       key: toolCallId ?? `${toolName}-${index}`,
       status: record['isError'] === true ? 'error' : 'success',
       toolName,

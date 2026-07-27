@@ -477,9 +477,19 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       throw new Error('Assistant composer control alignment boxes were unavailable.');
     }
 
+    // The dock is a wrapping flex row (BST-950): chips that share a line must
+    // be dead-centered (2px absorbs sub-pixel rounding only), and when the
+    // panel is too narrow to fit them the wrap must be clean — stacked rows,
+    // never overlapping. Measured at the default layout (1280px viewport) all
+    // chips share one line; the wrap branch guards narrow-panel layouts.
     const modelCenterY = modelBox.y + modelBox.height / 2;
     const controlsCenterY = controlsBox.y + controlsBox.height / 2;
-    expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(6);
+    const sharesRow = Math.abs(modelBox.y - controlsBox.y) < 1;
+    if (sharesRow) {
+      expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(2);
+    } else {
+      expect(controlsBox.y).toBeGreaterThanOrEqual(modelBox.y + modelBox.height - 1);
+    }
 
     const longPrompt = [
       'thread scroll turn 1',

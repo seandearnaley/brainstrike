@@ -87,8 +87,8 @@ vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Stub the heavy ToolFallback card but keep the real `extractPrimaryArg`
-// helper — the Activity group summary imports it from this module.
+// Stub the heavy ToolFallback card. (The summary helpers the Activity group
+// uses live in tool-summaries.ts and stay real.)
 vi.mock('../../src/assistant-ui-panel/tool-fallback', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../src/assistant-ui-panel/tool-fallback')>();
@@ -1303,6 +1303,26 @@ describe('AssistantUiPanel model picker', () => {
     const trigger = within(container).getByRole('button', { name: /Selected model/ });
     expect(trigger).toBeInTheDocument();
     expect(screen.queryByText(/OpenAI \/ GPT-5\.2/)).not.toBeInTheDocument();
+  });
+
+  it('renders the always-visible effort readout beside the model menu (BST-948)', () => {
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        onModelChange={() => {}}
+        onProviderSettingsChange={() => {}}
+        providerSettings={{ openai: { reasoningEffort: 'high' } }}
+      />
+    );
+
+    const controls = screen.getByTestId('assistant-composer-controls');
+    const trigger = within(controls).getByTestId('composer-effort-trigger');
+    expect(trigger).toBeEnabled();
+    // The active effort is legible without opening any menu. (Accessible-name
+    // whitespace joining differs between jsdom setups, so match tolerantly.)
+    expect(trigger).toHaveAccessibleName(/Reasoning\s*Effort\s*High/);
+    // And it sits in the same dock as the model menu.
+    expect(within(controls).getByTestId('assistant-model-dropdown')).toBeInTheDocument();
   });
 
   it('keeps model and controls inside the composer surface with icon send controls', () => {

@@ -265,11 +265,11 @@ export const ControlsMenu = ({
       <DropdownMenuTrigger asChild>
         <Button
           aria-label="Open assistant controls"
-          className="h-9 gap-2 rounded-full border-border/70 px-3 text-xs"
+          className="h-8 gap-1.5 rounded-full border-border/70 bg-background/85 px-3 text-xs"
           size="sm"
           variant="outline"
         >
-          <SlidersHorizontal className="h-4 w-4" />
+          <SlidersHorizontal aria-hidden className="size-3.5 text-muted-foreground" />
           <span>Controls</span>
         </Button>
       </DropdownMenuTrigger>

@@ -31,6 +31,7 @@ import { useRememberedToolArguments } from './tool-argument-context';
 import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
+import { extractPrimaryArg, summarizeResult } from './tool-summaries';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
@@ -150,63 +151,6 @@ const formatResult = (result: ToolResult): string => {
   }
 };
 
-/**
- * Argument keys most likely to identify WHAT a tool accessed, in priority
- * order. The first string-valued match is surfaced inline in the card header
- * so users can read "which file / which query" without expanding details.
- */
-const PRIMARY_ARG_KEYS = [
-  'query',
-  'q',
-  'pattern',
-  'path',
-  'filePath',
-  'file',
-  'url',
-  'name',
-  'id',
-  'command',
-] as const;
-
-const MAX_PRIMARY_ARG_LENGTH = 120;
-
-export function extractPrimaryArg(args: unknown, argsText: string | undefined): string | undefined {
-  let record: Record<string, unknown> | undefined;
-  if (args && typeof args === 'object' && !Array.isArray(args)) {
-    record = args as Record<string, unknown>;
-  } else if (argsText) {
-    try {
-      const parsed: unknown = JSON.parse(argsText);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        record = parsed as Record<string, unknown>;
-      }
-    } catch {
-      return;
-    }
-  }
-  if (!record) {
-    return;
-  }
-
-  for (const key of PRIMARY_ARG_KEYS) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return truncatePrimaryArg(value);
-    }
-  }
-  const firstString = Object.values(record).find(
-    (value): value is string => typeof value === 'string' && value.trim().length > 0
-  );
-  return firstString ? truncatePrimaryArg(firstString) : undefined;
-}
-
-function truncatePrimaryArg(value: string): string {
-  const singleLine = value.replaceAll(/\s+/g, ' ').trim();
-  return singleLine.length > MAX_PRIMARY_ARG_LENGTH
-    ? `${singleLine.slice(0, MAX_PRIMARY_ARG_LENGTH)}…`
-    : singleLine;
-}
-
 function useDisplayToolArguments(
   toolCallId: string,
   args: unknown,
@@ -217,30 +161,6 @@ function useDisplayToolArguments(
     return { args, ...(argsText === undefined ? {} : { argsText }) };
   }
   return remembered;
-}
-
-/**
- * Compact "what came back" summary for the header: item counts for arrays and
- * common collection-shaped results. Returns undefined when there is nothing
- * meaningful to count (the expanded Result pane remains the full view).
- */
-const COLLECTION_RESULT_KEYS = ['matches', 'results', 'items', 'files', 'chunks', 'rows'] as const;
-
-export function summarizeResult(result: ToolResult): string | undefined {
-  if (Array.isArray(result)) {
-    return `${result.length} ${result.length === 1 ? 'item' : 'items'}`;
-  }
-  if (!(result && typeof result === 'object')) {
-    return;
-  }
-  const record = result as Record<string, unknown>;
-  for (const key of COLLECTION_RESULT_KEYS) {
-    const value = record[key];
-    if (Array.isArray(value)) {
-      return `${value.length} ${key}`;
-    }
-  }
-  return;
 }
 
 function extractResolvedRootName(result: ToolResult): string | undefined {
@@ -342,9 +262,9 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           {primaryArg ? (
             <span
               className="truncate font-mono text-[11px] text-muted-foreground"
-              title={primaryArg}
+              title={primaryArg.full}
             >
-              {primaryArg}
+              {primaryArg.display}
             </span>
           ) : null}
         </span>
