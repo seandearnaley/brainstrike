@@ -237,13 +237,8 @@ test('root clean routes every package clean script through an uncached Turbo tas
 
   const dryRun = JSON.parse(
     execFileSync(
-      path.join(
-        repoRoot,
-        'node_modules',
-        '.bin',
-        process.platform === 'win32' ? 'turbo.cmd' : 'turbo'
-      ),
-      ['run', 'clean', '--dry=json'],
+      process.execPath,
+      [path.join(repoRoot, 'node_modules', 'turbo', 'bin', 'turbo'), 'run', 'clean', '--dry=json'],
       {
         cwd: repoRoot,
         encoding: 'utf8',

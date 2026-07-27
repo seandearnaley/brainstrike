@@ -17,8 +17,10 @@ import {
   removeUserDataDir,
   reportSweep,
   resolveEndpoint,
+  resolvePnpmInvocation,
   resolvePnpmSpawnOptions,
   rewriteMacAgentDebugInfoPlist,
+  runPnpmCommandSync,
   shutdownChildProcessTree,
   signalProcessGroup,
   sweepStaleProfiles,
@@ -75,6 +77,87 @@ test('formatMcpConfig renders chrome-devtools-mcp browser-url config', () => {
 test('keeps the Windows dev tree in the launcher console for graceful Ctrl-C delivery', () => {
   assert.equal(resolvePnpmSpawnOptions('win32').detached, false);
   assert.equal(resolvePnpmSpawnOptions('darwin').detached, true);
+});
+
+test('re-enters the active pnpm CLI without a Windows command shim', () => {
+  assert.deepEqual(
+    resolvePnpmInvocation({
+      env: { npm_execpath: 'C:\\tools\\pnpm.cjs' },
+      execPath: 'C:\\tools\\node.exe',
+      platform: 'win32',
+    }),
+    {
+      argsPrefix: ['C:\\tools\\pnpm.cjs'],
+      command: 'C:\\tools\\node.exe',
+    }
+  );
+});
+
+test('fails before creating a profile when Windows is not launched through pnpm', () => {
+  assert.throws(
+    () =>
+      resolvePnpmInvocation({
+        env: {},
+        execPath: 'C:\\tools\\node.exe',
+        platform: 'win32',
+      }),
+    /must be launched through pnpm on Windows/
+  );
+});
+
+test('keeps the direct pnpm executable fallback on POSIX', () => {
+  assert.deepEqual(
+    resolvePnpmInvocation({
+      env: {},
+      execPath: '/usr/bin/node',
+      platform: 'linux',
+    }),
+    {
+      argsPrefix: [],
+      command: 'pnpm',
+    }
+  );
+});
+
+test('runs the dependency preflight through the resolved pnpm invocation', () => {
+  let received;
+  runPnpmCommandSync(
+    ['run', 'predev'],
+    { MARKER: 'value' },
+    {
+      invocation: {
+        argsPrefix: ['C:\\tools\\pnpm.cjs'],
+        command: 'C:\\tools\\node.exe',
+      },
+      spawnSyncImpl(command, args, options) {
+        received = { args, command, options };
+        return { status: 0 };
+      },
+    }
+  );
+
+  assert.equal(received.command, 'C:\\tools\\node.exe');
+  assert.deepEqual(received.args, ['C:\\tools\\pnpm.cjs', 'run', 'predev']);
+  assert.deepEqual(received.options.env, { MARKER: 'value' });
+  assert.equal(received.options.stdio, 'inherit');
+});
+
+test('surfaces a dependency preflight failure before runtime startup', () => {
+  assert.throws(
+    () =>
+      runPnpmCommandSync(
+        ['run', 'predev'],
+        {},
+        {
+          invocation: {
+            argsPrefix: ['C:\\tools\\pnpm.cjs'],
+            command: 'C:\\tools\\node.exe',
+          },
+          spawnSyncImpl: () => ({ status: 1 }),
+        }
+      ),
+    /pnpm run predev exited with code 1/
+  );
 });
 
 test('fails closed when the Windows Job Object capability cannot load', () => {
@@ -207,6 +290,23 @@ test('waitForEndpointOrChildExit rejects when the dev server exits before the en
 
   try {
     await assert.rejects(wait, /dev server exited with code 1/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('waitForEndpointOrChildExit handles spawn errors without an unhandled child error', async () => {
+  const originalFetch = globalThis.fetch;
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  globalThis.fetch = async () => ({ ok: false });
+
+  const wait = waitForEndpointOrChildExit('http://127.0.0.1:9222', child);
+  child.emit('error', new Error('spawn failed'));
+
+  try {
+    await assert.rejects(wait, /dev server failed to start/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -345,6 +445,7 @@ test('cleanupChildAndProfile surfaces profile removal failures', async () => {
   try {
     await assert.rejects(
       cleanupChildAndProfile({ exitCode: 0, pid: undefined, signalCode: null }, profile, {
+        platform: 'linux',
         removeUserDataDir: async () => {
           throw removalError;
         },

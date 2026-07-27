@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -182,13 +182,50 @@ export function resolvePnpmSpawnOptions(platform = process.platform) {
   return { detached: platform !== 'win32' };
 }
 
-function spawnPnpm(args, env, platform = process.platform) {
-  return spawn('pnpm', [...args], {
+export function resolvePnpmInvocation({
+  env = process.env,
+  execPath = process.execPath,
+  platform = process.platform,
+} = {}) {
+  const npmExecPath = env.npm_execpath;
+  if (typeof npmExecPath === 'string' && path.isAbsolute(npmExecPath)) {
+    return { argsPrefix: [npmExecPath], command: execPath };
+  }
+  if (platform === 'win32') {
+    throw new Error(
+      'Agent DevTools must be launched through pnpm on Windows so its executable path is known.'
+    );
+  }
+  return { argsPrefix: [], command: 'pnpm' };
+}
+
+function spawnPnpm(args, env, platform = process.platform, invocation = resolvePnpmInvocation()) {
+  return spawn(invocation.command, [...invocation.argsPrefix, ...args], {
     cwd: path.resolve(import.meta.dirname, '..'),
     ...resolvePnpmSpawnOptions(platform),
     env,
     stdio: 'inherit',
   });
+}
+
+export function runPnpmCommandSync(
+  args,
+  env,
+  { invocation = resolvePnpmInvocation(), spawnSyncImpl = spawnSync } = {}
+) {
+  const result = spawnSyncImpl(invocation.command, [...invocation.argsPrefix, ...args], {
+    cwd: path.resolve(import.meta.dirname, '..'),
+    env,
+    stdio: 'inherit',
+  });
+  if (result.error) {
+    throw new Error(`Agent DevTools could not start pnpm ${args.join(' ')}.`, {
+      cause: result.error,
+    });
+  }
+  if (result.status !== 0) {
+    throw new Error(`Agent DevTools pnpm ${args.join(' ')} exited with code ${result.status}.`);
+  }
 }
 
 export function initializeWindowsJob(platform = process.platform, load = require) {
@@ -571,11 +608,18 @@ export async function waitForEndpointOrChildExit(endpoint, child) {
 
   const controller = new AbortController();
   let onExit;
+  let onError;
   const childExit = new Promise((_, reject) => {
     onExit = (code, signal) => {
       reject(new Error(`${describeChildExit(code, signal)} before ${endpoint} was ready.`));
     };
+    onError = (error) => {
+      reject(
+        new Error(`dev server failed to start before ${endpoint} was ready.`, { cause: error })
+      );
+    };
     child.once('exit', onExit);
+    child.once('error', onError);
   });
 
   try {
@@ -584,6 +628,9 @@ export async function waitForEndpointOrChildExit(endpoint, child) {
     controller.abort();
     if (onExit) {
       child.off('exit', onExit);
+    }
+    if (onError) {
+      child.off('error', onError);
     }
   }
 }
@@ -767,6 +814,8 @@ async function main() {
     return;
   }
 
+  const pnpmInvocation = resolvePnpmInvocation();
+  runPnpmCommandSync(['run', 'predev'], process.env, { invocation: pnpmInvocation });
   const windowsJob = initializeWindowsJob();
   const { electronOverrideDistPath, userDataDir } = await createAgentDevtoolsProfile();
   const env = {
@@ -787,7 +836,7 @@ async function main() {
     );
   }
 
-  const child = spawnPnpm(['dev'], env);
+  const child = spawnPnpm(['run', 'dev:runtime'], env, process.platform, pnpmInvocation);
   const cleanupOptions = windowsJob ? { windowsJob } : {};
   const uninstallSignalCleanup = installSignalCleanup(child, userDataDir, cleanupOptions);
   try {
