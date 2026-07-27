@@ -239,6 +239,8 @@ export function AssistantUiPanelWrapper({
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
+  const registryProviders = useModelRegistryStore((state) => state.providers);
+  const registryHasLoaded = useModelRegistryStore((state) => state.hasLoaded);
   const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
@@ -819,15 +821,44 @@ export function AssistantUiPanelWrapper({
   // Resolve the 'auto' observer sentinel into CONCRETE settings once, here —
   // request data, memory validation, and the OM meter all consume the same
   // effective settings, so 'auto' never reaches the provider/model validator
-  // and an unresolved auto can never disable thread memory (BST-940).
+  // and an unresolved auto can never disable thread memory (BST-940). The
+  // selected CHAT provider gates hosted-observer resolution (privacy ruling:
+  // no new data egress) and the loaded model catalog gates candidate
+  // eligibility exactly like the settings dropdown.
   const { autoResolution: omAutoResolution, settings: observationalMemorySettings } = useMemo(
     () =>
       resolveEffectiveObservationalMemorySettings({
         desktopAssistantBackendAvailable,
+        ...(registryHasLoaded
+          ? {
+              isTargetEligible: ({ modelId, provider }: { modelId: string; provider: string }) => {
+                const providerRow = registryProviders.find((row) => row.id === provider);
+                // OpenRouter targets nest the upstream id ('google/gemini-…')
+                // as the registry model id — direct string match covers both.
+                const modelRow = registryModels.find(
+                  (row) => row.providerId === provider && row.id === modelId
+                );
+                return (
+                  providerRow?.isEnabled === true &&
+                  modelRow?.isEnabled === true &&
+                  modelRow.capabilities.type === 'llm'
+                );
+              },
+            }
+          : {}),
         providerKeySources,
+        selectedChatProvider: selectedProvider,
         settings: storedObservationalMemorySettings,
       }),
-    [desktopAssistantBackendAvailable, providerKeySources, storedObservationalMemorySettings]
+    [
+      desktopAssistantBackendAvailable,
+      providerKeySources,
+      registryHasLoaded,
+      registryModels,
+      registryProviders,
+      selectedProvider,
+      storedObservationalMemorySettings,
+    ]
   );
   // Desktop routes built-in local chat through the assistant server (real
   // Mastra loop with persistence/run events; inference proxied to the hidden

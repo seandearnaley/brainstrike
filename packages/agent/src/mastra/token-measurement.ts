@@ -253,10 +253,6 @@ function sortedToolDefinitionEntries(tools: ToolsInput): [string, Record<string,
     .map(([name, tool]) => [name, toToolDefinitionEntry(name, tool)]);
 }
 
-function serializeToolDefinitions(tools: ToolsInput): string {
-  return JSON.stringify(sortedToolDefinitionEntries(tools).map(([, definition]) => definition));
-}
-
 function failedMeasurement(code: TokenMeasurementFailureCode): FailedMeasurement {
   return { failureCode: code };
 }
@@ -389,21 +385,17 @@ export class RunTokenDiagnostics {
 }
 
 /**
- * Measure each tool definition individually (sorted descending by tokens).
- * Any serialization or counter failure yields undefined — the caller then
- * omits the breakdown fields entirely rather than shipping partial figures.
+ * Measure each already-serialized tool definition (sorted descending by
+ * tokens). Any counter failure yields undefined — the caller then omits the
+ * breakdown fields entirely rather than shipping partial figures.
  */
 function measureToolDefinitionBreakdown(
-  tools: ToolsInput,
+  serializedEntries: readonly [string, string][],
   measurement: PreparedTokenMeasurement
 ): ToolDefinitionContextBreakdown | undefined {
   const byTool: ToolDefinitionTokensEntry[] = [];
   let totalTokens = 0;
-  for (const [name, definition] of sortedToolDefinitionEntries(tools)) {
-    const serialized = JSON.stringify(definition);
-    if (serialized === undefined) {
-      return;
-    }
+  for (const [name, serialized] of serializedEntries) {
     const sample = measurement.measure(serialized);
     if (sample.status === 'failed') {
       return;
@@ -432,8 +424,15 @@ export async function createRunTokenDiagnostics(
   const measurement = await createPreparedTokenMeasurement(params.capability, dependencies);
   const toolDefinitionCount = Object.keys(params.tools).length;
   try {
-    const toolDefinitions = serializeToolDefinitions(params.tools);
-    const toolDefinitionBreakdown = measureToolDefinitionBreakdown(params.tools, measurement);
+    // ONE schema-conversion + serialization pass feeds both the aggregate
+    // measurement (log fields) and the per-tool breakdown — with large MCP
+    // tool surfaces the double toStandardSchema/JSON walk was measurable
+    // run-start latency (review fix).
+    const serializedEntries: [string, string][] = sortedToolDefinitionEntries(params.tools).map(
+      ([name, definition]) => [name, JSON.stringify(definition)]
+    );
+    const toolDefinitions = `[${serializedEntries.map(([, json]) => json).join(',')}]`;
+    const toolDefinitionBreakdown = measureToolDefinitionBreakdown(serializedEntries, measurement);
     return new RunTokenDiagnostics({
       capability: params.capability,
       measurement,

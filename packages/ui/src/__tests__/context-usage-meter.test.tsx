@@ -568,7 +568,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
   const v2Breakdown = {
     breakdown: {
       attachmentsCount: 0,
-      provenance: 'measured',
+      provenance: 'heuristic',
       systemInstructionsTokens: 1400,
       taskListTokens: 120,
       toolDefinitionsByTool: [
@@ -580,6 +580,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
         { name: 'tiny_one', tokens: 100 },
         { name: 'tiny_two', tokens: 50 },
       ],
+      toolDefinitionsProvenance: 'measured',
       toolDefinitionsTokens: 3150,
     },
     invalid: false,
@@ -666,7 +667,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
       breakdown: {
         attachmentsCount: 0,
         historyMessagesTokens: 1000,
-        provenance: 'measured',
+        provenance: 'heuristic',
         systemInstructionsTokens: 2000,
         toolDefinitionsTokens: 3000,
       },
@@ -677,5 +678,65 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
     openMeterPopover();
     // 10_000 − (2000 + 3000 + 1000) = 4_000
     expect(screen.getByTestId('context-usage-breakdown-unattributed')).toHaveTextContent(/4\.0K/);
+  });
+
+  it('preserves a measured ZERO wire attachment count over stale client history (review fix)', () => {
+    // Wire IS the conversation (historyMessagesTokens present) and measured 0
+    // attachments — an older image lingering in UI history must not render an
+    // Attachments row claiming it participates in the prompt.
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        historyMessagesTokens: 500,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 100,
+      },
+      invalid: false,
+    });
+    render(
+      <ContextUsageMeter
+        {...props}
+        conversationEstimate={{
+          assistantTextTokens: 0,
+          attachmentsCount: 2,
+          byTool: [],
+          reasoningTokens: 0,
+          toolTokens: 0,
+          totalTokens: 10,
+          userTextTokens: 10,
+        }}
+      />
+    );
+    openMeterPopover();
+    expect(screen.queryByTestId('context-usage-breakdown-attachments')).not.toBeInTheDocument();
+  });
+
+  it('lets the client walk speak for attachments on memory-backed runs (wire is only the turn)', () => {
+    useContextUsageStore.getState().recordBreakdown('t1', {
+      breakdown: {
+        attachmentsCount: 0,
+        provenance: 'heuristic',
+        systemInstructionsTokens: 100,
+      },
+      invalid: false,
+    });
+    render(
+      <ContextUsageMeter
+        {...props}
+        conversationEstimate={{
+          assistantTextTokens: 0,
+          attachmentsCount: 2,
+          byTool: [],
+          reasoningTokens: 0,
+          toolTokens: 0,
+          totalTokens: 10,
+          userTextTokens: 10,
+        }}
+      />
+    );
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-breakdown-attachments')).toHaveTextContent(
+      /2 attached/
+    );
   });
 });

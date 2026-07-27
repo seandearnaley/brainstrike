@@ -248,7 +248,7 @@ describe('AssistantMemorySettingsSection', () => {
     );
   });
 
-  it('keeps the toggle usable on the default auto target and explains what auto resolves to (BST-940)', () => {
+  it('keeps the toggle usable on the default auto target and explains the privacy rule (BST-940)', () => {
     renderMemorySettings([{ provider: 'anthropic', source: 'stored' }]);
 
     const toggle = screen.getByRole('switch', { name: 'Enable observational memory' });
@@ -257,17 +257,19 @@ describe('AssistantMemorySettingsSection', () => {
     expect(screen.getByRole('combobox', { name: /observational memory model/i })).toHaveValue(
       'auto'
     );
-    expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
-      /Auto currently uses anthropic\/claude-haiku-4-5/
-    );
+    const note = screen.getByTestId('assistant-memory-auto-observer-note');
+    // The privacy ruling: auto observes with the ACTIVE CHAT PROVIDER only,
+    // never a different keyed provider, and local chats stay paused.
+    expect(note).toHaveTextContent(/active chat provider only/i);
+    expect(note).toHaveTextContent(/Local chats keep observations paused/i);
   });
 
-  it('explains the keyless auto state honestly (waiting, not broken)', () => {
+  it('keeps the auto note and toggle stable for a keyless profile (waiting, not broken)', () => {
     renderMemorySettings([]);
 
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeEnabled();
     expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
-      /No eligible observer yet/
+      /active chat provider only/i
     );
   });
 

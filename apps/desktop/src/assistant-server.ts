@@ -35,6 +35,7 @@ import {
   hasAssistantPromptContent,
   isSupportedProvider,
   listSuspendedMastraRuns,
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
   PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
   type RediscoveredToolApproval,
@@ -43,6 +44,7 @@ import {
   readToolResumeRunConfigAction,
   resolveApprovalStaleMs,
   resolveAssistantRequestBodyLimitBytes,
+  resolveAutoObservationalMemoryModelTarget,
   resolveDataStreamSession,
   resolveRequestPermissionPolicy,
   type SuspendedApprovalsResponse,
@@ -1163,10 +1165,12 @@ async function prepareAssistantPostRequest(
   }
   const { apiKey } = apiKeyResolution;
 
-  const runtimeData: RuntimeData = hydrateRuntimeDataWithLocalRuntimeToken(
-    withTrustedAssistantMessageId(data, provider, assistantMessageId),
-    provider,
-    apiKey
+  const runtimeData: RuntimeData = resolveServerAutoObservationalMemory(
+    hydrateRuntimeDataWithLocalRuntimeToken(
+      withTrustedAssistantMessageId(data, provider, assistantMessageId),
+      provider,
+      apiKey
+    )
   );
 
   logger.info('Assistant request received', {
@@ -1197,6 +1201,47 @@ async function prepareAssistantPostRequest(
     runtimeData,
     ...(toolApprovalAction ? { toolApprovalAction } : {}),
     ...(toolResumeAction ? { toolResumeAction } : {}),
+  };
+}
+
+/**
+ * Server-side intake resolution of the 'auto' observer sentinel (BST-940).
+ * Renderers resolve 'auto' before sending, but a raw client (or a replayed
+ * request) may still ship it — and 'auto' must neither reach the target parser
+ * (502 on an otherwise-valid stream) nor silently select a provider the chat
+ * isn't already using. Same deterministic contract rule as the renderer: the
+ * observer comes from the request's OWN chat provider or observation is off
+ * for the request. Key presence is implied by the request reaching this seam;
+ * a genuinely missing observer credential still fails visibly downstream,
+ * exactly like an explicit target.
+ */
+function resolveServerAutoObservationalMemory(runtimeData: RuntimeData): RuntimeData {
+  const memory = runtimeData.memory;
+  const memorySettings = memory?.memorySettings;
+  const observationalMemory = memorySettings?.observationalMemory;
+  if (
+    !(memory && memorySettings && observationalMemory) ||
+    observationalMemory.modelTarget !== OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET
+  ) {
+    return runtimeData;
+  }
+  const chatProvider = typeof runtimeData.provider === 'string' ? runtimeData.provider : null;
+  const target = resolveAutoObservationalMemoryModelTarget({
+    chatProvider,
+    providersWithKeys: chatProvider ? [chatProvider] : [],
+  });
+  return {
+    ...runtimeData,
+    memory: {
+      ...memory,
+      memorySettings: {
+        ...memorySettings,
+        observationalMemory:
+          target === null
+            ? { ...observationalMemory, enabled: false }
+            : { ...observationalMemory, modelTarget: target },
+      },
+    },
   };
 }
 

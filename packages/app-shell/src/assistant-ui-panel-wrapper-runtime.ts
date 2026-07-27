@@ -223,8 +223,9 @@ function resolveSemanticRecallDisabledReason(args: {
 /** Why an 'auto' observer target could not resolve to a concrete model. */
 export type ObservationalMemoryAutoUnresolvedReason =
   | 'keys-unknown'
+  | 'model-not-eligible'
   | 'no-backend'
-  | 'no-eligible-provider';
+  | 'no-hosted-chat-provider';
 
 export interface EffectiveObservationalMemorySettings {
   /**
@@ -242,40 +243,62 @@ export interface EffectiveObservationalMemorySettings {
 /**
  * Resolve the stored observational-memory settings into the CONCRETE settings
  * every downstream consumer uses (request data, memory validation, OM meter).
- * The 'auto' sentinel adapts to the profile: it resolves to a Mastra-tested
- * fast observer when a keyed provider is eligible, and otherwise flips
- * enabled→false with an explicit unresolved reason. Explicit (non-auto)
- * targets pass through untouched so misconfiguration keeps its loud
- * validation. 'auto' must never reach the provider/model validator.
+ *
+ * The 'auto' sentinel adapts to the profile under the PRIVACY INVARIANT
+ * (review ruling on BST-940): the observer is only ever a Mastra-tested fast
+ * model from the SELECTED CHAT PROVIDER — the party already receiving the
+ * conversation. A local/keyless chat, an unkeyed hosted chat, or a candidate
+ * disabled in the user's model catalog (isTargetEligible) flips enabled→false
+ * with an explicit unresolved reason instead. Explicit (non-auto) targets pass
+ * through untouched so misconfiguration keeps its loud validation. 'auto' must
+ * never reach the provider/model validator.
  */
 export function resolveEffectiveObservationalMemorySettings(args: {
   readonly desktopAssistantBackendAvailable: boolean;
+  /**
+   * Model-catalog eligibility for a resolved candidate (provider enabled +
+   * model enabled, same gate as the settings dropdown). Omit while the
+   * registry has not loaded — the key/chat-provider gates still apply.
+   */
+  readonly isTargetEligible?: (target: {
+    readonly modelId: string;
+    readonly provider: string;
+  }) => boolean;
   readonly providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  readonly selectedChatProvider: string | null | undefined;
   readonly settings: RuntimeAssistantObservationalMemorySettings;
 }): EffectiveObservationalMemorySettings {
   if (args.settings.modelTarget !== OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET) {
     return { settings: args.settings };
   }
+  const unresolved = (
+    reason: ObservationalMemoryAutoUnresolvedReason
+  ): EffectiveObservationalMemorySettings => ({
+    autoResolution: { kind: 'unresolved', reason },
+    settings: { ...args.settings, enabled: false },
+  });
   if (!args.desktopAssistantBackendAvailable) {
-    return {
-      autoResolution: { kind: 'unresolved', reason: 'no-backend' },
-      settings: { ...args.settings, enabled: false },
-    };
+    return unresolved('no-backend');
   }
   if (args.providerKeySources === undefined) {
-    return {
-      autoResolution: { kind: 'unresolved', reason: 'keys-unknown' },
-      settings: { ...args.settings, enabled: false },
-    };
+    return unresolved('keys-unknown');
   }
   const target = resolveAutoObservationalMemoryModelTarget({
+    chatProvider: args.selectedChatProvider,
     providersWithKeys: args.providerKeySources.map(({ provider }) => provider),
   });
   if (target === null) {
-    return {
-      autoResolution: { kind: 'unresolved', reason: 'no-eligible-provider' },
-      settings: { ...args.settings, enabled: false },
-    };
+    return unresolved('no-hosted-chat-provider');
+  }
+  if (args.isTargetEligible) {
+    const separatorIndex = target.indexOf('/');
+    const eligible = args.isTargetEligible({
+      modelId: target.slice(separatorIndex + 1),
+      provider: target.slice(0, separatorIndex),
+    });
+    if (!eligible) {
+      return unresolved('model-not-eligible');
+    }
   }
   return {
     autoResolution: { kind: 'resolved', target },
@@ -288,6 +311,7 @@ function resolveObservationalMemoryDisabledReason(args: {
   memorySettings: RuntimeAssistantMemorySettings;
   providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
   providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
+  selectedProvider: SupportedProvider | null;
 }): string | undefined {
   // Defense in depth: resolve the 'auto' sentinel with the SAME deterministic
   // rules the wrapper uses, so a caller passing raw stored settings can never
@@ -295,6 +319,7 @@ function resolveObservationalMemoryDisabledReason(args: {
   const { settings: observationalMemory } = resolveEffectiveObservationalMemorySettings({
     desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
     providerKeySources: args.providerKeySources,
+    selectedChatProvider: args.selectedProvider,
     settings: args.memorySettings.observationalMemory,
   });
   if (!observationalMemory.enabled) {
@@ -380,6 +405,7 @@ export function resolveAssistantMemoryDisabledReason(args: {
     memorySettings: args.memorySettings,
     providerKeySources: args.providerKeySources,
     providerReadErrors: args.providerReadErrors,
+    selectedProvider: args.selectedProvider,
   });
   if (observationalMemoryDisabledReason) {
     return observationalMemoryDisabledReason;

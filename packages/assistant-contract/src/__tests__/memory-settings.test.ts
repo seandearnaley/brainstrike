@@ -21,44 +21,55 @@ describe('observational memory defaults (BST-940)', () => {
   });
 });
 
-describe('resolveAutoObservationalMemoryModelTarget', () => {
-  it('prefers the Mastra default observer when a Google key exists', () => {
+describe('resolveAutoObservationalMemoryModelTarget (privacy: chat provider only)', () => {
+  it.each([
+    ['google', 'google/gemini-2.5-flash'],
+    ['anthropic', 'anthropic/claude-haiku-4-5'],
+    ['openai', 'openai/gpt-5.4-mini'],
+    ['openrouter', 'openrouter/google/gemini-2.5-flash'],
+  ])('resolves a keyed %s chat to its own Mastra-tested fast observer', (chatProvider, expected) => {
     expect(
       resolveAutoObservationalMemoryModelTarget({
-        providersWithKeys: ['google', 'anthropic', 'openai'],
+        chatProvider,
+        providersWithKeys: ['google', 'anthropic', 'openai', 'openrouter'],
       })
-    ).toBe('google/gemini-2.5-flash');
+    ).toBe(expected);
   });
 
-  it('falls to the Mastra-tested Anthropic fast observer without a Google key', () => {
+  it('never selects an observer from a provider other than the chat provider', () => {
+    // Anthropic chat + only a Google key: resolving to Google would create new
+    // data egress the user never opted into — must stay null.
     expect(
-      resolveAutoObservationalMemoryModelTarget({ providersWithKeys: ['anthropic', 'openai'] })
-    ).toBe('anthropic/claude-haiku-4-5');
+      resolveAutoObservationalMemoryModelTarget({
+        chatProvider: 'anthropic',
+        providersWithKeys: ['google'],
+      })
+    ).toBe(null);
   });
 
-  it('falls to the OpenAI fast observer when only OpenAI is keyed', () => {
-    expect(resolveAutoObservationalMemoryModelTarget({ providersWithKeys: ['openai'] })).toBe(
-      'openai/gpt-5.4-mini'
-    );
+  it('returns null for local/runtime chat providers (no hosted egress for local chats)', () => {
+    for (const chatProvider of ['local', 'ollama', 'lmstudio']) {
+      expect(
+        resolveAutoObservationalMemoryModelTarget({
+          chatProvider,
+          providersWithKeys: ['google', 'anthropic', 'openai', 'openrouter'],
+        })
+      ).toBe(null);
+    }
   });
 
-  it('routes through OpenRouter to the same Mastra default when only OpenRouter is keyed', () => {
-    expect(resolveAutoObservationalMemoryModelTarget({ providersWithKeys: ['openrouter'] })).toBe(
-      'openrouter/google/gemini-2.5-flash'
-    );
-  });
-
-  it('returns null for a keyless profile (OM waits visibly; local Gemma cannot observe 30K)', () => {
-    expect(resolveAutoObservationalMemoryModelTarget({ providersWithKeys: [] })).toBe(null);
-    expect(resolveAutoObservationalMemoryModelTarget({ providersWithKeys: ['ollama'] })).toBe(null);
-  });
-
-  it('is deterministic regardless of key-source ordering', () => {
+  it('returns null with no chat provider selected', () => {
     expect(
-      resolveAutoObservationalMemoryModelTarget({ providersWithKeys: ['openai', 'google'] })
-    ).toBe('google/gemini-2.5-flash');
+      resolveAutoObservationalMemoryModelTarget({
+        chatProvider: null,
+        providersWithKeys: ['google'],
+      })
+    ).toBe(null);
+  });
+
+  it('returns null when the chat provider has no key', () => {
     expect(
-      resolveAutoObservationalMemoryModelTarget({ providersWithKeys: ['google', 'openai'] })
-    ).toBe('google/gemini-2.5-flash');
+      resolveAutoObservationalMemoryModelTarget({ chatProvider: 'google', providersWithKeys: [] })
+    ).toBe(null);
   });
 });

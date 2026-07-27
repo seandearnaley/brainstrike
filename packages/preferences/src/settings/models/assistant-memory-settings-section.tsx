@@ -3,10 +3,7 @@ import type {
   RuntimeAssistantMemoryRetrievalMode,
   RuntimeAssistantMemoryScope,
 } from '@brainstrike/assistant-contract/memory-settings';
-import {
-  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  resolveAutoObservationalMemoryModelTarget,
-} from '@brainstrike/assistant-contract/memory-settings';
+import { OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET } from '@brainstrike/assistant-contract/memory-settings';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
@@ -55,7 +52,6 @@ export interface AssistantMemorySettingsSectionProps {
 }
 
 interface ObservationalMemoryModelFieldProps {
-  readonly autoResolvedTarget: string | null;
   readonly hasObservationModel: boolean;
   readonly hasUnavailableObservationModel: boolean;
   readonly isAutoObservationTarget: boolean;
@@ -66,7 +62,6 @@ interface ObservationalMemoryModelFieldProps {
 }
 
 function ObservationalMemoryModelField({
-  autoResolvedTarget,
   hasObservationModel,
   hasUnavailableObservationModel,
   isAutoObservationTarget,
@@ -100,9 +95,9 @@ function ObservationalMemoryModelField({
           className="text-muted-foreground text-xs"
           data-testid="assistant-memory-auto-observer-note"
         >
-          {autoResolvedTarget
-            ? `Auto currently uses ${autoResolvedTarget} (Mastra-recommended fast observer).`
-            : 'No eligible observer yet — add a Google, Anthropic, OpenAI, or OpenRouter API key and observations start automatically.'}
+          Auto observes with a fast, Mastra-recommended model from your active chat provider only
+          (e.g. Haiku for Anthropic chats) — the conversation never reaches a provider that is not
+          already receiving it. Local chats keep observations paused.
         </p>
       ) : (
         <p className="text-muted-foreground text-xs">
@@ -166,15 +161,6 @@ export function AssistantMemorySettingsSection({
   });
   const isAutoObservationTarget =
     observationalMemory.modelTarget === OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET;
-  // What 'auto' would pick for this profile's keys (null → waiting). Only
-  // meaningful when key sources are known; the wrapper's request-time resolver
-  // stays the single source of truth for the actual run.
-  const autoResolvedTarget =
-    providerKeySources === undefined
-      ? null
-      : resolveAutoObservationalMemoryModelTarget({
-          providersWithKeys: providerKeySources.map(({ provider }) => provider),
-        });
   const hasObservationModel =
     isAutoObservationTarget ||
     observationOptions.some((option) => option.target === observationalMemory.modelTarget);
@@ -219,7 +205,6 @@ export function AssistantMemorySettingsSection({
 
       <div className="grid gap-4 md:grid-cols-2">
         <ObservationalMemoryModelField
-          autoResolvedTarget={autoResolvedTarget}
           hasObservationModel={hasObservationModel}
           hasUnavailableObservationModel={hasUnavailableObservationModel}
           isAutoObservationTarget={isAutoObservationTarget}

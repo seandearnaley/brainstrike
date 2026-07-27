@@ -96,7 +96,7 @@ describe('computePromptBreakdown', () => {
     expect('taskListTokens' in breakdown).toBe(false);
   });
 
-  it('forwards tool-definition figures sorted descending and marks provenance measured', () => {
+  it('forwards tool-definition figures sorted descending with their OWN provenance field', () => {
     const breakdown = computePromptBreakdown({
       instructionBreakdown,
       memoryBacked: true,
@@ -110,7 +110,10 @@ describe('computePromptBreakdown', () => {
         totalTokens: 412,
       },
     });
-    expect(breakdown.provenance).toBe('measured');
+    // Whole-breakdown provenance NEVER upgrades to 'measured' — the
+    // instruction/message figures are still chars/4 (provenance must not lie).
+    expect(breakdown.provenance).toBe('heuristic');
+    expect(breakdown.toolDefinitionsProvenance).toBe('measured');
     expect(breakdown.toolDefinitionsTokens).toBe(412);
     expect(breakdown.toolDefinitionsByTool).toEqual([
       { name: 'big_tool', tokens: 400 },
@@ -126,6 +129,7 @@ describe('computePromptBreakdown', () => {
     });
     expect('toolDefinitionsTokens' in breakdown).toBe(false);
     expect('toolDefinitionsByTool' in breakdown).toBe(false);
+    expect('toolDefinitionsProvenance' in breakdown).toBe(false);
     expect(breakdown.provenance).toBe('heuristic');
   });
 });

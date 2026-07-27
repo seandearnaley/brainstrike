@@ -13,10 +13,11 @@ const AUTO_SETTINGS: RuntimeAssistantObservationalMemorySettings = {
 };
 
 describe('resolveEffectiveObservationalMemorySettings (BST-940 auto observer)', () => {
-  it('resolves auto to the Mastra-preferred observer for a keyed profile', () => {
+  it("resolves auto to the CHAT provider's Mastra-tested fast observer", () => {
     const effective = resolveEffectiveObservationalMemorySettings({
       desktopAssistantBackendAvailable: true,
       providerKeySources: [{ provider: 'anthropic', source: 'stored' }],
+      selectedChatProvider: 'anthropic',
       settings: AUTO_SETTINGS,
     });
     expect(effective.settings).toEqual({
@@ -29,23 +30,39 @@ describe('resolveEffectiveObservationalMemorySettings (BST-940 auto observer)', 
     });
   });
 
-  it('keeps OM enabled=false with a visible unresolved state for a keyless profile', () => {
+  it('privacy: a LOCAL chat never resolves a hosted observer even with hosted keys stored', () => {
     const effective = resolveEffectiveObservationalMemorySettings({
       desktopAssistantBackendAvailable: true,
-      providerKeySources: [],
+      providerKeySources: [
+        { provider: 'openai', source: 'stored' },
+        { provider: 'google', source: 'stored' },
+      ],
+      selectedChatProvider: 'local',
       settings: AUTO_SETTINGS,
     });
     expect(effective.settings.enabled).toBe(false);
     expect(effective.autoResolution).toEqual({
       kind: 'unresolved',
-      reason: 'no-eligible-provider',
+      reason: 'no-hosted-chat-provider',
     });
+  });
+
+  it('privacy: never selects a DIFFERENT keyed provider than the chat provider', () => {
+    const effective = resolveEffectiveObservationalMemorySettings({
+      desktopAssistantBackendAvailable: true,
+      providerKeySources: [{ provider: 'google', source: 'stored' }],
+      selectedChatProvider: 'anthropic',
+      settings: AUTO_SETTINGS,
+    });
+    expect(effective.settings.enabled).toBe(false);
+    expect(effective.autoResolution?.kind).toBe('unresolved');
   });
 
   it('adapts on web (no desktop backend) instead of disabling thread memory', () => {
     const effective = resolveEffectiveObservationalMemorySettings({
       desktopAssistantBackendAvailable: false,
       providerKeySources: [{ provider: 'anthropic', source: 'stored' }],
+      selectedChatProvider: 'anthropic',
       settings: AUTO_SETTINGS,
     });
     expect(effective.settings.enabled).toBe(false);
@@ -56,10 +73,42 @@ describe('resolveEffectiveObservationalMemorySettings (BST-940 auto observer)', 
     const effective = resolveEffectiveObservationalMemorySettings({
       desktopAssistantBackendAvailable: true,
       providerKeySources: undefined,
+      selectedChatProvider: 'anthropic',
       settings: AUTO_SETTINGS,
     });
     expect(effective.settings.enabled).toBe(false);
     expect(effective.autoResolution).toEqual({ kind: 'unresolved', reason: 'keys-unknown' });
+  });
+
+  it('honors the model catalog: a candidate disabled in the registry never auto-resolves', () => {
+    const effective = resolveEffectiveObservationalMemorySettings({
+      desktopAssistantBackendAvailable: true,
+      isTargetEligible: ({ modelId, provider }) =>
+        !(provider === 'anthropic' && modelId === 'claude-haiku-4-5'),
+      providerKeySources: [{ provider: 'anthropic', source: 'stored' }],
+      selectedChatProvider: 'anthropic',
+      settings: AUTO_SETTINGS,
+    });
+    expect(effective.settings.enabled).toBe(false);
+    expect(effective.autoResolution).toEqual({
+      kind: 'unresolved',
+      reason: 'model-not-eligible',
+    });
+  });
+
+  it('splits the openrouter target correctly for the eligibility check (nested model id)', () => {
+    const seen: { modelId: string; provider: string }[] = [];
+    resolveEffectiveObservationalMemorySettings({
+      desktopAssistantBackendAvailable: true,
+      isTargetEligible: (target) => {
+        seen.push(target);
+        return true;
+      },
+      providerKeySources: [{ provider: 'openrouter', source: 'stored' }],
+      selectedChatProvider: 'openrouter',
+      settings: AUTO_SETTINGS,
+    });
+    expect(seen).toEqual([{ modelId: 'google/gemini-2.5-flash', provider: 'openrouter' }]);
   });
 
   it('passes a concrete (non-auto) target through untouched — explicit config keeps loud validation', () => {
@@ -67,24 +116,10 @@ describe('resolveEffectiveObservationalMemorySettings (BST-940 auto observer)', 
     const effective = resolveEffectiveObservationalMemorySettings({
       desktopAssistantBackendAvailable: false,
       providerKeySources: undefined,
+      selectedChatProvider: 'local',
       settings: explicit,
     });
     expect(effective.settings).toBe(explicit);
     expect(effective.autoResolution).toBeUndefined();
-  });
-
-  it('resolves the target even when OM is user-disabled (settings UI shows what auto would pick)', () => {
-    const disabled = { ...AUTO_SETTINGS, enabled: false };
-    const effective = resolveEffectiveObservationalMemorySettings({
-      desktopAssistantBackendAvailable: true,
-      providerKeySources: [{ provider: 'google', source: 'stored' }],
-      settings: disabled,
-    });
-    expect(effective.settings.enabled).toBe(false);
-    expect(effective.settings.modelTarget).toBe('google/gemini-2.5-flash');
-    expect(effective.autoResolution).toEqual({
-      kind: 'resolved',
-      target: 'google/gemini-2.5-flash',
-    });
   });
 });

@@ -39,13 +39,13 @@ export interface AssistantContextBreakdown {
    */
   readonly historyMessagesTokens?: number;
   /**
-   * Counting method for the breakdown figures. 'heuristic' is the shared
-   * chars/4 estimator (see prompt-breakdown.ts); 'measured' means the run's
-   * tokenizer-backed measurement (RunTokenDiagnostics) supplied the
-   * tool-definition figures — the instruction/message figures remain the
-   * heuristic either way, so every displayed count keeps its "~" qualifier.
+   * Counting method for the instruction/message figures — always the shared
+   * chars/4 heuristic (see prompt-breakdown.ts). Deliberately NOT upgraded when
+   * the tool-definition figures are tokenizer-measured: a whole-breakdown
+   * 'measured' would assert more precision than the payload has (provenance
+   * must never lie). Tool-definition precision rides its own field below.
    */
-  readonly provenance: 'heuristic' | 'measured';
+  readonly provenance: 'heuristic';
   /**
    * Heuristic tokens of the composed system instructions EXCLUDING the task
    * list note (which has its own row). Tool guidance is interleaved in the
@@ -59,6 +59,13 @@ export interface AssistantContextBreakdown {
    * the run's tool-definition measurement failed (never zero-faked).
    */
   readonly toolDefinitionsByTool?: readonly AssistantToolDefinitionTokens[];
+  /**
+   * Counting method for the tool-definition figures ONLY: 'measured' when the
+   * run's tokenizer-backed measurement (RunTokenDiagnostics) counted them,
+   * 'heuristic' on the chars/4 backstop. Present iff the tool-definition
+   * fields are present.
+   */
+  readonly toolDefinitionsProvenance?: 'heuristic' | 'measured';
   /**
    * Total serialized tool-definition tokens on this run's provider request
    * (names + descriptions + JSON schemas). ABSENT when measurement failed.
@@ -97,7 +104,14 @@ export function isAssistantContextBreakdown(value: unknown): value is AssistantC
   if (!isRecord(value)) {
     return false;
   }
-  if (!(value['provenance'] === 'heuristic' || value['provenance'] === 'measured')) {
+  if (value['provenance'] !== 'heuristic') {
+    return false;
+  }
+  if (
+    value['toolDefinitionsProvenance'] !== undefined &&
+    value['toolDefinitionsProvenance'] !== 'heuristic' &&
+    value['toolDefinitionsProvenance'] !== 'measured'
+  ) {
     return false;
   }
   if (!(isCount(value['systemInstructionsTokens']) && isCount(value['attachmentsCount']))) {
@@ -153,6 +167,9 @@ export function parseAssistantContextBreakdown(value: unknown): AssistantContext
               tokens,
             })),
           }),
+      ...(value.toolDefinitionsProvenance === undefined
+        ? {}
+        : { toolDefinitionsProvenance: value.toolDefinitionsProvenance }),
       ...(value.toolDefinitionsTokens === undefined
         ? {}
         : { toolDefinitionsTokens: value.toolDefinitionsTokens }),

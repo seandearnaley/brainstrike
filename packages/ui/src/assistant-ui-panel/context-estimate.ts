@@ -139,18 +139,33 @@ function countMessage(message: unknown): PerMessageCounts {
   return { ...counts, toolTokensByName };
 }
 
-const messageCountCache = new WeakMap<object, PerMessageCounts>();
+interface CachedMessageCounts {
+  counts: PerMessageCounts;
+  /** Parts-array fingerprint: a reused message whose parts array was swapped or grew re-counts. */
+  partsLength: number;
+  partsRef: readonly unknown[];
+}
 
-function countMessageMemoized(message: unknown): PerMessageCounts {
-  if (!isRecord(message)) {
+const messageCountCache = new WeakMap<object, CachedMessageCounts>();
+
+/**
+ * Memoized per-message count. The cache validates the parts ARRAY (reference +
+ * length), not just the message identity — if assistant-ui ever reuses a
+ * message object while appending parts, the entry invalidates instead of
+ * freezing the count (review hardening). The caller additionally never
+ * memoizes the streaming tail, whose latest text part can grow in place.
+ */
+function countMessageMemoized(message: unknown, cacheable: boolean): PerMessageCounts {
+  if (!(cacheable && isRecord(message))) {
     return countMessage(message);
   }
+  const parts = getMessageParts(message);
   const cached = messageCountCache.get(message);
-  if (cached) {
-    return cached;
+  if (cached && cached.partsRef === parts && cached.partsLength === parts.length) {
+    return cached.counts;
   }
   const counts = countMessage(message);
-  messageCountCache.set(message, counts);
+  messageCountCache.set(message, { counts, partsLength: parts.length, partsRef: parts });
   return counts;
 }
 
@@ -163,8 +178,9 @@ export function estimateConversationTokens(
   let reasoningTokens = 0;
   let userTextTokens = 0;
   const toolTotals = new Map<string, number>();
-  for (const message of messages) {
-    const counts = countMessageMemoized(message);
+  for (const [index, message] of messages.entries()) {
+    // The final message is the potential streaming tail — always re-count it.
+    const counts = countMessageMemoized(message, index < messages.length - 1);
     assistantTextTokens += counts.assistantTextTokens;
     attachmentsCount += counts.attachmentsCount;
     reasoningTokens += counts.reasoningTokens;

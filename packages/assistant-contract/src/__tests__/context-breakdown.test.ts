@@ -64,6 +64,7 @@ describe('context-breakdown contract', () => {
         { name: 'brainstrike.readWorkspaceFile', tokens: 210 },
         { name: 'run_shell', tokens: 95 },
       ],
+      toolDefinitionsProvenance: 'measured',
       toolDefinitionsTokens: 305,
     };
     expect(parseAssistantContextBreakdown(withTools)).toEqual({
@@ -72,12 +73,16 @@ describe('context-breakdown contract', () => {
     });
   });
 
-  it('accepts the measured provenance (tokenizer-backed tool-definition counts)', () => {
-    const measured = { ...validBreakdown, provenance: 'measured' };
-    expect(parseAssistantContextBreakdown(measured)).toEqual({
-      breakdown: measured,
-      invalid: false,
+  it('rejects a whole-breakdown measured provenance (precision must never be overstated)', () => {
+    expect(parseAssistantContextBreakdown({ ...validBreakdown, provenance: 'measured' })).toEqual({
+      invalid: true,
     });
+  });
+
+  it('rejects a bogus toolDefinitionsProvenance', () => {
+    expect(
+      parseAssistantContextBreakdown({ ...validBreakdown, toolDefinitionsProvenance: 'exact' })
+    ).toEqual({ invalid: true });
   });
 
   it('keeps absent v2 fields ABSENT after parsing (never zero-faked)', () => {
@@ -87,6 +92,7 @@ describe('context-breakdown contract', () => {
     }
     expect('toolDefinitionsTokens' in parsed.breakdown).toBe(false);
     expect('toolDefinitionsByTool' in parsed.breakdown).toBe(false);
+    expect('toolDefinitionsProvenance' in parsed.breakdown).toBe(false);
   });
 
   it.each([

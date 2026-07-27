@@ -293,17 +293,26 @@ thresholds (observation.messageTokens 30K / reflection.observationTokens 40K)
 with the `'auto'` observer target (`OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET`).
 `resolveEffectiveObservationalMemorySettings` (app-shell wrapper-runtime, memo'd
 once in the wrapper) resolves `'auto'` into CONCRETE settings consumed by
-request data, memory validation, and the OM meter alike: a keyed profile gets a
-Mastra-tested fast observer (google/gemini-2.5-flash → anthropic/claude-haiku-4-5
-→ openai/gpt-5.4-mini → openrouter/google/gemini-2.5-flash, via the contract's
-pure `resolveAutoObservationalMemoryModelTarget`); a keyless/web profile flips
-`enabled → false` with an explicit unresolved reason surfaced as the popover's
-'awaiting-observer' OM state and the Settings auto note. An unresolved auto must
-NEVER disable thread memory, and `'auto'` must never reach the provider/model
-validator (the validator also resolves defensively). The built-in local Gemma is
-deliberately NOT an auto candidate — its 8K runtime budget cannot observe the
-30K message threshold. An EXPLICIT (non-auto) target keeps the original loud
-validation: enabling a hosted target without that provider's key fails visibly.
+request data, memory validation, and the OM meter alike, under the PRIVACY
+RULING (PR #2039 review — do not relitigate): the auto observer is only ever a
+Mastra-tested fast model FROM THE SELECTED CHAT PROVIDER — the party already
+receiving the conversation — never a different keyed provider (anthropic →
+claude-haiku-4-5, google → gemini-2.5-flash, openai → gpt-5.4-mini,
+openrouter → openrouter/google/gemini-2.5-flash, via the contract's pure
+`resolveAutoObservationalMemoryModelTarget`). A local/keyless/web chat, or a
+candidate the user disabled in the model catalog (the wrapper passes an
+`isTargetEligible` predicate over the loaded registry, same gate as the
+settings dropdown), flips `enabled → false` with an explicit unresolved reason
+surfaced as the popover's 'awaiting-observer' OM state and the Settings auto
+note. An unresolved auto must NEVER disable thread memory, and `'auto'` must
+never reach the provider/model validator (the validator also resolves
+defensively, and the desktop server resolves the sentinel again at request
+intake — `resolveServerAutoObservationalMemory` — so a raw client shipping
+'auto' can neither 502 a local stream nor conjure a cross-provider observer).
+The built-in local Gemma is deliberately NOT an auto candidate — its 8K
+runtime budget cannot observe the 30K message threshold. An EXPLICIT
+(non-auto) target keeps the original loud validation: enabling a hosted target
+without that provider's key fails visibly.
 Construction seams that receive no settings (memory factory default arg,
 desktop-server absent-field fallbacks) use
 `CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS` (observation OFF) — an

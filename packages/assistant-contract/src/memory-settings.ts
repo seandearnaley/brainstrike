@@ -39,7 +39,7 @@ export const DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY = {
 export const OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET = 'auto';
 
 /**
- * Ordered auto-observer candidates, grounded in Mastra's observational-memory
+ * Per-provider auto-observer targets, grounded in Mastra's observational-memory
  * docs: `google/gemini-2.5-flash` is Mastra's default OM model; Haiku and the
  * fast OpenAI mini are on their tested list; the OpenRouter entry routes to the
  * same Mastra default through the gateway. The built-in local Gemma is
@@ -47,33 +47,39 @@ export const OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET = 'auto';
  * message threshold, so auto-resolving to it would configure a structurally
  * broken observer.
  */
-const AUTO_OBSERVATIONAL_MEMORY_CANDIDATES: readonly {
-  readonly provider: string;
-  readonly target: string;
-}[] = [
-  { provider: 'google', target: 'google/gemini-2.5-flash' },
-  { provider: 'anthropic', target: 'anthropic/claude-haiku-4-5' },
-  { provider: 'openai', target: 'openai/gpt-5.4-mini' },
-  { provider: 'openrouter', target: 'openrouter/google/gemini-2.5-flash' },
-];
+const AUTO_OBSERVATIONAL_MEMORY_TARGET_BY_CHAT_PROVIDER: Readonly<Record<string, string>> = {
+  anthropic: 'anthropic/claude-haiku-4-5',
+  google: 'google/gemini-2.5-flash',
+  openai: 'openai/gpt-5.4-mini',
+  openrouter: 'openrouter/google/gemini-2.5-flash',
+};
 
 /**
- * Resolve the 'auto' observer target to a concrete provider/model the profile
- * can run, or null when no keyed provider is eligible. Pure and deterministic:
- * candidate order decides, never key-source order. A null resolution means
- * observational memory WAITS visibly (surfaced in settings and the context
- * popover) — it must never disable thread memory as a whole.
+ * Resolve the 'auto' observer target to a concrete provider/model, or null.
+ *
+ * PRIVACY INVARIANT (review ruling on BST-940): auto only ever selects an
+ * observer from the SELECTED CHAT PROVIDER — the party already receiving the
+ * conversation — never a different keyed provider. A local/keyless/unsupported
+ * chat therefore resolves to null and observational memory WAITS visibly
+ * (surfaced in settings and the context popover); it must never disable thread
+ * memory as a whole, and it must never create new data egress or charges the
+ * user didn't already opt into by picking their chat provider.
  */
 export function resolveAutoObservationalMemoryModelTarget(args: {
+  chatProvider: string | null | undefined;
   providersWithKeys: readonly string[];
 }): string | null {
-  const keyed = new Set(args.providersWithKeys);
-  for (const candidate of AUTO_OBSERVATIONAL_MEMORY_CANDIDATES) {
-    if (keyed.has(candidate.provider)) {
-      return candidate.target;
-    }
+  if (!args.chatProvider) {
+    return null;
   }
-  return null;
+  const target = AUTO_OBSERVATIONAL_MEMORY_TARGET_BY_CHAT_PROVIDER[args.chatProvider];
+  if (target === undefined) {
+    return null;
+  }
+  if (!args.providersWithKeys.includes(args.chatProvider)) {
+    return null;
+  }
+  return target;
 }
 
 /**

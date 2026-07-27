@@ -93,7 +93,11 @@ export function computePromptBreakdown(params: {
   return {
     attachmentsCount,
     ...(params.memoryBacked ? {} : { historyMessagesTokens: historyTokens }),
-    provenance: toolDefinitions?.provenance ?? 'heuristic',
+    // Whole-breakdown provenance stays 'heuristic' — the instruction/message
+    // figures are always chars/4. Tool-definition precision rides its own
+    // toolDefinitionsProvenance field so the payload never claims more
+    // precision than it has (provenance must never lie).
+    provenance: 'heuristic',
     systemInstructionsTokens: params.instructionBreakdown.systemInstructionsTokens,
     ...(params.instructionBreakdown.taskListTokens === undefined
       ? {}
@@ -105,6 +109,7 @@ export function computePromptBreakdown(params: {
               (left, right) => right.tokens - left.tokens || left.name.localeCompare(right.name)
             )
             .map(({ name, tokens }) => ({ name, tokens })),
+          toolDefinitionsProvenance: toolDefinitions.provenance,
           toolDefinitionsTokens: toolDefinitions.totalTokens,
         }
       : {}),

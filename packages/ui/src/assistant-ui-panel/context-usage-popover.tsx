@@ -53,7 +53,7 @@ function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } 
       return { text: 'OM inactive', tone: 'muted' };
     case 'awaiting-observer':
       return {
-        text: 'Observations on (Auto) — add a provider API key to start observing',
+        text: 'Observations on (Auto) — runs with a hosted chat provider, paused for this chat',
         tone: 'muted',
       };
     case 'empty':
@@ -372,10 +372,15 @@ function composeBreakdown(params: {
     composeConversationCategory(composer, conversation, conversationEstimate);
   }
 
+  // Same authority split as the Conversation row: when the wire IS the
+  // conversation (historyMessagesTokens present), the server count is the
+  // measurement — including an honest 0 that must not be overridden by stale
+  // UI history. Memory-backed runs measure only the current turn on the wire,
+  // so the client walk (whole thread) speaks for the conversation instead.
   const attachmentsCount =
-    breakdown && breakdown.attachmentsCount > 0
-      ? breakdown.attachmentsCount
-      : (conversationEstimate?.attachmentsCount ?? 0);
+    breakdown?.historyMessagesTokens === undefined
+      ? (conversationEstimate?.attachmentsCount ?? breakdown?.attachmentsCount ?? 0)
+      : breakdown.attachmentsCount;
   if (attachmentsCount > 0) {
     composer.rows.push({
       label: 'Attachments',
@@ -430,7 +435,10 @@ function computeSegmentWidths(
   let remaining = 100;
   for (const segment of segments) {
     const raw = (segment.tokens / effectiveInputBudget) * 100;
-    const width = Math.max(0.75, Math.min(raw, remaining));
+    // Floor tiny segments to a visible sliver, but the remaining-budget clamp
+    // wins LAST so the widths can never sum past 100 (an over-budget thread is
+    // the inline critical notice's job, not the bar's).
+    const width = Math.min(Math.max(raw, 0.75), remaining);
     remaining = Math.max(0, remaining - width);
     widths.push({ ...segment, width });
   }

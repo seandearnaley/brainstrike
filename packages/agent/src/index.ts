@@ -244,11 +244,13 @@ export { InMemoryMemoryStore } from './memory/in-memory';
 export {
   CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
   type RuntimeAssistantMemoryRetrievalMode,
   type RuntimeAssistantMemoryScope,
   type RuntimeAssistantMemorySettings,
   type RuntimeAssistantObservationalMemorySettings,
   type RuntimeAssistantSemanticRecallSettings,
+  resolveAutoObservationalMemoryModelTarget,
 } from './memory-settings';
 // Message utilities — conversion and normalization functions
 export {
