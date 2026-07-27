@@ -317,7 +317,13 @@ describe('WebE2ETestHooks', () => {
       expect.stringContaining('INSERT INTO mastra_workflow_snapshot'),
       ['reset-probe-workflow', expect.any(String), 'reset-probe-resource', '{"status":"suspended"}']
     );
+    expect(
+      transactionQuery.mock.calls.filter(([sql]) =>
+        String(sql).includes('mastra_workflow_snapshot')
+      )
+    ).toHaveLength(1);
     expect(exec).toHaveBeenCalledWith(expect.stringContaining('mastra_workflow_snapshot'));
+    expect(exec).toHaveBeenCalledTimes(1);
     expect(transaction).toHaveBeenCalledTimes(3);
   });
 

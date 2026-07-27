@@ -128,6 +128,7 @@ export const dbCoverageLaneDefinitions = {
       'architecture-ownership.test.ts',
       'brainstrike-db-client-contract.test.ts',
       'db-test-lane-manifest.test.ts',
+      'migration-runner-types.test.ts',
       'runtime-import-extensions.test.ts',
     ],
     chunking: [

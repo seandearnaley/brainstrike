@@ -1,7 +1,4 @@
-import {
-  resolveLocalArtifactRemoteHost,
-  resolveLocalArtifactRemotePathTemplate,
-} from '@brainstrike/assistant-contract/local-llm-artifacts';
+import { resolveLocalArtifactRemotePathTemplate } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configureTransformersEnvironment } from '../gemma4-engine';
 
@@ -34,7 +31,7 @@ describe('configureTransformersEnvironment', () => {
 
     expect(environment).toEqual({
       allowRemoteModels: true,
-      remoteHost: resolveLocalArtifactRemoteHost(),
+      remoteHost: 'http://localhost:8080/api/hf/',
       remotePathTemplate: resolveLocalArtifactRemotePathTemplate(),
     });
   });
