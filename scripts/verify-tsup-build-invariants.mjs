@@ -209,11 +209,16 @@ const FIELD_ANYWHERE_RE = /\b(experimentalDts|clean|dts)\s*:/g;
  * (they are printed in the violation report), so block comments are blanked
  * character-for-character and newlines survive.
  *
+ * CRLF is normalized first because the guarded field pattern anchors on `$`;
+ * leaving `\r` behind makes a valid Windows line fail the strict parse while the
+ * permissive cross-check still counts it and reports an unmodelled shape.
+ *
  * Over-stripping cannot silently hide a violation: RULING 2 makes an ABSENT
  * `clean`/`dts` a failure, so a field eaten by the stripper fails loudly.
  */
 export function blankComments(source) {
   return source
+    .replace(/\r\n/g, '\n')
     .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
     .split('\n')
     .map((line) => line.replace(/(^|\s)\/\/.*$/, '$1'))

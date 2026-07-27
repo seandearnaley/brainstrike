@@ -566,7 +566,8 @@ Discovery floors (`MIN_TSUP_CONFIGS`, `MIN_TYPESCRIPT_OWNED_PACKAGES`) refuse to
 run rather than report a vacuous green — the second catches a collapsed
 classification, where discovery looks healthy but the governed class has emptied
 out. Config parsing is line-shaped with comments blanked (preserving line
-numbers, which are printed in the report); a permissive cross-check THROWS on any
+numbers, which are printed in the report) after normalizing Windows CRLF input
+to LF; a permissive cross-check THROWS on any
 guarded token the line shape did not parse, so an unmodelled shape fails loudly
 instead of escaping.
 
