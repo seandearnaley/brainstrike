@@ -96,6 +96,25 @@ describe('resolveEffectiveObservationalMemorySettings (BST-940 auto observer)', 
     });
   });
 
+  it('falls to the next Mastra-grounded OpenRouter candidate when the catalog disables the first', () => {
+    // Real default catalog state (CDT finding): openrouter/google/gemini-2.5-flash
+    // is seeded is_enabled=false, so auto-OM was dead on openrouter chats
+    // without ordered fallbacks.
+    const enabledInCatalog = new Set(['openrouter/deepseek/deepseek-v4-flash']);
+    const effective = resolveEffectiveObservationalMemorySettings({
+      desktopAssistantBackendAvailable: true,
+      isTargetEligible: ({ modelId, provider }) => enabledInCatalog.has(`${provider}/${modelId}`),
+      providerKeySources: [{ provider: 'openrouter', source: 'stored' }],
+      selectedChatProvider: 'openrouter',
+      settings: AUTO_SETTINGS,
+    });
+    expect(effective.autoResolution).toEqual({
+      kind: 'resolved',
+      target: 'openrouter/deepseek/deepseek-v4-flash',
+    });
+    expect(effective.settings.modelTarget).toBe('openrouter/deepseek/deepseek-v4-flash');
+  });
+
   it('splits the openrouter target correctly for the eligibility check (nested model id)', () => {
     const seen: { modelId: string; provider: string }[] = [];
     resolveEffectiveObservationalMemorySettings({

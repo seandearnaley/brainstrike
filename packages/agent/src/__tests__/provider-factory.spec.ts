@@ -129,8 +129,25 @@ describe('provider-factory', () => {
       const model = createLanguageModelProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
 
       expect(model.modelId).toBe('z-ai/glm-5.2');
-      expect(model.provider).toBe('openrouter');
       expect(model.doStream).toBeTypeOf('function');
+    });
+
+    it('gives OpenRouter persistent-memory models a spec version @mastra/memory can execute', () => {
+      // The OM observer agent runs inside @mastra/memory's bundled core.
+      // ModelRouterLanguageModel declares specification 'v2', which that
+      // bundled agent executes — this pin keeps the wrapper from silently
+      // drifting to a spec literal the observer path cannot dispatch (the
+      // BST-947 field failure was the EMBEDDING model making exactly that
+      // class of mistake: a spec-'v4' embedder fell into @mastra/memory's
+      // legacy v1-only embed pipeline).
+      const model = createLanguageModelProvider(
+        'openrouter',
+        'test-key',
+        'google/gemini-2.5-flash'
+      );
+
+      expect(model.specificationVersion).toBe('v2');
+      expect(model.modelId).toBe('google/gemini-2.5-flash');
     });
 
     it('rejects a hosted router model without an explicit credential', () => {

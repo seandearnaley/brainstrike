@@ -9,6 +9,10 @@ import {
   TablePagination,
   type useToast,
 } from '@brainstrike/ui';
+import {
+  downloadBlobFile,
+  formatTimestampedDownloadFilename,
+} from '@brainstrike/utils/browser-download';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import {
@@ -542,12 +546,16 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
       type: 'application/json',
     });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `brainstrike-logs-${new Date().toISOString()}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    // `downloadBlobFile` owns the object URL's lifetime — deferred revoke on
+    // the success path, immediate on the throwing one.
+    downloadBlobFile({
+      blob,
+      filename: formatTimestampedDownloadFilename({
+        extension: 'json',
+        generatedAt: new Date(),
+        name: 'brainstrike-logs',
+      }),
+    });
   };
 
   const handleSortNewestFirstChange = useCallback((value: boolean) => {

@@ -1147,6 +1147,13 @@ function processMastraStreamPart(
 ): ProcessStreamPartResult {
   const p = asMastraStreamPart(part);
 
+  // Dynamic OM bookkeeping branches before the typed switch: failure variants
+  // surface as run events (BST-947 — the only runtime evidence of a broken
+  // observer), the rest stay silent without unrecognized-chunk warnings.
+  if (isObservationalMemoryDataChunkType(p.type)) {
+    return mapObservationalMemoryDataPart(p);
+  }
+
   switch (p.type) {
     case 'start':
       return {
@@ -1379,6 +1386,57 @@ function processMastraStreamPart(
       warnForUnrecognizedMastraStreamPart(p.type, lifecycleState);
       return { chunks: [], finished: false };
   }
+}
+
+/**
+ * Mastra streams observational-memory bookkeeping as DYNAMIC `data-om-*`
+ * chunks (not in the static disposition map, so they must branch BEFORE the
+ * typed switch whose default clause carries the R6 unrecognized-chunk
+ * diagnostic — see scripts/mastra-stream-chunk-contract.mjs).
+ */
+function isObservationalMemoryDataChunkType(type: unknown): type is string {
+  return typeof type === 'string' && type.startsWith('data-om-');
+}
+
+const OM_FAILURE_DETAIL_MAX_CHARS = 500;
+
+function mapObservationalMemoryDataPart(part: MastraStreamPart): {
+  chunks: StreamChunk[];
+  finished: boolean;
+} {
+  if (!part.type.endsWith('-failed')) {
+    return { chunks: [], finished: false };
+  }
+  const payload = (part.payload ?? (part as { data?: unknown }).data) as
+    | Record<string, unknown>
+    | undefined;
+  const rawError = payload?.['error'];
+  const errorText =
+    typeof rawError === 'string' && rawError.length > 0
+      ? rawError.slice(0, OM_FAILURE_DETAIL_MAX_CHARS)
+      : 'Observation cycle failed without a reported reason.';
+  const operationType =
+    typeof payload?.['operationType'] === 'string' ? payload['operationType'] : undefined;
+  return {
+    chunks: [
+      {
+        event: {
+          detail: errorText,
+          id: `run-event-${generateUUID()}`,
+          kind: 'memory.observation.failed',
+          label: 'Observational memory failed',
+          metadata: {
+            omChunkType: part.type,
+            ...(operationType === undefined ? {} : { operationType }),
+          },
+          status: 'failed',
+          timestamp: new Date().toISOString(),
+        },
+        type: 'run-event',
+      },
+    ],
+    finished: false,
+  };
 }
 
 /**

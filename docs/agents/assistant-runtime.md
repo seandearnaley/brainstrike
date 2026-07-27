@@ -1597,6 +1597,23 @@ old ordering fails there instead of silently re-polluting the ledger. The
 mapper's delete stays as defence in depth; it is NOT evidence of current
 behaviour.
 
+**Tool-call args-stream discipline (BST-940 field failure, 2026-07-27).** The
+renderer's assistant-stream decoder closes a call's argsText controller on the
+complete `9` frame, THROWS on duplicate tool call ids, and appending into a
+closed controller is an unhandled TypeError that fails the whole run. GLM-5.2
+via OpenRouter emits trailing `tool-call-delta` parts after the complete tool
+call and after the result. `data-stream-mapper.ts` therefore (1) emits the `c`
+args-delta frame only while `toolState` exists AND `argsEmitted` is false, and
+(2) tracks `settledToolCallIds` so a late progress event for a settled call is
+dropped instead of auto-starting a duplicate `b`. Pinned by the "drops trailing
+args deltas" case in `data-stream-session.spec.ts`.
+
+Mastra's dynamic `data-om-*` stream chunks are handled by prefix in
+`agent-streaming.ts`: `-failed` variants map to a durable
+`memory.observation.failed` run event (they were the only runtime evidence of
+the field failure); other OM bookkeeping is deliberately silent (Mastra
+persists it itself) and never trips the unrecognized-chunk warning.
+
 **Durable AND always visible.** The `brainstrike.tool-suspend` data part is
 transient (aui-data, never persisted), so after a reload the notice is gone. The
 run event is persisted to `brainstrike_assistant_run_events` and rehydrated as a

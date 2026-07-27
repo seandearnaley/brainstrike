@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  listAutoObservationalMemoryCandidates,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
   resolveAutoObservationalMemoryModelTarget,
 } from '../memory-settings.js';
@@ -71,5 +72,18 @@ describe('resolveAutoObservationalMemoryModelTarget (privacy: chat provider only
     expect(
       resolveAutoObservationalMemoryModelTarget({ chatProvider: 'google', providersWithKeys: [] })
     ).toBe(null);
+  });
+
+  it('lists ordered OpenRouter fallbacks (preferred Gemini targets ship catalog-disabled)', () => {
+    expect(
+      listAutoObservationalMemoryCandidates({
+        chatProvider: 'openrouter',
+        providersWithKeys: ['openrouter'],
+      })
+    ).toEqual([
+      'openrouter/google/gemini-2.5-flash',
+      'openrouter/google/gemini-3.5-flash-lite',
+      'openrouter/deepseek/deepseek-v4-flash',
+    ]);
   });
 });

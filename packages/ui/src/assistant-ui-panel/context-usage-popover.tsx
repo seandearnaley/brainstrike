@@ -21,7 +21,11 @@ import {
 } from '@brainstrike/utils/token-counting-heuristics';
 import { cn } from '../lib/utils';
 import type { ConversationTokenEstimate } from './context-estimate';
-import type { CumulativeUsageDisplay, OmMeterState } from './context-usage-meter';
+import type {
+  CumulativeUsageDisplay,
+  OmAwaitingObserverReason,
+  OmMeterState,
+} from './context-usage-meter';
 import type { ThreadTokenUsage } from './context-usage-store';
 
 const logger = createLogger('ContextUsagePopover');
@@ -40,6 +44,24 @@ function costLabel(cost: CostEstimate): string {
   return 'cost unavailable';
 }
 
+/** Actionable copy per awaiting-observer reason — a pause must say why. */
+function awaitingObserverNote(reason: OmAwaitingObserverReason): string {
+  switch (reason) {
+    case 'model-not-eligible':
+      return 'Observations on (Auto) — no recommended observer model is enabled in your model catalog; enable one (e.g. Gemini 2.5 Flash) or pick an observer in Assistant Memory settings';
+    case 'no-hosted-chat-provider':
+      return 'Observations on (Auto) — runs with a hosted chat provider, paused for this chat';
+    case 'no-backend':
+      return 'Observations on (Auto) — requires the desktop assistant backend';
+    case 'keys-unknown':
+      return 'Observations on (Auto) — waiting for provider credentials to load';
+    default: {
+      const exhaustive: never = reason;
+      return exhaustive;
+    }
+  }
+}
+
 /**
  * Short note + testid for the non-`stats` OM states (honest, never a 0). Returns
  * null for `loading` so the OM line stays quiet during the initial fetch / a
@@ -52,10 +74,7 @@ function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } 
     case 'inactive':
       return { text: 'OM inactive', tone: 'muted' };
     case 'awaiting-observer':
-      return {
-        text: 'Observations on (Auto) — runs with a hosted chat provider, paused for this chat',
-        tone: 'muted',
-      };
+      return { text: awaitingObserverNote(state.reason), tone: 'muted' };
     case 'empty':
       return { text: 'No observations yet', tone: 'muted' };
     case 'error':

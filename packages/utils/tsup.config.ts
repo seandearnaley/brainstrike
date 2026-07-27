@@ -5,6 +5,7 @@ export default defineConfig({
   dts: false,
   entry: {
     'background-indexing-policy': 'src/background-indexing-policy.ts',
+    'browser-download': 'src/browser-download.ts',
     'browser-events': 'src/browser-events.ts',
     'bulk-operation-context': 'src/bulk-operation-context.ts',
     collator: 'src/collator.ts',
