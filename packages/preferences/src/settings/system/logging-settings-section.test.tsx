@@ -529,13 +529,24 @@ describe('LoggingSettingsSection export NDJSON button', () => {
 });
 
 describe('LoggingSettingsSection diagnostics retention card', () => {
-  it('keeps retention preferences visible when onPurgeNow is not supplied', () => {
+  it('keeps retention preferences usable and reports deferred enforcement without a database', async () => {
+    const user = userEvent.setup();
     render(<LoggingSettingsSection logSource={createLogSource([])} runtime="browser" />);
 
     expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /keep events for/i })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /maximum events/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /purge now/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/these limits apply once the local database is available/i)
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: /keep events for/i }));
+    await user.click(screen.getByRole('option', { name: '7 days' }));
+
+    await waitFor(() => {
+      expect(useDiagnosticsRetentionStore.getState().maxAgeDays).toBe(7);
+    });
   });
 
   it('is present when onPurgeNow is supplied', () => {

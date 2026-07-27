@@ -91,8 +91,9 @@ export interface LoggingSettingsSectionProps {
    * here would be circular. Callers build this from
    * `useDiagnosticsPurge()` (`@brainstrike/app-shell/diagnostics`), which
    * wraps `DiagnosticEventsRepository.purge()` with the Task 1 store's
-   * `maxAgeDays`/`maxRows`. The card renders only when this prop is
-   * present.
+   * `maxAgeDays`/`maxRows`. When it is absent (no database handle), the card
+   * still renders its persisted retention selectors and omits only the
+   * "Purge now" row.
    */
   onPurgeNow?: () => Promise<number>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
@@ -935,7 +936,11 @@ function DiagnosticsRetentionCard({
               Purge Now
             </Button>
           </div>
-        ) : null}
+        ) : (
+          <p className="rounded-md border border-border/60 p-3 text-muted-foreground text-xs">
+            These limits apply once the local database is available.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
