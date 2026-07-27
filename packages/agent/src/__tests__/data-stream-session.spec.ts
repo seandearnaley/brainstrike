@@ -246,6 +246,24 @@ describe('AssistantDataStreamSession', () => {
         status: 'success',
         type: 'tool-event',
       },
+      // Trailing APPROVAL and SUSPEND requests for the settled id — the same
+      // duplicate-`b` crash class through their own auto-start seams; both are
+      // dropped (a settled call cannot legitimately pause).
+      {
+        args: {},
+        resumeSchema: '{}',
+        runId: 'run-late',
+        toolCallId: 'call-late',
+        toolName: 'weather.lookup',
+        type: 'tool-approval-required',
+      },
+      {
+        runId: 'run-late',
+        suspendPayload: { title: 'stale pause' },
+        toolCallId: 'call-late',
+        toolName: 'weather.lookup',
+        type: 'tool-suspend-required',
+      },
       { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ];
 

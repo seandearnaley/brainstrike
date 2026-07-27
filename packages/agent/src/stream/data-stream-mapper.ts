@@ -600,6 +600,16 @@ export class DataStreamMapper {
     if (!callId) {
       return;
     }
+    if (this.settledToolCallIds.has(callId)) {
+      // A settled call already has its result on the wire; it cannot be
+      // legitimately awaiting approval, and re-starting it would emit a
+      // duplicate `b` (renderer decoder throws on duplicate ids) — the same
+      // crash class the settled-id guard in handleToolEvent closes.
+      logger.warn('Dropping tool approval request for a settled tool call', {
+        toolCallId: callId,
+      });
+      return;
+    }
     yield* this.flushPendingRunEvents();
 
     if (!this.toolState.has(callId)) {
@@ -660,6 +670,18 @@ export class DataStreamMapper {
     // false "tool failed" message; do NOT cite it as evidence of current
     // behaviour (a PR #1977 review round did, and was wrong).
     this.pendingToolErrorTexts.delete(callId);
+    if (this.settledToolCallIds.has(callId)) {
+      // Settled-id rule (same class as handleToolEvent/handleToolApprovalRequired):
+      // restarting a settled call would put a duplicate `b` on the wire and the
+      // renderer decoder throws on duplicate ids. Deliberately AFTER the #1606
+      // defensive error discard above — in the legacy error-then-suspend
+      // ordering the transient error text must still be dropped even though
+      // the suspend part itself no longer replays a settled call.
+      logger.warn('Dropping tool suspend request for a settled tool call', {
+        toolCallId: callId,
+      });
+      return;
+    }
     // Text-part deferral contract: finalize any open text/reasoning append and
     // flush deferred run events BEFORE emitting the data part (a data part
     // mid-text slices visible text).
