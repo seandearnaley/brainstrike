@@ -136,7 +136,7 @@ Windowing and performance:
   or checkbox input.
 - Tree rows whose content can expand below their primary line must set the tree
   column's `treeControlsPosition` to `top`. This keeps disclosure and checkbox
-  controls pinned to the first 40px row line instead of recentering when details
+  controls pinned to the first row line instead of recentering when details
   appear below it.
 - Ephemeral selection actions float at the bottom through
   `SelectionActionBarOverlay` + `SelectionActionBar`. Keep the scroll owner
@@ -152,6 +152,16 @@ Windowing and performance:
   colorable inside it. Compute surface start/end from the visible row model so
   collapsed, empty, and disclosure-limited groups still close their rounded
   boundary correctly.
+- Every surface that renders a thread — the tab strip and the threads-panel
+  rows — shares one contract in `assistant-thread-presentation.ts`: the
+  `THREAD_CONTROL_*` density/typography tokens (28px control, 32px row pitch,
+  12px title, 20px mark) plus one color surface per thread. A control's fill
+  comes from `idleClassName`/`selectedClassName`; its identity mark comes from
+  `markClassName`, never the surface fill — both surfaces are tinted, so a mark
+  reusing the surface fill renders invisible. Use
+  `getAssistantThreadColorSurface` rather than re-deriving an "unassigned"
+  fallback per call site. Do not re-declare heights or type sizes at a call
+  site; that drift is what BST-939 fixed.
 
 When modifying TreeTable strategy or pagination behavior:
 - Update the related collection browser/file explorer/context preview adapters.
