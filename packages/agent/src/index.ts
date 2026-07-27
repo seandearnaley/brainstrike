@@ -242,6 +242,7 @@ export {
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory';
 export {
+  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   type RuntimeAssistantMemoryRetrievalMode,
   type RuntimeAssistantMemoryScope,

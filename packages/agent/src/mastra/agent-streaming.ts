@@ -2220,6 +2220,7 @@ async function createStreamIteratorFromRuntime({
       instructionBreakdown: runtime.instructionBreakdown,
       memoryBacked: Boolean(memoryOption),
       messages,
+      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
     });
 
     return streamChunksFromMastra({

@@ -31,6 +31,9 @@ import {
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  type RuntimeAssistantObservationalMemorySettings,
+  resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/assistant-contract/memory-settings';
 import {
   getProviderDefaultModel,
@@ -217,20 +220,91 @@ function resolveSemanticRecallDisabledReason(args: {
     : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn vector observation retrieval off.`;
 }
 
+/** Why an 'auto' observer target could not resolve to a concrete model. */
+export type ObservationalMemoryAutoUnresolvedReason =
+  | 'keys-unknown'
+  | 'no-backend'
+  | 'no-eligible-provider';
+
+export interface EffectiveObservationalMemorySettings {
+  /**
+   * Present ONLY when the stored target was the 'auto' sentinel. 'resolved'
+   * carries the concrete target auto picked; 'unresolved' explains why OM is
+   * waiting (surfaced in Settings and the context popover — never a silent
+   * off, and never a thread-memory-disabling validation error).
+   */
+  readonly autoResolution?:
+    | { readonly kind: 'resolved'; readonly target: string }
+    | { readonly kind: 'unresolved'; readonly reason: ObservationalMemoryAutoUnresolvedReason };
+  readonly settings: RuntimeAssistantObservationalMemorySettings;
+}
+
+/**
+ * Resolve the stored observational-memory settings into the CONCRETE settings
+ * every downstream consumer uses (request data, memory validation, OM meter).
+ * The 'auto' sentinel adapts to the profile: it resolves to a Mastra-tested
+ * fast observer when a keyed provider is eligible, and otherwise flips
+ * enabled→false with an explicit unresolved reason. Explicit (non-auto)
+ * targets pass through untouched so misconfiguration keeps its loud
+ * validation. 'auto' must never reach the provider/model validator.
+ */
+export function resolveEffectiveObservationalMemorySettings(args: {
+  readonly desktopAssistantBackendAvailable: boolean;
+  readonly providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
+  readonly settings: RuntimeAssistantObservationalMemorySettings;
+}): EffectiveObservationalMemorySettings {
+  if (args.settings.modelTarget !== OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET) {
+    return { settings: args.settings };
+  }
+  if (!args.desktopAssistantBackendAvailable) {
+    return {
+      autoResolution: { kind: 'unresolved', reason: 'no-backend' },
+      settings: { ...args.settings, enabled: false },
+    };
+  }
+  if (args.providerKeySources === undefined) {
+    return {
+      autoResolution: { kind: 'unresolved', reason: 'keys-unknown' },
+      settings: { ...args.settings, enabled: false },
+    };
+  }
+  const target = resolveAutoObservationalMemoryModelTarget({
+    providersWithKeys: args.providerKeySources.map(({ provider }) => provider),
+  });
+  if (target === null) {
+    return {
+      autoResolution: { kind: 'unresolved', reason: 'no-eligible-provider' },
+      settings: { ...args.settings, enabled: false },
+    };
+  }
+  return {
+    autoResolution: { kind: 'resolved', target },
+    settings: { ...args.settings, modelTarget: target },
+  };
+}
+
 function resolveObservationalMemoryDisabledReason(args: {
   desktopAssistantBackendAvailable: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
   providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
   providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
 }): string | undefined {
-  if (!args.memorySettings.observationalMemory.enabled) {
+  // Defense in depth: resolve the 'auto' sentinel with the SAME deterministic
+  // rules the wrapper uses, so a caller passing raw stored settings can never
+  // turn an unresolved auto observer into a memory-disabling validation error.
+  const { settings: observationalMemory } = resolveEffectiveObservationalMemorySettings({
+    desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
+    providerKeySources: args.providerKeySources,
+    settings: args.memorySettings.observationalMemory,
+  });
+  if (!observationalMemory.enabled) {
     return;
   }
   if (!args.desktopAssistantBackendAvailable) {
     return 'Observational memory requires the desktop assistant backend.';
   }
 
-  const modelTarget = args.memorySettings.observationalMemory.modelTarget;
+  const modelTarget = observationalMemory.modelTarget;
   const separatorIndex = modelTarget.indexOf('/');
   if (separatorIndex <= 0 || separatorIndex === modelTarget.length - 1) {
     return 'Observational memory requires a valid provider/model target. Reconfigure Assistant Memory settings.';

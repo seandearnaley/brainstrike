@@ -18,6 +18,12 @@
  */
 export const CONTEXT_BREAKDOWN_DATA_NAME = 'brainstrike.context-breakdown';
 
+/** One tool definition's measured share of the prompt (name + schema + description). */
+export interface AssistantToolDefinitionTokens {
+  readonly name: string;
+  readonly tokens: number;
+}
+
 export interface AssistantContextBreakdown {
   /**
    * Number of inline file (image) parts carried by the outgoing wire messages.
@@ -32,17 +38,32 @@ export interface AssistantContextBreakdown {
    * client-side heuristic walk for the Conversation row.
    */
   readonly historyMessagesTokens?: number;
-  /** Counting method — the shared chars/4 heuristic (see prompt-breakdown.ts). */
-  readonly provenance: 'heuristic';
+  /**
+   * Counting method for the breakdown figures. 'heuristic' is the shared
+   * chars/4 estimator (see prompt-breakdown.ts); 'measured' means the run's
+   * tokenizer-backed measurement (RunTokenDiagnostics) supplied the
+   * tool-definition figures — the instruction/message figures remain the
+   * heuristic either way, so every displayed count keeps its "~" qualifier.
+   */
+  readonly provenance: 'heuristic' | 'measured';
   /**
    * Heuristic tokens of the composed system instructions EXCLUDING the task
    * list note (which has its own row). Tool guidance is interleaved in the
-   * instructions and not separable, so it is counted here — there is
-   * deliberately no toolGuidanceTokens field until it can be measured honestly.
+   * instructions and not separable, so it is counted here.
    */
   readonly systemInstructionsTokens: number;
   /** Heuristic tokens of the per-thread task list note. ABSENT when no task list block was injected. */
   readonly taskListTokens?: number;
+  /**
+   * Per-tool definition token counts, sorted descending by tokens. ABSENT when
+   * the run's tool-definition measurement failed (never zero-faked).
+   */
+  readonly toolDefinitionsByTool?: readonly AssistantToolDefinitionTokens[];
+  /**
+   * Total serialized tool-definition tokens on this run's provider request
+   * (names + descriptions + JSON schemas). ABSENT when measurement failed.
+   */
+  readonly toolDefinitionsTokens?: number;
 }
 
 /**
@@ -62,12 +83,21 @@ function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
+function isToolDefinitionTokensEntry(value: unknown): value is AssistantToolDefinitionTokens {
+  return (
+    isRecord(value) &&
+    typeof value['name'] === 'string' &&
+    value['name'].length > 0 &&
+    isCount(value['tokens'])
+  );
+}
+
 /** True when the value is a well-formed {@link AssistantContextBreakdown}. */
 export function isAssistantContextBreakdown(value: unknown): value is AssistantContextBreakdown {
   if (!isRecord(value)) {
     return false;
   }
-  if (value['provenance'] !== 'heuristic') {
+  if (!(value['provenance'] === 'heuristic' || value['provenance'] === 'measured')) {
     return false;
   }
   if (!(isCount(value['systemInstructionsTokens']) && isCount(value['attachmentsCount']))) {
@@ -79,6 +109,18 @@ export function isAssistantContextBreakdown(value: unknown): value is AssistantC
     return false;
   }
   if (value['historyMessagesTokens'] !== undefined && !isCount(value['historyMessagesTokens'])) {
+    return false;
+  }
+  if (value['toolDefinitionsTokens'] !== undefined && !isCount(value['toolDefinitionsTokens'])) {
+    return false;
+  }
+  if (
+    value['toolDefinitionsByTool'] !== undefined &&
+    !(
+      Array.isArray(value['toolDefinitionsByTool']) &&
+      value['toolDefinitionsByTool'].every(isToolDefinitionTokensEntry)
+    )
+  ) {
     return false;
   }
   return true;
@@ -103,6 +145,17 @@ export function parseAssistantContextBreakdown(value: unknown): AssistantContext
       provenance: value.provenance,
       systemInstructionsTokens: value.systemInstructionsTokens,
       ...(value.taskListTokens === undefined ? {} : { taskListTokens: value.taskListTokens }),
+      ...(value.toolDefinitionsByTool === undefined
+        ? {}
+        : {
+            toolDefinitionsByTool: value.toolDefinitionsByTool.map(({ name, tokens }) => ({
+              name,
+              tokens,
+            })),
+          }),
+      ...(value.toolDefinitionsTokens === undefined
+        ? {}
+        : { toolDefinitionsTokens: value.toolDefinitionsTokens }),
     },
     invalid: false,
   };

@@ -142,6 +142,12 @@ export interface OmMeterInput {
    * does NOT flash the honest-empty state before the first row arrives.
    */
   readonly loading: boolean;
+  /**
+   * True when the user's OM toggle is ON with the 'auto' observer target but
+   * no eligible observer resolved (keyless profile / web). Rendered as the
+   * honest "waiting for an observer" state instead of 'inactive'.
+   */
+  readonly omAwaitingObserver?: boolean;
   /** Whether observational memory is enabled in settings (observationalMemory.enabled). */
   readonly omEnabled: boolean;
   /**
@@ -163,6 +169,9 @@ export interface OmMeterInput {
 export function resolveOmMeterState(input: OmMeterInput): OmMeterState {
   if (!input.hasDurableCapability) {
     return { kind: 'chat-only' };
+  }
+  if (input.omAwaitingObserver) {
+    return { kind: 'awaiting-observer' };
   }
   if (!input.omEnabled) {
     return { kind: 'inactive' };

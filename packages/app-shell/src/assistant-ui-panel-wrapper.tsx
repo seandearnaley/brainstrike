@@ -111,6 +111,7 @@ import {
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
+  resolveEffectiveObservationalMemorySettings,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
@@ -217,7 +218,7 @@ export function AssistantUiPanelWrapper({
     (state) => state.enabledModelsByProvider
   );
   const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
-  const observationalMemorySettings = useAssistantMemoryPreferencesStore(
+  const storedObservationalMemorySettings = useAssistantMemoryPreferencesStore(
     (state) => state.observationalMemory
   );
   const semanticRecallSettings = useAssistantMemoryPreferencesStore(
@@ -815,6 +816,19 @@ export function AssistantUiPanelWrapper({
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   const hostedMemoryBackendAvailable =
     selectedProvider === 'local' ? true : desktopAssistantBackendAvailable;
+  // Resolve the 'auto' observer sentinel into CONCRETE settings once, here —
+  // request data, memory validation, and the OM meter all consume the same
+  // effective settings, so 'auto' never reaches the provider/model validator
+  // and an unresolved auto can never disable thread memory (BST-940).
+  const { autoResolution: omAutoResolution, settings: observationalMemorySettings } = useMemo(
+    () =>
+      resolveEffectiveObservationalMemorySettings({
+        desktopAssistantBackendAvailable,
+        providerKeySources,
+        settings: storedObservationalMemorySettings,
+      }),
+    [desktopAssistantBackendAvailable, providerKeySources, storedObservationalMemorySettings]
+  );
   // Desktop routes built-in local chat through the assistant server (real
   // Mastra loop with persistence/run events; inference proxied to the hidden
   // llm-host). Web has neither bridge and keeps the in-renderer local runtime.
@@ -1474,17 +1488,21 @@ export function AssistantUiPanelWrapper({
     scope: observationalMemorySettings.scope,
     threadId: selectedMemoryThreadId,
   });
+  const omAwaitingObserver =
+    storedObservationalMemorySettings.enabled && omAutoResolution?.kind === 'unresolved';
   const omSegment = useMemo<OmMeterState>(
     () =>
       resolveOmMeterState({
         hasDurableCapability: hasDurableOmCapability,
         loading: omRowResult.loading,
+        omAwaitingObserver,
         omEnabled: observationalMemorySettings.enabled,
         queryError: omRowResult.error,
         row: omRowResult.row,
       }),
     [
       hasDurableOmCapability,
+      omAwaitingObserver,
       observationalMemorySettings.enabled,
       omRowResult.error,
       omRowResult.loading,

@@ -260,7 +260,9 @@ vi.mock('../mcp/explicit-stdio-client', () => ({
  */
 function expectLeadingContextBreakdown(chunks: unknown[]): unknown[] {
   expect(chunks[0]).toMatchObject({
-    breakdown: { provenance: 'heuristic' },
+    // 'measured' when the run's tokenizer-backed tool-definition measurement
+    // succeeded (o200k loads in the test env), 'heuristic' on the backstop.
+    breakdown: { provenance: expect.stringMatching(/^(heuristic|measured)$/) },
     type: 'context-breakdown',
   });
   return chunks.slice(1);

@@ -229,9 +229,13 @@ describe('AssistantMemorySettingsSection', () => {
   });
 
   it('disables observation activation and alerts when the selected hosted provider has no key', () => {
+    // User turned observations OFF and pinned an explicit model whose provider
+    // has no key — re-activation stays blocked until the target is available.
+    // (The default 'auto' target never blocks the toggle; see the BST-940 case.)
     useAssistantMemoryPreferencesStore.setState((state) => ({
       observationalMemory: {
         ...state.observationalMemory,
+        enabled: false,
         modelTarget: 'anthropic/claude-haiku-4-5',
       },
     }));
@@ -241,6 +245,29 @@ describe('AssistantMemorySettingsSection', () => {
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent(
       'Configure its API key in Settings → LLM Provider Keys'
+    );
+  });
+
+  it('keeps the toggle usable on the default auto target and explains what auto resolves to (BST-940)', () => {
+    renderMemorySettings([{ provider: 'anthropic', source: 'stored' }]);
+
+    const toggle = screen.getByRole('switch', { name: 'Enable observational memory' });
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('combobox', { name: /observational memory model/i })).toHaveValue(
+      'auto'
+    );
+    expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
+      /Auto currently uses anthropic\/claude-haiku-4-5/
+    );
+  });
+
+  it('explains the keyless auto state honestly (waiting, not broken)', () => {
+    renderMemorySettings([]);
+
+    expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeEnabled();
+    expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
+      /No eligible observer yet/
     );
   });
 

@@ -15,15 +15,15 @@
  *   hide inside a hover surface)
  */
 import { useAuiState } from '@assistant-ui/react';
-import {
-  type CostEstimate,
-  countTokensHeuristic,
-  formatTokenCount,
-} from '@brainstrike/utils/token-counting-heuristics';
+import { type CostEstimate, formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '../popover';
-import { getMessageParts } from './assistant-run-timeline';
+import {
+  type ConversationTokenEstimate,
+  estimateConversationTokens,
+  resolveDisplayedContextUsage,
+} from './context-estimate';
 import { ContextRing, type ContextRingState } from './context-ring';
 import { ContextUsagePopoverContent, formatCompact } from './context-usage-popover';
 import { useContextUsageStore } from './context-usage-store';
@@ -57,6 +57,8 @@ export interface CumulativeUsageDisplay {
 export type OmMeterState =
   | { readonly kind: 'chat-only' }
   | { readonly kind: 'inactive' }
+  /** OM is on (Auto) but no eligible observer model resolved — waiting, not off. */
+  | { readonly kind: 'awaiting-observer' }
   | { readonly kind: 'loading' }
   | { readonly kind: 'empty' }
   | { readonly kind: 'error'; readonly reason: string }
@@ -78,6 +80,12 @@ export interface ContextUsageMeterProps {
   /** Full model context window size. Meter is hidden when absent. */
   contextWindow: number | undefined;
   /**
+   * Full-part conversation walk (tool args/results, reasoning, text,
+   * attachments) for the popover's conversation split and per-tool rows.
+   * When present, its total also drives the gauge estimate.
+   */
+  conversationEstimate?: ConversationTokenEstimate | undefined;
+  /**
    * Durable cumulative usage for this thread (running token total + cost),
    * hydrated from the DB. Absent on web / before hydration → the cumulative line
    * is not shown in the popover (the last-turn gauge still renders).
@@ -87,6 +95,8 @@ export interface ContextUsageMeterProps {
   effectiveInputBudget: number | undefined;
   /** Heuristic token estimate to display before exact usage is recorded. */
   estimatedTokens?: number | undefined;
+  /** True while a run streams — the gauge shows the LIVE estimate (flagged). */
+  isRunning?: boolean | undefined;
   /**
    * Resolved OM state for the active thread, rendered as INFORMATIONAL stats
    * inside the popover (observed tokens + compaction saved) — NOT a budget
@@ -117,9 +127,11 @@ const HOVER_CLOSE_DELAY_MS = 120;
 export const ContextUsageMeter = ({
   threadKey,
   contextWindow,
+  conversationEstimate,
   cumulativeUsage,
   effectiveInputBudget,
   estimatedTokens,
+  isRunning,
   omSegment,
 }: ContextUsageMeterProps) => {
   const key = threadKey ?? 'active';
@@ -161,21 +173,22 @@ export const ContextUsageMeter = ({
     closeTimerRef.current = setTimeout(() => setOpen(false), HOVER_CLOSE_DELAY_MS);
   };
 
-  // Determine the token count and whether it's an estimate.
-  let usedTokens: number;
-  let isEstimated: boolean;
-
-  if (usage) {
-    usedTokens = usage.inputTokens + usage.outputTokens;
-    isEstimated = false;
-  } else if (estimatedTokens !== undefined && estimatedTokens > 0) {
-    usedTokens = estimatedTokens;
-    isEstimated = true;
-  } else {
-    // No usage and no estimate — still show a zero gauge so the denominator is visible.
-    usedTokens = 0;
-    isEstimated = false;
-  }
+  // Server breakdown baseline (system instructions + task list + tool
+  // definitions) — the categories the conversation walk cannot see. Only a
+  // VALID breakdown contributes; the invalid marker stays display-only.
+  const breakdown =
+    breakdownState && !breakdownState.invalid ? breakdownState.breakdown : undefined;
+  const breakdownBaselineTokens = breakdown
+    ? breakdown.systemInstructionsTokens +
+      (breakdown.taskListTokens ?? 0) +
+      (breakdown.toolDefinitionsTokens ?? 0)
+    : 0;
+  const { isEstimated, usedTokens } = resolveDisplayedContextUsage({
+    breakdownBaselineTokens,
+    conversationEstimateTokens: conversationEstimate?.totalTokens ?? estimatedTokens ?? 0,
+    exact: usage,
+    isRunning: isRunning === true,
+  });
 
   const state = resolveUsageState(usedTokens, effectiveInputBudget);
   const percentage = Math.min(100, (usedTokens / effectiveInputBudget) * 100);
@@ -234,6 +247,7 @@ export const ContextUsageMeter = ({
           <ContextUsagePopoverContent
             breakdownState={breakdownState}
             contextWindow={contextWindow}
+            conversationEstimate={conversationEstimate}
             cumulativeUsage={cumulativeUsage}
             effectiveInputBudget={effectiveInputBudget}
             estimatedTokens={estimatedTokens}
@@ -282,40 +296,22 @@ export const ThreadContextMeter = ({
   omSegment,
   threadKey,
 }: ThreadContextMeterProps) => {
-  // Access all messages to build a heuristic token estimate.
+  // Access all messages to build the full-part conversation walk. The walk is
+  // computed on EVERY snapshot (memoized per settled message object in
+  // context-estimate.ts), so the gauge moves live while a run streams instead
+  // of freezing until the next exact finish.
   const messages = useAuiState((s) => s.thread.messages);
-  // Exact usage for this thread — when present, skip the message walk entirely
-  // (ContextUsageMeter prefers exact usage over the estimate anyway).
-  const usage = useContextUsageStore((s) => s.usageByThread[threadKey ?? 'active']);
+  const isRunning = useAuiState((s) => s.thread.isRunning);
 
-  const estimatedTokens = useMemo(() => {
-    if (usage) {
-      return; // exact usage present — skip the walk entirely
-    }
-    let total = 0;
-    for (const msg of messages) {
-      // getMessageParts reads `content` first (the real assistant-ui shape),
-      // then falls back to `parts` — matching the canonical resolution in
-      // assistant-run-timeline.tsx. Using `parts` directly always returned
-      // undefined for real useAuiState messages, so the estimate was always
-      // skipped and the "estimated" badge never appeared in the live app.
-      const parts = getMessageParts(msg);
-      for (const part of parts) {
-        const p = part as { type?: string; text?: string };
-        if (p.type === 'text' && typeof p.text === 'string') {
-          total += countTokensHeuristic(p.text);
-        }
-      }
-    }
-    return total > 0 ? total : undefined;
-  }, [usage, messages]);
+  const conversationEstimate = useMemo(() => estimateConversationTokens(messages), [messages]);
 
   return (
     <ContextUsageMeter
       contextWindow={contextWindow}
+      conversationEstimate={conversationEstimate}
       {...(cumulativeUsage ? { cumulativeUsage } : {})}
       effectiveInputBudget={effectiveInputBudget}
-      estimatedTokens={estimatedTokens}
+      isRunning={isRunning}
       {...(omSegment ? { omSegment } : {})}
       threadKey={threadKey}
     />

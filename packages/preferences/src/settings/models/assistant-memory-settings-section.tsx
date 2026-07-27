@@ -3,6 +3,10 @@ import type {
   RuntimeAssistantMemoryRetrievalMode,
   RuntimeAssistantMemoryScope,
 } from '@brainstrike/assistant-contract/memory-settings';
+import {
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  resolveAutoObservationalMemoryModelTarget,
+} from '@brainstrike/assistant-contract/memory-settings';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
@@ -50,6 +54,81 @@ export interface AssistantMemorySettingsSectionProps {
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
+interface ObservationalMemoryModelFieldProps {
+  readonly autoResolvedTarget: string | null;
+  readonly hasObservationModel: boolean;
+  readonly hasUnavailableObservationModel: boolean;
+  readonly isAutoObservationTarget: boolean;
+  readonly modelTarget: string;
+  readonly observationalMemoryEnabled: boolean;
+  readonly observationOptions: readonly { label: string; target: string }[];
+  readonly onModelTargetChange: (target: string) => void;
+}
+
+function ObservationalMemoryModelField({
+  autoResolvedTarget,
+  hasObservationModel,
+  hasUnavailableObservationModel,
+  isAutoObservationTarget,
+  observationOptions,
+  observationalMemoryEnabled,
+  modelTarget,
+  onModelTargetChange,
+}: ObservationalMemoryModelFieldProps) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="assistant-memory-observation-model">Observational memory model</Label>
+      <select
+        aria-label="Observational memory model"
+        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        id="assistant-memory-observation-model"
+        onChange={(event) => onModelTargetChange(event.target.value)}
+        value={hasObservationModel ? modelTarget : ''}
+      >
+        {!hasObservationModel && <option value="">Select an enabled hosted LLM model</option>}
+        <option value={OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET}>
+          Auto — fastest eligible observer (recommended)
+        </option>
+        {observationOptions.map((option) => (
+          <option key={option.target} value={option.target}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {isAutoObservationTarget ? (
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="assistant-memory-auto-observer-note"
+        >
+          {autoResolvedTarget
+            ? `Auto currently uses ${autoResolvedTarget} (Mastra-recommended fast observer).`
+            : 'No eligible observer yet — add a Google, Anthropic, OpenAI, or OpenRouter API key and observations start automatically.'}
+        </p>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          The target identifies a provider/model such as{' '}
+          <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
+          before constructing the observer.
+        </p>
+      )}
+      {hasUnavailableObservationModel && (
+        <p
+          className={
+            observationalMemoryEnabled
+              ? 'text-destructive text-xs'
+              : 'text-muted-foreground text-xs'
+          }
+          role={observationalMemoryEnabled ? 'alert' : 'status'}
+        >
+          Configured observational memory model {modelTarget} is not available with the current
+          provider credentials. Configure its API key in Settings → LLM Provider Keys, choose a
+          keyless local observer, or turn observations off.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function AssistantMemorySettingsSection({
   assistantMemoryBackendAvailable,
   providerKeySources,
@@ -85,9 +164,20 @@ export function AssistantMemorySettingsSection({
     ...(providerKeySources ? { providerKeySources } : {}),
     providers,
   });
-  const hasObservationModel = observationOptions.some(
-    (option) => option.target === observationalMemory.modelTarget
-  );
+  const isAutoObservationTarget =
+    observationalMemory.modelTarget === OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET;
+  // What 'auto' would pick for this profile's keys (null → waiting). Only
+  // meaningful when key sources are known; the wrapper's request-time resolver
+  // stays the single source of truth for the actual run.
+  const autoResolvedTarget =
+    providerKeySources === undefined
+      ? null
+      : resolveAutoObservationalMemoryModelTarget({
+          providersWithKeys: providerKeySources.map(({ provider }) => provider),
+        });
+  const hasObservationModel =
+    isAutoObservationTarget ||
+    observationOptions.some((option) => option.target === observationalMemory.modelTarget);
   const hasEmbeddingModel =
     semanticRecall.embeddingModelTarget !== null &&
     embeddingOptions.some((option) => option.target === semanticRecall.embeddingModelTarget);
@@ -128,43 +218,16 @@ export function AssistantMemorySettingsSection({
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="assistant-memory-observation-model">Observational memory model</Label>
-          <select
-            aria-label="Observational memory model"
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            disabled={observationOptions.length === 0}
-            id="assistant-memory-observation-model"
-            onChange={(event) => setObservationalMemoryModelTarget(event.target.value)}
-            value={hasObservationModel ? observationalMemory.modelTarget : ''}
-          >
-            {!hasObservationModel && <option value="">Select an enabled hosted LLM model</option>}
-            {observationOptions.map((option) => (
-              <option key={option.target} value={option.target}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-muted-foreground text-xs">
-            The target identifies a provider/model such as{' '}
-            <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
-            before constructing the observer.
-          </p>
-          {hasUnavailableObservationModel && (
-            <p
-              className={
-                observationalMemory.enabled
-                  ? 'text-destructive text-xs'
-                  : 'text-muted-foreground text-xs'
-              }
-              role={observationalMemory.enabled ? 'alert' : 'status'}
-            >
-              Configured observational memory model {observationalMemory.modelTarget} is not
-              available with the current provider credentials. Configure its API key in Settings →
-              LLM Provider Keys, choose a keyless local observer, or turn observations off.
-            </p>
-          )}
-        </div>
+        <ObservationalMemoryModelField
+          autoResolvedTarget={autoResolvedTarget}
+          hasObservationModel={hasObservationModel}
+          hasUnavailableObservationModel={hasUnavailableObservationModel}
+          isAutoObservationTarget={isAutoObservationTarget}
+          modelTarget={observationalMemory.modelTarget}
+          observationalMemoryEnabled={observationalMemory.enabled}
+          observationOptions={observationOptions}
+          onModelTargetChange={setObservationalMemoryModelTarget}
+        />
 
         <div className="space-y-2">
           <Label htmlFor="assistant-memory-observation-scope">Observation scope</Label>

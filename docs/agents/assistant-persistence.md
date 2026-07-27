@@ -288,10 +288,26 @@ data-stream-runtime.test.ts `boundResentImageHistory` (wire history bound).
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
 run events, and reload hydration behave exactly like hosted providers.
-Observational memory is opt-in on a fresh profile. Its model target is
-independent of the selected chat provider, so enabling a hosted target without
-that provider's key fails visibly; a fresh local-only profile must never
-inherit an undeclared hosted-key requirement from the default settings.
+Observational memory is ON by default (BST-940) at Mastra's documented
+thresholds (observation.messageTokens 30K / reflection.observationTokens 40K)
+with the `'auto'` observer target (`OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET`).
+`resolveEffectiveObservationalMemorySettings` (app-shell wrapper-runtime, memo'd
+once in the wrapper) resolves `'auto'` into CONCRETE settings consumed by
+request data, memory validation, and the OM meter alike: a keyed profile gets a
+Mastra-tested fast observer (google/gemini-2.5-flash → anthropic/claude-haiku-4-5
+→ openai/gpt-5.4-mini → openrouter/google/gemini-2.5-flash, via the contract's
+pure `resolveAutoObservationalMemoryModelTarget`); a keyless/web profile flips
+`enabled → false` with an explicit unresolved reason surfaced as the popover's
+'awaiting-observer' OM state and the Settings auto note. An unresolved auto must
+NEVER disable thread memory, and `'auto'` must never reach the provider/model
+validator (the validator also resolves defensively). The built-in local Gemma is
+deliberately NOT an auto candidate — its 8K runtime budget cannot observe the
+30K message threshold. An EXPLICIT (non-auto) target keeps the original loud
+validation: enabling a hosted target without that provider's key fails visibly.
+Construction seams that receive no settings (memory factory default arg,
+desktop-server absent-field fallbacks) use
+`CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS` (observation OFF) — an
+absent settings object must never manufacture an enabled observer.
 Known gap: WEB local turns still use the in-renderer LocalRuntimeChat (no
 history adapter) and remain session-only.
 
@@ -450,20 +466,42 @@ Runtime invariants:
   latest provider step and feed the transient context meter. A transport that
   structurally has no per-step fields uses its aggregate single-step values.
   Never display a billed cross-step sum as context occupancy.
-- The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
-  must never lie — wire-format usage is
+- The meter shows estimated (the FULL-PART conversation walk, see below) until exact usage lands;
+  provenance must never lie — wire-format usage is
   `{inputTokens, outputTokens, contextInputTokens?, contextOutputTokens?, billedCostUsd?}`
   (e2e mocks must use the token field names).
+- Estimator v2 (BST-940, `packages/ui/src/assistant-ui-panel/context-estimate.ts`):
+  `estimateConversationTokens` walks EVERY message part — text, reasoning, tool args + results
+  (per-tool attribution), attachment counts — with the shared chars/4 heuristic, memoized per
+  settled message object in a WeakMap. The v1 text-only walk read coding threads absurdly low
+  (tool output is ~90% of context) — never regress to a text-only walk. Heuristic accuracy is
+  pinned against the REAL o200k tokenizer in
+  `packages/utils/src/__tests__/token-counting-heuristic-accuracy.test.ts` (code ≈ +4%,
+  tool JSON ≈ −22%, repetitive prose ≤ +45%).
+- Display selection is `resolveDisplayedContextUsage` (same module): idle+exact → exact; while a
+  run streams → LIVE estimate (server breakdown baseline: system + task list + tool definitions,
+  plus the conversation walk), floored at the last exact figure (context never shrinks mid-run) and
+  flagged `est.`; before any exact usage → the estimate alone. `ThreadContextMeter` re-walks on
+  every message snapshot so the gauge moves during streaming.
 - UI shape: a compact ring row (`context-ring.tsx` donut + used/budget fraction) that triggers the
-  "Context Usage" popover (`context-usage-popover.tsx` — breakdown list, OM stats, cumulative+cost).
+  "Context Usage" popover (`context-usage-popover.tsx` — Cursor-style anatomy: "% full" header, a
+  segmented capacity bar over the effective input budget whose segments derive from the SAME
+  figures as the color-keyed legend rows [System instructions / Tool definitions / Task list /
+  Conversation / Attachments / Unattributed], per-tool top-5 sub-rows with an aggregated
+  remainder, a conversation split [You / Assistant / Reasoning / Tool activity + per-tool], OM
+  stats, and cumulative+cost).
   The critical (≥90%) trimming-risk notice renders INLINE next to the ring, never inside the hover
   popover — a warning must not hide behind hover or claim that compaction already happened. The
   ONE-DERIVATION invariant above is unchanged:
   `agentLoopSettings.inputTokenLimit` remains the TokenLimiter budget, the meter/ring denominator,
   and the instruction budget note; the popover introduces no second derivation.
-- Prompt breakdown channel: the agent computes HEURISTIC (chars/4) category counts at prompt
+- Prompt breakdown channel: the agent computes category counts at prompt
   assembly (`packages/agent/src/mastra/prompt-breakdown.ts` — instruction-side at Agent
-  construction, message-side at stream start) and emits them once per initial turn as the
+  construction, message-side at stream start; tool-definition totals + per-tool figures come from
+  the run's `RunTokenDiagnostics.toolDefinitionContextBreakdown()`, tokenizer-measured when the
+  o200k counter loads, chars/4 backstop otherwise — breakdown `provenance` is
+  `'measured' | 'heuristic'` accordingly, and every displayed figure keeps its "~") and emits
+  them once per initial turn as the
   TRANSIENT `brainstrike.context-breakdown` aui-data part
   (`@brainstrike/assistant-contract/context-breakdown`), honoring the same text-part deferral
   contract as run events / shell output. NOT a run-event ON PURPOSE (shell-output precedent): the

@@ -57,6 +57,57 @@ describe('context-breakdown contract', () => {
     expect('futureField' in parsed.breakdown).toBe(false);
   });
 
+  it('accepts and forwards the v2 tool-definition fields when present', () => {
+    const withTools = {
+      ...validBreakdown,
+      toolDefinitionsByTool: [
+        { name: 'brainstrike.readWorkspaceFile', tokens: 210 },
+        { name: 'run_shell', tokens: 95 },
+      ],
+      toolDefinitionsTokens: 305,
+    };
+    expect(parseAssistantContextBreakdown(withTools)).toEqual({
+      breakdown: withTools,
+      invalid: false,
+    });
+  });
+
+  it('accepts the measured provenance (tokenizer-backed tool-definition counts)', () => {
+    const measured = { ...validBreakdown, provenance: 'measured' };
+    expect(parseAssistantContextBreakdown(measured)).toEqual({
+      breakdown: measured,
+      invalid: false,
+    });
+  });
+
+  it('keeps absent v2 fields ABSENT after parsing (never zero-faked)', () => {
+    const parsed = parseAssistantContextBreakdown(validBreakdown);
+    if (parsed.invalid) {
+      throw new Error('expected a valid parse');
+    }
+    expect('toolDefinitionsTokens' in parsed.breakdown).toBe(false);
+    expect('toolDefinitionsByTool' in parsed.breakdown).toBe(false);
+  });
+
+  it.each([
+    ['negative toolDefinitionsTokens', { ...validBreakdown, toolDefinitionsTokens: -1 }],
+    ['non-array toolDefinitionsByTool', { ...validBreakdown, toolDefinitionsByTool: {} }],
+    [
+      'toolDefinitionsByTool entry without a name',
+      { ...validBreakdown, toolDefinitionsByTool: [{ tokens: 3 }] },
+    ],
+    [
+      'toolDefinitionsByTool entry with a bogus count',
+      { ...validBreakdown, toolDefinitionsByTool: [{ name: 'x', tokens: 'lots' }] },
+    ],
+    [
+      'toolDefinitionsByTool entry with an empty name',
+      { ...validBreakdown, toolDefinitionsByTool: [{ name: '', tokens: 3 }] },
+    ],
+  ])('surfaces a malformed v2 payload (%s) as { invalid: true }', (_label, value) => {
+    expect(parseAssistantContextBreakdown(value)).toEqual({ invalid: true });
+  });
+
   it.each([
     ['null', null],
     ['array', [validBreakdown]],

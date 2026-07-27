@@ -102,14 +102,14 @@ describe('assistant-memory-preferences-store', () => {
     );
   });
 
-  it('requires an explicit observational-memory opt-in and disables semantic recall', () => {
+  it('enables observations by default with the auto observer target (BST-940) and disables semantic recall', () => {
     const state = useAssistantMemoryPreferencesStore.getState();
 
     expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe('assistant-memory-preferences.v1');
     expect(state.observationalMemory).toEqual({
-      enabled: false,
+      enabled: true,
       messageTokens: 30_000,
-      modelTarget: 'openai/gpt-5.4-mini',
+      modelTarget: 'auto',
       observationTokens: 40_000,
       retrievalMode: 'off',
       scope: 'thread',
@@ -133,7 +133,7 @@ describe('assistant-memory-preferences-store', () => {
     store.setObservationalRetrievalMode('messages');
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory).toEqual({
-      enabled: false,
+      enabled: true,
       messageTokens: 16_500,
       modelTarget: 'anthropic/claude-haiku-4-5',
       observationTokens: 25_250,
@@ -169,9 +169,9 @@ describe('assistant-memory-preferences-store', () => {
 
     expect(useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings()).toEqual({
       observationalMemory: {
-        enabled: false,
+        enabled: true,
         messageTokens: 30_000,
-        modelTarget: 'openai/gpt-5.4-mini',
+        modelTarget: 'auto',
         observationTokens: 40_000,
         retrievalMode: 'off',
         scope: 'thread',

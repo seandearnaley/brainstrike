@@ -95,4 +95,37 @@ describe('computePromptBreakdown', () => {
     expect(breakdown.attachmentsCount).toBe(0);
     expect('taskListTokens' in breakdown).toBe(false);
   });
+
+  it('forwards tool-definition figures sorted descending and marks provenance measured', () => {
+    const breakdown = computePromptBreakdown({
+      instructionBreakdown,
+      memoryBacked: true,
+      messages: [textMessage('m1', 'turn')],
+      toolDefinitions: {
+        byTool: [
+          { name: 'small_tool', tokens: 12 },
+          { name: 'big_tool', tokens: 400 },
+        ],
+        provenance: 'measured',
+        totalTokens: 412,
+      },
+    });
+    expect(breakdown.provenance).toBe('measured');
+    expect(breakdown.toolDefinitionsTokens).toBe(412);
+    expect(breakdown.toolDefinitionsByTool).toEqual([
+      { name: 'big_tool', tokens: 400 },
+      { name: 'small_tool', tokens: 12 },
+    ]);
+  });
+
+  it('omits tool-definition fields entirely when measurement is unavailable (absent, never 0)', () => {
+    const breakdown = computePromptBreakdown({
+      instructionBreakdown,
+      memoryBacked: true,
+      messages: [textMessage('m1', 'turn')],
+    });
+    expect('toolDefinitionsTokens' in breakdown).toBe(false);
+    expect('toolDefinitionsByTool' in breakdown).toBe(false);
+    expect(breakdown.provenance).toBe('heuristic');
+  });
 });

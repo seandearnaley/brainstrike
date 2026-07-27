@@ -90,7 +90,11 @@ describe('app-shell assistant contract boundary', () => {
     // collect/format logic all live in packages/ui
     // (copy-debug-bundle-button.tsx / debug-bundle-context.tsx) and
     // diagnostics/debug-bundle.ts.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1660);
+    // Bumped 1660 → 1675 for the BST-940 auto-observer resolution memo: the
+    // wrapper only calls resolveEffectiveObservationalMemorySettings (policy in
+    // wrapper-runtime.ts + the contract's resolveAutoObservationalMemoryModelTarget)
+    // and passes omAwaitingObserver into the existing OM meter composition.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1675);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

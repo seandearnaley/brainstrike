@@ -20,6 +20,7 @@
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
 import type { AgentMessage } from '../types';
+import type { ToolDefinitionContextBreakdown } from './token-measurement';
 
 /**
  * Instruction-side counts, computed where the composed system instructions are
@@ -70,6 +71,12 @@ export function computePromptBreakdown(params: {
   instructionBreakdown: InstructionBreakdown;
   memoryBacked: boolean;
   messages: readonly AgentMessage[];
+  /**
+   * Per-tool definition figures from the run's token diagnostics
+   * (RunTokenDiagnostics.toolDefinitionContextBreakdown()). Absent when
+   * measurement failed — the breakdown then omits the fields entirely.
+   */
+  toolDefinitions?: ToolDefinitionContextBreakdown | undefined;
 }): AssistantContextBreakdown {
   let attachmentsCount = 0;
   let historyTokens = 0;
@@ -82,13 +89,24 @@ export function computePromptBreakdown(params: {
       }
     }
   }
+  const toolDefinitions = params.toolDefinitions;
   return {
     attachmentsCount,
     ...(params.memoryBacked ? {} : { historyMessagesTokens: historyTokens }),
-    provenance: 'heuristic',
+    provenance: toolDefinitions?.provenance ?? 'heuristic',
     systemInstructionsTokens: params.instructionBreakdown.systemInstructionsTokens,
     ...(params.instructionBreakdown.taskListTokens === undefined
       ? {}
       : { taskListTokens: params.instructionBreakdown.taskListTokens }),
+    ...(toolDefinitions
+      ? {
+          toolDefinitionsByTool: [...toolDefinitions.byTool]
+            .sort(
+              (left, right) => right.tokens - left.tokens || left.name.localeCompare(right.name)
+            )
+            .map(({ name, tokens }) => ({ name, tokens })),
+          toolDefinitionsTokens: toolDefinitions.totalTokens,
+        }
+      : {}),
   };
 }

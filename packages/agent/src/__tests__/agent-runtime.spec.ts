@@ -1053,7 +1053,9 @@ describe('agent-runtime edge cases', () => {
         type: string;
       };
       expect(first.type).toBe('context-breakdown');
-      expect(first.breakdown?.provenance).toBe('heuristic');
+      // 'measured' when the run's tokenizer-backed tool-definition measurement
+      // succeeded (o200k loads in the test env); 'heuristic' on the backstop.
+      expect(first.breakdown?.provenance).toMatch(/^(heuristic|measured)$/);
       // Composed hosted instructions are always non-empty.
       expect(first.breakdown?.systemInstructionsTokens).toBeGreaterThan(0);
       // Non-memory run: the wire IS the conversation, so it is measured

@@ -26,6 +26,7 @@ import {
   AssistantRequestEnvelopeValidationError,
   assistantDataStreamSessions,
   buildNativeToolRiskMap,
+  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   convertAssistantUiMessagesWithFinalInput,
   createEmbeddingProvider,
   createLanguageModelProvider,
@@ -2781,7 +2782,10 @@ async function createDesktopMastraMemoryFromCacheState({
 function resolveDesktopObservationalMemoryModelTargetDescriptor(
   memorySettings: RuntimeAssistantMemorySettings | undefined
 ): DesktopMemoryModelTargetDescriptor | undefined {
-  const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
+  // Absent settings must never manufacture an enabled observer — the UI
+  // default's 'auto' sentinel is resolved renderer-side; requests without
+  // memory settings get the construction-safe (observation-off) defaults.
+  const effectiveSettings = memorySettings ?? CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
   const observationalMemorySettings = effectiveSettings.observationalMemory;
   if (!observationalMemorySettings.enabled) {
     return;
@@ -2793,7 +2797,7 @@ function resolveDesktopObservationalMemoryModelTargetDescriptor(
 function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
   memorySettings: RuntimeAssistantMemorySettings | undefined
 ): DesktopMemoryModelTargetDescriptor | undefined {
-  const effectiveSettings = memorySettings ?? DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
+  const effectiveSettings = memorySettings ?? CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
   const semanticRecallSettings = effectiveSettings.semanticRecall;
   // Observational-memory vector retrieval embeds observations with the SAME
   // configured embedder, so it needs the target resolved even when the
