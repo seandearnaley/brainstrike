@@ -635,10 +635,13 @@ consumed through the `DebugBundleProvider` seam
 (`packages/ui/src/assistant-ui-panel/debug-bundle-context.tsx` +
 `packages/app-shell/src/hooks/use-debug-bundle.ts`) by the
 `CopyDebugBundleButton` (`packages/ui/src/assistant-ui-panel/copy-debug-bundle-button.tsx`)
-on failed assistant messages. That footer offers TWO deliveries of the same
-single build — **Copy** (clipboard) and **Download** (a `.md` file on disk,
-BST-946). Download is the realistic transport at this size: bundles run up to
-the 200 KB budget below, past what a chat box or issue comment accepts.
+on failed assistant messages. That footer offers two deliveries — **Copy**
+(clipboard) and **Download** (a `.md` file on disk, BST-946) — each building
+its OWN bundle: a second click re-runs `buildThreadDebugBundle` rather than
+reusing the first result, so every delivery reflects the data at click time
+and there is no cache to go stale. Download is the realistic transport at this
+size: bundles run up to the 200 KB budget below, past what a chat box or issue
+comment accepts.
 Filename + save live in `packages/ui/src/assistant-ui-panel/debug-bundle-download.ts`
 (`formatDebugBundleFilename` / `downloadDebugBundleFile`) rather than in the
 component module, which is component-only by react-doctor's
@@ -648,8 +651,11 @@ chars>].md` — timestamp first so a Downloads folder sorts chronologically,
 and colon-free because Windows rejects `:` (an unmangled `toISOString()` in
 `anchor.download`, the older idiom in `log-viewer.tsx`, does not survive
 there). The save path is the codebase's standard Blob → object URL → anchor →
-revoke, with the revoke in a `finally` so a blocked click cannot leak a 200 KB
-blob; outside a DOM it THROWS rather than no-opping. The button's phase
+revoke, where the revoke is DEFERRED a macrotask on the success path and
+immediate only when the click threw: Chromium starts the download during click
+dispatch, but WebKit can fetch the blob a task later, so the synchronous revoke
+used by `log-viewer.tsx` would silently drop the file there. Outside a DOM it
+THROWS rather than no-opping. The button's phase
 machine tags every non-idle phase with its action (`copy` | `download`) so one
 action's spinner/result/error never appears on the other's button, and both
 failure paths render inline (`Copy failed: …` / `Download failed: …`) in an

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   downloadDebugBundleFile,
   formatDebugBundleFilename,
@@ -19,6 +19,12 @@ describe('formatDebugBundleFilename', () => {
     ).toBe('brainstrike-debug-bundle-2026-07-27T14-32-05Z-run-1a2b3c4d.md');
   });
 
+  it('omits the run segment entirely when sanitizing leaves nothing (no dangling "-run-")', () => {
+    expect(formatDebugBundleFilename({ generatedAt: AT, runId: '::::' })).toBe(
+      'brainstrike-debug-bundle-2026-07-27T14-32-05Z.md'
+    );
+  });
+
   it('never emits path separators or characters Windows rejects', () => {
     const filename = formatDebugBundleFilename({
       generatedAt: AT,
@@ -30,11 +36,16 @@ describe('formatDebugBundleFilename', () => {
 });
 
 describe('downloadDebugBundleFile', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('writes a text/markdown blob through an anchor and revokes the object URL', () => {
+  it('writes a text/markdown blob through an anchor and revokes the object URL a task later', () => {
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:bundle');
     const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const anchor = document.createElement('a');
@@ -48,6 +59,10 @@ describe('downloadDebugBundleFile', () => {
     expect(anchor.download).toBe('bundle.md');
     expect(anchor.href).toContain('blob:bundle');
     expect(click).toHaveBeenCalledTimes(1);
+    // WebKit can fetch the blob a task after the click, so revoking inside
+    // the same task would silently drop the file.
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    vi.runAllTimers();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:bundle');
   });
 

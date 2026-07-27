@@ -32,9 +32,10 @@ export function formatDebugBundleFilename({
     .toISOString()
     .replace(/\.\d+Z$/, 'Z')
     .replace(/:/g, '-');
-  const suffix = runId
-    ? `-run-${runId.replace(UNSAFE_FILENAME_CHARS, '').slice(0, RUN_ID_CHARS)}`
-    : '';
+  // Emptiness is judged AFTER sanitizing: a run id made entirely of stripped
+  // characters would otherwise leave a dangling `-run-` in the filename.
+  const shortRunId = runId?.replace(UNSAFE_FILENAME_CHARS, '').slice(0, RUN_ID_CHARS) ?? '';
+  const suffix = shortRunId ? `-run-${shortRunId}` : '';
   return `${FILENAME_PREFIX}-${timestamp}${suffix}.md`;
 }
 
@@ -42,8 +43,14 @@ export function formatDebugBundleFilename({
  * Blob → object URL → anchor click → revoke, the same download idiom used by
  * `log-viewer.tsx` and `logging-settings-section.tsx`. Throws (never
  * no-ops silently) outside a DOM; the caller surfaces the message inline.
- * The revoke runs on the throwing path too, so a blocked click cannot leak
- * a 200 KB blob for the lifetime of the document.
+ *
+ * The revoke is deferred a macrotask on the SUCCESS path and immediate on the
+ * throwing path — deliberately not a `finally`. Chromium starts the download
+ * during click dispatch, but WebKit can fetch the blob a task later, so a
+ * synchronous revoke there silently drops the file (a silent degradation on
+ * the web target). Immediate revoke when the click threw is safe: no download
+ * started, and a leaked 200 KB blob would otherwise live as long as the
+ * document.
  */
 export function downloadDebugBundleFile({
   contents,
@@ -62,7 +69,9 @@ export function downloadDebugBundleFile({
     anchor.download = filename;
     anchor.rel = 'noopener';
     anchor.click();
-  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  } catch (error) {
     URL.revokeObjectURL(url);
+    throw error;
   }
 }

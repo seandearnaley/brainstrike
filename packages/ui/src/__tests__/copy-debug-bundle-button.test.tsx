@@ -46,6 +46,15 @@ beforeEach(() => {
 });
 
 describe('CopyDebugBundleButton', () => {
+  // Spies here include `document.createElement` (the download test hands React
+  // one shared anchor). The shared vitest setup restores timers but NOT mocks,
+  // so restoring in a test body would leak on the first real assertion failure
+  // and cascade into unrelated tests.
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it('renders nothing without a provider, even with a run.failed part', () => {
     messagePartsMock.push(
       runEventPart({ id: 'e1', kind: 'run.failed', runId: 'run-1', status: 'failed' })
@@ -122,9 +131,6 @@ describe('CopyDebugBundleButton', () => {
     // The copy action stays untouched by the download cycle.
     expect(screen.getByTestId('copy-debug-bundle')).toHaveTextContent('Copy debug bundle');
     expect(clipboardWriteText).not.toHaveBeenCalled();
-
-    vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   it('shows a visible error naming the download action when the binding rejects', async () => {
