@@ -524,7 +524,10 @@ export function SearchResultsTree({
           reindexing fixes this)
         </p>
       ) : null}
-      {notices?.candidatesTruncated ? (
+      {notices?.candidatesTruncated && !notices.scanLimited ? (
+        // scanLimited implies the candidate cap was hit (the grep service only
+        // reports it at the cap), so showing both would double-report the same
+        // limitation — the broader scanLimited notice wins.
         <p className="text-muted-foreground text-xs" role="status">
           Match list may be incomplete (candidate pool capped) — narrow the query.
         </p>
