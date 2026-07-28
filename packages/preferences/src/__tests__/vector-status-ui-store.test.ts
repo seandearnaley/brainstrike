@@ -417,7 +417,7 @@ describe('vector-status-ui-store', () => {
       expect(store.getState()).toBe(before);
     });
 
-    it('updates state when a successful poll refreshes only the timestamp', () => {
+    it('updates poll freshness without replacing unchanged queue stats', () => {
       const store = useVectorStatusUIStore;
       const initialStats = {
         failed: 0,
@@ -430,11 +430,12 @@ describe('vector-status-ui-store', () => {
       };
 
       store.getState().setDurableQueueStats(initialStats);
-      const before = store.getState();
+      const initialSnapshot = store.getState().durableQueueStats;
       store.getState().setDurableQueueStats({ ...initialStats, lastUpdated: 200 });
 
-      expect(store.getState()).not.toBe(before);
-      expect(store.getState().durableQueueStats?.lastUpdated).toBe(200);
+      expect(store.getState().durableQueueStats).toBe(initialSnapshot);
+      expect(store.getState().durableQueueStats?.lastUpdated).toBe(100);
+      expect(store.getState().durableQueuePolledAt).toBe(200);
     });
 
     it('updates state when queue stats change or are cleared', () => {

@@ -140,6 +140,8 @@ interface VectorStatusUIData {
   cachedCollections: CachedCollection[];
   /** Cached file data for active collection - persists across component unmounts */
   cachedFileData: CollectionDataCache | null;
+  /** Wall-clock time when the most recent durable queue poll completed successfully. */
+  durableQueuePolledAt: number | null;
   /** BST-359: Durable queue stats polled by EmbeddingJobQueueTracker, consumed by HUD and diagnostics. */
   durableQueueStats: QueueStatsSnapshot | null;
   /** When true, embeddings are actively being generated (from any source). */
@@ -230,7 +232,6 @@ function areQueueStatsSnapshotsEqual(
   }
   return (
     left.failed === right.failed &&
-    left.lastUpdated === right.lastUpdated &&
     left.queued === right.queued &&
     left.running === right.running &&
     left.succeeded === right.succeeded &&
@@ -246,6 +247,7 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
       activeEmbeddingSetId: null,
       cachedCollections: [],
       cachedFileData: null,
+      durableQueuePolledAt: null,
       durableQueueStats: null,
       isEmbeddingActive: false,
       isEmbeddingQueueActive: false,
@@ -261,11 +263,24 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
       setCachedCollections: (collections) => set({ cachedCollections: collections }),
       setCachedFileData: (data) => set({ cachedFileData: data }),
       setDurableQueueStats: (stats) =>
-        set((state) =>
-          areQueueStatsSnapshotsEqual(state.durableQueueStats, stats)
-            ? state
-            : { durableQueueStats: stats }
-        ),
+        set((state) => {
+          if (!stats) {
+            if (state.durableQueueStats === null && state.durableQueuePolledAt === null) {
+              return state;
+            }
+            return { durableQueuePolledAt: null, durableQueueStats: null };
+          }
+
+          const durableQueuePolledAt = stats.lastUpdated;
+          if (areQueueStatsSnapshotsEqual(state.durableQueueStats, stats)) {
+            if (state.durableQueuePolledAt === durableQueuePolledAt) {
+              return state;
+            }
+            return { durableQueuePolledAt };
+          }
+
+          return { durableQueuePolledAt, durableQueueStats: stats };
+        }),
       setIsEmbeddingQueueActive: (active) =>
         set((state) => ({
           isEmbeddingActive: active || state.isJobQueueActive,
@@ -303,6 +318,7 @@ export const vectorStatusUISelectors = {
   activeSet: (s: VectorStatusUIStore) => s.activeEmbeddingSetId,
   cachedCollections: (s: VectorStatusUIStore) => s.cachedCollections,
   cachedFileData: (s: VectorStatusUIStore) => s.cachedFileData,
+  durableQueuePolledAt: (s: VectorStatusUIStore) => s.durableQueuePolledAt,
   durableQueueStats: (s: VectorStatusUIStore) => s.durableQueueStats,
   isEmbeddingActive: (s: VectorStatusUIStore) => s.isEmbeddingActive,
   isEmbeddingQueueActive: (s: VectorStatusUIStore) => s.isEmbeddingQueueActive,
@@ -318,6 +334,7 @@ export function __resetVectorStatusUIStoreForTests() {
     activeEmbeddingSetId: null,
     cachedCollections: [],
     cachedFileData: null,
+    durableQueuePolledAt: null,
     durableQueueStats: null,
     isEmbeddingActive: false,
     isEmbeddingQueueActive: false,

@@ -69,12 +69,26 @@ function fromRow(row: JobRow): Job {
   return job;
 }
 
-function fromClaimedRow(row: JobRow): ClaimedJob {
-  const job = fromRow(row);
-  if (typeof job.lease_token !== 'string' || job.lease_token.length === 0) {
-    throw new Error(`Claimed job ${job.id} is missing its lease token`);
+function hasLeaseToken(row: JobRow): row is JobRow & { lease_token: string } {
+  return typeof row.lease_token === 'string' && row.lease_token.length > 0;
+}
+
+function fromClaimedRows(rows: JobRow[]): ClaimedJob[] {
+  const claimedRows = rows.filter(hasLeaseToken);
+  if (claimedRows.length !== rows.length) {
+    const affectedClaimedIds = rows.map((row) => row.id);
+    logger.error('Claimed job batch contains rows without lease tokens', {
+      affectedClaimedIds,
+      invalidClaimedIds: rows.filter((row) => !hasLeaseToken(row)).map((row) => row.id),
+    });
+    throw new Error(
+      `Claimed jobs are missing lease tokens; affected claimed ids: ${affectedClaimedIds.join(', ')}`
+    );
   }
-  return { ...job, lease_token: job.lease_token };
+  return claimedRows.map((row) => {
+    const job = fromRow(row);
+    return { ...job, lease_token: row.lease_token };
+  });
 }
 
 function extractEmbedChunkId(jobType: JobType, payload: unknown): string | null {
@@ -629,7 +643,7 @@ export class JobQueue {
       [params.queue, now, leaseToken, leasedUntil, params.workerId ?? null, updatedAt, limit]
     );
 
-    const jobs = result.rows.map(fromClaimedRow);
+    const jobs = fromClaimedRows(result.rows);
     if (jobs.length > 0) {
       logger.trace('Jobs claimed', {
         count: jobs.length,

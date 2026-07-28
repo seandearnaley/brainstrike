@@ -195,7 +195,7 @@ export function QueueStatusPopover({
       <PopoverContent align="end" className="w-[420px] p-0" side="top" sideOffset={8}>
         <PopoverHeader hasErrors={hasErrors} isActive={isActive} />
         <div className="max-h-[70vh] overflow-y-auto">
-          <QueueDiagnosticsPanel compact={false} metrics={metrics} showRefresh={false} />
+          <QueueDiagnosticsPanel compact={false} showRefresh={false} />
         </div>
       </PopoverContent>
     </Popover>

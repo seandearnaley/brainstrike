@@ -88,16 +88,11 @@ export function useQueueHealthMetrics(
   }, [embeddingQueueContext]);
 
   const metrics: QueueHealthMetrics = useMemo(() => {
-    const durableQueue = durableQueueStats
-      ? {
-          failed: durableQueueStats.failed,
-          nextRunnableAt: durableQueueStats.nextRunnableAt,
-          queued: durableQueueStats.queued,
-          running: durableQueueStats.running,
-          succeeded: durableQueueStats.succeeded,
-          succeededLifetime: durableQueueStats.succeededLifetime,
-        }
-      : null;
+    let durableQueue: QueueHealthMetrics['durableQueue'] = null;
+    if (durableQueueStats) {
+      const { lastUpdated: _lastUpdated, ...queueStats } = durableQueueStats;
+      durableQueue = queueStats;
+    }
 
     return {
       durableQueue,

@@ -29,28 +29,36 @@ describe('JobQueue', () => {
   });
 
   it('rejects a claimed row without a lease token', async () => {
+    const baseRow = {
+      attempts: 1,
+      backoff_ms: 1000,
+      created_at: '2026-07-28T00:00:00.000Z',
+      job_type: 'embed_chunk',
+      max_attempts: 5,
+      payload: {},
+      queue: 'embeddings',
+      run_at: '2026-07-28T00:00:00.000Z',
+      state: 'running',
+      updated_at: '2026-07-28T00:00:00.000Z',
+    };
     const query = vi.fn().mockResolvedValue({
       rows: [
         {
-          attempts: 1,
-          backoff_ms: 1000,
-          created_at: '2026-07-28T00:00:00.000Z',
+          ...baseRow,
+          id: 'co-claimed-valid-job',
+          lease_token: 'valid-lease',
+        },
+        {
+          ...baseRow,
           id: 'job-without-lease',
-          job_type: 'embed_chunk',
           lease_token: null,
-          max_attempts: 5,
-          payload: {},
-          queue: 'embeddings',
-          run_at: '2026-07-28T00:00:00.000Z',
-          state: 'running',
-          updated_at: '2026-07-28T00:00:00.000Z',
         },
       ],
     });
     const queue = new JobQueue({ query } as unknown as IDatabase);
 
     await expect(queue.claim({ leaseMs: 5000, queue: 'embeddings' })).rejects.toThrow(
-      'Claimed job job-without-lease is missing its lease token'
+      'Claimed jobs are missing lease tokens; affected claimed ids: co-claimed-valid-job, job-without-lease'
     );
   });
 
