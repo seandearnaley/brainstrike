@@ -468,7 +468,11 @@ export class LocalRuntimeDiscoveryService {
   private readonly inFlightProbes = new Map<string, Promise<LocalRuntimeAvailabilityState>>();
 
   public constructor(options: LocalRuntimeDiscoveryServiceOptions = {}) {
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    // Bind the ambient default: `globalThis.fetch` captured bare loses its
+    // receiver, and the browser rejects the call (BST-964). Only the fallback
+    // is bound — a caller-supplied impl keeps whatever `this` it was written
+    // against.
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch?.bind(globalThis);
     this.successTtlMs = sanitizeDuration(options.successTtlMs, DEFAULT_SUCCESS_TTL_MS);
     this.failureBaseBackoffMs = sanitizeDuration(
       options.failureBaseBackoffMs,
