@@ -43,7 +43,7 @@ From `src/index.ts`:
   * `FileExplorerSidebar`, `FileExplorerLeftPanel`, `FileExplorerMiddlePanel`, `FileExplorerMiddlePanelTabbed`
   * `FileTree`, `OptimizedFileTree`
   * `PreviewPanel`, `TabbedFileEditor`, `TabbedFileEditorPanel`
-  * `LoadingOverlay`, `SelectionCounter`
+  * `SelectionCounter`
   * Config/controls: `WorkspaceSettings`, `FileFilterBar`, `ViewFilterPresetDropdown`, `IncludeProjectTreeSetting`, `MaxSelectionCountSetting`, `FolderSummaryThresholdSetting`
 * Providers & hooks
 
@@ -108,7 +108,12 @@ export default function Explorer() {
 
 ### 4) Progress & cancellation
 
-* Left panel shows `LoadingOverlay` with dynamic ETA and keyboard cancel (Esc). Cancel signals are propagated via `AbortController`.
+* Cancel signals are propagated via `AbortController`.
+* There is no shared loading-overlay component. `LoadingOverlay` — and the
+  `useCancelButtonDelay` / `useKeyboardCancellation` / `useProgressMessage`
+  hooks that served its ETA and Escape-to-cancel affordances — were deleted in
+  BST-965 after turning out to have no mounting site. Surfaces render their own
+  progress UI (see `restoration-status.tsx`, `scanning-status.tsx`).
 
 ### 5) FS adapters & permissions
 
@@ -224,10 +229,6 @@ Do these before reaching for cleverness:
 
 * Restores scroll from `editor-view-state-store`; uses hotkeys (`Ctrl/Cmd+W`, `Ctrl/Cmd+PageUp/Down`).
 * Calls `onLoadFileContent(compositeKey)` whenever an active tab is missing content (and not already loading).
-
-### LoadingOverlay
-
-* Supports cancel affordance after a short delay; cancellation is **functional** via an `AbortController`. Keep Escape-to-cancel intact.
 
 ---
 
