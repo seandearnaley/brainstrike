@@ -279,11 +279,14 @@ every floating layer **in `packages/ui`** — dialogs, popovers, selects, menus,
 tooltips, palettes and toasts. Do not hardcode a `z-` utility on one of those;
 import the token. `__tests__/floating-layer-tokens.test.ts` enforces it.
 
-Known gap, deliberately not folded in yet: `file-explorer-ui`'s
-`loading-overlay.tsx` is a full-viewport `fixed inset-0 z-50` blocking overlay
-that renders in-tree rather than through a portal, so it ties with the tier-1
-dialog scrim. It is outside the scale and outside the guard. Treat the
-statement above as scoped to `packages/ui` until that is reconciled.
+One layer outside `packages/ui` still sits outside the scale: `file-explorer-ui`'s
+`tapestry/tapestry-lens.tsx` portals a `fixed z-[120]` code-lens preview, chosen
+to clear toasts. It does not conflict with anything today, but it is not covered
+by the guard, so treat the statement above as scoped to `packages/ui`.
+
+(An earlier `loading-overlay.tsx` sat at `fixed inset-0 z-50` and tied with the
+tier-1 dialog scrim. It turned out to have no consumers and was deleted in
+BST-965 rather than tokenised.)
 
 The scale, lowest first:
 
