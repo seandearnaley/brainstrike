@@ -371,6 +371,7 @@ export interface StreamChunkFinish {
 }
 
 export type StreamFinishReason =
+  | 'absent'
   | 'stop'
   | 'length'
   | 'content-filter'

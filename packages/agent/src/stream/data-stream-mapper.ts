@@ -181,9 +181,10 @@ function resolveFinishReason(
 ): StreamFinishReason {
   const reason = (chunk as { finishReason?: unknown }).finishReason;
   if (typeof reason !== 'string') {
-    return 'unknown';
+    return 'absent';
   }
   switch (reason) {
+    case 'absent':
     case 'stop':
     case 'length':
     case 'content-filter':
@@ -208,10 +209,12 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
       return 'Assistant stream ended without a normal stop signal.';
+    case 'unknown':
+      return 'Assistant stream ended with an unrecognized finish reason.';
+    case 'absent':
     case 'stop':
     case 'tool-calls':
     case 'error':
-    case 'unknown':
       return;
     default:
       return;
@@ -1079,14 +1082,6 @@ export class DataStreamMapper {
       // Deliberately NOT setting `pendingRunErrorText`: that drives the visible
       // fallback text, which would duplicate the helper's text-delta.
       //
-      // KNOWN REMAINING GAP: `finishReason: 'unknown'` still has the same
-      // split — `makeTerminalRunEvent` emits `run.failed` for it while this
-      // branch leaves the outcome `completed`. It is deliberately NOT handled
-      // here: `resolveFinishReason` also returns 'unknown' when a provider
-      // simply omits `finishReason` on an otherwise-normal final chunk, so
-      // sweeping it in would mark healthy runs failed. The two sides genuinely
-      // disagree about what 'unknown' means and that needs reconciling in one
-      // place, not a reflex here. Tracked separately.
       this.terminalFailureText = this.runFailedEventText ?? ERROR_FINISH_FALLBACK_TEXT;
     }
     const stepBeforeFinalize = this.currentStep;

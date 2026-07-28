@@ -345,7 +345,7 @@ function readFinishReason(part: unknown): StreamFinishReason {
   if (typeof nested === 'string' && nested.length > 0) {
     return normalizeFinishReason(nested);
   }
-  return 'unknown';
+  return 'absent';
 }
 
 function getDeltaText(part: unknown): string {
@@ -549,7 +549,7 @@ function makeTerminalRunEvent(part: unknown, lifecycleState: ToolLifecycleState)
     ...(makeLifecycleStepMetadata(part, lifecycleState) ?? {}),
     finishReason,
   };
-  if (finishReason === 'stop' || finishReason === 'tool-calls') {
+  if (finishReason === 'absent' || finishReason === 'stop' || finishReason === 'tool-calls') {
     return makeRunEventChunk(
       'run.finished',
       'completed',

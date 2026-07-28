@@ -794,7 +794,7 @@ describe('AssistantDataStreamSession', () => {
     const finish = events.at(-1)?.value as {
       finishReason: string;
     };
-    expect(finish?.finishReason).toBe('unknown');
+    expect(finish?.finishReason).toBe('absent');
   });
 
   it('surfaces every pending tool execution error before finishing recoverably', async () => {
@@ -830,7 +830,7 @@ describe('AssistantDataStreamSession', () => {
       "I couldn't complete some tool actions because they failed: first failed; second failed"
     );
     expect(events.find((evt) => evt.code === '3')).toBeUndefined();
-    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'unknown' });
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'absent' });
   });
 
   it('surfaces model length finishes after tool calls instead of ending silently', async () => {
@@ -966,6 +966,63 @@ describe('AssistantDataStreamSession', () => {
       error: 'Assistant run failed.',
       status: 'failed',
     });
+  });
+
+  it('records an explicit unknown finish as failed instead of contradicting run.failed', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        event: {
+          id: 'run-event-explicit-unknown',
+          kind: 'run.failed',
+          label: 'Assistant run ended abnormally (unknown)',
+          metadata: { finishReason: 'unknown' },
+          status: 'failed',
+          timestamp: '2026-07-28T00:00:00.000Z',
+        },
+        type: 'run-event',
+      },
+      {
+        finishReason: 'unknown',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 5, promptTokens: 3 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-explicit-unknown',
+      sessionId: 'explicit-unknown',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+
+    expect(session.getTerminalOutcome()).toEqual({
+      error: 'Assistant stream ended with an unrecognized finish reason.',
+      status: 'failed',
+    });
+    expect(events.find((event) => event.code === '3')?.value).toBe(
+      'Assistant stream ended with an unrecognized finish reason.'
+    );
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'error' });
+  });
+
+  it('keeps an absent finish reason completed while preserving absence on the wire', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } },
+    ];
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-absent-finish',
+      sessionId: 'absent-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+
+    expect(session.getTerminalOutcome()).toEqual({
+      error: null,
+      status: 'completed',
+    });
+    expect(events.find((event) => event.code === '3')).toBeUndefined();
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'absent' });
   });
 
   // The unsupported approval/suspend pause (`makeUnsupportedApprovalChunks`)
@@ -1645,7 +1702,7 @@ describe('AssistantDataStreamSession', () => {
       // Step should remain complete/recoverable; only the tool result is an error.
       expect(finishStep).toBeDefined();
       expect(finishStep?.value).toMatchObject({
-        finishReason: 'unknown',
+        finishReason: 'absent',
       });
       expect(textDelta?.value).toBe(
         "I couldn't complete the tool action because it failed: Tool failed"
@@ -1654,7 +1711,7 @@ describe('AssistantDataStreamSession', () => {
       // Message should also remain complete/recoverable so the user can continue.
       expect(finishMessage).toBeDefined();
       expect(finishMessage?.value).toMatchObject({
-        finishReason: 'unknown',
+        finishReason: 'absent',
       });
     });
 
@@ -1769,7 +1826,7 @@ describe('AssistantDataStreamSession', () => {
       // Settling the card must NOT fabricate a run-level failure: the run is
       // still suspended server-side and a later build can resume it.
       expect(visibleText).not.toContain("I couldn't complete");
-      expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
+      expect(finishMessage?.value).toMatchObject({ finishReason: 'absent' });
     });
 
     it('keeps oversized successful tool output successful with a bounded preview', async () => {
@@ -1830,7 +1887,7 @@ describe('AssistantDataStreamSession', () => {
       expect(serializedToolResult.length).toBeLessThan(20_000);
       expect(serializedToolResult).not.toContain('needle-at-tail');
       expect(textDelta).toBeUndefined();
-      expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
+      expect(finishMessage?.value).toMatchObject({ finishReason: 'absent' });
     });
 
     it('does not split surrogate pairs in oversized tool output previews', () => {

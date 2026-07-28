@@ -3384,7 +3384,7 @@ describe('mastra streaming integration', () => {
     });
   });
 
-  it('marks finish chunks without an explicit reason as unknown', async () => {
+  it('marks finish chunks without an explicit reason as absent and completes the run', async () => {
     setMockStreamParts([{ type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } }]);
 
     const iterator = await streamMastraAgent(
@@ -3397,8 +3397,18 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.finished',
+          metadata: expect.objectContaining({ finishReason: 'absent' }),
+          status: 'completed',
+        }),
+        type: 'run-event',
+      })
+    );
     expect(chunks).toContainEqual({
-      finishReason: 'unknown',
+      finishReason: 'absent',
       path: [],
       type: 'message-finish',
       usage: {
@@ -3408,6 +3418,40 @@ describe('mastra streaming integration', () => {
         promptTokens: 3,
       },
     });
+  });
+
+  it('normalizes an unrecognized non-empty finish reason to unknown and fails the run', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'future-provider-reason',
+        type: 'finish',
+        usage: { completionTokens: 5, promptTokens: 3 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'finish with unknown reason', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.failed',
+          metadata: expect.objectContaining({ finishReason: 'unknown' }),
+          status: 'failed',
+        }),
+        type: 'run-event',
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'unknown', type: 'message-finish' })
+    );
   });
 
   it('throws a typed error when Mastra closes after tool activity without a terminal finish', async () => {

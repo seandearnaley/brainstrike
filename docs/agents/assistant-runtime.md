@@ -200,15 +200,16 @@ than another optional parameter on `makeRunEventChunk` because `detail` and
 `timestamp` are both `string`, so a positional slip between them would
 type-check cleanly while writing a timestamp into the detail field.
 
-**NOT closed by this: `finishReason: 'unknown'` still has the same split.**
-`makeTerminalRunEvent` emits `run.failed` for anything that is not
-`stop`/`tool-calls`, so `unknown` produces a `run.failed` event while the
-outcome stays `completed`. Do NOT simply add `'unknown'` to the error-finish
-condition: `resolveFinishReason` also returns `'unknown'` when a provider omits
-`finishReason` on an otherwise-normal final chunk, so that would mark healthy
-runs failed. The run-event side and the outcome side genuinely disagree about
-what `unknown` means; reconciling them needs one deliberate decision, not a
-reflex at either site.
+**Finish-reason absence is distinct from an explicit/unsupported value
+(BST-868).** `readFinishReason` and `resolveFinishReason` preserve a missing,
+empty, or non-string provider field as `'absent'`; an explicit `'unknown'` or
+unrecognized non-empty string remains `'unknown'`. This distinction is the
+single source of truth for both terminal run events and durable outcomes:
+`absent` is a completed run (providers may omit the field on an otherwise
+healthy final chunk), while `unknown` emits `run.failed`, surfaces the explicit
+"unrecognized finish reason" message, and persists `thread_runs` as failed.
+Never collapse these values back together or infer provider failure from field
+omission.
 
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence
