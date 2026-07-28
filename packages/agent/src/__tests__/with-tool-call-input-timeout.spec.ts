@@ -14,6 +14,10 @@ interface TestPart {
   type: string;
 }
 
+const TOOL_INPUT_TEST_TIMEOUT_MS = 200;
+const TOOL_INPUT_DELTA_CADENCE_MS = 20;
+const TOOL_INPUT_LATE_DELTA_DELAY_MS = 250;
+
 async function* completedToolInput(): AsyncIterableIterator<TestPart> {
   yield { toolCallId: 'call-1', type: 'tool-call-input-streaming-start' };
   yield { argsTextDelta: '{"path":"index.html"}', toolCallId: 'call-1', type: 'tool-call-delta' };
@@ -22,8 +26,8 @@ async function* completedToolInput(): AsyncIterableIterator<TestPart> {
 
 async function* endlessToolInput(): AsyncIterableIterator<TestPart> {
   yield { toolCallId: 'call-stuck', type: 'tool-call-input-streaming-start' };
-  while (true) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
+  for (let index = 0; index < 20; index += 1) {
+    await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_DELTA_CADENCE_MS));
     yield { argsTextDelta: 'x', toolCallId: 'call-stuck', type: 'tool-call-delta' };
   }
 }
@@ -34,7 +38,7 @@ async function* endlessNestedToolInput(): AsyncIterableIterator<TestPart> {
     type: 'tool-call-input-streaming-start',
   };
   for (let index = 0; index < 20; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_DELTA_CADENCE_MS));
     yield {
       payload: { argsTextDelta: 'x', toolCallId: 'call-nested' },
       type: 'tool-call-delta',
@@ -109,15 +113,22 @@ describe('withToolCallInputTimeout', () => {
     const parts: TestPart[] = [];
 
     await expect(async () => {
-      for await (const part of withToolCallInputTimeout(endlessToolInput(), 30)) {
+      for await (const part of withToolCallInputTimeout(
+        endlessToolInput(),
+        TOOL_INPUT_TEST_TIMEOUT_MS
+      )) {
         parts.push(part);
       }
     }).rejects.toMatchObject({
       code: 'tool_call_input_streaming_timeout',
-      timeoutMs: 30,
+      timeoutMs: TOOL_INPUT_TEST_TIMEOUT_MS,
       toolCallId: 'call-stuck',
     });
 
+    // Positive timeout assertions are helped by scheduler slowness, but this
+    // cadence assertion is hurt by it. The 200ms / 20ms ratio gives loaded
+    // runners ~10x per-gap headroom while still proving deltas cannot reset the
+    // absolute deadline.
     expect(parts.filter((part) => part.type === 'tool-call-delta').length).toBeGreaterThan(1);
   });
 
@@ -125,27 +136,34 @@ describe('withToolCallInputTimeout', () => {
     let timeoutError: ToolCallInputStreamingTimeoutError | undefined;
 
     await expect(async () => {
-      for await (const _part of withToolCallInputTimeout(endlessToolInput(), 30, (error) => {
-        timeoutError = error;
-      })) {
+      for await (const _part of withToolCallInputTimeout(
+        endlessToolInput(),
+        TOOL_INPUT_TEST_TIMEOUT_MS,
+        (error) => {
+          timeoutError = error;
+        }
+      )) {
         // Drain until the absolute tool-input deadline expires.
       }
     }).rejects.toBeInstanceOf(ToolCallInputStreamingTimeoutError);
 
     expect(timeoutError).toMatchObject({
-      timeoutMs: 30,
+      timeoutMs: TOOL_INPUT_TEST_TIMEOUT_MS,
       toolCallId: 'call-stuck',
     });
   });
 
   it('recognizes Mastra tool-call ids nested in payloads', async () => {
     await expect(async () => {
-      for await (const _part of withToolCallInputTimeout(endlessNestedToolInput(), 30)) {
+      for await (const _part of withToolCallInputTimeout(
+        endlessNestedToolInput(),
+        TOOL_INPUT_TEST_TIMEOUT_MS
+      )) {
         // Drain until the absolute tool-input deadline expires.
       }
     }).rejects.toMatchObject({
       code: 'tool_call_input_streaming_timeout',
-      timeoutMs: 30,
+      timeoutMs: TOOL_INPUT_TEST_TIMEOUT_MS,
       toolCallId: 'call-nested',
     });
   });
@@ -154,12 +172,15 @@ describe('withToolCallInputTimeout', () => {
     async function* completedBeforeProgress(): AsyncIterableIterator<TestPart> {
       yield { toolCallId: 'call-complete', type: 'tool-call' };
       yield { toolCallId: 'call-complete', type: 'tool-call-input-streaming-start' };
-      await new Promise((resolve) => setTimeout(resolve, 35));
+      await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_LATE_DELTA_DELAY_MS));
       yield { argsTextDelta: 'late', toolCallId: 'call-complete', type: 'tool-call-delta' };
     }
 
     const parts: TestPart[] = [];
-    for await (const part of withToolCallInputTimeout(completedBeforeProgress(), 30)) {
+    for await (const part of withToolCallInputTimeout(
+      completedBeforeProgress(),
+      TOOL_INPUT_TEST_TIMEOUT_MS
+    )) {
       parts.push(part);
     }
 
@@ -171,12 +192,15 @@ describe('withToolCallInputTimeout', () => {
       yield { toolCallId: 'call-ended', type: 'tool-call-input-streaming-start' };
       yield { toolCallId: 'call-ended', type: 'tool-call-input-streaming-end' };
       yield { argsTextDelta: 'late', toolCallId: 'call-ended', type: 'tool-call-delta' };
-      await new Promise((resolve) => setTimeout(resolve, 35));
+      await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_LATE_DELTA_DELAY_MS));
       yield { argsTextDelta: 'later', toolCallId: 'call-ended', type: 'tool-call-delta' };
     }
 
     const parts: TestPart[] = [];
-    for await (const part of withToolCallInputTimeout(endedBeforeProgress(), 30)) {
+    for await (const part of withToolCallInputTimeout(
+      endedBeforeProgress(),
+      TOOL_INPUT_TEST_TIMEOUT_MS
+    )) {
       parts.push(part);
     }
 
@@ -193,16 +217,16 @@ describe('withToolCallInputTimeout', () => {
       };
     }
 
-    const iterator = withToolCallInputTimeout(bufferedToolInput(), 30);
+    const iterator = withToolCallInputTimeout(bufferedToolInput(), TOOL_INPUT_TEST_TIMEOUT_MS);
     await expect(iterator.next()).resolves.toMatchObject({
       done: false,
       value: { type: 'tool-call-input-streaming-start' },
     });
-    await new Promise((resolve) => setTimeout(resolve, 35));
+    await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_LATE_DELTA_DELAY_MS));
 
     await expect(iterator.next()).rejects.toMatchObject({
       code: 'tool_call_input_streaming_timeout',
-      timeoutMs: 30,
+      timeoutMs: TOOL_INPUT_TEST_TIMEOUT_MS,
       toolCallId: 'call-buffered',
     });
   });

@@ -1098,8 +1098,10 @@ describe('AssistantDataStreamSession', () => {
     // Cancel the stream
     await reader.cancel();
 
-    // Give it time to process any in-flight chunks
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // This is a negative assertion: response cancellation must NOT cancel the
+    // server-owned source. Await the session's actual terminal signal instead
+    // of racing a loaded runner against a fixed wall-clock sleep.
+    await session.whenClosed();
 
     expect(consumedCount).toBe(maxChunks);
     expect(session.isClosed()).toBe(true);
