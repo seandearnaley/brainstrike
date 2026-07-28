@@ -58,7 +58,7 @@ describe('createPgliteMastraMemory', () => {
     ).rejects.toThrow('PGlite Mastra observational memory requires an explicit model.');
   });
 
-  it('opts into observer thread-title extraction whenever observational memory is enabled', async () => {
+  it('uses Mastra title generation independently of observational memory', async () => {
     const observationalMemoryModel = {
       modelId: 'gpt-5.4-mini',
       provider: 'openai',
@@ -86,14 +86,24 @@ describe('createPgliteMastraMemory', () => {
       observationalMemoryModel,
     });
 
-    const options = (memoryConstructorCalls[0] as { options: { observationalMemory: unknown } })
-      .options;
+    const options = (
+      memoryConstructorCalls[0] as {
+        options: { generateTitle: boolean; observationalMemory: unknown };
+      }
+    ).options;
+    expect(options.generateTitle).toBe(true);
     expect(options.observationalMemory).toMatchObject({
+      observation: { messageTokens: 12_000 },
+    });
+    expect(options.observationalMemory).not.toMatchObject({
+      observation: { bufferOnIdle: true },
+    });
+    expect(options.observationalMemory).not.toMatchObject({
       observation: { threadTitle: true },
     });
   });
 
-  it('does not construct an observational memory option (or its thread-title flag) when disabled', async () => {
+  it('generates titles even when observational memory is disabled', async () => {
     await createPgliteMastraMemory({
       database,
       memorySettings: {
@@ -116,7 +126,18 @@ describe('createPgliteMastraMemory', () => {
     });
 
     expect(memoryConstructorCalls[0]).toMatchObject({
-      options: { observationalMemory: false },
+      options: { generateTitle: true, observationalMemory: false },
+    });
+  });
+
+  it('respects an explicit title-generation override', async () => {
+    await createPgliteMastraMemory({
+      database,
+      memoryOptions: { generateTitle: false },
+    });
+
+    expect(memoryConstructorCalls[0]).toMatchObject({
+      options: { generateTitle: false },
     });
   });
 

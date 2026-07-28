@@ -138,6 +138,7 @@ import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
+import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
 import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
@@ -780,6 +781,13 @@ export function AssistantUiPanelWrapper({
   const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
+  const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
+  const refreshThreadsAfterRun = useAssistantThreadTitleSync({
+    enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
+    refreshResourceThreads,
+    repository: assistantThreadRepository,
+    resourceId: memoryResourceId,
+  });
   const { operatingRoot, persistThreadRootBinding, resolveThreadRootBinding, threadRootBinding } =
     useAssistantThreadRootBinding({
       activeRootCount,
@@ -1440,19 +1448,9 @@ export function AssistantUiPanelWrapper({
         useContextUsageStore.getState().clearBreakdown(threadId);
       }
       useContextUsageStore.getState().recordUsage(threadId, pickContextMeterUsage(usage));
-      // A turn just finished: re-list threads so an observer-generated title
-      // (observational memory names threads as observations run) becomes
-      // visible in the thread list. Lightweight, non-polling, and a no-op for
-      // resources that have not finished their initial load.
-      if (assistantThreadRepository) {
-        refreshResourceThreads(assistantThreadRepository, memoryResourceId).catch(
-          (error: unknown) => {
-            assistantUsageWriteBackLogger.warn('Failed to refresh thread titles after run', {
-              error,
-            });
-          }
-        );
-      }
+      // Keep recency, latest-run details, and ordering fresh after each turn.
+      // Live title sync handles the later async write and logs subscription failures.
+      refreshThreadsAfterRun();
 
       // Durable sink: requires a real thread id, the desktop PGlite repo, and the
       // in-flight run's request-start usage context. A missing piece means we
@@ -1492,7 +1490,7 @@ export function AssistantUiPanelWrapper({
       localChatTransport,
       memoryResourceId,
       refreshCumulativeUsage,
-      refreshResourceThreads,
+      refreshThreadsAfterRun,
       selectedMemoryThreadId,
       selectedProvider,
     ]

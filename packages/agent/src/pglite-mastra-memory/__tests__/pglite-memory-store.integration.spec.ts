@@ -189,6 +189,58 @@ describe('PgliteMemoryStore', () => {
     expect(updated.metadata).toMatchObject({ titleSource: 'om' });
   });
 
+  it('persists Mastra-generated titles without racing manual rename ownership', async () => {
+    const createdAt = new Date('2026-04-22T10:00:00Z');
+    await store.saveThread({
+      thread: {
+        createdAt,
+        id: 'thread-generated-title',
+        resourceId: 'workspace-a',
+        title: '',
+        updatedAt: createdAt,
+      },
+    });
+
+    const generated = await store.saveThread({
+      thread: {
+        createdAt,
+        id: 'thread-generated-title',
+        resourceId: 'workspace-a',
+        title: 'Paris Weather Chat',
+        updatedAt: new Date('2026-04-22T10:00:01Z'),
+      },
+    });
+    expect(generated.title).toBe('Paris Weather Chat');
+    expect(generated.metadata).toMatchObject({ titleSource: 'om' });
+
+    // The app's manual-rename boundary writes the chosen title and clears the
+    // system marker. A late title-generation save carries stale marker data,
+    // so saveThread must preserve both the manual title and its ownership.
+    await db.query(
+      `UPDATE mastra_threads
+       SET title = $2,
+           metadata = metadata - 'titleSource',
+           "updatedAt" = $3
+       WHERE id = $1`,
+      ['thread-generated-title', 'My Paris Trip', new Date('2026-04-22T10:00:02Z')]
+    );
+
+    const lateGenerated = await store.saveThread({
+      thread: {
+        createdAt,
+        id: 'thread-generated-title',
+        metadata: { titleSource: 'om' },
+        resourceId: 'workspace-a',
+        title: 'Weather In France',
+        updatedAt: new Date('2026-04-22T10:00:01Z'),
+      },
+    });
+
+    expect(lateGenerated.title).toBe('My Paris Trip');
+    expect(lateGenerated.metadata).not.toHaveProperty('titleSource');
+    expect(lateGenerated.updatedAt).toEqual(new Date('2026-04-22T10:00:02Z'));
+  });
+
   it('lets an automated title rename a thread whose title carries the OM marker', async () => {
     // A title the observer itself set earlier (or a seeded placeholder
     // stamped with the marker) is still system content, not user-chosen, so

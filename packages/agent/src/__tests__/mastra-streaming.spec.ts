@@ -1866,7 +1866,10 @@ describe('mastra streaming integration', () => {
   });
 
   it('passes strict thread/resource memory context to agent.stream', async () => {
-    const memory = { id: 'memory-instance' };
+    const memory = {
+      getMergedThreadConfig: () => ({ generateTitle: false }),
+      id: 'memory-instance',
+    };
     setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 
     const iterator = await streamMastraAgent(

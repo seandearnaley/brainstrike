@@ -1765,6 +1765,7 @@ interface StreamIterationParams {
 }
 
 interface StreamGeneratorParams {
+  memory?: MastraMemory;
   /**
    * Run-start prompt breakdown to emit as the first StreamChunk (initial turn
    * only — the approval-resume legs have no wire messages to measure, so they
@@ -1777,6 +1778,7 @@ interface StreamGeneratorParams {
   sanitizedNameMap?: Map<string, string>;
   stream: NodeReadableStream<unknown> | ReadableStream<unknown>;
   streamAbortContext: StreamAbortContext;
+  titleMessages?: AgentMessage[];
 }
 
 interface StreamAbortContext {
@@ -2074,13 +2076,16 @@ function resolveMemoryOption(
 
 async function* streamChunksFromMastra({
   promptBreakdown,
+  memory,
   runtime,
   runtimeData,
   stream,
   streamAbortContext,
   sanitizedNameMap,
   resumedApprovalToolCall,
+  titleMessages,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
+  let titleGenerationTask: Promise<void> | undefined;
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
     delegationLifecycle: createDelegationLifecycleTracker(),
@@ -2140,10 +2145,22 @@ async function* streamChunksFromMastra({
         runtime.delegationToolPersonas,
         runtimeData
       );
+      // Start the canonical Mastra title request BEFORE yielding the terminal
+      // finish. Downstream stops pulling at that chunk; the finally block still
+      // awaits this detached task before shutting the per-run Mastra instance
+      // down, so the main response is not held up by title latency.
+      titleGenerationTask =
+        titleGenerationTask ??
+        startMastraThreadTitleGeneration({
+          memory,
+          messages: titleMessages,
+          part,
+          runtime,
+          runtimeData,
+        });
       for (const chunk of chunks) {
         yield chunk;
       }
-
       if (finished) {
         runtime.assertAssistantMessageIdPersisted?.();
         return;
@@ -2170,11 +2187,103 @@ async function* streamChunksFromMastra({
     }
     return;
   } finally {
+    if (titleGenerationTask) {
+      await titleGenerationTask;
+    }
     streamAbortContext.abort(new Error('Mastra stream consumption ended.'));
     streamAbortContext.dispose();
     logTokenDiagnostics(runtime, runtimeData, lifecycleState);
     logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
     await runtime.dispose();
+  }
+}
+
+function startMastraThreadTitleGeneration({
+  memory,
+  messages,
+  part,
+  runtime,
+  runtimeData,
+}: {
+  memory: MastraMemory | undefined;
+  messages: AgentMessage[] | undefined;
+  part: unknown;
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+}): Promise<void> | undefined {
+  if (!(asMastraStreamPart(part).type === 'finish' && memory && messages?.length)) {
+    return;
+  }
+  return generateMastraThreadTitle({ memory, messages, runtime, runtimeData });
+}
+
+async function generateMastraThreadTitle({
+  memory,
+  messages,
+  runtime,
+  runtimeData,
+}: {
+  memory: MastraMemory;
+  messages: AgentMessage[];
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+}): Promise<void> {
+  const threadId = runtimeData?.memory?.threadId;
+  const resourceId = runtimeData?.memory?.resourceId;
+  if (!(threadId && resourceId)) {
+    return;
+  }
+  const memoryConfig = runtimeData?.memory?.memoryOptions;
+  const config = memory.getMergedThreadConfig(memoryConfig);
+  const titleConfig = config.generateTitle;
+  if (!titleConfig) {
+    return;
+  }
+  const thread = await memory.getThreadById({ threadId });
+  if (!thread) {
+    return;
+  }
+  const existingTitle = thread.title?.trim() ?? '';
+  if (existingTitle && existingTitle !== 'New Thread') {
+    return;
+  }
+  const userMessages = messages
+    .filter((message) => message.role === 'user')
+    .map((message) => ({
+      ...message,
+      // Mastra's title formatter accepts textual UI parts. File/tool parts are
+      // not title input and some versions attempt text-only operations on them.
+      parts: message.parts.filter((part) => part.type === 'text'),
+    }))
+    .filter((message) => message.parts.length > 0);
+  if (userMessages.length === 0) {
+    return;
+  }
+  try {
+    const title = await runtime.agent.generateTitleFromUserMessage({
+      messages: userMessages,
+      ...(typeof titleConfig === 'object' && titleConfig.instructions
+        ? { instructions: titleConfig.instructions }
+        : {}),
+      ...(typeof titleConfig === 'object' && titleConfig.model ? { model: titleConfig.model } : {}),
+    });
+    if (!title?.trim()) {
+      return;
+    }
+    await memory.saveThread({
+      ...(memoryConfig ? { memoryConfig } : {}),
+      thread: {
+        ...thread,
+        title: title.trim(),
+        updatedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    logger.error('Mastra thread title generation failed', {
+      code: 'mastra_thread_title_generation_failed',
+      error,
+      threadId,
+    });
   }
 }
 
@@ -2282,10 +2391,12 @@ async function createStreamIteratorFromRuntime({
     });
 
     return streamChunksFromMastra({
+      ...(memory ? { memory } : {}),
       promptBreakdown,
       runtime,
       stream: fullStream,
       streamAbortContext,
+      titleMessages: messages,
       ...(runtimeData ? { runtimeData } : {}),
       ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
     });
