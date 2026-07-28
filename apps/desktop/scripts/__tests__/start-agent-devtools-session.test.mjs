@@ -637,7 +637,13 @@ async function createSiblingProfiles(siblings) {
     });
     if (owner !== 'legacy') {
       // A bare number means "owned by this pid, with its process group
-      // recorded" -- the shape a fully started launcher leaves behind.
+      // recorded" -- the shape a fully started launcher leaves behind. The pid
+      // is fabricated, but `hasLiveProcessGroupMembers` resolves a pgid against
+      // the HOST process table through `ps`, which does not know that. Any test
+      // that stubs the owner dead must stub the group probe too; otherwise it
+      // passes or fails on whether that number happens to be in use on the
+      // machine. Tests that mean to exercise the real probe spawn a real
+      // process and pass its pid as the pgid instead.
       await writeProfileOwnerMarker(
         profile,
         typeof owner === 'number' ? { pgid: owner, pid: owner } : owner
@@ -655,6 +661,8 @@ test('sweepStaleProfiles reclaims a sibling profile whose owning launcher is gon
 
   try {
     const result = await sweepStaleProfiles({
+      // The fabricated pgid must not be resolved against the host process table.
+      hasLiveProcessGroupMembers: async () => false,
       isOwnerAlive: (pid) => pid !== 4242,
       tempDirectory: temp,
     });
@@ -766,6 +774,8 @@ test('sweepStaleProfiles ignores temp entries it does not own', async () => {
 
   try {
     const result = await sweepStaleProfiles({
+      // The fabricated pgid must not be resolved against the host process table.
+      hasLiveProcessGroupMembers: async () => false,
       isOwnerAlive: () => false,
       tempDirectory: temp,
     });
@@ -789,6 +799,10 @@ test('sweepStaleProfiles keeps going when one stale profile cannot be removed', 
 
   try {
     const result = await sweepStaleProfiles({
+      // Both pgids are fabricated; resolving them against the host process
+      // table would classify a colliding one as live and never call
+      // `removeProfile` at all, which is exactly what this test is asserting on.
+      hasLiveProcessGroupMembers: async () => false,
       isOwnerAlive: () => false,
       removeProfile: async (target) => {
         if (target === stuck) {
