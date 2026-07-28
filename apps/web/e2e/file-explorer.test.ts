@@ -6,6 +6,7 @@ import {
   type ExplorerBootstrapOptions,
   reloadExplorer,
 } from './utils/file-explorer-setup';
+import { openExplorerCompactMenu } from './utils/file-tree-locators';
 import {
   CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
   getContextExplorerRightResizeHandle,
@@ -767,12 +768,7 @@ test.describe('File Explorer', () => {
 
         await expect(viewFiltersToggle).toHaveAttribute('aria-expanded', 'true');
       } else {
-        const compactActions = page.getByRole('button', { name: 'More Explorer actions' });
-        await expect(compactActions).toBeVisible({ timeout: 10_000 });
-        await compactActions.click();
-
-        const explorerMenu = page.getByRole('menu');
-        await expect(explorerMenu).toBeVisible();
+        const explorerMenu = await openExplorerCompactMenu(page);
 
         const showViewFilters = explorerMenu.getByRole('menuitem', {
           name: /^Show view filters/,

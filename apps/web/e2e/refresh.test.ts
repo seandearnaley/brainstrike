@@ -48,15 +48,22 @@ test.describe('Refresh Workflow', () => {
       });
     });
 
+    // Arm the transient-overlay observation before the refresh click so a fast
+    // compact-menu teardown cannot consume the assertion window.
+    const loadingOverlay = page.getByRole('alert');
+    const loadingOverlayAppeared = loadingOverlay
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false);
+
     // Trigger refresh through the visible responsive action surface.
     await refreshFileTree(page);
 
-    // Loading overlay should appear (with shorter timeout for CI environments)
-    // If refresh is very fast, the overlay might not appear, which is acceptable
-    try {
-      await expect(page.getByRole('alert')).toBeVisible({ timeout: 1000 });
-      await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 10_000 });
-    } catch {
+    // If refresh is very fast the overlay can complete between animation
+    // frames; otherwise require the observed overlay to settle.
+    if (await loadingOverlayAppeared) {
+      await expect(loadingOverlay).not.toBeVisible({ timeout: 10_000 });
+    } else {
       // Loading overlay might be too fast in some environments, continue with test
       console.log('Loading overlay not detected, refresh was likely very fast');
     }
