@@ -27,7 +27,15 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import {
+  ALL_CODES_VALUE,
+  ALL_SOURCES_VALUE,
+  LogDiagnosticFilters,
+  NO_CODE_VALUE,
+} from './log-diagnostic-filters';
+import { getLogRecordCode, getLogRecordSource } from './log-diagnostic-metadata';
 import { LogList } from './log-list';
+import { LogRowActions } from './log-record-detail-dialog';
 import { LogToolbar } from './log-toolbar';
 import {
   formatLogTimestamp,
@@ -114,37 +122,31 @@ function matchesSearchTerm(record: LogRecord, term: string): boolean {
   return haystack.includes(term);
 }
 
-function getLogRecordContext(record: LogRecord): Record<string, unknown> | null {
-  for (const arg of record.args.toReversed()) {
-    if (arg === null || typeof arg !== 'object' || Array.isArray(arg)) {
-      continue;
-    }
-    return arg as Record<string, unknown>;
-  }
-  return null;
-}
-
 function shouldIncludeLogRecord(
   record: LogRecord,
   minimumLevelIndex: number,
   term: string,
-  scopeSelection: string
+  scopeSelection: string,
+  sourceSelection: string,
+  codeSelection: string,
+  timeStart: number | null,
+  timeEnd: number | null
 ): boolean {
+  const code = getLogRecordCode(record);
   return (
     matchesLogLevel(record, minimumLevelIndex) &&
     matchesScopeSelection(record, scopeSelection) &&
-    matchesSearchTerm(record, term)
+    matchesSearchTerm(record, term) &&
+    (sourceSelection === ALL_SOURCES_VALUE || getLogRecordSource(record) === sourceSelection) &&
+    (codeSelection === ALL_CODES_VALUE ||
+      (codeSelection === NO_CODE_VALUE ? code === null : code === codeSelection)) &&
+    (timeStart === null || record.timestamp >= timeStart) &&
+    (timeEnd === null || record.timestamp <= timeEnd)
   );
 }
 
 function getRuntimeSource(record: LogRecord): string {
-  const context = getLogRecordContext(record);
-  const explicitSource = context?.['logSource'];
-  if (typeof explicitSource === 'string' && explicitSource.trim().length > 0) {
-    return explicitSource.trim();
-  }
-  const runtime = record.bindings?.['runtime'];
-  return typeof runtime === 'string' && runtime.trim().length > 0 ? runtime.trim() : 'unknown';
+  return getLogRecordSource(record);
 }
 
 function buildSourceCoverage(records: readonly LogRecord[]): Record<string, number> {
@@ -273,11 +275,20 @@ function buildLogColumns(wrapLines: boolean): ColumnDef<LogRecordRow>[] {
       header: 'Bindings',
       size: 220,
     },
+    {
+      cell: ({ row }) => <LogRowActions record={row.original.originalRecord} />,
+      enableHiding: false,
+      enableSorting: false,
+      header: 'Actions',
+      id: 'actions',
+      size: 180,
+    },
   ];
 }
 
 interface LogViewerState {
   autoScroll: boolean;
+  codeFilter: string;
   columnVisibility: VisibilityState;
   globalFilter: string;
   logLevelFilter: LogLevel;
@@ -287,6 +298,9 @@ interface LogViewerState {
   retentionLimit: number;
   scopeFilter: string;
   sorting: SortingState;
+  sourceFilter: string;
+  timeEnd: number | null;
+  timeStart: number | null;
   wrapLines: boolean;
 }
 
@@ -296,6 +310,10 @@ type LogViewerAction =
   | { type: 'SET_RETENTION_LIMIT'; limit: number }
   | { type: 'SET_LOG_LEVEL_FILTER'; level: LogLevel }
   | { type: 'SET_SCOPE_FILTER'; scope: string }
+  | { type: 'SET_SOURCE_FILTER'; source: string }
+  | { type: 'SET_CODE_FILTER'; code: string }
+  | { type: 'SET_TIME_START'; value: number | null }
+  | { type: 'SET_TIME_END'; value: number | null }
   | { type: 'SET_GLOBAL_FILTER'; filter: string }
   | { type: 'SET_AUTO_SCROLL'; value: boolean }
   | { type: 'SET_WRAP_LINES'; value: boolean }
@@ -308,6 +326,7 @@ type LogViewerAction =
 
 const initialLogViewerState: LogViewerState = {
   autoScroll: true,
+  codeFilter: ALL_CODES_VALUE,
   columnVisibility: {},
   globalFilter: '',
   logLevelFilter: LogLevel.DEBUG,
@@ -317,6 +336,9 @@ const initialLogViewerState: LogViewerState = {
   retentionLimit: DEFAULT_RETENTION_LIMIT,
   scopeFilter: ALL_SCOPES_VALUE,
   sorting: [{ desc: false, id: 'timestamp' }],
+  sourceFilter: ALL_SOURCES_VALUE,
+  timeEnd: null,
+  timeStart: null,
   wrapLines: true,
 };
 
@@ -332,6 +354,14 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
       return { ...state, logLevelFilter: action.level };
     case 'SET_SCOPE_FILTER':
       return { ...state, scopeFilter: action.scope };
+    case 'SET_SOURCE_FILTER':
+      return { ...state, sourceFilter: action.source };
+    case 'SET_CODE_FILTER':
+      return { ...state, codeFilter: action.code };
+    case 'SET_TIME_START':
+      return { ...state, timeStart: action.value };
+    case 'SET_TIME_END':
+      return { ...state, timeEnd: action.value };
     case 'SET_GLOBAL_FILTER':
       return { ...state, globalFilter: action.filter };
     case 'SET_AUTO_SCROLL':
@@ -363,6 +393,10 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     retentionLimit,
     logLevelFilter,
     scopeFilter,
+    sourceFilter,
+    codeFilter,
+    timeStart,
+    timeEnd,
     globalFilter,
     autoScroll,
     wrapLines,
@@ -444,9 +478,27 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     const term = globalFilter.trim().toLowerCase();
     const scopeSelection = scopeFilter.trim();
     return logRecords.filter((record) =>
-      shouldIncludeLogRecord(record, levelIndex, term, scopeSelection)
+      shouldIncludeLogRecord(
+        record,
+        levelIndex,
+        term,
+        scopeSelection,
+        sourceFilter,
+        codeFilter,
+        timeStart,
+        timeEnd
+      )
     );
-  }, [globalFilter, logLevelFilter, logRecords, scopeFilter]);
+  }, [
+    codeFilter,
+    globalFilter,
+    logLevelFilter,
+    logRecords,
+    scopeFilter,
+    sourceFilter,
+    timeEnd,
+    timeStart,
+  ]);
 
   const tableData = useMemo<LogRecordRow[]>(() => {
     const rowCache = rowCacheRef.current;
@@ -458,6 +510,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
       const row: LogRecordRow = {
         ...record,
         flattenedBindings: JSON.stringify(record.bindings ?? {}),
+        originalRecord: record,
         serializedArgs: serializeArgs(record.args),
       };
       rowCache.set(record, row);
@@ -536,7 +589,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     if (exportRows.length === 0) {
       return;
     }
-    const exportData = exportRows.map((row) => row.original);
+    const exportData = exportRows.map((row) => row.original.originalRecord);
     const exportPayload = {
       exportedAt: new Date().toISOString(),
       recordCount: exportData.length,
@@ -619,6 +672,19 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
       <LogToolbar
         autoScroll={autoScroll}
         canRefresh={Boolean(logSource.getInitialRecords)}
+        diagnosticFilters={
+          <LogDiagnosticFilters
+            codeFilter={codeFilter}
+            onCodeChange={(code) => dispatch({ code, type: 'SET_CODE_FILTER' })}
+            onSourceChange={(source) => dispatch({ source, type: 'SET_SOURCE_FILTER' })}
+            onTimeEndChange={(value) => dispatch({ type: 'SET_TIME_END', value })}
+            onTimeStartChange={(value) => dispatch({ type: 'SET_TIME_START', value })}
+            records={logRecords}
+            sourceFilter={sourceFilter}
+            timeEnd={timeEnd}
+            timeStart={timeStart}
+          />
+        }
         globalFilter={globalFilter}
         logLevelFilter={logLevelFilter}
         logLevelItems={LOG_LEVEL_ITEMS}

@@ -8,7 +8,7 @@ export interface CopyTextButtonProps {
   readonly ariaLabel: string;
   readonly className?: string;
   readonly label?: string;
-  readonly text: string;
+  readonly text: string | (() => string);
 }
 
 /**
@@ -28,10 +28,14 @@ export function CopyTextButton({
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
 
   const handleClick = () => {
-    if (isCopied || !text) {
+    if (isCopied) {
       return;
     }
-    copyToClipboard(text);
+    const resolvedText = typeof text === 'function' ? text() : text;
+    if (!resolvedText) {
+      return;
+    }
+    copyToClipboard(resolvedText);
   };
 
   let icon: React.ReactNode;

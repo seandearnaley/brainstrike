@@ -879,17 +879,22 @@ preserved, same as before. The purge itself always runs AFTER
 which is what guarantees the `error-log-sink` disposer above has already
 closed the fd by the time these `rm` calls execute.
 
-**Deferred from the design doc's §7/§9, recorded honestly**: §7's
+**Deferred from the design doc's §7, recorded honestly**: §7's
 "`brainstrike.log` (full INFO) keeps existing behavior but gains the same
 rotation" was NOT delivered in P2a — only the new `brainstrike-errors.ndjson`
-file rotates; `brainstrike.log` still grows unbounded. §9's Log Viewer bullet
-promised filters for severity/source/code/time range, a row → detail view
-with cause chain, and per-row "Copy as JSON"; P2a delivered the second
-`LogSourceAdapter` ("Persistent errors") and severity filtering (via the
-viewer's existing level filter) but NOT the dedicated source/code filters,
-the time-range filter, a row-detail view, or per-row "Copy as JSON" — the
-cause chain is currently visible only as serialized text inside the
-args/context column, not a dedicated detail view.
+file rotates; `brainstrike.log` still grows unbounded.
+
+**Log Viewer diagnostic controls**: the viewer exposes dedicated source and
+code selectors populated from the active adapter's records, plus inclusive
+local From/To timestamp inputs. Source prefers explicit `logSource` context
+and then the runtime binding; missing codes remain a selectable "No code"
+case rather than being coerced into an invented value. An invalid time range
+is visibly marked and yields no matching rows. Each row has a structured
+detail dialog for source, code, fingerprint, message, cause chain, stack, and
+context, plus "Copy JSON" routed through the shared clipboard service. Copy
+serialization is lazy (on click), cycle-safe, and explicit about values JSON
+cannot represent directly, so malformed diagnostic context cannot crash the
+table render or silently produce an empty clipboard payload.
 
 **Persistent Log Viewer source** (`createDurableLogSource` +
 `useDurableLogSource`,
@@ -931,7 +936,9 @@ rather than a swallowed failure rendering as a successful-but-empty file.
 choke points feeding the sink),
 `packages/app-shell/src/__tests__/durable-log-source.test.ts`,
 `packages/app-shell/src/__tests__/use-durable-log-source.test.tsx`,
-`packages/preferences/src/settings/system/logging-settings-section.test.tsx`.
+`packages/preferences/src/settings/system/logging-settings-section.test.tsx`,
+`packages/preferences/src/settings/system/log-viewer-components/__tests__/log-viewer.test.tsx`,
+`packages/ui/src/__tests__/copy-text-button.test.tsx`.
 
 ### P2b: status chip, retention preferences, sink health
 

@@ -1,8 +1,19 @@
 import '@testing-library/jest-dom/vitest';
 import { LogLevel, type LogRecord } from '@brainstrike/utils';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LogViewer } from '../log-viewer';
+
+const clipboardMocks = vi.hoisted(() => ({
+  writeText: vi.fn(),
+}));
+
+vi.mock('@brainstrike/context-actions', () => ({
+  createClipboardService: () => ({
+    writeText: clipboardMocks.writeText,
+  }),
+}));
 
 // Mock ResizeObserver
 global.ResizeObserver = class ResizeObserver {
@@ -35,6 +46,13 @@ vi.mock('@tanstack/react-virtual', async () => {
 
 const mockToast = vi.fn();
 
+beforeAll(() => {
+  // JSDOM implements neither of these Radix Select interaction APIs.
+  (Element.prototype as unknown as { hasPointerCapture: () => boolean }).hasPointerCapture = () =>
+    false;
+  (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
+});
+
 const createMockLogRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
   args: [],
   bindings: {},
@@ -46,6 +64,8 @@ const createMockLogRecord = (overrides: Partial<LogRecord> = {}): LogRecord => (
 
 describe('LogViewer', () => {
   beforeEach(() => {
+    clipboardMocks.writeText.mockReset();
+    clipboardMocks.writeText.mockResolvedValue({ ok: true });
     mockToast.mockClear();
   });
 
@@ -401,6 +421,154 @@ describe('LogViewer', () => {
       expect(screen.getByText('Apple')).toBeInTheDocument();
       expect(screen.queryByText('Banana')).not.toBeInTheDocument();
     });
+  });
+
+  it('filters logs by dedicated source and code controls', async () => {
+    const user = userEvent.setup();
+    const logs = [
+      createMockLogRecord({
+        args: [{ logSource: 'electron-main' }],
+        bindings: { code: 'main_crash', runtime: 'electron-main' },
+        message: 'Main crash',
+        timestamp: 1000,
+      }),
+      createMockLogRecord({
+        args: [{ logSource: 'electron-main' }],
+        bindings: { code: 'main_timeout', runtime: 'electron-main' },
+        message: 'Main timeout',
+        timestamp: 2000,
+      }),
+      createMockLogRecord({
+        args: [{ logSource: 'electron-renderer' }],
+        bindings: { code: 'render_crash', runtime: 'electron-renderer' },
+        message: 'Renderer crash',
+        timestamp: 3000,
+      }),
+    ];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(screen.getByText('Renderer crash')).toBeInTheDocument());
+    await user.click(screen.getByRole('combobox', { name: 'Source' }));
+    await user.click(screen.getByRole('option', { name: 'electron-main' }));
+
+    expect(screen.getByText('Main crash')).toBeInTheDocument();
+    expect(screen.getByText('Main timeout')).toBeInTheDocument();
+    expect(screen.queryByText('Renderer crash')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: 'Code' }));
+    await user.click(screen.getByRole('option', { name: 'main_timeout' }));
+
+    expect(screen.queryByText('Main crash')).not.toBeInTheDocument();
+    expect(screen.getByText('Main timeout')).toBeInTheDocument();
+  });
+
+  it('filters logs to an explicit local time range', async () => {
+    const logs = [
+      createMockLogRecord({
+        message: 'Before range',
+        timestamp: new Date('2026-01-01T10:00').getTime(),
+      }),
+      createMockLogRecord({
+        message: 'Inside range',
+        timestamp: new Date('2026-01-01T12:00').getTime(),
+      }),
+      createMockLogRecord({
+        message: 'After range',
+        timestamp: new Date('2026-01-01T14:00').getTime(),
+      }),
+    ];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(screen.getByText('Inside range')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('From time'), {
+      target: { value: '2026-01-01T11:00' },
+    });
+    fireEvent.change(screen.getByLabelText('To time'), {
+      target: { value: '2026-01-01T13:00' },
+    });
+
+    expect(screen.queryByText('Before range')).not.toBeInTheDocument();
+    expect(screen.getByText('Inside range')).toBeInTheDocument();
+    expect(screen.queryByText('After range')).not.toBeInTheDocument();
+  });
+
+  it('opens a structured diagnostic detail view with the cause chain', async () => {
+    const user = userEvent.setup();
+    const record = createMockLogRecord({
+      args: [
+        {
+          causeChain: [
+            { code: 'ROOT_TIMEOUT', message: 'Socket timed out', name: 'TimeoutError' },
+            { message: 'Connection failed', name: 'NetworkError' },
+          ],
+          logSource: 'electron-main',
+          stack: 'Error: provider failed\n    at run.ts:42',
+        },
+      ],
+      bindings: {
+        code: 'provider_failed',
+        fingerprint: 'fingerprint-123',
+        runtime: 'electron-main',
+      },
+      message: 'Provider failed',
+      timestamp: 1000,
+    });
+    const logSource = {
+      getInitialRecords: async () => [record],
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await user.click(
+      await screen.findByRole('button', { name: 'View details for Provider failed' })
+    );
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Diagnostic details' })).toBeInTheDocument();
+    expect(screen.getByText('Cause chain')).toBeInTheDocument();
+    expect(screen.getByText('TimeoutError')).toBeInTheDocument();
+    expect(screen.getByText('ROOT_TIMEOUT')).toBeInTheDocument();
+    expect(screen.getByText('Socket timed out')).toBeInTheDocument();
+    expect(screen.getByText('NetworkError')).toBeInTheDocument();
+    expect(screen.getByText('Connection failed')).toBeInTheDocument();
+    expect(screen.getByText('fingerprint-123')).toBeInTheDocument();
+  });
+
+  it('copies one row as JSON through the shared clipboard service', async () => {
+    const user = userEvent.setup();
+    const record = createMockLogRecord({
+      args: [{ logSource: 'electron-main', reason: 'boom' }],
+      bindings: {
+        code: 'main_crash',
+        fingerprint: 'fingerprint-123',
+        runtime: 'electron-main',
+      },
+      message: 'Copy me',
+      timestamp: 1000,
+    });
+    const logSource = {
+      getInitialRecords: async () => [record],
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Copy Copy me as JSON' }));
+
+    await waitFor(() => expect(clipboardMocks.writeText).toHaveBeenCalledTimes(1));
+    const copied = clipboardMocks.writeText.mock.calls[0]?.[0];
+    expect(JSON.parse(String(copied))).toEqual(record);
   });
 
   it('filters logs by level', async () => {
