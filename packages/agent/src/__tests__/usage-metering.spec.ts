@@ -4,8 +4,49 @@ import {
   readCacheTokenCount,
   readOpenRouterBilledCost,
   readOpenRouterDiagnostics,
+  readStreamPartUsage,
   type UsageMeteringState,
 } from '../mastra/runtime-assembly/usage-metering';
+
+describe('readStreamPartUsage', () => {
+  it('reads the nested payload.output shape a real Mastra part emits', () => {
+    expect(
+      readStreamPartUsage({ payload: { output: { usage: { inputTokens: 7, outputTokens: 3 } } } })
+    ).toEqual({ inputTokens: 7, outputTokens: 3 });
+  });
+
+  it('falls back through payload.metadata', () => {
+    expect(readStreamPartUsage({ payload: { metadata: { usage: { promptTokens: 11 } } } })).toEqual(
+      { promptTokens: 11 }
+    );
+  });
+
+  it('still accepts the top-level shape (test fixtures / single-step transports)', () => {
+    expect(readStreamPartUsage({ usage: { completionTokens: 2, promptTokens: 5 } })).toEqual({
+      completionTokens: 2,
+      promptTokens: 5,
+    });
+  });
+
+  it('SKIPS a present-but-countless candidate for one that resolves counts', () => {
+    // AI SDK v5 can emit a top-level `usage` with all-undefined fields while
+    // the real numbers sit in payload.output — selecting on mere presence
+    // would silently report zero tokens (review finding).
+    expect(
+      readStreamPartUsage({
+        payload: { output: { usage: { inputTokens: 900, outputTokens: 40 } } },
+        usage: { completionTokens: undefined, promptTokens: undefined },
+      })
+    ).toEqual({ inputTokens: 900, outputTokens: 40 });
+  });
+
+  it('returns the first present candidate when NO candidate resolves counts', () => {
+    // Honest empty usage beats undefined: the caller can still distinguish
+    // "reported nothing" from "no usage object at all".
+    expect(readStreamPartUsage({ usage: {} })).toEqual({});
+    expect(readStreamPartUsage({})).toBeUndefined();
+  });
+});
 
 describe('readCacheTokenCount', () => {
   it('returns positive finite counts', () => {
