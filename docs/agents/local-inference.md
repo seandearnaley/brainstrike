@@ -60,6 +60,11 @@ Flow:
      or schedule the existing deferred recovery after that scoped drain.
      Non-cancellation failures must never intentionally leave the index
      suspended for an unrelated maintenance tick.
+   - Renderer queue-health writes carry the wall-clock time of the completed
+     database poll. The store keeps poll freshness separate from the deduped
+     count snapshot so always-mounted queue subscribers do not rerender on an
+     idle polling cadence. Diagnostics consume the stored poll timestamp; they
+     must not synthesize queue freshness during React render.
 
 Foreground query coordination (desktop):
 - The hidden host runs BOTH background indexing and assistant query embeddings; a

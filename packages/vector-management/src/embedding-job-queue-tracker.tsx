@@ -87,6 +87,7 @@ export function EmbeddingJobQueueTracker({
       if (!s) {
         return {
           failed: 0,
+          lastUpdated: Date.now(),
           nextRunnableAt: null,
           queued: 0,
           running: 0,
@@ -96,6 +97,7 @@ export function EmbeddingJobQueueTracker({
       }
       return {
         failed: s.failed,
+        lastUpdated: Date.now(),
         nextRunnableAt: s.nextRunnableAt ?? null,
         queued: s.queued,
         running: s.running,

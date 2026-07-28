@@ -58,6 +58,7 @@ describe('useQueueHealthMetrics', () => {
       useVectorStatusUIStore.setState({
         durableQueueStats: {
           failed: 1,
+          lastUpdated: 1_722_121_200_000,
           nextRunnableAt: '2025-01-01T00:00:00Z',
           queued: 5,
           running: 2,
@@ -100,6 +101,7 @@ describe('useQueueHealthMetrics', () => {
       useVectorStatusUIStore.setState({
         durableQueueStats: {
           failed: 0,
+          lastUpdated: 1_722_121_200_000,
           nextRunnableAt: null,
           queued: 0,
           running: 0,
@@ -224,10 +226,20 @@ describe('useQueueHealthMetrics', () => {
   });
 
   describe('lastUpdated', () => {
-    it('sets lastUpdated timestamp', async () => {
+    it('uses the durable snapshot fetch timestamp instead of render time', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
-
-      const before = Date.now();
+      const fetchedAt = 1_722_121_200_000;
+      useVectorStatusUIStore.setState({
+        durableQueueStats: {
+          failed: 0,
+          lastUpdated: fetchedAt,
+          nextRunnableAt: null,
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
+      });
 
       const { result } = renderHook(() => useQueueHealthMetrics());
 
@@ -235,10 +247,7 @@ describe('useQueueHealthMetrics', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      const after = Date.now();
-
-      expect(result.current.metrics.lastUpdated).toBeGreaterThanOrEqual(before);
-      expect(result.current.metrics.lastUpdated).toBeLessThanOrEqual(after);
+      expect(result.current.metrics.lastUpdated).toBe(fetchedAt);
     });
   });
 
@@ -264,6 +273,7 @@ describe('useQueueHealthMetrics', () => {
       useVectorStatusUIStore.setState({
         durableQueueStats: {
           failed: 1,
+          lastUpdated: 1_722_121_200_000,
           nextRunnableAt: null,
           queued: 5,
           running: 2,

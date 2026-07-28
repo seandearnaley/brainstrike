@@ -34,6 +34,10 @@ export interface Job extends Omit<JobRow, 'job_type' | 'payload' | 'run_at' | 'l
   runAt: string;
 }
 
+export interface ClaimedJob extends Job {
+  lease_token: string;
+}
+
 const logger = createLogger('JobQueue');
 
 /**
@@ -63,6 +67,28 @@ function fromRow(row: JobRow): Job {
     worker_id: row.worker_id ?? null,
   };
   return job;
+}
+
+function hasLeaseToken(row: JobRow): row is JobRow & { lease_token: string } {
+  return typeof row.lease_token === 'string' && row.lease_token.length > 0;
+}
+
+function fromClaimedRows(rows: JobRow[]): ClaimedJob[] {
+  const claimedRows = rows.filter(hasLeaseToken);
+  if (claimedRows.length !== rows.length) {
+    const affectedClaimedIds = rows.map((row) => row.id);
+    logger.error('Claimed job batch contains rows without lease tokens', {
+      affectedClaimedIds,
+      invalidClaimedIds: rows.filter((row) => !hasLeaseToken(row)).map((row) => row.id),
+    });
+    throw new Error(
+      `Claimed jobs are missing lease tokens; affected claimed ids: ${affectedClaimedIds.join(', ')}`
+    );
+  }
+  return claimedRows.map((row) => {
+    const job = fromRow(row);
+    return { ...job, lease_token: row.lease_token };
+  });
 }
 
 function extractEmbedChunkId(jobType: JobType, payload: unknown): string | null {
@@ -571,12 +597,12 @@ export class JobQueue {
     return jobs;
   }
 
-  async claim(params: ClaimParams): Promise<Job | null> {
+  async claim(params: ClaimParams): Promise<ClaimedJob | null> {
     const jobs = await this.claimMany({ ...params, limit: 1 });
     return jobs[0] ?? null;
   }
 
-  async claimMany(params: ClaimParams & { limit?: number }): Promise<Job[]> {
+  async claimMany(params: ClaimParams & { limit?: number }): Promise<ClaimedJob[]> {
     const now = params.now ?? new Date().toISOString();
     const leaseToken = generateUUID();
     const leasedUntil = new Date(Date.now() + params.leaseMs).toISOString();
@@ -617,7 +643,7 @@ export class JobQueue {
       [params.queue, now, leaseToken, leasedUntil, params.workerId ?? null, updatedAt, limit]
     );
 
-    const jobs = result.rows.map(fromRow);
+    const jobs = fromClaimedRows(result.rows);
     if (jobs.length > 0) {
       logger.trace('Jobs claimed', {
         count: jobs.length,

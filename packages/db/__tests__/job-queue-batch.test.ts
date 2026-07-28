@@ -1,6 +1,6 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { JobQueue } from '../src/queue/job-queue.js';
+import { beforeEach, describe, expect, expectTypeOf, it } from 'vitest';
+import { type ClaimedJob, JobQueue } from '../src/queue/job-queue.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue Batch Operations', () => {
@@ -17,10 +17,11 @@ describe('JobQueue Batch Operations', () => {
 
     const claimed = await queue.claimMany({ leaseMs: 5000, limit: 2, queue: 'q1' });
     expect(claimed).toHaveLength(2);
+    expectTypeOf(claimed).toEqualTypeOf<ClaimedJob[]>();
 
     const completionParams = claimed.map((j) => ({
       id: j.id,
-      leaseToken: j.lease_token as string,
+      leaseToken: j.lease_token,
     }));
 
     const completed = await queue.completeBatch(completionParams);

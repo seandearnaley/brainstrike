@@ -59,6 +59,7 @@ describe('QueueHud', () => {
     useVectorStatusUIStore.setState({
       durableQueueStats: {
         ...stats,
+        lastUpdated: 1_722_121_200_000,
         nextRunnableAt: stats.nextRunnableAt ?? null,
         // Default the lifetime total to the live count so existing single-value
         // assertions still hold; tests that care about the distinction set both.

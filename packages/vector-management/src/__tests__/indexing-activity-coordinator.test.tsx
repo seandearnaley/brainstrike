@@ -311,6 +311,7 @@ describe('IndexingActivityCoordinator', () => {
     expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
       failed: 0,
+      lastUpdated: expect.any(Number),
       nextRunnableAt: '2026-04-25T12:00:00.000Z',
       queued: 7,
       running: 1,

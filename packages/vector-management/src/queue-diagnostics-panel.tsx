@@ -5,6 +5,7 @@
  * ephemeral (workerpool) queue systems in a unified view.
  */
 
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueHealthMetrics } from '@brainstrike/queue';
 import {
   Badge,
@@ -167,9 +168,13 @@ function StatusIndicator({
 
 interface DurableQueueSectionProps {
   readonly durableQueue: QueueHealthMetrics['durableQueue'];
+  readonly lastUpdated: number;
 }
 
-function DurableQueueSection({ durableQueue }: DurableQueueSectionProps): ReactElement {
+function DurableQueueSection({
+  durableQueue,
+  lastUpdated,
+}: DurableQueueSectionProps): ReactElement {
   return (
     <div className="space-y-2">
       <SectionHeader
@@ -209,6 +214,11 @@ function DurableQueueSection({ durableQueue }: DurableQueueSectionProps): ReactE
         </div>
       ) : (
         <p className="text-[10px] text-muted-foreground">Database not connected</p>
+      )}
+      {durableQueue && lastUpdated > 0 && (
+        <div className="flex justify-end text-[9px] text-muted-foreground">
+          Updated: {new Date(lastUpdated).toLocaleTimeString()}
+        </div>
       )}
     </div>
   );
@@ -462,20 +472,13 @@ function QueueDiagnosticsPanelContent({
       </CardHeader>
 
       <CardContent className="space-y-4 p-3">
-        <DurableQueueSection durableQueue={durableQueue} />
+        <DurableQueueSection durableQueue={durableQueue} lastUpdated={metrics.lastUpdated} />
 
         <div className="border-t" />
 
         <EphemeralQueueSection compact={compact} ephemeralQueue={ephemeralQueue} />
 
         <WorkerHealthSection workerHealth={workerHealth} />
-
-        {/* Last Updated */}
-        {metrics.lastUpdated > 0 && (
-          <div className="flex justify-end text-[9px] text-muted-foreground">
-            Updated: {new Date(metrics.lastUpdated).toLocaleTimeString()}
-          </div>
-        )}
       </CardContent>
     </Card>
   );
@@ -489,12 +492,17 @@ function QueueDiagnosticsPanelWithHook({
   showRefresh: boolean;
 }): ReactElement {
   const hookResult = useQueueHealthMetrics();
+  const durableQueuePolledAt = useVectorStatusUIStore((state) => state.durableQueuePolledAt);
+  const metrics = {
+    ...hookResult.metrics,
+    lastUpdated: durableQueuePolledAt ?? hookResult.metrics.lastUpdated,
+  };
 
   return (
     <QueueDiagnosticsPanelContent
       compact={compact}
       isLoading={hookResult.isLoading}
-      metrics={hookResult.metrics}
+      metrics={metrics}
       onRefresh={hookResult.refresh}
       showRefresh={showRefresh}
     />

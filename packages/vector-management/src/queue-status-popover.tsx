@@ -120,18 +120,6 @@ function PopoverHeader({ hasErrors, isActive }: PopoverHeaderProps): ReactElemen
   );
 }
 
-// LoadingState no longer needs props - trigger handles accessibility
-
-function LoadingState(): ReactElement {
-  // This is presentational content - Radix PopoverTrigger handles accessibility
-  return (
-    <>
-      <Activity className="h-3 w-3 animate-pulse" />
-      <span>Loading...</span>
-    </>
-  );
-}
-
 interface QueueStatusPopoverProps {
   /** Custom CSS class for the trigger */
   readonly className?: string;
@@ -159,7 +147,7 @@ export function QueueStatusPopover({
   tooltipContent = 'Click for queue diagnostics',
 }: QueueStatusPopoverProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
-  const { metrics, isLoading } = useQueueHealthMetrics();
+  const { metrics } = useQueueHealthMetrics();
 
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
@@ -173,9 +161,7 @@ export function QueueStatusPopover({
   const hasErrors = totalFailed > 0 || Boolean(ephemeralQueue?.lastError);
   const isActive = totalRunning > 0;
 
-  const ariaLabel = isLoading
-    ? 'Loading queue status'
-    : `Queue status: ${totalQueued} queued, ${totalRunning} running, ${totalFailed} failed`;
+  const ariaLabel = `Queue status: ${totalQueued} queued, ${totalRunning} running, ${totalFailed} failed`;
 
   return (
     <Popover modal={false} onOpenChange={handleOpenChange} open={isOpen}>
@@ -184,22 +170,18 @@ export function QueueStatusPopover({
           <PopoverTrigger asChild>
             <button
               aria-label={ariaLabel}
-              className={`flex cursor-pointer items-center gap-1.5 rounded border-none bg-transparent px-1.5 py-0.5 text-[10px] transition-colors hover:bg-muted ${isLoading ? 'text-muted-foreground' : ''} ${className ?? ''}`}
+              className={`flex cursor-pointer items-center gap-1.5 rounded border-none bg-transparent px-1.5 py-0.5 text-[10px] transition-colors hover:bg-muted ${className ?? ''}`}
               data-testid="queue-status-popover-trigger"
               type="button"
             >
-              {isLoading ? (
-                <LoadingState />
-              ) : (
-                <CompactStatus
-                  hasErrors={hasErrors}
-                  isActive={isActive}
-                  isOpen={isOpen}
-                  totalFailed={totalFailed}
-                  totalQueued={totalQueued}
-                  totalRunning={totalRunning}
-                />
-              )}
+              <CompactStatus
+                hasErrors={hasErrors}
+                isActive={isActive}
+                isOpen={isOpen}
+                totalFailed={totalFailed}
+                totalQueued={totalQueued}
+                totalRunning={totalRunning}
+              />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -213,7 +195,7 @@ export function QueueStatusPopover({
       <PopoverContent align="end" className="w-[420px] p-0" side="top" sideOffset={8}>
         <PopoverHeader hasErrors={hasErrors} isActive={isActive} />
         <div className="max-h-[70vh] overflow-y-auto">
-          <QueueDiagnosticsPanel compact={false} metrics={metrics} showRefresh={false} />
+          <QueueDiagnosticsPanel compact={false} showRefresh={false} />
         </div>
       </PopoverContent>
     </Popover>

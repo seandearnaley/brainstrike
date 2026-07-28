@@ -517,11 +517,28 @@ describe('QueueDiagnosticsPanel', () => {
     it('shows last updated time when available', () => {
       const timestamp = new Date('2025-01-01T12:00:00').getTime();
       const metrics = createMetrics({
+        durableQueue: {
+          failed: 0,
+          nextRunnableAt: null,
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+        },
         lastUpdated: timestamp,
       });
       renderPanel(metrics);
 
       expect(screen.getByText(/Updated:/)).toBeInTheDocument();
+    });
+
+    it('does not label ephemeral-only metrics with durable poll freshness', () => {
+      const metrics = createMetrics({
+        durableQueue: null,
+        lastUpdated: new Date('2025-01-01T12:00:00').getTime(),
+      });
+      renderPanel(metrics);
+
+      expect(screen.queryByText(/Updated:/)).not.toBeInTheDocument();
     });
 
     it('does not show last updated when zero', () => {
