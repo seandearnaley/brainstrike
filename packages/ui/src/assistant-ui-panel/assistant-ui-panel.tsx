@@ -1248,12 +1248,7 @@ const ChatThreadUI = ({
         <BudgetGuardrailControl />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
         <FollowUpQueueChips threadKey={threadKey} />
-        <ComposerPrimitive.Root
-          aria-disabled={composerDisabled}
-          className="aui-composer-root"
-          data-disabled={composerDisabled ? '' : undefined}
-          onSubmitCapture={onThreadRunStart}
-        >
+        <ComposerPrimitive.Root className="aui-composer-root" onSubmitCapture={onThreadRunStart}>
           {/* The composer input row, optionally wrapped in a shared
               `Unstable_TriggerPopoverRoot` (see `ComposerInputWithTriggers`).
               Each popover declares its own trigger char ("/" vs "@") and both

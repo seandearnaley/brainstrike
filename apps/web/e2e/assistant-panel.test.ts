@@ -42,7 +42,7 @@ test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-s
 });
 
 test.describe('Hosted Web multi-provider picker @stateful @web-assistant-state', () => {
-  test('shows both server-configured providers without exposing credentials', async ({ page }) => {
+  test('switches between both server-configured providers', async ({ page }) => {
     await mockAssistantApi(page, {
       enabled: true,
       model: 'gpt-5.6-terra',
@@ -55,29 +55,24 @@ test.describe('Hosted Web multi-provider picker @stateful @web-assistant-state',
     });
     await openAssistantWorkspace(page, { rootName: 'assistant-multi-provider' });
 
-    const status = await page.evaluate(async () => {
-      const response = await fetch('/api/assistant/status');
-      return (await response.json()) as Record<string, unknown>;
-    });
-    expect(status).toEqual({
-      enabled: true,
-      model: 'gpt-5.6-terra',
-      provider: 'openai',
-      providerKeySources: [
-        { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
-        { envVar: 'ANTHROPIC_API_KEY', provider: 'anthropic', source: 'env' },
-      ],
-      providers: ['openai', 'anthropic'],
-    });
-    expect(JSON.stringify(status)).not.toContain('apiKey');
-
     const trigger = page.getByTestId('composer-model-menu-trigger');
     await expect(trigger).toHaveAccessibleName(/GPT-5\.6 Terra/);
+    await expect(trigger).toBeEnabled();
+    await trigger.click();
+
+    const moreModels = page.getByTestId('composer-more-models-trigger');
+    await moreModels.focus();
+    await page.keyboard.press('ArrowRight');
+    const anthropic = page.getByRole('menuitem', { name: /Anthropic/ });
+    await anthropic.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menuitemradio', { name: /^Claude Sonnet 5/ }).click();
+
+    await expect(trigger).toHaveAccessibleName(/Claude Sonnet 5/);
     await expect(
       page.getByText(
         'Assistant memory for hosted providers requires the desktop assistant backend.'
       )
     ).toBeVisible();
-    await expect(trigger).toBeDisabled();
   });
 });

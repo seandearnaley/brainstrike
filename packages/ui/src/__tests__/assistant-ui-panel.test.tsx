@@ -1306,6 +1306,15 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.queryByText(/OpenAI \/ GPT-5\.2/)).not.toBeInTheDocument();
   });
 
+  it('keeps the model picker operable when message submission is disabled', () => {
+    render(<AssistantUiPanel {...baseProps} disabled onModelChange={() => {}} />);
+
+    const input = screen.getByTestId('composer-input');
+    expect(input).toBeDisabled();
+    expect(input.closest('.aui-composer-root')).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByTestId('composer-model-menu-trigger')).toBeEnabled();
+  });
+
   it('renders the always-visible effort readout beside the model menu (BST-948)', () => {
     render(
       <AssistantUiPanel
