@@ -393,6 +393,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../../packages/embedding-worker
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../../packages/embeddings
@@ -703,6 +706,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../../packages/embedding-worker
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../../packages/embeddings

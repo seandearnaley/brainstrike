@@ -28,7 +28,8 @@
       "types": "./dist/embedding.worker.d.ts",
       "import": "./dist/embedding.worker.js",
       "require": "./dist/embedding.worker.cjs"
-    }
+    },
+    "./vite": "./src/vite.ts"
   },
   "files": [
     "dist/**"
