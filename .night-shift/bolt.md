@@ -111,3 +111,6 @@
 ## Durable NDJSON lines encode once
 **Learning:** `RotatingNdjsonSink.writeLine()` used `Buffer.byteLength()` before `Buffer.from()`, scanning every durable warn-or-higher diagnostic line as UTF-8 twice. Over 20,000 representative 1,362-byte lines on Node 24.16.0, deriving the rotation byte count from the encoded buffer reduced the 30-sample median from 12.40ms to 8.71ms with identical accounting checksums.
 **Action:** Derive NDJSON rotation accounting from the buffer written to disk; do not reintroduce a separate UTF-8 byte-length scan.
+## QuerySelf projection fitting searches retained prefixes
+**Learning:** `querySelf` can project 200 bounded result rows, but fitting its 6,000-character model output previously dropped one row and re-serialized the whole candidate per iteration. The maximum two-wide-cell fixture required 188 full serializations; largest-fitting-prefix search requires exactly 9 while retaining the same complete rows and omission signal.
+**Action:** Keep bounded `querySelf` row, schema, lens, and plan fitting on largest-prefix search; do not restore decrement-and-reserialize loops.

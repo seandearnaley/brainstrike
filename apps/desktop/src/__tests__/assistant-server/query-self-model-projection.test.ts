@@ -66,6 +66,26 @@ describe('querySelf model projection', () => {
     // A silently short result would be a correctness failure, not a formatting one.
     expect(projection.value).toContain('omitted');
     expect(projection.value).toContain('truncated=true');
+
+    const returnedMatch = /returned=(\d+)/u.exec(projection.value);
+    expect(returnedMatch).not.toBeNull();
+    const returned = Number(returnedMatch?.[1]);
+    const nextKept = returned + 1;
+    const nextDropped = rows.length - nextKept;
+    const nextProjection = {
+      type: 'text' as const,
+      value: [
+        `rows | returned=${nextKept} | omitted=${nextDropped} | truncated=true | cost=42`,
+        'a\tb',
+        ...rows.slice(0, nextKept).map((row) => row.cells.join('\t')),
+        `omitted ${nextDropped} row(s) to fit the output budget; select fewer columns or aggregate`,
+      ].join('\n'),
+    };
+    // The selected prefix is maximal: adding the next complete row would break
+    // the hard domain budget.
+    expect(serializedChars(nextProjection)).toBeGreaterThan(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
   });
 
   it('reports an unanalyzed row estimate as unknown, never a fabricated zero', () => {
