@@ -16,6 +16,7 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     vi.doUnmock('tiktoken/lite/tiktoken_bg.wasm?url');
     vi.doUnmock('tiktoken/encoders/o200k_base.json?url');
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.resetModules();
   });
@@ -118,6 +119,101 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     expect(counter?.('counter')).toBe(7);
     runtime.disposeAccurateTokenCountingRuntime();
     await vi.waitFor(() => expect(free).toHaveBeenCalledTimes(1));
+  });
+
+  it('rejects an in-flight count when disposal wins the encoder-load race', async () => {
+    const loadStarted = Promise.withResolvers<void>();
+    const releaseLoad = Promise.withResolvers<void>();
+    const encode = vi.fn((text: string) =>
+      Uint32Array.from({ length: text.length }, (_value, index) => index)
+    );
+    const free = vi.fn();
+
+    vi.doMock('tiktoken', async () => {
+      loadStarted.resolve();
+      await releaseLoad.promise;
+      return {
+        encoding_for_model: () => ({
+          encode_ordinary: encode,
+          free,
+        }),
+        get_encoding: undefined,
+      };
+    });
+
+    const runtime = await importRuntime();
+    const pendingCount = runtime.countTokensAccurate('concurrent');
+    await loadStarted.promise;
+
+    runtime.disposeAccurateTokenCountingRuntime();
+    releaseLoad.resolve();
+
+    await expect(pendingCount).rejects.toThrow(
+      'Accurate token counting unavailable: runtime was disposed during encoder initialization'
+    );
+    expect(encode).not.toHaveBeenCalled();
+    expect(free).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates previously resolved sync counters on disposal', async () => {
+    const encode = vi.fn((text: string) =>
+      Uint32Array.from({ length: text.length }, (_value, index) => index)
+    );
+    vi.doMock('tiktoken', () => ({
+      encoding_for_model: () => ({
+        encode_ordinary: encode,
+      }),
+      get_encoding: undefined,
+    }));
+
+    const runtime = await importRuntime();
+    const counter = await runtime.getAccurateTokenCounter();
+
+    expect(counter?.('before')).toBe(6);
+    runtime.disposeAccurateTokenCountingRuntime();
+
+    expect(() => counter?.('after')).toThrow(
+      'Accurate token counter is inactive because its runtime was disposed'
+    );
+    expect(encode).toHaveBeenCalledTimes(1);
+  });
+
+  it('backs off, caps failed loads, and re-arms retries only after disposal', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-28T00:00:00.000Z'));
+    const encoderFactory = vi.fn(() => {
+      throw new Error('transient loader failure');
+    });
+    vi.doMock('tiktoken', () => ({
+      encoding_for_model: encoderFactory,
+      get_encoding: undefined,
+    }));
+
+    const runtime = await importRuntime();
+
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(encoderFactory).toHaveBeenCalledTimes(1);
+
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(encoderFactory).toHaveBeenCalledTimes(1);
+    expect(runtime.getAccurateTokenCountingFailureReason()).toContain('retry backoff');
+
+    for (let attempt = 2; attempt <= 3; attempt += 1) {
+      vi.setSystemTime(new Date(`2026-07-28T00:00:0${attempt}.000Z`));
+      await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+      expect(encoderFactory).toHaveBeenCalledTimes(attempt);
+    }
+
+    vi.setSystemTime(new Date('2026-07-28T00:01:00.000Z'));
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(encoderFactory).toHaveBeenCalledTimes(3);
+    expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
+      'retry limit reached after 3 failed attempts'
+    );
+
+    runtime.disposeAccurateTokenCountingRuntime();
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(encoderFactory).toHaveBeenCalledTimes(4);
   });
 
   it('initializes the browser encoder from a base64 data URL', async () => {

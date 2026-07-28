@@ -26,6 +26,7 @@ describe('token-utils-accurate-lite worker shims', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock('tiktoken');
+    vi.useRealTimers();
   });
 
   it('routes chunking-worker and token-cache imports to one shared runtime', async () => {
@@ -81,13 +82,18 @@ describe('token-utils-accurate-lite worker shims', () => {
     expect(encoderInstanceCount).toBe(1);
   });
 
-  it('retries encoder initialization after a failed attempt through either worker shim', async () => {
+  it('shares retry backoff before another worker shim can reinitialize', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-28T00:00:00.000Z'));
     vi.doMock('tiktoken', retryTiktokenFactory);
 
     retryState.shouldFail = true;
     const chunkingAccurate = await import('../token-utils-accurate-lite');
     const tokenCacheAccurate = await import('../../../token-cache/src/token-utils-accurate-lite');
     await expect(chunkingAccurate.supportsAccurateTokenCounting()).resolves.toBe(false);
+    await expect(tokenCacheAccurate.supportsAccurateTokenCounting()).resolves.toBe(false);
+
+    vi.setSystemTime(new Date('2026-07-28T00:00:01.000Z'));
     await expect(tokenCacheAccurate.supportsAccurateTokenCounting()).resolves.toBe(true);
   });
 });
