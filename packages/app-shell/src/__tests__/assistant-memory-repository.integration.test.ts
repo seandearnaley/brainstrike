@@ -3390,6 +3390,30 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       runId: 'run-3',
       threadId: 'thread-cost',
     });
+    // Child-run attribution (BST-953): a subagent leg on the parent's model and
+    // an OM observation cycle on the observer model, both under run-1, must
+    // aggregate as their OWN (provider, model, runKind) entries.
+    await repository.recordRunUsage({
+      inputTokens: 300,
+      model: 'gpt-5.2',
+      outputTokens: 40,
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      runKind: 'subagent',
+      threadId: 'thread-cost',
+    });
+    await repository.recordRunUsage({
+      cacheReadInputTokens: 80,
+      inputTokens: 120,
+      model: 'google/gemini-2.5-flash',
+      outputTokens: 30,
+      provider: 'openrouter',
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      runKind: 'om-observation',
+      threadId: 'thread-cost',
+    });
     // A different thread must not bleed into the aggregate.
     await repository.recordRunUsage({
       inputTokens: 9999,
@@ -3403,28 +3427,62 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     const usage = await repository.getThreadCumulativeUsage('thread-cost');
     expect(usage).not.toBeNull();
-    expect(usage?.totalInputTokens).toBe(3500);
-    expect(usage?.totalOutputTokens).toBe(600);
+    expect(usage?.totalInputTokens).toBe(3920);
+    expect(usage?.totalOutputTokens).toBe(670);
 
-    // Per-model subtotals so the UI can compute cost against each model's price.
+    // Per-(model, kind) subtotals so the UI can price each model AND break the
+    // thread total down by source.
     const byModel = new Map(
-      (usage?.perModel ?? []).map((entry) => [`${entry.provider}:${entry.model}`, entry])
+      (usage?.perModel ?? []).map((entry) => [
+        `${entry.provider}:${entry.model}:${entry.runKind}`,
+        entry,
+      ])
     );
-    expect(byModel.get('openai:gpt-5.2')).toEqual({
+    expect(byModel.get('openai:gpt-5.2:chat')).toEqual({
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
       estimatedCacheCreationTokens: 0,
       estimatedCacheReadTokens: 0,
       inputTokens: 1500,
       model: 'gpt-5.2',
       outputTokens: 300,
       provider: 'openai',
+      runKind: 'chat',
     });
-    expect(byModel.get('anthropic:claude-opus-4-8')).toEqual({
+    expect(byModel.get('openai:gpt-5.2:subagent')).toEqual({
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      estimatedCacheCreationTokens: 0,
+      estimatedCacheReadTokens: 0,
+      inputTokens: 300,
+      model: 'gpt-5.2',
+      outputTokens: 40,
+      provider: 'openai',
+      runKind: 'subagent',
+    });
+    expect(byModel.get('anthropic:claude-opus-4-8:chat')).toEqual({
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
       estimatedCacheCreationTokens: 0,
       estimatedCacheReadTokens: 0,
       inputTokens: 2000,
       model: 'claude-opus-4-8',
       outputTokens: 300,
       provider: 'anthropic',
+      runKind: 'chat',
+    });
+    // Cache classes aggregate UNCONDITIONALLY (the savings line needs them for
+    // billed rows too), alongside the unbilled-only estimated split.
+    expect(byModel.get('openrouter:google/gemini-2.5-flash:om-observation')).toEqual({
+      cacheCreationTokens: 0,
+      cacheReadTokens: 80,
+      estimatedCacheCreationTokens: 0,
+      estimatedCacheReadTokens: 80,
+      inputTokens: 120,
+      model: 'google/gemini-2.5-flash',
+      outputTokens: 30,
+      provider: 'openrouter',
+      runKind: 'om-observation',
     });
   });
 
@@ -3457,6 +3515,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       perModel: [
         {
           billedCostUsd: 0.0042,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
           estimatedCacheCreationTokens: 0,
           estimatedCacheReadTokens: 0,
           estimatedInputTokens: 50,
@@ -3465,6 +3525,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
           model: 'z-ai/glm-5.2',
           outputTokens: 30,
           provider: 'openrouter',
+          runKind: 'chat',
         },
       ],
       totalInputTokens: 150,

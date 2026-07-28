@@ -111,8 +111,14 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   (`createDelegationConfig`): per-run `DelegationConfig` closure —
   `MAX_CONCURRENT_DELEGATIONS = 2`, `MAX_DELEGATIONS_PER_RUN = 8`, persona
   `maxSteps` clamp (a model-supplied `maxSteps` can never exceed the cap),
-  unknown-persona rejection, and `onDelegationComplete` logs child usage (the
-  parent meter does NOT aggregate child tokens in v1). Passed per-call on
+  unknown-persona rejection, and `onDelegationComplete` logs child usage AND
+  reports it through `onChildUsage` (BST-953): each leg's
+  `DelegationUsageCapture` queue (agent-streaming.ts) drains it into a
+  `child-run-usage` StreamChunk that the desktop server persists as a durable
+  `run_kind='subagent'` usage row under the PARENT runId (model/provider =
+  persona pin ?? parent). The parent FINISH counters still exclude child
+  tokens — attribution rides the durable row, and the thread-total meter sums
+  by source (see assistant-persistence.md). Passed per-call on
   `streamOptions.delegation` in ALL THREE stream iterators — initial-turn,
   approval-resume, AND suspend-resume (`createToolResumeIteratorFromRuntime`),
   so an askUser pause→answer that then delegates keeps the caps. The closure is

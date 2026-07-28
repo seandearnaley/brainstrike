@@ -145,5 +145,7 @@ describe('assistant reasoning disclosure (real streaming runtime)', () => {
     });
     expect(screen.getByTestId('assistant-reasoning-static-mark')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
-  });
+    // Real streaming runtime + userEvent typing: comfortably sub-second when
+    // idle, but repeatedly tripped vitest's 5s default on loaded runners.
+  }, 20_000);
 });

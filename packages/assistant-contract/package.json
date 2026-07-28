@@ -99,6 +99,11 @@
       "import": "./dist/run-events.js",
       "require": "./dist/run-events.js"
     },
+    "./run-usage": {
+      "types": "./dist/run-usage.d.ts",
+      "import": "./dist/run-usage.js",
+      "require": "./dist/run-usage.js"
+    },
     "./shell-output": {
       "types": "./dist/shell-output.d.ts",
       "import": "./dist/shell-output.js",

@@ -1,4 +1,5 @@
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
+import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
   type AssistantToolApprovalRequest,
@@ -12,6 +13,7 @@ import { createLogger } from '@brainstrike/utils';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
+  StreamChunkChildRunUsage,
   StreamChunkContextBreakdown,
   StreamChunkFinish,
   StreamChunkMessageFinish,
@@ -328,6 +330,9 @@ export class DataStreamMapper {
       case 'context-breakdown':
         yield* this.handleContextBreakdown(chunk);
         return;
+      case 'child-run-usage':
+        yield* this.handleChildRunUsage(chunk);
+        return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;
@@ -517,6 +522,27 @@ export class DataStreamMapper {
       value: {
         data: toJsonSafe(chunk.breakdown),
         name: CONTEXT_BREAKDOWN_DATA_NAME,
+      },
+    } satisfies EncodedChunk;
+    if (this.streamingPartOpen) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
+  }
+
+  /**
+   * Emit a child model-call's usage (subagent / OM cycle, BST-953) as a
+   * transient `aui-data` part — the renderer refreshes its thread-total
+   * readout from it; the durable row was already written server-side. Same
+   * text-part deferral contract as the context breakdown above.
+   */
+  private *handleChildRunUsage(chunk: StreamChunkChildRunUsage): Generator<EncodedChunk> {
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        data: toJsonSafe(chunk.value),
+        name: CHILD_RUN_USAGE_DATA_NAME,
       },
     } satisfies EncodedChunk;
     if (this.streamingPartOpen) {

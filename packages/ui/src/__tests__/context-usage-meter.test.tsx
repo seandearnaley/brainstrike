@@ -155,25 +155,35 @@ describe('ContextUsageMeter', () => {
     expect(screen.queryByTestId('context-usage-breakdown-conversation')).not.toBeInTheDocument();
   });
 
-  it('does not render the cumulative line when no durable usage is supplied', () => {
+  it('does not render the thread-total section when no durable usage is supplied', () => {
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
-    expect(screen.queryByTestId('context-usage-cumulative')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('context-usage-thread-total')).not.toBeInTheDocument();
   });
 
-  it('qualifies cumulative cost as a captured-usage estimate (inside the popover)', () => {
+  it('qualifies the thread-total cost as a captured-usage estimate (inside the popover)', () => {
     render(
       <ContextUsageMeter
         {...props}
         cumulativeUsage={{
+          bySource: [
+            { estimated: false, inputTokens: 1_600_000, kind: 'chat', outputTokens: 200_000 },
+          ],
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
           cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 12.5 },
+          inputTokens: 1_600_000,
+          outputTokens: 200_000,
           totalTokens: 1_800_000,
         }}
       />
     );
     openMeterPopover();
-    const cumulative = screen.getByTestId('context-usage-cumulative');
-    expect(cumulative).toHaveTextContent(/1\.8M tokens/);
+    const total = screen.getByTestId('context-usage-thread-total');
+    expect(total).toHaveTextContent(/1\.8M tokens/);
+    expect(screen.getByTestId('context-usage-thread-total-split')).toHaveTextContent(
+      /1\.6M in · 200\.0K out/
+    );
     expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(
       /captured usage est\. \$12\.50/i
     );
@@ -184,7 +194,12 @@ describe('ContextUsageMeter', () => {
       <ContextUsageMeter
         {...props}
         cumulativeUsage={{
+          bySource: [{ estimated: false, inputTokens: 800, kind: 'chat', outputTokens: 200 }],
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
           cost: { available: false, reason: 'unpriced_model' },
+          inputTokens: 800,
+          outputTokens: 200,
           totalTokens: 1000,
         }}
       />
@@ -193,6 +208,124 @@ describe('ContextUsageMeter', () => {
     const cost = screen.getByTestId('context-usage-cost');
     expect(cost).toHaveTextContent(/cost unavailable/i);
     expect(cost).not.toHaveTextContent('$0');
+  });
+});
+
+describe('ContextUsageMeter thread-total headline (BST-953)', () => {
+  beforeEach(() => {
+    resetContextUsageStore();
+    mockMessages = [];
+  });
+
+  const props = {
+    contextWindow: 200_000,
+    effectiveInputBudget: 126_000,
+    threadKey: 't1',
+  };
+
+  const cumulativeUsage = {
+    bySource: [
+      { estimated: false, inputTokens: 900_000, kind: 'chat', outputTokens: 90_000 },
+      { estimated: false, inputTokens: 40_000, kind: 'subagent', outputTokens: 6000 },
+      { estimated: true, inputTokens: 60_000, kind: 'om-observation', outputTokens: 4000 },
+    ],
+    cacheCreationTokens: 50_000,
+    cacheReadTokens: 700_000,
+    cacheSavings: { usdAmount: 5.175 },
+    cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 12.5 },
+    inputTokens: 1_000_000,
+    outputTokens: 100_000,
+    totalTokens: 1_100_000,
+  } as const;
+
+  it('leads the chip with the overall thread total (+cost), not the context fraction', () => {
+    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} />);
+    const trigger = screen.getByTestId('context-usage-trigger');
+    expect(trigger).toHaveTextContent(/1\.1M tokens/);
+    expect(screen.getByTestId('context-usage-trigger-cost')).toHaveTextContent(/\$12\.50/);
+    // The context fraction moves to the title/popover; the ring still conveys capacity.
+    expect(trigger).not.toHaveTextContent(/126\.0K/);
+    expect(screen.getByTestId('context-ring')).toBeInTheDocument();
+  });
+
+  it('adds the in-flight run live step usage on top of the durable total, marked live', () => {
+    act(() => {
+      useContextUsageStore
+        .getState()
+        .recordLiveStepUsage('t1', { inputTokens: 90_000, outputTokens: 10_000 });
+    });
+    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} />);
+    const trigger = screen.getByTestId('context-usage-trigger');
+    expect(trigger).toHaveTextContent(/1\.2M tokens/);
+    expect(trigger).toHaveTextContent(/live/);
+    // The durable cost excludes the live tokens — pairing them would be a
+    // current total beside a lagging price (review fix): chip suppresses it,
+    // the popover keeps it with an explicit qualifier.
+    expect(screen.queryByTestId('context-usage-trigger-cost')).not.toBeInTheDocument();
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(/excl\. live/);
+  });
+
+  it('shows the live headline during a NEW thread first run (zero durable baseline)', () => {
+    // A repo-backed thread with no rows yet supplies the honest ZERO baseline
+    // (EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY in app-shell) — the first run's
+    // steps must render as the thread-total headline, not be discarded
+    // (review fix).
+    const zeroBaseline = {
+      bySource: [],
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 0 },
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    } as const;
+    act(() => {
+      useContextUsageStore
+        .getState()
+        .recordLiveStepUsage('t1', { inputTokens: 12_000, outputTokens: 400 });
+    });
+    render(<ContextUsageMeter {...props} cumulativeUsage={zeroBaseline} />);
+    const trigger = screen.getByTestId('context-usage-trigger');
+    expect(trigger).toHaveTextContent(/12\.4K tokens/);
+    expect(trigger).toHaveTextContent(/live/);
+  });
+
+  it('renders the by-source rows and cache savings line inside the popover', () => {
+    render(<ContextUsageMeter {...props} cumulativeUsage={cumulativeUsage} />);
+    openMeterPopover();
+    expect(screen.getByTestId('context-usage-source-chat')).toHaveTextContent(
+      /900\.0K in · 90\.0K out/
+    );
+    expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent(/Subagents/);
+    // OM figures are local estimates and must SAY so.
+    expect(screen.getByTestId('context-usage-source-om-observation')).toHaveTextContent(
+      /Memory observer \(est\.\)/
+    );
+    expect(screen.getByTestId('context-usage-cache-line')).toHaveTextContent(
+      /700\.0K read · 50\.0K written · saved ~\$5\.18/
+    );
+    // The context section survives BELOW the thread total.
+    expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(
+      /Context .*% full/
+    );
+  });
+
+  it('omits the by-source list for a single-source thread (no redundant restatement)', () => {
+    render(
+      <ContextUsageMeter
+        {...props}
+        cumulativeUsage={{
+          ...cumulativeUsage,
+          bySource: [
+            { estimated: false, inputTokens: 1_000_000, kind: 'chat', outputTokens: 100_000 },
+          ],
+        }}
+      />
+    );
+    openMeterPopover();
+    expect(screen.queryByTestId('context-usage-by-source')).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-thread-total')).toBeInTheDocument();
   });
 });
 

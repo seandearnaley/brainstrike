@@ -23,6 +23,10 @@ import {
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract/run-events';
 import {
+  ASSISTANT_RUN_USAGE_KINDS,
+  type AssistantRunUsageKind,
+} from '@brainstrike/assistant-contract/run-usage';
+import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -150,6 +154,13 @@ export interface RecordRunUsageInput {
    */
   readonly rootId?: string | null;
   readonly runId: string;
+  /**
+   * Which kind of model call produced this row (BST-953). Defaults to 'chat'
+   * (the parent assistant turn); child rows ('subagent', 'om-observation',
+   * 'om-reflection') carry the parent run's id so the Task Ledger's per-run
+   * totals include them.
+   */
+  readonly runKind?: AssistantRunUsageKind;
   readonly threadId: string;
 }
 
@@ -503,9 +514,17 @@ export function mapRunLedgerRow(row: Record<string, unknown>): RunLedgerRow {
   };
 }
 
-/** Per-model token subtotal for a single thread. */
+/** Per-(model, run-kind) token subtotal for a single thread. */
 export interface ThreadModelUsageSubtotal {
   readonly billedCostUsd?: number;
+  /**
+   * Prompt-cache write tokens across ALL rows (billed and unbilled) — the
+   * savings line needs cache classes even when the provider reported an exact
+   * cost. Share of `inputTokens`.
+   */
+  readonly cacheCreationTokens: number;
+  /** Prompt-cache read tokens across ALL rows (same total-inclusive contract). */
+  readonly cacheReadTokens: number;
   /** Anthropic cache-write share of the estimated (unbilled) input tokens. */
   readonly estimatedCacheCreationTokens?: number;
   /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
@@ -516,13 +535,15 @@ export interface ThreadModelUsageSubtotal {
   readonly model: string;
   readonly outputTokens: number;
   readonly provider: string;
+  /** Which kind of model call produced this subtotal (BST-953). */
+  readonly runKind: AssistantRunUsageKind;
 }
 
 /**
  * Cumulative durable token usage for a thread. `perModel` carries the
- * per-(provider, model) subtotals so the UI can price each model with its own
- * registry rate and sum — the thread totals alone cannot be priced when the
- * thread mixed models.
+ * per-(provider, model, runKind) subtotals so the UI can price each model with
+ * its own registry rate, sum, and break the thread total down by source — the
+ * thread totals alone cannot be priced when the thread mixed models.
  */
 export interface ThreadCumulativeUsage {
   readonly perModel: readonly ThreadModelUsageSubtotal[];
@@ -790,6 +811,13 @@ ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS cache_read_input_tokens integer CHECK (cache_read_input_tokens >= 0);
 ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0);
+
+-- Run-kind attribution (BST-953): keep byte-identical to migration 077.
+-- 'chat' = parent assistant turn; 'subagent' = persona delegation child;
+-- 'om-observation'/'om-reflection' = observational-memory background cycles.
+ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+  ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'chat'
+  CHECK (run_kind IN ('chat', 'subagent', 'om-observation', 'om-reflection'));
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
@@ -1240,6 +1268,16 @@ function requireRunStatus(value: unknown): AssistantThreadRunStatus {
     return value;
   }
   throw new Error('Invalid assistant thread run row: status is not valid.');
+}
+
+function requireRunUsageKind(value: unknown): AssistantRunUsageKind {
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_RUN_USAGE_KINDS as readonly string[]).includes(value)
+  ) {
+    return value as AssistantRunUsageKind;
+  }
+  throw new Error('Invalid assistant run usage row: run_kind is not valid.');
 }
 
 function requireRuntimeKind(value: unknown): AssistantThreadRuntimeKind {
@@ -2831,8 +2869,11 @@ export function createPgliteAssistantThreadRepository(
         `SELECT
             provider,
             model,
+            run_kind AS "runKind",
             SUM(input_tokens)::bigint AS "inputTokens",
             SUM(output_tokens)::bigint AS "outputTokens",
+            SUM(COALESCE(cache_read_input_tokens, 0))::bigint AS "cacheReadTokens",
+            SUM(COALESCE(cache_creation_input_tokens, 0))::bigint AS "cacheCreationTokens",
             SUM(billed_cost_usd) AS "billedCostUsd",
             SUM(CASE WHEN billed_cost_usd IS NULL THEN input_tokens ELSE 0 END)::bigint
               AS "estimatedInputTokens",
@@ -2844,8 +2885,8 @@ export function createPgliteAssistantThreadRepository(
               AS "estimatedCacheCreationTokens"
          FROM ${ASSISTANT_RUN_USAGE_TABLE}
          WHERE thread_id = $1
-         GROUP BY provider, model
-         ORDER BY provider ASC, model ASC`,
+         GROUP BY provider, model, run_kind
+         ORDER BY provider ASC, model ASC, run_kind ASC`,
         [threadId]
       );
       if (result.rows.length === 0) {
@@ -2876,6 +2917,14 @@ export function createPgliteAssistantThreadRepository(
                   'estimatedOutputTokens'
                 ),
               }),
+          cacheCreationTokens: requireNonNegativeInteger(
+            row['cacheCreationTokens'] ?? 0,
+            'cacheCreationTokens'
+          ),
+          cacheReadTokens: requireNonNegativeInteger(
+            row['cacheReadTokens'] ?? 0,
+            'cacheReadTokens'
+          ),
           estimatedCacheCreationTokens: requireNonNegativeInteger(
             row['estimatedCacheCreationTokens'] ?? 0,
             'estimatedCacheCreationTokens'
@@ -2888,6 +2937,7 @@ export function createPgliteAssistantThreadRepository(
           model: requireString(row['model'], 'model'),
           outputTokens,
           provider: requireString(row['provider'], 'provider'),
+          runKind: requireRunUsageKind(row['runKind']),
         } satisfies ThreadModelUsageSubtotal;
       });
       return { perModel, totalInputTokens, totalOutputTokens };
@@ -3065,8 +3115,8 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
-          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id, billed_cost_usd, cache_read_input_tokens, cache_creation_input_tokens)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id, billed_cost_usd, cache_read_input_tokens, cache_creation_input_tokens, run_kind)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           crypto.randomUUID(),
           input.threadId,
@@ -3081,6 +3131,7 @@ export function createPgliteAssistantThreadRepository(
           input.billedCostUsd ?? null,
           input.cacheReadInputTokens ?? null,
           input.cacheCreationInputTokens ?? null,
+          input.runKind ?? 'chat',
         ]
       );
     },
