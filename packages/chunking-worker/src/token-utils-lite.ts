@@ -50,6 +50,17 @@ export async function countTokensAccurate(text: string): Promise<number> {
   }
 }
 
+export async function getAccurateTokenCounter(): Promise<
+  import('./token-utils-accurate-lite').SyncAccurateCounter | null
+> {
+  const accurateTokenUtils = await getAccurateTokenUtils();
+  try {
+    return await accurateTokenUtils.getAccurateTokenCounter();
+  } finally {
+    lastAccurateFailureReason = accurateTokenUtils.getAccurateTokenCountingFailureReason();
+  }
+}
+
 export async function disposeAccurateTokenCountingRuntime(): Promise<void> {
   if (!accurateTokenUtilsPromise) {
     return;

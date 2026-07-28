@@ -169,6 +169,38 @@ describe('token-utils-lite', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // getAccurateTokenCounter
+  // ---------------------------------------------------------------------------
+  describe('getAccurateTokenCounter', () => {
+    it('resolves and returns the shared synchronous counter', async () => {
+      const counter = vi.fn((text: string) => text.length);
+      const getAccurateTokenCounter = vi.fn(async () => counter);
+      vi.doMock('../token-utils-accurate-lite', () => ({
+        getAccurateTokenCounter,
+        getAccurateTokenCountingFailureReason: vi.fn(() => null),
+      }));
+
+      const tokenUtils = await import('../token-utils-lite');
+      const resolvedCounter = await tokenUtils.getAccurateTokenCounter();
+
+      expect(getAccurateTokenCounter).toHaveBeenCalledOnce();
+      expect(resolvedCounter?.('shared encoder')).toBe(14);
+    });
+
+    it('records the failure reason when no synchronous counter is available', async () => {
+      vi.doMock('../token-utils-accurate-lite', () => ({
+        getAccurateTokenCounter: vi.fn(async () => null),
+        getAccurateTokenCountingFailureReason: vi.fn(() => 'encoder unavailable'),
+      }));
+
+      const tokenUtils = await import('../token-utils-lite');
+
+      await expect(tokenUtils.getAccurateTokenCounter()).resolves.toBeNull();
+      expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('encoder unavailable');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // countTokensAccurate
   // ---------------------------------------------------------------------------
   describe('countTokensAccurate', () => {

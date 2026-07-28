@@ -12,6 +12,7 @@ import {
   splitTextByStrategy,
 } from '@brainstrike/text-splitter';
 import {
+  analyzeContentRepetition,
   splitByBlankLines,
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
@@ -21,11 +22,10 @@ import {
   buildLineStartOffsets as buildLineStarts,
   findLineForOffset as lineForOffset,
 } from './line-offsets';
-import { mapInOrderedBatches } from './ordered-batch-map';
+import { createCooperativeYieldController } from './ordered-batch-map';
 import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
-import { analyzeContentRepetition } from './repetitive-content';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
 // Module-scoped flag for the one-shot "first parse audit" — see the
@@ -66,7 +66,8 @@ const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
 const MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES = 10_000;
 const MAX_WHITESPACE_NORMALIZED_ANCHORS = 64;
-const TOKEN_COUNT_BATCH_SIZE = 32;
+const TOKEN_COUNT_YIELD_CHECK_INTERVAL = 20;
+const TOKEN_COUNT_YIELD_TIME_BUDGET_MS = 5;
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
@@ -737,16 +738,39 @@ function resolveSourceRanges(
   return { fuzzyMatchedChunks, ranges };
 }
 
-async function computeCharsPerToken(
-  content: string,
+type TokenCounter = (text: string) => number;
+
+async function resolveTokenCounter(
   useAccurate: boolean,
   tokenUtilsModule: TokenUtilsLiteModule | null
-): Promise<number> {
+): Promise<TokenCounter> {
+  if (!useAccurate) {
+    return estimateTokenCount;
+  }
+  if (!tokenUtilsModule) {
+    throw new Error('Accurate token counting module was not loaded');
+  }
+
+  const counter = await tokenUtilsModule.getAccurateTokenCounter();
+  if (counter) {
+    return counter;
+  }
+
+  const reason = tokenUtilsModule.getAccurateTokenCountingFailureReason();
+  throw new Error(
+    reason
+      ? `Accurate token counting unavailable: ${reason}`
+      : 'Accurate token counting unavailable'
+  );
+}
+
+function computeCharsPerToken(
+  content: string,
+  useAccurate: boolean,
+  countTokens: TokenCounter
+): number {
   const sample = content.slice(0, Math.min(CHARS_PER_TOKEN_SAMPLE_BYTES, content.length));
-  const tokens =
-    useAccurate && tokenUtilsModule
-      ? await tokenUtilsModule.countTokensAccurate(sample)
-      : estimateTokenCount(sample);
+  const tokens = countTokens(sample);
   if (Number.isFinite(tokens) && tokens > 0) {
     const measured = sample.length / tokens;
     return Math.max(1, Math.min(CHARS_PER_TOKEN_MAX, measured));
@@ -1093,7 +1117,8 @@ export async function chunkContent(
   // Compute chars per token
   const useTokenTrueSizing = options.tokenTrueSizing ?? false;
   const tokenUtilsModule = useTokenTrueSizing ? await loadTokenUtilsLiteModule() : null;
-  const charsPerToken = await computeCharsPerToken(content, useTokenTrueSizing, tokenUtilsModule);
+  const countTokens = await resolveTokenCounter(useTokenTrueSizing, tokenUtilsModule);
+  const charsPerToken = computeCharsPerToken(content, useTokenTrueSizing, countTokens);
   const maxChars = Math.floor(effectiveMaxTokens * charsPerToken);
   const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
@@ -1242,10 +1267,6 @@ export async function chunkContent(
     content: string;
     tokenCount: number;
   }
-  interface ChunkCandidate {
-    chunkType: ChunkType;
-    content: string;
-  }
   const pendingChunks: PendingChunk[] = [];
 
   // PERF: Reuse splitter instance for all oversized chunks
@@ -1255,65 +1276,40 @@ export async function chunkContent(
     separators: ['\n\n', '\n', '. ', ' ', ''],
   });
 
-  // Hoist the tokenizer dispatch out of the per-chunk loop. The previous shape
-  // re-evaluated `useTokenTrueSizing && tokenUtilsModule` per chunk and per
-  // sub-chunk; here we pick once and reuse a stable callback.
-  const accurateModule = useTokenTrueSizing ? tokenUtilsModule : null;
-  const countTokens = accurateModule
-    ? (text: string) => accurateModule.countTokensAccurate(text)
-    : (text: string) => Promise.resolve(estimateTokenCount(text));
-
-  const candidates: ChunkCandidate[] = [];
+  // Accurate tokenization is synchronous after the encoder resolves once.
+  // Periodically yield a macrotask when the work exceeds a short budget so a
+  // large file cannot monopolize the worker's event loop.
+  const maybeYieldAfterTokenCount = createCooperativeYieldController({
+    checkEvery: TOKEN_COUNT_YIELD_CHECK_INTERVAL,
+    yieldAfterMs: TOKEN_COUNT_YIELD_TIME_BUDGET_MS,
+  });
   for (const g of groups) {
     for (const txt of g.pieces) {
       const c = txt?.trim();
       if (!c) {
         continue;
       }
-      candidates.push({ chunkType: g.type, content: c });
-    }
-  }
-
-  // The tokenizer executes in this worker, so batching does not pretend to add
-  // CPU parallelism. It overlaps asynchronous module/asset work, bounds
-  // retained promises, and preserves the splitter's source order.
-  const sizedCandidates = await mapInOrderedBatches(
-    candidates,
-    TOKEN_COUNT_BATCH_SIZE,
-    async (candidate): Promise<PendingChunk> => ({
-      ...candidate,
-      tokenCount: await countTokens(candidate.content),
-    })
-  );
-
-  for (const candidate of sizedCandidates) {
-    if (candidate.tokenCount > maxSafeTokens) {
-      const subPieces = await reSplitChunker.splitText(candidate.content);
-      const subCandidates: ChunkCandidate[] = [];
-
-      for (const subTxt of subPieces) {
-        const subC = subTxt?.trim();
-        if (!subC) {
-          continue;
+      const tokenCount = countTokens(c);
+      await maybeYieldAfterTokenCount();
+      if (tokenCount > maxSafeTokens) {
+        const subPieces = await reSplitChunker.splitText(c);
+        for (const subTxt of subPieces) {
+          const subC = subTxt?.trim();
+          if (!subC) {
+            continue;
+          }
+          pendingChunks.push({
+            chunkType: 'text',
+            content: subC,
+            tokenCount: countTokens(subC),
+          });
+          await maybeYieldAfterTokenCount();
         }
-        subCandidates.push({ chunkType: 'text', content: subC });
+        continue;
       }
 
-      // Callers who opt into true sizing still get accurate sub-piece counts;
-      // batching changes scheduling only, never the output sequence.
-      const sizedSubCandidates = await mapInOrderedBatches(
-        subCandidates,
-        TOKEN_COUNT_BATCH_SIZE,
-        async (subCandidate): Promise<PendingChunk> => ({
-          ...subCandidate,
-          tokenCount: await countTokens(subCandidate.content),
-        })
-      );
-      pendingChunks.push(...sizedSubCandidates);
-      continue;
+      pendingChunks.push({ chunkType: g.type, content: c, tokenCount });
     }
-
-    pendingChunks.push(candidate);
   }
 
   // PERF: Batch hash generation with Promise.all

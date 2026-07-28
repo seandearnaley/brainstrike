@@ -1,19 +1,43 @@
-export async function mapInOrderedBatches<Input, Output>(
-  items: readonly Input[],
-  batchSize: number,
-  mapper: (item: Input, index: number) => Promise<Output>
-): Promise<Output[]> {
-  if (!Number.isInteger(batchSize) || batchSize <= 0) {
-    throw new RangeError('Batch size must be a positive integer');
+interface CooperativeYieldOptions {
+  readonly checkEvery: number;
+  readonly now?: () => number;
+  readonly yieldAfterMs: number;
+  readonly yieldControl?: () => Promise<void>;
+}
+
+const yieldToMacrotask = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+export function createCooperativeYieldController({
+  checkEvery,
+  now = performance.now.bind(performance),
+  yieldAfterMs,
+  yieldControl = yieldToMacrotask,
+}: CooperativeYieldOptions): () => Promise<void> {
+  if (!Number.isInteger(checkEvery) || checkEvery <= 0) {
+    throw new RangeError('Yield check cadence must be a positive integer');
+  }
+  if (!(Number.isFinite(yieldAfterMs) && yieldAfterMs >= 0)) {
+    throw new RangeError('Yield time budget must be a finite non-negative number');
   }
 
-  const results: Output[] = [];
-  for (let offset = 0; offset < items.length; offset += batchSize) {
-    const batch = items.slice(offset, offset + batchSize);
-    const batchResults = await Promise.all(
-      batch.map((item, batchIndex) => mapper(item, offset + batchIndex))
-    );
-    results.push(...batchResults);
-  }
-  return results;
+  let processedItems = 0;
+  let lastYieldAt = now();
+
+  return async (): Promise<void> => {
+    processedItems += 1;
+    if (processedItems % checkEvery !== 0) {
+      return;
+    }
+
+    const currentTime = now();
+    if (currentTime - lastYieldAt < yieldAfterMs) {
+      return;
+    }
+
+    await yieldControl();
+    lastYieldAt = currentTime;
+  };
 }

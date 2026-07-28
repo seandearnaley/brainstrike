@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { analyzeContentRepetition } from '../repetitive-content';
 
 describe('analyzeContentRepetition', () => {
+  it('does not fabricate uniqueness metrics for content below the analysis threshold', () => {
+    expect(analyzeContentRepetition('one line')).toEqual({
+      isHighlyRepetitive: false,
+      kind: 'below-threshold',
+      totalLines: 1,
+    });
+  });
+
   it('preserves the strict unique-line ratio boundary including a trailing line', () => {
     const lines = Array.from({ length: 100 }, (_, index) => `unique-${index}`);
     const content = `${Array.from({ length: 901 }, () => 'duplicate').join('\n')}\n${lines.join(
@@ -10,9 +18,13 @@ describe('analyzeContentRepetition', () => {
 
     const result = analyzeContentRepetition(content);
 
-    expect(result.totalLines).toBe(1001);
-    expect(result.uniqueLines).toBe(101);
-    expect(result.isHighlyRepetitive).toBe(false);
+    expect(result).toEqual({
+      inspectedLines: 1001,
+      isHighlyRepetitive: false,
+      kind: 'analyzed',
+      totalLines: 1001,
+      uniqueLines: 101,
+    });
   });
 
   it('identifies generated content without materializing an array of all lines', () => {
@@ -23,6 +35,7 @@ describe('analyzeContentRepetition', () => {
     expect(analyzeContentRepetition(content)).toEqual({
       inspectedLines: 10_000,
       isHighlyRepetitive: true,
+      kind: 'analyzed',
       totalLines: 10_000,
       uniqueLines: 4,
     });
@@ -36,6 +49,7 @@ describe('analyzeContentRepetition', () => {
     expect(result).toEqual({
       inspectedLines: 1000,
       isHighlyRepetitive: false,
+      kind: 'analyzed',
       totalLines: 10_000,
       uniqueLines: 1000,
     });
