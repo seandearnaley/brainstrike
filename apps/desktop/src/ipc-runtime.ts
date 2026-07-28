@@ -43,15 +43,20 @@ function getBridge(): LocalRuntimeIpcBridge {
   // Node fetch is always available in Electron's main process on the
   // supported Node versions, so there's no fallback needed. The services
   // are lazy-built on first probe to keep app-ready startup snappy.
+  //
+  // Bound explicitly. An explicit fetchImpl bypasses the constructors' bound
+  // default, and undici tolerates a lost receiver where a browser does not
+  // (BST-964) — so an unbound reference here would be a latent trap for anyone
+  // who later reuses this wiring in a renderer.
   const discoveryService = new LocalRuntimeDiscoveryService({
     defaultSurface: 'desktop',
-    fetchImpl: globalThis.fetch,
+    fetchImpl: globalThis.fetch.bind(globalThis),
     logger,
   });
   const modelCatalogService = new LocalRuntimeModelCatalogService({
     defaultSurface: 'desktop',
     discoveryService,
-    fetchImpl: globalThis.fetch,
+    fetchImpl: globalThis.fetch.bind(globalThis),
     logger,
   });
 
