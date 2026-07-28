@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { type MemoExoticComponent, memo, type ReactElement, useEffect, useState } from 'react';
 
 type MarkdownModule = typeof import('./markdown-text');
 type MarkdownVariant = 'MarkdownText' | 'UserMarkdownText';
@@ -24,49 +24,57 @@ export async function preloadMarkdownText(): Promise<void> {
   await loadMarkdownModule();
 }
 
-function useMarkdownTextComponent(variant: MarkdownVariant): MarkdownTextComponent | null {
-  const [component, setComponent] = useState<MarkdownTextComponent | null>(
-    markdownModule?.[variant] ?? null
-  );
+/**
+ * Build the lazy wrapper for one markdown variant AT MODULE SCOPE.
+ *
+ * The `useState` + `useEffect` pair stays inlined in the returned component
+ * rather than being lifted into a shared hook: `react-hooks/static-components`
+ * cannot see through a custom hook's return value and flags the rendered
+ * `<LoadedComponent />` as a component created during render.
+ */
+function createLazyMarkdownText(
+  displayName: string,
+  variant: MarkdownVariant
+): MemoExoticComponent<() => ReactElement> {
+  const LazyMarkdownText = memo(function LazyMarkdownText() {
+    const [LoadedComponent, setLoadedComponent] = useState<MarkdownTextComponent | null>(
+      markdownModule?.[variant] ?? null
+    );
 
-  useEffect(() => {
-    if (component) {
-      return;
+    useEffect(() => {
+      if (LoadedComponent) {
+        return;
+      }
+
+      let cancelled = false;
+      void loadMarkdownModule().then((module) => {
+        if (!cancelled) {
+          setLoadedComponent(() => module[variant]);
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [LoadedComponent]);
+
+    if (LoadedComponent) {
+      return <LoadedComponent />;
     }
 
-    let cancelled = false;
-    void loadMarkdownModule().then((module) => {
-      if (!cancelled) {
-        setComponent(() => module[variant]);
-      }
-    });
+    return <div className="aui-md animate-pulse text-muted-foreground/70">Loading message…</div>;
+  });
+  LazyMarkdownText.displayName = displayName;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [component, variant]);
-
-  return component;
-}
-
-function MarkdownTextFallback() {
-  return <div className="aui-md animate-pulse text-muted-foreground/70">Loading message…</div>;
+  return LazyMarkdownText;
 }
 
 /** Assistant-authored text parts. Provider citation markers are stripped. */
-export const AssistantMessageText = memo(function AssistantMessageText() {
-  const LoadedComponent = useMarkdownTextComponent('MarkdownText');
-
-  return LoadedComponent ? <LoadedComponent /> : <MarkdownTextFallback />;
-});
+export const AssistantMessageText = createLazyMarkdownText('AssistantMessageText', 'MarkdownText');
 
 /**
  * User-authored text parts, rendered verbatim. A separate component rather than
  * a role check inside the renderer, so the two call sites in
  * assistant-ui-panel.tsx state plainly which text is normalized and which is not.
  */
-export const UserMessageText = memo(function UserMessageText() {
-  const LoadedComponent = useMarkdownTextComponent('UserMarkdownText');
-
-  return LoadedComponent ? <LoadedComponent /> : <MarkdownTextFallback />;
-});
+export const UserMessageText = createLazyMarkdownText('UserMessageText', 'UserMarkdownText');
