@@ -54,9 +54,10 @@ function MarkdownTextImpl({ preprocess }: { preprocess?: ((text: string) => stri
  * library's `preprocess` hook, which receives the FULL accumulated text (not a
  * single delta), so a marker split across streamed chunks is matched whole.
  *
- * This is the one seam every visible assistant text part passes through — live
- * stream and reload hydration alike — so the strip lives here once rather than
- * per provider.
+ * This is the seam every assistant text part passes through — live stream and
+ * reload hydration alike — so the strip lives here once rather than per
+ * provider. It is NOT literally all rendered model text: reasoning parts render
+ * raw via AssistantReasoningPart, which applies the same strip directly.
  */
 export const MarkdownText = memo(function MarkdownText() {
   return <MarkdownTextImpl preprocess={stripProviderCitationMarkers} />;
