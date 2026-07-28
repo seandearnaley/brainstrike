@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { LocalRuntimeDiscoveryService } from '../local-runtime-discovery';
+import { LocalRuntimeModelCatalogService } from '../local-runtime-model-catalog';
 import { fetchJsonWithTimeout } from '../local-runtime-utils';
 
 /**
@@ -44,6 +45,25 @@ function createReceiverSensitiveFetch(): typeof fetch {
   return impl as unknown as typeof fetch;
 }
 
+/**
+ * Records the receiver of every call instead of judging it.
+ *
+ * The sensitive fetch above deliberately tolerates `this === undefined`,
+ * because that models a real browser — which means it can NOT tell whether the
+ * constructors bind their ambient default: after the call site was made
+ * receiver-independent, `this` is `undefined` either way. Measured: reverting
+ * `?.bind(globalThis)` leaves the sensitive-fetch tests green. This variant
+ * pins the bind itself.
+ */
+function createReceiverRecordingFetch(): { impl: typeof fetch; receivers: unknown[] } {
+  const receivers: unknown[] = [];
+  const impl = function (this: unknown): Promise<Response> {
+    receivers.push(this);
+    return Promise.resolve(new Response(JSON.stringify({ models: [] }), { status: 200 }));
+  };
+  return { impl: impl as unknown as typeof fetch, receivers };
+}
+
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
@@ -72,6 +92,37 @@ describe('LocalRuntimeDiscoveryService default fetch', () => {
 
     const state = await service.probeRuntime('ollama', { surface: 'web' });
 
-    expect(JSON.stringify(state)).not.toContain('Illegal invocation');
+    // Asserted positively. `not.toContain('Illegal invocation')` would also
+    // hold if the ambient fallback regressed to `undefined`, because
+    // executeProbe then short-circuits on its `if (!this.fetchImpl)` guard and
+    // returns 'Fetch implementation is not available' — a different failure
+    // that a negative assertion cannot see.
+    expect(state.state).toBe('available');
+  });
+
+  it('binds the ambient default so the receiver is the global object', async () => {
+    const { impl, receivers } = createReceiverRecordingFetch();
+    globalThis.fetch = impl;
+    const service = new LocalRuntimeDiscoveryService();
+
+    await service.probeRuntime('ollama', { surface: 'web' });
+
+    expect(receivers.length).toBeGreaterThan(0);
+    expect(receivers.every((receiver) => receiver === globalThis)).toBe(true);
+  });
+});
+
+describe('LocalRuntimeModelCatalogService default fetch', () => {
+  // This constructor captures the ambient fetch the same way and had no
+  // receiver coverage at all.
+  it('binds the ambient default so the receiver is the global object', async () => {
+    const { impl, receivers } = createReceiverRecordingFetch();
+    globalThis.fetch = impl;
+    const service = new LocalRuntimeModelCatalogService();
+
+    await service.listRuntimeModels('ollama', { surface: 'web' });
+
+    expect(receivers.length).toBeGreaterThan(0);
+    expect(receivers.every((receiver) => receiver === globalThis)).toBe(true);
   });
 });
