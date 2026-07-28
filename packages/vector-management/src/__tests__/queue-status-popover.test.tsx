@@ -61,6 +61,24 @@ describe('QueueStatusPopover', () => {
       // Should render the trigger button (not a loading indicator)
       expect(screen.getByTestId('queue-status-popover-trigger')).toBeInTheDocument();
     });
+
+    it('does not read the deprecated loading flag', () => {
+      const hookResult = {
+        error: null,
+        get isLoading(): never {
+          throw new Error('QueueStatusPopover read the deprecated loading flag');
+        },
+        metrics: createMetrics(),
+        refresh: vi.fn(),
+      };
+      vi.mocked(useQueueHealthMetrics).mockReturnValue(
+        hookResult as unknown as ReturnType<typeof useQueueHealthMetrics>
+      );
+
+      renderPopover();
+
+      expect(screen.getByTestId('queue-status-popover-trigger')).toBeInTheDocument();
+    });
   });
 
   describe('compact status display', () => {
