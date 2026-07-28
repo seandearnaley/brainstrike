@@ -579,12 +579,14 @@ the model has seen most of.
 
 ## Projection fitting
 
-`querySelf` can return up to 200 rows, columns, lenses, or plan lines before its
-model-facing projection applies the 6,000-character domain budget. Keep the
-largest complete prefix by binary-searching the retained-item count. Dropping
-one item and re-serializing the whole candidate on every iteration makes the
-bounded maximum-row fixture quadratic; the paired performance test pins that
-fixture to nine full-projection serializations while preserving the same
+`querySelf` projections apply a 6,000-character domain budget. Rows are capped
+at 200 by `maxRows`, but columns, lenses, and plan lines come from the database
+or the user's lens directory and are not item-capped. Keep the largest complete
+prefix by binary-searching the retained-item count. Dropping one item and
+re-serializing the whole candidate on every iteration is quadratic—188 full
+serializations on the maximum-row fixture alone, and unbounded for plan and
+lens output. The paired performance test pins that fixture to a logarithmic
+number of full-projection serializations while preserving the same
 complete-prefix and explicit-omission contract.
 
 ## Paired tests

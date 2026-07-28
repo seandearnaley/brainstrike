@@ -73,6 +73,12 @@ function escapeCell(value: string): string {
  * the same shape and adding a complete line cannot make it shorter, so binary
  * search preserves the existing "keep as much as fits" result in logarithmic
  * serialization calls.
+ *
+ * That monotonicity has no margin for rows: an empty added line costs two
+ * serialized newline characters, while a dropped-count digit boundary can
+ * reclaim one character in both the header and hint. Keep the count to at most
+ * those two renderings and keep every added item as a separate line; otherwise
+ * a longer prefix could serialize shorter and silently strand items that fit.
  */
 function fitLargestPrefix(itemCount: number, buildLines: (kept: number) => string[]): string[] {
   const full = buildLines(itemCount);

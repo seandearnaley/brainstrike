@@ -41,5 +41,8 @@ it('bounds full-projection serialization while fitting the maximum row fixture',
   expect(JSON.stringify(projection).length).toBeLessThanOrEqual(
     MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
   );
-  expect(serializedCharsSpy).toHaveBeenCalledTimes(9);
+  // Linear decrement-and-reserialize needed 188 full serializations on this
+  // fixture. Largest-prefix search stays logarithmic; the bound avoids coupling
+  // the test to incidental header widths or the final fit assertion.
+  expect(serializedCharsSpy.mock.calls.length).toBeLessThanOrEqual(12);
 });
