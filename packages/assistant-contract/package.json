@@ -49,6 +49,11 @@
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
     },
+    "./citation-markers": {
+      "types": "./dist/citation-markers.d.ts",
+      "import": "./dist/citation-markers.js",
+      "require": "./dist/citation-markers.js"
+    },
     "./context-breakdown": {
       "types": "./dist/context-breakdown.d.ts",
       "import": "./dist/context-breakdown.js",

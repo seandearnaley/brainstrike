@@ -1,3 +1,4 @@
+import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/citation-markers';
 import { createLogger, getErrorMessage } from '@brainstrike/utils';
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
@@ -125,6 +126,33 @@ function projectToolInvocationPartForTranscript(part: Record<string, unknown>): 
   };
 }
 
+/**
+ * Strip provider citation markers from a visible text part.
+ *
+ * The render seam cleans what the user SEES, but this store is the DURABLE
+ * writer — markers left here are what thread search indexes (see
+ * `thread-search-repository.ts`, which `string_agg`s `parts[].text`), what
+ * embeddings encode, and what a copy of a reloaded message carries. Normalizing
+ * on the way in keeps every downstream reader clean without each one repeating
+ * the rule.
+ *
+ * Write-time only: rows persisted before this shipped keep their markers until
+ * rewritten. Backfilling them is a data migration and is deliberately not done
+ * here.
+ */
+function projectTextPartForTranscript(
+  part: Record<string, unknown>
+): Record<string, unknown> | null {
+  if (part['type'] !== 'text' || typeof part['text'] !== 'string') {
+    return null;
+  }
+  const stripped = stripProviderCitationMarkers(part['text']);
+  if (stripped === part['text']) {
+    return null;
+  }
+  return { ...part, text: stripped };
+}
+
 function projectMessageContentForTranscript(
   content: MastraDBMessage['content']
 ): MastraDBMessage['content'] {
@@ -137,6 +165,11 @@ function projectMessageContentForTranscript(
     if (!isRecord(part)) {
       return part;
     }
+    const projectedText = projectTextPartForTranscript(part);
+    if (projectedText) {
+      changed = true;
+      return projectedText;
+    }
     const projected = projectToolInvocationPartForTranscript(part);
     if (!projected.projection) {
       return part;
@@ -147,6 +180,19 @@ function projectMessageContentForTranscript(
     }
     return projected.part;
   });
+
+  // The flattened `content` string is the search extractor's fallback for rows
+  // with no text parts, so it needs the same treatment as the parts themselves.
+  const flattened = content['content'];
+  let flattenedText: string | undefined;
+  if (typeof flattened === 'string') {
+    const stripped = stripProviderCitationMarkers(flattened);
+    if (stripped !== flattened) {
+      flattenedText = stripped;
+      changed = true;
+    }
+  }
+
   if (!changed) {
     return content;
   }
@@ -163,6 +209,7 @@ function projectMessageContentForTranscript(
   return {
     ...content,
     parts,
+    ...(flattenedText === undefined ? {} : { content: flattenedText }),
     ...(toolInvocations ? { toolInvocations } : {}),
   } as MastraDBMessage['content'];
 }

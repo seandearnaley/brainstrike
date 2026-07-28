@@ -1,3 +1,4 @@
+export * from './assistant-action-bar';
 export * from './assistant-run-timeline';
 export * from './assistant-ui-panel';
 export {

@@ -1,5 +1,5 @@
 import { useMessagePartReasoning } from '@assistant-ui/react';
-import { stripProviderCitationMarkers } from './citation-markers';
+import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/citation-markers';
 
 export function AssistantReasoningPart() {
   const { text } = useMessagePartReasoning();
