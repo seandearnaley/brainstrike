@@ -109,6 +109,20 @@ async function occludersOverListbox(page: Page, listboxSelector: string): Promis
   }, listboxSelector);
 }
 
+/**
+ * Reads one measured z-index, naming the layer when it is absent so a missing
+ * scrim or panel reports as itself rather than as an `undefined` comparison.
+ */
+function layerAt(values: readonly number[], index: number, label: string): number {
+  const value = values[index];
+  if (value === undefined) {
+    throw new Error(
+      `No ${label} was rendered — expected at least ${index + 1} layers, measured ${values.length}.`
+    );
+  }
+  return value;
+}
+
 /** Computed z-index of a live element, read from the compiled stylesheet. */
 async function computedZIndex(page: Page, selector: string): Promise<number> {
   const value = await page.evaluate((sel) => {
@@ -194,8 +208,14 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
     await waitForSettingsPage(page);
     await page.getByRole('button', { name: 'Logging & Diagnostics' }).click();
 
+    // This spec needs the viewer to hold at least one record. Startup emits
+    // several at the default level, but say so explicitly — otherwise an empty
+    // viewer surfaces as a bare 30s timeout with no hint of the real cause.
     const detailsButtons = page.getByRole('button', { name: /^View details for / });
-    await expect(detailsButtons.first()).toBeVisible({ timeout: 30_000 });
+    await expect(
+      detailsButtons.first(),
+      'The Log Viewer rendered no records, so there is no "Details" dialog to open. This spec needs at least one log row after resetAppState + reload.'
+    ).toBeVisible({ timeout: 30_000 });
     await detailsButtons.first().click();
 
     const panels = page.locator(SETTINGS_PANEL);
@@ -208,14 +228,21 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
       return { panelZ, scrimZ };
     });
 
-    const [settingsPanelZ, detailPanelZ] = layering.panelZ;
-    const [, detailScrimZ] = layering.scrimZ;
+    // Pin both shapes before comparing. A dialog rendering without its scrim is
+    // a real failure mode, and reading it as `undefined` mid-comparison reports
+    // as an opaque matcher error instead of "the nested scrim is missing".
+    expect(layering.panelZ).toHaveLength(2);
+    expect(layering.scrimZ).toHaveLength(2);
+
+    const settingsPanelZ = layerAt(layering.panelZ, 0, 'Settings panel');
+    const detailPanelZ = layerAt(layering.panelZ, 1, 'detail panel');
+    const detailScrimZ = layerAt(layering.scrimZ, 1, 'detail scrim');
 
     // The scrim of the inner dialog must cover the panel that launched it.
-    expect(detailScrimZ).toBeGreaterThan(settingsPanelZ ?? Number.NaN);
+    expect(detailScrimZ).toBeGreaterThan(settingsPanelZ);
     // And the inner panel must still sit above its own scrim, not merely win a
     // DOM-order tiebreak at an equal z-index.
-    expect(detailPanelZ).toBeGreaterThan(detailScrimZ ?? Number.NaN);
+    expect(detailPanelZ).toBeGreaterThan(detailScrimZ);
 
     await page.keyboard.press('Escape');
     await expect(panels).toHaveCount(1, { timeout: 15_000 });

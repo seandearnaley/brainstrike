@@ -10,6 +10,14 @@ import { cn } from './lib/utils';
  * How many `Dialog`s enclose this subtree. React context crosses portals, so a
  * dialog rendered from inside another dialog's content sees its parent's depth
  * even though the two panels are sibling portals under `document.body`.
+ *
+ * This is LEXICAL nesting, not open-order stacking, and the distinction has
+ * teeth: a dialog only lifts onto a higher tier if it is rendered INSIDE the
+ * subtree of the dialog it opens over. `LogRecordDetailDialog` qualifies (it
+ * renders inside the Settings panel's content), but a modal hoisted to a
+ * sibling of the Settings `Dialog` — or owned by a provider above it — stays on
+ * tier 1 and its scrim paints under the Settings panel again. Keep a dialog
+ * co-located with the surface it covers. See docs/agents/ui-conventions.md.
  */
 const DialogDepthContext = createContext(0);
 

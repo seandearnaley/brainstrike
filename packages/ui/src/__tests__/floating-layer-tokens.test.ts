@@ -33,8 +33,17 @@ const FLOATING_LAYER_SOURCES = [
   'assistant-ui-panel/composer-effort-control.tsx',
 ] as const;
 
-/** Matches `z-50`, `z-[51]`, `z-100` — but not `z-auto` or an unrelated word. */
-const HARDCODED_Z_UTILITY = /(?:^|[\s'"`])z-\[?\d+\]?/;
+/**
+ * Matches `z-50`, `z-[51]`, `z-100` and variant-prefixed forms such as
+ * `hover:z-50`, `sm:z-[60]`, `data-[state=open]:z-[52]` — a realistic way for
+ * the drift to come back, since a variant compiles to a hardcoded z-index just
+ * the same.
+ *
+ * The lookbehind is what admits the prefixed forms (the preceding character is
+ * `:`) while still rejecting `translate-z-50` and the `--z-50` custom-property
+ * spelling, where `z-` is part of a longer identifier.
+ */
+const HARDCODED_Z_UTILITY = /(?<![\w-])z-\[?\d+\]?/;
 
 describe('floating layers take their z-index from the shared scale', () => {
   it.each(FLOATING_LAYER_SOURCES)('%s names no z-index of its own', (relativePath) => {
@@ -55,5 +64,30 @@ describe('floating layers take their z-index from the shared scale', () => {
   it('keeps the scale itself in exactly one module', () => {
     const layers = readFileSync(join(UI_SRC, 'layers.ts'), 'utf8');
     expect(HARDCODED_Z_UTILITY.test(layers)).toBe(true);
+  });
+
+  // A guard is only worth its runtime if it recognises the shapes drift
+  // actually takes, so pin both what it must catch and what it must not.
+  it.each([
+    'z-50',
+    "'z-50',",
+    'z-[51]',
+    'z-100',
+    'hover:z-50',
+    'sm:z-[60]',
+    'group-hover:z-50',
+    'data-[state=open]:z-[52]',
+  ])('recognises %s as a hardcoded z-index', (candidate) => {
+    expect(HARDCODED_Z_UTILITY.test(candidate)).toBe(true);
+  });
+
+  it.each([
+    'translate-z-50',
+    '--z-50',
+    'z-index',
+    'zoom-out-95',
+    'z-auto',
+  ])('does not mistake %s for a hardcoded z-index', (candidate) => {
+    expect(HARDCODED_Z_UTILITY.test(candidate)).toBe(false);
   });
 });

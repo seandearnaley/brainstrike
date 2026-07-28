@@ -28,12 +28,23 @@
  *
  * The first tier keeps the historical 50/51 values, so every non-nested dialog
  * in the app renders exactly where it did before.
+ *
+ * Eight tiers rather than the four this defect needed: `Dialog` counts LEXICAL
+ * nesting, so a `<Dialog>` written inside another's JSX consumes a tier even
+ * while the outer one is closed. The depth counter is therefore easier to
+ * advance than "levels of simultaneously-open modals" suggests, and running out
+ * throws (see `dialogLayerClasses`). Headroom is cheap; a crash over a
+ * cosmetic concern is not.
  */
 export const DIALOG_LAYER_CLASSES = [
   { content: 'z-[51]', overlay: 'z-50' },
   { content: 'z-[53]', overlay: 'z-[52]' },
   { content: 'z-[55]', overlay: 'z-[54]' },
   { content: 'z-[57]', overlay: 'z-[56]' },
+  { content: 'z-[59]', overlay: 'z-[58]' },
+  { content: 'z-[61]', overlay: 'z-[60]' },
+  { content: 'z-[63]', overlay: 'z-[62]' },
+  { content: 'z-[65]', overlay: 'z-[64]' },
 ] as const;
 
 export type DialogLayerClasses = (typeof DIALOG_LAYER_CLASSES)[number];
@@ -42,10 +53,10 @@ export type DialogLayerClasses = (typeof DIALOG_LAYER_CLASSES)[number];
 export const MAX_DIALOG_NESTING_DEPTH = DIALOG_LAYER_CLASSES.length;
 
 /** Scrim behind the ⌘K / ⌘P palettes — above every dialog tier. */
-export const COMMAND_PALETTE_OVERLAY_CLASS = 'z-[59]';
+export const COMMAND_PALETTE_OVERLAY_CLASS = 'z-[66]';
 
 /** ⌘K / ⌘P palette surface. */
-export const COMMAND_PALETTE_CONTENT_CLASS = 'z-[60]';
+export const COMMAND_PALETTE_CONTENT_CLASS = 'z-[67]';
 
 /**
  * Popovers, select listboxes, dropdown/context menus and tooltips. Above every
@@ -58,6 +69,7 @@ export const TOAST_LAYER_CLASS = 'z-100';
 
 /**
  * Resolves the tier for a dialog at `depth`, where 1 is the outermost dialog.
+ * `depth` counts LEXICALLY enclosing `Dialog`s, open or not.
  *
  * Throws rather than clamping: silently reusing the deepest tier would put a
  * nested scrim back underneath its parent's panel, which is precisely the
@@ -68,8 +80,10 @@ export function dialogLayerClasses(depth: number): DialogLayerClasses {
   if (!tier) {
     throw new Error(
       `Dialog nesting depth ${depth} is outside the reserved range 1..${MAX_DIALOG_NESTING_DEPTH}. ` +
-        'Stacking that many modals is a design smell — flatten the flow, or widen ' +
-        'DIALOG_LAYER_CLASSES in packages/ui/src/layers.ts and keep POPUP_LAYER_CLASS above it.'
+        'Depth counts lexically enclosing <Dialog>s, open or not, so this usually means a ' +
+        'Dialog is declared inside another one it never actually stacks over — hoist it to a ' +
+        'sibling. If the nesting is genuine, widen DIALOG_LAYER_CLASSES in ' +
+        'packages/ui/src/layers.ts and keep COMMAND_PALETTE_* and POPUP_LAYER_CLASS above it.'
     );
   }
   return tier;
