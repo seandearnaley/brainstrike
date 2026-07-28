@@ -129,6 +129,17 @@ describe('queryDiagnostics native tool', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a reversed time range before opening the database', async () => {
+    await expect(
+      runQueryDiagnostics({
+        mode: 'events',
+        since: '2026-07-28T02:00:00.000Z',
+        until: '2026-07-28T01:00:00.000Z',
+      })
+    ).rejects.toThrow('since must be earlier than or equal to until');
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+  });
+
   it('returns fingerprint groups and reports output-budget truncation explicitly', async () => {
     const oversizedMessage = 'x'.repeat(12_000);
     getDatabaseMock.mockResolvedValue({
