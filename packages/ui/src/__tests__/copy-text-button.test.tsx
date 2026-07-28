@@ -41,6 +41,19 @@ describe('CopyTextButton', () => {
     });
   });
 
+  it('resolves lazy copy text only when the button is clicked', async () => {
+    const resolveText = vi.fn(() => 'generated note body');
+    render(<CopyTextButton ariaLabel="Copy generated content" text={resolveText} />);
+
+    expect(resolveText).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy generated content' }));
+
+    await waitFor(() => {
+      expect(clipboardMocks.writeText).toHaveBeenCalledWith('generated note body');
+    });
+    expect(resolveText).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a transient copied state and swaps the label', async () => {
     render(<CopyTextButton ariaLabel="Copy note content" label="Copy" text="note body" />);
     const button = screen.getByRole('button', { name: 'Copy note content' });

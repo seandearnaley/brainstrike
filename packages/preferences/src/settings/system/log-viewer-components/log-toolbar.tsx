@@ -23,6 +23,7 @@ import type { LogRecordRow } from './log-utils';
 interface LogToolbarProps {
   autoScroll: boolean;
   canRefresh: boolean;
+  diagnosticFilters: ReactNode;
   globalFilter: string;
   logLevelFilter: LogLevel;
   logLevelItems: ReactNode;
@@ -76,6 +77,7 @@ export function LogToolbar({
   onExport,
   onRefresh,
   canRefresh,
+  diagnosticFilters,
 }: LogToolbarProps) {
   return (
     <div className="flex flex-col gap-4 border-border/40 border-b bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -235,6 +237,7 @@ export function LogToolbar({
           {rowsCount === 0 ? 'No matching logs' : `${rowsCount} matching logs`}
         </div>
       </div>
+      {diagnosticFilters}
     </div>
   );
 }

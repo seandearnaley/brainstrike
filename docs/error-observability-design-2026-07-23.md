@@ -402,10 +402,11 @@ server (#1187) for external agents; the NDJSON file covers them meanwhile.
 
 ## 9. UI surfaces
 
-- **Log Viewer**: add a second `LogSourceAdapter` — "Persistent errors" — backed
-  by a PGlite live query over `diagnostic_events` (the adapter contract already
-  abstracts source). Filters: severity, source, code, time range; row → detail
-  with cause chain; per-row "Copy as JSON".
+- **Log Viewer (implemented)**: a second `LogSourceAdapter` — "Persistent
+  errors" — is backed by a bounded PGlite query over `diagnostic_events` (the
+  adapter contract abstracts source). The shared viewer has severity, source,
+  code, and inclusive local time-range filters; row → structured detail with
+  cause chain; and per-row "Copy JSON" through the shared clipboard service.
 - **Background-error visibility**: a status-bar chip showing count of new warn+
   events since last viewed (session-scoped "seen" watermark); click opens the
   viewer. This is the "even in the background invisibly" ask made visible.

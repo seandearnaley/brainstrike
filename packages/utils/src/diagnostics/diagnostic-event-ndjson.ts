@@ -108,7 +108,7 @@ function isValidSeverity(value: unknown): value is DiagnosticSeverity {
   return typeof value === 'string' && (VALID_SEVERITIES as readonly string[]).includes(value);
 }
 
-function isCauseEntry(value: unknown): value is DiagnosticCauseEntry {
+export function isDiagnosticCauseEntry(value: unknown): value is DiagnosticCauseEntry {
   if (!isRecord(value)) {
     return false;
   }
@@ -122,7 +122,7 @@ function isCauseChain(value: unknown): value is readonly DiagnosticCauseEntry[] 
   if (value === null) {
     return true;
   }
-  return Array.isArray(value) && value.every(isCauseEntry);
+  return Array.isArray(value) && value.every(isDiagnosticCauseEntry);
 }
 
 function isContext(value: unknown): value is Record<string, unknown> | null {
