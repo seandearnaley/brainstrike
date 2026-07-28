@@ -748,16 +748,20 @@ export function feature${index}() {
       });
 
       it('re-splits oversized chunks when true sizing exceeds the safety cap', async () => {
+        const content = Array.from({ length: 250 }, (_, index) => `word-${index}`).join(' ');
+        const countTokens = vi.fn((text: string) => {
+          if (text.length > 120) {
+            return 160;
+          }
+          return Math.max(1, Math.ceil(text.length / 8));
+        });
+        const getAccurateTokenCounter = vi.fn(async () => countTokens);
         vi.doMock('../token-utils-lite', () => ({
-          countTokensAccurate: vi.fn(async (text: string) => {
-            if (text.length > 120) {
-              return 160;
-            }
-            return Math.max(1, Math.ceil(text.length / 8));
-          }),
+          getAccurateTokenCounter,
+          getAccurateTokenCountingFailureReason: vi.fn(() => null),
         }));
 
-        const result = await chunkContent('word '.repeat(250), {
+        const result = await chunkContent(content, {
           fileName: 'true-sized.txt',
           maxTokens: 32,
           overlap: 8,
@@ -767,11 +771,39 @@ export function feature${index}() {
 
         expect(result.skipped).toBe(false);
         expect(result.strategyUsed).toBe('token');
+        expect(getAccurateTokenCounter).toHaveBeenCalledOnce();
+        expect(countTokens).toHaveBeenCalled();
         expect(result.chunks.length).toBeGreaterThan(1);
+        expect(result.chunks.map((chunk) => chunk.chunkIndex)).toEqual(
+          result.chunks.map((_, index) => index)
+        );
+        expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual(
+          [...result.chunks]
+            .map((chunk) => chunk.startOffset)
+            .toSorted((left, right) => left - right)
+        );
         for (const chunk of result.chunks) {
           expect(chunk.content.length).toBeGreaterThan(0);
           expect(chunk.tokenCount).toBeGreaterThan(0);
         }
+      });
+
+      it('surfaces accurate counter initialization failures without degrading', async () => {
+        vi.doMock('../token-utils-lite', () => ({
+          getAccurateTokenCounter: vi.fn(async () => null),
+          getAccurateTokenCountingFailureReason: vi.fn(() => 'WASM asset missing'),
+        }));
+        const { chunkContent: chunkContentWithUnavailableCounter } = await import(
+          '../portable-chunking'
+        );
+
+        await expect(
+          chunkContentWithUnavailableCounter('Content that requires true token sizing.', {
+            fileName: 'true-sized.txt',
+            strategy: 'token',
+            tokenTrueSizing: true,
+          })
+        ).rejects.toThrow('Accurate token counting unavailable: WASM asset missing');
       });
     });
 

@@ -12,6 +12,7 @@ import {
   splitTextByStrategy,
 } from '@brainstrike/text-splitter';
 import {
+  analyzeContentRepetition,
   splitByBlankLines,
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
@@ -21,6 +22,7 @@ import {
   buildLineStartOffsets as buildLineStarts,
   findLineForOffset as lineForOffset,
 } from './line-offsets';
+import { createCooperativeYieldController } from './ordered-batch-map';
 import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
@@ -60,12 +62,12 @@ function auditFirstSuccessfulParse(adapterId: string): void {
 }
 
 const BINARY_DETECTION_PROBE_BYTES = 4096;
-const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
-const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
 const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
 const MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES = 10_000;
 const MAX_WHITESPACE_NORMALIZED_ANCHORS = 64;
+const TOKEN_COUNT_YIELD_CHECK_INTERVAL = 20;
+const TOKEN_COUNT_YIELD_TIME_BUDGET_MS = 5;
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
@@ -227,13 +229,7 @@ function shouldSkipChunking(
   }
 
   // Check for very repetitive content (common in generated files)
-  const allLines = content.split('\n');
-  const uniqueLines = new Set(allLines).size;
-  const totalLines = allLines.length;
-  if (
-    totalLines > REPETITIVE_CONTENT_LINE_THRESHOLD &&
-    uniqueLines / totalLines < REPETITIVE_CONTENT_UNIQUE_RATIO
-  ) {
+  if (analyzeContentRepetition(content).isHighlyRepetitive) {
     return {
       reason: 'Highly repetitive content (likely generated file)',
       skip: true,
@@ -742,16 +738,39 @@ function resolveSourceRanges(
   return { fuzzyMatchedChunks, ranges };
 }
 
-async function computeCharsPerToken(
-  content: string,
+type TokenCounter = (text: string) => number;
+
+async function resolveTokenCounter(
   useAccurate: boolean,
   tokenUtilsModule: TokenUtilsLiteModule | null
-): Promise<number> {
+): Promise<TokenCounter> {
+  if (!useAccurate) {
+    return estimateTokenCount;
+  }
+  if (!tokenUtilsModule) {
+    throw new Error('Accurate token counting module was not loaded');
+  }
+
+  const counter = await tokenUtilsModule.getAccurateTokenCounter();
+  if (counter) {
+    return counter;
+  }
+
+  const reason = tokenUtilsModule.getAccurateTokenCountingFailureReason();
+  throw new Error(
+    reason
+      ? `Accurate token counting unavailable: ${reason}`
+      : 'Accurate token counting unavailable'
+  );
+}
+
+function computeCharsPerToken(
+  content: string,
+  useAccurate: boolean,
+  countTokens: TokenCounter
+): number {
   const sample = content.slice(0, Math.min(CHARS_PER_TOKEN_SAMPLE_BYTES, content.length));
-  const tokens =
-    useAccurate && tokenUtilsModule
-      ? await tokenUtilsModule.countTokensAccurate(sample)
-      : estimateTokenCount(sample);
+  const tokens = countTokens(sample);
   if (Number.isFinite(tokens) && tokens > 0) {
     const measured = sample.length / tokens;
     return Math.max(1, Math.min(CHARS_PER_TOKEN_MAX, measured));
@@ -1098,7 +1117,8 @@ export async function chunkContent(
   // Compute chars per token
   const useTokenTrueSizing = options.tokenTrueSizing ?? false;
   const tokenUtilsModule = useTokenTrueSizing ? await loadTokenUtilsLiteModule() : null;
-  const charsPerToken = await computeCharsPerToken(content, useTokenTrueSizing, tokenUtilsModule);
+  const countTokens = await resolveTokenCounter(useTokenTrueSizing, tokenUtilsModule);
+  const charsPerToken = computeCharsPerToken(content, useTokenTrueSizing, countTokens);
   const maxChars = Math.floor(effectiveMaxTokens * charsPerToken);
   const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
@@ -1256,49 +1276,39 @@ export async function chunkContent(
     separators: ['\n\n', '\n', '. ', ' ', ''],
   });
 
-  // Hoist the tokenizer dispatch out of the per-chunk loop. The previous shape
-  // re-evaluated `useTokenTrueSizing && tokenUtilsModule` per chunk and per
-  // sub-chunk; here we pick once and reuse a stable callback.
-  const accurateModule = useTokenTrueSizing ? tokenUtilsModule : null;
-  const countTokens = accurateModule
-    ? (text: string) => accurateModule.countTokensAccurate(text)
-    : (text: string) => Promise.resolve(estimateTokenCount(text));
-
+  // Accurate tokenization is synchronous after the encoder resolves once.
+  // Periodically yield a macrotask when the work exceeds a short budget so a
+  // large file cannot monopolize the worker's event loop.
+  const maybeYieldAfterTokenCount = createCooperativeYieldController({
+    checkEvery: TOKEN_COUNT_YIELD_CHECK_INTERVAL,
+    yieldAfterMs: TOKEN_COUNT_YIELD_TIME_BUDGET_MS,
+  });
   for (const g of groups) {
     for (const txt of g.pieces) {
       const c = txt?.trim();
       if (!c) {
         continue;
       }
-
-      const tokenCount = await countTokens(c);
-
+      const tokenCount = countTokens(c);
+      await maybeYieldAfterTokenCount();
       if (tokenCount > maxSafeTokens) {
         const subPieces = await reSplitChunker.splitText(c);
-
         for (const subTxt of subPieces) {
           const subC = subTxt?.trim();
           if (!subC) {
             continue;
           }
-          // Reuse the hoisted dispatch so callers who opted into
-          // tokenTrueSizing keep getting accurate counts on sub-pieces too —
-          // downstream budget enforcement depends on those numbers being
-          // tight, not on a faster-but-loose char/4 heuristic.
           pendingChunks.push({
             chunkType: 'text',
             content: subC,
-            tokenCount: await countTokens(subC),
+            tokenCount: countTokens(subC),
           });
+          await maybeYieldAfterTokenCount();
         }
         continue;
       }
 
-      pendingChunks.push({
-        chunkType: g.type,
-        content: c,
-        tokenCount,
-      });
+      pendingChunks.push({ chunkType: g.type, content: c, tokenCount });
     }
   }
 

@@ -123,6 +123,20 @@ const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
 const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
 const FUNCTION_RANGE_OVERSIZE_TOLERANCE = 1.25;
 
+export type ContentRepetitionAnalysis =
+  | {
+      readonly isHighlyRepetitive: false;
+      readonly kind: 'below-threshold';
+      readonly totalLines: number;
+    }
+  | {
+      readonly inspectedLines: number;
+      readonly isHighlyRepetitive: boolean;
+      readonly kind: 'analyzed';
+      readonly totalLines: number;
+      readonly uniqueLines: number;
+    };
+
 function forEachLine(text: string, visitLine: (line: string) => void): void {
   let lineStart = 0;
 
@@ -165,16 +179,69 @@ export function detectCodeLanguage<TLanguage extends string = SharedCodeLanguage
   return null;
 }
 
-function countUniqueLines(content: string): { totalLines: number; uniqueLines: number } {
-  const uniqueLines = new Set<string>();
-  let totalLines = 0;
-
-  forEachLine(content, (line: string) => {
-    uniqueLines.add(line);
+function countLines(content: string): number {
+  let totalLines = 1;
+  let newlineIndex = content.indexOf('\n');
+  while (newlineIndex !== -1) {
     totalLines += 1;
-  });
+    newlineIndex = content.indexOf('\n', newlineIndex + 1);
+  }
+  return totalLines;
+}
 
-  return { totalLines, uniqueLines: uniqueLines.size };
+export function analyzeContentRepetition(content: string): ContentRepetitionAnalysis {
+  const totalLines = countLines(content);
+  if (totalLines <= REPETITIVE_CONTENT_LINE_THRESHOLD) {
+    return {
+      isHighlyRepetitive: false,
+      kind: 'below-threshold',
+      totalLines,
+    };
+  }
+
+  // Reaching this many distinct lines proves the strict unique/total ratio
+  // cannot classify the content as repetitive. Stop retaining substrings as
+  // soon as that answer is known.
+  const distinctLineLimit = Math.ceil(totalLines * REPETITIVE_CONTENT_UNIQUE_RATIO);
+  const uniqueLines = new Set<string>();
+  let inspectedLines = 0;
+  let lineStart = 0;
+
+  while (lineStart <= content.length) {
+    const newlineIndex = content.indexOf('\n', lineStart);
+    const hasLineFeed = newlineIndex !== -1;
+    const lineFeedIndex = hasLineFeed ? newlineIndex : content.length;
+    let lineEnd = lineFeedIndex;
+
+    if (hasLineFeed && lineEnd > lineStart && content.charCodeAt(lineEnd - 1) === CHAR_CR) {
+      lineEnd -= 1;
+    }
+
+    uniqueLines.add(content.slice(lineStart, lineEnd));
+    inspectedLines += 1;
+    if (uniqueLines.size >= distinctLineLimit) {
+      return {
+        inspectedLines,
+        isHighlyRepetitive: false,
+        kind: 'analyzed',
+        totalLines,
+        uniqueLines: uniqueLines.size,
+      };
+    }
+
+    if (!hasLineFeed) {
+      break;
+    }
+    lineStart = lineFeedIndex + 1;
+  }
+
+  return {
+    inspectedLines,
+    isHighlyRepetitive: true,
+    kind: 'analyzed',
+    totalLines,
+    uniqueLines: uniqueLines.size,
+  };
 }
 
 export function shouldSkipChunking(
@@ -213,11 +280,7 @@ export function shouldSkipChunking(
     };
   }
 
-  const { totalLines, uniqueLines } = countUniqueLines(content);
-  if (
-    totalLines > REPETITIVE_CONTENT_LINE_THRESHOLD &&
-    uniqueLines / totalLines < REPETITIVE_CONTENT_UNIQUE_RATIO
-  ) {
+  if (analyzeContentRepetition(content).isHighlyRepetitive) {
     return {
       reason: 'Highly repetitive content (likely generated file)',
       skip: true,
