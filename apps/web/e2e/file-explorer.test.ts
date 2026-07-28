@@ -753,6 +753,12 @@ test.describe('File Explorer', () => {
 
   test.describe('filtering', () => {
     async function openViewFilters(page: Page): Promise<void> {
+      // Both action surfaces render only once a root is attached, so gate on
+      // that before probing visibility — otherwise "not rendered yet" is
+      // indistinguishable from "compact layout".
+      const viewFiltersContent = page.locator('#view-filters-content');
+      await expect(viewFiltersContent).toBeAttached({ timeout: 10_000 });
+
       const viewFiltersToggle = page.getByRole('button', { name: /view filters/i });
       if (await viewFiltersToggle.isVisible()) {
         if ((await viewFiltersToggle.getAttribute('aria-expanded')) !== 'true') {
@@ -760,22 +766,30 @@ test.describe('File Explorer', () => {
         }
 
         await expect(viewFiltersToggle).toHaveAttribute('aria-expanded', 'true');
-        return;
-      }
-
-      const compactActions = page.getByRole('button', { name: 'More Explorer actions' });
-      await expect(compactActions).toBeVisible({ timeout: 10_000 });
-      await compactActions.click();
-
-      const showViewFilters = page.getByRole('menuitem', { name: /^Show view filters/ });
-      if (await showViewFilters.isVisible()) {
-        await showViewFilters.click();
       } else {
-        await expect(page.getByRole('menuitem', { name: 'Hide view filters' })).toBeVisible();
-        await page.keyboard.press('Escape');
+        const compactActions = page.getByRole('button', { name: 'More Explorer actions' });
+        await expect(compactActions).toBeVisible({ timeout: 10_000 });
+        await compactActions.click();
+
+        const explorerMenu = page.getByRole('menu');
+        await expect(explorerMenu).toBeVisible();
+
+        const showViewFilters = explorerMenu.getByRole('menuitem', {
+          name: /^Show view filters/,
+        });
+        if ((await showViewFilters.count()) > 0) {
+          await showViewFilters.click();
+        } else {
+          await expect(
+            explorerMenu.getByRole('menuitem', { name: 'Hide view filters' })
+          ).toBeVisible();
+          await page.keyboard.press('Escape');
+        }
+
+        await expect(explorerMenu).toHaveCount(0);
       }
 
-      await expect(page.locator('#view-filters-content')).not.toHaveAttribute('inert');
+      await expect(viewFiltersContent).not.toHaveAttribute('inert');
     }
 
     async function getPresetTrigger(page: Page) {
