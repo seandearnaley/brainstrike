@@ -51,6 +51,24 @@ export type ModelPricingResolver = (
   model: string
 ) => ModelTokenPricing | undefined;
 
+/**
+ * Honest ZERO baseline for a repo-backed thread with no captured rows yet
+ * (review fix, BST-953): nothing has been spent, so the captured-usage
+ * estimate is genuinely $0.00 — and a PRESENT cumulative value lets the meter
+ * render the first run's live step usage as the thread-total headline instead
+ * of discarding it. Never used for a failed load (that stays null: "couldn't
+ * read" must not display as $0.00) or on web (capability-absent).
+ */
+export const EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY: CumulativeUsageDisplay = {
+  bySource: [],
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
+  cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 0 },
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+};
+
 const USD_ROUNDING = 1_000_000_000_000;
 
 function roundUsd(amount: number): number {

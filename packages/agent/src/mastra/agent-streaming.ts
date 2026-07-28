@@ -436,8 +436,13 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
     if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) {
       metadata['promptTokens'] = promptTokens;
     }
-    if (typeof p.usage.completionTokens === 'number' && Number.isFinite(p.usage.completionTokens)) {
-      metadata['completionTokens'] = p.usage.completionTokens;
+    // Same v1/v2 fallback as accumulateSteppedUsage (usage-metering.ts): an
+    // AI-SDK-v2 part carries `outputTokens`, and the renderer's live tick
+    // (BST-953) needs BOTH counts on the step event — an asymmetric read here
+    // silently killed the tick for v2-shaped providers (review fix).
+    const completionTokens = p.usage.completionTokens ?? p.usage.outputTokens;
+    if (typeof completionTokens === 'number' && Number.isFinite(completionTokens)) {
+      metadata['completionTokens'] = completionTokens;
     }
   }
   const openRouterDiagnostics = readOpenRouterDiagnostics(p);
@@ -1443,20 +1448,27 @@ function isObservationalMemoryDataChunkType(type: unknown): type is string {
 
 const OM_FAILURE_DETAIL_MAX_CHARS = 500;
 
-function readOmTokenCount(payload: Record<string, unknown> | undefined, key: string): number {
+function readOmTokenCount(
+  payload: Record<string, unknown> | undefined,
+  key: string
+): number | undefined {
   const value = payload?.[key];
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /**
  * Map a successful OM cycle end marker to estimated child usage (BST-953).
  * `data-om-observation-end` carries `tokensObserved` (observer input) /
  * `observationTokens` (output); `data-om-buffering-end` carries the same pair
- * as `tokensBuffered` / `bufferedTokens`. Both are Mastra's LOCAL tokenx
- * estimates of the content sizes (the observer's own system prompt is not
- * included), so the chunk is flagged `estimated` and must never be presented
- * as billed truth. `data-om-activation` is an instant buffered swap with no
- * LLM call — it must never fabricate usage.
+ * as `tokensBuffered` / `bufferedTokens` — the token KEYS follow the part
+ * type, while the `source` label follows `operationType` (both part types can
+ * carry either an observation or a reflection cycle). An unrecognized
+ * operationType or a malformed count is dropped with a WARN, never defaulted
+ * into the wrong run_kind bucket (review fix). Both figures are Mastra's
+ * LOCAL tokenx estimates of the content sizes (the observer's own system
+ * prompt is not included), so the chunk is flagged `estimated` and must never
+ * be presented as billed truth. `data-om-activation` is an instant buffered
+ * swap with no LLM call — it must never fabricate usage.
  */
 function mapObservationalMemoryCycleEnd(
   part: MastraStreamPart,
@@ -1464,6 +1476,14 @@ function mapObservationalMemoryCycleEnd(
 ): StreamChunk | undefined {
   const isBufferingEnd = part.type === 'data-om-buffering-end';
   if (!(isBufferingEnd || part.type === 'data-om-observation-end')) {
+    return;
+  }
+  const operationType = payload?.['operationType'];
+  if (operationType !== 'observation' && operationType !== 'reflection') {
+    logger.warn('OM cycle end without a recognizable operationType; usage not metered', {
+      code: 'mastra_agent_om_usage_operation_type_unrecognized',
+      omChunkType: part.type,
+    });
     return;
   }
   const inputTokens = readOmTokenCount(
@@ -1474,9 +1494,16 @@ function mapObservationalMemoryCycleEnd(
     payload,
     isBufferingEnd ? 'bufferedTokens' : 'observationTokens'
   );
+  if (inputTokens === undefined || outputTokens === undefined) {
+    logger.warn('OM cycle end carried malformed token counts; usage not metered', {
+      code: 'mastra_agent_om_usage_counts_malformed',
+      omChunkType: part.type,
+    });
+    return;
+  }
   if (inputTokens === 0 && outputTokens === 0) {
-    // A marker without token figures has nothing to meter — skipping it is the
-    // honest move (a zero row would just dilute the by-source breakdown).
+    // Genuinely zero figures have nothing to meter — a zero row would just
+    // dilute the by-source breakdown.
     return;
   }
   return {
@@ -1485,7 +1512,7 @@ function mapObservationalMemoryCycleEnd(
       estimated: true,
       inputTokens,
       outputTokens,
-      source: payload?.['operationType'] === 'reflection' ? 'om-reflection' : 'om-observation',
+      source: operationType === 'reflection' ? 'om-reflection' : 'om-observation',
     },
   };
 }

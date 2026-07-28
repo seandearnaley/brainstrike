@@ -194,7 +194,11 @@ function resolveTriggerDisplay(params: {
   return {
     ariaLabel: `Thread usage: ${formatTokenCount(threadTotalTokens)}; context ${Math.round(percentage)}% of input budget`,
     ...(liveTokens > 0 ? { badge: 'live' as const } : {}),
-    ...(cumulativeUsage.cost.available
+    // The durable cost EXCLUDES the live tokens the total now includes —
+    // pairing them would present a current token count beside a lagging price
+    // (review fix). The cost returns once the run's row lands and the live
+    // sum clears.
+    ...(cumulativeUsage.cost.available && liveTokens === 0
       ? { costText: `· ${formatUsdCost(cumulativeUsage.cost.usdAmount)}` }
       : {}),
     primaryText: `${formatCompact(threadTotalTokens)} tokens`,

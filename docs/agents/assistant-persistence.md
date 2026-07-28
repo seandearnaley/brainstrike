@@ -613,8 +613,30 @@ Runtime invariants:
   taps `run.step.finished` run events' `promptTokens`/`completionTokens`
   (`onStepUsage` → `recordLiveStepUsage`, summed per in-flight run) and the
   forwarded `brainstrike.child-run-usage` aui-data part (`onChildRunUsage` →
-  cumulative re-read); `handleUsage` clears the live sum only AFTER the
-  post-write cumulative refresh so the total never dips and jumps.
+  cumulative re-read; the server AWAITS the row before forwarding, so the
+  refresh never reads pre-write state); the live sum has THREE clear paths —
+  `handleUsage` (only AFTER the post-write refresh, so the total never dips
+  and jumps), the wrapped `completePreparedRequest` on a cancelled/failed
+  terminal status (the abort-gated tap never delivers those runs' finish), and
+  thread selection (a just-selected thread cannot have its own in-flight
+  accumulation, so a lingering sum is a stranded remainder). A repo-backed
+  thread with no rows yet hydrates the honest ZERO baseline
+  (`EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY`) so the FIRST run's live steps
+  render as the thread total; a failed load stays null (never $0). While live
+  tokens are included, the chip suppresses the durable cost and the popover
+  qualifies it "(excl. live)" — a current total must not sit beside a lagging
+  price.
+- OM rows in the WIDER cost surfaces (settled ruling, BST-953 review): the
+  daily-spend guardrail, cross-root usage, and run-ledger analytics aggregate
+  `run_usage` without a `run_kind` predicate, so `'om-observation'`/
+  `'om-reflection'` rows flow into them priced at the observer model's
+  registry rate like any unbilled row. This is DELIBERATE: the tokens are
+  genuinely billed by the provider; Mastra's tokenx content-size figure is a
+  weaker (under-)estimate of their count, and EXCLUDING them would silently
+  under-count real spend — the worse failure for a budget guardrail. Those
+  surfaces already qualify their totals as captured-usage estimates;
+  per-source itemization outside the context meter is future work, not a
+  correctness gap. Subagent rows are provider-exact and belong in all of them.
 
 ---
 

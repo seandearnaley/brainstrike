@@ -65,6 +65,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
   type CumulativeUsageDisplay,
+  EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
   type ModelPricingResolver,
   resolveCumulativeUsageDisplay,
 } from './assistant-cumulative-usage';
@@ -1374,6 +1375,32 @@ export function AssistantUiPanelWrapper({
   // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
   // line is simply not shown.
   const [cumulativeUsage, setCumulativeUsage] = useState<CumulativeUsageDisplay | null>(null);
+  const clearThreadLiveRunUsage = useCallback(() => {
+    useContextUsageStore.getState().clearLiveRunUsage(selectedMemoryThreadId ?? 'active');
+  }, [selectedMemoryThreadId]);
+  // Terminal run bookkeeping + live-sum hygiene (review fix): a cancelled or
+  // failed run may never reach the abort-gated onUsage tap, so its accumulated
+  // live step usage would linger as phantom thread-total tokens (and a stuck
+  // 'live' badge) until the next successful run. Clear it on any non-completed
+  // terminal status; 'completed' rides handleUsage's own post-refresh clear.
+  // Thread attribution uses the CURRENT selection — a mid-run thread switch
+  // could miss, acceptable for a transient display sum.
+  const completeRequestAndSettleLiveUsage = useCallback(
+    async (
+      preparedRequestData: Record<string, unknown> | undefined,
+      status: 'cancelled' | 'completed' | 'failed',
+      error?: string
+    ): Promise<void> => {
+      try {
+        await completePreparedRequest(preparedRequestData, status, error);
+      } finally {
+        if (status !== 'completed') {
+          clearThreadLiveRunUsage();
+        }
+      }
+    },
+    [clearThreadLiveRunUsage, completePreparedRequest]
+  );
   const resolveModelPricing = useCallback<ModelPricingResolver>(
     (provider: string, model: string) => {
       if (!isSupportedProvider(provider)) {
@@ -1401,7 +1428,14 @@ export function AssistantUiPanelWrapper({
     try {
       const usage =
         await assistantThreadRepository.getThreadCumulativeUsage(selectedMemoryThreadId);
-      next = resolveCumulativeUsageDisplay(usage, resolveModelPricing);
+      // A repo-backed thread with no rows yet is an honest ZERO baseline, not
+      // "no thread totals": the first run's live step usage must render as the
+      // thread-total headline (review fix), which the meter only does over a
+      // present cumulative value. A LOAD FAILURE stays null — "couldn't read"
+      // must never display as $0.00.
+      next =
+        resolveCumulativeUsageDisplay(usage, resolveModelPricing) ??
+        EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY;
     } catch (error: unknown) {
       assistantUsageWriteBackLogger.warn('Failed to load cumulative run usage', { error });
     }
@@ -1535,6 +1569,18 @@ export function AssistantUiPanelWrapper({
     void refreshCumulativeUsage();
   }, [refreshCumulativeUsage]);
 
+  // A thread that just became selected cannot have an in-flight accumulation
+  // of its own (runs stream on the selected thread), so any lingering live
+  // sum on it is a stranded remainder — e.g. steps recorded before the user
+  // switched away mid-run (review fix: the switch re-keys handleStepUsage to
+  // the new thread, so the old thread's partial sum would otherwise persist
+  // until an unrelated later run cleared it). Keyed ONLY on the thread id —
+  // the refresh effect above also refires on pricing/repo identity changes,
+  // which must not wipe a genuinely live sum mid-run.
+  useEffect(() => {
+    useContextUsageStore.getState().clearLiveRunUsage(selectedMemoryThreadId ?? 'active');
+  }, [selectedMemoryThreadId]);
+
   // OM informational stats (observed tokens + compaction saved). Desktop-only:
   // gated on the durable-assistant capability (NOT raw PGlite presence — web has
   // a PGlite handle but no durable OM rows). The observation is NOT a budget
@@ -1666,7 +1712,7 @@ export function AssistantUiPanelWrapper({
                 {...(composerDraftCommand ? { composerDraftCommand } : {})}
                 {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                 {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
-                completePreparedRequest={completePreparedRequest}
+                completePreparedRequest={completeRequestAndSettleLiveUsage}
                 contextWindow={openRouterModelDef?.contextWindow}
                 {...(cumulativeUsage ? { cumulativeUsage } : {})}
                 effectiveInputBudget={effectiveInputBudget}

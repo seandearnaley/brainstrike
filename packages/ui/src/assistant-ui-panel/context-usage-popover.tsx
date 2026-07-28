@@ -81,7 +81,11 @@ const ThreadTotalSection = ({ cumulativeUsage, liveRunUsage }: ThreadTotalSectio
           {liveTokens > 0 ? ' (live)' : ''}
         </span>
         <span className="text-muted-foreground" data-testid="context-usage-cost">
-          {costLabel(cumulativeUsage.cost)}
+          {/* The durable cost excludes the in-flight live tokens above — say so
+              rather than pairing a current total with a lagging price. */}
+          {liveTokens > 0
+            ? `${costLabel(cumulativeUsage.cost)} (excl. live)`
+            : costLabel(cumulativeUsage.cost)}
         </span>
       </p>
       <p
