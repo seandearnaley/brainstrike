@@ -754,13 +754,28 @@ test.describe('File Explorer', () => {
   test.describe('filtering', () => {
     async function openViewFilters(page: Page): Promise<void> {
       const viewFiltersToggle = page.getByRole('button', { name: /view filters/i });
-      await expect(viewFiltersToggle).toBeVisible({ timeout: 10_000 });
+      if (await viewFiltersToggle.isVisible()) {
+        if ((await viewFiltersToggle.getAttribute('aria-expanded')) !== 'true') {
+          await viewFiltersToggle.click();
+        }
 
-      if ((await viewFiltersToggle.getAttribute('aria-expanded')) !== 'true') {
-        await viewFiltersToggle.click();
+        await expect(viewFiltersToggle).toHaveAttribute('aria-expanded', 'true');
+        return;
       }
 
-      await expect(viewFiltersToggle).toHaveAttribute('aria-expanded', 'true');
+      const compactActions = page.getByRole('button', { name: 'More Explorer actions' });
+      await expect(compactActions).toBeVisible({ timeout: 10_000 });
+      await compactActions.click();
+
+      const showViewFilters = page.getByRole('menuitem', { name: /^Show view filters/ });
+      if (await showViewFilters.isVisible()) {
+        await showViewFilters.click();
+      } else {
+        await expect(page.getByRole('menuitem', { name: 'Hide view filters' })).toBeVisible();
+        await page.keyboard.press('Escape');
+      }
+
+      await expect(page.locator('#view-filters-content')).not.toHaveAttribute('inert');
     }
 
     async function getPresetTrigger(page: Page) {
