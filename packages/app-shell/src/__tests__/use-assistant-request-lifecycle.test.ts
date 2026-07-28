@@ -173,6 +173,47 @@ describe('useAssistantRequestLifecycle', () => {
     expect(resolveThreadRootBinding).toHaveBeenCalledOnce();
   });
 
+  it('does not create a run when preparation is aborted while resolving its root', async () => {
+    const rootBinding = Promise.withResolvers<{
+      displayName: string;
+      path: string;
+      rootId: string;
+    }>();
+    const repository = createRepositoryStub();
+    const { result } = renderHook(() =>
+      useAssistantRequestLifecycle({
+        assistantThreadRepository: repository,
+        focusedRootId: 'root-a',
+        memoryResourceId: 'workspace-a',
+        modelSettings: undefined,
+        permissionEnforceable: false,
+        persistThreadRootBinding: vi.fn(async () => {}),
+        planModeAvailable: false,
+        providerOptions: undefined,
+        requestData: baseRequestData,
+        resolvedModelName: 'gpt-5.2',
+        resolveThreadRootBinding: () => rootBinding.promise,
+        selectedMemoryThreadId: 'thread-a',
+        selectedProvider: 'openai',
+      })
+    );
+    const abortController = new AbortController();
+    const abortError = new DOMException('The user aborted a request.', 'AbortError');
+    const preparation = result.current.prepareRequestData(abortController.signal);
+    const rejection = expect(preparation).rejects.toBe(abortError);
+
+    abortController.abort(abortError);
+    rootBinding.resolve({
+      displayName: 'ProjectA',
+      path: '/workspace-a',
+      rootId: 'db-root-a',
+    });
+
+    await rejection;
+    expect(repository.createThreadRun).not.toHaveBeenCalled();
+    expect(getAssistantForegroundActivitySnapshot()).toBe(false);
+  });
+
   it('keeps the first run root across an approval-style second preparation', async () => {
     const persistThreadRootBinding = vi.fn(async () => {});
     interface RootBindingProps {

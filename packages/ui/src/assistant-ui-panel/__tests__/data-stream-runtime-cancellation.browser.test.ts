@@ -300,6 +300,61 @@ describe('BrainstrikeDataStreamRuntimeAdapter — cancellation lifecycle (BST-70
     }
   });
 
+  it('surfaces a pre-request watchdog failure without an unhandled rejection', async () => {
+    let preparationSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn();
+    const onError = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://localhost/api/assistant',
+      body: (signal: AbortSignal) => {
+        preparationSignal = signal;
+        return new Promise<Record<string, unknown>>(() => undefined);
+      },
+      onError,
+      requestPreparationTimeoutMs: 10,
+    });
+
+    await expect(consumeRun(adapter, new AbortController())).rejects.toThrow(
+      'Assistant request preparation timed out after 10ms.'
+    );
+    await settle();
+
+    expect(preparationSignal?.aborted).toBe(true);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(unhandledReasons).toEqual([]);
+  });
+
+  it('lets Stop abort pre-request preparation without an unhandled rejection', async () => {
+    let preparationSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn();
+    const onCancel = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const abortController = new AbortController();
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://localhost/api/assistant',
+      body: (signal: AbortSignal) => {
+        preparationSignal = signal;
+        return new Promise<Record<string, unknown>>(() => undefined);
+      },
+      onCancel,
+    });
+    const consumer = consumeRun(adapter, abortController);
+
+    while (!preparationSignal) {
+      await tick();
+    }
+    abortController.abort(new DOMException('The user aborted a request.', 'AbortError'));
+
+    await expect(consumer).resolves.toEqual({ outcome: 'aborted', yields: 0 });
+    await settle();
+    expect(preparationSignal.aborted).toBe(true);
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(unhandledReasons).toEqual([]);
+  });
+
   it('releases the transport when the consumer exits the run iterator early without aborting', async () => {
     const { bodies } = stubFetchWith((signal) => createScriptedBody(signal));
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({

@@ -12,7 +12,10 @@ import {
   readAssistantActiveRunSession,
   writeAssistantActiveRunSession,
 } from './assistant-run-reattachment';
-import { AssistantStreamReplayUnavailableError } from './data-stream-runtime';
+import {
+  AssistantRequestPreparationTimeoutError,
+  AssistantStreamReplayUnavailableError,
+} from './data-stream-runtime';
 
 type PreparedRequestStatus = 'cancelled' | 'completed' | 'failed';
 
@@ -26,8 +29,10 @@ interface UseAssistantServerRunSessionOptions {
         error?: string
       ) => Promise<void> | void)
     | undefined;
-  readonly prepareLocalModel?: (() => Promise<void>) | undefined;
-  readonly prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+  readonly prepareLocalModel?: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
+  readonly prepareRequestData?:
+    | ((abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>)
+    | undefined;
   readonly threadKey?: string | undefined;
 }
 
@@ -38,7 +43,9 @@ interface AssistantServerRunSessionController {
   readonly onFinish: () => void;
   readonly onReplayError: (error: Error) => void;
   readonly onResponse: (response: Response) => void;
-  readonly prepareRequest: () => Promise<Record<string, unknown> | undefined>;
+  readonly prepareRequest: (
+    abortSignal?: AbortSignal
+  ) => Promise<Record<string, unknown> | undefined>;
   readonly replayRetryToken: number;
   readonly resumeApi: string | undefined;
 }
@@ -96,20 +103,36 @@ export function useAssistantServerRunSession({
     []
   );
 
-  const prepareRequest = useCallback(async (): Promise<Record<string, unknown> | undefined> => {
-    if (preparedRequestRef.current) {
-      throw new Error('Cannot start a hosted assistant run while another run is in progress.');
-    }
-    if (activeRunSessionRef.current) {
-      throw new Error(
-        'Cannot start a hosted assistant run while an existing run is awaiting stream reattachment.'
-      );
-    }
-    await prepareLocalModel?.();
-    const data = await prepareRequestData?.();
-    preparedRequestRef.current = { data };
-    return data;
-  }, [prepareLocalModel, prepareRequestData]);
+  const prepareRequest = useCallback(
+    async (abortSignal?: AbortSignal): Promise<Record<string, unknown> | undefined> => {
+      if (preparedRequestRef.current) {
+        throw new Error('Cannot start a hosted assistant run while another run is in progress.');
+      }
+      if (activeRunSessionRef.current) {
+        throw new Error(
+          'Cannot start a hosted assistant run while an existing run is awaiting stream reattachment.'
+        );
+      }
+      const preparationSignal = abortSignal ?? new AbortController().signal;
+      preparationSignal.throwIfAborted();
+      await prepareLocalModel?.(preparationSignal);
+      preparationSignal.throwIfAborted();
+      const data = await prepareRequestData?.(preparationSignal);
+      if (preparationSignal.aborted) {
+        const reason = preparationSignal.reason;
+        const timedOut = reason instanceof AssistantRequestPreparationTimeoutError;
+        await completePreparedRequestRef.current?.(
+          data,
+          timedOut ? 'failed' : 'cancelled',
+          timedOut ? reason.message : undefined
+        );
+        throw reason;
+      }
+      preparedRequestRef.current = { data };
+      return data;
+    },
+    [prepareLocalModel, prepareRequestData]
+  );
 
   const onCancel = useCallback((): void => {
     const runId =

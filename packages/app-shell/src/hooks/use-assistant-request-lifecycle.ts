@@ -131,6 +131,20 @@ function buildBoundRootRequestData(
   };
 }
 
+function resolveRequestPreparationSignal(abortSignal?: AbortSignal): AbortSignal {
+  if (abortSignal) {
+    return abortSignal;
+  }
+  return new AbortController().signal;
+}
+
+function runWhileRequestPreparationActive(abortSignal: AbortSignal, callback: () => void): void {
+  if (abortSignal.aborted) {
+    return;
+  }
+  callback();
+}
+
 /**
  * The model/provider that PRODUCED a run's tokens, snapshotted at request start.
  * The model picker stays interactive during a run, so usage must be attributed
@@ -168,7 +182,7 @@ interface UseAssistantRequestLifecycleResult {
    * after a long silent gap still reaches the server.
    */
   readonly getActiveSteerableRunId: () => string | null;
-  readonly prepareRequestData: () => Promise<Record<string, unknown>>;
+  readonly prepareRequestData: (abortSignal?: AbortSignal) => Promise<Record<string, unknown>>;
   readonly renewActiveAssistantForegroundActivity: () => void;
 }
 
@@ -300,95 +314,103 @@ export function useAssistantRequestLifecycle({
     [focusedRootId, resolvedModelName, selectedProvider]
   );
 
-  const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
-    const memoryContext = requireRequestMemoryContext(requestData);
-    const activeThreadRootBinding = await resolvePreparedThreadRootBinding({
-      current: threadRootBindingRef.current,
-      ...(persistThreadRootBinding ? { persist: persistThreadRootBinding } : {}),
-      ...(threadRootBinding ? { proposed: threadRootBinding } : {}),
-      resolve: resolveThreadRootBinding,
-      ...(selectedMemoryThreadId ? { threadId: selectedMemoryThreadId } : {}),
-    });
-    if (activeThreadRootBinding && selectedMemoryThreadId) {
-      threadRootBindingRef.current = {
-        binding: activeThreadRootBinding,
-        threadId: selectedMemoryThreadId,
-      };
-    }
+  const prepareRequestData = useCallback(
+    async (abortSignal?: AbortSignal): Promise<Record<string, unknown>> => {
+      const preparationSignal = resolveRequestPreparationSignal(abortSignal);
+      preparationSignal.throwIfAborted();
+      const memoryContext = requireRequestMemoryContext(requestData);
+      const activeThreadRootBinding = await resolvePreparedThreadRootBinding({
+        current: threadRootBindingRef.current,
+        ...(persistThreadRootBinding ? { persist: persistThreadRootBinding } : {}),
+        ...(threadRootBinding ? { proposed: threadRootBinding } : {}),
+        resolve: resolveThreadRootBinding,
+        ...(selectedMemoryThreadId ? { threadId: selectedMemoryThreadId } : {}),
+      });
+      preparationSignal.throwIfAborted();
+      if (activeThreadRootBinding && selectedMemoryThreadId) {
+        threadRootBindingRef.current = {
+          binding: activeThreadRootBinding,
+          threadId: selectedMemoryThreadId,
+        };
+      }
 
-    const runId = await createAssistantThreadRunPromise({
+      const runId = await createAssistantThreadRunPromise({
+        assistantThreadRepository,
+        memoryResourceId,
+        modelSettings,
+        providerOptions,
+        resolvedModelName,
+        selectedMemoryThreadId,
+        selectedProvider,
+      });
+      runWhileRequestPreparationActive(preparationSignal, () => {
+        activatePreparedRun(runId, activeThreadRootBinding);
+      });
+
+      // Read the persisted plan-mode toggle FRESH here, at request-composition
+      // time, instead of trusting `requestData.planMode` (a value computed at
+      // the RENDER that produced the `requestData` object/closure this callback
+      // captured). `useAssistantPreferencesStore.getState()` reads the zustand
+      // store's live internal state directly — updated synchronously by
+      // `setPlanModeEnabled`, not gated on a React re-render/flush. This closes
+      // the approve-exits-plan-mode race: `SubmitPlanNotice.approve` flips the
+      // store off and then immediately submits the resume in the SAME
+      // synchronous handler, with no guarantee a re-render lands in between.
+      // `planMode` is presence-means-on: explicitly set `undefined` (never
+      // `false`) so it always overrides a stale `true` inherited from
+      // `requestData` and drops off the wire on JSON.stringify.
+      const freshPlanModeEnabled =
+        planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled;
+
+      const freshWorkspaceIndex = resolveFreshWorkspaceIndex(requestData['workspaceIndex']);
+
+      // Same fresh-read rationale as `planMode` above, for permission enforcement.
+      // A grant action on the approval notice ("Always allow" / "Allow <category>
+      // this session") records the override/grant in the store and then, in the
+      // SAME synchronous handler, approves the pending call — which resumes the
+      // run through this composer. `requestData.permissionPolicyRequest` was
+      // snapshotted at the render that produced this closure, so without a fresh
+      // read the resumed run's gate would still treat the just-granted tool as
+      // `ask` and could re-prompt until a later re-render. Read the live store
+      // posture here so the grant takes effect on THIS run. `permissionEnforceable`
+      // mirrors the wrapper's transport gate (only the data-stream server
+      // enforces); `enforce` is read fresh. Presence-means-on: set `undefined`
+      // (never a stale object) so an off/opted-out posture drops off the wire.
+      const freshPermissionSnapshot = getPermissionToolGateSnapshotInput();
+      const freshPermissionPolicyRequest =
+        permissionEnforceable && freshPermissionSnapshot.enforce
+          ? freshPermissionSnapshot
+          : undefined;
+
+      return {
+        ...requestData,
+        ...buildBoundRootRequestData(activeThreadRootBinding),
+        memory: {
+          ...memoryContext,
+          ...(runId ? { runId } : {}),
+        },
+        permissionPolicyRequest: freshPermissionPolicyRequest,
+        planMode: freshPlanModeEnabled ? true : undefined,
+        ...(freshWorkspaceIndex ? { workspaceIndex: freshWorkspaceIndex } : {}),
+      };
+    },
+    [
       assistantThreadRepository,
+      activatePreparedRun,
       memoryResourceId,
       modelSettings,
+      permissionEnforceable,
+      persistThreadRootBinding,
+      planModeAvailable,
       providerOptions,
+      requestData,
+      resolveThreadRootBinding,
       resolvedModelName,
       selectedMemoryThreadId,
       selectedProvider,
-    });
-    activatePreparedRun(runId, activeThreadRootBinding);
-
-    // Read the persisted plan-mode toggle FRESH here, at request-composition
-    // time, instead of trusting `requestData.planMode` (a value computed at
-    // the RENDER that produced the `requestData` object/closure this callback
-    // captured). `useAssistantPreferencesStore.getState()` reads the zustand
-    // store's live internal state directly — updated synchronously by
-    // `setPlanModeEnabled`, not gated on a React re-render/flush. This closes
-    // the approve-exits-plan-mode race: `SubmitPlanNotice.approve` flips the
-    // store off and then immediately submits the resume in the SAME
-    // synchronous handler, with no guarantee a re-render lands in between.
-    // `planMode` is presence-means-on: explicitly set `undefined` (never
-    // `false`) so it always overrides a stale `true` inherited from
-    // `requestData` and drops off the wire on JSON.stringify.
-    const freshPlanModeEnabled =
-      planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled;
-
-    const freshWorkspaceIndex = resolveFreshWorkspaceIndex(requestData['workspaceIndex']);
-
-    // Same fresh-read rationale as `planMode` above, for permission enforcement.
-    // A grant action on the approval notice ("Always allow" / "Allow <category>
-    // this session") records the override/grant in the store and then, in the
-    // SAME synchronous handler, approves the pending call — which resumes the
-    // run through this composer. `requestData.permissionPolicyRequest` was
-    // snapshotted at the render that produced this closure, so without a fresh
-    // read the resumed run's gate would still treat the just-granted tool as
-    // `ask` and could re-prompt until a later re-render. Read the live store
-    // posture here so the grant takes effect on THIS run. `permissionEnforceable`
-    // mirrors the wrapper's transport gate (only the data-stream server
-    // enforces); `enforce` is read fresh. Presence-means-on: set `undefined`
-    // (never a stale object) so an off/opted-out posture drops off the wire.
-    const freshPermissionSnapshot = getPermissionToolGateSnapshotInput();
-    const freshPermissionPolicyRequest =
-      permissionEnforceable && freshPermissionSnapshot.enforce
-        ? freshPermissionSnapshot
-        : undefined;
-
-    return {
-      ...requestData,
-      ...buildBoundRootRequestData(activeThreadRootBinding),
-      memory: {
-        ...memoryContext,
-        ...(runId ? { runId } : {}),
-      },
-      permissionPolicyRequest: freshPermissionPolicyRequest,
-      planMode: freshPlanModeEnabled ? true : undefined,
-      ...(freshWorkspaceIndex ? { workspaceIndex: freshWorkspaceIndex } : {}),
-    };
-  }, [
-    assistantThreadRepository,
-    activatePreparedRun,
-    memoryResourceId,
-    modelSettings,
-    permissionEnforceable,
-    persistThreadRootBinding,
-    planModeAvailable,
-    providerOptions,
-    requestData,
-    resolveThreadRootBinding,
-    resolvedModelName,
-    selectedMemoryThreadId,
-    selectedProvider,
-    threadRootBinding,
-  ]);
+      threadRootBinding,
+    ]
+  );
 
   const completePreparedRequest = useCallback(
     async (

@@ -94,7 +94,7 @@ export function useLocalModelLoading(args: {
 }): {
   handleLocalLoadingStateChange: (state: LocalModelLoadingState) => void;
   localLoadingState: LocalModelLoadingState | undefined;
-  prepareLocalModel: (() => Promise<void>) | undefined;
+  prepareLocalModel: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
 } {
   const { localViaDataStream, modelName } = args;
   const [localLoadingState, setLocalLoadingState] = useState<LocalModelLoadingState | undefined>();
@@ -224,11 +224,12 @@ export function useLocalModelLoading(args: {
     if (!(localViaDataStream && modelName)) {
       return;
     }
-    return async () => {
+    return async (abortSignal?: AbortSignal) => {
       try {
         await warmDesktopLocalModel({
           modelId: modelName,
           onLoadingProgress: handleLocalLoadingStateChange,
+          ...(abortSignal ? { signal: abortSignal } : {}),
         });
         handleLocalLoadingStateChange({ message: 'Model ready', progress: 100, stage: 'ready' });
       } catch (error) {

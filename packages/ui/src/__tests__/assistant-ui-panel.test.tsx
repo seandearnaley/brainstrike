@@ -19,6 +19,7 @@ import {
   AssistantUiPanel,
   ProviderSettingsPanel,
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
+import { AssistantRequestPreparationTimeoutError } from '../../src/assistant-ui-panel/data-stream-runtime';
 import { TooltipProvider } from '../tooltip';
 
 const useBrainstrikeDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({
@@ -77,6 +78,7 @@ vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
 vi.mock('../../src/assistant-ui-panel/data-stream-runtime', () => ({
+  AssistantRequestPreparationTimeoutError: class AssistantRequestPreparationTimeoutError extends Error {},
   AssistantStreamReplayUnavailableError: class AssistantStreamReplayUnavailableError extends Error {},
   useBrainstrikeDataStreamRuntime: (options: unknown) =>
     useBrainstrikeDataStreamRuntimeMock(options),
@@ -911,6 +913,90 @@ describe('AssistantUiPanel model picker', () => {
       )
     );
     fetchMock.mockRestore();
+  });
+
+  it('cancels a prepared run that resolves after Stop aborts preparation', async () => {
+    const deferred = Promise.withResolvers<Record<string, unknown>>();
+    const prepareRequestData = vi.fn(() => deferred.promise);
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: (abortSignal: AbortSignal) => Promise<Record<string, unknown> | undefined>;
+    };
+    const abortController = new AbortController();
+    const bodyPromise = options.body?.(abortController.signal);
+    await waitFor(() => expect(prepareRequestData).toHaveBeenCalledOnce());
+
+    const abortError = new DOMException('The user aborted a request.', 'AbortError');
+    abortController.abort(abortError);
+    deferred.resolve({
+      memory: {
+        resourceId: 'workspace-1',
+        runId: 'run-cancel-late',
+        threadId: 'thread-1',
+      },
+    });
+
+    await expect(bodyPromise).rejects.toBe(abortError);
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memory: expect.objectContaining({ runId: 'run-cancel-late' }),
+      }),
+      'cancelled',
+      undefined
+    );
+  });
+
+  it('fails a prepared run that resolves after its preparation watchdog expires', async () => {
+    const deferred = Promise.withResolvers<Record<string, unknown>>();
+    const prepareRequestData = vi.fn(() => deferred.promise);
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: (abortSignal: AbortSignal) => Promise<Record<string, unknown> | undefined>;
+    };
+    const abortController = new AbortController();
+    const bodyPromise = options.body?.(abortController.signal);
+    await waitFor(() => expect(prepareRequestData).toHaveBeenCalledOnce());
+
+    const timeoutError = new AssistantRequestPreparationTimeoutError(
+      'Assistant request preparation timed out after 30000ms.'
+    );
+    abortController.abort(timeoutError);
+    deferred.resolve({
+      memory: {
+        resourceId: 'workspace-1',
+        runId: 'run-timeout-late',
+        threadId: 'thread-1',
+      },
+    });
+
+    await expect(bodyPromise).rejects.toBe(timeoutError);
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memory: expect.objectContaining({ runId: 'run-timeout-late' }),
+      }),
+      'failed',
+      timeoutError.message
+    );
   });
 
   it('uses the latest hosted completion callback when the panel rerenders mid-run', async () => {
@@ -1895,6 +1981,7 @@ describe('AssistantUiPanel model picker', () => {
 
 describe('AssistantUiPanel composer attachments availability', () => {
   afterEach(() => {
+    cleanup();
     vi.clearAllMocks();
   });
 
