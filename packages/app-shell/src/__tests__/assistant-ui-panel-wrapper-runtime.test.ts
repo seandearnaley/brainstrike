@@ -175,6 +175,27 @@ describe('assistant runtime helpers', () => {
     ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
   });
 
+  it('blocks hosted providers without a memory backend when no workspace root is open', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        workspaceRootPath: null,
+      })
+    ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
+  });
+
+  it('leaves provider selection guidance authoritative when no provider is selected', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        desktopAssistantBackendAvailable: false,
+        selectedProvider: null,
+        workspaceRootPath: null,
+      })
+    ).toBeUndefined();
+  });
+
   it.each([
     'idle',
     'loading',

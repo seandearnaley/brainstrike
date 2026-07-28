@@ -1,9 +1,27 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
-import { loadTestLocalLlmBackend } from './assistant-ui-panel-wrapper-test-support';
+import {
+  fileExplorerMocks,
+  loadTestLocalLlmBackend,
+  renderAssistantPanel,
+} from './assistant-ui-panel-wrapper-test-support';
+
+test('disables hosted web chat without a workspace before request preparation', async () => {
+  Reflect.deleteProperty(window, 'assistant');
+  fileExplorerMocks.rootDirectoryHandle = null;
+
+  await renderAssistantPanel(['openai'], () =>
+    waitFor(() => {
+      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+      expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+        'Assistant memory for hosted providers requires the desktop assistant backend.'
+      );
+    })
+  );
+});
 
 test('reconciles an active thread draft to the hosted fixed model', async () => {
   useAssistantThreadStore.getState().setThreadDraftRuntime('thread-existing', {

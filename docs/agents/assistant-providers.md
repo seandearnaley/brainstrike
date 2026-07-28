@@ -119,6 +119,11 @@
     PGlite/Mastra observational memory, so Settings excludes the local observer
     unless that capability is positively present and the runtime blocks a
     persisted local observer with an explicit desktop-backend reason.
+    Hosted-provider chat likewise requires a positively available Mastra memory
+    backend before request preparation. That capability gate applies even when
+    no workspace root is open: the missing-root case must disable the composer
+    with the backend reason instead of bypassing the gate and reaching the
+    strict request-memory assertion.
   - Hosted Web: local Vite and protected Vercel Preview may read the server-only
     OpenAI environment key and build an OpenAI runtime with the registry default
     model. Because the Vite process holds a developer credential, its assistant
