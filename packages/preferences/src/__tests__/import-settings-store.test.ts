@@ -44,19 +44,56 @@ describe('import-settings-store', () => {
     expect(store.chunkTokenLimit).toBe(4096);
   });
 
-  it('normalizes chunk settings', () => {
+  // BST-423. This test previously asserted the OPPOSITE — that `setChunkSize(-42.7)`
+  // silently became 1 and `setChunkTokenLimit(99_999)` silently became 16_384. That
+  // is the defect the ticket names: the store clamped impossible input into a nearby
+  // possible value, so a user who typed 99999 got 16384 with no indication their
+  // input was discarded. The assertions are inverted deliberately.
+  it('rejects impossible chunk settings instead of clamping them', () => {
     const snapshot = useImportSettingsStore.getState();
 
-    snapshot.setChunkSize(-42.7);
-    snapshot.setChunkOverlap(-9.4);
-    snapshot.setTokenTrueSizing(0 as unknown as boolean);
-    snapshot.setChunkTokenLimit(99_999);
+    expect(() => snapshot.setChunkSize(-42.7)).toThrow(/Chunk size/);
+    expect(() => snapshot.setChunkOverlap(-9.4)).toThrow(/Overlap/);
+    expect(() => snapshot.setChunkTokenLimit(99_999)).toThrow(/Token cap/);
+    expect(() => snapshot.setChunkSize(Number.NaN)).toThrow(/Chunk size/);
 
+    // A rejected write leaves the previous good value untouched — no partial
+    // application, no drift toward the bound.
     const next = useImportSettingsStore.getState();
-    expect(next.chunkSize).toBe(1);
-    expect(next.chunkOverlap).toBe(0);
-    expect(next.tokenTrueSizing).toBe(false);
-    expect(next.chunkTokenLimit).toBe(16_384);
+    expect(next.chunkSize).toBe(256);
+    expect(next.chunkOverlap).toBe(50);
+    expect(next.chunkTokenLimit).toBe(4096);
+  });
+
+  it('rejects a write that would violate the cross-field overlap invariant', () => {
+    const snapshot = useImportSettingsStore.getState();
+    // Each value is individually in range; only the pair is impossible.
+    expect(() => snapshot.setChunkOverlap(256)).toThrow(/smaller than chunk size/);
+    expect(() => snapshot.setChunkSize(128)).not.toThrow(); // 50 < 128, still fine
+  });
+
+  // Review follow-up on #2086. The size direction used to be asserted with
+  // `setChunkSize(64)`, which fails at `validateChunkSize` first (64 < the 128
+  // minimum) and never reaches the pair check — so the test passed for the
+  // wrong reason and stayed green even with the cross-field assert deleted.
+  // Both values must be individually VALID to reach the pair check.
+  it('rejects shrinking chunk size below the current overlap', () => {
+    useImportSettingsStore.getState().setChunkOverlap(200);
+    // 150 is a legal chunk size (>= 128) and 200 is a legal overlap (<= 256);
+    // only together are they impossible.
+    expect(() => useImportSettingsStore.getState().setChunkSize(150)).toThrow(
+      /larger than the overlap/
+    );
+    // The message names the field being edited, not the other one.
+    expect(() => useImportSettingsStore.getState().setChunkSize(150)).toThrow(/Chunk size/);
+    expect(useImportSettingsStore.getState().chunkSize).toBe(256);
+    expect(useImportSettingsStore.getState().chunkOverlap).toBe(200);
+  });
+
+  it('still accepts legitimate boolean coercion for token sizing', () => {
+    const snapshot = useImportSettingsStore.getState();
+    snapshot.setTokenTrueSizing(0 as unknown as boolean);
+    expect(useImportSettingsStore.getState().tokenTrueSizing).toBe(false);
     expect(useTokenPreferencesStore.getState().accurateCounting).toBe(false);
   });
 
@@ -250,5 +287,125 @@ describe('import-settings-store', () => {
       expect(next.chunkOverlap).toBe(33);
       expect(next.chunkTokenLimit).toBe(5555);
     });
+  });
+
+  // BST-423 — hydration of ALREADY-invalid persisted state.
+  //
+  // Someone whose localStorage predates these invariants (or who edited it by
+  // hand) must not be locked out: throwing here would leave them unable to open
+  // Settings to fix it, with factory reset as the only exit. So hydration
+  // REPAIRS to the preset default — but records a visible notice, because a
+  // silent repair is the same silent normalization this ticket removes.
+  //
+  // Note the persisted version is the CURRENT one: zustand skips `migrate`
+  // entirely when versions match, so the repair cannot live there. It runs on
+  // rehydrate, which always executes.
+  function persistState(state: Record<string, unknown>, version: number) {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+    options.storage.setItem(options.name, { state, version });
+    return (useImportSettingsStore as unknown as { persist?: { rehydrate?: () => Promise<void> } })
+      .persist;
+  }
+
+  it('repairs invalid persisted chunk settings to preset defaults and reports it', () => {
+    const persistApi = persistState(
+      {
+        chunkingPreset: 'balanced',
+        chunkingStrategy: 'auto',
+        chunkingStrategyExplicit: false,
+        // overlap > size: each field plausible on its own, the pair impossible.
+        chunkOverlap: 900,
+        chunkSize: 4,
+        chunkTokenLimit: 4096,
+        enableChunking: true,
+        tokenTrueSizing: true,
+      },
+      7
+    );
+
+    return persistApi?.rehydrate?.().then(() => {
+      const next = useImportSettingsStore.getState();
+      // Repaired to the balanced preset's values, not clamped to the bounds.
+      expect(next.chunkSize).toBe(256);
+      expect(next.chunkOverlap).toBe(50);
+
+      // ...and the repair is visible, naming what was discarded.
+      expect(next.chunkingSettingsRepairs.length).toBeGreaterThan(0);
+      const fields = next.chunkingSettingsRepairs.map((repair) => repair.field);
+      expect(fields).toContain('chunkSize');
+      const sizeRepair = next.chunkingSettingsRepairs.find(
+        (repair) => repair.field === 'chunkSize'
+      );
+      expect(sizeRepair?.discardedValue).toBe(4);
+      expect(sizeRepair?.repairedTo).toBe(256);
+      expect(sizeRepair?.message).toMatch(/Chunk size/);
+    });
+  });
+
+  it('leaves valid persisted settings alone and reports no repair', () => {
+    // Control: proves the repair path is not firing indiscriminately. Without
+    // this, a bug that repaired everything would still pass the test above.
+    const persistApi = persistState(
+      {
+        chunkingPreset: 'custom',
+        chunkingStrategy: 'recursive',
+        chunkingStrategyExplicit: true,
+        chunkOverlap: 33,
+        chunkSize: 777,
+        chunkTokenLimit: 5555,
+        enableChunking: true,
+        tokenTrueSizing: true,
+      },
+      7
+    );
+
+    return persistApi?.rehydrate?.().then(() => {
+      const next = useImportSettingsStore.getState();
+      expect(next.chunkSize).toBe(777);
+      expect(next.chunkOverlap).toBe(33);
+      expect(next.chunkTokenLimit).toBe(5555);
+      expect(next.chunkingSettingsRepairs).toEqual([]);
+    });
+  });
+
+  it('lets the user dismiss the repair notice', () => {
+    const persistApi = persistState(
+      {
+        chunkingPreset: 'balanced',
+        chunkOverlap: 50,
+        chunkSize: 5,
+        chunkTokenLimit: 4096,
+        enableChunking: true,
+        tokenTrueSizing: true,
+      },
+      7
+    );
+
+    return persistApi?.rehydrate?.().then(() => {
+      expect(useImportSettingsStore.getState().chunkingSettingsRepairs.length).toBeGreaterThan(0);
+      useImportSettingsStore.getState().dismissChunkingSettingsRepairs();
+      expect(useImportSettingsStore.getState().chunkingSettingsRepairs).toEqual([]);
+    });
+  });
+
+  it('never persists the repair notice back to storage', () => {
+    // The notice is a one-time, in-session signal. Persisting it would make the
+    // warning immortal: it would reappear on every launch forever, long after
+    // the settings were corrected.
+    const options = storeWithPersist.persist?.getOptions?.();
+    const partialized = (
+      options as unknown as {
+        partialize?: (state: Record<string, unknown>) => Record<string, unknown>;
+      }
+    ).partialize?.({
+      ...useImportSettingsStore.getState(),
+      chunkingSettingsRepairs: [{ field: 'chunkSize' }],
+    } as unknown as Record<string, unknown>);
+    expect(partialized).toBeDefined();
+    expect(Object.keys(partialized ?? {})).not.toContain('chunkingSettingsRepairs');
   });
 });

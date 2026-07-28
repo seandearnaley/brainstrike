@@ -90,11 +90,15 @@ describe('types module', () => {
   it('ImportSettings type has all required properties', () => {
     const settings: ImportSettings = {
       chunkingPreset: 'balanced',
+      // BST-423: hydration-repair notice + its dismissal are part of the shape,
+      // so every construction site is forced to acknowledge them.
+      chunkingSettingsRepairs: [],
       chunkingStrategy: 'auto',
       chunkingStrategyExplicit: false,
       chunkOverlap: 50,
       chunkSize: 500,
       chunkTokenLimit: 8192,
+      dismissChunkingSettingsRepairs: () => {},
       enableChunking: true,
       setChunkingPreset: () => {},
       setChunkingStrategy: () => {},

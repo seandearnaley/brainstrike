@@ -1,4 +1,5 @@
 import type { FileChunk, FileRecord, ImportProgress } from '@brainstrike/db';
+import type { ChunkingSettingsRepair } from '@brainstrike/preferences';
 import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
 
 export interface ChunkSearchResult {
@@ -71,11 +72,14 @@ export interface ExportButtonsProps {
 
 export interface ImportSettings {
   chunkingPreset: ChunkingPresetSelection;
+  /** BST-423: persisted values replaced at hydration because they were impossible. */
+  chunkingSettingsRepairs: readonly ChunkingSettingsRepair[];
   chunkingStrategy: ChunkingStrategy;
   chunkingStrategyExplicit: boolean;
   chunkOverlap: number;
   chunkSize: number;
   chunkTokenLimit: number;
+  dismissChunkingSettingsRepairs: () => void;
   enableChunking: boolean;
   setChunkingPreset: (value: ChunkingPresetSelection) => void;
   setChunkingStrategy: (value: ChunkingStrategy) => void;

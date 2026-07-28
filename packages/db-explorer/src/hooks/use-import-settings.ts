@@ -17,14 +17,20 @@ export function useImportSettings(): ImportSettings {
   const setTokenTrueSizing = useImportSettingsStore((s) => s.setTokenTrueSizing);
   const chunkTokenLimit = useImportSettingsStore((s) => s.chunkTokenLimit);
   const setChunkTokenLimit = useImportSettingsStore((s) => s.setChunkTokenLimit);
+  const chunkingSettingsRepairs = useImportSettingsStore((s) => s.chunkingSettingsRepairs);
+  const dismissChunkingSettingsRepairs = useImportSettingsStore(
+    (s) => s.dismissChunkingSettingsRepairs
+  );
 
   return {
     chunkingPreset,
+    chunkingSettingsRepairs,
     chunkingStrategy,
     chunkingStrategyExplicit,
     chunkOverlap,
     chunkSize,
     chunkTokenLimit,
+    dismissChunkingSettingsRepairs,
     enableChunking,
     setChunkingPreset,
     setChunkingStrategy,
