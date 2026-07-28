@@ -233,7 +233,14 @@ export async function fetchJsonWithTimeout(
       headers['content-type'] = 'application/json';
     }
 
-    const response = await options.fetchImpl(endpoint, {
+    // Read the impl out before calling it. `options.fetchImpl(...)` is a method
+    // call, so `this` becomes the options bag — and the browser's native fetch
+    // rejects a receiver that is not the global object with
+    // "Failed to execute 'fetch' on 'Window': Illegal invocation" (BST-964).
+    // A bare call leaves `this` undefined, which every caller's fetch accepts,
+    // so this also covers callers that hand us an unbound native reference.
+    const { fetchImpl } = options;
+    const response = await fetchImpl(endpoint, {
       headers,
       method: options.method ?? 'GET',
       ...(options.body ? { body: options.body } : {}),
