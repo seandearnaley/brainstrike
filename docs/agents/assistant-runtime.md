@@ -426,7 +426,13 @@ open args stream — emitting its `9` with the accumulated args — before
 text/reasoning deltas, error/finish frames, and approval/suspend notices
 (pauses produce no later boundary, so the notice cannot be deferred);
 (c) prefers DEFERRAL over premature flushing everywhere: a late data part
-flushes at the next boundary, a premature one crashes the run. The incident
+flushes at the next boundary, a premature one crashes the run; (d) closes the
+window EAGERLY (`b` immediately followed by its `9`) when a tool start already
+carries the complete input — the non-streaming provider path (`tool-call` part,
+no `input_stream_*` events) — so the window never spans tool EXECUTION, which
+would buffer live shell output and run events until the result; a late
+`input_stream_end` after any forced close is dropped by the `argsEmitted`
+guard (re-emitting the `9` is itself an args-closing frame). The incident
 producer was an OM-observer run event landing mid `updateWorkingMemory` args
 (debug bundle 2026-07-28T15-43-22Z). Known remaining hole, deliberately
 unfixed: interleaved args deltas ACROSS parallel calls (`b`-A, `b`-B, `c`-A)

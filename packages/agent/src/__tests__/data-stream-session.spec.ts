@@ -110,9 +110,15 @@ describe('AssistantDataStreamSession', () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Hello ' },
       { type: 'text-delta', value: 'world' },
+      // Streaming-args shape per tool-event-mapper: the start carries NO
+      // input (`tool-call-input-streaming-start` maps to a progress event;
+      // the args-carrying `tool-call` start only arrives after streaming
+      // ends). A start WITH complete args is the non-streaming path and now
+      // emits an eager `9` right after the `b` (BST-962), dropping any
+      // out-of-spec trailing deltas.
       {
         name: 'weather.lookup',
-        payload: { args: { city: 'SF' }, toolCallId: 'call-1' },
+        payload: { toolCallId: 'call-1' },
         status: 'start',
         type: 'tool-event',
       },

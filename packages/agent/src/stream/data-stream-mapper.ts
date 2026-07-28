@@ -509,11 +509,15 @@ export class DataStreamMapper {
 
   /**
    * Emit a live shell-output slice as a transient `aui-data` part. Subject to
-   * the SAME text-part deferral contract as run events: a data part emitted mid
-   * text/reasoning append would slice visible text, so while a part is open the
-   * encoded slice is queued and flushed at the next natural boundary. Shell
-   * output is produced during tool execution (after the text turn's finish), so
-   * in practice it streams live; the deferral only guards the rare interleave.
+   * the SAME deferral contract as run events: a data part emitted mid
+   * text/reasoning append would slice visible text, and one emitted inside an
+   * open args stream crashes the renderer decoder (BST-962), so while either
+   * is open the encoded slice is queued and flushed at the next boundary.
+   * Shell output is produced during tool execution, and the executing call's
+   * args window is guaranteed closed by then — streaming providers close it at
+   * input_stream_end, non-streaming ones at the eager `9` in handleToolStart —
+   * so in practice it streams live; the deferral only guards a concurrent
+   * OTHER call still streaming its args.
    */
   private *handleShellOutput(chunk: StreamChunkShellOutput): Generator<EncodedChunk> {
     const encoded = {
@@ -868,18 +872,39 @@ export class DataStreamMapper {
     }
     yield* this.finalizeCurrentTextIfNeeded();
     yield* this.startStepIfNeeded();
-    this.toolState.set(callId, {
+    const state: ToolState = {
       argsEmitted: false,
       lastInput: extractToolInput(payload),
       pendingArgsText: '',
       toolName,
-    });
+    };
+    this.toolState.set(callId, state);
     yield {
       code: DataStreamCode.startToolCall,
       value: { toolCallId: callId, toolName },
     } satisfies EncodedChunk;
     // The `b` frame re-points the decoder's active argsText at this call.
     this.openArgsCallId = callId;
+    // A start that already carries the complete input is the non-streaming
+    // provider path (a `tool-call` part; no input_stream_* events will
+    // follow), so the args window would otherwise stay open across the whole
+    // EXECUTION — deferring live shell output and run events until the
+    // result. Close it now: `b` immediately followed by its `9`. Streaming
+    // providers map `tool-call-input-streaming-start` to a start WITHOUT
+    // input, so they are unaffected; a defensive late delta is dropped by the
+    // argsEmitted guard either way.
+    if (hasNonEmptyToolInput(state.lastInput)) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          args: toArgsObject(state.lastInput),
+          toolCallId: callId,
+          toolName,
+        },
+      } satisfies EncodedChunk;
+      yield* this.completeArgsStream(callId);
+    }
   }
 
   private *handleToolProgress(callId: string, payload: unknown): Generator<EncodedChunk> {

@@ -364,10 +364,10 @@ describe('tool-suspend-required data part respects text continuity', () => {
   });
 });
 
-function toolStartChunk(name: string, callId: string): StreamChunk {
+function toolStartChunk(name: string, callId: string, input?: unknown): StreamChunk {
   return {
     name,
-    payload: { input: undefined, toolCallId: callId },
+    payload: { input, toolCallId: callId },
     status: 'start',
     type: 'tool-event',
   } as unknown as StreamChunk;
@@ -611,6 +611,45 @@ describe('aui-data parts never interleave into an open tool-call args stream (BS
     // Still delivered, but only after the text block closes.
     expect(dataIndex).toBeGreaterThan(lastText);
     expect(dataIndex).toBeLessThan(codes.indexOf('d'));
+  });
+
+  it('streams execution-time data parts live when the start already carries complete args', async () => {
+    // Non-streaming provider path: a `tool-call` part maps to a start event
+    // with the full input and no input_stream_* events ever follow. The args
+    // window must close at the start (`9` right after `b`), not at
+    // settlement — otherwise live shell output and run events produced DURING
+    // execution are buffered until the result.
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.executeCommand', 'call-sh', { command: 'pnpm build' }),
+      {
+        chunk: 'compiling...',
+        stream: 'stdout',
+        toolCallId: 'call-sh',
+        type: 'shell-output',
+      } as unknown as StreamChunk,
+      runEventChunk('ev-exec', 'Working memory loaded'),
+      {
+        chunk: 'done.',
+        stream: 'stdout',
+        toolCallId: 'call-sh',
+        type: 'shell-output',
+      } as unknown as StreamChunk,
+      toolSuccessChunk('brainstrike.executeCommand', 'call-sh', { exitCode: 0 }),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    expect(codes.indexOf('9')).toBe(codes.indexOf('b') + 1);
+    const resultIndex = codes.indexOf('a');
+    const dataIndices = codes.flatMap((code, i) => (code === 'aui-data' ? [i] : []));
+    expect(dataIndices).toHaveLength(3);
+    // All three data parts stream during execution, before the tool result.
+    for (const dataIndex of dataIndices) {
+      expect(dataIndex).toBeLessThan(resultIndex);
+    }
+    const argsFrame = parsed[codes.indexOf('9')]?.value as { args: Record<string, unknown> };
+    expect(argsFrame.args).toEqual({ command: 'pnpm build' });
   });
 
   it('closes an open args stream before the finish frames when the stream ends mid-args', async () => {
