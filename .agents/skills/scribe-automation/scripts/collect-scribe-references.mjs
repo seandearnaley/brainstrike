@@ -138,15 +138,20 @@ function classifyCommand(command, packages, allPaths) {
   if (rootScript) {
     const name = rootScript[2];
     // BST-852. A pnpm builtin subcommand wins the bare shorthand outright: the
-    // builtin runs and the identically-named package script NEVER does. When
-    // the repo defines such a script, a documented bare `pnpm <name>` cannot do
-    // what it claims — DANGLING, the same fail-closed verdict an unknown script
-    // name gets. `pnpm run <name>` is unambiguous and stays ACCURATE.
+    // builtin runs and the identically-named package script NEVER does. So a
+    // documented bare `pnpm <shadowed>` is DANGLING — the same fail-closed
+    // verdict an unknown script name gets. `pnpm run <name>` is unambiguous and
+    // stays ACCURATE.
     //
-    // If the repo has NO script by that name the doc genuinely means pnpm's own
-    // builtin, so it stays ACCURATE — that check is what keeps this from
-    // flagging deliberate builtin usage.
-    if (!rootScript[1] && PNPM_SHADOWED_BUILTINS.has(name) && root?.scripts?.[name]) {
+    // This deliberately does NOT depend on whether a script of that name
+    // currently exists. An earlier draft gated on `root?.scripts?.[name]`,
+    // reasoning that with no such script the doc must mean pnpm's own builtin.
+    // That conjunct was inert (with the script now renamed, the no-script case
+    // already fell through to DANGLING anyway) and the reasoning was wrong for
+    // this repo: the shorthand is misleading either way, and a doc that means
+    // pnpm's builtin should say so explicitly rather than relying on a reader
+    // knowing which names pnpm claims. Fail closed.
+    if (!rootScript[1] && PNPM_SHADOWED_BUILTINS.has(name)) {
       return 'DANGLING';
     }
     if (root?.scripts?.[name]) {

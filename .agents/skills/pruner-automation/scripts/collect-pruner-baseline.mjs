@@ -129,7 +129,7 @@ export const parseDoctor = (stdoutText, exitCode) => {
     report = JSON.parse(trimmed);
   } catch {
     throw new Error(
-      `pnpm doctor --json did not emit a parseable JSON report (exit code ${exitCode})`
+      `react-doctor --json did not emit a parseable JSON report (exit code ${exitCode})`
     );
   }
   if (
@@ -139,15 +139,15 @@ export const parseDoctor = (stdoutText, exitCode) => {
     report.summary === null ||
     typeof report.summary !== 'object'
   ) {
-    throw new Error('pnpm doctor --json report is missing the expected ok/summary shape');
+    throw new Error('react-doctor --json report is missing the expected ok/summary shape');
   }
   if (report.ok !== true) {
     const detail = report.error?.message ? `: ${report.error.message}` : '';
-    throw new Error(`pnpm doctor failed operationally${detail}`);
+    throw new Error(`react-doctor failed operationally${detail}`);
   }
   const summary = report.summary;
   if (typeof summary.errorCount !== 'number' || typeof summary.warningCount !== 'number') {
-    throw new Error('pnpm doctor --json summary is missing diagnostic counts');
+    throw new Error('react-doctor --json summary is missing diagnostic counts');
   }
   const skippedChecks = Array.isArray(report.projects)
     ? report.projects.reduce(

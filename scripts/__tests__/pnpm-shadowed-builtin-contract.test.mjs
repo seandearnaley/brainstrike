@@ -98,6 +98,52 @@ test('no tracked doc instructs the shadowed bare shorthand', () => {
   assert.deepEqual(violations, [], `Shadowed shorthand in docs:\n${violations.join('\n')}`);
 });
 
+/**
+ * Lines that only TALK about the shorthand. A `//`, `*`, or `#` line is prose,
+ * not something a program prints at a human.
+ */
+function isCommentLine(line) {
+  return /^\s*(\/\/|\*|\/\*|#)/.test(line);
+}
+
+test('no shipped script prints the shadowed shorthand back at a human', () => {
+  // Review follow-up on #2084. The doc scan above only reads `*.md`, so it could
+  // not catch the pruner collector's `parseDoctor` failure messages, which named
+  // `pnpm doctor --json` — a command that collector never runs and which, if an
+  // operator copy-pasted it out of a failure, would silently run pnpm's builtin
+  // and exit 0. A misleading command in an error message is the same defect as
+  // one in a doc; it just reaches the human by a different route.
+  //
+  // Scoped to non-test source: comment lines are prose, and test files must be
+  // able to assert on the literal string.
+  const shadowed = [...PNPM_SHADOWED_BUILTINS];
+  const pattern = new RegExp(String.raw`\bpnpm\s+(?!run\b)(${shadowed.join('|')})\b`);
+  const sources = tracked('*.mjs', '*.js', '*.ts', '*.tsx', '*.cjs').filter(
+    (candidate) => !(candidate.includes('node_modules/') || /\.test\.[cm]?[jt]sx?$/.test(candidate))
+  );
+  const violations = [];
+  for (const sourcePath of sources) {
+    const lines = readFileSync(path.join(repoRoot, sourcePath), 'utf8').split('\n');
+    for (const [index, line] of lines.entries()) {
+      if (isCommentLine(line) || line.includes(MENTION_MARKER)) {
+        continue;
+      }
+      const match = line.match(pattern);
+      if (match) {
+        violations.push(
+          `${sourcePath}:${index + 1} contains \`pnpm ${match[1]}\` outside a comment. If this is a message ` +
+            "shown to a human, name the real binary instead — the bare shorthand runs pnpm's builtin and exits 0."
+        );
+      }
+    }
+  }
+  assert.deepEqual(violations, [], `Shadowed shorthand in source:\n${violations.join('\n')}`);
+  assert.ok(
+    sources.length >= 100,
+    `Source enumeration found only ${sources.length} files; the scan is likely broken and passing vacuously.`
+  );
+});
+
 test('the react-doctor script exists under a name pnpm cannot shadow', () => {
   // The positive half of the contract: the two tests above are satisfiable by
   // deleting the script outright, which would be a silent capability loss. This

@@ -110,6 +110,26 @@ test('bare `pnpm <name>` for a pnpm-shadowed builtin is DANGLING, not ACCURATE',
   assert.equal(classifyCommand('pnpm run doctor', shadowingPackages, new Set()), 'ACCURATE');
 });
 
+// Review follow-up on #2084. The rule must NOT depend on a script of that name
+// existing — the shorthand is misleading either way, and gating on it would
+// make the check inert against the real repo, whose script is now
+// `react-doctor`. This fixture is that real shape.
+test('the shadowed shorthand is DANGLING even when no script of that name exists', () => {
+  const renamedPackages = new Map([
+    [
+      '__root__',
+      {
+        devDependencies: { 'react-doctor': '1.0.0' },
+        scripts: { 'react-doctor': 'react-doctor .' },
+      },
+    ],
+  ]);
+  assert.equal(classifyCommand('pnpm doctor', renamedPackages, new Set()), 'DANGLING');
+  // ...and the renamed script is reachable by both forms.
+  assert.equal(classifyCommand('pnpm react-doctor', renamedPackages, new Set()), 'ACCURATE');
+  assert.equal(classifyCommand('pnpm run react-doctor', renamedPackages, new Set()), 'ACCURATE');
+});
+
 test('non-shadowing builtin names keep working in bare form', () => {
   // `clean` appears in `pnpm help -a` but does NOT shadow a package script,
   // so flagging it would be a false positive. Empirically verified.
