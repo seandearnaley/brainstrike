@@ -9,6 +9,7 @@ import {
 import remarkGfm from 'remark-gfm';
 import { CodeBlockHeader } from '../code-block/code-block-header';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import { stripProviderCitationMarkers } from './citation-markers';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 
 const REMARK_PLUGINS = [remarkGfm];
@@ -34,6 +35,12 @@ export const MarkdownText = memo(function MarkdownTextImpl() {
       // source of streaming jank. Under load intermediate parses coalesce;
       // the final text always renders.
       defer
+      // The ONE seam every visible assistant text part passes through — live
+      // stream and reload hydration alike — so provider citation markers are
+      // stripped once here instead of per provider. `preprocess` runs on the
+      // full accumulated text before smoothing and parsing, so a marker split
+      // across streamed chunks is still matched whole.
+      preprocess={stripProviderCitationMarkers}
       remarkPlugins={REMARK_PLUGINS}
     />
   );
