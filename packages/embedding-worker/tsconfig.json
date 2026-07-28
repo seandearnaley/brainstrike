@@ -16,7 +16,8 @@
       "WebWorker"
     ],
     "types": [
-      "node"
+      "node",
+      "vite/client"
     ],
     "strictNullChecks": true
   },

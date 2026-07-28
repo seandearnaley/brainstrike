@@ -16,14 +16,18 @@ Transformers.js worker implementation that powers local embedding tasks across b
 - Vector normalization helpers (`l2Normalize`, `truncateVector`, `vectorsFromPipelineOutput`) shared with queue adapters.
 - Progress streaming through `workerpool.workerEmit`, covering initialization, embedding progress, and completion states.
 
-## Usage
+## Vite Renderer Usage
 
 ```ts
-import { resolveEmbeddingWorkerUrl } from '@brainstrike/embedding-worker';
+import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 
-const worker = new Worker(resolveEmbeddingWorkerUrl(), { type: 'module' });
+const worker = new Worker(resolveViteEmbeddingWorkerUrlHref(), { type: 'module' });
 // wire the worker into @brainstrike/queue createBrowserEmbeddingQueue or a manual workerpool
 ```
+
+`@brainstrike/embedding-worker/vite` is intentionally a source-only entry. Vite
+must transform its `?worker&url` import in the consuming renderer build, so it is
+not a Node entry and is not included in the package's `dist/**` files.
 
 Queue adapters convert tasks into `EmbedWorkerRequest` objects:
 

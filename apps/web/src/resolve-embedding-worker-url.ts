@@ -1,5 +1,1 @@
-import embeddingWorkerUrlHref from '../../../packages/embedding-worker/src/embedding.worker.ts?worker&url';
-
-export function resolveEmbeddingWorkerUrlHref(): string {
-  return embeddingWorkerUrlHref;
-}
+export { resolveViteEmbeddingWorkerUrlHref as resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';

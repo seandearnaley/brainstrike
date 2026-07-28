@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../../packages/embedding-worker/src/embedding.worker.ts?worker&url', () => ({
-  default: '/assets/embedding-worker.js',
+vi.mock('@brainstrike/embedding-worker/vite', () => ({
+  resolveViteEmbeddingWorkerUrlHref: () => '/assets/embedding-worker.js',
 }));
 
 describe('resolveEmbeddingWorkerUrlHref', () => {
