@@ -449,6 +449,8 @@ function runIndexSearch(args: {
   serviceMaxResults: number;
   embeddingSetId: string | undefined;
   rootId: string | undefined;
+  /** Roots the absolute filePaths entries resolved to; pins the index pass to them. */
+  rootIds?: readonly string[];
 }): Promise<GrepSearchResult> {
   const { input } = args;
   return args.service.search({
@@ -460,6 +462,7 @@ function runIndexSearch(args: {
     maxResults: args.serviceMaxResults,
     ...(args.embeddingSetId === undefined ? {} : { embeddingSetId: args.embeddingSetId }),
     ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
+    ...(args.rootIds === undefined ? {} : { rootIds: args.rootIds }),
   });
 }
 
@@ -522,6 +525,16 @@ export async function runGrepSearch(
     throw new Error(resolvedFilePaths.message);
   }
   const filePaths = resolvedFilePaths.filePaths;
+  // Review follow-up on #2087: an absolute entry names ONE file in ONE root, so
+  // both passes must stay pinned to that root. Without this, flattening
+  // `/work/A/proof.html` to `proof.html` let a sibling root's `proof.html`
+  // match a call that named a file in A — newly reachable, since before this
+  // change the absolute path matched nothing at all.
+  const scopedRootIds = resolvedFilePaths.rootIds;
+  const effectiveLiveRoots =
+    scopedRootIds === undefined
+      ? liveRoots
+      : liveRoots.filter((root) => scopedRootIds.includes(root.rootId));
 
   try {
     const serviceResult = await runIndexSearch({
@@ -530,6 +543,7 @@ export async function runGrepSearch(
       filePaths,
       input,
       rootId,
+      ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
       service,
       serviceMaxResults,
     });
@@ -539,7 +553,7 @@ export async function runGrepSearch(
       contextLines,
       isRegex,
       pattern: input.pattern,
-      roots: liveRoots,
+      roots: effectiveLiveRoots,
       ...(filePaths === undefined ? {} : { filePaths }),
       matcher: liveMatcher,
     });
@@ -564,7 +578,14 @@ export async function runGrepSearch(
       // BST-764: the filePaths scope errors are authored for the model and
       // contain only paths it supplied plus the open-folder list it can already
       // see, so they must reach it rather than becoming "Try again."
-      /^filePaths entry /,
+      //
+      // Review follow-up on #2087: this is a belt-and-braces entry — the
+      // resolver throws OUTSIDE the try, so these never reach this catch today.
+      // It is kept (and widened from `^filePaths entry ` to `^filePaths `) so it
+      // covers EVERY message the resolver can produce — including the
+      // blank-entry one, which starts "filePaths contains…" — if the resolve is
+      // ever moved inside the try.
+      /^filePaths /,
     ];
     if (knownSafeMessages.some((re) => re.test(message))) {
       throw error;

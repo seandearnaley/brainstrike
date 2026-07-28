@@ -455,11 +455,15 @@ describe('grep search tool filePaths scope (BST-764)', () => {
     workspaceRoots: [{ displayName: 'site-qa', path: '/work/site-qa', rootId: 'db-root-a' }],
   } as unknown as RuntimeData;
 
-  /** The `filePaths` array actually handed to the indexed SQL query. */
-  function indexedFilePathParam(): string[] | undefined {
-    const call = queryMock.mock.calls.at(0);
-    const params = call?.[1] as unknown[] | undefined;
-    return params?.find(
+  /**
+   * Every array-of-strings param handed to the indexed SQL query. The query
+   * can carry BOTH a filePaths allowlist and a rootIds allowlist, so tests
+   * assert containment rather than picking by position — an index-based helper
+   * silently started reading rootIds when root pinning was added.
+   */
+  function indexedStringArrays(): string[][] {
+    const params = (queryMock.mock.calls.at(0)?.[1] ?? []) as unknown[];
+    return params.filter(
       (param): param is string[] =>
         Array.isArray(param) && param.every((entry) => typeof entry === 'string')
     );
@@ -477,7 +481,7 @@ describe('grep search tool filePaths scope (BST-764)', () => {
 
     // The indexed pass must receive `proof.html`, NOT the absolute path and NOT
     // the old `work/site-qa/proof.html` mangling.
-    expect(indexedFilePathParam()).toEqual(['proof.html']);
+    expect(indexedStringArrays()).toContainEqual(['proof.html']);
     if (result.outputMode !== 'files') {
       throw new Error('expected files mode result');
     }
@@ -507,7 +511,7 @@ describe('grep search tool filePaths scope (BST-764)', () => {
   it('leaves a relative path untouched', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     await runGrepSearch({ filePaths: ['src/x.ts'], pattern: 'needle' }, ONE_ROOT);
-    expect(indexedFilePathParam()).toEqual(['src/x.ts']);
+    expect(indexedStringArrays()).toContainEqual(['src/x.ts']);
   });
 
   it('deduplicates an absolute and relative spelling of the same file', async () => {
@@ -516,7 +520,7 @@ describe('grep search tool filePaths scope (BST-764)', () => {
       { filePaths: ['/work/site-qa/proof.html', 'proof.html'], pattern: 'needle' },
       ONE_ROOT
     );
-    expect(indexedFilePathParam()).toEqual(['proof.html']);
+    expect(indexedStringArrays()).toContainEqual(['proof.html']);
   });
 
   it('rejects an ambiguous path under nested roots', async () => {
@@ -543,6 +547,56 @@ describe('grep search tool filePaths scope (BST-764)', () => {
       { filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle', root: 'inner' },
       NESTED
     );
-    expect(indexedFilePathParam()).toEqual(['f.ts']);
+    expect(indexedStringArrays()).toContainEqual(['f.ts']);
+  });
+});
+
+/**
+ * Review follow-up on #2087. Flattening `/work/A/proof.html` to `proof.html`
+ * dropped the root the caller named, so with sibling roots mounted the search
+ * also matched `/work/B/proof.html`. That was NEWLY reachable — before the
+ * resolver, an absolute path simply matched nothing — which made it a
+ * regression introduced by the fix rather than a pre-existing gap.
+ */
+describe('grep search tool filePaths root pinning (BST-764 review)', () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+  });
+
+  const SIBLING_ROOTS = {
+    workspaceRoots: [
+      { displayName: 'A', path: '/work/A', rootId: 'db-root-a' },
+      { displayName: 'B', path: '/work/B', rootId: 'db-root-b' },
+    ],
+  } as unknown as RuntimeData;
+
+  /** Every array-of-strings param handed to the indexed SQL query. */
+  function stringArrayParams(): string[][] {
+    const params = (queryMock.mock.calls.at(0)?.[1] ?? []) as unknown[];
+    return params.filter(
+      (param): param is string[] =>
+        Array.isArray(param) && param.every((entry) => typeof entry === 'string')
+    );
+  }
+
+  it('pins the indexed pass to the root the absolute path named', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await runGrepSearch({ filePaths: ['/work/A/proof.html'], pattern: 'needle' }, SIBLING_ROOTS);
+
+    const arrays = stringArrayParams();
+    expect(arrays).toContainEqual(['proof.html']);
+    // ...and the root allowlist, so B's identically-named file cannot match.
+    expect(arrays).toContainEqual(['db-root-a']);
+  });
+
+  it('does not pin roots when the allowlist is purely relative', async () => {
+    // A relative path carries no root information; narrowing it to one root
+    // would be a silent scope reduction, the mirror of the widening bug.
+    queryMock.mockResolvedValue({ rows: [] });
+    await runGrepSearch({ filePaths: ['proof.html'], pattern: 'needle' }, SIBLING_ROOTS);
+
+    const arrays = stringArrayParams();
+    expect(arrays).toContainEqual(['proof.html']);
+    expect(arrays).not.toContainEqual(['db-root-a']);
   });
 });

@@ -32,13 +32,13 @@ function resolve(filePaths: readonly string[] | undefined, roots = [ROOT_A]) {
 
 describe('resolveGrepFilePaths — absent allowlist', () => {
   it('passes undefined through as "no filter"', () => {
-    expect(resolve(undefined)).toEqual({ filePaths: undefined, ok: true });
+    expect(resolve(undefined)).toEqual({ filePaths: undefined, ok: true, rootIds: undefined });
   });
 
   it('preserves an explicitly empty allowlist as "nothing allowed"', () => {
     // Existing semantics in the repository layer: an empty allowlist matches
     // nothing. Silently upgrading it to "no filter" would widen the search.
-    expect(resolve([])).toEqual({ filePaths: [], ok: true });
+    expect(resolve([])).toEqual({ filePaths: [], ok: true, rootIds: undefined });
   });
 });
 
@@ -46,20 +46,29 @@ describe('resolveGrepFilePaths — the reported defect', () => {
   it('converts an absolute path inside the single mounted root to root-relative', () => {
     // The exact shape from the BST-764 reproduction.
     const result = resolve(['/Users/sean/Documents/site-qa/claude-haiku-proof.html']);
-    expect(result).toEqual({ filePaths: ['claude-haiku-proof.html'], ok: true });
+    expect(result).toEqual({
+      filePaths: ['claude-haiku-proof.html'],
+      ok: true,
+      rootIds: ['root-a'],
+    });
   });
 
   it('handles an absolute path in a nested subdirectory of the root', () => {
     const result = resolve(['/Users/sean/Documents/site-qa/src/deep/file.ts']);
-    expect(result).toEqual({ filePaths: ['src/deep/file.ts'], ok: true });
+    expect(result).toEqual({ filePaths: ['src/deep/file.ts'], ok: true, rootIds: ['root-a'] });
   });
 
   it('accepts an already-root-relative path unchanged', () => {
     expect(resolve(['claude-haiku-proof.html'])).toEqual({
       filePaths: ['claude-haiku-proof.html'],
       ok: true,
+      rootIds: undefined,
     });
-    expect(resolve(['./src/file.ts'])).toEqual({ filePaths: ['src/file.ts'], ok: true });
+    expect(resolve(['./src/file.ts'])).toEqual({
+      filePaths: ['src/file.ts'],
+      ok: true,
+      rootIds: undefined,
+    });
   });
 });
 
@@ -114,7 +123,11 @@ describe('resolveGrepFilePaths — multi-root', () => {
       roots,
       scopedRoot: undefined,
     });
-    expect(result).toEqual({ filePaths: ['a.html', 'b.ts'], ok: true });
+    expect(result).toEqual({
+      filePaths: ['a.html', 'b.ts'],
+      ok: true,
+      rootIds: ['root-a', 'root-b'],
+    });
   });
 
   it('rejects an absolute path under a nested root as ambiguous', () => {
@@ -150,7 +163,7 @@ describe('resolveGrepFilePaths — multi-root', () => {
       roots: [ROOT_A, nested],
       scopedRoot: nested,
     });
-    expect(result).toEqual({ filePaths: ['file.ts'], ok: true });
+    expect(result).toEqual({ filePaths: ['file.ts'], ok: true, rootIds: ['root-c'] });
   });
 
   it('rejects an absolute path outside the explicitly scoped root', () => {
@@ -182,20 +195,21 @@ describe('resolveGrepFilePaths — no path-backed roots', () => {
   it('still accepts relative paths with no roots (the indexed pass can match them)', () => {
     expect(
       resolveGrepFilePaths({ filePaths: ['a.html'], roots: [], scopedRoot: undefined })
-    ).toEqual({ filePaths: ['a.html'], ok: true });
+    ).toEqual({ filePaths: ['a.html'], ok: true, rootIds: undefined });
   });
 });
 
 describe('resolveGrepFilePaths — normalization details', () => {
   it('deduplicates paths that normalize to the same root-relative form', () => {
     const result = resolve(['/Users/sean/Documents/site-qa/a.html', 'a.html', './a.html']);
-    expect(result).toEqual({ filePaths: ['a.html'], ok: true });
+    expect(result).toEqual({ filePaths: ['a.html'], ok: true, rootIds: ['root-a'] });
   });
 
   it('collapses redundant separators and inner dot segments', () => {
     expect(resolve(['src//deep/./file.ts'])).toEqual({
       filePaths: ['src/deep/file.ts'],
       ok: true,
+      rootIds: undefined,
     });
   });
 
@@ -211,5 +225,68 @@ describe('resolveGrepFilePaths — normalization details', () => {
     // Scoping a file allowlist to the root directory itself is not a file.
     const result = resolve(['/Users/sean/Documents/site-qa']);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('resolveGrepFilePaths — root identity (review follow-up on #2087)', () => {
+  it('reports the owning root of an absolute entry so both passes can pin to it', () => {
+    const result = resolveGrepFilePaths({
+      filePaths: ['/Users/sean/Documents/site-qa/proof.html'],
+      roots: [ROOT_A, ROOT_B],
+      scopedRoot: undefined,
+    });
+    expect(result).toEqual({ filePaths: ['proof.html'], ok: true, rootIds: ['root-a'] });
+  });
+
+  it('leaves rootIds undefined for a purely relative allowlist', () => {
+    // A relative path carries no root information, so it must keep searching
+    // every open root rather than being silently narrowed to one.
+    expect(resolve(['src/x.ts'], [ROOT_A, ROOT_B])).toEqual({
+      filePaths: ['src/x.ts'],
+      ok: true,
+      rootIds: undefined,
+    });
+  });
+
+  it('reports every distinct owning root when absolute entries span roots', () => {
+    const result = resolveGrepFilePaths({
+      filePaths: ['/Users/sean/Documents/site-qa/a.html', '/Users/sean/Documents/brainstrike/b.ts'],
+      roots: [ROOT_A, ROOT_B],
+      scopedRoot: undefined,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('unreachable');
+    }
+    expect([...(result.rootIds ?? [])].sort()).toEqual(['root-a', 'root-b']);
+  });
+});
+
+describe('resolveGrepFilePaths — Windows path shapes (review follow-up on #2087)', () => {
+  it('rejects a UNC path rather than coercing it into a never-matching relative path', () => {
+    // Previously `\\server\share\file.ts` satisfied neither absolute branch,
+    // fell through to the relative handler, and became `server/share/file.ts`
+    // — the BST-764 failure mode on a different input shape.
+    const result = resolve(['\\\\server\\share\\repo\\src\\x.ts']);
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a drive-relative rooted path', () => {
+    const result = resolve(['\\foo\\bar.ts']);
+    expect(result.ok).toBe(false);
+  });
+
+  it('resolves a Windows drive path inside a matching root', () => {
+    const winRoot: RuntimeWorkspaceRoot = {
+      displayName: 'repo',
+      path: 'C:\\Work\\Repo',
+      rootId: 'root-win',
+    };
+    const result = resolveGrepFilePaths({
+      filePaths: ['C:\\Work\\Repo\\src\\x.ts'],
+      roots: [winRoot],
+      scopedRoot: undefined,
+    });
+    expect(result).toEqual({ filePaths: ['src/x.ts'], ok: true, rootIds: ['root-win'] });
   });
 });

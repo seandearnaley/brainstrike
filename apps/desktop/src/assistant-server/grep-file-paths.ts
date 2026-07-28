@@ -1,3 +1,4 @@
+import process from 'node:process';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/assistant-contract';
 
 /**
@@ -26,7 +27,22 @@ import type { RuntimeWorkspaceRoot } from '@brainstrike/assistant-contract';
  */
 
 export type GrepFilePathsResolution =
-  | { readonly filePaths: readonly string[] | undefined; readonly ok: true }
+  | {
+      readonly filePaths: readonly string[] | undefined;
+      readonly ok: true;
+      /**
+       * Root ids the absolute entries resolved to, or undefined when nothing
+       * pinned a root (no entries, or every entry was relative).
+       *
+       * Review follow-up on #2087: without this, flattening
+       * `/work/A/proof.html` to `proof.html` DROPS the root the caller named,
+       * so with sibling roots A and B mounted the search also matched
+       * `/work/B/proof.html`. That was newly reachable — before this module the
+       * absolute path simply matched nothing — and it is the same
+       * silent-wrong-answer class this file exists to prevent.
+       */
+      readonly rootIds: readonly string[] | undefined;
+    }
   | { readonly message: string; readonly ok: false };
 
 interface ResolveGrepFilePathsArgs {
@@ -37,9 +53,19 @@ interface ResolveGrepFilePathsArgs {
   readonly scopedRoot: RuntimeWorkspaceRoot | undefined;
 }
 
-/** POSIX `/…` or Windows `C:\…` / `C:/…`. */
+/**
+ * POSIX `/…`, Windows drive `C:\…` / `C:/…`, UNC `\\server\share\…`, and the
+ * drive-relative rooted form `\foo\bar`.
+ *
+ * Review follow-up on #2087: UNC and drive-relative paths previously satisfied
+ * NEITHER branch, so they fell through to the relative handler, which happily
+ * turned `\\server\share\file.ts` into `server/share/file.ts` — an allowlist
+ * entry that can never match, reported as a clean zero-match. That is the exact
+ * BST-764 failure mode on a different input shape, so these must reach the
+ * reject path instead.
+ */
 function isAbsolutePath(value: string): boolean {
-  return value.startsWith('/') || /^[A-Za-z]:[/\\]/.test(value);
+  return value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:[/\\]/.test(value);
 }
 
 /** Backslashes to slashes, collapse runs, drop `.` segments. Keeps `..` for the caller to judge. */
@@ -75,12 +101,27 @@ function normalizeRootPath(rootPath: string): string[] {
   return toPosixSegments(rootPath);
 }
 
+/**
+ * Windows path comparison is case-insensitive. Review follow-up on #2087: a
+ * root recorded as `C:\Work\Repo` rejected the equivalent `c:\work\repo\x.ts`
+ * as "not inside any open folder" — a loud but wrong failure, since the roots
+ * come from `path.resolve` while the model's spelling comes from wherever it
+ * saw the path. Only applied on win32, so POSIX stays correctly case-sensitive.
+ */
+const PATHS_ARE_CASE_INSENSITIVE = process.platform === 'win32';
+
+function segmentsEqual(left: string, right: string): boolean {
+  return PATHS_ARE_CASE_INSENSITIVE
+    ? left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0
+    : left === right;
+}
+
 /** True when `pathSegments` sits at or below `rootSegments` (segment-wise, so a sibling sharing a name prefix does NOT match). */
 function isWithinRoot(pathSegments: readonly string[], rootSegments: readonly string[]): boolean {
   if (pathSegments.length < rootSegments.length) {
     return false;
   }
-  return rootSegments.every((segment, index) => segment === pathSegments[index]);
+  return rootSegments.every((segment, index) => segmentsEqual(segment, pathSegments[index] ?? ''));
 }
 
 function formatOpenRoots(roots: readonly RuntimeWorkspaceRoot[]): string {
@@ -92,7 +133,7 @@ function failure(message: string): GrepFilePathsResolution {
 }
 
 type SinglePathResult =
-  | { readonly ok: true; readonly value: string }
+  | { readonly ok: true; readonly rootId?: string; readonly value: string }
   | { readonly message: string; readonly ok: false };
 
 /** A relative entry: only traversal and emptiness can disqualify it. */
@@ -180,7 +221,8 @@ function resolveAbsoluteEntry(
       ok: false,
     };
   }
-  return { ok: true, value: relative.join('/') };
+  // Carry the owning root so the caller can pin BOTH passes to it.
+  return { ok: true, rootId: owningRoot.rootId, value: relative.join('/') };
 }
 
 export function resolveGrepFilePaths({
@@ -189,18 +231,19 @@ export function resolveGrepFilePaths({
   scopedRoot,
 }: ResolveGrepFilePathsArgs): GrepFilePathsResolution {
   if (filePaths === undefined) {
-    return { filePaths: undefined, ok: true };
+    return { filePaths: undefined, ok: true, rootIds: undefined };
   }
   // An explicitly empty allowlist means "nothing allowed" in the repository
   // layer. Upgrading it to "no filter" here would silently WIDEN the search.
   if (filePaths.length === 0) {
-    return { filePaths: [], ok: true };
+    return { filePaths: [], ok: true, rootIds: undefined };
   }
 
   // A scoped root narrows the candidate set to exactly that root; otherwise any
   // mounted root may claim the path.
   const candidateRoots = scopedRoot ? [scopedRoot] : roots;
   const resolved: string[] = [];
+  const owningRootIds = new Set<string>();
 
   for (const rawPath of filePaths) {
     const trimmed = rawPath.trim();
@@ -216,9 +259,20 @@ export function resolveGrepFilePaths({
       return failure(entry.message);
     }
     resolved.push(entry.value);
+    if (entry.rootId !== undefined) {
+      owningRootIds.add(entry.rootId);
+    }
   }
 
   // Dedup while preserving first-seen order: an absolute and a relative spelling
   // of the same file must not scope the search twice.
-  return { filePaths: [...new Set(resolved)], ok: true };
+  //
+  // `rootIds` is undefined unless an ABSOLUTE entry named a root. A purely
+  // relative allowlist carries no root information, so it keeps today's
+  // behaviour of searching every open root.
+  return {
+    filePaths: [...new Set(resolved)],
+    ok: true,
+    rootIds: owningRootIds.size > 0 ? [...owningRootIds] : undefined,
+  };
 }
