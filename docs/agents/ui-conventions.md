@@ -275,8 +275,15 @@ When changing this flow, update this section and the related tests.
 ## FLOATING LAYER STACKING (BST-963)
 
 `packages/ui/src/layers.ts` is the single source of truth for the z-index of
-every floating layer. Do not hardcode a `z-` utility on a dialog, popover,
-select, menu, tooltip, palette or toast — import the token.
+every floating layer **in `packages/ui`** — dialogs, popovers, selects, menus,
+tooltips, palettes and toasts. Do not hardcode a `z-` utility on one of those;
+import the token. `__tests__/floating-layer-tokens.test.ts` enforces it.
+
+Known gap, deliberately not folded in yet: `file-explorer-ui`'s
+`loading-overlay.tsx` is a full-viewport `fixed inset-0 z-50` blocking overlay
+that renders in-tree rather than through a portal, so it ties with the tier-1
+dialog scrim. It is outside the scale and outside the guard. Treat the
+statement above as scoped to `packages/ui` until that is reconciled.
 
 The scale, lowest first:
 
