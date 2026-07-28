@@ -108,7 +108,7 @@
     "prebuild": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils",
     "predev": "if [ -f ../../packages/file-explorer/dist/index.mjs ] && [ -f ../../packages/build-utils/dist/index.mjs ] && [ -f ../../packages/agent/dist/index.mjs ] && [ -f ../../packages/platform-utils/dist/index.js ]; then true; else node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils; fi",
     "serve-static": "serve dist -p 8080",
-    "start": "unset NO_COLOR; vite preview --port 8080 --host --strictPort",
+    "start": "unset NO_COLOR; vite preview --port ${PORT:-8080} --host --strictPort",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
