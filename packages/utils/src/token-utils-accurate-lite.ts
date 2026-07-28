@@ -41,7 +41,8 @@ type BrowserEncoderCtor = new (
 ) => EncoderInstance;
 
 const ENCODER_LOAD_MAX_ATTEMPTS = 3;
-const ENCODER_LOAD_RETRY_BASE_MS = 100;
+const ENCODER_LOAD_RETRY_BASE_MS = 1000;
+const ENCODER_LOAD_RETRY_COOLDOWN_MS = 60_000;
 const DISPOSED_DURING_ENCODER_LOAD = Symbol('disposed-during-encoder-load');
 type EncoderResolution = ResolvedEncoder | null | typeof DISPOSED_DURING_ENCODER_LOAD;
 
@@ -80,18 +81,28 @@ function withLastFailure(reason: string, policy: EncoderLoadPolicy): string {
   return policy.lastFailureReason ? `${reason}; last failure: ${policy.lastFailureReason}` : reason;
 }
 
+function monotonicNowMs(): number {
+  return globalThis.performance.now();
+}
+
 function getRetryBlockReason(
   runtime: 'browser' | 'node',
   policy: EncoderLoadPolicy
 ): string | null {
+  const remainingBackoffMs = Math.ceil(policy.retryAfterMs - monotonicNowMs());
   if (policy.failedAttempts >= ENCODER_LOAD_MAX_ATTEMPTS) {
+    if (remainingBackoffMs <= 0) {
+      policy.failedAttempts = 0;
+      policy.retryAfterMs = 0;
+      return null;
+    }
+
     return withLastFailure(
-      `${runtime} tiktoken retry limit reached after ${ENCODER_LOAD_MAX_ATTEMPTS} failed attempts; dispose the accurate token runtime to retry`,
+      `${runtime} tiktoken retry limit reached after ${ENCODER_LOAD_MAX_ATTEMPTS} failed attempts; retry budget reopens in ${remainingBackoffMs}ms`,
       policy
     );
   }
 
-  const remainingBackoffMs = policy.retryAfterMs - Date.now();
   if (remainingBackoffMs > 0) {
     return withLastFailure(
       `${runtime} tiktoken retry backoff active for ${remainingBackoffMs}ms after attempt ${policy.failedAttempts}`,
@@ -105,15 +116,16 @@ function recordLoadFailure(runtime: 'browser' | 'node', policy: EncoderLoadPolic
   policy.lastFailureReason = lastEncoderFailureReason;
   policy.failedAttempts += 1;
   if (policy.failedAttempts >= ENCODER_LOAD_MAX_ATTEMPTS) {
+    policy.retryAfterMs = monotonicNowMs() + ENCODER_LOAD_RETRY_COOLDOWN_MS;
     lastEncoderFailureReason = withLastFailure(
-      `${runtime} tiktoken retry limit reached after ${ENCODER_LOAD_MAX_ATTEMPTS} failed attempts; dispose the accurate token runtime to retry`,
+      `${runtime} tiktoken retry limit reached after ${ENCODER_LOAD_MAX_ATTEMPTS} failed attempts; retry budget reopens after ${ENCODER_LOAD_RETRY_COOLDOWN_MS}ms`,
       policy
     );
     return;
   }
 
   const retryDelayMs = ENCODER_LOAD_RETRY_BASE_MS * 2 ** Math.max(0, policy.failedAttempts - 1);
-  policy.retryAfterMs = Date.now() + retryDelayMs;
+  policy.retryAfterMs = monotonicNowMs() + retryDelayMs;
 }
 
 function clearLoadFailure(policy: EncoderLoadPolicy): void {
@@ -198,7 +210,7 @@ function createNodeEncoder(mod: Record<string, unknown>): ResolvedEncoder | null
   return null;
 }
 
-async function instantiateBrowserEncoder(): Promise<ResolvedEncoder | null> {
+async function instantiateBrowserEncoder(): Promise<ResolvedEncoder> {
   const [initModuleRaw, wasmUrlModule, encoderUrlModule] = await Promise.all([
     import('tiktoken/lite/init') as Promise<Record<string, unknown>>,
     import('tiktoken/lite/tiktoken_bg.wasm?url') as Promise<Record<string, unknown>>,
@@ -433,11 +445,6 @@ async function loadBrowserEncoder(): Promise<EncoderResolution> {
           encoder?.dispose?.();
           return DISPOSED_DURING_ENCODER_LOAD;
         }
-        if (!encoder) {
-          recordLoadFailure('browser', browserLoadPolicy);
-          browserEncoderPromise = null;
-          return null;
-        }
         clearLoadFailure(browserLoadPolicy);
         return encoder;
       } catch (error) {
@@ -526,14 +533,18 @@ export async function countTokensAccurate(text: string): Promise<number> {
 
 export type SyncAccurateCounter = (text: string) => number;
 
-/** Resolve encoder once; returned closure is sync. Throws/returns garbage if
- *  runtime is disposed mid-batch — callers must try/catch per item. */
+/** Resolve the encoder once and return a synchronous counter.
+ *  The counter throws deterministically after its runtime is disposed. */
 export async function getAccurateTokenCounter(): Promise<SyncAccurateCounter | null> {
+  const counterGeneration = runtimeGeneration;
   const encoder = await resolveEncoder();
-  if (!encoder || encoder === DISPOSED_DURING_ENCODER_LOAD) {
+  if (
+    !encoder ||
+    encoder === DISPOSED_DURING_ENCODER_LOAD ||
+    counterGeneration !== runtimeGeneration
+  ) {
     return null;
   }
-  const counterGeneration = runtimeGeneration;
   return (text: string) => {
     if (counterGeneration !== runtimeGeneration) {
       throw new Error('Accurate token counter is inactive because its runtime was disposed');

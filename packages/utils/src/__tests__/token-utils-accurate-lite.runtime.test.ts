@@ -178,7 +178,7 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     expect(encode).toHaveBeenCalledTimes(1);
   });
 
-  it('backs off, caps failed loads, and re-arms retries only after disposal', async () => {
+  it('backs off with monotonic time and re-arms a capped node retry budget after cooldown', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-28T00:00:00.000Z'));
     const encoderFactory = vi.fn(() => {
@@ -198,20 +198,23 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     expect(encoderFactory).toHaveBeenCalledTimes(1);
     expect(runtime.getAccurateTokenCountingFailureReason()).toContain('retry backoff');
 
-    for (let attempt = 2; attempt <= 3; attempt += 1) {
-      vi.setSystemTime(new Date(`2026-07-28T00:00:0${attempt}.000Z`));
-      await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
-      expect(encoderFactory).toHaveBeenCalledTimes(attempt);
-    }
+    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+    vi.advanceTimersByTime(1000);
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(encoderFactory).toHaveBeenCalledTimes(2);
 
-    vi.setSystemTime(new Date('2026-07-28T00:01:00.000Z'));
+    vi.advanceTimersByTime(2000);
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(encoderFactory).toHaveBeenCalledTimes(3);
+
+    vi.advanceTimersByTime(59_999);
     await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
     expect(encoderFactory).toHaveBeenCalledTimes(3);
     expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
       'retry limit reached after 3 failed attempts'
     );
 
-    runtime.disposeAccurateTokenCountingRuntime();
+    vi.advanceTimersByTime(1);
     await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
     expect(encoderFactory).toHaveBeenCalledTimes(4);
   });
@@ -296,5 +299,118 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
       'Failed to load tiktoken (browser)'
     );
+  });
+
+  it('backs off failed browser fetches and recovers after the capped cooldown', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('location', { href: 'https://example.com/app/' });
+    let shouldFail = true;
+    const fetchSpy = vi.fn(async () => ({
+      json: async () => ({
+        bpe_ranks: 'mock-ranks',
+        pat_str: 'mock-pattern',
+        special_tokens: {},
+      }),
+      ok: !shouldFail,
+      status: shouldFail ? 503 : 200,
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    vi.doMock('tiktoken/lite/init', () => ({
+      init: async () => {},
+      Tiktoken: class FakeTiktoken {
+        encode_ordinary(text: string): Uint32Array {
+          return Uint32Array.from({ length: text.length }, (_value, index) => index);
+        }
+      },
+    }));
+    vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({
+      default: 'data:application/wasm;base64,AAAA',
+    }));
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: '/assets/o200k_base-retry.json',
+    }));
+
+    const runtime = await importRuntime();
+
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1000);
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    vi.advanceTimersByTime(2000);
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    vi.advanceTimersByTime(59_999);
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    shouldFail = false;
+    vi.advanceTimersByTime(1);
+    await expect(runtime.countTokensAccurate('recovered')).resolves.toBe(9);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(runtime.getAccurateTokenCountingFailureReason()).toBeNull();
+  });
+
+  it('rejects an in-flight browser count when disposal wins encoder initialization', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('location', { href: 'https://example.com/app/' });
+    const fetchStarted = Promise.withResolvers<void>();
+    const releaseFetch = Promise.withResolvers<void>();
+    const encode = vi.fn((text: string) =>
+      Uint32Array.from({ length: text.length }, (_value, index) => index)
+    );
+    const free = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        fetchStarted.resolve();
+        await releaseFetch.promise;
+        return {
+          json: async () => ({
+            bpe_ranks: 'mock-ranks',
+            pat_str: 'mock-pattern',
+            special_tokens: {},
+          }),
+          ok: true,
+          status: 200,
+        };
+      })
+    );
+
+    vi.doMock('tiktoken/lite/init', () => ({
+      init: async () => {},
+      Tiktoken: class FakeTiktoken {
+        encode_ordinary(text: string): Uint32Array {
+          return encode(text);
+        }
+
+        free(): void {
+          free();
+        }
+      },
+    }));
+    vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({
+      default: 'data:application/wasm;base64,AAAA',
+    }));
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: '/assets/o200k_base-dispose.json',
+    }));
+
+    const runtime = await importRuntime();
+    const pendingCount = runtime.countTokensAccurate('concurrent');
+    await fetchStarted.promise;
+
+    runtime.disposeAccurateTokenCountingRuntime();
+    releaseFetch.resolve();
+
+    await expect(pendingCount).rejects.toThrow(
+      'Accurate token counting unavailable: runtime was disposed during encoder initialization'
+    );
+    expect(encode).not.toHaveBeenCalled();
+    expect(free).toHaveBeenCalledTimes(1);
   });
 });

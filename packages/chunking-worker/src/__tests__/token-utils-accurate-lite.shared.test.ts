@@ -84,7 +84,6 @@ describe('token-utils-accurate-lite worker shims', () => {
 
   it('shares retry backoff before another worker shim can reinitialize', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-28T00:00:00.000Z'));
     vi.doMock('tiktoken', retryTiktokenFactory);
 
     retryState.shouldFail = true;
@@ -93,7 +92,7 @@ describe('token-utils-accurate-lite worker shims', () => {
     await expect(chunkingAccurate.supportsAccurateTokenCounting()).resolves.toBe(false);
     await expect(tokenCacheAccurate.supportsAccurateTokenCounting()).resolves.toBe(false);
 
-    vi.setSystemTime(new Date('2026-07-28T00:00:01.000Z'));
+    vi.advanceTimersByTime(1000);
     await expect(tokenCacheAccurate.supportsAccurateTokenCounting()).resolves.toBe(true);
   });
 });
