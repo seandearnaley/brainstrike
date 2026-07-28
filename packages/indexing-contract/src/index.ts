@@ -264,6 +264,148 @@ export function getChunkingPreset(id: ChunkingPresetId): ChunkingPresetDefinitio
   return preset;
 }
 
+/**
+ * BST-423 — canonical chunking-settings invariants.
+ *
+ * These live here, in the contract package, because BOTH sides of the settings
+ * flow already depend on it: the persisted store (`@brainstrike/preferences`)
+ * and the settings UI (`@brainstrike/db-explorer`). They previously each
+ * carried their own copy of the rules, and the copies disagreed — the store
+ * turned a non-finite token limit into 512 via `Math.floor(n) || 512` (so a
+ * literal 0 became 512 as well), while the UI used a separate
+ * `Number.isFinite(n) ? clamp(n) : 512` expression. Neither enforced the
+ * cross-field rule at all.
+ *
+ * NO SILENT NORMALIZATION: an impossible value is rejected and named. Clamping
+ * an out-of-range value is what let a user's typed 5000 become a silent 2048,
+ * and a pasted "abc" become a silent default.
+ */
+export interface ChunkingSettingBounds {
+  readonly max: number;
+  readonly min: number;
+}
+
+/** Matches the `min`/`max` the settings inputs advertise. */
+export const CHUNK_SIZE_BOUNDS: ChunkingSettingBounds = { max: 2048, min: 128 };
+export const CHUNK_OVERLAP_BOUNDS: ChunkingSettingBounds = { max: 256, min: 0 };
+export const CHUNK_TOKEN_LIMIT_BOUNDS: ChunkingSettingBounds = { max: 16_384, min: 512 };
+
+export type ChunkingSettingsField = 'chunkOverlap' | 'chunkSize' | 'chunkTokenLimit';
+
+export type ChunkingSettingsIssueCode =
+  | 'above-maximum'
+  | 'below-minimum'
+  | 'not-a-number'
+  | 'not-an-integer'
+  | 'overlap-not-less-than-size';
+
+export interface ChunkingSettingsIssue {
+  readonly code: ChunkingSettingsIssueCode;
+  readonly field: ChunkingSettingsField;
+  /** User-facing: rendered inline beneath the offending input. */
+  readonly message: string;
+}
+
+export type ChunkingSettingFieldResult =
+  | { readonly issue: ChunkingSettingsIssue; readonly ok: false }
+  | { readonly ok: true; readonly value: number };
+
+export interface ChunkingSettingsValues {
+  readonly chunkOverlap: number;
+  readonly chunkSize: number;
+  readonly chunkTokenLimit: number;
+}
+
+export type ChunkingSettingsResult =
+  | { readonly issues: readonly ChunkingSettingsIssue[]; readonly ok: false }
+  | { readonly ok: true; readonly value: ChunkingSettingsValues };
+
+const CHUNKING_FIELD_LABELS: Record<ChunkingSettingsField, string> = {
+  chunkOverlap: 'Overlap',
+  chunkSize: 'Chunk size',
+  chunkTokenLimit: 'Token cap',
+};
+
+function validateChunkingField(
+  field: ChunkingSettingsField,
+  value: number,
+  bounds: ChunkingSettingBounds
+): ChunkingSettingFieldResult {
+  const label = CHUNKING_FIELD_LABELS[field];
+  const range = `between ${bounds.min} and ${bounds.max}`;
+  const issue = (code: ChunkingSettingsIssueCode, message: string): ChunkingSettingFieldResult => ({
+    issue: { code, field, message },
+    ok: false,
+  });
+
+  // Number.isFinite rejects NaN and both infinities. `Number('')` is 0 and
+  // `Number('abc')` is NaN, and both are reachable from a number input.
+  if (!Number.isFinite(value)) {
+    return issue('not-a-number', `${label} must be a number ${range}.`);
+  }
+  if (!Number.isInteger(value)) {
+    return issue('not-an-integer', `${label} must be a whole number ${range}.`);
+  }
+  if (value < bounds.min) {
+    return issue('below-minimum', `${label} must be at least ${bounds.min}.`);
+  }
+  if (value > bounds.max) {
+    return issue('above-maximum', `${label} must be at most ${bounds.max}.`);
+  }
+  return { ok: true, value };
+}
+
+export function validateChunkSize(value: number): ChunkingSettingFieldResult {
+  return validateChunkingField('chunkSize', value, CHUNK_SIZE_BOUNDS);
+}
+
+export function validateChunkOverlap(value: number): ChunkingSettingFieldResult {
+  return validateChunkingField('chunkOverlap', value, CHUNK_OVERLAP_BOUNDS);
+}
+
+export function validateChunkTokenLimit(value: number): ChunkingSettingFieldResult {
+  return validateChunkingField('chunkTokenLimit', value, CHUNK_TOKEN_LIMIT_BOUNDS);
+}
+
+/**
+ * Whole-object validation. Reports EVERY failing field rather than short-
+ * circuiting, so the settings form can mark all offending inputs in one pass.
+ *
+ * The cross-field rule (`chunkOverlap < chunkSize`) runs only when both fields
+ * independently parsed: comparing against NaN would emit a nonsense second
+ * issue and bury the real one.
+ */
+export function validateChunkingSettings(values: ChunkingSettingsValues): ChunkingSettingsResult {
+  const size = validateChunkSize(values.chunkSize);
+  const overlap = validateChunkOverlap(values.chunkOverlap);
+  const tokenLimit = validateChunkTokenLimit(values.chunkTokenLimit);
+
+  const issues = [size, overlap, tokenLimit].flatMap((result) => (result.ok ? [] : [result.issue]));
+
+  if (size.ok && overlap.ok && overlap.value >= size.value) {
+    // Overlap >= size makes every chunk re-read at least the whole previous
+    // chunk, so the splitter cannot advance. Each field can be individually in
+    // range here, so nothing but a cross-field check catches it.
+    issues.push({
+      code: 'overlap-not-less-than-size',
+      field: 'chunkOverlap',
+      message: `Overlap must be smaller than chunk size (${size.value}).`,
+    });
+  }
+
+  if (issues.length > 0) {
+    return { issues, ok: false };
+  }
+  return {
+    ok: true,
+    value: {
+      chunkOverlap: values.chunkOverlap,
+      chunkSize: values.chunkSize,
+      chunkTokenLimit: values.chunkTokenLimit,
+    },
+  };
+}
+
 export function resolveChunkingStrategyForFile(
   filePath: string,
   requested: ChunkingStrategy = 'auto'

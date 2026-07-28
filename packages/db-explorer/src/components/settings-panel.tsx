@@ -1,4 +1,12 @@
 import {
+  CHUNK_OVERLAP_BOUNDS,
+  CHUNK_SIZE_BOUNDS,
+  CHUNK_TOKEN_LIMIT_BOUNDS,
+  validateChunkOverlap,
+  validateChunkSize,
+  validateChunkTokenLimit,
+} from '@brainstrike/indexing-contract';
+import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/preferences/stores/token-preferences-store';
@@ -12,7 +20,6 @@ import {
   Badge,
   Button,
   cn,
-  Input,
   Label,
   Select,
   SelectContent,
@@ -38,7 +45,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { type ReactNode, useId, useState } from 'react';
-import type { SettingsPanelProps } from '../types';
+import type { ImportSettings, SettingsPanelProps } from '../types';
+import { ChunkingNumberField } from './chunking-number-field';
 
 interface ExtendedSettingsPanelProps extends SettingsPanelProps {
   /** Clear database dialog controls - optional for backwards compatibility */
@@ -300,6 +308,47 @@ function ActivePresetChip({ preset, importSettings }: ActivePresetChipProps) {
   );
 }
 
+/**
+ * BST-423. Settings that were persisted before these invariants existed (or
+ * hand-edited) are repaired to the preset default at hydration rather than
+ * throwing, so the user can still open Settings to fix them. This is what makes
+ * that repair visible — a silent repair would be the same silent normalization
+ * the ticket removes. `role="status"` rather than `alert`: nothing is broken
+ * now, the settings were already corrected.
+ */
+function ChunkingRepairNotice({ importSettings }: { importSettings: ImportSettings }) {
+  const repairs = importSettings.chunkingSettingsRepairs;
+  if (repairs.length === 0) {
+    return null;
+  }
+  return (
+    <div
+      className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs"
+      role="status"
+    >
+      <p className="font-medium">Some saved chunking settings could not be used.</p>
+      <ul className="mt-1 space-y-0.5">
+        {repairs.map((repair) => (
+          <li key={repair.field}>
+            {repair.message} Saved value{' '}
+            <code className="rounded bg-background px-1 py-0.5">{repair.discardedValue}</code> was
+            replaced with{' '}
+            <code className="rounded bg-background px-1 py-0.5">{repair.repairedTo}</code>.
+          </li>
+        ))}
+      </ul>
+      <Button
+        className="mt-1.5 h-6 px-2 text-xs"
+        onClick={importSettings.dismissChunkingSettingsRepairs}
+        size="sm"
+        variant="ghost"
+      >
+        Dismiss
+      </Button>
+    </div>
+  );
+}
+
 export function SettingsPanel({
   importSettings,
   clearDatabaseProps,
@@ -325,6 +374,42 @@ export function SettingsPanel({
   // close, so a fresh open after promotion to "custom" will re-init to true
   // without needing an effect to sync.
   const [advancedOpen, setAdvancedOpen] = useState(isCustom);
+
+  // BST-423. The cross-field rule (`chunkOverlap < chunkSize`) is checked here
+  // too, not only in the store, so a user typing an impossible pair sees an
+  // inline explanation instead of the store throwing out of an onChange
+  // handler. Both directions are covered: raising overlap above size and
+  // lowering size below overlap are the same violation.
+  const chunkSizeValue = importSettings.chunkSize;
+  const chunkOverlapValue = importSettings.chunkOverlap;
+  const validateChunkSizeAgainstOverlap = (candidate: number) => {
+    const result = validateChunkSize(candidate);
+    if (result.ok && chunkOverlapValue >= result.value) {
+      return {
+        issue: {
+          code: 'overlap-not-less-than-size' as const,
+          field: 'chunkSize' as const,
+          message: `Overlap (${chunkOverlapValue}) must be smaller than chunk size.`,
+        },
+        ok: false as const,
+      };
+    }
+    return result;
+  };
+  const validateOverlapAgainstSize = (candidate: number) => {
+    const result = validateChunkOverlap(candidate);
+    if (result.ok && result.value >= chunkSizeValue) {
+      return {
+        issue: {
+          code: 'overlap-not-less-than-size' as const,
+          field: 'chunkOverlap' as const,
+          message: `Overlap must be smaller than chunk size (${chunkSizeValue}).`,
+        },
+        ok: false as const,
+      };
+    }
+    return result;
+  };
 
   if (!selectedStrategy) {
     return (
@@ -361,6 +446,7 @@ export function SettingsPanel({
           className
         )}
       >
+        <ChunkingRepairNotice importSettings={importSettings} />
         {/* Header: title + active preset + enable toggle. One row on wide screens, wraps on narrow. */}
         <header className="flex flex-wrap items-center gap-2">
           <Label
@@ -507,54 +593,40 @@ export function SettingsPanel({
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
+              <ChunkingNumberField
+                id={`${chunkingId}-size`}
+                label="Chunk size"
+                max={CHUNK_SIZE_BOUNDS.max}
+                min={CHUNK_SIZE_BOUNDS.min}
+                onCommit={importSettings.setChunkSize}
+                validate={validateChunkSizeAgainstOverlap}
+                value={importSettings.chunkSize}
+              />
+              <ChunkingNumberField
+                id={`${chunkingId}-overlap`}
+                label="Overlap"
+                max={CHUNK_OVERLAP_BOUNDS.max}
+                min={CHUNK_OVERLAP_BOUNDS.min}
+                onCommit={importSettings.setChunkOverlap}
+                validate={validateOverlapAgainstSize}
+                value={importSettings.chunkOverlap}
+              />
               <div>
-                <Label className="text-xs" htmlFor={`${chunkingId}-size`}>
-                  Chunk size
-                </Label>
-                <Input
-                  className="mt-1 h-8 text-sm"
-                  id={`${chunkingId}-size`}
-                  max="2048"
-                  min="128"
-                  onChange={(e) => importSettings.setChunkSize(Number(e.target.value))}
-                  type="number"
-                  value={importSettings.chunkSize}
-                />
-              </div>
-              <div>
-                <Label className="text-xs" htmlFor={`${chunkingId}-overlap`}>
-                  Overlap
-                </Label>
-                <Input
-                  className="mt-1 h-8 text-sm"
-                  id={`${chunkingId}-overlap`}
-                  max="256"
-                  min="0"
-                  onChange={(e) => importSettings.setChunkOverlap(Number(e.target.value))}
-                  type="number"
-                  value={importSettings.chunkOverlap}
-                />
-              </div>
-              <div>
-                <Label className="text-xs" htmlFor={`${chunkingId}-cap`}>
-                  Token cap
-                </Label>
-                <div className="mt-1 grid grid-cols-[1fr_auto] gap-1.5">
-                  <Input
-                    className="h-8 text-sm"
+                <div className="grid grid-cols-[1fr_auto] items-end gap-1.5">
+                  {/*
+                   * BST-423: this input used to clamp before calling the store —
+                   * `Number.isFinite(n) ? clamp(n) : 512` — a second copy of the
+                   * store's own clamp that disagreed with it on NaN. Both are
+                   * gone; the shared validator rejects and explains instead.
+                   */}
+                  <ChunkingNumberField
                     id={`${chunkingId}-cap`}
-                    max="16384"
-                    min="512"
-                    onChange={(e) => {
-                      const nextValue = Number(e.target.value);
-                      importSettings.setChunkTokenLimit(
-                        Number.isFinite(nextValue)
-                          ? Math.min(16_384, Math.max(512, nextValue))
-                          : 512
-                      );
-                    }}
-                    step="128"
-                    type="number"
+                    label="Token cap"
+                    max={CHUNK_TOKEN_LIMIT_BOUNDS.max}
+                    min={CHUNK_TOKEN_LIMIT_BOUNDS.min}
+                    onCommit={importSettings.setChunkTokenLimit}
+                    step={128}
+                    validate={validateChunkTokenLimit}
                     value={importSettings.chunkTokenLimit}
                   />
                   <Select
