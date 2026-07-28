@@ -431,16 +431,21 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
   if (typeof p.messageId === 'string' && p.messageId.length > 0) {
     metadata['messageId'] = p.messageId;
   }
-  if (p.usage) {
-    const promptTokens = p.usage.promptTokens ?? p.usage.inputTokens;
+  // SAME usage-candidate chain as accumulateSteppedUsage / makeFinishChunk: a
+  // real Mastra `step-finish` carries its usage under `payload.output.usage`,
+  // NOT top-level `usage` (only the test fixtures put it there). Reading just
+  // `p.usage` left every step event token-free in production, which silently
+  // killed the renderer's live tick (BST-953) — caught by live CDT, missed by
+  // every unit test because the mocks are top-level shaped.
+  const stepUsage = p.usage ?? p.payload?.output?.usage ?? p.payload?.metadata?.usage;
+  if (stepUsage) {
+    const promptTokens = stepUsage.promptTokens ?? stepUsage.inputTokens;
     if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) {
       metadata['promptTokens'] = promptTokens;
     }
-    // Same v1/v2 fallback as accumulateSteppedUsage (usage-metering.ts): an
-    // AI-SDK-v2 part carries `outputTokens`, and the renderer's live tick
-    // (BST-953) needs BOTH counts on the step event — an asymmetric read here
-    // silently killed the tick for v2-shaped providers (review fix).
-    const completionTokens = p.usage.completionTokens ?? p.usage.outputTokens;
+    // v1/v2 fallback, same reason: an AI-SDK-v2 part carries `outputTokens`,
+    // and the live tick needs BOTH counts on the step event.
+    const completionTokens = stepUsage.completionTokens ?? stepUsage.outputTokens;
     if (typeof completionTokens === 'number' && Number.isFinite(completionTokens)) {
       metadata['completionTokens'] = completionTokens;
     }

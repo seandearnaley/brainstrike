@@ -1730,6 +1730,42 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('carries step usage nested under payload.output (the REAL Mastra shape) on run.step.finished', async () => {
+    // Production regression caught by live CDT: a real Mastra `step-finish`
+    // carries usage under `payload.output.usage`, NOT top-level `usage` — only
+    // the fixtures put it there. `makeStepMetadata` read just `p.usage`, so
+    // every step event shipped token-free and the renderer's live thread-total
+    // tick silently never fired. The candidate chain must match
+    // accumulateSteppedUsage / makeFinishChunk.
+    setMockStreamParts([
+      { messageId: 'msg-1', type: 'start' },
+      { messageId: 'msg-1', type: 'step-start' },
+      {
+        payload: { output: { usage: { inputTokens: 777, outputTokens: 88 } } },
+        type: 'step-finish',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 88, promptTokens: 777 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const stepFinished = chunks.find(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'run.step.finished'
+    ) as { event: { metadata?: Record<string, unknown> } };
+    expect(stepFinished.event.metadata).toMatchObject({
+      completionTokens: 88,
+      promptTokens: 777,
+    });
+  });
+
   it('carries AI-SDK-v2-shaped step usage on run.step.finished metadata (live-tick review fix)', async () => {
     // v2 parts report `inputTokens`/`outputTokens`; the step event must carry
     // BOTH counts or the renderer live tick silently never fires (its reader
