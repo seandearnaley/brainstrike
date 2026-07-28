@@ -41,7 +41,7 @@ test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-s
   });
 });
 
-test.describe('Hosted Web multi-provider picker @web-assistant-state', () => {
+test.describe('Hosted Web multi-provider picker @stateful @web-assistant-state', () => {
   test('shows both server-configured providers without exposing credentials', async ({ page }) => {
     await mockAssistantApi(page, {
       enabled: true,
@@ -55,19 +55,29 @@ test.describe('Hosted Web multi-provider picker @web-assistant-state', () => {
     });
     await openAssistantWorkspace(page, { rootName: 'assistant-multi-provider' });
 
+    const status = await page.evaluate(async () => {
+      const response = await fetch('/api/assistant/status');
+      return (await response.json()) as Record<string, unknown>;
+    });
+    expect(status).toEqual({
+      enabled: true,
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      providerKeySources: [
+        { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
+        { envVar: 'ANTHROPIC_API_KEY', provider: 'anthropic', source: 'env' },
+      ],
+      providers: ['openai', 'anthropic'],
+    });
+    expect(JSON.stringify(status)).not.toContain('apiKey');
+
     const trigger = page.getByTestId('composer-model-menu-trigger');
     await expect(trigger).toHaveAccessibleName(/GPT-5\.6 Terra/);
-    await trigger.click();
-    const moreModels = page.getByTestId('composer-more-models-trigger');
-    await moreModels.focus();
-    await page.keyboard.press('ArrowRight');
-
-    const anthropic = page.getByRole('menuitem', { name: /Anthropic/ });
-    await expect(anthropic).toBeVisible();
-    await anthropic.focus();
-    await page.keyboard.press('ArrowRight');
     await expect(
-      page.getByRole('menuitemradio', { name: /Claude Sonnet 5/ }).first()
+      page.getByText(
+        'Assistant memory for hosted providers requires the desktop assistant backend.'
+      )
     ).toBeVisible();
+    await expect(trigger).toBeDisabled();
   });
 });
