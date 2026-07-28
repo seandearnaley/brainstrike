@@ -184,6 +184,8 @@ function resolveFinishReason(
     return 'absent';
   }
   switch (reason) {
+    // `absent` is Brainstrike's internal sentinel re-entering the mapper from
+    // agent-streaming; providers do not own this namespace.
     case 'absent':
     case 'stop':
     case 'length':
@@ -195,9 +197,10 @@ function resolveFinishReason(
     case 'error':
     case 'other':
     case 'unknown':
+    case 'unrecognized':
       return reason;
     default:
-      return 'unknown';
+      return 'unrecognized';
   }
 }
 
@@ -209,16 +212,31 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
       return 'Assistant stream ended without a normal stop signal.';
-    case 'unknown':
+    case 'unrecognized':
       return 'Assistant stream ended with an unrecognized finish reason.';
     case 'absent':
     case 'stop':
     case 'tool-calls':
     case 'error':
+    case 'unknown':
       return;
     default:
       return;
   }
+}
+
+function toProtocolFinishReason(
+  reason: StreamFinishReason
+): Exclude<StreamFinishReason, 'absent' | 'unrecognized'> {
+  if (reason === 'absent') {
+    // assistant-stream 0.3.25 has no `absent` wire value. Its `unknown` value
+    // is explicitly complete and preserves that no provider reason was known.
+    return 'unknown';
+  }
+  if (reason === 'unrecognized') {
+    return 'error';
+  }
+  return reason;
 }
 
 function extractToolInput(payload: unknown): unknown {
@@ -1097,9 +1115,9 @@ export class DataStreamMapper {
       code: DataStreamCode.finishMessage,
       value: {
         ...(chunk.billedCostUsd === undefined ? {} : { billedCostUsd: chunk.billedCostUsd }),
-        finishReason: abnormalFinishMessage
-          ? 'error'
-          : (stepBeforeFinalize?.finishReason ?? finishReason),
+        finishReason: toProtocolFinishReason(
+          abnormalFinishMessage ? 'error' : (stepBeforeFinalize?.finishReason ?? finishReason)
+        ),
         path: [],
         usage,
       },
@@ -1116,7 +1134,7 @@ export class DataStreamMapper {
     }
     const stepId = `${this.messageId}:step:${this.nextStepIndex}`;
     this.currentStep = {
-      finishReason: 'unknown',
+      finishReason: 'absent',
       id: stepId,
       index: this.nextStepIndex,
       status: 'success',
@@ -1149,7 +1167,7 @@ export class DataStreamMapper {
     yield {
       code: DataStreamCode.finishStep,
       value: {
-        finishReason: step.finishReason,
+        finishReason: toProtocolFinishReason(step.finishReason),
         isContinued: false,
         path: [],
         usage: step.usage,

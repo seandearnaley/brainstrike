@@ -200,16 +200,20 @@ than another optional parameter on `makeRunEventChunk` because `detail` and
 `timestamp` are both `string`, so a positional slip between them would
 type-check cleanly while writing a timestamp into the detail field.
 
-**Finish-reason absence is distinct from an explicit/unsupported value
-(BST-868).** `readFinishReason` and `resolveFinishReason` preserve a missing,
-empty, or non-string provider field as `'absent'`; an explicit `'unknown'` or
-unrecognized non-empty string remains `'unknown'`. This distinction is the
-single source of truth for both terminal run events and durable outcomes:
-`absent` is a completed run (providers may omit the field on an otherwise
-healthy final chunk), while `unknown` emits `run.failed`, surfaces the explicit
+**Finish-reason absence is distinct from a raw unsupported value (BST-868).**
+`readFinishReason` and `resolveFinishReason` preserve a missing, empty, or
+non-string Mastra field as Brainstrike's internal `'absent'` sentinel. The AI
+SDK's literal `'unknown'` also remains completed because that upstream value
+already combines "provider omitted the field" with provider values the SDK does
+not recognize; Brainstrike cannot safely reconstruct that lost distinction.
+Only a non-empty raw value outside the SDK/Brainstrike union becomes the
+internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
 "unrecognized finish reason" message, and persists `thread_runs` as failed.
-Never collapse these values back together or infer provider failure from field
-omission.
+Before data-stream serialization, internal `absent` becomes assistant-stream
+0.3.25's completed wire value `unknown`; internal `unrecognized` becomes the
+terminal wire value `error`. Intermediate steps start as `absent`, never as the
+SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
+protocol and never infer provider failure from the AI SDK `unknown` value.
 
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence

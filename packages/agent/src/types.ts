@@ -378,7 +378,8 @@ export type StreamFinishReason =
   | 'tool-calls'
   | 'error'
   | 'other'
-  | 'unknown';
+  | 'unknown'
+  | 'unrecognized';
 
 export interface StreamChunkMessageFinish {
   billedCostUsd?: number;

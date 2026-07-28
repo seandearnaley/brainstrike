@@ -3420,7 +3420,41 @@ describe('mastra streaming integration', () => {
     });
   });
 
-  it('normalizes an unrecognized non-empty finish reason to unknown and fails the run', async () => {
+  it('keeps the AI SDK unknown sentinel completed because it includes provider absence', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'unknown',
+        type: 'finish',
+        usage: { completionTokens: 5, promptTokens: 3 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'finish with SDK unknown', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.finished',
+          metadata: expect.objectContaining({ finishReason: 'unknown' }),
+          status: 'completed',
+        }),
+        type: 'run-event',
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'unknown', type: 'message-finish' })
+    );
+  });
+
+  it('normalizes an unrecognized non-empty finish reason to a failing sentinel', async () => {
     setMockStreamParts([
       {
         finishReason: 'future-provider-reason',
@@ -3443,14 +3477,14 @@ describe('mastra streaming integration', () => {
       expect.objectContaining({
         event: expect.objectContaining({
           kind: 'run.failed',
-          metadata: expect.objectContaining({ finishReason: 'unknown' }),
+          metadata: expect.objectContaining({ finishReason: 'unrecognized' }),
           status: 'failed',
         }),
         type: 'run-event',
       })
     );
     expect(chunks).toContainEqual(
-      expect.objectContaining({ finishReason: 'unknown', type: 'message-finish' })
+      expect.objectContaining({ finishReason: 'unrecognized', type: 'message-finish' })
     );
   });
 

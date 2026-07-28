@@ -1032,6 +1032,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
+      assistant-stream:
+        specifier: 0.3.25
+        version: 0.3.25
       concurrently:
         specifier: 'catalog:'
         version: 10.0.3

@@ -331,7 +331,7 @@ function normalizeFinishReason(reason: string): StreamFinishReason {
     case 'tool_calls':
       return 'tool-calls';
     default:
-      return 'unknown';
+      return 'unrecognized';
   }
 }
 
@@ -549,7 +549,12 @@ function makeTerminalRunEvent(part: unknown, lifecycleState: ToolLifecycleState)
     ...(makeLifecycleStepMetadata(part, lifecycleState) ?? {}),
     finishReason,
   };
-  if (finishReason === 'absent' || finishReason === 'stop' || finishReason === 'tool-calls') {
+  if (
+    finishReason === 'absent' ||
+    finishReason === 'stop' ||
+    finishReason === 'tool-calls' ||
+    finishReason === 'unknown'
+  ) {
     return makeRunEventChunk(
       'run.finished',
       'completed',
