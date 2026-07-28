@@ -895,6 +895,7 @@ describe('agent-runtime edge cases', () => {
                   apiKey: 'must-not-cross-the-stream-boundary',
                   category: 'copyright',
                   score: 0.98,
+                  snippet: 'private user content must not cross the stream boundary',
                 },
                 processorId: 'regex-filter',
                 reason: 'Content policy violation',
@@ -947,6 +948,12 @@ describe('agent-runtime edge cases', () => {
           metadata: {
             category: 'copyright',
             score: 0.98,
+            snippet: {
+              __brainstrikeSummary: {
+                characterCount: 55,
+                kind: 'string',
+              },
+            },
           },
           processorId: 'regex-filter',
           retry: false,
@@ -1019,6 +1026,58 @@ describe('agent-runtime edge cases', () => {
       }
     });
 
+    it('rejects tripwire metadata that exceeds the durable JSON depth contract', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
+      const { Agent } = await import('@mastra/core/agent');
+
+      let tooDeepMetadata: unknown = 'leaf';
+      for (let depth = 0; depth < 8; depth += 1) {
+        tooDeepMetadata = { nested: tooDeepMetadata };
+      }
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              payload: {
+                metadata: tooDeepMetadata,
+                reason: 'Deep metadata tripwire',
+              },
+              type: 'tripwire',
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      try {
+        const iterator = await streamMastraAgent(
+          [{ id: 'deep-tripwire', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
+          { runtime: { apiKey: 'test-key', provider: 'openai' } }
+        );
+
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.detail).toBe('Deep metadata tripwire');
+        expect(failure?.event.metadata?.['tripwire']).toEqual({
+          malformedFields: ['metadata'],
+          source: 'mastra-1.51',
+        });
+      } finally {
+        Agent.prototype.stream = originalStream;
+      }
+    });
+
     it('bounds tripwire reasons, processor ids, and structured metadata', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
@@ -1033,6 +1092,11 @@ describe('agent-runtime edge cases', () => {
                 metadata: {
                   note: 'n'.repeat(600),
                   values: Array.from({ length: 40 }, (_, index) => index),
+                  ...Object.fromEntries(
+                    Array.from({ length: 33 }, (_, index) => [`field${index}`, index])
+                  ),
+                  __brainstrikeSummary: 'processor-owned-collision',
+                  ['k'.repeat(129)]: 'overlong-key',
                 },
                 processorId: `processor-${'p'.repeat(300)}`,
                 reason: `blocked-${'r'.repeat(3000)}`,
@@ -1065,16 +1129,48 @@ describe('agent-runtime edge cases', () => {
 
         const tripwire = failure?.event.metadata?.['tripwire'] as
           | {
-              metadata?: { note?: string; values?: unknown[] };
+              metadata?: {
+                __brainstrikeSummary?: {
+                  entryCount?: number;
+                  kind?: string;
+                  omittedEntryCount?: number;
+                  overlongKeyCount?: number;
+                  reservedKeyCount?: number;
+                };
+                note?: {
+                  __brainstrikeSummary?: { characterCount?: number; kind?: string };
+                };
+                values?: {
+                  __brainstrikeSummary?: {
+                    itemCount?: number;
+                    kind?: string;
+                    omittedItemCount?: number;
+                  };
+                  items?: unknown[];
+                };
+              };
               processorId?: string;
             }
           | undefined;
         expect(tripwire?.processorId).toHaveLength(256);
         expect(tripwire?.processorId).toMatch(/… \[truncated\]$/u);
-        expect(tripwire?.metadata?.note).toHaveLength(512);
-        expect(tripwire?.metadata?.note).toMatch(/… \[truncated\]$/u);
-        expect(tripwire?.metadata?.values).toHaveLength(33);
-        expect(tripwire?.metadata?.values?.at(-1)).toBe('[8 items omitted]');
+        expect(tripwire?.metadata?.note?.__brainstrikeSummary).toEqual({
+          characterCount: 600,
+          kind: 'string',
+        });
+        expect(tripwire?.metadata?.values?.items).toHaveLength(32);
+        expect(tripwire?.metadata?.values?.__brainstrikeSummary).toEqual({
+          itemCount: 40,
+          kind: 'array',
+          omittedItemCount: 8,
+        });
+        expect(tripwire?.metadata?.__brainstrikeSummary).toEqual({
+          entryCount: 37,
+          kind: 'object',
+          omittedEntryCount: 5,
+          overlongKeyCount: 1,
+          reservedKeyCount: 1,
+        });
       } finally {
         Agent.prototype.stream = originalStream;
       }
@@ -1135,6 +1231,7 @@ describe('agent-runtime edge cases', () => {
             controller.enqueue({
               payload: {
                 metadata: { policy: 'legacy-policy' },
+                retry: false,
                 tripwireReason: 'Legacy payload policy violation',
               },
               type: 'tripwire',
@@ -1168,6 +1265,15 @@ describe('agent-runtime edge cases', () => {
         );
         expect(failure?.event.detail).toBe('Legacy payload policy violation');
         expect(failure?.event.metadata?.['tripwire']).toEqual({
+          metadata: {
+            policy: {
+              __brainstrikeSummary: {
+                characterCount: 13,
+                kind: 'string',
+              },
+            },
+          },
+          retry: false,
           source: 'legacy-tripwire-reason',
         });
       } finally {
