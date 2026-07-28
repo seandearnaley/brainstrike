@@ -141,8 +141,15 @@ const TRANSCRIPT_STRIP_OPTIONS = { unterminated: 'keep' } as const;
  * writer — markers left here are what thread search indexes (see
  * `thread-search-repository.ts`, which `string_agg`s `parts[].text`), what
  * embeddings encode, and what a copy of a reloaded message carries. Normalizing
- * on the way in keeps every downstream reader clean without each one repeating
- * the rule.
+ * on the way in keeps those readers clean without each one repeating the rule.
+ *
+ * `text` PARTS ONLY, deliberately. `reasoning` parts are persisted verbatim and
+ * keep any markers in the row; nothing downstream reads them as prose (search
+ * filters `type = 'text'`, `getCopyText()` does not join reasoning), and the one
+ * consumer that renders them — `assistant-reasoning-part.tsx` — strips at read.
+ * Widening this would mutate more durable content, irreversibly, for no reader
+ * that needs it. Do not restate this projection as "everything downstream is
+ * clean": it is these parts, for these readers.
  *
  * ASSISTANT ROWS ONLY (see the `role` gate in the caller). Providers emit these
  * markers on assistant text, so gating costs the fix nothing — while rewriting a

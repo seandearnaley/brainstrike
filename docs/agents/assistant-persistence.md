@@ -123,6 +123,12 @@ contracts keep reloaded threads identical to live ones:
      and is only safe where a later render can undo a false positive; these
      codepoints are also Nerd Fonts glyphs, so at a write-once seam an
      unterminated opener is treated as content, not as a truncated marker.
+   - **`text` PARTS ONLY.** `reasoning` parts are persisted verbatim and keep
+     any markers in the row. Nothing downstream reads them as prose (search
+     filters `type = 'text'`; `getCopyText()` does not join reasoning), and the
+     one consumer that renders them, `assistant-reasoning-part.tsx`, strips at
+     read. The projection is not "everything downstream is clean" — it is these
+     parts, for these readers.
    - **WRITE-TIME ONLY.** Rows persisted before this shipped keep their markers
      and stay that way in search until rewritten. Do not assume stored text is
      clean; backfilling is an unperformed data migration.

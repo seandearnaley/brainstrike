@@ -96,6 +96,19 @@ describe('AssistantActionBar copy', () => {
     });
   });
 
+  it('ignores a second click while still showing "Copied!"', async () => {
+    render(<Harness text="Plain answer" />);
+    const copyButton = await screen.findByRole('button', { name: 'Copy message' });
+
+    fireEvent.click(copyButton);
+    await waitFor(() => {
+      expect(copyButton).toHaveAttribute('title', 'Copied!');
+    });
+    fireEvent.click(copyButton);
+
+    expect(clipboardMocks.writeText).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces a failed copy instead of silently doing nothing', async () => {
     clipboardMocks.writeText.mockResolvedValue({ error: 'bridge rejected', ok: false });
 
