@@ -16,6 +16,7 @@
     "esbuild": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   },
   "exports": {
@@ -29,7 +30,10 @@
       "import": "./dist/embedding.worker.js",
       "require": "./dist/embedding.worker.cjs"
     },
-    "./vite": "./src/vite.ts"
+    "./vite": {
+      "types": "./src/vite.ts",
+      "import": "./src/vite.ts"
+    }
   },
   "files": [
     "dist/**"

@@ -1,1 +1,1 @@
-export { resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
+export { resolveViteEmbeddingWorkerUrlHref as resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
