@@ -10,6 +10,7 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
+import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 export const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
@@ -324,16 +325,25 @@ export function runDetachedProcess(args: {
 
     let child: ChildProcess;
     try {
+      const requestedEnvironment = {
+        ...process.env,
+        ...env,
+        // Discourage interactive prompts that would hang a non-interactive run.
+        // biome-ignore lint/style/useNamingConvention: CI is a standard env var name (must be uppercase).
+        CI: 'true',
+      };
+      const childEnvironment = createCredentialIsolatedChildEnvironment(requestedEnvironment);
+      const strippedCredentialCount =
+        Object.keys(requestedEnvironment).length - Object.keys(childEnvironment).length;
+      if (strippedCredentialCount > 0) {
+        logger.debug('command environment removed provider credentials', {
+          strippedCredentialCount,
+        });
+      }
       child = spawn(executable, argv, {
         cwd,
         detached: true,
-        env: {
-          ...process.env,
-          ...env,
-          // Discourage interactive prompts that would hang a non-interactive run.
-          // biome-ignore lint/style/useNamingConvention: CI is a standard env var name (must be uppercase).
-          CI: 'true',
-        },
+        env: childEnvironment,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {

@@ -51,12 +51,12 @@ const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 /**
  * The ONLY variables a desktop `.env` file may set.
  *
- * This is a PRIVILEGE BOUNDARY, not hygiene: the main process environment is
- * inherited wholesale by every child it spawns (execute-command-tool,
- * command-session-manager, terminal-ipc-handlers, lsp-diagnostics,
- * hooks/executor, run-skill-script-tool), so an unrestricted file would
- * escalate a write to `<userData>/.env` into code execution and traffic
- * interception via NODE_OPTIONS, PATH, DYLD_INSERT_LIBRARIES,
+ * This is a PRIVILEGE BOUNDARY, not hygiene: the main process environment can
+ * reach child processes. Non-interactive command, skill, and hook children
+ * strip the credentials below, while interactive PTYs and runtime-support
+ * children intentionally retain the parent environment. An unrestricted file
+ * would therefore escalate a write to `<userData>/.env` into code execution
+ * and traffic interception via NODE_OPTIONS, PATH, DYLD_INSERT_LIBRARIES,
  * NODE_EXTRA_CA_CERTS, or HTTPS_PROXY — and could set NODE_ENV /
  * ELECTRON_IS_E2E_TEST to flip this process's own test-mode semantics.
  *
@@ -64,11 +64,34 @@ const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
  * hand-copied: a hand-written list silently drifts from the registry, and a
  * name the registry documents but this list omits rejects the WHOLE file.
  */
-const SUPPORTED_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
+/** Provider/search credential names that repository-controlled children must never inherit. */
+const CREDENTIAL_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
   ...listProviders().flatMap((definition) => [...providerEnvKeys(definition.id)]),
   ...TAVILY_ENV_KEYS,
 ]);
+const SUPPORTED_VARIABLE_NAMES: ReadonlySet<string> = CREDENTIAL_VARIABLE_NAMES;
 let bootstrapResult: DesktopEnvLoadResult | undefined;
+
+/**
+ * Copy a parent process environment without Brainstrike provider credentials.
+ *
+ * Repository-controlled child processes must not inherit credentials merely
+ * because Desktop resolved them through the main-process environment.
+ */
+export function createCredentialIsolatedChildEnvironment(
+  source: Readonly<NodeJS.ProcessEnv>
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(source)) {
+    // Windows environment names are case-insensitive. Apply the same rule on
+    // every platform so a mixed-case source object cannot bypass this boundary
+    // in tests, IPC adapters, or a future cross-platform caller.
+    if (!CREDENTIAL_VARIABLE_NAMES.has(name.toUpperCase())) {
+      environment[name] = value;
+    }
+  }
+  return environment;
+}
 
 export function isDesktopEnvFileLoadingDisabled(
   argv: readonly string[],
