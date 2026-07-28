@@ -41,10 +41,12 @@ import {
 } from '../providers/native-web-search';
 import { getDefaultModel } from '../providers/provider-factory';
 import type {
+  AssistantRunEventJson,
   AssistantRunEventKind,
   AssistantRunEventMetadata,
   AssistantRunEventStatus,
 } from '../run-events';
+import { sanitizeAssistantRunEventMetadata } from '../run-events';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
@@ -218,20 +220,23 @@ interface MastraStreamPart {
   finishReason?: unknown;
   messageId?: unknown;
   payload?: {
-    text?: string;
-    textDelta?: string;
     delta?: string;
     error?: unknown;
-    tripwireReason?: string;
-    stepResult?: { reason?: unknown };
-    output?: { usage?: UsageLike };
     metadata?: { providerMetadata?: unknown; usage?: UsageLike };
+    output?: { usage?: UsageLike };
+    processorId?: unknown;
+    reason?: unknown;
+    retry?: unknown;
+    stepResult?: { reason?: unknown };
+    text?: string;
+    textDelta?: string;
+    tripwireReason?: unknown;
   };
   providerMetadata?: unknown;
   runId?: unknown;
   text?: string;
   textDelta?: string;
-  tripwireReason?: string;
+  tripwireReason?: unknown;
   type: string;
   usage?: UsageLike;
 }
@@ -682,9 +687,295 @@ function makePendingToolOutputRunEventChunks(lifecycleState: ToolLifecycleState)
   return chunks;
 }
 
-function readTripwireReason(part: unknown): string | undefined {
-  const p = asMastraStreamPart(part);
-  return p.tripwireReason ?? p.payload?.tripwireReason;
+const INVALID_TRIPWIRE_REASON = 'Mastra emitted a malformed tripwire without a valid reason.';
+const MAX_TRIPWIRE_PROCESSOR_ID_CHARS = 256;
+const MAX_TRIPWIRE_METADATA_KEY_CHARS = 128;
+const MAX_TRIPWIRE_METADATA_ARRAY_ITEMS = 32;
+const MAX_TRIPWIRE_METADATA_OBJECT_ENTRIES = 32;
+const TRIPWIRE_METADATA_SUMMARY_KEY = '__brainstrikeSummary';
+const SAFE_TRIPWIRE_METADATA_STRING_KEYS = new Set([
+  'category',
+  'kind',
+  'processorId',
+  'rule',
+  'severity',
+  'strategy',
+  'type',
+]);
+
+type TripwireSource = 'legacy-tripwire-reason' | 'malformed' | 'mastra-1.51';
+
+interface ResolvedTripwire {
+  detail: string;
+  diagnostic: AssistantRunEventJson;
+}
+
+interface OptionalTripwireField<T> {
+  malformed: boolean;
+  value?: T;
+}
+
+function truncateTripwireString(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars - PROVIDER_ERROR_TRUNCATION_MARKER.length)}${PROVIDER_ERROR_TRUNCATION_MARKER}`;
+}
+
+function makeTripwireMetadataSummary(
+  input: Record<string, AssistantRunEventJson>
+): AssistantRunEventJson {
+  return { [TRIPWIRE_METADATA_SUMMARY_KEY]: input };
+}
+
+function isSafeTripwireMetadataString(key: string | undefined, value: string): boolean {
+  if (key === 'match') {
+    return value === '[REDACTED_MATCH]';
+  }
+  return (
+    key !== undefined &&
+    SAFE_TRIPWIRE_METADATA_STRING_KEYS.has(key) &&
+    value.length <= MAX_TRIPWIRE_METADATA_KEY_CHARS &&
+    /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u.test(value)
+  );
+}
+
+function boundTripwireMetadataArray(value: AssistantRunEventJson[]): AssistantRunEventJson {
+  const items = value
+    .slice(0, MAX_TRIPWIRE_METADATA_ARRAY_ITEMS)
+    .map((item) => boundTripwireMetadata(item));
+  if (value.length <= MAX_TRIPWIRE_METADATA_ARRAY_ITEMS) {
+    return items;
+  }
+  return {
+    [TRIPWIRE_METADATA_SUMMARY_KEY]: {
+      itemCount: value.length,
+      kind: 'array',
+      omittedItemCount: value.length - MAX_TRIPWIRE_METADATA_ARRAY_ITEMS,
+    },
+    items,
+  };
+}
+
+function boundTripwireMetadataObject(
+  value: Record<string, AssistantRunEventJson>
+): AssistantRunEventJson {
+  const entries = Object.entries(value);
+  const bounded: Record<string, AssistantRunEventJson> = {};
+  let acceptedEntryCount = 0;
+  let omittedEntryCount = 0;
+  let overlongKeyCount = 0;
+  let reservedKeyCount = 0;
+  for (const [key, nested] of entries) {
+    if (key === TRIPWIRE_METADATA_SUMMARY_KEY) {
+      omittedEntryCount += 1;
+      reservedKeyCount += 1;
+      continue;
+    }
+    if (key.length > MAX_TRIPWIRE_METADATA_KEY_CHARS) {
+      omittedEntryCount += 1;
+      overlongKeyCount += 1;
+      continue;
+    }
+    if (acceptedEntryCount >= MAX_TRIPWIRE_METADATA_OBJECT_ENTRIES) {
+      omittedEntryCount += 1;
+      continue;
+    }
+    bounded[key] = boundTripwireMetadata(nested, key);
+    acceptedEntryCount += 1;
+  }
+  if (omittedEntryCount > 0) {
+    bounded[TRIPWIRE_METADATA_SUMMARY_KEY] = {
+      entryCount: entries.length,
+      kind: 'object',
+      omittedEntryCount,
+      ...(overlongKeyCount === 0 ? {} : { overlongKeyCount }),
+      ...(reservedKeyCount === 0 ? {} : { reservedKeyCount }),
+    };
+  }
+  return bounded;
+}
+
+function boundTripwireMetadata(
+  value: AssistantRunEventJson,
+  sourceKey?: string
+): AssistantRunEventJson {
+  if (typeof value === 'string') {
+    return isSafeTripwireMetadataString(sourceKey, value)
+      ? value
+      : makeTripwireMetadataSummary({
+          characterCount: value.length,
+          kind: 'string',
+        });
+  }
+  if (Array.isArray(value)) {
+    return boundTripwireMetadataArray(value);
+  }
+  return value && typeof value === 'object' ? boundTripwireMetadataObject(value) : value;
+}
+
+function isTripwireMetadataJson(value: unknown, depth = 0): boolean {
+  // The shared sanitizer receives this value one level deeper under `{value}`.
+  // Reject anything at depth eight so it cannot silently coerce depth nine to null.
+  if (depth >= 8) {
+    return false;
+  }
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every((item) => isTripwireMetadataJson(item, depth + 1));
+  }
+  if (!(value && typeof value === 'object')) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (!(prototype === Object.prototype || prototype === null)) {
+    return false;
+  }
+  return Object.values(value).every((nested) => isTripwireMetadataJson(nested, depth + 1));
+}
+
+function sanitizeTripwireMetadata(value: unknown): AssistantRunEventJson | undefined {
+  if (!isTripwireMetadataJson(value)) {
+    return;
+  }
+  const sanitized = sanitizeAssistantRunEventMetadata({ value })?.['value'];
+  return sanitized === undefined ? undefined : boundTripwireMetadata(sanitized);
+}
+
+function makeTripwireDiagnostic(
+  source: TripwireSource,
+  input: {
+    malformedFields?: string[];
+    metadata?: AssistantRunEventJson;
+    processorId?: string;
+    retry?: boolean;
+  }
+): AssistantRunEventJson {
+  return {
+    ...(input.malformedFields && input.malformedFields.length > 0
+      ? { malformedFields: input.malformedFields }
+      : {}),
+    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+    ...(input.processorId === undefined ? {} : { processorId: input.processorId }),
+    ...(input.retry === undefined ? {} : { retry: input.retry }),
+    source,
+  };
+}
+
+function hasCurrentTripwirePayload(
+  payload: MastraStreamPart['payload']
+): payload is NonNullable<MastraStreamPart['payload']> {
+  return (
+    payload !== undefined &&
+    (Object.hasOwn(payload, 'reason') ||
+      Object.hasOwn(payload, 'retry') ||
+      Object.hasOwn(payload, 'processorId'))
+  );
+}
+
+function resolveLegacyTripwire(part: MastraStreamPart): ResolvedTripwire {
+  const legacyReason = part.tripwireReason ?? part.payload?.tripwireReason;
+  if (typeof legacyReason !== 'string' || legacyReason.trim().length === 0) {
+    return {
+      detail: INVALID_TRIPWIRE_REASON,
+      diagnostic: makeTripwireDiagnostic('malformed', {
+        malformedFields: ['reason'],
+      }),
+    };
+  }
+  return {
+    detail: truncateTripwireString(legacyReason.trim(), MAX_VISIBLE_PROVIDER_ERROR_CHARS),
+    diagnostic: makeTripwireDiagnostic('legacy-tripwire-reason', {}),
+  };
+}
+
+function readOptionalTripwireMetadata(
+  payload: NonNullable<MastraStreamPart['payload']>
+): OptionalTripwireField<AssistantRunEventJson> {
+  if (!Object.hasOwn(payload, 'metadata')) {
+    return { malformed: false };
+  }
+  const metadata = sanitizeTripwireMetadata(payload.metadata);
+  if (metadata === undefined) {
+    return { malformed: true };
+  }
+  return { malformed: false, value: metadata };
+}
+
+function readOptionalTripwireProcessorId(
+  payload: NonNullable<MastraStreamPart['payload']>
+): OptionalTripwireField<string> {
+  if (!Object.hasOwn(payload, 'processorId')) {
+    return { malformed: false };
+  }
+  if (typeof payload.processorId !== 'string' || payload.processorId.trim().length === 0) {
+    return { malformed: true };
+  }
+  return {
+    malformed: false,
+    value: truncateTripwireString(payload.processorId.trim(), MAX_TRIPWIRE_PROCESSOR_ID_CHARS),
+  };
+}
+
+function readOptionalTripwireRetry(
+  payload: NonNullable<MastraStreamPart['payload']>
+): OptionalTripwireField<boolean> {
+  if (!Object.hasOwn(payload, 'retry')) {
+    return { malformed: false };
+  }
+  if (typeof payload.retry !== 'boolean') {
+    return { malformed: true };
+  }
+  return { malformed: false, value: payload.retry };
+}
+
+function resolveCurrentTripwire(part: MastraStreamPart): ResolvedTripwire {
+  const payload = part.payload as NonNullable<MastraStreamPart['payload']>;
+  const metadata = readOptionalTripwireMetadata(payload);
+  const processorId = readOptionalTripwireProcessorId(payload);
+  const retry = readOptionalTripwireRetry(payload);
+  const reason = payload.reason;
+  const currentReason =
+    typeof reason === 'string' && reason.trim().length > 0 ? reason.trim() : null;
+  const legacyReason = part.tripwireReason ?? payload.tripwireReason;
+  const validLegacyReason =
+    typeof legacyReason === 'string' && legacyReason.trim().length > 0 ? legacyReason.trim() : null;
+  const resolvedReason = currentReason ?? validLegacyReason;
+  const malformedFields = [
+    ...(metadata.malformed ? ['metadata'] : []),
+    ...(processorId.malformed ? ['processorId'] : []),
+    ...(resolvedReason === null ? ['reason'] : []),
+    ...(retry.malformed ? ['retry'] : []),
+  ];
+  return {
+    detail: resolvedReason
+      ? truncateTripwireString(resolvedReason, MAX_VISIBLE_PROVIDER_ERROR_CHARS)
+      : INVALID_TRIPWIRE_REASON,
+    diagnostic: makeTripwireDiagnostic(
+      currentReason ? 'mastra-1.51' : validLegacyReason ? 'legacy-tripwire-reason' : 'malformed',
+      {
+        malformedFields,
+        ...(metadata.value === undefined ? {} : { metadata: metadata.value }),
+        ...(processorId.value === undefined ? {} : { processorId: processorId.value }),
+        ...(retry.value === undefined ? {} : { retry: retry.value }),
+      }
+    ),
+  };
+}
+
+function resolveTripwire(part: unknown): ResolvedTripwire {
+  const streamPart = asMastraStreamPart(part);
+  if (!hasCurrentTripwirePayload(streamPart.payload)) {
+    return resolveLegacyTripwire(streamPart);
+  }
+  return resolveCurrentTripwire(streamPart);
 }
 
 function getUnsupportedApprovalDetail(
@@ -1408,12 +1699,8 @@ function processMastraStreamPart(
       // Same rationale as `'error'`: surface tripwires (content policy
       // violations, etc.) as a visible message + terminal run-event so the user
       // sees the reason and the thread does not hang.
-      return makeTripwireTermination(
-        readTripwireReason(part) ?? 'tripwire',
-        lifecycleState,
-        part,
-        runtimeData
-      );
+      const tripwire = resolveTripwire(part);
+      return makeTripwireTermination(tripwire, lifecycleState, part, runtimeData);
     }
     case SHELL_OUTPUT_STREAM_PART_TYPE: {
       // A live shell-output slice streamed by executeCommand via `writer.custom`.
@@ -1625,20 +1912,27 @@ function makeProviderErrorTermination(
 }
 
 function makeTripwireTermination(
-  detail: string,
+  tripwire: ResolvedTripwire,
   lifecycleState: ToolLifecycleState,
   part: unknown,
   runtimeData: RuntimeData | undefined
 ): ProcessStreamPartResult {
+  // Unlike provider error bodies, processor tripwire reasons and metadata are
+  // bounded before both logging and persistence. They may contain selected
+  // policy-triggering content, so the diagnostic breadcrumb must stay safe.
   logger.error('mastra stream terminated by tripwire', {
     code: 'mastra_agent_stream_tripwire',
-    detail,
+    detail: tripwire.detail,
+    tripwire: tripwire.diagnostic,
     ...buildProviderErrorDiagnosticCorrelation(runtimeData),
   });
   return makeVisibleRunFailureTermination(
-    detail,
+    tripwire.detail,
     lifecycleState,
-    makeStepMetadata(part),
+    {
+      ...makeStepMetadata(part),
+      tripwire: tripwire.diagnostic,
+    },
     'The request was stopped'
   );
 }
@@ -1651,7 +1945,8 @@ function makeVisibleRunFailureTermination(
 ): ProcessStreamPartResult {
   // Clamp the user-visible detail: provider error bodies can be arbitrarily long
   // (and occasionally echo request context), which reads poorly as persisted
-  // assistant text. The full detail stays in the log breadcrumb above.
+  // assistant text. Provider errors retain their full detail in the breadcrumb;
+  // tripwire reasons arrive here already bounded by their privacy contract.
   const visibleDetail =
     detail.length > MAX_VISIBLE_PROVIDER_ERROR_CHARS
       ? `${detail.slice(

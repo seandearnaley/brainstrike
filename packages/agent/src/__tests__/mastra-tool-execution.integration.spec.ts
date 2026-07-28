@@ -29,6 +29,8 @@ import {
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
+import { Agent } from '@mastra/core/agent';
+import { RegexFilterProcessor } from '@mastra/core/processors';
 import { createTool } from '@mastra/core/tools';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -165,6 +167,29 @@ function createScriptedToolCallModel(args: {
         ]),
       });
     },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+function createSingleTurnTextModel(text: string): LanguageModelV2 {
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: () =>
+      Promise.resolve({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] });
+            controller.enqueue({ id: 'text-tripwire', type: 'text-start' });
+            controller.enqueue({ delta: text, id: 'text-tripwire', type: 'text-delta' });
+            controller.enqueue({ id: 'text-tripwire', type: 'text-end' });
+            controller.enqueue({ finishReason: 'stop', type: 'finish', usage: USAGE });
+            controller.close();
+          },
+        }),
+      }),
     modelId: 'fake-model',
     provider: 'fake',
     specificationVersion: 'v2',
@@ -442,6 +467,68 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
   beforeEach(() => {
     modelHolder.current = undefined;
+  });
+
+  it('maps a real Mastra regex-processor tripwire through the Brainstrike stream contract', async () => {
+    const processor = new RegexFilterProcessor({
+      phase: 'input',
+      rules: [{ name: 'blocked-id', pattern: /BLOCKED-\d+/gu }],
+      strategy: 'block',
+    });
+    const realAgent = new Agent({
+      id: 'real-tripwire-agent',
+      inputProcessors: [processor],
+      instructions: 'Return the scripted response.',
+      model: createSingleTurnTextModel('blocked response'),
+    });
+    const realStream = realAgent.stream.bind(realAgent);
+
+    const originalStream = Agent.prototype.stream;
+    modelHolder.current = createSingleTurnTextModel('unused Brainstrike runtime response');
+    Agent.prototype.stream = function stream() {
+      return realStream([{ content: 'trigger BLOCKED-123', role: 'user' }]);
+    } as typeof Agent.prototype.stream;
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-tripwire', parts: [{ text: 'trigger policy' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: StreamChunk[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const failure = chunks.find(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+          chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+      );
+      expect(failure?.event.detail).toBe(
+        'Regex filter: blocked content matching patterns: blocked-id'
+      );
+      expect(failure?.event.metadata?.['tripwire']).toEqual({
+        metadata: {
+          matches: [
+            {
+              index: 8,
+              match: '[REDACTED_MATCH]',
+              rule: 'blocked-id',
+            },
+          ],
+          processorId: 'regex-filter',
+          strategy: 'block',
+        },
+        processorId: 'real-tripwire-agent-input-processor',
+        retry: false,
+        source: 'mastra-1.51',
+      });
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+      );
+    } finally {
+      Agent.prototype.stream = originalStream;
+    }
   });
 
   it("invokes a tool's execute through the real agent loop and surfaces its result", async () => {
