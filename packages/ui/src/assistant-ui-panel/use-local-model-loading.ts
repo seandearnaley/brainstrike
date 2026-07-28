@@ -233,6 +233,9 @@ export function useLocalModelLoading(args: {
         });
         handleLocalLoadingStateChange({ message: 'Model ready', progress: 100, stage: 'ready' });
       } catch (error) {
+        if (abortSignal?.aborted) {
+          throw error;
+        }
         handleLocalLoadingStateChange({
           message: error instanceof Error ? error.message : String(error),
           progress: 0,

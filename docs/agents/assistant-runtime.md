@@ -25,9 +25,12 @@ below are LIVE.
    through the same zero-part error path. A prepared run that resolves after
    Stop/expiry is terminally completed as cancelled/failed and can never become
    the active fetch body. Invalid watchdog values throw; they never disable the
-   bound. Built-in local model warmup is the explicit exception to the absolute
-   deadline because it can include a visible multi-file download; its progress
-   remains visible and the same preparation signal makes Stop abort it.
+   bound. Built-in local model warmup runs in a separate pre-watchdog phase
+   because it can include a visible multi-file download. Stop detaches the
+   assistant run from that warmup immediately; the shared renderer-host
+   download may continue in the background, and its broadcast progress remains
+   visible. Auth headers, request persistence, and request-body construction
+   still share the bounded watchdog for every provider, including local.
 
 2. **Per-tool guard (LIVE)** —
    `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps

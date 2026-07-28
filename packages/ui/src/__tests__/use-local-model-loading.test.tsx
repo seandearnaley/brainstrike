@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocalModelLoading } from '../assistant-ui-panel/use-local-model-loading';
 
 const { warmDesktopLocalModelMock } = vi.hoisted(() => ({
-  warmDesktopLocalModelMock: vi.fn(async () => undefined),
+  warmDesktopLocalModelMock: vi.fn(
+    async (_options?: { modelId?: string; signal?: AbortSignal }): Promise<void> => undefined
+  ),
 }));
 
 vi.mock('../assistant-ui-panel/local-runtime-adapter', () => ({
@@ -270,5 +272,27 @@ describe('useLocalModelLoading', () => {
         signal: abortController.signal,
       })
     );
+  });
+
+  it('does not render Stop-detached local warmup as a model-load error', async () => {
+    const abortController = new AbortController();
+    const abortError = new DOMException('The operation was aborted.', 'AbortError');
+    warmDesktopLocalModelMock.mockImplementationOnce(
+      (options?: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(abortError), { once: true });
+        })
+    );
+    const { result } = renderHook(() =>
+      useLocalModelLoading({ localViaDataStream: true, modelName: 'gemma' })
+    );
+
+    await act(async () => {
+      const warmup = result.current.prepareLocalModel?.(abortController.signal);
+      abortController.abort(abortError);
+      await expect(warmup).rejects.toBe(abortError);
+    });
+
+    expect(result.current.localLoadingState?.stage).not.toBe('error');
   });
 });

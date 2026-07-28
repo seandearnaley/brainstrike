@@ -84,6 +84,12 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onReplayError?: (error: Error) => void;
   onResponse?: (response: Response) => Promise<void> | void;
   /**
+   * Visible local-model warmup that runs before the bounded request-input
+   * phase. It has no absolute deadline because it may download model files,
+   * but Stop always detaches the request through the supplied signal.
+   */
+  prepareRequestWarmup?: (abortSignal: AbortSignal) => Promise<void>;
+  /**
    * Exact UTF-8 ceiling for the serialized request body. Hosted Web sets this
    * below its function platform's ingress limit so oversized turns fail in the
    * renderer before fetch; desktop/local transports may omit it.
@@ -92,11 +98,9 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   /**
    * Combined deadline for async auth-header and request-body preparation.
    * The preparation signal aborts on Stop or timeout so no late result can
-   * advance into fetch after the run has reached a terminal state. `null`
-   * explicitly disables the deadline for visible built-in local-model
-   * downloads; those preparations remain cancellable through the signal.
+   * advance into fetch after the run has reached a terminal state.
    */
-  requestPreparationTimeoutMs?: number | null;
+  requestPreparationTimeoutMs?: number;
   replayRetryToken?: number;
   resumeApi?: string;
   /**
@@ -157,13 +161,12 @@ function abortReason(signal: AbortSignal): unknown {
 function prepareRequestInputs(
   options: Pick<BrainstrikeDataStreamRuntimeOptions, 'body' | 'headers'>,
   callerSignal: AbortSignal,
-  timeoutMs: number | null
+  timeoutMs: number
 ): Promise<{
   readonly headersValue: HeadersValue | undefined;
   readonly rawBodyValue: Record<string, unknown> | undefined;
 }> {
-  const preparationTimeoutMs =
-    timeoutMs === null ? null : requireRequestPreparationTimeoutMs(timeoutMs);
+  const preparationTimeoutMs = requireRequestPreparationTimeoutMs(timeoutMs);
   const preparationController = new AbortController();
 
   return new Promise((resolve, reject) => {
@@ -199,15 +202,13 @@ function prepareRequestInputs(
       settle({ reason, status: 'rejected' });
       preparationController.abort(reason);
     };
-    if (preparationTimeoutMs !== null) {
-      timeoutId = setTimeout(() => {
-        const error = new AssistantRequestPreparationTimeoutError(
-          `Assistant request preparation timed out after ${preparationTimeoutMs}ms.`
-        );
-        settle({ reason: error, status: 'rejected' });
-        preparationController.abort(error);
-      }, preparationTimeoutMs);
-    }
+    timeoutId = setTimeout(() => {
+      const error = new AssistantRequestPreparationTimeoutError(
+        `Assistant request preparation timed out after ${preparationTimeoutMs}ms.`
+      );
+      settle({ reason: error, status: 'rejected' });
+      preparationController.abort(error);
+    }, preparationTimeoutMs);
 
     if (callerSignal.aborted) {
       abortFromCaller();
@@ -231,6 +232,45 @@ function prepareRequestInputs(
       })
       .then(
         (value) => settle({ status: 'fulfilled', value }),
+        (reason: unknown) => settle({ reason, status: 'rejected' })
+      );
+  });
+}
+
+function runAbortableRequestWarmup(
+  warmup: (abortSignal: AbortSignal) => Promise<void>,
+  abortSignal: AbortSignal
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (
+      outcome:
+        | { readonly status: 'fulfilled' }
+        | { readonly reason: unknown; readonly status: 'rejected' }
+    ): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      abortSignal.removeEventListener('abort', abort);
+      if (outcome.status === 'fulfilled') {
+        resolve();
+        return;
+      }
+      reject(outcome.reason);
+    };
+    const abort = (): void => {
+      settle({ reason: abortReason(abortSignal), status: 'rejected' });
+    };
+    if (abortSignal.aborted) {
+      abort();
+      return;
+    }
+    abortSignal.addEventListener('abort', abort, { once: true });
+    void Promise.resolve()
+      .then(() => warmup(abortSignal))
+      .then(
+        () => settle({ status: 'fulfilled' }),
         (reason: unknown) => settle({ reason, status: 'rejected' })
       );
   });
@@ -1204,10 +1244,15 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     const { abortSignal } = runOptions;
     this.registerCancelHandler(abortSignal);
     try {
-      const headersValue =
-        typeof this.options.headers === 'function'
-          ? await this.options.headers(abortSignal)
-          : this.options.headers;
+      const requestPreparationTimeoutMs =
+        this.options.requestPreparationTimeoutMs === undefined
+          ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
+          : this.options.requestPreparationTimeoutMs;
+      const { headersValue } = await prepareRequestInputs(
+        this.options.headers === undefined ? {} : { headers: this.options.headers },
+        abortSignal,
+        requestPreparationTimeoutMs
+      );
       const headers = new Headers(headersValue);
       headers.set('Last-Event-ID', eventId);
       const response = await fetch(resumeApi, {
@@ -1245,6 +1290,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         this.options.requestPreparationTimeoutMs === undefined
           ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
           : this.options.requestPreparationTimeoutMs;
+      requireRequestPreparationTimeoutMs(requestPreparationTimeoutMs);
+      if (this.options.prepareRequestWarmup) {
+        await runAbortableRequestWarmup(this.options.prepareRequestWarmup, abortSignal);
+      }
       const { headersValue, rawBodyValue } = await prepareRequestInputs(
         this.options,
         abortSignal,
@@ -1320,6 +1369,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
+  readonly prepareRequestWarmup: BrainstrikeDataStreamRuntimeOptions['prepareRequestWarmup'];
   readonly requestBodyLimitBytes: BrainstrikeDataStreamRuntimeOptions['requestBodyLimitBytes'];
   readonly requestPreparationTimeoutMs: BrainstrikeDataStreamRuntimeOptions['requestPreparationTimeoutMs'];
   readonly onUsage: BrainstrikeDataStreamRuntimeOptions['onUsage'];
@@ -1338,6 +1388,9 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
+    ...(input.prepareRequestWarmup === undefined
+      ? {}
+      : { prepareRequestWarmup: input.prepareRequestWarmup }),
     ...(input.requestBodyLimitBytes === undefined
       ? {}
       : { requestBodyLimitBytes: input.requestBodyLimitBytes }),
@@ -1364,6 +1417,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onFinish,
     onReplayError,
     onResponse,
+    prepareRequestWarmup,
     replayRetryToken = 0,
     requestBodyLimitBytes,
     requestPreparationTimeoutMs,
@@ -1384,6 +1438,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onReplayError,
     onResponse,
     onUsage,
+    prepareRequestWarmup,
     requestBodyLimitBytes,
     requestPreparationTimeoutMs,
   });

@@ -1000,6 +1000,9 @@ const DataStreamRuntimeChat = ({
     ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
     ...(requestBodyLimitBytes === undefined ? {} : { requestBodyLimitBytes }),
+    ...(serverRunSession.prepareRequestWarmup
+      ? { prepareRequestWarmup: serverRunSession.prepareRequestWarmup }
+      : {}),
     body: async (abortSignal: AbortSignal) => {
       const preparedRequestData = await serverRunSession.prepareRequest(abortSignal);
       return {
@@ -1011,10 +1014,6 @@ const DataStreamRuntimeChat = ({
         },
       };
     },
-    // Built-in local model warmup can include a visible multi-file download.
-    // It remains Stop-abortable, but does not share the hosted 30s absolute
-    // preparation budget.
-    ...(selectedProvider === 'local' ? { requestPreparationTimeoutMs: null } : {}),
     ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
     onCancel: serverRunSession.onCancel,
     onError: serverRunSession.onError,

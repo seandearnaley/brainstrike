@@ -342,8 +342,9 @@ describe('BrainstrikeDataStreamRuntimeAdapter — cancellation lifecycle (BST-70
     });
     const consumer = consumeRun(adapter, abortController);
 
-    while (!preparationSignal) {
-      await tick();
+    await vi.waitFor(() => expect(preparationSignal).toBeDefined());
+    if (!preparationSignal) {
+      throw new Error('Request preparation did not receive an abort signal.');
     }
     abortController.abort(new DOMException('The user aborted a request.', 'AbortError'));
 

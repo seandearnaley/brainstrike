@@ -46,6 +46,7 @@ interface AssistantServerRunSessionController {
   readonly prepareRequest: (
     abortSignal?: AbortSignal
   ) => Promise<Record<string, unknown> | undefined>;
+  readonly prepareRequestWarmup?: ((abortSignal: AbortSignal) => Promise<void>) | undefined;
   readonly replayRetryToken: number;
   readonly resumeApi: string | undefined;
 }
@@ -115,23 +116,28 @@ export function useAssistantServerRunSession({
       }
       const preparationSignal = abortSignal ?? new AbortController().signal;
       preparationSignal.throwIfAborted();
-      await prepareLocalModel?.(preparationSignal);
-      preparationSignal.throwIfAborted();
       const data = await prepareRequestData?.(preparationSignal);
       if (preparationSignal.aborted) {
         const reason = preparationSignal.reason;
         const timedOut = reason instanceof AssistantRequestPreparationTimeoutError;
-        await completePreparedRequestRef.current?.(
-          data,
-          timedOut ? 'failed' : 'cancelled',
-          timedOut ? reason.message : undefined
-        );
+        try {
+          await completePreparedRequestRef.current?.(
+            data,
+            timedOut ? 'failed' : 'cancelled',
+            timedOut ? reason.message : undefined
+          );
+        } catch (error: unknown) {
+          assistantEndpointLogger.error('Failed to complete abandoned assistant preparation', {
+            error,
+            reason,
+          });
+        }
         throw reason;
       }
       preparedRequestRef.current = { data };
       return data;
     },
-    [prepareLocalModel, prepareRequestData]
+    [prepareRequestData]
   );
 
   const onCancel = useCallback((): void => {
@@ -212,6 +218,7 @@ export function useAssistantServerRunSession({
     onFinish,
     onReplayError,
     onResponse,
+    ...(prepareLocalModel ? { prepareRequestWarmup: prepareLocalModel } : {}),
     prepareRequest,
     replayRetryToken,
     resumeApi,

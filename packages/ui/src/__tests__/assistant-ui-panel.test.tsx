@@ -10,6 +10,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { assistantEndpointLogger } from '../../src/assistant-ui-panel/assistant-endpoint';
 import type {
   ModelPickerModel,
   ModelPickerProvider,
@@ -997,6 +998,48 @@ describe('AssistantUiPanel model picker', () => {
       'failed',
       timeoutError.message
     );
+  });
+
+  it('preserves and logs a terminal preparation reason when run completion fails', async () => {
+    const deferred = Promise.withResolvers<Record<string, unknown>>();
+    const prepareRequestData = vi.fn(() => deferred.promise);
+    const completionError = new Error('failed to persist terminal run state');
+    const completePreparedRequest = vi.fn().mockRejectedValue(completionError);
+    const logger = vi.spyOn(assistantEndpointLogger, 'error').mockImplementation(() => undefined);
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: (abortSignal: AbortSignal) => Promise<Record<string, unknown> | undefined>;
+    };
+    const abortController = new AbortController();
+    const bodyPromise = options.body?.(abortController.signal);
+    await waitFor(() => expect(prepareRequestData).toHaveBeenCalledOnce());
+
+    const timeoutError = new AssistantRequestPreparationTimeoutError(
+      'Assistant request preparation timed out after 30000ms.'
+    );
+    abortController.abort(timeoutError);
+    deferred.resolve({
+      memory: {
+        resourceId: 'workspace-1',
+        runId: 'run-timeout-completion-failed',
+        threadId: 'thread-1',
+      },
+    });
+
+    await expect(bodyPromise).rejects.toBe(timeoutError);
+    expect(logger).toHaveBeenCalledWith('Failed to complete abandoned assistant preparation', {
+      error: completionError,
+      reason: timeoutError,
+    });
   });
 
   it('uses the latest hosted completion callback when the panel rerenders mid-run', async () => {
