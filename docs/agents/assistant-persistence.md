@@ -19,6 +19,20 @@ Malformed persisted ids never sanitize to "unbound" and cannot silently rebind
 the thread. Server-side native tools validate only the id against the live root
 inventory; the stored path is never an authority or fallback.
 
+Automatic thread titles use Mastra observational memory rather than a separate
+title request. Enabled OM config sets both `observation.threadTitle: true` and
+`observation.bufferOnIdle: true`: the latter is Mastra's short-turn path and
+starts background observation when a turn becomes idle, without waiting for the
+30,000-message-token activation threshold. The observer writes its extracted
+title through `PgliteMemoryStore.updateThread`; that boundary may replace only
+an empty/default/OM-owned title and stamps `titleSource: 'om'`, while the manual
+rename path clears the marker and always wins. Idle buffering deliberately does
+not delay the main assistant response, so provider `message-finish` is not a
+valid title-refresh signal. App-shell live-subscribes to the local
+`mastra_threads` id/title projection and re-lists the loaded resource only when
+that stable projection changes. This makes background titles visible in thread
+rows and tabs without a timer or an API round trip.
+
 Hosted-provider turns are persisted by Mastra (the durable writer) into
 `mastra_messages`; the client history adapter is read-through only. Two
 contracts keep reloaded threads identical to live ones:

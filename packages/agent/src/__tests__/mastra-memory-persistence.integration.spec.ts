@@ -1329,15 +1329,15 @@ describe('mastra memory persistence through the live stream path', () => {
     }
   }, 30_000);
 
-  it('persists the observer-extracted thread title to mastra_threads.title', async () => {
-    // With `observation.threadTitle` wired on, the real Observer's
-    // `<thread-title>` output must land in the thread row through the real
-    // PgliteMemoryStore.updateThread path — the auto-naming contract.
+  it('persists an idle-buffered thread title before the message threshold', async () => {
+    // `bufferOnIdle` is the canonical Mastra path for short turns: this input
+    // is far below the production 30K threshold, but the real Observer's
+    // `<thread-title>` output must still land through PgliteMemoryStore.
     const threadId = 'thread-om-title';
     const extractedTitle = 'Paris Weather Chat';
     const { finalText } = await runTurnWithMemory({
       database,
-      memorySettings: OM_TINY_THRESHOLD_SETTINGS,
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       observationalMemoryModel: createThreadTitleObservationModel(extractedTitle),
       threadId,
     });

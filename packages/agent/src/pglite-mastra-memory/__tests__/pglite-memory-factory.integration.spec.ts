@@ -89,7 +89,7 @@ describe('createPgliteMastraMemory', () => {
     const options = (memoryConstructorCalls[0] as { options: { observationalMemory: unknown } })
       .options;
     expect(options.observationalMemory).toMatchObject({
-      observation: { threadTitle: true },
+      observation: { bufferOnIdle: true, threadTitle: true },
     });
   });
 

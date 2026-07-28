@@ -58,6 +58,10 @@ function buildObservationalMemoryOption(
       ? { retrieval: { scope: settings.scope, vector: true } }
       : {}),
     observation: {
+      // Mastra's canonical short-turn path: observe when the agent becomes
+      // idle instead of waiting for the 30K message threshold. The same pass
+      // owns the built-in thread-title extractor below.
+      bufferOnIdle: true,
       messageTokens: settings.messageTokens,
       // Opt into the built-in observer thread-title extractor so threads are
       // auto-named as observations run. The extracted title lands in
