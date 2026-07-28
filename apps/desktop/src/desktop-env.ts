@@ -70,6 +70,22 @@ const SUPPORTED_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
 ]);
 let bootstrapResult: DesktopEnvLoadResult | undefined;
 
+/**
+ * Copy a parent process environment without Brainstrike provider credentials.
+ *
+ * Repository-controlled child processes must not inherit credentials merely
+ * because Desktop resolved them through the main-process environment.
+ */
+export function createCredentialIsolatedChildEnvironment(
+  source: Readonly<NodeJS.ProcessEnv>
+): NodeJS.ProcessEnv {
+  const environment = { ...source };
+  for (const name of SUPPORTED_VARIABLE_NAMES) {
+    Reflect.deleteProperty(environment, name);
+  }
+  return environment;
+}
+
 export function isDesktopEnvFileLoadingDisabled(
   argv: readonly string[],
   env: Readonly<NodeJS.ProcessEnv>

@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { ScopedLogger } from '@brainstrike/utils';
+import { createCredentialIsolatedChildEnvironment } from '../../desktop-env';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
@@ -118,16 +119,18 @@ function executeHook(
   const shellArgs = isWindows ? ['/c', hook.definition.command] : ['-c', hook.definition.command];
 
   return new Promise<HookResult>((resolve) => {
-    // The hook inherits the FULL parent `process.env` (plus the one marker
-    // below). Secret redaction applies ONLY to the stdin JSON payload — it does
-    // NOT extend to inherited env. Low-risk here because provider API keys live
-    // in the encrypted keychain, never in the assistant-server process env.
+    // Hooks need ordinary shell/runtime variables, but repository-controlled
+    // commands must never inherit provider credentials resolved into the
+    // privileged Desktop main-process environment.
     const child = spawn(shell, shellArgs, {
       cwd: hook.source.cwd,
       // POSIX: own process group so the timeout can group-kill the whole tree
       // (see killHookTree). Windows has no process groups here.
       detached: !isWindows,
-      env: { ...process.env, BRAINSTRIKE_HOOK_EVENT: stdin.hook_event_name },
+      env: {
+        ...createCredentialIsolatedChildEnvironment(process.env),
+        BRAINSTRIKE_HOOK_EVENT: stdin.hook_event_name,
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

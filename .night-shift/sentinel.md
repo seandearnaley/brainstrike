@@ -55,3 +55,8 @@
 **Vulnerability:** File watcher de-duplication bounded native subscriptions but retained unlimited same-renderer logical watch registrations, multiplying MAIN-process state and every event push.
 **Learning:** A native-resource cap does not bound the routes, listeners, or identifiers multiplexed over that resource.
 **Prevention:** Apply a separate per-owner cap to logical registrations in the same synchronous section that resolves sharing and native capacity.
+
+## Repository-controlled child processes must not inherit provider credentials
+**Vulnerability:** Approved project hooks inherited the Desktop main process's complete environment, including provider and Tavily credentials loaded from supported environment files.
+**Learning:** Hash approval authorizes the reviewed hook command but does not isolate unrelated ambient authority; stdin redaction cannot protect child-process environment variables.
+**Prevention:** Derive the credential deny-set from the canonical provider registry plus Tavily keys, remove those names before spawning repository hooks, and prove ordinary shell variables and the hook event marker remain available.
