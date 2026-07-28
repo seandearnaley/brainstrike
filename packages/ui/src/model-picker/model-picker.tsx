@@ -90,13 +90,13 @@ export function ModelPicker({
         portal={false}: stay inside the parent Dialog's RemoveScroll allow-list,
         otherwise the dialog's scroll lock kills wheel events on the dropdown.
         Popper still uses position:fixed so the content escapes ancestor overflow.
-        z-[60] keeps content above DialogContent (which sits at z-[51] — see
-        packages/ui/src/dialog.tsx; the two must stay in this relative order).
+        Stacking is handled by PopoverContent's shared popup layer (see
+        packages/ui/src/layers.ts) — no local z-index override belongs here.
       */}
       <PopoverContent
         align="start"
         aria-describedby="model-picker-description"
-        className="pointer-events-auto z-[60] w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-xl border-border/70 bg-popover/98 p-0 shadow-black/10 shadow-xl"
+        className="pointer-events-auto w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-xl border-border/70 bg-popover/98 p-0 shadow-black/10 shadow-xl"
         portal={false}
         sideOffset={6}
       >
