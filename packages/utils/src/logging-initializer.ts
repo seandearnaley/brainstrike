@@ -14,6 +14,8 @@ export interface FileLoggingOptions {
   destination: string;
   level?: LogLevel;
   mkdir?: boolean;
+  options?: Record<string, unknown>;
+  target?: string;
 }
 
 export interface InitializeLoggingOptions {
@@ -71,6 +73,12 @@ function resolveFileConfig(
 
     if (file.append !== undefined) {
       config.append = file.append;
+    }
+    if (file.options !== undefined) {
+      config.options = file.options;
+    }
+    if (file.target !== undefined) {
+      config.target = file.target;
     }
 
     return config;

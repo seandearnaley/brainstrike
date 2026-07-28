@@ -19,7 +19,7 @@ What already exists and is reusable:
 | --- | --- | --- |
 | Logger | Pino v10 singleton; levels, scoped loggers, 2-layer redaction, `addLogListener` fan-out seam | `packages/utils/src/logger.ts` |
 | In-memory buffers | `LogBuffer` ring buffers: web 500 records, desktop main 3000 | `packages/utils/src/log-buffer.ts`, `apps/web/src/log-buffer.ts`, `apps/desktop/src/main.ts` |
-| Desktop file log | Single append-only `${logs}/brainstrike.log` (pino/file), no rotation | `apps/desktop/src/main.ts` (`getLogFilePath`) |
+| Desktop file log | `${logs}/brainstrike.log`, Pino NDJSON, size-rotated at 10 MB × 5 files | `apps/desktop/src/main.ts` (`getLogFilePath`), `apps/desktop/src/diagnostics/main-log-transport.ts` |
 | Renderer error hooks | `window.onerror` + `unhandledrejection` → logger (transient) | `packages/utils/src/logging/install-renderer-error-hooks.ts` |
 | Log forwarding IPC | `logging:get-buffered-logs`, `logging:ingest-buffered-record`, `logging:select-destination`, `logging:open-destination` | `apps/desktop/src/platform/logging-api-contract.ts`, `logging-ipc.ts` |
 | Run persistence | `brainstrike_assistant_thread_runs` (status + free-text `error`), `_run_events` (sanitized timeline), `_run_usage` (tokens/cost), `_run_outcomes` (verdicts), `_edit_checkpoints`, `_tool_output_artifacts` | `packages/app-shell/src/assistant-memory-repository.ts` + migrations 046–069 |
@@ -367,8 +367,10 @@ provider support tickets start with "what's the request id".
 - Line shape = the `diagnostic_events` row shape (same serializer), so a grep
   hit in the file and a SQL row are the same object — one mental model, and
   external agents get `jq`-able structure for free.
-- `brainstrike.log` (full INFO) keeps existing behavior but gains the same
-  rotation so it stops growing unboundedly. Settings' existing
+- `brainstrike.log` (full INFO) keeps its existing Pino NDJSON behavior and now
+  uses the same reviewed `RotatingFileSink` retention math through a dedicated
+  Pino worker transport: 10 MB × 5 files, with the custom target preserved
+  across runtime logging-preference changes. Settings' existing
   `logging:open-destination` button surfaces the folder.
 
 Web variant: no file. The equivalent affordance is **Export errors (NDJSON)**

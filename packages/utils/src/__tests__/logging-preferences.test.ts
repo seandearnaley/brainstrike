@@ -81,6 +81,44 @@ describe('logging-preferences', () => {
     );
   });
 
+  it('applies an Electron-owned rotating transport without changing file preferences', () => {
+    const preferences = createDefaultLoggingPreferences({
+      file: {
+        append: true,
+        destination: '/tmp/brainstrike.log',
+        enabled: true,
+        level: LogLevel.INFO,
+        mkdir: true,
+      },
+    });
+
+    applyLoggingPreferences(preferences, 'electron-main', {
+      fileTransport: {
+        options: {
+          maxBytes: 10 * 1024 * 1024,
+          maxFiles: 5,
+        },
+        target: '/app/dist/main-log-transport.js',
+      },
+    });
+
+    expect(configureLoggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: expect.objectContaining({
+          append: true,
+          destination: '/tmp/brainstrike.log',
+          level: LogLevel.INFO,
+          mkdir: true,
+          options: {
+            maxBytes: 10 * 1024 * 1024,
+            maxFiles: 5,
+          },
+          target: '/app/dist/main-log-transport.js',
+        }),
+      })
+    );
+  });
+
   it('deduplicates and trims redact paths', () => {
     const preferences = createDefaultLoggingPreferences({
       redactPaths: [' token ', 'password', 'token'],

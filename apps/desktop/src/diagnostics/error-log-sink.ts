@@ -5,7 +5,7 @@ import {
   serializeDiagnosticEventLine,
 } from '@brainstrike/utils/diagnostics';
 import type { LogRecord } from '@brainstrike/utils/logger';
-import { DEFAULT_MAX_FILES, RotatingNdjsonSink } from './rotating-ndjson-sink';
+import { DEFAULT_MAX_FILES, RotatingFileSink } from './rotating-file-sink';
 
 /** Base filename for the durable NDJSON backstop, shared with factory reset
  * (`desktop-factory-reset.ts`, via `listErrorLogFilePaths` below) so the
@@ -15,7 +15,7 @@ export const ERROR_LOG_FILE_NAME = 'brainstrike-errors.ndjson';
 /**
  * Every on-disk path `createErrorLogSink({filePath})` can occupy: the live
  * file plus every rotated-sibling slot (`.1`…`.{maxFiles - 1}`), mirroring
- * `RotatingNdjsonSink`'s rotation slot math (`rotatedPath`) exactly. Factory
+ * `RotatingFileSink`'s rotation slot math (`rotatedPath`) exactly. Factory
  * reset uses this to purge the durable backstop without depending on the
  * sink's rotation internals directly.
  */
@@ -61,16 +61,16 @@ function reportSinkFailure(context: string, error: unknown): void {
 }
 
 /**
- * Wraps a `RotatingNdjsonSink` with the LogRecord → DiagnosticEvent → NDJSON
+ * Wraps a `RotatingFileSink` with the LogRecord → DiagnosticEvent → NDJSON
  * line pipeline, for the Electron main process durable backstop (Flight
  * Recorder P2a Task 3).
  *
  * This is fed by a log listener (see `logging-ipc.ts` and `main.ts`), so —
- * same rule as `RotatingNdjsonSink` — NEVER import or call
+ * same rule as `RotatingFileSink` — NEVER import or call
  * `@brainstrike/utils/logger` from this module. See `reportSinkFailure`.
  */
 export function createErrorLogSink(options: CreateErrorLogSinkOptions): ErrorLogSinkHandle {
-  const sink = new RotatingNdjsonSink({
+  const sink = new RotatingFileSink({
     filePath: options.filePath,
     onFailure: (error) => {
       reportSinkFailure('durable NDJSON error log disabled after a write failure', error);
@@ -86,7 +86,7 @@ export function createErrorLogSink(options: CreateErrorLogSinkOptions): ErrorLog
     filePath: options.filePath,
     recordLogRecord(record: LogRecord): void {
       // `sink.writeLine` is contractually never-throwing (see
-      // rotating-ndjson-sink.ts), but `logRecordToDiagnosticEvent` and
+      // rotating-file-sink.ts), but `logRecordToDiagnosticEvent` and
       // `serializeDiagnosticEventLine` are NOT — e.g. a BigInt anywhere in
       // `record.args`/context throws out of `JSON.stringify`. This tap is
       // called synchronously from inside `addLogListener` (see

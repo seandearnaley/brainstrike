@@ -17,6 +17,7 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'db-host-entry': 'src/db-host-entry.ts',
   main: 'src/main-bootstrap.ts',
+  'main-log-transport': 'src/diagnostics/main-log-transport.ts',
   'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
 };

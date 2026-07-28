@@ -1,5 +1,5 @@
 /**
- * Integration coverage for `RotatingNdjsonSink`: real fs, real rotation, real
+ * Integration coverage for `RotatingFileSink`: real fs, real rotation, real
  * failure injection. This is the durable BACKSTOP for the diagnostics system
  * (Flight Recorder P2a Task 2) — it must keep working even when the PGlite
  * diagnostic sink is broken, so these tests exercise a real filesystem
@@ -16,7 +16,7 @@ import {
   serializeDiagnosticEventLine,
 } from '@brainstrike/utils/diagnostics';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RotatingNdjsonSink } from '../../diagnostics/rotating-ndjson-sink';
+import { RotatingFileSink } from '../../diagnostics/rotating-file-sink';
 
 const createdDirs: string[] = [];
 
@@ -63,11 +63,11 @@ function makeEvent(overrides: Partial<DiagnosticEvent> = {}): DiagnosticEvent {
   };
 }
 
-describe('RotatingNdjsonSink', () => {
+describe('RotatingFileSink', () => {
   it('writes newline-delimited lines that parseDiagnosticEventLine reads back', async () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
-    const sink = new RotatingNdjsonSink({ filePath });
+    const sink = new RotatingFileSink({ filePath });
     const events = [makeEvent(), makeEvent(), makeEvent()];
 
     for (const event of events) {
@@ -82,13 +82,26 @@ describe('RotatingNdjsonSink', () => {
     expect(sink.disabled).toBe(false);
   });
 
+  it('writes arbitrary transport chunks byte-for-byte without adding delimiters', async () => {
+    const dir = await makeDir();
+    const filePath = path.join(dir, 'brainstrike.log');
+    const sink = new RotatingFileSink({ filePath, maxBytes: 18, maxFiles: 3 });
+
+    sink.writeChunk('{"msg":"one"}\n');
+    sink.writeChunk(Buffer.from('{"msg":"two"}\n', 'utf8'));
+    sink.close();
+
+    expect(await fsPromises.readFile(filePath, 'utf8')).toBe('{"msg":"two"}\n');
+    expect(await fsPromises.readFile(`${filePath}.1`, 'utf8')).toBe('{"msg":"one"}\n');
+  });
+
   it('uses encoded UTF-8 bytes rather than string length for rotation accounting', async () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
     // Each line is 20 UTF-8 bytes + trailing '\n' = 21 bytes on disk, while
     // its JavaScript string length is only 10.
     const line = '\u00e9'.repeat(10);
-    const sink = new RotatingNdjsonSink({ filePath, maxBytes: 55, maxFiles: 5 });
+    const sink = new RotatingFileSink({ filePath, maxBytes: 55, maxFiles: 5 });
 
     sink.writeLine(line);
     sink.writeLine(line);
@@ -106,7 +119,7 @@ describe('RotatingNdjsonSink', () => {
     // Each line is exactly 10 ASCII bytes + trailing '\n' = 11 bytes on disk.
     const line = 'A'.repeat(10);
     // Room for 2 lines (22 bytes) but not a 3rd (33 bytes).
-    const sink = new RotatingNdjsonSink({ filePath, maxBytes: 25, maxFiles: 5 });
+    const sink = new RotatingFileSink({ filePath, maxBytes: 25, maxFiles: 5 });
 
     sink.writeLine(line);
     sink.writeLine(line);
@@ -123,7 +136,7 @@ describe('RotatingNdjsonSink', () => {
     const maxFiles = 3;
     // Each 3-char label + '\n' is exactly 4 bytes, so every write after the
     // first is guaranteed to trigger exactly one rotation.
-    const sink = new RotatingNdjsonSink({ filePath, maxBytes: 4, maxFiles });
+    const sink = new RotatingFileSink({ filePath, maxBytes: 4, maxFiles });
 
     for (let i = 1; i <= 6; i += 1) {
       sink.writeLine(String(i).padStart(3, '0'));
@@ -142,7 +155,7 @@ describe('RotatingNdjsonSink', () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
     const oversized = 'X'.repeat(50);
-    const sink = new RotatingNdjsonSink({ filePath, maxBytes: 20, maxFiles: 5 });
+    const sink = new RotatingFileSink({ filePath, maxBytes: 20, maxFiles: 5 });
 
     sink.writeLine('small');
     sink.writeLine(oversized);
@@ -164,12 +177,12 @@ describe('RotatingNdjsonSink', () => {
     const filePath = path.join(dir, 'errors.ndjson');
     const maxBytes = 20;
 
-    const first = new RotatingNdjsonSink({ filePath, maxBytes, maxFiles: 5 });
+    const first = new RotatingFileSink({ filePath, maxBytes, maxFiles: 5 });
     first.writeLine('A'.repeat(10)); // 11 bytes
     first.writeLine('B'.repeat(5)); // 6 bytes; currentSize now 17, under budget
     first.close();
 
-    const second = new RotatingNdjsonSink({ filePath, maxBytes, maxFiles: 5 });
+    const second = new RotatingFileSink({ filePath, maxBytes, maxFiles: 5 });
     // 17 (seeded from disk) + 6 ('C'.repeat(5) + '\n') = 23 > 20: must rotate
     // BEFORE writing, carrying the two prior lines into `.1` untouched.
     second.writeLine('C'.repeat(5));
@@ -189,7 +202,7 @@ describe('RotatingNdjsonSink', () => {
     // inside the sink's open path throws (ENOTDIR).
     const filePath = path.join(blockingFile, 'nested', 'errors.ndjson');
     const failures: unknown[] = [];
-    const sink = new RotatingNdjsonSink({
+    const sink = new RotatingFileSink({
       filePath,
       onFailure: (error: unknown) => failures.push(error),
     });
@@ -205,13 +218,13 @@ describe('RotatingNdjsonSink', () => {
 
   it('throws from the constructor when maxFiles < 2 (no room for a rotated sibling)', () => {
     expect(
-      () => new RotatingNdjsonSink({ filePath: '/irrelevant/errors.ndjson', maxFiles: 1 })
+      () => new RotatingFileSink({ filePath: '/irrelevant/errors.ndjson', maxFiles: 1 })
     ).toThrow(/maxFiles/);
   });
 
   it('throws from the constructor when maxBytes < 1 (no line could ever fit)', () => {
     expect(
-      () => new RotatingNdjsonSink({ filePath: '/irrelevant/errors.ndjson', maxBytes: 0 })
+      () => new RotatingFileSink({ filePath: '/irrelevant/errors.ndjson', maxBytes: 0 })
     ).toThrow(/maxBytes/);
   });
 
@@ -219,7 +232,7 @@ describe('RotatingNdjsonSink', () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
     const failures: unknown[] = [];
-    const sink = new RotatingNdjsonSink({
+    const sink = new RotatingFileSink({
       filePath,
       onFailure: (error: unknown) => failures.push(error),
     });
@@ -248,7 +261,7 @@ describe('RotatingNdjsonSink', () => {
   it('close() untracks the fd before calling closeSync, so a throwing close stays idempotent', async () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
-    const sink = new RotatingNdjsonSink({ filePath });
+    const sink = new RotatingFileSink({ filePath });
     sink.writeLine('first');
 
     const closeSyncSpy = vi.spyOn(fs, 'closeSync').mockImplementation(() => {
@@ -276,7 +289,7 @@ describe('RotatingNdjsonSink', () => {
   it('reopens transparently on a writeLine after close() — close() does not disable', async () => {
     const dir = await makeDir();
     const filePath = path.join(dir, 'errors.ndjson');
-    const sink = new RotatingNdjsonSink({ filePath });
+    const sink = new RotatingFileSink({ filePath });
 
     sink.writeLine('before-close');
     sink.close();

@@ -769,8 +769,8 @@ line; this is deliberate, since a process crash can truncate the last line
 written to the desktop file mid-write, and a tail-reader must skip that
 partial line without the whole read throwing.
 
-**Desktop NDJSON backstop** (`RotatingNdjsonSink`,
-`apps/desktop/src/diagnostics/rotating-ndjson-sink.ts`, wrapped by
+**Desktop NDJSON backstop** (`RotatingFileSink`,
+`apps/desktop/src/diagnostics/rotating-file-sink.ts`, wrapped by
 `createErrorLogSink`, `apps/desktop/src/diagnostics/error-log-sink.ts`):
 writes `${app.getPath('logs')}/brainstrike-errors.ndjson`, warn+ only,
 size-rotated at 10 MB × 5 files (the live file plus 4 rotated siblings,
@@ -796,10 +796,10 @@ transports run in a worker thread and only ever see main-process pino
 output; they would MISS every renderer/hidden-host record forwarded over IPC,
 which is most of what this backstop exists to catch. This is also why there
 is no new rotating-log dependency (`pino-roll` etc.) — the rotation logic is
-hand-rolled in `RotatingNdjsonSink` instead.
+hand-rolled in `RotatingFileSink` instead.
 
 **Recursion rule**: nothing in the sink path
-(`rotating-ndjson-sink.ts`, `error-log-sink.ts`) may import or call
+(`rotating-file-sink.ts`, `error-log-sink.ts`) may import or call
 `@brainstrike/utils/logger` — the sink is fed BY a log listener, so logging
 from inside it would re-enter that listener and recurse without bound. The
 one deliberate exception is a raw `console.error` (`reportSinkFailure` in
@@ -836,7 +836,7 @@ array's one consumer (the `if (failures.length > 0) logger.warn(...)` above)
 has already run by the time this LAST step executes, so pushing into it here
 would never be read by anything. A `close()` failure is instead logged
 directly (`logger.error('Failed to close the durable NDJSON error log', ...)`
-) — otherwise a real close failure (`RotatingNdjsonSink.close()` deliberately
+) — otherwise a real close failure (`RotatingFileSink.close()` deliberately
 leaves `fs.closeSync` outside a try/catch; see its comment) would produce
 zero output anywhere, a direct "no silent fallbacks" violation in the one
 module whose entire job is loud failure reporting. The `errorLogSink` handle
@@ -844,7 +844,7 @@ is always nulled from a `finally`, even when `close()` throws, so a partial
 failure can never leave a stale handle that a later `recordDurableLog` call
 treats as still open.
 
-**Reopen-after-close is real in `RotatingNdjsonSink` and now reachable in
+**Reopen-after-close is real in `RotatingFileSink` and now reachable in
 production via the factory-reset path**: `close()`'s doc comment describes
 (and the class actually implements) a `writeLine` call after `close()`
 transparently reopening the file rather than dropping the write. Two desktop
@@ -895,10 +895,20 @@ preserved, same as before. The purge itself always runs AFTER
 which is what guarantees the `error-log-sink` disposer above has already
 closed the fd by the time these `rm` calls execute.
 
-**Deferred from the design doc's §7, recorded honestly**: §7's
-"`brainstrike.log` (full INFO) keeps existing behavior but gains the same
-rotation" was NOT delivered in P2a — only the new `brainstrike-errors.ndjson`
-file rotates; `brainstrike.log` still grows unbounded.
+**Full INFO-log rotation (BST-854)**: `brainstrike.log` now uses the standalone
+Pino worker target `apps/desktop/src/diagnostics/main-log-transport.ts`, bundled
+as the flat main-process entry `dist/main-log-transport.js`. The target passes
+Pino's already-delimited bytes unchanged to the same `RotatingFileSink` used by
+the diagnostic backstop: 10 MB × 5 files, drop-oldest slot math, encoded-byte
+accounting, short-write failure, and append/mkdir preference semantics. The
+ordinary `file` logger configuration carries the custom target through both
+initialization and every runtime preference reconfiguration; falling back to
+`pino/file` would silently restore unbounded growth and is forbidden.
+`brainstrike.log` and its rotated siblings remain deliberately PRESERVED by
+factory reset. They are the full operational log, not a plaintext mirror of
+the reset diagnostic table. Shutdown still owns no new main-thread sink handle:
+Pino's worker lifecycle is unchanged, while the warn+ NDJSON sink remains the
+explicit last graceful-shutdown writer described above.
 
 **Log Viewer diagnostic controls**: the viewer exposes dedicated source and
 code selectors populated from the active adapter's records, plus inclusive
@@ -945,7 +955,8 @@ a rejected export must propagate so the caller can surface it visibly,
 rather than a swallowed failure rendering as a successful-but-empty file.
 
 **Paired tests**: `packages/utils/src/__tests__/diagnostic-event-ndjson.test.ts`,
-`apps/desktop/src/__tests__/diagnostics/rotating-ndjson-sink.integration.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/rotating-file-sink.integration.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/main-log-transport.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/error-log-sink.test.ts`,
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (the
 `recordDurableLog handler` describe block covers the two `logging-ipc.ts`

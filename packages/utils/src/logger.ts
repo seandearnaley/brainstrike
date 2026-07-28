@@ -94,6 +94,7 @@ export interface FileTransportConfig {
   level?: LogLevel;
   mkdir?: boolean;
   options?: Record<string, unknown>;
+  target?: string;
 }
 
 export interface CustomTransportConfig {
@@ -142,6 +143,7 @@ interface NormalizedFileConfig {
   level?: LogLevel;
   mkdir: boolean;
   options: Record<string, unknown>;
+  target?: string;
 }
 
 interface InternalLoggerConfig {
@@ -265,6 +267,10 @@ function mergeFileConfig(
   const effectiveLevel = next.level ?? previous?.level;
   if (effectiveLevel !== undefined) {
     resolved.level = effectiveLevel;
+  }
+  const effectiveTarget = next.target ?? previous?.target;
+  if (effectiveTarget !== undefined) {
+    resolved.target = effectiveTarget;
   }
 
   return resolved;
@@ -590,7 +596,7 @@ function createFileTransportTarget(
       mkdir: fileConfig.mkdir,
       ...fileConfig.options,
     },
-    target: 'pino/file',
+    target: fileConfig.target ?? 'pino/file',
   };
 }
 

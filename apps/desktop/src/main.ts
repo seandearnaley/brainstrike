@@ -4,7 +4,12 @@ import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { LogBuffer } from '@brainstrike/utils/log-buffer';
-import { addLogListener, createLogger, LogLevel } from '@brainstrike/utils/logger';
+import {
+  addLogListener,
+  createLogger,
+  type FileTransportConfig,
+  LogLevel,
+} from '@brainstrike/utils/logger';
 import {
   type InitializeLoggingOptions,
   initializeLogging,
@@ -52,6 +57,7 @@ import {
   type ErrorLogSinkHandle,
   listErrorLogFilePaths,
 } from './diagnostics/error-log-sink';
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import {
   type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
@@ -197,6 +203,16 @@ function getLogFilePath(): string | null {
     logFilePath = path.join(app.getPath('logs'), 'brainstrike.log');
   }
   return logFilePath;
+}
+
+function createMainLogTransportConfig(): Pick<FileTransportConfig, 'options' | 'target'> {
+  return {
+    options: {
+      maxBytes: DEFAULT_MAX_BYTES,
+      maxFiles: DEFAULT_MAX_FILES,
+    },
+    target: path.join(app.getAppPath(), 'dist', 'main-log-transport.js'),
+  };
 }
 
 // Defer ElectronStore creation until app is ready
@@ -494,6 +510,7 @@ if (initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.des
     destination: initialLoggingPreferences.file.destination,
     level: initialLoggingPreferences.file.level,
     mkdir: initialLoggingPreferences.file.mkdir,
+    ...createMainLogTransportConfig(),
   };
 }
 
@@ -513,6 +530,7 @@ applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
         ? currentLoggingPreferences.file.destination
         : null,
   },
+  fileTransport: createMainLogTransportConfig(),
 });
 persistLoggingPreferences(currentLoggingPreferences);
 
@@ -632,6 +650,7 @@ async function applyAndPersistLoggingPreferences(
           ? currentLoggingPreferences.file.destination
           : null,
     },
+    fileTransport: createMainLogTransportConfig(),
   });
   void verifyActiveLogFile('logging-preferences-updated');
   return getLoggingSettingsPayload();
@@ -1081,7 +1100,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     // later warn+ records silently stop landing on disk until rotation or
     // process exit) or fail the delete outright on Windows (while reset
     // still reports success). Deliberately does NOT null `errorLogSink`,
-    // unlike the graceful-shutdown step below: `RotatingNdjsonSink.close()`
+    // unlike the graceful-shutdown step below: `RotatingFileSink.close()`
     // documents (and its own tests exercise) a `writeLine` after `close()`
     // transparently reopening the file, so the very next warn+ record
     // recreates `brainstrike-errors.ndjson` from scratch post-reset instead
@@ -1319,6 +1338,7 @@ if (singleInstanceLockAcquired) {
               node: process.versions.node,
               platform: process.platform,
             },
+            fileTransport: createMainLogTransportConfig(),
           });
           logger.debug('File logging enabled after app.ready', { logFile: resolvedLogPath });
         }
