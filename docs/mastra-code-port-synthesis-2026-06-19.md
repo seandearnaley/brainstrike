@@ -202,7 +202,7 @@ Therefore, for **any** change touching the agent loop, tool registration, suspen
 Per AGENTS.md, the bar is build + lint + type-check + unit tests **all green in the same run**, iterated until green. Before declaring done:
 ```bash
 # scope to affected closure, then the project gates
-pnpm doctor                        # react-doctor scope:changed (only NEW errors block)
+pnpm run react-doctor                        # react-doctor scope:changed (only NEW errors block)
 pnpm knip                          # dependency auditor (deslop ≠ knip; knip is retained)
 # build + types + lint + unit across the affected turbo closure
 ```

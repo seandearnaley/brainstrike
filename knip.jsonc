@@ -426,7 +426,7 @@
     "**/build/**",
     "**/.turbo/**",
     "**/*.d.ts",
-    // react-doctor auto-discovers doctor.config.ts by convention (`pnpm doctor` + react-doctor.yml)
+    // react-doctor auto-discovers doctor.config.ts by convention (`pnpm run react-doctor` + react-doctor.yml)
     "doctor.config.ts",
     // Ignore husky hook file
     ".husky/commit-msg.js",
@@ -464,7 +464,7 @@
     "@tanstack/react-table", // Used in packages/preferences for LogViewerCard table component
     "@tanstack/react-virtual", // Used in packages/preferences for row virtualization
     "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
-    "react-doctor" // CI/lint tool run via `pnpm doctor` + the react-doctor.yml workflow, never imported
+    "react-doctor" // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {

@@ -77,7 +77,7 @@ pnpm lint
 pnpm type-check
 pnpm build
 pnpm test
-pnpm doctor
+pnpm run react-doctor
 ```
 
 Then run the relevant web and desktop smoke lanes plus agent-debug visual checks. Publish the exact tested SHA, open the PR, and monitor that exact head until required checks are green and every review thread has either a fix plus reply or a reasoned visible reply. Do not merge without separate authorization.

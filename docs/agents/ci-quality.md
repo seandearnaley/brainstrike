@@ -788,8 +788,28 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   of the original backlog) demanding removal — disabled per team decision.
   `react-hooks-js/preserve-manual-memoization` stays ON (it protects memo the compiler needs).
 
-Local: `pnpm doctor` (full scan, telemetry off via config) ·
+Local: `pnpm run react-doctor` (full scan, telemetry off via config) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·
 `npx react-doctor why <file>:<line>` (explain a rule).
+
+**The script is named `react-doctor`, not `doctor`, and the `run` is not optional.**
+`doctor` is a pnpm **builtin** subcommand, so `pnpm doctor` <!-- shadowed-shorthand-example --> runs pnpm's own
+environment doctor and never reaches any package script — while printing
+`All checks passed with 1 warning(s)` and exiting 0, which reads exactly like a
+clean react-doctor run. Because react-doctor error-severity findings are a
+required PR check, that false green can be followed by a red CI. The script was
+renamed in BST-852 so the collision cannot be typed by accident, and
+`scripts/__tests__/pnpm-shadowed-builtin-contract.test.mjs` fails if any package
+reintroduces a shadowed script name or any doc reinstates the bare shorthand.
+The shadow set is empirical, not read from `pnpm help -a` — that listing omits
+`doctor` (hidden yet shadowing) and lists `clean` (visible yet harmless).
+
+Two react-doctor CLI constraints worth knowing before you script around it:
+
+- It takes a **directory only**. A file path fails with `not a directory`, so
+  per-file checks are not possible.
+- It takes **exactly one** positional argument (`too many arguments. Expected 1
+  argument but got 3`), so covering several changed paths means several
+  invocations — do not pass a changed-file list.
 
 ---

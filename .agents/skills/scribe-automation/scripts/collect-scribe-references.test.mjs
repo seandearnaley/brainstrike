@@ -69,16 +69,50 @@ test('commit hashes are not counted as symbol references', () => {
 });
 
 const packages = new Map([
-  ['__root__', { devDependencies: { vitest: '^2' }, scripts: { doctor: 'react-doctor .' } }],
+  [
+    '__root__',
+    {
+      devDependencies: { vitest: '^2' },
+      scripts: { 'react-doctor': 'react-doctor .', clean: 'turbo run clean' },
+    },
+  ],
 ]);
 
 test('pnpm <bin> invocations are not treated as missing root scripts', () => {
   // real script → ACCURATE
-  assert.equal(classifyCommand('pnpm doctor', packages, new Set()), 'ACCURATE');
+  assert.equal(classifyCommand('pnpm react-doctor', packages, new Set()), 'ACCURATE');
   // dependency binary, not a script → MANUAL, never DANGLING
   assert.equal(classifyCommand('pnpm vitest run', packages, new Set()), 'MANUAL');
   // a flag is not a script name at all → MANUAL
   assert.equal(classifyCommand('pnpm --version', packages, new Set()), 'MANUAL');
   // genuine unknown script name stays fail-closed DANGLING
   assert.equal(classifyCommand('pnpm nonexistent-script', packages, new Set()), 'DANGLING');
+});
+
+// BST-852. `doctor` is a pnpm BUILTIN subcommand, so the bare shorthand
+// `pnpm doctor` runs pnpm's own environment doctor and NEVER reaches a
+// package script of the same name — while printing "All checks passed", which
+// reads exactly like a clean run of the script. A documented command that
+// cannot do what it claims is DANGLING, not ACCURATE; classifying it ACCURATE
+// made this collector a third false-green instrument on top of the bug itself.
+//
+// The shadow set is EMPIRICALLY derived, not read from `pnpm help -a`: that
+// listing omits `doctor` (hidden builtin) and includes `clean` (which does NOT
+// shadow — a `clean` script runs normally). Verified against pnpm 11.15.0 with
+// a scratch fixture whose scripts echo a sentinel.
+test('bare `pnpm <name>` for a pnpm-shadowed builtin is DANGLING, not ACCURATE', () => {
+  const shadowingPackages = new Map([
+    ['__root__', { devDependencies: {}, scripts: { doctor: 'react-doctor .' } }],
+  ]);
+  // The bug: the script exists, but this invocation can never reach it.
+  assert.equal(classifyCommand('pnpm doctor', shadowingPackages, new Set()), 'DANGLING');
+  // The explicit `run` form is unambiguous and does reach the script.
+  assert.equal(classifyCommand('pnpm run doctor', shadowingPackages, new Set()), 'ACCURATE');
+});
+
+test('non-shadowing builtin names keep working in bare form', () => {
+  // `clean` appears in `pnpm help -a` but does NOT shadow a package script,
+  // so flagging it would be a false positive. Empirically verified.
+  assert.equal(classifyCommand('pnpm clean', packages, new Set()), 'ACCURATE');
+  assert.equal(classifyCommand('pnpm run clean', packages, new Set()), 'ACCURATE');
 });

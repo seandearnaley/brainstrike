@@ -113,7 +113,7 @@ existing biome + knip setup. Do NOT hand-suppress every finding.
 ## Commands
 
 ```bash
-pnpm doctor                                  # full local scan (telemetry off via config)
+pnpm run react-doctor                                  # full local scan (telemetry off via config)
 npx react-doctor . --scope changed --verbose # only new issues vs base
 npx react-doctor . --category Security --verbose
 npx react-doctor why <file>:<line>           # explain why a rule fired

@@ -153,7 +153,10 @@ function createCollectorFixture(
     'package.json',
     `${JSON.stringify({
       devDependencies: { knip: '1.0.0', 'react-doctor': '1.0.0' },
-      scripts: { doctor: 'react-doctor .' },
+      // BST-852: the root script is named `react-doctor`, not `doctor` — a
+      // script named `doctor` is unreachable via the bare `pnpm doctor`
+      // shorthand because pnpm's builtin subcommand claims it.
+      scripts: { 'react-doctor': 'react-doctor .' },
     })}\n`
   );
   writeFixtureFile(repo, 'pnpm-workspace.yaml', 'packages: []\n');

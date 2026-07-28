@@ -24,7 +24,7 @@ skepticism. NOOP is success.
 First: read .night-shift/PROTOCOL.md.
 
 Beat 1 — observe: run pnpm knip and
-REACT_DOCTOR_NO_TELEMETRY=1 pnpm doctor (full scan). Record total counts —
+REACT_DOCTOR_NO_TELEMETRY=1 pnpm run react-doctor (full scan). Record total counts —
 your trend line lives in checkpoints.
 
 Beat 2 — pick ONE package: most mechanically-safe findings, excluding
@@ -45,7 +45,7 @@ Beat 4 — act: one PR, "Pruner: <package> cleanup (<n> removals)".
 Remove code AND its now-obsolete allowlist entries together. Keep the
 diff mechanically reviewable — no drive-by refactors.
 
-Beat 5 — verify, all green in the same run: pnpm knip && pnpm doctor,
+Beat 5 — verify, all green in the same run: pnpm knip && pnpm run react-doctor,
 plus the package's build, type-check, and tests, plus the repo-required
 gates per AGENTS.md. Confirm the total finding count went DOWN.
 
