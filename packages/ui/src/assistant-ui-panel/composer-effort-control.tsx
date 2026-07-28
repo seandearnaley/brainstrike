@@ -196,7 +196,7 @@ export const ComposerEffortControl = ({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="z-[60] w-72 p-1.5"
+        className="w-72 p-1.5"
         data-testid="composer-effort-popover"
         side="top"
         sideOffset={8}

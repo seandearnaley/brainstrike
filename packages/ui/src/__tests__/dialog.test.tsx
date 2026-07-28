@@ -10,6 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '../../src/dialog';
+import { dialogLayerClasses } from '../../src/layers';
 
 describe('Dialog Component', () => {
   it('renders dialog trigger button correctly', async () => {
@@ -164,6 +165,67 @@ describe('Dialog Component', () => {
 
     const content = screen.getByRole('dialog');
     expect(content.className).toContain('z-[51]');
+  });
+
+  // BST-963: a dialog opened from inside another dialog (the Log Viewer's
+  // "Details" modal inside Settings) used to inherit the SAME 50/51 tier as its
+  // parent. Its scrim therefore painted under the parent's opaque panel and
+  // dimmed only the area outside it — the reported background "flash".
+  it('lifts a nested dialog onto its own tier so its scrim covers the parent panel', () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent>
+          <DialogTitle>Settings</DialogTitle>
+          <Dialog defaultOpen>
+            <DialogContent>
+              <DialogTitle>Log record details</DialogTitle>
+            </DialogContent>
+          </Dialog>
+        </DialogContent>
+      </Dialog>
+    );
+
+    const overlays = [...document.querySelectorAll('[data-slot="dialog-overlay"]')];
+    const panels = [...document.querySelectorAll('[data-slot="dialog-content"]')];
+    expect(overlays).toHaveLength(2);
+    expect(panels).toHaveLength(2);
+
+    const outer = dialogLayerClasses(1);
+    const nested = dialogLayerClasses(2);
+
+    const outerPanel = panels.find((panel) => panel.textContent?.includes('Settings'));
+    const nestedPanel = panels.find((panel) => panel.textContent?.includes('Log record details'));
+    expect(outerPanel?.className).toContain(outer.content);
+    expect(nestedPanel?.className).toContain(nested.content);
+
+    // Portals append in open order, so the nested scrim is the later overlay.
+    expect(overlays[0]?.className).toContain(outer.overlay);
+    expect(overlays[1]?.className).toContain(nested.overlay);
+  });
+
+  it('gives a third nesting level its own tier', () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent>
+          <DialogTitle>Level one</DialogTitle>
+          <Dialog defaultOpen>
+            <DialogContent>
+              <DialogTitle>Level two</DialogTitle>
+              <Dialog defaultOpen>
+                <DialogContent>
+                  <DialogTitle>Level three</DialogTitle>
+                </DialogContent>
+              </Dialog>
+            </DialogContent>
+          </Dialog>
+        </DialogContent>
+      </Dialog>
+    );
+
+    const deepest = [...document.querySelectorAll('[data-slot="dialog-content"]')].find((panel) =>
+      panel.textContent?.includes('Level three')
+    );
+    expect(deepest?.className).toContain(dialogLayerClasses(3).content);
   });
 
   it('allows a modal to opt into a blurred overlay', () => {

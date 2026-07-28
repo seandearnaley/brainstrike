@@ -324,7 +324,7 @@ export const ComposerModelMenu = ({
           <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="z-[60] w-80 p-1">
+      <DropdownMenuContent align="start" className="w-80 p-1">
         <DropdownMenuRadioGroup onValueChange={handleModelSelect} value={selectedModel ?? ''}>
           {topOptions.map((option) => (
             <ModelRow key={option.compositeKey} option={option} />
@@ -338,7 +338,7 @@ export const ComposerModelMenu = ({
             >
               More models
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="z-[60] max-h-[min(60vh,480px)] w-64 overflow-y-auto p-1">
+            <DropdownMenuSubContent className="max-h-[min(60vh,480px)] w-64 overflow-y-auto p-1">
               {groups.map((group) => (
                 <Fragment key={group.runtime}>
                   <DropdownMenuLabel className="px-2 text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -352,7 +352,7 @@ export const ComposerModelMenu = ({
                           {provider.options.length}
                         </span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="z-[60] max-h-[min(60vh,480px)] w-80 overflow-y-auto p-1">
+                      <DropdownMenuSubContent className="max-h-[min(60vh,480px)] w-80 overflow-y-auto p-1">
                         {provider.options.map((option) => (
                           <DenseModelRow key={option.compositeKey} option={option} />
                         ))}
