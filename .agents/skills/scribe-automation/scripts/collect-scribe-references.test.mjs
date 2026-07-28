@@ -73,7 +73,7 @@ const packages = new Map([
     '__root__',
     {
       devDependencies: { vitest: '^2' },
-      scripts: { 'react-doctor': 'react-doctor .', clean: 'turbo run clean' },
+      scripts: { clean: 'turbo run clean', 'react-doctor': 'react-doctor .' },
     },
   ],
 ]);
