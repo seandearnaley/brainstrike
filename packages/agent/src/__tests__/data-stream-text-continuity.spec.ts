@@ -568,6 +568,51 @@ describe('aui-data parts never interleave into an open tool-call args stream (BS
     expect(codes.indexOf('9')).toBeLessThan(codes.indexOf('aui-data'));
   });
 
+  it('drops a late input_stream_end after a forced close instead of re-emitting the args frame', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.grepSearch', 'call-1'),
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":'),
+      // Text force-closes the args stream (its `9` is emitted with the args
+      // accumulated so far); the provider's own late input_stream_end must
+      // then be dropped — a second `9` is another args-closing frame, the
+      // same crash class the settled-id rule guards against.
+      { type: 'text-delta', value: 'Searching.' } as StreamChunk,
+      argsEndChunk('brainstrike.grepSearch', 'call-1'),
+      toolSuccessChunk('brainstrike.grepSearch', 'call-1', { files: [] }),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const argsFrames = parsed.filter((p) => p.code === '9');
+    expect(argsFrames).toHaveLength(1);
+  });
+
+  it('keeps deferred data parts out of an open text block after a forced args closure', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.grepSearch', 'call-1'),
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":"x"}'),
+      { type: 'text-delta', value: 'Hello ' } as StreamChunk,
+      // Deferred while the text block streams…
+      runEventChunk('ev-1', 'Observation'),
+      // …and the provider's late input_stream_end must NOT flush it mid-text
+      // (nor re-emit the `9`).
+      argsEndChunk('brainstrike.grepSearch', 'call-1'),
+      { type: 'text-delta', value: 'world.' } as StreamChunk,
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    expect(parsed.filter((p) => p.code === '9')).toHaveLength(1);
+    const firstText = codes.indexOf('0');
+    const lastText = codes.lastIndexOf('0');
+    expect(lastText - firstText).toBe(1);
+    const dataIndex = codes.indexOf('aui-data');
+    // Still delivered, but only after the text block closes.
+    expect(dataIndex).toBeGreaterThan(lastText);
+    expect(dataIndex).toBeLessThan(codes.indexOf('d'));
+  });
+
   it('closes an open args stream before the finish frames when the stream ends mid-args', async () => {
     const parsed = await mapChunks([
       toolStartChunk('brainstrike.grepSearch', 'call-1'),

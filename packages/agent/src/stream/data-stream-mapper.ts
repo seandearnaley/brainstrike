@@ -912,7 +912,12 @@ export class DataStreamMapper {
     }
     if (step === 'input_stream_end') {
       const state = this.toolState.get(callId);
-      if (!state) {
+      // Mirror the delta branch's argsEmitted guard: after a forced close
+      // (text/reasoning arrived mid-args, or another call settled) the `9` is
+      // already on the wire. Re-emitting it is another args-closing frame
+      // (crash class), and its completeArgsStream flush would land deferred
+      // aui-data inside the text block that forced the close.
+      if (!state || state.argsEmitted) {
         return;
       }
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
