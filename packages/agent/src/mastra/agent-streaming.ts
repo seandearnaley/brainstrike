@@ -13,6 +13,7 @@ import {
   resolveOpenRouterCodingMaxOutputTokens,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
@@ -92,6 +93,7 @@ import {
   createDelegationConfig,
   createDelegationLifecycleTracker,
   type DelegationLifecycleTracker,
+  type SubagentChildUsageReport,
 } from './subagent-delegation';
 import {
   mapMastraToolEvent,
@@ -1086,6 +1088,47 @@ function mapGenericToolEvent(
   };
 }
 
+/**
+ * Per-leg bridge from `onDelegationComplete` (a Mastra callback OUTSIDE the
+ * chunk loop) to the stream: completed child usage queues here and the
+ * generator drains it into `child-run-usage` chunks on the next loop
+ * iteration (the delegation tool-result part always follows the completion
+ * callback) with a post-loop drain as the backstop. Model attribution is the
+ * persona's model pin when present, else the parent run's model — the same
+ * resolution the child actually executed with (never a guess).
+ */
+interface DelegationUsageCapture {
+  drain: () => StreamChunk[];
+  onChildUsage: (report: SubagentChildUsageReport) => void;
+}
+
+function createDelegationUsageCapture(
+  personasById: ReadonlyMap<string, AssistantPersonaDefinition>,
+  runtimeData: RuntimeData | undefined
+): DelegationUsageCapture {
+  const pending: StreamChunk[] = [];
+  return {
+    drain: () => pending.splice(0, pending.length),
+    onChildUsage: (report) => {
+      const pin = personasById.get(report.personaId)?.model;
+      const model = pin?.modelId ?? runtimeData?.model;
+      const provider = pin?.provider ?? runtimeData?.provider;
+      pending.push({
+        type: 'child-run-usage',
+        value: {
+          estimated: false,
+          inputTokens: report.inputTokens,
+          ...(model ? { model } : {}),
+          outputTokens: report.outputTokens,
+          personaId: report.personaId,
+          ...(provider ? { provider } : {}),
+          source: 'subagent',
+        },
+      });
+    },
+  };
+}
+
 /** The subagent.* run event that mirrors a delegation tool-call/result/error. */
 function makeSubagentLifecycleChunk(
   partType: 'tool-call' | 'tool-error' | 'tool-result',
@@ -1400,16 +1443,65 @@ function isObservationalMemoryDataChunkType(type: unknown): type is string {
 
 const OM_FAILURE_DETAIL_MAX_CHARS = 500;
 
+function readOmTokenCount(payload: Record<string, unknown> | undefined, key: string): number {
+  const value = payload?.[key];
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/**
+ * Map a successful OM cycle end marker to estimated child usage (BST-953).
+ * `data-om-observation-end` carries `tokensObserved` (observer input) /
+ * `observationTokens` (output); `data-om-buffering-end` carries the same pair
+ * as `tokensBuffered` / `bufferedTokens`. Both are Mastra's LOCAL tokenx
+ * estimates of the content sizes (the observer's own system prompt is not
+ * included), so the chunk is flagged `estimated` and must never be presented
+ * as billed truth. `data-om-activation` is an instant buffered swap with no
+ * LLM call — it must never fabricate usage.
+ */
+function mapObservationalMemoryCycleEnd(
+  part: MastraStreamPart,
+  payload: Record<string, unknown> | undefined
+): StreamChunk | undefined {
+  const isBufferingEnd = part.type === 'data-om-buffering-end';
+  if (!(isBufferingEnd || part.type === 'data-om-observation-end')) {
+    return;
+  }
+  const inputTokens = readOmTokenCount(
+    payload,
+    isBufferingEnd ? 'tokensBuffered' : 'tokensObserved'
+  );
+  const outputTokens = readOmTokenCount(
+    payload,
+    isBufferingEnd ? 'bufferedTokens' : 'observationTokens'
+  );
+  if (inputTokens === 0 && outputTokens === 0) {
+    // A marker without token figures has nothing to meter — skipping it is the
+    // honest move (a zero row would just dilute the by-source breakdown).
+    return;
+  }
+  return {
+    type: 'child-run-usage',
+    value: {
+      estimated: true,
+      inputTokens,
+      outputTokens,
+      source: payload?.['operationType'] === 'reflection' ? 'om-reflection' : 'om-observation',
+    },
+  };
+}
+
 function mapObservationalMemoryDataPart(part: MastraStreamPart): {
   chunks: StreamChunk[];
   finished: boolean;
 } {
-  if (!part.type.endsWith('-failed')) {
-    return { chunks: [], finished: false };
-  }
-  const payload = (part.payload ?? (part as { data?: unknown }).data) as
+  const successPayload = (part.payload ?? (part as { data?: unknown }).data) as
     | Record<string, unknown>
     | undefined;
+  if (!part.type.endsWith('-failed')) {
+    const usageChunk = mapObservationalMemoryCycleEnd(part, successPayload);
+    return { chunks: usageChunk ? [usageChunk] : [], finished: false };
+  }
+  const payload = successPayload;
   const rawError = payload?.['error'];
   const errorText =
     typeof rawError === 'string' && rawError.length > 0
@@ -1765,6 +1857,8 @@ interface StreamIterationParams {
 }
 
 interface StreamGeneratorParams {
+  /** Child-usage bridge for this leg's delegation config (personas enabled only). */
+  delegationUsage?: DelegationUsageCapture;
   memory?: MastraMemory;
   /**
    * Run-start prompt breakdown to emit as the first StreamChunk (initial turn
@@ -2075,6 +2169,7 @@ function resolveMemoryOption(
 }
 
 async function* streamChunksFromMastra({
+  delegationUsage,
   promptBreakdown,
   memory,
   runtime,
@@ -2158,6 +2253,10 @@ async function* streamChunksFromMastra({
           runtime,
           runtimeData,
         });
+      // Drain completed-delegation usage BEFORE the part's own chunks: the
+      // completion callback fired before Mastra emitted this part, so the
+      // child's usage must not land after a finishing part closes the stream.
+      yield* drainDelegationUsageChunks(delegationUsage);
       for (const chunk of chunks) {
         yield chunk;
       }
@@ -2166,6 +2265,7 @@ async function* streamChunksFromMastra({
         return;
       }
     }
+    yield* drainDelegationUsageChunks(delegationUsage);
     // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
     // never leave a forever-"running" subagent.started). Otherwise finalize a
     // missing-finish stream with pending tool output + a synthetic finish.
@@ -2287,6 +2387,16 @@ async function generateMastraThreadTitle({
   }
 }
 
+/** Yield the queued child-usage chunks for this leg's delegation capture, if any. */
+function* drainDelegationUsageChunks(
+  capture: DelegationUsageCapture | undefined
+): Generator<StreamChunk> {
+  if (!capture) {
+    return;
+  }
+  yield* capture.drain();
+}
+
 /** Post-loop chunks when a stream ends WITHOUT a finish event (not aborted). */
 function makeMissingFinishStreamChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
   logger.warn('mastra stream ended without finish event', {
@@ -2340,6 +2450,10 @@ async function createStreamIteratorFromRuntime({
   try {
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
     const memoryOption = resolveMemoryOption(runtimeData, memory);
+    const delegationUsage =
+      runtime.personasById.size > 0
+        ? createDelegationUsageCapture(runtime.personasById, runtimeData)
+        : undefined;
 
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
@@ -2350,8 +2464,14 @@ async function createStreamIteratorFromRuntime({
       ...buildGenerationProviderOptionsOption(runtimeData),
       // Delegation safety rails: per-run caps + maxSteps clamp + unknown-persona
       // rejection (only when the run has registered personas).
-      ...(runtime.personasById.size > 0
-        ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
+      ...(delegationUsage
+        ? {
+            delegation: createDelegationConfig({
+              logger,
+              onChildUsage: delegationUsage.onChildUsage,
+              personasById: runtime.personasById,
+            }),
+          }
         : {}),
       // When enabled, Mastra pauses before tool execution and emits resumable
       // approval metadata for the UI action bridge.
@@ -2391,6 +2511,7 @@ async function createStreamIteratorFromRuntime({
     });
 
     return streamChunksFromMastra({
+      ...(delegationUsage ? { delegationUsage } : {}),
       ...(memory ? { memory } : {}),
       promptBreakdown,
       runtime,
@@ -2505,6 +2626,10 @@ async function createToolApprovalIteratorFromRuntime({
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const resumedApprovalToolCall = await readResumedApprovalToolCall(runtime, runtimeData, action);
+    const delegationUsage =
+      runtime.personasById.size > 0
+        ? createDelegationUsageCapture(runtime.personasById, runtimeData)
+        : undefined;
     const approvalOptions: BrainstrikeAgentStreamOptions & {
       runId: string;
       toolCallId: string;
@@ -2519,8 +2644,14 @@ async function createToolApprovalIteratorFromRuntime({
       ...buildGenerationProviderOptionsOption(runtimeData),
       // Resume keeps the delegation rails so a resumed run still caps/rejects
       // subagent delegations consistently with the initial turn.
-      ...(runtime.personasById.size > 0
-        ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
+      ...(delegationUsage
+        ? {
+            delegation: createDelegationConfig({
+              logger,
+              onChildUsage: delegationUsage.onChildUsage,
+              personasById: runtime.personasById,
+            }),
+          }
         : {}),
       // Reapply the per-tool permission decisions instead of letting Mastra's
       // run-wide resume flag gate every subsequent tool call.
@@ -2555,6 +2686,7 @@ async function createToolApprovalIteratorFromRuntime({
     }
 
     return streamChunksFromMastra({
+      ...(delegationUsage ? { delegationUsage } : {}),
       runtime,
       stream: fullStream,
       streamAbortContext,
@@ -2889,6 +3021,10 @@ async function createToolResumeIteratorFromRuntime({
   try {
     validateToolResumeAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
+    const delegationUsage =
+      runtime.personasById.size > 0
+        ? createDelegationUsageCapture(runtime.personasById, runtimeData)
+        : undefined;
     const resumeOptions = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
       abortSignal: streamAbortContext.signal,
@@ -2901,8 +3037,14 @@ async function createToolResumeIteratorFromRuntime({
       // Resume keeps the delegation rails so a resumed run (e.g. an askUser
       // pause→answer that then delegates) still caps/rejects subagent
       // delegations consistently with the initial + approval-resume iterators.
-      ...(runtime.personasById.size > 0
-        ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
+      ...(delegationUsage
+        ? {
+            delegation: createDelegationConfig({
+              logger,
+              onChildUsage: delegationUsage.onChildUsage,
+              personasById: runtime.personasById,
+            }),
+          }
         : {}),
     };
 
@@ -2926,6 +3068,7 @@ async function createToolResumeIteratorFromRuntime({
     }
 
     return streamChunksFromMastra({
+      ...(delegationUsage ? { delegationUsage } : {}),
       runtime,
       stream: fullStream,
       streamAbortContext,

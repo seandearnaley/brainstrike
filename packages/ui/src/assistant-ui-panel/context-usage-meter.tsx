@@ -15,7 +15,12 @@
  *   hide inside a hover surface)
  */
 import { useAuiState } from '@assistant-ui/react';
-import { type CostEstimate, formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
+import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
+import {
+  type CostEstimate,
+  formatTokenCount,
+  formatUsdCost,
+} from '@brainstrike/utils/token-counting-heuristics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '../popover';
@@ -28,14 +33,31 @@ import { ContextRing, type ContextRingState } from './context-ring';
 import { ContextUsagePopoverContent, formatCompact } from './context-usage-popover';
 import { useContextUsageStore } from './context-usage-store';
 
+/** One source's share of the thread total (BST-953). OM figures are local estimates. */
+export interface CumulativeSourceUsage {
+  readonly estimated: boolean;
+  readonly inputTokens: number;
+  readonly kind: AssistantRunUsageKind;
+  readonly outputTokens: number;
+}
+
 /**
- * Durable cumulative usage for the active thread, resolved upstream (tokens +
- * a discriminated cost). Distinct from the one-turn-lag gauge: this is the
- * running captured total persisted across reloads. `cost` is never $0 for an
- * unavailable price, and captured-only totals are visibly qualified as estimates.
+ * Durable thread-total usage, resolved upstream (structural mirror of the
+ * app-shell resolver's shape — dependency direction app-shell → ui). Distinct
+ * from the one-turn-lag context gauge: this is the running captured billing
+ * total persisted across reloads, broken down by source (chat / subagents /
+ * OM) with cache-class totals and the net caching savings. `cost` is never $0
+ * for an unavailable price, and captured-only totals are visibly qualified as
+ * estimates.
  */
 export interface CumulativeUsageDisplay {
+  readonly bySource: readonly CumulativeSourceUsage[];
+  readonly cacheCreationTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheSavings?: { readonly usdAmount: number } | undefined;
   readonly cost: CostEstimate;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
   readonly totalTokens: number;
 }
 
@@ -136,6 +158,49 @@ function resolveUsageState(used: number, effectiveInputBudget: number): ContextR
 /** Delay before a hover-out closes the popover (lets the pointer cross the gap to the content). */
 const HOVER_CLOSE_DELAY_MS = 120;
 
+interface TriggerDisplay {
+  ariaLabel: string;
+  /** 'est.' for the context-fraction fallback; 'live' while the total includes in-flight steps. */
+  badge?: 'est.' | 'live';
+  costText?: string;
+  primaryText: string;
+}
+
+/**
+ * Pure chip-content resolution (BST-953): with durable cumulative data the
+ * chip leads with the overall thread total (+cost when priceable, 'live'
+ * while the in-flight run's steps are included); without it (web / an
+ * unhydrated thread) it falls back to the context used/budget fraction.
+ * Kept OUTSIDE the component (module-level, like computeSegmentWidths).
+ */
+function resolveTriggerDisplay(params: {
+  cumulativeUsage: CumulativeUsageDisplay | undefined;
+  effectiveInputBudget: number;
+  isEstimated: boolean;
+  liveTokens: number;
+  percentage: number;
+  usedTokens: number;
+}): TriggerDisplay {
+  const { cumulativeUsage, effectiveInputBudget, isEstimated, liveTokens, percentage, usedTokens } =
+    params;
+  if (cumulativeUsage === undefined) {
+    return {
+      ariaLabel: `Context usage: ${Math.round(percentage)}% of input budget${isEstimated ? ' (estimated)' : ''}`,
+      ...(isEstimated ? { badge: 'est.' as const } : {}),
+      primaryText: `${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)}`,
+    };
+  }
+  const threadTotalTokens = cumulativeUsage.totalTokens + liveTokens;
+  return {
+    ariaLabel: `Thread usage: ${formatTokenCount(threadTotalTokens)}; context ${Math.round(percentage)}% of input budget`,
+    ...(liveTokens > 0 ? { badge: 'live' as const } : {}),
+    ...(cumulativeUsage.cost.available
+      ? { costText: `· ${formatUsdCost(cumulativeUsage.cost.usdAmount)}` }
+      : {}),
+    primaryText: `${formatCompact(threadTotalTokens)} tokens`,
+  };
+}
+
 export const ContextUsageMeter = ({
   threadKey,
   contextWindow,
@@ -151,6 +216,10 @@ export const ContextUsageMeter = ({
   // Run-start prompt breakdown (or the explicit invalid marker) recorded by the
   // app-shell writer with the SAME thread key contract as recordUsage.
   const breakdownState = useContextUsageStore((s) => s.breakdownByThread[key]);
+  // In-flight run's billed step usage (BST-953 live tick) — added to the
+  // durable cumulative figure until the run's own row lands and the wrapper
+  // clears it (see context-usage-store.ts).
+  const liveRunUsage = useContextUsageStore((s) => s.liveRunUsageByThread[key]);
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -205,6 +274,21 @@ export const ContextUsageMeter = ({
   const state = resolveUsageState(usedTokens, effectiveInputBudget);
   const percentage = Math.min(100, (usedTokens / effectiveInputBudget) * 100);
 
+  // Thread-total headline (BST-953): the overall billed figure — every
+  // captured source (chat, subagents, OM) plus the in-flight run's live step
+  // usage — is what the chip leads with; context-window occupancy stays on
+  // the ring and inside the popover. Absent cumulative data (web / an
+  // unhydrated thread) falls back to the context fraction.
+  const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
+  const trigger = resolveTriggerDisplay({
+    cumulativeUsage,
+    effectiveInputBudget,
+    isEstimated,
+    liveTokens,
+    percentage,
+    usedTokens,
+  });
+
   return (
     <div
       className="mx-3 mt-1.5 mb-1 flex flex-col gap-0.5 text-xs"
@@ -218,14 +302,14 @@ export const ContextUsageMeter = ({
               effectiveInputBudget so the fraction and the ring fill tell the
               same story; the full model window lives in the popover + title. */}
           <button
-            aria-label={`Context usage: ${Math.round(percentage)}% of input budget${isEstimated ? ' (estimated)' : ''}`}
+            aria-label={trigger.ariaLabel}
             className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             data-testid="context-usage-trigger"
             onBlur={scheduleClose}
             onFocus={openNow}
             onMouseEnter={openNow}
             onMouseLeave={scheduleClose}
-            title={`model window ${formatTokenCount(contextWindow)}`}
+            title={`context ${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)} · model window ${formatTokenCount(contextWindow)}`}
             type="button"
           >
             <ContextRing isEstimated={isEstimated} percentage={percentage} state={state} />
@@ -239,11 +323,19 @@ export const ContextUsageMeter = ({
                     : 'text-muted-foreground'
               )}
             >
-              {formatCompact(usedTokens)} / {formatCompact(effectiveInputBudget)}
+              {trigger.primaryText}
             </span>
-            {isEstimated && (
+            {trigger.costText && (
+              <span
+                className="text-muted-foreground/70 tabular-nums"
+                data-testid="context-usage-trigger-cost"
+              >
+                {trigger.costText}
+              </span>
+            )}
+            {trigger.badge && (
               <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground/70 uppercase tracking-wide">
-                est.
+                {trigger.badge}
               </span>
             )}
           </button>
@@ -264,6 +356,7 @@ export const ContextUsageMeter = ({
             effectiveInputBudget={effectiveInputBudget}
             estimatedTokens={estimatedTokens}
             isEstimated={isEstimated}
+            liveRunUsage={liveRunUsage}
             omSegment={omSegment}
             percentage={percentage}
             usage={usage}

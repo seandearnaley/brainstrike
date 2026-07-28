@@ -13,6 +13,7 @@ import type {
   AssistantContextBreakdown,
   AssistantContextBreakdownState,
 } from '@brainstrike/assistant-contract/context-breakdown';
+import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   type CostEstimate,
@@ -43,6 +44,85 @@ function costLabel(cost: CostEstimate): string {
   }
   return 'cost unavailable';
 }
+
+/** Display label per usage source (BST-953). OM figures are local estimates. */
+const SOURCE_LABELS: Record<AssistantRunUsageKind, string> = {
+  chat: 'Chat',
+  'om-observation': 'Memory observer (est.)',
+  'om-reflection': 'Memory reflection (est.)',
+  subagent: 'Subagents',
+};
+
+interface ThreadTotalSectionProps {
+  cumulativeUsage: CumulativeUsageDisplay;
+  /** In-flight run's billed step usage (live tick), not yet in the durable rows. */
+  liveRunUsage?: ThreadTokenUsage | undefined;
+}
+
+/**
+ * Thread-total header (BST-953): the overall billed picture — in/out split,
+ * cache-class totals + net caching savings, and the by-source breakdown
+ * (chat / subagents / OM cycles). The live in-flight run's step usage is
+ * added on top of the durable figure and visibly marked, never silently
+ * blended into a "final" number.
+ */
+const ThreadTotalSection = ({ cumulativeUsage, liveRunUsage }: ThreadTotalSectionProps) => {
+  const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
+  const totalTokens = cumulativeUsage.totalTokens + liveTokens;
+  const inputTokens = cumulativeUsage.inputTokens + (liveRunUsage?.inputTokens ?? 0);
+  const outputTokens = cumulativeUsage.outputTokens + (liveRunUsage?.outputTokens ?? 0);
+  const hasCacheTraffic = cumulativeUsage.cacheReadTokens + cumulativeUsage.cacheCreationTokens > 0;
+
+  return (
+    <div className="flex flex-col gap-0.5" data-testid="context-usage-thread-total">
+      <p className="flex items-center justify-between gap-2 font-medium tabular-nums">
+        <span data-testid="context-usage-thread-total-tokens">
+          Thread total · {formatTokenCount(totalTokens)}
+          {liveTokens > 0 ? ' (live)' : ''}
+        </span>
+        <span className="text-muted-foreground" data-testid="context-usage-cost">
+          {costLabel(cumulativeUsage.cost)}
+        </span>
+      </p>
+      <p
+        className="text-[11px] text-muted-foreground/80 tabular-nums"
+        data-testid="context-usage-thread-total-split"
+      >
+        {formatCompact(inputTokens)} in · {formatCompact(outputTokens)} out
+      </p>
+      {hasCacheTraffic && (
+        <p
+          className="text-[11px] text-muted-foreground/80 tabular-nums"
+          data-testid="context-usage-cache-line"
+        >
+          Cache: {formatCompact(cumulativeUsage.cacheReadTokens)} read ·{' '}
+          {formatCompact(cumulativeUsage.cacheCreationTokens)} written
+          {cumulativeUsage.cacheSavings
+            ? ` · saved ~${formatUsdCost(cumulativeUsage.cacheSavings.usdAmount)}`
+            : ''}
+        </p>
+      )}
+      {cumulativeUsage.bySource.length > 1 && (
+        <ul className="mt-0.5 flex flex-col gap-px" data-testid="context-usage-by-source">
+          {cumulativeUsage.bySource.map((source) => (
+            <li
+              className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80"
+              data-testid={`context-usage-source-${source.kind}`}
+              key={source.kind}
+            >
+              <span>{SOURCE_LABELS[source.kind]}</span>
+              <span className="tabular-nums">
+                {formatCompact(source.inputTokens)} in · {formatCompact(source.outputTokens)} out
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+ThreadTotalSection.displayName = 'ThreadTotalSection';
 
 /** Actionable copy per awaiting-observer reason — a pause must say why. */
 function awaitingObserverNote(reason: OmAwaitingObserverReason): string {
@@ -508,6 +588,8 @@ export interface ContextUsagePopoverContentProps {
   effectiveInputBudget: number;
   estimatedTokens?: number | undefined;
   isEstimated: boolean;
+  /** In-flight run's billed step usage (BST-953 live tick). */
+  liveRunUsage?: ThreadTokenUsage | undefined;
   omSegment?: OmMeterState | undefined;
   percentage: number;
   usage?: ThreadTokenUsage | undefined;
@@ -522,6 +604,7 @@ export const ContextUsagePopoverContent = ({
   effectiveInputBudget,
   estimatedTokens,
   isEstimated,
+  liveRunUsage,
   omSegment,
   percentage,
   usage,
@@ -537,11 +620,24 @@ export const ContextUsagePopoverContent = ({
 
   return (
     <div className="flex flex-col gap-1 text-xs">
-      {/* Header: percent-full + used/budget fraction. The denominator is the
-          effective input budget (contextWindow − output reservation); the full
-          model window is on the line below so neither number is lost. */}
-      <p className="font-medium tabular-nums" data-testid="context-usage-popover-header">
-        {Math.round(percentage)}% full · {formatCompact(usedTokens)}
+      {/* Thread total FIRST (BST-953): the overall billed picture is the
+          headline; context-window occupancy is a supporting section below.
+          Only shown when hydrated from the DB (desktop). */}
+      {cumulativeUsage && (
+        <>
+          <ThreadTotalSection cumulativeUsage={cumulativeUsage} liveRunUsage={liveRunUsage} />
+          <div aria-hidden="true" className="my-1 border-border/60 border-t" />
+        </>
+      )}
+
+      {/* Context section: percent-full + used/budget fraction. The denominator
+          is the effective input budget (contextWindow − output reservation);
+          the full model window is on the line below so neither number is lost. */}
+      <p
+        className={cn('tabular-nums', cumulativeUsage ? undefined : 'font-medium')}
+        data-testid="context-usage-popover-header"
+      >
+        Context {Math.round(percentage)}% full · {formatCompact(usedTokens)}
         {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(effectiveInputBudget)}
       </p>
       <p
@@ -605,26 +701,6 @@ export const ContextUsagePopoverContent = ({
           web supplies { kind: 'chat-only' } so the stats are hidden, never
           zeros. */}
       {omSegment && <OmMeterSection state={omSegment} />}
-
-      {/* Cumulative durable usage + cost. Only shown when hydrated from the DB
-          (desktop). Cost renders via formatUsdCost, or the literal "cost
-          unavailable" for the available:false branch — NEVER $0. */}
-      {cumulativeUsage && (
-        <div
-          className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80"
-          data-testid="context-usage-cumulative"
-        >
-          <span className="tabular-nums">
-            <span className="mr-1 text-[10px] text-muted-foreground/60 uppercase tracking-wide">
-              cumulative
-            </span>
-            {formatTokenCount(cumulativeUsage.totalTokens)}
-          </span>
-          <span className="tabular-nums" data-testid="context-usage-cost">
-            {costLabel(cumulativeUsage.cost)}
-          </span>
-        </div>
-      )}
     </div>
   );
 };

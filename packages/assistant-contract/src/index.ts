@@ -28,6 +28,7 @@ export * from './provider-metadata.js';
 export * from './provider-registry.js';
 export * from './reasoning-visibility.js';
 export * from './run-events.js';
+export * from './run-usage.js';
 export * from './runtime-data.js';
 export * from './secret-read-error.js';
 export * from './shell-output.js';

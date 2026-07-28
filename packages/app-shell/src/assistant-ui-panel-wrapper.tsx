@@ -8,6 +8,7 @@ import {
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
@@ -1424,6 +1425,30 @@ export function AssistantUiPanelWrapper({
     [selectedMemoryThreadId]
   );
 
+  // Child model-call usage (subagent / OM cycle, BST-953). The desktop server
+  // already wrote the durable row before the transient part reached the wire
+  // (its write queue may still be committing — the post-run refresh is the
+  // backstop); the renderer only re-reads so the thread total moves mid-run.
+  const handleChildRunUsage = useCallback(
+    (data: unknown) => {
+      if (!isAssistantChildRunUsage(data)) {
+        assistantUsageWriteBackLogger.warn('Ignoring malformed child-run-usage part', { data });
+        return;
+      }
+      void refreshCumulativeUsage();
+    },
+    [refreshCumulativeUsage]
+  );
+
+  // Live thread-total tick (BST-953): accumulate the in-flight run's billed
+  // step usage; handleUsage clears the sum once the run's durable row lands.
+  const handleStepUsage = useCallback(
+    (step: { inputTokens: number; outputTokens: number }) => {
+      useContextUsageStore.getState().recordLiveStepUsage(selectedMemoryThreadId ?? 'active', step);
+    },
+    [selectedMemoryThreadId]
+  );
+
   // Record provider token usage. ONE usage derivation (the single tap) fans out
   // to two sinks:
   //   1. the session-lived zustand store (last-turn meter), keyed by the active
@@ -1458,6 +1483,9 @@ export function AssistantUiPanelWrapper({
       // zustand sink still ran).
       const runContext = getActiveRunUsageContext();
       if (!(assistantThreadRepository && selectedMemoryThreadId && runContext)) {
+        // No durable sink → no refreshed cumulative will absorb the live sum;
+        // drop it now (the run is over, the exact usage is in the store).
+        useContextUsageStore.getState().clearLiveRunUsage(threadId);
         return;
       }
       assistantThreadRepository
@@ -1482,6 +1510,11 @@ export function AssistantUiPanelWrapper({
           // Never swallow silently — durable usage is best-effort relative to the
           // turn, but a failure must be observable.
           assistantUsageWriteBackLogger.warn('Failed to persist durable run usage', { error });
+        })
+        // Clear the live sum only AFTER the refreshed cumulative absorbed the
+        // run's row (clearing earlier makes the thread total dip and jump).
+        .finally(() => {
+          useContextUsageStore.getState().clearLiveRunUsage(threadId);
         });
     },
     [
@@ -1645,11 +1678,13 @@ export function AssistantUiPanelWrapper({
                       onComposerTextChange: handleComposerTextChange,
                     }
                   : {})}
+                onChildRunUsage={handleChildRunUsage}
                 onContextBreakdown={handleContextBreakdown}
                 onProviderSettingsChange={handleProviderSettingsChange}
                 onProviderSettingsValidationChange={providerDraft.report}
                 onRunFailed={handleRunFailed}
                 onRunFinished={handleRunFinished}
+                onStepUsage={handleStepUsage}
                 onStreamActivity={renewActiveAssistantForegroundActivity}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}

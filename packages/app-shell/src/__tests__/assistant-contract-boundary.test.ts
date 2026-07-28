@@ -97,7 +97,14 @@ describe('app-shell assistant contract boundary', () => {
     // per the review privacy/eligibility rulings — feeds it the selected chat
     // provider plus a model-catalog eligibility predicate over the registry
     // store subscriptions it already holds.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1705);
+    // Bumped 1705 → 1740 for the BST-953 thread-total taps: the wrapper only
+    // adds two wiring callbacks — handleChildRunUsage (validates with the
+    // contract's isAssistantChildRunUsage, then re-reads the cumulative view)
+    // and handleStepUsage (records into the ui store's live sum) — plus the
+    // live-sum clear ordering in handleUsage. Aggregation policy lives in
+    // assistant-cumulative-usage.ts, capture in packages/agent, persistence in
+    // the desktop server, and display in packages/ui.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1740);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

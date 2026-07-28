@@ -1730,6 +1730,65 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('captures OM observation/reflection cycle sizes as child-run-usage chunks (BST-953)', async () => {
+    // The end markers carry Mastra's LOCAL token estimates for the observer
+    // call (`tokensObserved` in / `observationTokens` out; buffering uses
+    // `tokensBuffered` / `bufferedTokens`). They were previously dropped with
+    // the rest of the non-failure OM bookkeeping — the thread-total meter
+    // needs them as estimated child usage. Activation is an instant swap (no
+    // LLM call) and must never fabricate usage.
+    setMockStreamParts([
+      { payload: {}, type: 'data-om-observation-start' },
+      {
+        payload: {
+          durationMs: 1200,
+          observationTokens: 900,
+          operationType: 'observation',
+          tokensObserved: 24_000,
+        },
+        type: 'data-om-observation-end',
+      },
+      {
+        payload: { bufferedTokens: 400, operationType: 'reflection', tokensBuffered: 8000 },
+        type: 'data-om-buffering-end',
+      },
+      {
+        payload: { operationType: 'observation', tokensActivated: 5000 },
+        type: 'data-om-activation',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'observe', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const usageChunks = chunks.filter(
+      (chunk) => (chunk as { type?: string }).type === 'child-run-usage'
+    );
+    expect(usageChunks).toEqual([
+      {
+        type: 'child-run-usage',
+        value: {
+          estimated: true,
+          inputTokens: 24_000,
+          outputTokens: 900,
+          source: 'om-observation',
+        },
+      },
+      {
+        type: 'child-run-usage',
+        value: { estimated: true, inputTokens: 8000, outputTokens: 400, source: 'om-reflection' },
+      },
+    ]);
+  });
+
   it('surfaces Mastra reasoning and run lifecycle chunks', async () => {
     setMockStreamParts([
       { messageId: 'msg-1', type: 'start' },

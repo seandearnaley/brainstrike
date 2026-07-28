@@ -10,10 +10,11 @@
  * - **maxSteps clamp**: a model-supplied `maxSteps` can never exceed the persona
  *   cap; `onDelegationStart` always returns `modifiedMaxSteps = min(cap, requested)`.
  *
- * `onDelegationComplete` decrements the in-flight counter and logs the outcome
- * (including the child's aggregate token usage — the parent meter does NOT
- * aggregate child tokens in v1, D-orchestrator ruling, so this log is the only
- * child-usage surface).
+ * `onDelegationComplete` decrements the in-flight counter, logs the outcome,
+ * and reports the child's aggregate token usage through `onChildUsage`
+ * (BST-953) so the stream meters it as a `child-run-usage` chunk — the parent
+ * finish counters still exclude child tokens; attribution rides the durable
+ * run_kind='subagent' usage row instead.
  */
 
 import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract';
@@ -24,10 +25,49 @@ import type { DelegationConfig } from '@mastra/core/agent';
 export const MAX_CONCURRENT_DELEGATIONS = 2;
 export const MAX_DELEGATIONS_PER_RUN = 8;
 
+/** The child run's aggregate provider-reported usage (BST-953). */
+export interface SubagentChildUsageReport {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly personaId: string;
+}
+
 export interface CreateDelegationConfigParams {
   readonly logger: ScopedLogger;
+  /**
+   * Called from `onDelegationComplete` with the child's aggregate usage so the
+   * stream can meter it as a `child-run-usage` chunk (run_kind 'subagent').
+   * Not called when the child reported no usage — a zero row is noise, and its
+   * absence is visible in the completion log which always carries the raw
+   * usage object.
+   */
+  readonly onChildUsage?: (report: SubagentChildUsageReport) => void;
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
+}
+
+function readTokenCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/**
+ * Normalize the delegation result's usage object (Mastra reports AI SDK v2
+ * `inputTokens`/`outputTokens`; older shapes used `promptTokens`/
+ * `completionTokens`). Undefined when there is nothing to meter.
+ */
+function readDelegationUsage(
+  usage: unknown
+): Pick<SubagentChildUsageReport, 'inputTokens' | 'outputTokens'> | undefined {
+  if (typeof usage !== 'object' || usage === null) {
+    return;
+  }
+  const record = usage as Record<string, unknown>;
+  const inputTokens = readTokenCount(record['inputTokens'] ?? record['promptTokens']);
+  const outputTokens = readTokenCount(record['outputTokens'] ?? record['completionTokens']);
+  if (inputTokens === 0 && outputTokens === 0) {
+    return;
+  }
+  return { inputTokens, outputTokens };
 }
 
 function clampMaxSteps(cap: number, requested: number | undefined): number {
@@ -59,6 +99,10 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         success: context.success,
         usage: context.result.usage,
       });
+      const usage = readDelegationUsage(context.result.usage);
+      if (usage && params.onChildUsage) {
+        params.onChildUsage({ ...usage, personaId: context.primitiveId });
+      }
     },
     onDelegationStart: (context) => {
       const persona = params.personasById.get(context.primitiveId);

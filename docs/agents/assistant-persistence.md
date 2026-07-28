@@ -580,6 +580,41 @@ Runtime invariants:
   steps; the normal terminal usage tap persists their exact aggregate once.
   Missing or malformed cost metadata on a new OpenRouter completion fails
   visibly rather than being mislabeled as an exact or zero-cost run.
+- Thread-total headline + run-kind attribution (BST-953): every
+  `brainstrike_assistant_run_usage` row carries `run_kind`
+  (`'chat' | 'subagent' | 'om-observation' | 'om-reflection'`, migration 077 +
+  the repository bootstrap mirror; CHECK-constrained, default `'chat'`). TWO
+  writers, never overlapping: the renderer writes ONLY parent `'chat'` rows
+  (the `handleUsage` message-finish tap); the desktop server writes ONLY child
+  rows, from the `child-run-usage` StreamChunk
+  (`persistDesktopChildRunUsage` in apps/desktop/src/assistant-server.ts, a
+  DUPLICATION-NOTE mirror of `recordRunUsage`). Child sources:
+  - subagent: `onDelegationComplete`'s aggregate usage
+    (`createDelegationConfig.onChildUsage` → per-leg `DelegationUsageCapture`
+    queue drained by the stream generator). Provider-exact; model/provider =
+    persona pin ?? parent run.
+  - OM cycles: `data-om-observation-end` / `data-om-buffering-end` chunks
+    (`tokensObserved`/`observationTokens` and `tokensBuffered`/`bufferedTokens`)
+    mapped in `mapObservationalMemoryCycleEnd`. These are Mastra's LOCAL tokenx
+    estimates (`estimated: true`) — the UI must label OM figures "est.", and
+    attribution is ONLY the run's resolved observer target
+    (`resolveDesktopObserverUsageTarget`): never the chat model, unattributable
+    rows are dropped with a warn, and `provider === 'local'` rows are skipped
+    (unbilled — an unpriceable row would blank the whole thread cost).
+  Child rows reuse the PARENT `runId`, so the Task Ledger's per-run totals
+  include them automatically. `getThreadCumulativeUsage` groups by
+  (provider, model, run_kind) and sums cache classes UNCONDITIONALLY (the
+  savings line needs them for billed rows too); `resolveCumulativeUsageDisplay`
+  (assistant-cumulative-usage.ts) derives in/out totals, by-source subtotals,
+  and net cache savings (read discount − write premium, per-model registry
+  rates; ABSENT when any cache-bearing model lacks rates). The meter chip leads
+  with the THREAD TOTAL (+cost when priceable); the context fraction moves to
+  the ring/title/popover ("Context N% full" section). Live tick: the renderer
+  taps `run.step.finished` run events' `promptTokens`/`completionTokens`
+  (`onStepUsage` → `recordLiveStepUsage`, summed per in-flight run) and the
+  forwarded `brainstrike.child-run-usage` aui-data part (`onChildRunUsage` →
+  cumulative re-read); `handleUsage` clears the live sum only AFTER the
+  post-write cumulative refresh so the total never dips and jumps.
 
 ---
 

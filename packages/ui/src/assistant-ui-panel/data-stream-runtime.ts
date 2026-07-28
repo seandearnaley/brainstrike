@@ -15,6 +15,8 @@ import {
   type RuntimeTransportImageElision,
 } from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract/run-events';
+import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { createLogger } from '@brainstrike/utils/logger';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { AssistantStreamChunk } from 'assistant-stream';
@@ -94,6 +96,19 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * consumer contract as `onUsage`.
    */
   onContextBreakdown?: (data: unknown) => void;
+  /**
+   * Called with the RAW payload of each `brainstrike.child-run-usage` data
+   * part (a subagent / OM cycle's usage, already durably persisted by the
+   * desktop server — BST-953). The consumer validates with the contract guard
+   * and refreshes its thread-total readout; it must never write usage rows.
+   */
+  onChildRunUsage?: (data: unknown) => void;
+  /**
+   * Called with each `run.step.finished` run event's billed step usage while
+   * the run streams (BST-953 live tick). Steps ACCUMULATE — the consumer sums
+   * them for the in-flight run and drops the sum once durable usage lands.
+   */
+  onStepUsage?: (step: { inputTokens: number; outputTokens: number }) => void;
   /**
    * Called when a finish-message chunk reports provider token usage.
    * The callback contract requires non-throwing consumers — our consumer
@@ -741,6 +756,58 @@ function buildContextBreakdownTap(
   });
 }
 
+/**
+ * Pass-through tap for the thread-total readout (BST-953): surfaces
+ * `brainstrike.child-run-usage` data parts and the billed step usage carried
+ * by `run.step.finished` run events. Both ride `aui-data` wire chunks that the
+ * decoder maps to `part-start` data parts (same shape the breakdown tap reads).
+ */
+function buildThreadUsageEventsTap(
+  options: Pick<BrainstrikeDataStreamRuntimeOptions, 'onChildRunUsage' | 'onStepUsage'>
+): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
+  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
+    transform(chunk, controller) {
+      if (chunk.type === 'part-start') {
+        const part = (chunk as { part?: { data?: unknown; name?: unknown; type?: unknown } }).part;
+        if (part?.type === 'data' && part.name === CHILD_RUN_USAGE_DATA_NAME) {
+          options.onChildRunUsage?.(part.data);
+        } else if (part?.type === 'data' && part.name === ASSISTANT_RUN_EVENT_DATA_NAME) {
+          const step = readStepFinishedUsage(part.data);
+          if (step) {
+            options.onStepUsage?.(step);
+          }
+        }
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
+/** Billed step usage from a `run.step.finished` run-event payload, if present. */
+function readStepFinishedUsage(
+  data: unknown
+): { inputTokens: number; outputTokens: number } | undefined {
+  if (typeof data !== 'object' || data === null) {
+    return;
+  }
+  const event = data as { kind?: unknown; metadata?: Record<string, unknown> };
+  if (event.kind !== 'run.step.finished') {
+    return;
+  }
+  const inputTokens = event.metadata?.['promptTokens'];
+  const outputTokens = event.metadata?.['completionTokens'];
+  if (
+    typeof inputTokens !== 'number' ||
+    typeof outputTokens !== 'number' ||
+    !(Number.isFinite(inputTokens) && Number.isFinite(outputTokens)) ||
+    inputTokens < 0 ||
+    outputTokens < 0
+  ) {
+    return;
+  }
+  return { inputTokens, outputTokens };
+}
+
 function readFinishUsage(chunk: AssistantStreamChunk): AssistantUsage | undefined {
   if (chunk.type !== 'message-finish') {
     return;
@@ -851,7 +918,10 @@ function deferMessageFinishUntilFlush(
  */
 function buildDecodedTapPipeline(
   body: ReadableStream<Uint8Array>,
-  options: Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'>,
+  options: Pick<
+    BrainstrikeDataStreamRuntimeOptions,
+    'onChildRunUsage' | 'onContextBreakdown' | 'onStepUsage' | 'onUsage'
+  >,
   onTerminalFinishFlushed?: () => void
 ): ReadableStream<AssistantStreamChunk> {
   const decoded = body
@@ -864,9 +934,12 @@ function buildDecodedTapPipeline(
   const usageTapped = options.onUsage
     ? decoded.pipeThrough(buildUsageTap(options.onUsage))
     : decoded;
-  return options.onContextBreakdown
+  const breakdownTapped = options.onContextBreakdown
     ? usageTapped.pipeThrough(buildContextBreakdownTap(options.onContextBreakdown))
     : usageTapped;
+  return options.onChildRunUsage || options.onStepUsage
+    ? breakdownTapped.pipeThrough(buildThreadUsageEventsTap(options))
+    : breakdownTapped;
 }
 
 export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
@@ -902,14 +975,35 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
    */
   private abortGatedTapOptions(
     abortSignal: AbortSignal
-  ): Pick<BrainstrikeDataStreamRuntimeOptions, 'onContextBreakdown' | 'onUsage'> {
-    const { onContextBreakdown, onUsage } = this.options;
+  ): Pick<
+    BrainstrikeDataStreamRuntimeOptions,
+    'onChildRunUsage' | 'onContextBreakdown' | 'onStepUsage' | 'onUsage'
+  > {
+    const { onChildRunUsage, onContextBreakdown, onStepUsage, onUsage } = this.options;
     return {
+      ...(onChildRunUsage
+        ? {
+            onChildRunUsage: (data: unknown) => {
+              if (!abortSignal.aborted) {
+                onChildRunUsage(data);
+              }
+            },
+          }
+        : {}),
       ...(onContextBreakdown
         ? {
             onContextBreakdown: (data: unknown) => {
               if (!abortSignal.aborted) {
                 onContextBreakdown(data);
+              }
+            },
+          }
+        : {}),
+      ...(onStepUsage
+        ? {
+            onStepUsage: (step: { inputTokens: number; outputTokens: number }) => {
+              if (!abortSignal.aborted) {
+                onStepUsage(step);
               }
             },
           }

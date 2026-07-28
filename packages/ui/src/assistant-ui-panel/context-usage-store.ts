@@ -24,8 +24,18 @@ export interface ThreadTokenUsage {
 interface ContextUsageState {
   breakdownByThread: Record<string, AssistantContextBreakdownState>;
   clearBreakdown: (threadId: string) => void;
+  clearLiveRunUsage: (threadId: string) => void;
   clearThread: (threadId: string) => void;
+  /**
+   * Billed tokens accumulated from the IN-FLIGHT run's step-finish events
+   * (BST-953). The thread-total readout adds this to the durable cumulative
+   * figure so the number moves as the run streams; the wrapper clears it once
+   * the run's durable row lands (the refreshed cumulative then includes it) —
+   * clearing earlier would make the total dip and jump.
+   */
+  liveRunUsageByThread: Record<string, ThreadTokenUsage>;
   recordBreakdown: (threadId: string, breakdown: AssistantContextBreakdownState) => void;
+  recordLiveStepUsage: (threadId: string, step: ThreadTokenUsage) => void;
   recordUsage: (threadId: string, usage: ThreadTokenUsage) => void;
   usageByThread: Record<string, ThreadTokenUsage>;
 }
@@ -46,12 +56,26 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
       const { [threadId]: _removedBreakdown, ...breakdownRest } = state.breakdownByThread;
       return { breakdownByThread: breakdownRest };
     }),
+  clearLiveRunUsage: (threadId) =>
+    set((state) => {
+      if (!(threadId in state.liveRunUsageByThread)) {
+        return state;
+      }
+      const { [threadId]: _removedLive, ...liveRest } = state.liveRunUsageByThread;
+      return { liveRunUsageByThread: liveRest };
+    }),
   clearThread: (threadId) =>
     set((state) => {
       const { [threadId]: _removedUsage, ...usageRest } = state.usageByThread;
       const { [threadId]: _removedBreakdown, ...breakdownRest } = state.breakdownByThread;
-      return { breakdownByThread: breakdownRest, usageByThread: usageRest };
+      const { [threadId]: _removedLive, ...liveRest } = state.liveRunUsageByThread;
+      return {
+        breakdownByThread: breakdownRest,
+        liveRunUsageByThread: liveRest,
+        usageByThread: usageRest,
+      };
     }),
+  liveRunUsageByThread: {},
   recordBreakdown: (threadId, breakdown) =>
     // The parse already happened at the wire boundary (the writer stores either
     // a valid breakdown or the explicit invalid marker) — the store records
@@ -59,6 +83,29 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
     set((state) => ({
       breakdownByThread: { ...state.breakdownByThread, [threadId]: breakdown },
     })),
+  recordLiveStepUsage: (threadId, step) => {
+    const isUsable =
+      Number.isFinite(step.inputTokens) &&
+      Number.isFinite(step.outputTokens) &&
+      step.inputTokens >= 0 &&
+      step.outputTokens >= 0 &&
+      step.inputTokens + step.outputTokens > 0;
+    if (!isUsable) {
+      return; // empty or malformed step usage — nothing to accumulate
+    }
+    set((state) => {
+      const previous = state.liveRunUsageByThread[threadId] ?? { inputTokens: 0, outputTokens: 0 };
+      return {
+        liveRunUsageByThread: {
+          ...state.liveRunUsageByThread,
+          [threadId]: {
+            inputTokens: previous.inputTokens + step.inputTokens,
+            outputTokens: previous.outputTokens + step.outputTokens,
+          },
+        },
+      };
+    });
+  },
   recordUsage: (threadId, usage) => {
     const isUsable =
       usage.inputTokens >= 0 &&
@@ -78,5 +125,9 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
  * Clears all per-thread usage (session reset / factory reset). Also used by tests.
  */
 export function resetContextUsageStore(): void {
-  useContextUsageStore.setState({ breakdownByThread: {}, usageByThread: {} });
+  useContextUsageStore.setState({
+    breakdownByThread: {},
+    liveRunUsageByThread: {},
+    usageByThread: {},
+  });
 }

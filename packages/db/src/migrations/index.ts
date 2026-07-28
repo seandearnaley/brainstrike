@@ -75,6 +75,7 @@ import { migration073DiagnosticEvents } from './073-diagnostic-events.js';
 import { migration074AgentReadonlyRole } from './074-agent-readonly-role.js';
 import { migration075FileSymbols } from './075-file-symbols.js';
 import { migration076AssistantRunErrors } from './076-assistant-run-errors.js';
+import { migration077RunUsageKind } from './077-run-usage-kind.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -156,6 +157,7 @@ export const migrations: Migration[] = [
   migration074AgentReadonlyRole,
   migration075FileSymbols,
   migration076AssistantRunErrors,
+  migration077RunUsageKind,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -239,6 +239,7 @@ const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
+const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 
 interface DesktopMemoryModelTargetDescriptor {
   readonly model: string;
@@ -820,6 +821,97 @@ export async function* observeDesktopAssistantRunEvents(
   if (sourceError) {
     throw sourceError;
   }
+}
+
+/**
+ * Persist `child-run-usage` chunks (BST-953) as durable run_kind-tagged rows in
+ * `brainstrike_assistant_run_usage`, forwarding every chunk unchanged (the
+ * renderer refreshes its thread-total readout from the transient aui-data part;
+ * it never writes child rows itself, so the two writers cannot double-count).
+ *
+ * DUPLICATION NOTE (same precedent as recordDesktopAssistantHookRunOutcome):
+ * the INSERT mirrors `recordRunUsage` in
+ * packages/app-shell/src/assistant-memory-repository.ts. thread/resource ids
+ * are derived from the runs row (main trusts its own bookkeeping, and — like
+ * recordDesktopAssistantRunEvent — a missing runs row inserts nothing).
+ *
+ * Attribution rules (honesty over completeness):
+ * - subagent rows: chunk-carried model/provider (persona pin ?? parent), with
+ *   the runs row as the SQL fallback — the child genuinely ran on one of those.
+ * - OM rows: ONLY the resolved observer target — falling back to the chat
+ *   model would mislabel spend to the wrong model. Unattributable → dropped
+ *   with a visible warn, never written under a guess.
+ * - local observer targets are skipped entirely: local inference is unbilled,
+ *   and an unpriceable row would honestly (but uselessly) blank the whole
+ *   thread's cost readout.
+ */
+export async function* persistDesktopChildRunUsage(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string,
+  observerTarget: { readonly model: string; readonly provider: string } | undefined
+): AsyncIterable<StreamChunk> {
+  let persistenceQueue: Promise<void> = Promise.resolve();
+  const persist = (value: {
+    readonly inputTokens: number;
+    readonly model?: string;
+    readonly outputTokens: number;
+    readonly provider?: string;
+    readonly source: string;
+  }): void => {
+    const isOmRow = value.source !== 'subagent';
+    const model = value.model ?? (isOmRow ? observerTarget?.model : undefined);
+    const provider = value.provider ?? (isOmRow ? observerTarget?.provider : undefined);
+    if (isOmRow && !(model && provider)) {
+      logger.warn('Dropping unattributable child run usage (no resolved observer target)', {
+        code: 'assistant_child_run_usage_unattributable',
+        runId,
+        source: value.source,
+      });
+      return;
+    }
+    if (provider === 'local') {
+      // Local inference is unbilled; the thread-total meter is a billing view.
+      return;
+    }
+    persistenceQueue = persistenceQueue
+      .then(async () => {
+        const database = await getDatabase();
+        await database.query(
+          `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
+            (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, run_kind)
+           SELECT $1, runs.thread_id, runs.id, runs.resource_id, COALESCE($3, runs.model), COALESCE($4, runs.provider), $5, $6, $7, $8
+           FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+           WHERE runs.id = $2`,
+          [
+            crypto.randomUUID(),
+            runId,
+            model ?? null,
+            provider ?? null,
+            Math.round(value.inputTokens),
+            Math.round(value.outputTokens),
+            new Date(),
+            value.source,
+          ]
+        );
+      })
+      .catch((error: unknown) => {
+        // Best-effort relative to the turn (mirrors the renderer's durable
+        // usage sink), but never silent.
+        logger.warn('Failed to persist child run usage', {
+          error,
+          runId,
+          source: value.source,
+        });
+      });
+  };
+
+  for await (const chunk of stream) {
+    if (chunk.type === 'child-run-usage') {
+      persist(chunk.value);
+    }
+    yield chunk;
+  }
+  await persistenceQueue;
 }
 
 async function recordDesktopAssistantThreadRunStatus(
@@ -1662,6 +1754,32 @@ function parseObservationalMemoryModelTarget(
     formatLabel: 'Observational memory model target',
     unsupportedProviderLabel: 'observational memory',
   });
+}
+
+/**
+ * The {provider, model} the OM observer/reflector actually runs on this
+ * request, for attributing child-run-usage rows (BST-953). Undefined when OM
+ * is off or the target is unresolvable — in that state no observer runs, so no
+ * OM usage chunks can arrive; a chunk that somehow does is dropped with a
+ * visible warn by the persister rather than written under a guessed model.
+ */
+function resolveDesktopObserverUsageTarget(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): { readonly model: string; readonly provider: string } | undefined {
+  const observationalMemory = memorySettings?.observationalMemory;
+  if (
+    !observationalMemory?.enabled ||
+    observationalMemory.modelTarget === OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET
+  ) {
+    return;
+  }
+  try {
+    return parseObservationalMemoryModelTarget(observationalMemory.modelTarget);
+  } catch {
+    // Memory construction parses the same target and throws loudly; reaching
+    // here means no observer was built for this run.
+    return;
+  }
 }
 
 function parseSemanticRecallEmbeddingModelTarget(
@@ -2574,7 +2692,13 @@ async function initializeAgentStream(
     // additionalContext is prepended as a system message (mirrors @file inject).
     // Run-event observer wrapper (a no-op when there is no runId to stamp).
     const observe = (source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
-      runId ? observeDesktopAssistantRunEvents(source, runId, queuedRunEvents) : source;
+      runId
+        ? persistDesktopChildRunUsage(
+            observeDesktopAssistantRunEvents(source, runId, queuedRunEvents),
+            runId,
+            resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings)
+          )
+        : source;
 
     const upsGate = await runUserPromptSubmitGate(
       hookManager,
