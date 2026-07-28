@@ -391,8 +391,14 @@ export function resolveAssistantMemoryDisabledReason(args: {
   if (args.memoryLoadState?.status === 'idle' || args.memoryLoadState?.status === 'loading') {
     return 'Assistant memory is loading from PGlite.';
   }
-  if (!args.workspaceRootPath) {
-    return;
+  if (
+    args.selectedProvider !== null &&
+    !resolveHostedMemoryBackendAvailable({
+      desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
+      selectedProvider: args.selectedProvider,
+    })
+  ) {
+    return 'Assistant memory for hosted providers requires the desktop assistant backend.';
   }
   if (args.dbInitializing || !args.assistantThreadRepository) {
     return 'Assistant memory is loading from PGlite.';
@@ -403,8 +409,8 @@ export function resolveAssistantMemoryDisabledReason(args: {
   if (!args.selectedMemoryThreadId) {
     return 'Assistant memory has no selected thread for this workspace.';
   }
-  if (!(args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable)) {
-    return 'Assistant memory for hosted providers requires the desktop assistant backend.';
+  if (!args.workspaceRootPath) {
+    return;
   }
   const observationalMemoryDisabledReason = resolveObservationalMemoryDisabledReason({
     desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
@@ -425,6 +431,13 @@ export function resolveAssistantMemoryDisabledReason(args: {
     return semanticRecallDisabledReason;
   }
   return;
+}
+
+export function resolveHostedMemoryBackendAvailable(args: {
+  desktopAssistantBackendAvailable: boolean;
+  selectedProvider: SupportedProvider | null;
+}): boolean {
+  return args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable;
 }
 
 export function createAssistantThreadRunPromise(args: {

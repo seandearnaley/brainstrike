@@ -114,6 +114,7 @@ import {
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
+  resolveHostedMemoryBackendAvailable,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
@@ -826,8 +827,10 @@ export function AssistantUiPanelWrapper({
   );
   const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
-  const hostedMemoryBackendAvailable =
-    selectedProvider === 'local' ? true : desktopAssistantBackendAvailable;
+  const hostedMemoryBackendAvailable = resolveHostedMemoryBackendAvailable({
+    desktopAssistantBackendAvailable,
+    selectedProvider,
+  });
   // Resolve the 'auto' observer sentinel into CONCRETE settings once, here —
   // request data, memory validation, and the OM meter all consume the same
   // effective settings, so 'auto' never reaches the provider/model validator
