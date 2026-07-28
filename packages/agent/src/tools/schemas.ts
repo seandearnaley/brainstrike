@@ -609,7 +609,10 @@ export const GrepSearchInputSchema = z
       .array(z.string().min(1))
       .max(1000)
       .optional()
-      .describe('Restrict to these file paths'),
+      // BST-764: states the contract, but tightly — the native tool prompt
+      // budget had ~13 tokens of headroom (BST-927), and the verbose first
+      // draft of this line overran it by 25.
+      .describe('Restrict to these files: workspace-relative, or absolute inside an open folder'),
     isRegex: z.boolean().optional().describe('Use JavaScript regex (default false)'),
     maxResults: z
       .number()

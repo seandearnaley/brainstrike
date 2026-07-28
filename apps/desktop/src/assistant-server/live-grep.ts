@@ -681,10 +681,22 @@ export async function runLiveGrep(
     return { engine: 'skipped', matches: [], truncated: false };
   }
 
-  const filePathAllow =
-    options.filePaths && options.filePaths.length > 0
-      ? new Set(options.filePaths.map((p) => p.replace(/^\/+/, '')))
-      : null;
+  // BST-764. `filePaths` arrives ALREADY normalized to root-relative form by
+  // `resolveGrepFilePaths`, which both this pass and the indexed pass share.
+  //
+  // This used to be `p.replace(/^\/+/, '')`, which turned an absolute path into
+  // `Users/sean/…` — never equal to the root-relative candidate `proof.html` —
+  // and so reported a clean zero-match for a file that plainly matched. Do NOT
+  // reintroduce a local transform here: a second, different normalization is
+  // exactly how the two passes diverged.
+  //
+  // Review follow-up on #2087: the guard was `length > 0`, so an EMPTY
+  // allowlist meant "nothing" to the indexed pass (`findGrepCandidates` returns
+  // no candidates) and "everything" here — `grepSearch({ pattern, filePaths: [] })`
+  // walked the whole workspace and merged those matches into a result the
+  // caller had scoped to nothing. `undefined` is now the only spelling of "no
+  // filter", which is what makes "one list, one meaning" actually true.
+  const filePathAllow = options.filePaths === undefined ? null : new Set(options.filePaths);
 
   const ripgrepPath = await resolveRipgrepPath();
   const rgPresent = ripgrepPath !== null;
