@@ -68,20 +68,55 @@ async function expectVisibleRecordPage(
 ): Promise<void> {
   const databasePanel = page.locator('[data-testid="database-demo-panel"]');
   const editablePageNumber = databasePanel.getByRole('spinbutton', { name: 'Page number' });
-  const compactPageNumber = databasePanel.locator('output[aria-label^="Page "]');
+  const microPageNumber = databasePanel.locator('output[aria-label^="Page "]');
+  const pageIndicator = editablePageNumber.or(microPageNumber);
 
-  await expect(editablePageNumber.or(compactPageNumber)).toHaveCount(1);
+  await expect
+    .poll(
+      () =>
+        pageIndicator.evaluate((indicator) => {
+          if (indicator instanceof HTMLInputElement) {
+            const totalPagesText = indicator.nextElementSibling?.textContent?.trim() ?? '';
+            const totalPagesMatch = /^(?:of\s+|\/)(\d+)$/.exec(totalPagesText);
+            if (!totalPagesMatch) {
+              throw new Error(
+                `Editable page indicator has malformed total-pages text: ${JSON.stringify(totalPagesText)}`
+              );
+            }
 
-  if ((await editablePageNumber.count()) === 1) {
-    await expect(editablePageNumber).toHaveValue(String(displayPage));
-    return;
-  }
+            return {
+              displayPage: Number(indicator.value),
+              totalPages: Number(totalPagesMatch[1]),
+            };
+          }
 
-  await expect(compactPageNumber).toHaveAttribute(
-    'aria-label',
-    `Page ${displayPage} of ${totalPages}`
-  );
-  await expect(compactPageNumber).toHaveText(`${displayPage}/${totalPages}`);
+          if (indicator instanceof HTMLOutputElement) {
+            const ariaLabel = indicator.getAttribute('aria-label') ?? '';
+            const ariaLabelMatch = /^Page (\d+) of (\d+)$/.exec(ariaLabel);
+            const textMatch = /^(\d+)\/(\d+)$/.exec(indicator.textContent?.trim() ?? '');
+            if (!(ariaLabelMatch && textMatch)) {
+              throw new Error(
+                `Micro page indicator is malformed: aria-label=${JSON.stringify(ariaLabel)} text=${JSON.stringify(indicator.textContent)}`
+              );
+            }
+            if (ariaLabelMatch[1] !== textMatch[1] || ariaLabelMatch[2] !== textMatch[2]) {
+              throw new Error('Micro page indicator text and accessible label disagree');
+            }
+
+            return {
+              displayPage: Number(ariaLabelMatch[1]),
+              totalPages: Number(ariaLabelMatch[2]),
+            };
+          }
+
+          throw new Error(`Unsupported page indicator element: ${indicator.tagName}`);
+        }),
+      {
+        message: `Expected database record page ${displayPage} of ${totalPages}`,
+        timeout: 10_000,
+      }
+    )
+    .toEqual({ displayPage, totalPages });
 }
 
 test.describe('Embedding Host Renderer - memory', () => {
@@ -409,41 +444,41 @@ test.describe('Embedding Host Renderer - memory', () => {
     await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
     expect(((await firstVisibleDataRow.textContent()) ?? '').trim().length).toBeGreaterThan(0);
 
-    const totalPages = Math.max(1, Math.ceil(fixture.fileCount / 50));
+    const recordPageSize = 50;
+    const expectedFirstPage = {
+      currentPage: 0,
+      pageSize: recordPageSize,
+      totalRecords: fixture.fileCount,
+    };
+    const totalPages = Math.max(1, Math.ceil(fixture.fileCount / recordPageSize));
     await expect
       .poll(
         async () => {
           const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
-          return JSON.stringify(snapshot?.recordPagination ?? null);
+          return snapshot?.recordPagination ?? null;
         },
         { timeout: 30_000 }
       )
-      .toBe(
-        JSON.stringify({
-          currentPage: 0,
-          pageSize: 50,
-          totalRecords: fixture.fileCount,
-        })
-      );
+      .toEqual(expectedFirstPage);
     await expectVisibleRecordPage(activeWindow, 1, totalPages);
 
-    await activeWindow.getByRole('button', { name: 'Go to next page' }).click({ timeout: 5000 });
+    await activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: 'Go to next page' })
+      .click({ timeout: 5000 });
 
     await expect
       .poll(
         async () => {
           const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
-          return JSON.stringify(snapshot?.recordPagination ?? null);
+          return snapshot?.recordPagination ?? null;
         },
         { timeout: 30_000 }
       )
-      .toBe(
-        JSON.stringify({
-          currentPage: 1,
-          pageSize: 50,
-          totalRecords: fixture.fileCount,
-        })
-      );
+      .toEqual({
+        ...expectedFirstPage,
+        currentPage: 1,
+      });
     await expectVisibleRecordPage(activeWindow, 2, totalPages);
 
     await forceRendererGarbageCollection(activeWindow);
