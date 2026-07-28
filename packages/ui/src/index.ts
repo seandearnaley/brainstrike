@@ -40,6 +40,8 @@ export type { PanelPersistenceState } from './hooks/use-panel-persistence';
 export * from './import-progress';
 export * from './input';
 export * from './label';
+// Single source of truth for floating-layer stacking order (BST-963).
+export * from './layers';
 // Export layout components
 export * from './layout';
 export { useIdeFileEditor } from './layout/ide-layout';
