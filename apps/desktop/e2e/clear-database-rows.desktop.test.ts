@@ -80,8 +80,8 @@ test.describe('Clear Database clears rows (desktop) @destructive @desktop-db-sto
   test.describe.configure({ mode: 'serial' });
 
   test('clears file records, chunks, and workflow snapshots', async ({ window }) => {
-    const readyPage = await waitForDatabaseReady(window);
-    const panelPage = await showDatabaseDemoPanel(readyPage);
+    const shownPage = await showDatabaseDemoPanel(window);
+    const panelPage = await waitForDatabaseReady(shownPage);
 
     await seedResetProbeRows(panelPage);
 
@@ -99,7 +99,7 @@ test.describe('Clear Database clears rows (desktop) @destructive @desktop-db-sto
     await expect(collectionOption).toBeVisible({ timeout: 10_000 });
     await collectionOption.click();
 
-    // "Clear All Collections" renders inside `SettingsPanel`, which only
+    // "Clear Database" renders inside `SettingsPanel`, which only
     // mounts once the "Import Settings" popover trigger (an exact accessible
     // name, see `database-demo-panel.tsx`) is opened. The settings content
     // renders in a portal, so the button is queried from the page root rather
@@ -109,7 +109,7 @@ test.describe('Clear Database clears rows (desktop) @destructive @desktop-db-sto
     // including a Playwright strict-mode violation.
     await panelPage.getByRole('button', { name: 'Import Settings' }).click();
 
-    const clearButton = panelPage.getByRole('button', { name: 'Clear All Collections' });
+    const clearButton = panelPage.getByRole('button', { exact: true, name: 'Clear Database' });
     await expect(clearButton).toBeVisible({ timeout: 10_000 });
     await expect(clearButton).toBeEnabled({ timeout: 15_000 });
     await clearButton.click();
