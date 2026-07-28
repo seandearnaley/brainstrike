@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { getFileTree } from './utils/file-tree-locators';
+import { getFileTree, refreshFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -48,8 +48,8 @@ test.describe('Refresh Workflow', () => {
       });
     });
 
-    // Trigger refresh
-    await page.getByTestId('refresh-button-small').click();
+    // Trigger refresh through the visible responsive action surface.
+    await refreshFileTree(page);
 
     // Loading overlay should appear (with shorter timeout for CI environments)
     // If refresh is very fast, the overlay might not appear, which is acceptable
