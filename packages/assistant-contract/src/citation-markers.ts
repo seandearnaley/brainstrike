@@ -58,6 +58,13 @@ const HIDDEN_SPAN = /\u{E203}[^\u{E203}\u{E204}]*\u{E204}/gu;
  * is 12). Exceeding it only means a marker leaks for the rest of that streamed
  * chunk and is cleaned up once its closer arrives — bounded and self-healing,
  * unlike deleting real prose.
+ *
+ * THAT SELF-HEALING IS WHY THE HEURISTIC IS ACCEPTABLE, and it is a property of
+ * the STREAMING seam, which recomputes from the full accumulated text on every
+ * render — a false positive there lasts one chunk. A caller that writes the
+ * result down once has no such recovery, and is also handed settled text where a
+ * trailing opener is far likelier to be a real glyph than a truncated marker.
+ * Those callers pass `{ unterminated: 'keep' }`.
  */
 const UNTERMINATED_SPAN = /[\u{E200}\u{E203}][^\s\u{E200}\u{E201}\u{E203}\u{E204}]{0,256}$/u;
 
@@ -79,6 +86,22 @@ const ORPHAN_DELIMITER = /[\u{E200}-\u{E204}]/gu;
 /** Cheap gate for the marker-free majority: no delimiter, no work, no copy. */
 const ANY_DELIMITER = /[\u{E200}-\u{E204}]/u;
 
+export interface StripProviderCitationMarkersOptions {
+  /**
+   * What to do with an opener that has no closing delimiter.
+   *
+   * - `'strip'` (default) — drop it and its trailing payload. Correct for a
+   *   STREAMING seam, where the marker's closer simply has not arrived yet and
+   *   any misjudgement is recomputed away on the next render.
+   * - `'keep'` — leave the tail alone, removing only complete spans and orphan
+   *   delimiters. Correct for SETTLED text, and required for anything that
+   *   writes the result down: there is no later render to correct a false
+   *   positive, and a trailing opener in a finished message is far likelier to
+   *   be a real Nerd Fonts glyph than a truncated marker.
+   */
+  readonly unterminated?: 'strip' | 'keep';
+}
+
 /**
  * Remove provider citation/hidden-content markers from `text`, returning the
  * input unchanged (same reference) when it contains none.
@@ -86,14 +109,17 @@ const ANY_DELIMITER = /[\u{E200}-\u{E204}]/u;
  * Runs on the FULL accumulated message text, not per streamed delta, so a marker
  * split across chunks is still matched as one span.
  */
-export function stripProviderCitationMarkers(text: string): string {
+export function stripProviderCitationMarkers(
+  text: string,
+  options?: StripProviderCitationMarkersOptions
+): string {
   if (!ANY_DELIMITER.test(text)) {
     return text;
   }
 
-  return text
-    .replace(REFERENCE_SPAN, '')
-    .replace(HIDDEN_SPAN, '')
-    .replace(UNTERMINATED_SPAN, '')
-    .replace(ORPHAN_DELIMITER, '');
+  const withoutSpans = text.replace(REFERENCE_SPAN, '').replace(HIDDEN_SPAN, '');
+  const withoutUnterminated =
+    options?.unterminated === 'keep' ? withoutSpans : withoutSpans.replace(UNTERMINATED_SPAN, '');
+
+  return withoutUnterminated.replace(ORPHAN_DELIMITER, '');
 }

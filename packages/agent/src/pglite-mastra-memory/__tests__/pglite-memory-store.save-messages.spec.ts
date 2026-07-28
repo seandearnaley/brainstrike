@@ -230,6 +230,116 @@ describe('PgliteMemoryStore.saveMessages transactionality', () => {
     expect(JSON.stringify(persistedContent)).toContain('must stay visible');
   });
 
+  it('persists assistant text with provider citation markers already stripped', async () => {
+    // The render seam cleans what the user SEES, but Mastra is the durable
+    // writer: markers left in `mastra_messages` are what thread search indexes
+    // (thread-search-repository.ts string_aggs `parts[].text`), what embeddings
+    // see, and what a copy of a reloaded message carries.
+    const mock = createMockDatabase();
+    const store = new PgliteMemoryStore({ database: mock.database });
+    const assistantMessage = {
+      ...message('msg-1', 'thread-1', '2026-07-16T10:00:00.000Z'),
+      content: {
+        content: 'Latest stable Electron: v43.2.0.\u{E200}cite\u{E202}turn0search0\u{E201}',
+        format: 2,
+        parts: [
+          {
+            text: 'Latest stable Electron: v43.2.0.\u{E200}cite\u{E202}turn0search0\u{E201}',
+            type: 'text',
+          },
+        ],
+      },
+      role: 'assistant',
+      type: 'v2',
+    } as MastraDBMessage;
+
+    const saved = await store.saveMessages({ messages: [assistantMessage] });
+
+    const persistedContent = JSON.parse(String(mock.committed[0]?.values?.[2])) as {
+      content?: string;
+      parts?: Array<{ text?: string }>;
+    };
+    expect(persistedContent.parts?.[0]?.text).toBe('Latest stable Electron: v43.2.0.');
+    // The flattened string is the search extractor's fallback when a row has no
+    // text parts, so it has to be normalized too.
+    expect(persistedContent.content).toBe('Latest stable Electron: v43.2.0.');
+    expect(JSON.stringify(persistedContent)).not.toContain('turn0search0');
+    // The returned messages feed the live runtime, not just the row.
+    expect(JSON.stringify(saved)).not.toContain('turn0search0');
+  });
+
+  it('never rewrites user-authored text, which is stored verbatim', async () => {
+    // Providers only emit these markers on ASSISTANT text. A user pasting them
+    // — to ask about the wire format, or because U+E200-U+E204 are also Nerd
+    // Fonts glyphs — must get their prompt back byte-for-byte: this write is
+    // irreversible, and the stored text is what reload shows and what gets
+    // replayed to the model as history.
+    const mock = createMockDatabase();
+    const store = new PgliteMemoryStore({ database: mock.database });
+    const userText = 'What does \u{E200}cite\u{E202}turn0search0\u{E201} mean?';
+    const userMessage = {
+      ...message('msg-1', 'thread-1', '2026-07-16T10:00:00.000Z'),
+      content: { content: userText, format: 2, parts: [{ text: userText, type: 'text' }] },
+      role: 'user',
+      type: 'v2',
+    } as MastraDBMessage;
+
+    await store.saveMessages({ messages: [userMessage] });
+
+    const persistedContent = JSON.parse(String(mock.committed[0]?.values?.[2])) as {
+      content?: string;
+      parts?: Array<{ text?: string }>;
+    };
+    expect(persistedContent.parts?.[0]?.text).toBe(userText);
+    expect(persistedContent.content).toBe(userText);
+  });
+
+  it('keeps a trailing private-use glyph on settled assistant text', async () => {
+    // The unterminated-span heuristic exists for HALF-ARRIVED markers and is
+    // only safe where a later render can undo it. saveMessages receives settled
+    // text and writes it once, so it must not guess: a trailing glyph in a
+    // finished answer is a glyph, not a truncated marker.
+    const mock = createMockDatabase();
+    const store = new PgliteMemoryStore({ database: mock.database });
+    const assistantMessage = {
+      ...message('msg-1', 'thread-1', '2026-07-16T10:00:00.000Z'),
+      content: {
+        format: 2,
+        parts: [{ text: 'Set the separator to \u{E200}branch-icon', type: 'text' }],
+      },
+      role: 'assistant',
+      type: 'v2',
+    } as MastraDBMessage;
+
+    await store.saveMessages({ messages: [assistantMessage] });
+
+    const persistedContent = JSON.parse(String(mock.committed[0]?.values?.[2])) as {
+      parts?: Array<{ text?: string }>;
+    };
+    expect(persistedContent.parts?.[0]?.text).toBe('Set the separator to branch-icon');
+  });
+
+  it('leaves marker-free message content untouched', async () => {
+    const mock = createMockDatabase();
+    const store = new PgliteMemoryStore({ database: mock.database });
+    const assistantMessage = {
+      ...message('msg-1', 'thread-1', '2026-07-16T10:00:00.000Z'),
+      content: {
+        format: 2,
+        parts: [{ text: 'A perfectly ordinary answer.', type: 'text' }],
+      },
+      role: 'assistant',
+      type: 'v2',
+    } as MastraDBMessage;
+
+    await store.saveMessages({ messages: [assistantMessage] });
+
+    const persistedContent = JSON.parse(String(mock.committed[0]?.values?.[2])) as {
+      parts?: Array<{ text?: string }>;
+    };
+    expect(persistedContent.parts?.[0]?.text).toBe('A perfectly ordinary answer.');
+  });
+
   it('throws when the database lacks transaction support (no silent fallback)', async () => {
     const mock = createMockDatabase();
     const { transaction: _transaction, ...withoutTransaction } = mock.database;

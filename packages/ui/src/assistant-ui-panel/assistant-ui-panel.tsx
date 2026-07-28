@@ -40,7 +40,6 @@ import {
   ChevronUpIcon,
   CopyIcon,
   PencilIcon,
-  RefreshCwIcon,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import '@assistant-ui/styles/index.css';
@@ -55,6 +54,7 @@ import {
   readApprovalActionChipProps,
   toApprovalActionChipKey,
 } from './approval-action-chip';
+import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
 import {
@@ -1583,9 +1583,9 @@ export const UserMessage = () => {
 export const USER_ACTION_BAR_CLASSNAME =
   'col-start-1 col-end-2 row-start-2 row-end-3 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute data-[floating]:inset-x-0';
 
-// Exported (rather than kept module-private like AssistantActionBar) so
-// tests can mount it directly against a real assistant-ui local runtime --
-// see __tests__/user-action-bar-copy.test.tsx.
+// Exported so tests can mount it directly against a real assistant-ui local
+// runtime -- see __tests__/user-action-bar-copy.test.tsx. AssistantActionBar is
+// exported from its own module for the same reason.
 export const UserActionBar = () => {
   const aui = useAui();
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
@@ -1711,43 +1711,6 @@ const AssistantMessage = () => {
     </MessagePrimitive.Root>
   );
 };
-
-export const ASSISTANT_ACTION_BAR_CLASSNAME =
-  'col-start-3 row-start-2 -ml-1 flex gap-0.5 text-muted-foreground data-[floating]:absolute';
-export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
-
-const AssistantActionBar = () => (
-  <ActionBarPrimitive.Root
-    autohide="not-last"
-    autohideFloat="single-branch"
-    className={ASSISTANT_ACTION_BAR_CLASSNAME}
-    hideWhenRunning
-  >
-    <ActionBarPrimitive.Copy asChild>
-      <TooltipIconButton
-        aria-label="Copy message"
-        className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
-        tooltip="Copy"
-      >
-        <MessagePrimitive.If copied>
-          <CheckIcon className="size-3.5" />
-        </MessagePrimitive.If>
-        <MessagePrimitive.If copied={false}>
-          <CopyIcon className="size-3.5" />
-        </MessagePrimitive.If>
-      </TooltipIconButton>
-    </ActionBarPrimitive.Copy>
-    <ActionBarPrimitive.Reload asChild>
-      <TooltipIconButton
-        aria-label="Regenerate response"
-        className={ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME}
-        tooltip="Retry"
-      >
-        <RefreshCwIcon className="size-3.5" />
-      </TooltipIconButton>
-    </ActionBarPrimitive.Reload>
-  </ActionBarPrimitive.Root>
-);
 
 const BranchPicker = ({ className }: { className?: string }) => (
   <BranchPickerPrimitive.Root

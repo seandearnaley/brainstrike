@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME,
   ASSISTANT_ACTION_BAR_CLASSNAME,
-  USER_ACTION_BAR_CLASSNAME,
-} from '../assistant-ui-panel';
+} from '../assistant-action-bar';
+import { USER_ACTION_BAR_CLASSNAME } from '../assistant-ui-panel';
 
 const panelSource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../assistant-ui-panel.tsx'),

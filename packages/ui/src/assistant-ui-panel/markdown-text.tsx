@@ -6,10 +6,10 @@ import {
   MarkdownTextPrimitive,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
 } from '@assistant-ui/react-markdown';
+import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/citation-markers';
 import remarkGfm from 'remark-gfm';
 import { CodeBlockHeader } from '../code-block/code-block-header';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
-import { stripProviderCitationMarkers } from './citation-markers';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 
 const REMARK_PLUGINS = [remarkGfm];
