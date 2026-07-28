@@ -82,6 +82,7 @@ import {
   readCacheTokenCount,
   readOpenRouterBilledCost,
   readOpenRouterDiagnostics,
+  readStreamPartUsage,
   type UsageLike,
 } from './runtime-assembly/usage-metering';
 import {
@@ -244,12 +245,7 @@ function asMastraStreamPart(part: unknown): MastraStreamPart {
 
 function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
   const p = asMastraStreamPart(part);
-  const usageCandidates: Array<UsageLike | undefined> = [
-    p.usage,
-    p.payload?.output?.usage,
-    p.payload?.metadata?.usage,
-  ];
-  const usage = usageCandidates.find((candidate) => candidate !== undefined) ?? {};
+  const usage = readStreamPartUsage(p) ?? {};
   const promptTokensRaw = usage.promptTokens ?? usage.inputTokens;
   const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
@@ -431,16 +427,20 @@ function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined 
   if (typeof p.messageId === 'string' && p.messageId.length > 0) {
     metadata['messageId'] = p.messageId;
   }
-  if (p.usage) {
-    const promptTokens = p.usage.promptTokens ?? p.usage.inputTokens;
+  // Reading just `p.usage` here left every step event token-free in
+  // production (a real part nests usage under `payload.output.usage`), which
+  // silently killed the renderer's live tick (BST-953) — caught by live CDP,
+  // missed by every unit test because the fixtures are top-level shaped. The
+  // shared reader is now the single source of that knowledge.
+  const stepUsage = readStreamPartUsage(p);
+  if (stepUsage) {
+    const promptTokens = stepUsage.promptTokens ?? stepUsage.inputTokens;
     if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) {
       metadata['promptTokens'] = promptTokens;
     }
-    // Same v1/v2 fallback as accumulateSteppedUsage (usage-metering.ts): an
-    // AI-SDK-v2 part carries `outputTokens`, and the renderer's live tick
-    // (BST-953) needs BOTH counts on the step event — an asymmetric read here
-    // silently killed the tick for v2-shaped providers (review fix).
-    const completionTokens = p.usage.completionTokens ?? p.usage.outputTokens;
+    // v1/v2 fallback, same reason: an AI-SDK-v2 part carries `outputTokens`,
+    // and the live tick needs BOTH counts on the step event.
+    const completionTokens = stepUsage.completionTokens ?? stepUsage.outputTokens;
     if (typeof completionTokens === 'number' && Number.isFinite(completionTokens)) {
       metadata['completionTokens'] = completionTokens;
     }
@@ -1249,10 +1249,7 @@ function processMastraStreamPart(
         lifecycleState.stepBilledCostUsd += billedCostUsd;
       }
       // Same usage-candidate order as makeFinishChunk (top-level, then payload).
-      accumulateSteppedUsage(
-        lifecycleState,
-        p.usage ?? p.payload?.output?.usage ?? p.payload?.metadata?.usage
-      );
+      accumulateSteppedUsage(lifecycleState, readStreamPartUsage(p));
       const stepFinishedChunk = makeRunEventChunk(
         'run.step.finished',
         'completed',
@@ -1319,7 +1316,7 @@ function processMastraStreamPart(
       };
     }
     case 'finish': {
-      const terminalUsage = p.usage ?? p.payload?.output?.usage ?? p.payload?.metadata?.usage;
+      const terminalUsage = readStreamPartUsage(p);
       const terminalPromptTokens = terminalUsage?.promptTokens ?? terminalUsage?.inputTokens;
       if (typeof terminalPromptTokens === 'number' && Number.isFinite(terminalPromptTokens)) {
         lifecycleState.providerReportedPromptTokens = terminalPromptTokens;

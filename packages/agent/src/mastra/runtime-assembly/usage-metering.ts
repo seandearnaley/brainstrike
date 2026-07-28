@@ -17,6 +17,45 @@ export interface UsageLike {
   promptTokens?: number;
 }
 
+/** A Mastra stream part in the shapes that can carry usage. */
+export interface UsageBearingStreamPart {
+  payload?: { metadata?: { usage?: UsageLike }; output?: { usage?: UsageLike } };
+  usage?: UsageLike;
+}
+
+function hasResolvableCounts(usage: UsageLike | undefined): boolean {
+  if (!usage) {
+    return false;
+  }
+  const prompt = usage.promptTokens ?? usage.inputTokens;
+  const completion = usage.completionTokens ?? usage.outputTokens;
+  return typeof prompt === 'number' || typeof completion === 'number';
+}
+
+/**
+ * THE one place that knows where a Mastra stream part hides its usage.
+ *
+ * A real `step-finish`/`finish` nests it under `payload.output.usage` (or
+ * `payload.metadata.usage`); only test fixtures put it top-level. Four readers
+ * previously hand-rolled this chain with a comment as the only thing holding
+ * the invariant — and BST-953's live-tick outage was exactly one of them
+ * drifting (it read only `part.usage`, so every step event shipped
+ * token-free). Route every new reader through here.
+ *
+ * Candidates are selected on RESOLVABLE COUNTS, not mere object presence: AI
+ * SDK v5 can emit a top-level `usage` whose fields are all undefined while the
+ * real numbers sit in `payload.output.usage`. Short-circuiting on presence
+ * would yield a silent zero — the same failure class this helper exists to
+ * prevent. Falls back to the first present candidate so a genuinely
+ * all-undefined part still reports its (empty) usage rather than nothing.
+ */
+export function readStreamPartUsage(part: UsageBearingStreamPart): UsageLike | undefined {
+  const candidates = [part.usage, part.payload?.output?.usage, part.payload?.metadata?.usage];
+  return (
+    candidates.find(hasResolvableCounts) ?? candidates.find((candidate) => candidate !== undefined)
+  );
+}
+
 /** Read a non-negative finite count or drop the field entirely. */
 export function readCacheTokenCount(value: number | undefined): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
