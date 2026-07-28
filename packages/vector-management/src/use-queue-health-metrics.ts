@@ -87,15 +87,25 @@ export function useQueueHealthMetrics(
     return null;
   }, [embeddingQueueContext]);
 
-  const metrics: QueueHealthMetrics = useMemo(
-    () => ({
-      durableQueue: durableQueueStats ?? null,
+  const metrics: QueueHealthMetrics = useMemo(() => {
+    const durableQueue = durableQueueStats
+      ? {
+          failed: durableQueueStats.failed,
+          nextRunnableAt: durableQueueStats.nextRunnableAt,
+          queued: durableQueueStats.queued,
+          running: durableQueueStats.running,
+          succeeded: durableQueueStats.succeeded,
+          succeededLifetime: durableQueueStats.succeededLifetime,
+        }
+      : null;
+
+    return {
+      durableQueue,
       ephemeralQueue: getEphemeralMetrics(),
-      lastUpdated: Date.now(),
+      lastUpdated: durableQueueStats?.lastUpdated ?? 0,
       workerHealth: getWorkerHealth(),
-    }),
-    [durableQueueStats, getEphemeralMetrics, getWorkerHealth]
-  );
+    };
+  }, [durableQueueStats, getEphemeralMetrics, getWorkerHealth]);
 
   return {
     error: null,

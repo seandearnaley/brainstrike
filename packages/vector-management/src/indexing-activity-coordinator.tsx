@@ -265,7 +265,7 @@ export function IndexingActivityCoordinator(): null {
           setIndexingActivityError(null);
         }
         setQueueSnapshot(queue);
-        setDurableQueueStats(queue);
+        setDurableQueueStats({ ...queue, lastUpdated: Date.now() });
         setIsJobQueueActive(isQueueActive(queue));
         return;
       }

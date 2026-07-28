@@ -110,6 +110,8 @@ interface CollectionDataCache {
  */
 export interface QueueStatsSnapshot {
   failed: number;
+  /** Wall-clock time when the database poll that produced this snapshot completed. */
+  lastUpdated: number;
   nextRunnableAt: string | null;
   queued: number;
   running: number;
@@ -228,6 +230,7 @@ function areQueueStatsSnapshotsEqual(
   }
   return (
     left.failed === right.failed &&
+    left.lastUpdated === right.lastUpdated &&
     left.queued === right.queued &&
     left.running === right.running &&
     left.succeeded === right.succeeded &&

@@ -393,6 +393,7 @@ describe('vector-status-ui-store', () => {
       const store = useVectorStatusUIStore;
       const initialStats = {
         failed: 0,
+        lastUpdated: 100,
         nextRunnableAt: '2026-03-07T00:00:00.000Z',
         queued: 4,
         running: 1,
@@ -405,6 +406,7 @@ describe('vector-status-ui-store', () => {
 
       store.getState().setDurableQueueStats({
         failed: 0,
+        lastUpdated: 100,
         nextRunnableAt: '2026-03-07T00:00:00.000Z',
         queued: 4,
         running: 1,
@@ -415,11 +417,32 @@ describe('vector-status-ui-store', () => {
       expect(store.getState()).toBe(before);
     });
 
+    it('updates state when a successful poll refreshes only the timestamp', () => {
+      const store = useVectorStatusUIStore;
+      const initialStats = {
+        failed: 0,
+        lastUpdated: 100,
+        nextRunnableAt: null,
+        queued: 0,
+        running: 0,
+        succeeded: 1,
+        succeededLifetime: 1,
+      };
+
+      store.getState().setDurableQueueStats(initialStats);
+      const before = store.getState();
+      store.getState().setDurableQueueStats({ ...initialStats, lastUpdated: 200 });
+
+      expect(store.getState()).not.toBe(before);
+      expect(store.getState().durableQueueStats?.lastUpdated).toBe(200);
+    });
+
     it('updates state when queue stats change or are cleared', () => {
       const store = useVectorStatusUIStore;
 
       store.getState().setDurableQueueStats({
         failed: 0,
+        lastUpdated: 100,
         nextRunnableAt: null,
         queued: 1,
         running: 0,
@@ -430,6 +453,7 @@ describe('vector-status-ui-store', () => {
 
       store.getState().setDurableQueueStats({
         failed: 0,
+        lastUpdated: 200,
         nextRunnableAt: null,
         queued: 2,
         running: 0,
