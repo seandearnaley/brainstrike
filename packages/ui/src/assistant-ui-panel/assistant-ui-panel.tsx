@@ -63,7 +63,11 @@ import {
   resolveAssistantEndpoint,
 } from './assistant-endpoint';
 import { AssistantMessageError } from './assistant-message-error';
-import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
+import {
+  AssistantMessageText,
+  preloadMarkdownText,
+  UserMessageText,
+} from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { AssistantReasoningPart } from './assistant-reasoning-part';
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
@@ -1556,7 +1560,7 @@ export const UserMessage = () => {
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-            Text: AssistantMessageText,
+            Text: UserMessageText,
           }}
         />
       </ExpandableMessageContent>

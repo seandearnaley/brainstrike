@@ -26,6 +26,7 @@ vi.mock('../data-stream-runtime', () => ({
 vi.mock('../assistant-message-text', () => ({
   AssistantMessageText: () => <div data-testid="markdown-text" />,
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
+  UserMessageText: () => <div data-testid="markdown-text" />,
 }));
 
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
