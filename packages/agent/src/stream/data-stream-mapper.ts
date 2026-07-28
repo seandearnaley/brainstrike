@@ -299,6 +299,25 @@ export class DataStreamMapper {
    * next natural boundary (tool start, approval, finish, stream end).
    */
   private streamingPartOpen = false;
+  /**
+   * The tool call whose args stream is open on the wire (`b` emitted, its `9`
+   * not yet), or null. The renderer decoder closes the ACTIVE call's argsText
+   * controller on EVERY frame in its TOOL_CALL_ARGS_CLOSING_CHUNKS set
+   * (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/aui-* — assistant-stream 0.3.25), so an
+   * aui-data part interleaved between `c` frames makes the next args delta
+   * append to a closed controller: the unhandled "Cannot enqueue a chunk into
+   * a readable stream that is closed" TypeError that kills the renderer
+   * pipeline while the agent-side run completes invisibly (BST-962; the
+   * incident was an OM-observer run event landing mid `updateWorkingMemory`
+   * args). Data parts are therefore deferred while this is non-null, exactly
+   * like the mid-text deferral above; deferral is the failsafe direction — a
+   * late data part flushes at the next boundary, a premature one crashes the
+   * run. Deliberately NOT force-closed when a second `b` opens (parallel tool
+   * calls): the pinned parallel-call contract assembles args from deltas that
+   * arrive after another call started, and providers stream args sequentially,
+   * so only the tracked id moves to the newest call.
+   */
+  private openArgsCallId: string | null = null;
   private pendingRunEventChunks: EncodedChunk[] = [];
 
   constructor(messageId: string) {
@@ -366,6 +385,8 @@ export class DataStreamMapper {
     const errorText = error instanceof Error ? error.message : String(error);
     this.terminalFailureText = errorText;
     this.markCurrentStepAsError();
+    // `3` closes an open args stream in the decoder; end it with its `9` first.
+    yield* this.closeOpenArgsStreamIfNeeded();
     yield { code: DataStreamCode.error, value: errorText } satisfies EncodedChunk;
     yield* this.flushPendingRunEvents();
     yield* this.finalizeCurrentStep();
@@ -391,6 +412,8 @@ export class DataStreamMapper {
     this.pendingRunErrorText = MISSING_FINISH_ERROR_TEXT;
     this.terminalFailureText = MISSING_FINISH_ERROR_TEXT;
     this.markCurrentStepAsError();
+    // `3`/`e`/`d` close an open args stream in the decoder; end it first.
+    chunks.push(...this.closeOpenArgsStreamIfNeeded());
     chunks.push({
       code: DataStreamCode.error,
       value: MISSING_FINISH_ERROR_TEXT,
@@ -428,6 +451,9 @@ export class DataStreamMapper {
     if (!delta) {
       return;
     }
+    // A `0` frame closes the active argsText downstream; end an open args
+    // stream with its `9` before the model's visible text starts.
+    yield* this.closeOpenArgsStreamIfNeeded();
     if (this.startNewStepForNextText) {
       yield* this.finalizeCurrentStep();
       yield* this.startStepIfNeeded(true);
@@ -449,6 +475,8 @@ export class DataStreamMapper {
     if (!delta) {
       return;
     }
+    // `g` frames close the active argsText downstream, same as `0`.
+    yield* this.closeOpenArgsStreamIfNeeded();
     yield* this.startStepIfNeeded();
     this.streamingPartOpen = true;
     yield { code: DataStreamCode.reasoningDelta, value: delta } satisfies EncodedChunk;
@@ -472,7 +500,7 @@ export class DataStreamMapper {
         name: ASSISTANT_RUN_EVENT_DATA_NAME,
       },
     } satisfies EncodedChunk;
-    if (this.streamingPartOpen) {
+    if (this.mustDeferDataParts()) {
       this.pendingRunEventChunks.push(encoded);
       return;
     }
@@ -481,11 +509,15 @@ export class DataStreamMapper {
 
   /**
    * Emit a live shell-output slice as a transient `aui-data` part. Subject to
-   * the SAME text-part deferral contract as run events: a data part emitted mid
-   * text/reasoning append would slice visible text, so while a part is open the
-   * encoded slice is queued and flushed at the next natural boundary. Shell
-   * output is produced during tool execution (after the text turn's finish), so
-   * in practice it streams live; the deferral only guards the rare interleave.
+   * the SAME deferral contract as run events: a data part emitted mid
+   * text/reasoning append would slice visible text, and one emitted inside an
+   * open args stream crashes the renderer decoder (BST-962), so while either
+   * is open the encoded slice is queued and flushed at the next boundary.
+   * Shell output is produced during tool execution, and the executing call's
+   * args window is guaranteed closed by then — streaming providers close it at
+   * input_stream_end, non-streaming ones at the eager `9` in handleToolStart —
+   * so in practice it streams live; the deferral only guards a concurrent
+   * OTHER call still streaming its args.
    */
   private *handleShellOutput(chunk: StreamChunkShellOutput): Generator<EncodedChunk> {
     const encoded = {
@@ -500,7 +532,7 @@ export class DataStreamMapper {
         name: SHELL_OUTPUT_DATA_NAME,
       },
     } satisfies EncodedChunk;
-    if (this.streamingPartOpen) {
+    if (this.mustDeferDataParts()) {
       this.pendingRunEventChunks.push(encoded);
       return;
     }
@@ -524,7 +556,7 @@ export class DataStreamMapper {
         name: CONTEXT_BREAKDOWN_DATA_NAME,
       },
     } satisfies EncodedChunk;
-    if (this.streamingPartOpen) {
+    if (this.mustDeferDataParts()) {
       this.pendingRunEventChunks.push(encoded);
       return;
     }
@@ -545,7 +577,7 @@ export class DataStreamMapper {
         name: CHILD_RUN_USAGE_DATA_NAME,
       },
     } satisfies EncodedChunk;
-    if (this.streamingPartOpen) {
+    if (this.mustDeferDataParts()) {
       this.pendingRunEventChunks.push(encoded);
       return;
     }
@@ -560,6 +592,51 @@ export class DataStreamMapper {
     const pending = this.pendingRunEventChunks;
     this.pendingRunEventChunks = [];
     yield* pending;
+  }
+
+  /** True whenever a data part emitted now would close an open wire part. */
+  private mustDeferDataParts(): boolean {
+    return this.streamingPartOpen || this.openArgsCallId !== null;
+  }
+
+  /**
+   * Close the open args stream by emitting its args-complete `9` frame with
+   * whatever args have accumulated. Used before any args-closing frame the
+   * mapper is about to emit (text/reasoning deltas, error, finish) so the
+   * decoder never sees one inside an open args window.
+   */
+  private *closeOpenArgsStreamIfNeeded(): Generator<EncodedChunk> {
+    const callId = this.openArgsCallId;
+    if (callId === null) {
+      return;
+    }
+    this.openArgsCallId = null;
+    const state = this.toolState.get(callId);
+    if (!state || state.argsEmitted) {
+      return;
+    }
+    state.argsEmitted = true;
+    yield {
+      code: DataStreamCode.toolCall,
+      value: {
+        args: toArgsObject(state.lastInput, state.pendingArgsText),
+        toolCallId: callId,
+        toolName: state.toolName,
+      },
+    } satisfies EncodedChunk;
+  }
+
+  /**
+   * Bookkeeping after a call's args-complete `9` frame reached the wire: the
+   * args window is closed, so deferred data parts may flow again.
+   */
+  private *completeArgsStream(callId: string): Generator<EncodedChunk> {
+    if (this.openArgsCallId === callId) {
+      this.openArgsCallId = null;
+    }
+    if (this.openArgsCallId === null) {
+      yield* this.flushPendingRunEvents();
+    }
   }
 
   private *handleToolEvent(chunk: StreamChunkTool): Generator<EncodedChunk> {
@@ -626,7 +703,13 @@ export class DataStreamMapper {
     if (!callId) {
       return;
     }
-    yield* this.flushPendingRunEvents();
+    // If a DIFFERENT call's args stream is open, end it first: the frames
+    // below (`9` for this call, then aui-data) would close it mid-stream in
+    // the decoder (BST-962 crash class), and the pause notice cannot wait —
+    // a paused run produces no further boundary to flush at.
+    if (this.openArgsCallId !== null && this.openArgsCallId !== callId) {
+      yield* this.closeOpenArgsStreamIfNeeded();
+    }
 
     // Settled-id rule, frames only: never AUTO-START a settled call (a
     // duplicate `b` throws in the renderer decoder — the crash class the
@@ -654,6 +737,10 @@ export class DataStreamMapper {
         },
       } satisfies EncodedChunk;
     }
+    // Deferred run events flush only now, AFTER the args-complete `9` — the
+    // pre-BST-962 top-of-handler flush landed them inside the open args
+    // stream. They still precede the approval notice below.
+    yield* this.completeArgsStream(callId);
 
     const data: AssistantToolApprovalRequest = {
       runId: chunk.runId,
@@ -692,10 +779,11 @@ export class DataStreamMapper {
     // false "tool failed" message; do NOT cite it as evidence of current
     // behaviour (a PR #1977 review round did, and was wrong).
     this.pendingToolErrorTexts.delete(callId);
-    // Text-part deferral contract: finalize any open text/reasoning append and
-    // flush deferred run events BEFORE emitting the data part (a data part
-    // mid-text slices visible text).
-    yield* this.flushPendingRunEvents();
+    // Mirrors handleToolApprovalRequired: a different call's open args stream
+    // must end before this call's frames can flow (BST-962 crash class).
+    if (this.openArgsCallId !== null && this.openArgsCallId !== callId) {
+      yield* this.closeOpenArgsStreamIfNeeded();
+    }
 
     // Settled-id rule, frames only (mirrors handleToolApprovalRequired): the
     // suspend NOTICE below still flows for a settled call — in the legacy
@@ -721,6 +809,10 @@ export class DataStreamMapper {
         },
       } satisfies EncodedChunk;
     }
+    // Text-part deferral contract: deferred run events flush AFTER this call's
+    // args-complete `9` (a flush inside the open args stream is the BST-962
+    // crash) and BEFORE the suspend notice below.
+    yield* this.completeArgsStream(callId);
 
     const data: AssistantToolSuspendRequest = {
       runId: chunk.runId,
@@ -772,19 +864,47 @@ export class DataStreamMapper {
     callId: string,
     payload: unknown
   ): Generator<EncodedChunk> {
-    yield* this.flushPendingRunEvents();
+    // Skip the boundary flush while another call's args stream is open: a
+    // flushed data part would land inside that stream (the BST-962 crash);
+    // deferred chunks flow at the next args-complete frame instead.
+    if (this.openArgsCallId === null) {
+      yield* this.flushPendingRunEvents();
+    }
     yield* this.finalizeCurrentTextIfNeeded();
     yield* this.startStepIfNeeded();
-    this.toolState.set(callId, {
+    const state: ToolState = {
       argsEmitted: false,
       lastInput: extractToolInput(payload),
       pendingArgsText: '',
       toolName,
-    });
+    };
+    this.toolState.set(callId, state);
     yield {
       code: DataStreamCode.startToolCall,
       value: { toolCallId: callId, toolName },
     } satisfies EncodedChunk;
+    // The `b` frame re-points the decoder's active argsText at this call.
+    this.openArgsCallId = callId;
+    // A start that already carries the complete input is the non-streaming
+    // provider path (a `tool-call` part; no input_stream_* events will
+    // follow), so the args window would otherwise stay open across the whole
+    // EXECUTION — deferring live shell output and run events until the
+    // result. Close it now: `b` immediately followed by its `9`. Streaming
+    // providers map `tool-call-input-streaming-start` to a start WITHOUT
+    // input, so they are unaffected; a defensive late delta is dropped by the
+    // argsEmitted guard either way.
+    if (hasNonEmptyToolInput(state.lastInput)) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          args: toArgsObject(state.lastInput),
+          toolCallId: callId,
+          toolName,
+        },
+      } satisfies EncodedChunk;
+      yield* this.completeArgsStream(callId);
+    }
   }
 
   private *handleToolProgress(callId: string, payload: unknown): Generator<EncodedChunk> {
@@ -817,7 +937,12 @@ export class DataStreamMapper {
     }
     if (step === 'input_stream_end') {
       const state = this.toolState.get(callId);
-      if (!state) {
+      // Mirror the delta branch's argsEmitted guard: after a forced close
+      // (text/reasoning arrived mid-args, or another call settled) the `9` is
+      // already on the wire. Re-emitting it is another args-closing frame
+      // (crash class), and its completeArgsStream flush would land deferred
+      // aui-data inside the text block that forced the close.
+      if (!state || state.argsEmitted) {
         return;
       }
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
@@ -826,6 +951,7 @@ export class DataStreamMapper {
         code: DataStreamCode.toolCall,
         value: { args, toolCallId: callId, toolName: state.toolName },
       } satisfies EncodedChunk;
+      yield* this.completeArgsStream(callId);
     }
   }
 
@@ -838,6 +964,11 @@ export class DataStreamMapper {
       (payload as { output?: unknown; result?: unknown }).output ??
         (payload as { result?: unknown }).result
     );
+    // A different call's open args stream must end before this call's `9`
+    // frame can flow (BST-962 crash class).
+    if (this.openArgsCallId !== null && this.openArgsCallId !== callId) {
+      yield* this.closeOpenArgsStreamIfNeeded();
+    }
     const state = this.toolState.get(callId);
     // The Mastra `toModelOutput` projection protects model context without
     // mutating raw execution results. This separate, idempotent bound is the
@@ -858,6 +989,7 @@ export class DataStreamMapper {
         code: DataStreamCode.toolCallResult,
         value: { isError: true, result: bounded.output, toolCallId: callId },
       } satisfies EncodedChunk;
+      yield* this.completeArgsStream(callId);
       this.pendingToolErrorTexts.set(callId, bounded.errorText);
       this.startNewStepForNextText = true;
       return;
@@ -876,6 +1008,7 @@ export class DataStreamMapper {
       code: DataStreamCode.toolCallResult,
       value: { result: bounded.output, toolCallId: callId },
     } satisfies EncodedChunk;
+    yield* this.completeArgsStream(callId);
     this.startNewStepForNextText = true;
   }
 
@@ -885,6 +1018,12 @@ export class DataStreamMapper {
         (payload as { result?: unknown }).result ??
         'tool_error'
     );
+
+    // A different call's open args stream must end before this call's `9`
+    // frame can flow (BST-962 crash class).
+    if (this.openArgsCallId !== null && this.openArgsCallId !== callId) {
+      yield* this.closeOpenArgsStreamIfNeeded();
+    }
 
     // Emit ToolCall with args if we haven't already (needed for UI to display tool)
     const state = this.toolState.get(callId);
@@ -903,6 +1042,7 @@ export class DataStreamMapper {
       code: DataStreamCode.toolCallResult,
       value: { isError: true, result: output, toolCallId: callId },
     } satisfies EncodedChunk;
+    yield* this.completeArgsStream(callId);
     this.pendingToolErrorTexts.set(callId, readToolOutputErrorText(output));
     this.startNewStepForNextText = true;
   }
@@ -910,6 +1050,9 @@ export class DataStreamMapper {
   private *handleFinish(
     chunk: StreamChunkFinish | StreamChunkMessageFinish
   ): Generator<EncodedChunk> {
+    // The frames below (`3`/`e`/`d`, flushed aui-data) all close an open args
+    // stream in the decoder; end it with its `9` first (BST-962).
+    yield* this.closeOpenArgsStreamIfNeeded();
     const usage = extractFinishUsage(chunk);
     const finishReason = resolveFinishReason(chunk);
     const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);

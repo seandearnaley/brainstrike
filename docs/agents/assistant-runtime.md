@@ -407,7 +407,40 @@ text/reasoning append in assistant-stream's accumulator, slicing visible text
 into fragments. `DataStreamMapper` therefore defers run events that arrive
 while a text/reasoning part is streaming and flushes them at the next boundary
 (tool start, approval, finish, error, stream end) — never drop them, never
-emit them mid-part (proof: data-stream-text-continuity.spec.ts). The renderer's
+emit them mid-part (proof: data-stream-text-continuity.spec.ts).
+
+Open tool-call args streams have the SAME contract with a harder failure mode
+(BST-962): assistant-stream 0.3.25's `DataStreamDecoder` closes the ACTIVE
+call's argsText controller on every frame in its `TOOL_CALL_ARGS_CLOSING_CHUNKS`
+set (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/`aui-text-delta`/`aui-reasoning-delta`/
+`aui-data`), so ANY such frame between a call's `b` and its `9` makes the next
+`c` args delta append to a closed controller — an unhandled "Cannot enqueue a
+chunk into a readable stream that is closed" TypeError that errors the whole
+renderer pipeline (the visible chat dies with the enqueue error) while the
+agent-side run completes invisibly. This is NOT the BST-704 cancellation class
+and the stream-insulation boundary correctly treats it as a real fault — the
+producer must never emit the poisoned ordering. The mapper therefore (a) defers
+aui-data parts (run events, shell output, context breakdown, child-run usage)
+while `openArgsCallId` is set, flushing after that call's `9`; (b) closes an
+open args stream — emitting its `9` with the accumulated args — before
+text/reasoning deltas, error/finish frames, and approval/suspend notices
+(pauses produce no later boundary, so the notice cannot be deferred);
+(c) prefers DEFERRAL over premature flushing everywhere: a late data part
+flushes at the next boundary, a premature one crashes the run; (d) closes the
+window EAGERLY (`b` immediately followed by its `9`) when a tool start already
+carries the complete input — the non-streaming provider path (`tool-call` part,
+no `input_stream_*` events) — so the window never spans tool EXECUTION, which
+would buffer live shell output and run events until the result; a late
+`input_stream_end` after any forced close is dropped by the `argsEmitted`
+guard (re-emitting the `9` is itself an args-closing frame). The incident
+producer was an OM-observer run event landing mid `updateWorkingMemory` args
+(debug bundle 2026-07-28T15-43-22Z). Known remaining hole, deliberately
+unfixed: interleaved args deltas ACROSS parallel calls (`b`-A, `b`-B, `c`-A)
+are already decoder-lethal at the `b`, but providers stream args sequentially
+per response and the pinned parallel-call contract assembles late-arriving
+args, so only the tracked id moves forward (see `openArgsCallId` doc comment).
+Proof: the BST-962 describe block in data-stream-text-continuity.spec.ts,
+including the `expectDecoderSafeArgsStream` invariant sweep. The renderer's
 data-stream runtime also defers assistant-stream's decoded `message-finish` until
 decoder flush: assistant-stream 0.3.25 emits that marker before its trailing
 `part-finish`, and exposing completion early lets an immediate next turn abort a

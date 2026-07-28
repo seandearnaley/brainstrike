@@ -364,6 +364,310 @@ describe('tool-suspend-required data part respects text continuity', () => {
   });
 });
 
+function toolStartChunk(name: string, callId: string, input?: unknown): StreamChunk {
+  return {
+    name,
+    payload: { input, toolCallId: callId },
+    status: 'start',
+    type: 'tool-event',
+  } as unknown as StreamChunk;
+}
+
+function argsDeltaChunk(name: string, callId: string, delta: string): StreamChunk {
+  return {
+    name,
+    payload: { argsTextDelta: delta, step: 'input_stream_delta', toolCallId: callId },
+    status: 'progress',
+    type: 'tool-event',
+  } as unknown as StreamChunk;
+}
+
+function argsEndChunk(name: string, callId: string): StreamChunk {
+  return {
+    name,
+    payload: { step: 'input_stream_end', toolCallId: callId },
+    status: 'progress',
+    type: 'tool-event',
+  } as unknown as StreamChunk;
+}
+
+function toolSuccessChunk(name: string, callId: string, output: unknown): StreamChunk {
+  return {
+    name,
+    payload: { output, toolCallId: callId },
+    status: 'success',
+    type: 'tool-event',
+  } as unknown as StreamChunk;
+}
+
+/**
+ * Renderer-decoder safety invariant (BST-962). assistant-stream 0.3.25's
+ * DataStreamDecoder closes the ACTIVE tool call's argsText controller on every
+ * frame in its TOOL_CALL_ARGS_CLOSING_CHUNKS set — `b`, `9`, `0`, `g`, `h`,
+ * `3`, `e`, `d`, `aui-text-delta`, `aui-reasoning-delta`, `aui-data` — so any
+ * such frame between a call's `b` and its `9` makes the next `c` append to a
+ * closed controller: an unhandled "Cannot enqueue a chunk into a readable
+ * stream that is closed" TypeError that kills the whole renderer pipeline
+ * while the agent-side run completes invisibly.
+ */
+function expectDecoderSafeArgsStream(parsed: Encoded[]): void {
+  const closingCodes = new Set(['b', '9', '0', 'g', 'h', '3', 'e', 'd', 'aui-data']);
+  let openArgsCallId: string | null = null;
+  for (const frame of parsed) {
+    const frameCallId = (frame.value as { toolCallId?: string } | null)?.toolCallId;
+    if (frame.code === 'b') {
+      expect(openArgsCallId).toBeNull();
+      openArgsCallId = frameCallId ?? null;
+      continue;
+    }
+    if (frame.code === '9') {
+      if (openArgsCallId !== null) {
+        expect(frameCallId).toBe(openArgsCallId);
+        openArgsCallId = null;
+      }
+      continue;
+    }
+    if (openArgsCallId !== null && closingCodes.has(frame.code)) {
+      throw new Error(
+        `decoder-unsafe frame '${frame.code}' inside the open args stream of ${openArgsCallId}`
+      );
+    }
+  }
+}
+
+describe('aui-data parts never interleave into an open tool-call args stream (BST-962)', () => {
+  it('defers a run event that arrives mid-args and flushes it after the args-complete frame', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('updateWorkingMemory', 'call-om'),
+      argsDeltaChunk('updateWorkingMemory', 'call-om', '{"memory":'),
+      // The OM observer finishes a buffered-observation cycle mid-args — the
+      // BST-962 incident interleave.
+      runEventChunk('ev-om', 'Buffered observations updated'),
+      argsDeltaChunk('updateWorkingMemory', 'call-om', '"# User Information"}'),
+      argsEndChunk('updateWorkingMemory', 'call-om'),
+      toolSuccessChunk('updateWorkingMemory', 'call-om', { success: true }),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    const dataIndex = codes.indexOf('aui-data');
+    const argsCompleteIndex = codes.indexOf('9');
+    const resultIndex = codes.indexOf('a');
+    // Deferred past the open args stream, but not lost and not late: the run
+    // event lands at the next boundary (the `9`), before the tool result.
+    expect(dataIndex).toBeGreaterThan(argsCompleteIndex);
+    expect(dataIndex).toBeLessThan(resultIndex);
+    // Both deltas survived deferral — the assembled args are complete.
+    const argsFrame = parsed[argsCompleteIndex]?.value as { args: Record<string, unknown> };
+    expect(argsFrame.args).toEqual({ memory: '# User Information' });
+  });
+
+  it('defers breakdown, child-run-usage, and shell-output data parts that arrive mid-args', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.grepSearch', 'call-1'),
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":'),
+      {
+        breakdown: { historyMessagesTokens: 1, provenance: 'heuristic' },
+        type: 'context-breakdown',
+      } as unknown as StreamChunk,
+      {
+        type: 'child-run-usage',
+        value: { inputTokens: 10, outputTokens: 5, source: 'observation' },
+      } as unknown as StreamChunk,
+      {
+        chunk: 'compiling...',
+        stream: 'stdout',
+        toolCallId: 'call-1',
+        type: 'shell-output',
+      } as unknown as StreamChunk,
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '"x"}'),
+      argsEndChunk('brainstrike.grepSearch', 'call-1'),
+      toolSuccessChunk('brainstrike.grepSearch', 'call-1', { files: [] }),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    const dataIndices = codes.flatMap((code, i) => (code === 'aui-data' ? [i] : []));
+    expect(dataIndices).toHaveLength(3);
+    const argsCompleteIndex = codes.indexOf('9');
+    for (const dataIndex of dataIndices) {
+      expect(dataIndex).toBeGreaterThan(argsCompleteIndex);
+      expect(dataIndex).toBeLessThan(codes.indexOf('d'));
+    }
+  });
+
+  it('closes an open args stream before streaming text or reasoning deltas', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.grepSearch', 'call-1'),
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":"x"}'),
+      // Defensive: the model moved on to visible text without an
+      // input_stream_end. `0`/`g` frames close the active argsText downstream,
+      // so the mapper must emit the args-complete `9` first.
+      { type: 'text-delta', value: 'Now searching.' } as StreamChunk,
+      { type: 'reasoning-delta', value: 'thinking' } as StreamChunk,
+      toolSuccessChunk('brainstrike.grepSearch', 'call-1', { files: [] }),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    const argsCompleteIndex = codes.indexOf('9');
+    expect(argsCompleteIndex).toBeGreaterThan(-1);
+    expect(argsCompleteIndex).toBeLessThan(codes.indexOf('0'));
+    const argsFrame = parsed[argsCompleteIndex]?.value as { args: Record<string, unknown> };
+    expect(argsFrame.args).toEqual({ pattern: 'x' });
+  });
+
+  it('emits the args-complete frame before any aui-data when a suspend pauses mid-args', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.submitPlan', 'call-plan'),
+      argsDeltaChunk('brainstrike.submitPlan', 'call-plan', '{"title":"Plan"}'),
+      runEventChunk('ev-1', 'Buffered observations updated'),
+      {
+        runId: 'run-1',
+        suspendPayload: { title: 'Plan' },
+        toolCallId: 'call-plan',
+        toolName: 'brainstrike.submitPlan',
+        type: 'tool-suspend-required',
+      } as unknown as StreamChunk,
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    const firstDataIndex = codes.indexOf('aui-data');
+    expect(codes.indexOf('9')).toBeLessThan(firstDataIndex);
+    // The deferred run event still flows, before the suspend notice.
+    const names = parsed
+      .filter((p) => p.code === 'aui-data')
+      .map((p) => (p.value as { name?: string }).name);
+    expect(names.indexOf('brainstrike.run-event')).toBeLessThan(
+      names.indexOf('brainstrike.tool-suspend')
+    );
+  });
+
+  it('emits the args-complete frame before any aui-data when an approval pauses mid-args', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.executeCommand', 'call-cmd'),
+      argsDeltaChunk('brainstrike.executeCommand', 'call-cmd', '{"command":"ls"}'),
+      runEventChunk('ev-1', 'Observation'),
+      {
+        args: { command: 'ls' },
+        runId: 'run-1',
+        toolCallId: 'call-cmd',
+        toolName: 'brainstrike.executeCommand',
+        type: 'tool-approval-required',
+      } as unknown as StreamChunk,
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    expect(codes.indexOf('9')).toBeLessThan(codes.indexOf('aui-data'));
+  });
+
+  it('drops a late input_stream_end after a forced close instead of re-emitting the args frame', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.grepSearch', 'call-1'),
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":'),
+      // Text force-closes the args stream (its `9` is emitted with the args
+      // accumulated so far); the provider's own late input_stream_end must
+      // then be dropped — a second `9` is another args-closing frame, the
+      // same crash class the settled-id rule guards against.
+      { type: 'text-delta', value: 'Searching.' } as StreamChunk,
+      argsEndChunk('brainstrike.grepSearch', 'call-1'),
+      toolSuccessChunk('brainstrike.grepSearch', 'call-1', { files: [] }),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const argsFrames = parsed.filter((p) => p.code === '9');
+    expect(argsFrames).toHaveLength(1);
+  });
+
+  it('keeps deferred data parts out of an open text block after a forced args closure', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.grepSearch', 'call-1'),
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":"x"}'),
+      { type: 'text-delta', value: 'Hello ' } as StreamChunk,
+      // Deferred while the text block streams…
+      runEventChunk('ev-1', 'Observation'),
+      // …and the provider's late input_stream_end must NOT flush it mid-text
+      // (nor re-emit the `9`).
+      argsEndChunk('brainstrike.grepSearch', 'call-1'),
+      { type: 'text-delta', value: 'world.' } as StreamChunk,
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    expect(parsed.filter((p) => p.code === '9')).toHaveLength(1);
+    const firstText = codes.indexOf('0');
+    const lastText = codes.lastIndexOf('0');
+    expect(lastText - firstText).toBe(1);
+    const dataIndex = codes.indexOf('aui-data');
+    // Still delivered, but only after the text block closes.
+    expect(dataIndex).toBeGreaterThan(lastText);
+    expect(dataIndex).toBeLessThan(codes.indexOf('d'));
+  });
+
+  it('streams execution-time data parts live when the start already carries complete args', async () => {
+    // Non-streaming provider path: a `tool-call` part maps to a start event
+    // with the full input and no input_stream_* events ever follow. The args
+    // window must close at the start (`9` right after `b`), not at
+    // settlement — otherwise live shell output and run events produced DURING
+    // execution are buffered until the result.
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.executeCommand', 'call-sh', { command: 'pnpm build' }),
+      {
+        chunk: 'compiling...',
+        stream: 'stdout',
+        toolCallId: 'call-sh',
+        type: 'shell-output',
+      } as unknown as StreamChunk,
+      runEventChunk('ev-exec', 'Working memory loaded'),
+      {
+        chunk: 'done.',
+        stream: 'stdout',
+        toolCallId: 'call-sh',
+        type: 'shell-output',
+      } as unknown as StreamChunk,
+      toolSuccessChunk('brainstrike.executeCommand', 'call-sh', { exitCode: 0 }),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    expect(codes.indexOf('9')).toBe(codes.indexOf('b') + 1);
+    const resultIndex = codes.indexOf('a');
+    const dataIndices = codes.flatMap((code, i) => (code === 'aui-data' ? [i] : []));
+    expect(dataIndices).toHaveLength(3);
+    // All three data parts stream during execution, before the tool result.
+    for (const dataIndex of dataIndices) {
+      expect(dataIndex).toBeLessThan(resultIndex);
+    }
+    const argsFrame = parsed[codes.indexOf('9')]?.value as { args: Record<string, unknown> };
+    expect(argsFrame.args).toEqual({ command: 'pnpm build' });
+  });
+
+  it('closes an open args stream before the finish frames when the stream ends mid-args', async () => {
+    const parsed = await mapChunks([
+      toolStartChunk('brainstrike.grepSearch', 'call-1'),
+      argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":"x"}'),
+      runEventChunk('ev-1', 'Observation'),
+      finishChunk,
+    ]);
+
+    expectDecoderSafeArgsStream(parsed);
+    const codes = parsed.map((p) => p.code);
+    // `aui-data`, `e`, and `d` are all args-closing frames: the `9` must come first.
+    expect(codes.indexOf('9')).toBeLessThan(codes.indexOf('aui-data'));
+    expect(codes.indexOf('9')).toBeLessThan(codes.indexOf('d'));
+  });
+});
+
 describe('parallel tool calls map interleaved chunks without cross-talk', () => {
   it('keeps two concurrent tool calls separate through start/args/result interleaving', async () => {
     const parsed = await mapChunks([
