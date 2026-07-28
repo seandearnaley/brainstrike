@@ -1581,9 +1581,9 @@ export const UserMessage = () => {
 export const USER_ACTION_BAR_CLASSNAME =
   'col-start-1 col-end-2 row-start-2 row-end-3 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute data-[floating]:inset-x-0';
 
-// Exported (rather than kept module-private like AssistantActionBar) so
-// tests can mount it directly against a real assistant-ui local runtime --
-// see __tests__/user-action-bar-copy.test.tsx.
+// Exported so tests can mount it directly against a real assistant-ui local
+// runtime -- see __tests__/user-action-bar-copy.test.tsx. AssistantActionBar is
+// exported from its own module for the same reason.
 export const UserActionBar = () => {
   const aui = useAui();
   const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();

@@ -100,6 +100,35 @@ contracts keep reloaded threads identical to live ones:
    provider-facing call scaffolding while all three raw database rows remain.
    the live-provider proofs that raw sentinels are absent and MCP image/audio
    remain model-native live in `mastra-tool-execution.integration.spec.ts`.
+
+   **Provider citation markers are normalized at this same durable boundary.**
+   OpenAI models running native web search emit citation bookkeeping inline in
+   the text stream, wrapped in private-use codepoints
+   (`U+E200 <type> U+E202 <payload> U+E201`, plus `U+E203..U+E204` hidden spans).
+   `projectMessageContentForTranscript` strips them from BOTH `parts[].text` and
+   the flattened `content` string — the latter is the search extractor's
+   fallback for rows with no text parts (see the `CONTENT_TEXT_SQL` contract in
+   `packages/db/src/repositories/thread-search-repository.ts`). The rule itself
+   is `stripProviderCitationMarkers` in
+   `@brainstrike/assistant-contract/citation-markers`, shared with the render
+   seam so the two cannot diverge. Three constraints are load-bearing and must
+   survive any future writer:
+   - **ASSISTANT ROWS ONLY.** Providers emit these markers on assistant text.
+     Rewriting a user row is irreversible, makes a reloaded prompt differ from
+     what the user typed, and alters the history replayed to the model; it also
+     contradicts the renderer, where `UserMarkdownText` renders user-authored
+     text verbatim.
+   - **Settled-text mode.** Durable writers pass `{ unterminated: 'keep' }`.
+     The unterminated-span heuristic exists for half-arrived markers mid-stream
+     and is only safe where a later render can undo a false positive; these
+     codepoints are also Nerd Fonts glyphs, so at a write-once seam an
+     unterminated opener is treated as content, not as a truncated marker.
+   - **WRITE-TIME ONLY.** Rows persisted before this shipped keep their markers
+     and stay that way in search until rewritten. Do not assume stored text is
+     clean; backfilling is an unperformed data migration.
+
+   Test seam: `packages/agent/src/pglite-mastra-memory/__tests__/pglite-memory-store.save-messages.spec.ts`
+   (assistant rows stripped, user rows verbatim, trailing glyph preserved).
 2. **Snapshot grouping + live-order interleaving:** observational-memory
    sealing and per-step saves split ONE live assistant turn into several
    `mastra_messages` rows (progressive snapshots under fresh ids, so one

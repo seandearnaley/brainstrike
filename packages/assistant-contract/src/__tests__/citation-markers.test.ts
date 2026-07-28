@@ -95,4 +95,40 @@ describe('stripProviderCitationMarkers', () => {
   it('handles the empty string', () => {
     expect(stripProviderCitationMarkers('')).toBe('');
   });
+
+  describe("unterminated: 'keep' (settled text / durable writers)", () => {
+    it('keeps a trailing glyph token that the streaming heuristic would eat', () => {
+      // A finished answer ending on a Nerd Fonts glyph. At a write seam there is
+      // no later render to undo a false positive, so the tail must survive.
+      const answer = `Set the separator to ${START}branch-icon`;
+
+      expect(stripProviderCitationMarkers(answer, { unterminated: 'keep' })).toBe(
+        'Set the separator to branch-icon'
+      );
+      // Contrast: the streaming default treats the same tail as a half-arrived marker.
+      expect(stripProviderCitationMarkers(answer)).toBe('Set the separator to ');
+    });
+
+    it('still removes complete spans', () => {
+      const answer = `Electron v43.2.0.${START}cite${TYPE_SEP}turn0search0${END} Done.`;
+
+      expect(stripProviderCitationMarkers(answer, { unterminated: 'keep' })).toBe(
+        'Electron v43.2.0. Done.'
+      );
+    });
+
+    it('still removes complete hidden spans and orphan delimiters', () => {
+      const answer = `Visible.${HIDDEN_START}hidden${HIDDEN_END} Tail${END}`;
+
+      expect(stripProviderCitationMarkers(answer, { unterminated: 'keep' })).toBe('Visible. Tail');
+    });
+
+    it('leaves marker-free text identical', () => {
+      const answer = 'Nothing to do here.';
+
+      expect(
+        Object.is(stripProviderCitationMarkers(answer, { unterminated: 'keep' }), answer)
+      ).toBe(true);
+    });
+  });
 });

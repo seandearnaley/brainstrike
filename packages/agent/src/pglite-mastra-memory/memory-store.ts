@@ -127,7 +127,15 @@ function projectToolInvocationPartForTranscript(part: Record<string, unknown>): 
 }
 
 /**
- * Strip provider citation markers from a visible text part.
+ * Settled text, written once — see `StripProviderCitationMarkersOptions`. The
+ * unterminated-span heuristic is only safe where a later render can undo a false
+ * positive, and `saveMessages` is handed finished messages, so a trailing opener
+ * here is far likelier to be a real Nerd Fonts glyph than a truncated marker.
+ */
+const TRANSCRIPT_STRIP_OPTIONS = { unterminated: 'keep' } as const;
+
+/**
+ * Strip provider citation markers from a visible ASSISTANT text part.
  *
  * The render seam cleans what the user SEES, but this store is the DURABLE
  * writer — markers left here are what thread search indexes (see
@@ -135,6 +143,13 @@ function projectToolInvocationPartForTranscript(part: Record<string, unknown>): 
  * embeddings encode, and what a copy of a reloaded message carries. Normalizing
  * on the way in keeps every downstream reader clean without each one repeating
  * the rule.
+ *
+ * ASSISTANT ROWS ONLY (see the `role` gate in the caller). Providers emit these
+ * markers on assistant text, so gating costs the fix nothing — while rewriting a
+ * user row would be irreversible, would make a reloaded prompt differ from what
+ * the user typed, and would change the history replayed to the model. It would
+ * also contradict the renderer, where `UserMarkdownText` deliberately renders
+ * user-authored text verbatim.
  *
  * Write-time only: rows persisted before this shipped keep their markers until
  * rewritten. Backfilling them is a data migration and is deliberately not done
@@ -146,7 +161,7 @@ function projectTextPartForTranscript(
   if (part['type'] !== 'text' || typeof part['text'] !== 'string') {
     return null;
   }
-  const stripped = stripProviderCitationMarkers(part['text']);
+  const stripped = stripProviderCitationMarkers(part['text'], TRANSCRIPT_STRIP_OPTIONS);
   if (stripped === part['text']) {
     return null;
   }
@@ -154,18 +169,22 @@ function projectTextPartForTranscript(
 }
 
 function projectMessageContentForTranscript(
-  content: MastraDBMessage['content']
+  content: MastraDBMessage['content'],
+  role: MastraDBMessage['role']
 ): MastraDBMessage['content'] {
   if (!(isRecord(content) && content['format'] === 2 && Array.isArray(content['parts']))) {
     return content;
   }
+  // Tool-invocation projection applies to every role (it strips internal hook
+  // carriers); ONLY the citation strip is assistant-scoped.
+  const stripsText = role === 'assistant';
   const byToolCallId = new Map<string, PersistedInvocationProjection>();
   let changed = false;
   const parts = content['parts'].map((part) => {
     if (!isRecord(part)) {
       return part;
     }
-    const projectedText = projectTextPartForTranscript(part);
+    const projectedText = stripsText ? projectTextPartForTranscript(part) : null;
     if (projectedText) {
       changed = true;
       return projectedText;
@@ -185,8 +204,8 @@ function projectMessageContentForTranscript(
   // with no text parts, so it needs the same treatment as the parts themselves.
   const flattened = content['content'];
   let flattenedText: string | undefined;
-  if (typeof flattened === 'string') {
-    const stripped = stripProviderCitationMarkers(flattened);
+  if (stripsText && typeof flattened === 'string') {
+    const stripped = stripProviderCitationMarkers(flattened, TRANSCRIPT_STRIP_OPTIONS);
     if (stripped !== flattened) {
       flattenedText = stripped;
       changed = true;
@@ -1088,7 +1107,7 @@ export class PgliteMemoryStore extends MemoryStorage {
 
     const persistedMessages = args.messages.map((message) => ({
       ...message,
-      content: projectMessageContentForTranscript(message.content),
+      content: projectMessageContentForTranscript(message.content, message.role),
     }));
     const insertValues: PgliteQueryValue[] = [];
     const insertRows = persistedMessages.map((message, index) => {
