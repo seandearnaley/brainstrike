@@ -392,7 +392,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   pickerProviders: ModelPickerProvider[];
   /** Current persisted plan-mode state; drives the composer toggle's pressed look. */
   planModeEnabled?: boolean;
-  prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
+  prepareRequestData?: (abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   providers?: ProviderConfig[];
@@ -732,7 +732,9 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   pickerModels: ModelPickerModel[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
-  prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+  prepareRequestData?:
+    | ((abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>)
+    | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   recentModels: readonly string[] | undefined;
@@ -949,9 +951,11 @@ const DataStreamRuntimeChat = ({
     | undefined;
   historyAdapter: ThreadHistoryAdapter | undefined;
   requestData: Record<string, unknown> | undefined;
-  prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+  prepareRequestData?:
+    | ((abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>)
+    | undefined;
   /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
-  prepareLocalModel?: (() => Promise<void>) | undefined;
+  prepareLocalModel?: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
   modelName: string | undefined;
   threadKey?: string | undefined;
 }) => {
@@ -1000,8 +1004,11 @@ const DataStreamRuntimeChat = ({
     ...(authHeaders === undefined ? {} : { headers: authHeaders }),
     ...runtimeAdapters,
     ...(requestBodyLimitBytes === undefined ? {} : { requestBodyLimitBytes }),
-    body: async () => {
-      const preparedRequestData = await serverRunSession.prepareRequest();
+    ...(serverRunSession.prepareRequestWarmup
+      ? { prepareRequestWarmup: serverRunSession.prepareRequestWarmup }
+      : {}),
+    body: async (abortSignal: AbortSignal) => {
+      const preparedRequestData = await serverRunSession.prepareRequest(abortSignal);
       return {
         data: {
           ...(requestData ?? {}),
