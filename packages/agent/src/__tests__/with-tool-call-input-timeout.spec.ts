@@ -17,6 +17,10 @@ interface TestPart {
 const TOOL_INPUT_TEST_TIMEOUT_MS = 200;
 const TOOL_INPUT_DELTA_CADENCE_MS = 20;
 const TOOL_INPUT_LATE_DELTA_DELAY_MS = 250;
+const TOOL_INPUT_DELTA_RUNTIME_MULTIPLIER = 2;
+const TOOL_INPUT_DELTA_COUNT = Math.ceil(
+  (TOOL_INPUT_TEST_TIMEOUT_MS * TOOL_INPUT_DELTA_RUNTIME_MULTIPLIER) / TOOL_INPUT_DELTA_CADENCE_MS
+);
 
 async function* completedToolInput(): AsyncIterableIterator<TestPart> {
   yield { toolCallId: 'call-1', type: 'tool-call-input-streaming-start' };
@@ -24,20 +28,20 @@ async function* completedToolInput(): AsyncIterableIterator<TestPart> {
   yield { toolCallId: 'call-1', type: 'tool-call-input-streaming-end' };
 }
 
-async function* endlessToolInput(): AsyncIterableIterator<TestPart> {
+async function* stuckToolInput(): AsyncIterableIterator<TestPart> {
   yield { toolCallId: 'call-stuck', type: 'tool-call-input-streaming-start' };
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < TOOL_INPUT_DELTA_COUNT; index += 1) {
     await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_DELTA_CADENCE_MS));
     yield { argsTextDelta: 'x', toolCallId: 'call-stuck', type: 'tool-call-delta' };
   }
 }
 
-async function* endlessNestedToolInput(): AsyncIterableIterator<TestPart> {
+async function* stuckNestedToolInput(): AsyncIterableIterator<TestPart> {
   yield {
     payload: { toolCallId: 'call-nested' },
     type: 'tool-call-input-streaming-start',
   };
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < TOOL_INPUT_DELTA_COUNT; index += 1) {
     await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_DELTA_CADENCE_MS));
     yield {
       payload: { argsTextDelta: 'x', toolCallId: 'call-nested' },
@@ -114,7 +118,7 @@ describe('withToolCallInputTimeout', () => {
 
     await expect(async () => {
       for await (const part of withToolCallInputTimeout(
-        endlessToolInput(),
+        stuckToolInput(),
         TOOL_INPUT_TEST_TIMEOUT_MS
       )) {
         parts.push(part);
@@ -137,7 +141,7 @@ describe('withToolCallInputTimeout', () => {
 
     await expect(async () => {
       for await (const _part of withToolCallInputTimeout(
-        endlessToolInput(),
+        stuckToolInput(),
         TOOL_INPUT_TEST_TIMEOUT_MS,
         (error) => {
           timeoutError = error;
@@ -156,7 +160,7 @@ describe('withToolCallInputTimeout', () => {
   it('recognizes Mastra tool-call ids nested in payloads', async () => {
     await expect(async () => {
       for await (const _part of withToolCallInputTimeout(
-        endlessNestedToolInput(),
+        stuckNestedToolInput(),
         TOOL_INPUT_TEST_TIMEOUT_MS
       )) {
         // Drain until the absolute tool-input deadline expires.
