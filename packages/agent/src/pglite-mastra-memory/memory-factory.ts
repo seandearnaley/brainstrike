@@ -58,16 +58,7 @@ function buildObservationalMemoryOption(
       ? { retrieval: { scope: settings.scope, vector: true } }
       : {}),
     observation: {
-      // Mastra's canonical short-turn path: observe when the agent becomes
-      // idle instead of waiting for the 30K message threshold. The same pass
-      // owns the built-in thread-title extractor below.
-      bufferOnIdle: true,
       messageTokens: settings.messageTokens,
-      // Opt into the built-in observer thread-title extractor so threads are
-      // auto-named as observations run. The extracted title lands in
-      // mastra_threads.title through PgliteMemoryStore.updateThread, which
-      // guards user-owned titles from being clobbered.
-      threadTitle: true,
     },
     reflection: {
       observationTokens: settings.observationTokens,
@@ -100,6 +91,11 @@ function buildMastraMemoryOptions({
 }): MastraRuntimeMemoryOptions {
   return {
     ...memoryOptions,
+    // Mastra's canonical title path runs asynchronously from the first user
+    // message using the active agent model. Keep an explicit caller override,
+    // including `false`, but enable the feature for assistant threads by
+    // default. This is independent of Observational Memory and its scope.
+    generateTitle: memoryOptions?.generateTitle ?? true,
     lastMessages: memoryOptions?.lastMessages ?? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
     observationalMemory: buildObservationalMemoryOption(
       memorySettings.observationalMemory,

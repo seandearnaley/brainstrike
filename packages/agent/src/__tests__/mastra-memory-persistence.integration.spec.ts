@@ -321,39 +321,51 @@ function createFakeObservationModel(delayMs = 0): LanguageModelV2 {
   };
 }
 
-/**
- * Observer model that emits both an observation block AND a `<thread-title>`
- * inline extraction, mirroring the real Observer output when
- * `observation.threadTitle` is enabled. Used to prove the extracted title is
- * persisted to `mastra_threads.title` through the real PgliteMemoryStore.
- */
-function createThreadTitleObservationModel(title: string): LanguageModelV2 {
-  const text = `<observations>\n- 🟢 The user asked about Paris weather.\n</observations>\n<thread-title>${title}</thread-title>`;
+function createTitleGeneratingToolCallModel(title: string): LanguageModelV2 {
+  const delegate = createScriptedToolCallModel({
+    finalText: 'It is 21C in Paris.',
+    input: JSON.stringify({ city: 'Paris' }),
+    toolCallId: 'call-memory-1',
+    toolName: 'get_weather',
+  });
+
   return {
-    doGenerate: () =>
-      Promise.resolve({
-        content: [{ text, type: 'text' as const }],
-        finishReason: 'stop' as const,
-        usage: USAGE,
-        warnings: [],
-      }),
-    doStream: () =>
-      Promise.resolve({
+    ...delegate,
+    doGenerate: (options: LanguageModelV2CallOptions) => {
+      const isTitleRequest = JSON.stringify(options.prompt).includes(
+        'the entire text you return will be used as the title'
+      );
+      return isTitleRequest
+        ? Promise.resolve({
+            content: [{ text: title, type: 'text' as const }],
+            finishReason: 'stop' as const,
+            usage: USAGE,
+            warnings: [],
+          })
+        : delegate.doGenerate(options);
+    },
+    doStream: (options: LanguageModelV2CallOptions) => {
+      const isTitleRequest =
+        options.tools === undefined &&
+        JSON.stringify(options.prompt).includes(
+          'the entire text you return will be used as the title'
+        );
+      if (!isTitleRequest) {
+        return delegate.doStream(options);
+      }
+      return Promise.resolve({
         stream: new ReadableStream<LanguageModelV2StreamPart>({
           start(controller) {
             controller.enqueue({ type: 'stream-start', warnings: [] });
-            controller.enqueue({ id: 'om', type: 'text-start' });
-            controller.enqueue({ delta: text, id: 'om', type: 'text-delta' });
-            controller.enqueue({ id: 'om', type: 'text-end' });
+            controller.enqueue({ id: 'title', type: 'text-start' });
+            controller.enqueue({ delta: title, id: 'title', type: 'text-delta' });
+            controller.enqueue({ id: 'title', type: 'text-end' });
             controller.enqueue({ finishReason: 'stop', type: 'finish', usage: USAGE });
             controller.close();
           },
         }),
-      }),
-    modelId: 'fake-om-title-model',
-    provider: 'fake',
-    specificationVersion: 'v2',
-    supportedUrls: {},
+      });
+    },
   };
 }
 
@@ -390,6 +402,7 @@ async function runTurnWithMemory(args: {
   assistantMessageId?: string;
   database: PGlite;
   forceInitialToolCall?: boolean;
+  generateTitle?: boolean;
   memorySettings: RuntimeAssistantMemorySettings;
   model?: LanguageModelV2;
   threadId: string;
@@ -399,6 +412,7 @@ async function runTurnWithMemory(args: {
   toolName?: string;
   hookRunner?: AgentHookRunner;
   signal?: AbortSignal;
+  stopConsumingAtFinish?: boolean;
   embedder?: PgliteMastraMemoryOptions['embedder'];
   observationDelayMs?: number;
   observationalMemoryModel?: LanguageModelV2;
@@ -408,8 +422,23 @@ async function runTurnWithMemory(args: {
   userText?: string;
   weatherDetail?: string;
 }): Promise<{ finalText: string }> {
+  const toolId = args.toolId ?? 'get_weather';
+  const activeModel =
+    args.model ??
+    createScriptedToolCallModel({
+      finalText: 'It is 21C in Paris.',
+      ...(args.forceInitialToolCall ? { forceInitialToolCall: true } : {}),
+      input: JSON.stringify({ city: 'Paris' }),
+      ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
+      toolCallId: args.toolCallId ?? 'call-memory-1',
+      ...(args.toolCallIds ? { toolCallIds: args.toolCallIds } : {}),
+      toolName: args.toolName ?? toolId,
+    });
+  modelHolder.current = activeModel;
+
   const memoryFactoryOptions: PgliteMastraMemoryOptions = {
     database: args.database as unknown as PgliteDatabase,
+    memoryOptions: { generateTitle: args.generateTitle ?? false },
     memorySettings: args.memorySettings,
   };
   if (args.embedder) {
@@ -422,7 +451,6 @@ async function runTurnWithMemory(args: {
     >;
   }
   const { memory, storage } = await createPgliteMastraMemory(memoryFactoryOptions);
-  const toolId = args.toolId ?? 'get_weather';
 
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
@@ -440,18 +468,6 @@ async function runTurnWithMemory(args: {
       temperatureC: z.number(),
     }),
   });
-
-  modelHolder.current =
-    args.model ??
-    createScriptedToolCallModel({
-      finalText: 'It is 21C in Paris.',
-      ...(args.forceInitialToolCall ? { forceInitialToolCall: true } : {}),
-      input: JSON.stringify({ city: 'Paris' }),
-      ...(args.onToolResultPrompt ? { onToolResultPrompt: args.onToolResultPrompt } : {}),
-      toolCallId: args.toolCallId ?? 'call-memory-1',
-      ...(args.toolCallIds ? { toolCallIds: args.toolCallIds } : {}),
-      toolName: args.toolName ?? toolId,
-    });
 
   const iterator = await streamMastraAgent(
     [
@@ -484,6 +500,9 @@ async function runTurnWithMemory(args: {
   for await (const chunk of iterator) {
     if (chunk.type === 'text-delta') {
       finalText += chunk.value;
+    }
+    if (args.stopConsumingAtFinish && chunk.type === 'message-finish') {
+      break;
     }
   }
   args.onStreamConsumed?.();
@@ -1329,22 +1348,28 @@ describe('mastra memory persistence through the live stream path', () => {
     }
   }, 30_000);
 
-  it('persists an idle-buffered thread title before the message threshold', async () => {
-    // `bufferOnIdle` is the canonical Mastra path for short turns: this input
-    // is far below the production 30K threshold, but the real Observer's
-    // `<thread-title>` output must still land through PgliteMemoryStore.
-    const threadId = 'thread-om-title';
+  it('persists Mastra title generation independently of observational-memory scope', async () => {
+    const threadId = 'thread-generated-title';
     const extractedTitle = 'Paris Weather Chat';
+    const resourceScopedMemorySettings: RuntimeAssistantMemorySettings = {
+      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      observationalMemory: {
+        ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+        scope: 'resource',
+      },
+    };
     const { finalText } = await runTurnWithMemory({
       database,
-      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-      observationalMemoryModel: createThreadTitleObservationModel(extractedTitle),
+      generateTitle: true,
+      memorySettings: resourceScopedMemorySettings,
+      model: createTitleGeneratingToolCallModel(extractedTitle),
+      stopConsumingAtFinish: true,
       threadId,
     });
 
     expect(finalText).toContain('21C in Paris');
 
-    // OM observation can fire from background buffering shortly after the turn.
+    // Mastra deliberately generates the title after the main response.
     await vi.waitFor(
       async () => {
         expect(await readThreadTitle(database, threadId)).toBe(extractedTitle);

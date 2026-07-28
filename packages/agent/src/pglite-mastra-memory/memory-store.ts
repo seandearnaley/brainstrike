@@ -265,7 +265,7 @@ function hasOmTitleMarker(metadata: Record<string, unknown> | undefined): boolea
 }
 
 /**
- * Decide whether an `updateThread` write may replace the stored title.
+ * Decide whether an automated memory write may replace the stored title.
  * Overwritable when the existing title is empty (never set), carries the
  * `titleSource: 'om'` marker (a seeded placeholder or a prior auto-title
  * write), or is the literal `DEFAULT_THREAD_TITLE` with no marker at all —
@@ -289,6 +289,59 @@ function canOverwriteThreadTitle(existing: StorageThreadType | null): boolean {
     hasOmTitleMarker(existing.metadata) ||
     existing.title === DEFAULT_THREAD_TITLE
   );
+}
+
+interface ThreadSaveResolution {
+  readonly effectiveCreatedAt: Date;
+  readonly effectiveMetadata: Record<string, unknown> | undefined;
+  readonly effectiveTitle: string;
+  readonly effectiveUpdatedAt: Date;
+  readonly preservedGeneratedTitle: boolean;
+  readonly proposedTitle: string;
+}
+
+function resolveThreadSave(
+  existing: StorageThreadType | null,
+  thread: StorageThreadType
+): ThreadSaveResolution {
+  const proposedTitle = thread.title ?? DEFAULT_THREAD_TITLE;
+  const applyProposedTitle =
+    !existing || (!isEmptyThreadTitle(proposedTitle) && canOverwriteThreadTitle(existing));
+  const effectiveTitle = applyProposedTitle ? proposedTitle : (existing?.title ?? proposedTitle);
+  const existingTitle = existing?.title ?? '';
+  const titleChanged = effectiveTitle.trim() !== existingTitle.trim();
+  const isGeneratedTitleWrite = Boolean(existing && titleChanged);
+  const isSystemPlaceholderInsert =
+    !existing &&
+    (thread.title === null || thread.title === undefined || proposedTitle === DEFAULT_THREAD_TITLE);
+
+  let effectiveMetadata: Record<string, unknown> | undefined;
+  if (isGeneratedTitleWrite || isSystemPlaceholderInsert) {
+    effectiveMetadata = {
+      ...existing?.metadata,
+      ...thread.metadata,
+      [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM,
+    };
+  } else if (existing) {
+    effectiveMetadata = existing.metadata;
+  } else {
+    effectiveMetadata = thread.metadata;
+  }
+
+  return {
+    effectiveCreatedAt: existing?.createdAt ?? thread.createdAt,
+    effectiveMetadata,
+    effectiveTitle,
+    effectiveUpdatedAt:
+      existing && existing.updatedAt > thread.updatedAt ? existing.updatedAt : thread.updatedAt,
+    preservedGeneratedTitle: Boolean(
+      existing &&
+        !applyProposedTitle &&
+        !isEmptyThreadTitle(proposedTitle) &&
+        proposedTitle.trim() !== existingTitle.trim()
+    ),
+    proposedTitle,
+  };
 }
 
 /** Inline run-event detail like "12 messages" / "1 record". */
@@ -768,40 +821,60 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async saveThread({ thread }: { thread: StorageThreadType }): Promise<StorageThreadType> {
-    // Mastra's own thread bootstrap always supplies a title (typically '');
-    // an omitted title is a defensive fallback, and — like the seeded
-    // placeholder our own repository writes — is system content, not
-    // user-chosen, so it carries the OM marker to stay auto-title eligible.
-    const providedTitle = thread.title;
-    const title = providedTitle ?? DEFAULT_THREAD_TITLE;
-    const metadata =
-      providedTitle === undefined || providedTitle === null
-        ? { ...thread.metadata, [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM }
-        : thread.metadata;
-    await this.database.query(
-      `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
-        (id, "resourceId", title, metadata, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-       ON CONFLICT (id) DO UPDATE SET
-        "resourceId" = EXCLUDED."resourceId",
-        title = EXCLUDED.title,
-        metadata = EXCLUDED.metadata,
-        "createdAt" = EXCLUDED."createdAt",
-        "updatedAt" = EXCLUDED."updatedAt"`,
-      [
-        thread.id,
-        thread.resourceId,
-        title,
-        toJsonString(metadata),
-        thread.createdAt,
-        thread.updatedAt,
-      ]
-    );
-    const saved = await this.getThreadById({ threadId: thread.id });
-    if (!saved) {
-      throw new Error(`Failed to save Mastra thread: ${thread.id}`);
-    }
-    return saved;
+    return runTransaction(this.database, async (tx) => {
+      const existingResult = await tx.query<ThreadRow>(
+        `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
+         FROM ${MASTRA_MEMORY_TABLES.threads}
+         WHERE id = $1`,
+        [thread.id]
+      );
+      const existingRow = existingResult.rows[0];
+      const existing = existingRow ? threadFromRow(existingRow) : null;
+      // Mastra bootstraps a thread with an empty title, then its asynchronous
+      // `generateTitle` path calls createThread/saveThread again with the real
+      // title. Apply only a non-empty proposed title to an existing row, and
+      // only while that row is still system-owned. The transaction closes the
+      // race where a manual rename lands while title generation is in flight.
+      const resolved = resolveThreadSave(existing, thread);
+
+      if (resolved.preservedGeneratedTitle) {
+        logger.debug('Preserving established thread title against generated title', {
+          existingTitle: existing?.title,
+          proposedTitle: resolved.proposedTitle,
+          threadId: thread.id,
+        });
+      }
+
+      await tx.query(
+        `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
+          (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+         ON CONFLICT (id) DO UPDATE SET
+          "resourceId" = EXCLUDED."resourceId",
+          title = EXCLUDED.title,
+          metadata = EXCLUDED.metadata,
+          "updatedAt" = EXCLUDED."updatedAt"`,
+        [
+          thread.id,
+          thread.resourceId,
+          resolved.effectiveTitle,
+          toJsonString(resolved.effectiveMetadata),
+          resolved.effectiveCreatedAt,
+          resolved.effectiveUpdatedAt,
+        ]
+      );
+      const savedResult = await tx.query<ThreadRow>(
+        `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
+         FROM ${MASTRA_MEMORY_TABLES.threads}
+         WHERE id = $1`,
+        [thread.id]
+      );
+      const savedRow = savedResult.rows[0];
+      if (!savedRow) {
+        throw new Error(`Failed to save Mastra thread: ${thread.id}`);
+      }
+      return threadFromRow(savedRow);
+    });
   }
 
   override async updateThread({

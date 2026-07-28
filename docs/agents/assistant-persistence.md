@@ -19,16 +19,19 @@ Malformed persisted ids never sanitize to "unbound" and cannot silently rebind
 the thread. Server-side native tools validate only the id against the live root
 inventory; the stored path is never an authority or fallback.
 
-Automatic thread titles use Mastra observational memory rather than a separate
-title request. Enabled OM config sets both `observation.threadTitle: true` and
-`observation.bufferOnIdle: true`: the latter is Mastra's short-turn path and
-starts background observation when a turn becomes idle, without waiting for the
-30,000-message-token activation threshold. The observer writes its extracted
-title through `PgliteMemoryStore.updateThread`; that boundary may replace only
-an empty/default/OM-owned title and stamps `titleSource: 'om'`, while the manual
-rename path clears the marker and always wins. Idle buffering deliberately does
-not delay the main assistant response, so provider `message-finish` is not a
-valid title-refresh signal. App-shell live-subscribes to the local
+Automatic thread titles use Mastra Memory's top-level `generateTitle: true`
+option and `Agent.generateTitleFromUserMessage`. At the terminal Mastra finish,
+the stream adapter starts that canonical title request with the active agent
+model before yielding the UI finish, then keeps the per-run Mastra instance
+alive until the detached request settles. The main response therefore is not
+held up by title latency, and generation remains independent of Observational
+Memory, its token threshold, and whether OM is thread- or resource-scoped. The
+generated title is persisted through `PgliteMemoryStore.saveThread`; that
+transactional boundary may replace only an empty/default/system-owned title and stamps
+`titleSource: 'om'`, while the manual rename path clears the marker and always
+wins even if generation was already in flight. Title generation deliberately
+does not delay the main assistant response, so provider `message-finish` is not
+a valid title-refresh signal. App-shell live-subscribes to the local
 `mastra_threads` id/title projection and re-lists the loaded resource only when
 that stable projection changes. This makes background titles visible in thread
 rows and tabs without a timer or an API round trip.

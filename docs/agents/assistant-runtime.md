@@ -408,6 +408,18 @@ renderer posts the validated run id to `POST /assistant/cancel`, which aborts
 the registered execution controller. Do not infer user intent from navigation,
 renderer reload, or a dropped socket.
 
+Mastra title generation has its own finish-boundary lifecycle. The PGlite
+memory factory opts into top-level `generateTitle`, while
+`streamChunksFromMastra` starts the public
+`Agent.generateTitleFromUserMessage` request before yielding the terminal
+finish. The downstream data-stream consumer stops pulling immediately after
+that finish, so the generator's `finally` must await the already-started title
+task before aborting the internal stream controller or shutting down the
+per-run Mastra instance. This wait happens after the finish has reached the UI:
+it protects background persistence without adding title-model latency to the
+visible assistant response. Approval/suspend terminal parts and memory-free
+runs never start the task.
+
 Each desktop response exposes an opaque absolute replay cursor in
 `X-Brainstrike-Assistant-Event-Id` and the durable assistant message identity in
 `X-Brainstrike-Assistant-Message-Id`. While the run is active, the renderer
