@@ -28,6 +28,7 @@ import {
   resolveAssistantOperatingRootBinding,
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
+  resolveHostedMemoryBackendAvailable,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
@@ -183,6 +184,44 @@ describe('assistant runtime helpers', () => {
         workspaceRootPath: null,
       })
     ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
+  });
+
+  it('shares one capability predicate between the composer gate and request data', () => {
+    expect(
+      resolveHostedMemoryBackendAvailable({
+        desktopAssistantBackendAvailable: false,
+        selectedProvider: 'local',
+      })
+    ).toBe(true);
+    expect(
+      resolveHostedMemoryBackendAvailable({
+        desktopAssistantBackendAvailable: false,
+        selectedProvider: 'openai',
+      })
+    ).toBe(false);
+    expect(
+      resolveHostedMemoryBackendAvailable({
+        desktopAssistantBackendAvailable: true,
+        selectedProvider: 'openai',
+      })
+    ).toBe(true);
+  });
+
+  it('surfaces thread-memory failures even when no workspace root is open', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memoryLoadState: { error: 'bad schema', status: 'error' },
+        workspaceRootPath: null,
+      })
+    ).toBe('Assistant memory failed to load: bad schema');
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        selectedMemoryThreadId: undefined,
+        workspaceRootPath: null,
+      })
+    ).toBe('Assistant memory has no selected thread for this workspace.');
   });
 
   it('leaves provider selection guidance authoritative when no provider is selected', () => {
