@@ -185,6 +185,43 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
     await closeSettingsModal(page);
   });
 
+  // Defect 2: the Log Viewer's "Details" dialog used to inherit the SAME
+  // 50/51 tier as Settings, so its scrim painted UNDER the Settings panel and
+  // dimmed only the page around it — the reported background "flash".
+  test('a dialog opened from inside Settings dims the Settings panel too', async ({ page }) => {
+    await new HomePage(page).goto({ waitForDatabase: false });
+    await openSettingsModal(page);
+    await waitForSettingsPage(page);
+    await page.getByRole('button', { name: 'Logging & Diagnostics' }).click();
+
+    const detailsButtons = page.getByRole('button', { name: /^View details for / });
+    await expect(detailsButtons.first()).toBeVisible({ timeout: 30_000 });
+    await detailsButtons.first().click();
+
+    const panels = page.locator(SETTINGS_PANEL);
+    await expect(panels).toHaveCount(2, { timeout: 15_000 });
+
+    const layering = await page.evaluate(() => {
+      const zOf = (node: Element) => Number(globalThis.getComputedStyle(node).zIndex);
+      const panelZ = Array.from(document.querySelectorAll('[data-slot="dialog-content"]')).map(zOf);
+      const scrimZ = Array.from(document.querySelectorAll('[data-slot="dialog-overlay"]')).map(zOf);
+      return { panelZ, scrimZ };
+    });
+
+    const [settingsPanelZ, detailPanelZ] = layering.panelZ;
+    const [, detailScrimZ] = layering.scrimZ;
+
+    // The scrim of the inner dialog must cover the panel that launched it.
+    expect(detailScrimZ).toBeGreaterThan(settingsPanelZ ?? Number.NaN);
+    // And the inner panel must still sit above its own scrim, not merely win a
+    // DOM-order tiebreak at an equal z-index.
+    expect(detailPanelZ).toBeGreaterThan(detailScrimZ ?? Number.NaN);
+
+    await page.keyboard.press('Escape');
+    await expect(panels).toHaveCount(1, { timeout: 15_000 });
+    await closeSettingsModal(page);
+  });
+
   test('choosing an option inside the Settings modal applies it', async ({ page }) => {
     await openSearchIndexingCategory(page);
 

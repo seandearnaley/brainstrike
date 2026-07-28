@@ -271,3 +271,49 @@ Rules:
 When changing this flow, update this section and the related tests.
 
 ---
+
+## FLOATING LAYER STACKING (BST-963)
+
+`packages/ui/src/layers.ts` is the single source of truth for the z-index of
+every floating layer. Do not hardcode a `z-` utility on a dialog, popover,
+select, menu, tooltip, palette or toast — import the token.
+
+The scale, lowest first:
+
+| Layer | Token | Value |
+| --- | --- | --- |
+| Dialog scrim / panel, by nesting depth | `DIALOG_LAYER_CLASSES[depth - 1]` | `50/51`, `52/53`, `54/55`, `56/57` |
+| Command palette scrim / content | `COMMAND_PALETTE_OVERLAY_CLASS` / `COMMAND_PALETTE_CONTENT_CLASS` | `59` / `60` |
+| Popover, select, dropdown menu, context menu, tooltip | `POPUP_LAYER_CLASS` | `70` |
+| Toast | `TOAST_LAYER_CLASS` | `100` |
+
+Three invariants hold, asserted in `packages/ui/src/__tests__/layers.test.ts`:
+
+1. **A dialog panel sits strictly above its own scrim.** This is #831's ruling:
+   at an equal z-index RemoveScroll's wrapper steals pointer events from the
+   panel. Do not collapse the pair onto one value.
+2. **A nested dialog's scrim sits above the panel that opened it**, so it dims
+   that panel rather than sliding underneath and dimming only the page around
+   it. `Dialog` tracks nesting depth through React context (which crosses
+   portals) and derives its tier from it; `dialogLayerClasses` throws rather
+   than clamping past `MAX_DIALOG_NESTING_DEPTH`.
+3. **Popups out-rank every dialog tier.** This is the defect that produced the
+   scale: Settings became a modal in #1626 while Select/Popover/DropdownMenu/
+   ContextMenu/Tooltip were all still on `z-50` and `DialogContent` had moved
+   to `z-[51]`, so a Select opened in Settings painted behind an opaque panel.
+
+Two traps worth knowing before you debug this class of bug again:
+
+- **An invisible popup is still hit-testable.** Radix drops `pointer-events` on
+  the dialog panel while an inner layer is open, so `elementFromPoint` returns
+  the option, Playwright's actionability checks pass, and a click succeeds — on
+  a dropdown the user cannot see. Functional assertions do not catch it; assert
+  stacking or occlusion (`apps/web/e2e/settings-modal-layering.test.ts`).
+- **Values must be literal strings.** Tailwind emits only classes its scanner
+  can see, and `packages/ui/styles.css` exposes this package via `@source`. A
+  runtime-composed `` z-[${n}] `` produces no CSS at all and silently computes
+  to `auto`.
+
+When changing this scale, update this section and `layers.test.ts` together.
+
+---

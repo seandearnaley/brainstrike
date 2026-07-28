@@ -32,7 +32,7 @@ Detailed subsystem contracts live in `docs/agents/`. **Before changing one of th
 | Agent self-query SQL sandbox, `brainstrike.querySelf`, the read-only role — **`statement_timeout` is inert in PGlite** | `docs/agents/agent-self-query.md` |
 | Prompt workbench, workspace-instructions injection, user-defined /commands, edit-checkpoint undo | `docs/agents/workspace-context.md` |
 | Explorer Search panel, markdown viewer, Tapestry per-file ranges | `docs/agents/explorer-search-tapestry.md` |
-| Tree views (shared TreeTable), right-click / context action system | `docs/agents/ui-conventions.md` |
+| Tree views (shared TreeTable), right-click / context action system, z-index of any dialog/popover/menu/tooltip | `docs/agents/ui-conventions.md` |
 | GitHub workflows, React Doctor, knip | `docs/agents/ci-quality.md` |
 | Logging, factory reset, adding any new persistence | `docs/agents/platform-contracts.md` |
 
