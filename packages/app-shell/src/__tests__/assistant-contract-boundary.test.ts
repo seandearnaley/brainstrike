@@ -104,7 +104,10 @@ describe('app-shell assistant contract boundary', () => {
     // live-sum clear ordering in handleUsage. Aggregation policy lives in
     // assistant-cumulative-usage.ts, capture in packages/agent, persistence in
     // the desktop server, and display in packages/ui.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1740);
+    // Bumped 1740 → 1790 after rebasing onto main's thread auto-naming
+    // (#2060): the union of that wrapper wiring and the BST-953 review fixes
+    // (live-sum terminal clears + zero-baseline hydration) measures 1780.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1790);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

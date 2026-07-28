@@ -1006,13 +1006,21 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   // never renders an approval notice, so the grant context is never read.
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,
   // The wrapper reads the usage store both as a hook (selector at render time)
-  // and via getState() inside the usage callback. The mock supports both: the
-  // selector receives an empty usage map and getState exposes recordUsage.
+  // and via getState() inside the usage/live-sum callbacks + the
+  // thread-selection clear effect (BST-953). The mock supports both: the
+  // selector receives an empty usage map and getState exposes every action the
+  // wrapper calls.
   useContextUsageStore: Object.assign(
     (selector: (state: { usageByThread: Record<string, unknown> }) => unknown) =>
       selector({ usageByThread: {} }),
     {
-      getState: () => ({ recordBreakdown: () => {}, recordUsage: () => {} }),
+      getState: () => ({
+        clearBreakdown: () => {},
+        clearLiveRunUsage: () => {},
+        recordBreakdown: () => {},
+        recordLiveStepUsage: () => {},
+        recordUsage: () => {},
+      }),
     }
   ),
 }));

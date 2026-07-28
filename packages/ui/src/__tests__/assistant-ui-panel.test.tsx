@@ -1363,7 +1363,9 @@ describe('AssistantUiPanel model picker', () => {
 
     // Should be called with composite key format: "provider::model"
     expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-6');
-  });
+    // Full panel render + a three-level Radix submenu drill via userEvent:
+    // repeatedly tripped vitest's 5s default on loaded runners.
+  }, 20_000);
 
   it('shows placeholder when no models are enabled', () => {
     const noModelsGroups: ProviderGroupConfig[] = providerGroups.map((group) => ({
