@@ -213,6 +213,43 @@ describe('runHooksForEvent', () => {
     expect(captured.tool_input.cmd).toBe('ls');
   });
 
+  it('does not expose provider credentials through the hook process environment', async () => {
+    const priorCredential = process.env['OPENAI_API_KEY'];
+    const priorOrdinaryValue = process.env['BRAINSTRIKE_HOOK_TEST_VALUE'];
+    process.env['OPENAI_API_KEY'] = 'sentinel-provider-canary';
+    process.env['BRAINSTRIKE_HOOK_TEST_VALUE'] = 'ordinary-value';
+
+    try {
+      const command =
+        'node -e "process.stdout.write(JSON.stringify({' +
+        'credential:process.env.OPENAI_API_KEY??null,' +
+        'event:process.env.BRAINSTRIKE_HOOK_EVENT??null,' +
+        'ordinary:process.env.BRAINSTRIKE_HOOK_TEST_VALUE??null' +
+        '}))"';
+      const result = await runHooksForEvent([makeLoadedHook(command)], () => toolStdin(), {
+        blocking: true,
+        logger,
+      });
+
+      expect(result.results[0]?.stdout).toEqual({
+        credential: null,
+        event: 'PreToolUse',
+        ordinary: 'ordinary-value',
+      });
+    } finally {
+      if (priorCredential === undefined) {
+        Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+      } else {
+        process.env['OPENAI_API_KEY'] = priorCredential;
+      }
+      if (priorOrdinaryValue === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_HOOK_TEST_VALUE');
+      } else {
+        process.env['BRAINSTRIKE_HOOK_TEST_VALUE'] = priorOrdinaryValue;
+      }
+    }
+  });
+
   it('does not crash the process when a hook exits before a large stdin payload flushes', async () => {
     // Regression: `child.stdin.write` emits its failure ASYNCHRONOUSLY on the
     // stream (an `'error'` event), which the surrounding synchronous try/catch

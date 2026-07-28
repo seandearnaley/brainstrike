@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type LoadDesktopEnvironmentOptions, loadDesktopEnvironment } from '../../desktop-env';
+import {
+  createCredentialIsolatedChildEnvironment,
+  type LoadDesktopEnvironmentOptions,
+  loadDesktopEnvironment,
+} from '../../desktop-env';
+import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 
 const temporaryDirectories: string[] = [];
 
@@ -34,6 +39,31 @@ afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { force: true, recursive: true });
   }
+});
+
+describe('createCredentialIsolatedChildEnvironment', () => {
+  it('removes every registered credential name case-insensitively and preserves ordinary values', () => {
+    const credentialNames = [
+      ...listProviders().flatMap((definition) => [...providerEnvKeys(definition.id)]),
+      ...TAVILY_ENV_KEYS,
+    ];
+    const source: NodeJS.ProcessEnv = Object.fromEntries(
+      credentialNames.map((name) => [name, `secret-for-${name}`])
+    );
+    source['OpenAi_Api_Key'] = 'mixed-case-windows-secret';
+    source['PATH'] = '/usr/bin';
+    source['BRAINSTRIKE_HOOK_TEST_VALUE'] = 'ordinary-value';
+
+    const result = createCredentialIsolatedChildEnvironment(source);
+
+    expect(Object.keys(result).every((name) => !credentialNames.includes(name.toUpperCase()))).toBe(
+      true
+    );
+    expect(result).toEqual({
+      BRAINSTRIKE_HOOK_TEST_VALUE: 'ordinary-value',
+      PATH: '/usr/bin',
+    });
+  });
 });
 
 describe('loadDesktopEnvironment', () => {

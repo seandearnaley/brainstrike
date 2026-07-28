@@ -576,6 +576,46 @@ describe('runExecuteCommand — abort before spawn (already-aborted signal)', ()
   });
 });
 
+describe('runExecuteCommand — credential isolation', () => {
+  it('does not expose provider credentials to non-interactive command children', async () => {
+    const root = await makeWorkspace();
+    const priorCredential = process.env['OPENAI_API_KEY'];
+    const priorOrdinaryValue = process.env['BRAINSTRIKE_COMMAND_TEST_VALUE'];
+    process.env['OPENAI_API_KEY'] = 'sentinel-command-canary';
+    process.env['BRAINSTRIKE_COMMAND_TEST_VALUE'] = 'ordinary-value';
+
+    try {
+      const result = await runExecuteCommand(
+        {
+          command:
+            'node -e "process.stdout.write(JSON.stringify({' +
+            'credential:process.env.OPENAI_API_KEY??null,' +
+            'ordinary:process.env.BRAINSTRIKE_COMMAND_TEST_VALUE??null' +
+            '}))"',
+        },
+        singleRoot(root)
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        credential: null,
+        ordinary: 'ordinary-value',
+      });
+    } finally {
+      if (priorCredential === undefined) {
+        Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+      } else {
+        process.env['OPENAI_API_KEY'] = priorCredential;
+      }
+      if (priorOrdinaryValue === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_COMMAND_TEST_VALUE');
+      } else {
+        process.env['BRAINSTRIKE_COMMAND_TEST_VALUE'] = priorOrdinaryValue;
+      }
+    }
+  });
+});
+
 describe('runExecuteCommand — reaps background work the shell left running (CRITICAL)', () => {
   it('kills a backgrounded grandchild even when the shell exits 0', async () => {
     const root = await makeWorkspace();
