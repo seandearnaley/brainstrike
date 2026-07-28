@@ -127,6 +127,46 @@ describe('DiagnosticEventsRepository', () => {
     ]);
   });
 
+  it('orders fingerprint groups by recurrence and selects each latest row once', async () => {
+    await repo.insertBatch([
+      makeEvent({
+        code: 'old-code',
+        fingerprint: 'fp-recurring',
+        id: 'recurring-old',
+        message: 'old recurring failure',
+        occurredAt: 1000,
+        severity: 'warn',
+        source: 'web-renderer',
+      }),
+      makeEvent({
+        code: 'latest-code',
+        fingerprint: 'fp-recurring',
+        id: 'recurring-new',
+        message: 'latest recurring failure',
+        occurredAt: 2000,
+        severity: 'error',
+        source: 'electron-main',
+      }),
+      makeEvent({
+        fingerprint: 'fp-recent-single',
+        id: 'recent-single',
+        message: 'newer but not recurring',
+        occurredAt: 5000,
+      }),
+    ]);
+
+    const groups = await repo.queryFingerprintGroups({ limit: 2 });
+
+    expect(groups.map((group) => group.fingerprint)).toEqual(['fp-recurring', 'fp-recent-single']);
+    expect(groups[0]).toMatchObject({
+      code: 'latest-code',
+      count: 2,
+      latestMessage: 'latest recurring failure',
+      severity: 'error',
+      source: 'electron-main',
+    });
+  });
+
   it('purges beyond the age bound oldest-first and reports the count', async () => {
     const now = Date.now();
     await repo.insertBatch([

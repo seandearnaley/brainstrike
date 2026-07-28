@@ -119,6 +119,16 @@ describe('queryDiagnostics native tool', () => {
     expect(serialized).toContain('[redacted-secret:bearer-token]');
   });
 
+  it('rejects invalid time bounds with actionable input errors', async () => {
+    await expect(
+      runQueryDiagnostics({
+        mode: 'events',
+        since: 'definitely-not-a-timestamp',
+      })
+    ).rejects.toThrow('since must be a valid ISO-8601 timestamp');
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+  });
+
   it('returns fingerprint groups and reports output-budget truncation explicitly', async () => {
     const oversizedMessage = 'x'.repeat(12_000);
     getDatabaseMock.mockResolvedValue({
@@ -142,6 +152,7 @@ describe('queryDiagnostics native tool', () => {
     expect(result.truncated).toBe(true);
     expect(result.returned).toBeLessThan(20);
     expect(result.hint).toMatch(/output budget/i);
+    expect(result.hint).toMatch(/20-group cap was also reached/i);
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(11_000);
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import * as toolSchemas from '../tools/schemas';
 
 const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
@@ -143,5 +144,6 @@ describe('native tool input schema catalog', () => {
     expect(schema.safeParse({ limit: 201, mode: 'events' }).success).toBe(false);
     expect(schema.safeParse({ mode: 'unknown' }).success).toBe(false);
     expect(schema.safeParse({}).success).toBe(false);
+    expect(JSON.stringify(z.toJSONSchema(schema))).not.toContain('"pattern"');
   });
 });

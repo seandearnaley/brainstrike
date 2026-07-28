@@ -135,15 +135,17 @@ export const QueryDiagnosticsInputSchema = z
     severity: z.enum(['warn', 'error', 'fatal']).optional().describe('Exact severity'),
     since: z
       .string()
-      .datetime({ offset: true })
+      .min(20)
+      .max(35)
       .optional()
-      .describe('Inclusive ISO-8601 lower time bound'),
+      .describe('Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z'),
     threadId: z.string().min(1).max(256).optional().describe('Exact assistant thread id'),
     until: z
       .string()
-      .datetime({ offset: true })
+      .min(20)
+      .max(35)
       .optional()
-      .describe('Inclusive ISO-8601 upper time bound'),
+      .describe('Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z'),
   })
   .strict();
 

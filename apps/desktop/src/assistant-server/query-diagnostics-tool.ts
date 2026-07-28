@@ -133,8 +133,18 @@ function scrubProjectedItems<TItem>(items: readonly TItem[]): TItem[] {
 }
 
 function toFilter(input: QueryDiagnosticsInput): DiagnosticEventsQueryFilter {
-  const sinceMs = input.since === undefined ? undefined : Date.parse(input.since);
-  const untilMs = input.until === undefined ? undefined : Date.parse(input.until);
+  const parseBound = (label: string, value: string | undefined): number | undefined => {
+    if (value === undefined) {
+      return;
+    }
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed)) {
+      throw new ToolInputError(`${label} must be a valid ISO-8601 timestamp`);
+    }
+    return parsed;
+  };
+  const sinceMs = parseBound('since', input.since);
+  const untilMs = parseBound('until', input.until);
   if (sinceMs !== undefined && untilMs !== undefined && sinceMs > untilMs) {
     throw new ToolInputError('since must be earlier than or equal to until');
   }
@@ -162,7 +172,11 @@ function fitResult<TItem>(
       ...(truncated
         ? {
             hint: outputTruncated
-              ? `Showing ${kept.length} of ${items.length} matched ${kind} (output budget). Narrow the filters or lower the limit.`
+              ? `Showing ${kept.length} of ${items.length} matched ${kind} (output budget).${
+                  capReached
+                    ? ` The ${requestedLimit}-${kind === 'events' ? 'row' : 'group'} cap was also reached, so more may match.`
+                    : ''
+                } Narrow the filters or lower the limit.`
               : `The ${requestedLimit}-${kind === 'events' ? 'row' : 'group'} cap was reached; more diagnostics may match. Narrow the filters.`,
           }
         : {}),

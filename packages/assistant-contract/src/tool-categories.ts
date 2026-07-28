@@ -279,7 +279,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   // without being mistaken for arbitrary self-query SQL.
   [NATIVE_TOOL_ID.queryDiagnostics]: {
     category: 'analysis',
-    estimatedTokens: 210,
+    estimatedTokens: 351,
     loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',

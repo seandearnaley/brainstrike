@@ -241,47 +241,68 @@ export class DiagnosticEventsRepository {
     filter: DiagnosticEventsQueryFilter
   ): Promise<DiagnosticFingerprintGroup[]> {
     const clauses: string[] = [];
+    const latestClauses: string[] = [];
     const params: unknown[] = [];
-    const push = (clause: string, value: unknown) => {
+    const push = (column: string, operator: string, value: unknown) => {
       params.push(value);
-      clauses.push(clause.replace('?', `$${params.length}`));
+      const placeholder = `$${params.length}`;
+      clauses.push(`${column} ${operator} ${placeholder}`);
+      latestClauses.push(`latest.${column} ${operator} ${placeholder}`);
     };
     if (filter.severity) {
-      push('severity = ?', filter.severity);
+      push('severity', '=', filter.severity);
     }
     if (filter.threadId) {
-      push('thread_id = ?', filter.threadId);
+      push('thread_id', '=', filter.threadId);
     }
     if (filter.runId) {
-      push('run_id = ?', filter.runId);
+      push('run_id', '=', filter.runId);
     }
     if (filter.fingerprint) {
-      push('fingerprint = ?', filter.fingerprint);
+      push('fingerprint', '=', filter.fingerprint);
     }
     if (typeof filter.sinceMs === 'number') {
-      push('occurred_at >= ?', new Date(filter.sinceMs).toISOString());
+      push('occurred_at', '>=', new Date(filter.sinceMs).toISOString());
     }
     if (typeof filter.untilMs === 'number') {
-      push('occurred_at <= ?', new Date(filter.untilMs).toISOString());
+      push('occurred_at', '<=', new Date(filter.untilMs).toISOString());
     }
-    const limit = Math.min(Math.max(filter.limit ?? 50, 1), DEFAULT_QUERY_LIMIT);
+    const limit = Math.min(Math.max(filter.limit ?? DEFAULT_QUERY_LIMIT, 1), DEFAULT_QUERY_LIMIT);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const latestWhere = latestClauses.length > 0 ? `AND ${latestClauses.join(' AND ')}` : '';
     try {
       const result = await this.db.query<DiagnosticFingerprintGroupRow>(
-        `SELECT
-           fingerprint,
-           COUNT(*)::int AS count,
-           MIN(occurred_at) AS first_seen,
-           MAX(occurred_at) AS last_seen,
-           (ARRAY_AGG(severity ORDER BY occurred_at DESC, id DESC))[1] AS severity,
-           (ARRAY_AGG(source ORDER BY occurred_at DESC, id DESC))[1] AS source,
-           (ARRAY_AGG(code ORDER BY occurred_at DESC, id DESC))[1] AS code,
-           (ARRAY_AGG(message ORDER BY occurred_at DESC, id DESC))[1] AS latest_message
-         FROM ${TABLE}
-         ${where}
-         GROUP BY fingerprint
-         ORDER BY last_seen DESC, fingerprint ASC
-         LIMIT ${limit}`,
+        `WITH grouped AS (
+           SELECT
+             fingerprint,
+             COUNT(*)::int AS count,
+             MIN(occurred_at) AS first_seen,
+             MAX(occurred_at) AS last_seen
+           FROM ${TABLE}
+           ${where}
+           GROUP BY fingerprint
+           ORDER BY count DESC, last_seen DESC, fingerprint ASC
+           LIMIT ${limit}
+         )
+         SELECT
+           grouped.fingerprint,
+           grouped.count,
+           grouped.first_seen,
+           grouped.last_seen,
+           latest.severity,
+           latest.source,
+           latest.code,
+           latest.message AS latest_message
+         FROM grouped
+         JOIN LATERAL (
+           SELECT severity, source, code, message
+           FROM ${TABLE} AS latest
+           WHERE latest.fingerprint = grouped.fingerprint
+             ${latestWhere}
+           ORDER BY latest.occurred_at DESC, latest.id DESC
+           LIMIT 1
+         ) AS latest ON true
+         ORDER BY grouped.count DESC, grouped.last_seen DESC, grouped.fingerprint ASC`,
         params
       );
       return result.rows.map((row) => ({
