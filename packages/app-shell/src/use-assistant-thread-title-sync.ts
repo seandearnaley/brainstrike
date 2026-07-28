@@ -1,3 +1,4 @@
+import { MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -7,7 +8,7 @@ const logger = createLogger('AssistantThreadTitleSync');
 
 const ASSISTANT_THREAD_TITLES_QUERY = `
   SELECT id, title
-  FROM mastra_threads
+  FROM ${MASTRA_MEMORY_TABLES.threads}
   WHERE "resourceId" = $1
   ORDER BY id ASC
 `;

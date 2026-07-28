@@ -127,4 +127,52 @@ describe('useAssistantThreadTitleSync', () => {
       expect(refreshResourceThreads).toHaveBeenCalledWith(repository, 'resource-1');
     });
   });
+
+  it('surfaces a rejected run-completion refresh without rejecting the caller', async () => {
+    const refreshResourceThreads = vi.fn().mockRejectedValue(new Error('refresh failed'));
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: true,
+      rows: [],
+    });
+    const { result } = renderHook(() =>
+      useAssistantThreadTitleSync({
+        enabled: true,
+        refreshResourceThreads,
+        repository,
+        resourceId: 'resource-1',
+      })
+    );
+
+    act(() => {
+      expect(result.current()).toBeUndefined();
+    });
+
+    await waitFor(() => {
+      expect(refreshResourceThreads).toHaveBeenCalledWith(repository, 'resource-1');
+    });
+  });
+
+  it('makes the run-completion refresh a no-op without a repository', () => {
+    const refreshResourceThreads = vi.fn().mockResolvedValue(undefined);
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      rows: [],
+    });
+    const { result } = renderHook(() =>
+      useAssistantThreadTitleSync({
+        enabled: false,
+        refreshResourceThreads,
+        repository: null,
+        resourceId: 'resource-1',
+      })
+    );
+
+    act(() => {
+      result.current();
+    });
+
+    expect(refreshResourceThreads).not.toHaveBeenCalled();
+  });
 });
