@@ -580,6 +580,63 @@ Runtime invariants:
   steps; the normal terminal usage tap persists their exact aggregate once.
   Missing or malformed cost metadata on a new OpenRouter completion fails
   visibly rather than being mislabeled as an exact or zero-cost run.
+- Thread-total headline + run-kind attribution (BST-953): every
+  `brainstrike_assistant_run_usage` row carries `run_kind`
+  (`'chat' | 'subagent' | 'om-observation' | 'om-reflection'`, migration 077 +
+  the repository bootstrap mirror; CHECK-constrained, default `'chat'`). TWO
+  writers, never overlapping: the renderer writes ONLY parent `'chat'` rows
+  (the `handleUsage` message-finish tap); the desktop server writes ONLY child
+  rows, from the `child-run-usage` StreamChunk
+  (`persistDesktopChildRunUsage` in apps/desktop/src/assistant-server.ts, a
+  DUPLICATION-NOTE mirror of `recordRunUsage`). Child sources:
+  - subagent: `onDelegationComplete`'s aggregate usage
+    (`createDelegationConfig.onChildUsage` → per-leg `DelegationUsageCapture`
+    queue drained by the stream generator). Provider-exact; model/provider =
+    persona pin ?? parent run.
+  - OM cycles: `data-om-observation-end` / `data-om-buffering-end` chunks
+    (`tokensObserved`/`observationTokens` and `tokensBuffered`/`bufferedTokens`)
+    mapped in `mapObservationalMemoryCycleEnd`. These are Mastra's LOCAL tokenx
+    estimates (`estimated: true`) — the UI must label OM figures "est.", and
+    attribution is ONLY the run's resolved observer target
+    (`resolveDesktopObserverUsageTarget`): never the chat model, unattributable
+    rows are dropped with a warn, and `provider === 'local'` rows are skipped
+    (unbilled — an unpriceable row would blank the whole thread cost).
+  Child rows reuse the PARENT `runId`, so the Task Ledger's per-run totals
+  include them automatically. `getThreadCumulativeUsage` groups by
+  (provider, model, run_kind) and sums cache classes UNCONDITIONALLY (the
+  savings line needs them for billed rows too); `resolveCumulativeUsageDisplay`
+  (assistant-cumulative-usage.ts) derives in/out totals, by-source subtotals,
+  and net cache savings (read discount − write premium, per-model registry
+  rates; ABSENT when any cache-bearing model lacks rates). The meter chip leads
+  with the THREAD TOTAL (+cost when priceable); the context fraction moves to
+  the ring/title/popover ("Context N% full" section). Live tick: the renderer
+  taps `run.step.finished` run events' `promptTokens`/`completionTokens`
+  (`onStepUsage` → `recordLiveStepUsage`, summed per in-flight run) and the
+  forwarded `brainstrike.child-run-usage` aui-data part (`onChildRunUsage` →
+  cumulative re-read; the server AWAITS the row before forwarding, so the
+  refresh never reads pre-write state); the live sum has THREE clear paths —
+  `handleUsage` (only AFTER the post-write refresh, so the total never dips
+  and jumps), the wrapped `completePreparedRequest` on a cancelled/failed
+  terminal status (the abort-gated tap never delivers those runs' finish), and
+  thread selection (a just-selected thread cannot have its own in-flight
+  accumulation, so a lingering sum is a stranded remainder). A repo-backed
+  thread with no rows yet hydrates the honest ZERO baseline
+  (`EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY`) so the FIRST run's live steps
+  render as the thread total; a failed load stays null (never $0). While live
+  tokens are included, the chip suppresses the durable cost and the popover
+  qualifies it "(excl. live)" — a current total must not sit beside a lagging
+  price.
+- OM rows in the WIDER cost surfaces (settled ruling, BST-953 review): the
+  daily-spend guardrail, cross-root usage, and run-ledger analytics aggregate
+  `run_usage` without a `run_kind` predicate, so `'om-observation'`/
+  `'om-reflection'` rows flow into them priced at the observer model's
+  registry rate like any unbilled row. This is DELIBERATE: the tokens are
+  genuinely billed by the provider; Mastra's tokenx content-size figure is a
+  weaker (under-)estimate of their count, and EXCLUDING them would silently
+  under-count real spend — the worse failure for a budget guardrail. Those
+  surfaces already qualify their totals as captured-usage estimates;
+  per-source itemization outside the context meter is future work, not a
+  correctness gap. Subagent rows are provider-exact and belong in all of them.
 
 ---
 

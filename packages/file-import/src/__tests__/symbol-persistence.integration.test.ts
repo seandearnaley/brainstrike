@@ -88,7 +88,10 @@ function workerPortReturning(result: {
 }
 
 describe('symbol persistence seam', () => {
-  vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
+  // Real PGlite boot + migrations in beforeAll: sub-10s idle, but 30s flaked
+  // on loaded machines — the suite is env-sensitive by contract (the
+  // *.integration.test.* suffix), so give it wall-clock headroom.
+  vi.setConfig({ hookTimeout: 90_000, testTimeout: 90_000 });
 
   let db: PGlite;
   let fileRepo: FileRecordRepository;

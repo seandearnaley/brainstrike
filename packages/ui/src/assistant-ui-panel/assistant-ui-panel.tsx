@@ -24,6 +24,7 @@ import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
   type AssistantToolApprovalRequest,
+  CHILD_RUN_USAGE_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
   type LocalLlmBackendFactory,
   type OpenRouterModelMetadataLookup,
@@ -160,6 +161,15 @@ const assistantShellOutputDataUI = {
 // (mirrors assistantShellOutputDataUI above).
 const assistantContextBreakdownDataUI = {
   name: CONTEXT_BREAKDOWN_DATA_NAME,
+  render: () => null,
+} satisfies AssistantDataUIProps;
+
+// Child model-call usage (subagent / OM cycle, BST-953) is consumed by the
+// onChildRunUsage tap and rendered in the Context Usage popover's thread-total
+// section, NOT inline in the message flow — same null-renderer contract as the
+// breakdown part above.
+const assistantChildRunUsageDataUI = {
+  name: CHILD_RUN_USAGE_DATA_NAME,
   render: () => null,
 } satisfies AssistantDataUIProps;
 
@@ -305,6 +315,12 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
   /**
+   * Called with the RAW payload of each `brainstrike.child-run-usage` data
+   * part (subagent / OM cycle usage, durably persisted server-side — BST-953).
+   * Hosted/data-stream transport only, same seam shape as onContextBreakdown.
+   */
+  onChildRunUsage?: (data: unknown) => void;
+  /**
    * Called with the RAW payload of each run-start `brainstrike.context-breakdown`
    * data part (transient prompt breakdown). Hosted/data-stream transport only —
    * the in-renderer local runtime has no breakdown channel (capability-absent),
@@ -341,6 +357,12 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onRunFinished?: (event: AssistantRunEvent) => void;
   /** Mid-run steer transport (BST-588); absent = queue-only (web/local). */
   onSteerActiveRun?: () => Promise<boolean>;
+  /**
+   * Called with each `run.step.finished` event's billed step usage while a run
+   * streams (BST-953 live tick). The app accumulates steps into the live
+   * thread-total readout and clears the sum once durable usage lands.
+   */
+  onStepUsage?: (step: { inputTokens: number; outputTokens: number }) => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
@@ -648,6 +670,7 @@ const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantToolSuspendDataUI);
   useAssistantDataUI(assistantShellOutputDataUI);
   useAssistantDataUI(assistantContextBreakdownDataUI);
+  useAssistantDataUI(assistantChildRunUsageDataUI);
 
   return null;
 };
@@ -681,6 +704,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
+  /** Data-stream transport only (BST-953); same capability gating as onContextBreakdown. */
+  onChildRunUsage?: ((data: unknown) => void) | undefined;
   /** Data-stream transport only; never passed to the local runtime path. */
   onContextBreakdown?: ((data: unknown) => void) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
@@ -692,6 +717,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
   /** Mid-run steer transport (BST-588); absent = queue-only composer. */
   onSteerActiveRun?: (() => Promise<boolean>) | undefined;
+  /** Data-stream transport only (BST-953 live tick); same gating as onContextBreakdown. */
+  onStepUsage?: ((step: { inputTokens: number; outputTokens: number }) => void) | undefined;
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
@@ -875,6 +902,8 @@ const DataStreamRuntimeChat = ({
   selectedModel,
   onModelChange,
   onContextBreakdown,
+  onChildRunUsage,
+  onStepUsage,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
@@ -987,6 +1016,8 @@ const DataStreamRuntimeChat = ({
     ...(serverRunSession.resumeApi ? { resumeApi: serverRunSession.resumeApi } : {}),
     replayRetryToken: serverRunSession.replayRetryToken,
     ...(onContextBreakdown ? { onContextBreakdown } : {}),
+    ...(onChildRunUsage ? { onChildRunUsage } : {}),
+    ...(onStepUsage ? { onStepUsage } : {}),
     ...(onUsage ? { onUsage } : {}),
   });
 
@@ -1315,6 +1346,8 @@ export const AssistantUiPanel = ({
   onTogglePlanMode,
   onToolApprovalRequired,
   onContextBreakdown,
+  onChildRunUsage,
+  onStepUsage,
   onUsage,
   attachmentsAvailability,
   operatingRoot,
@@ -1444,7 +1477,9 @@ export const AssistantUiPanel = ({
             operatingRoot={operatingRoot}
             prepareLocalModel={prepareLocalModel}
             {...(onContextBreakdown ? { onContextBreakdown } : {})}
+            onChildRunUsage={onChildRunUsage}
             onSteerActiveRun={onSteerActiveRun}
+            onStepUsage={onStepUsage}
             {...(onUsage ? { onUsage } : {})}
             {...(onTogglePlanMode
               ? {

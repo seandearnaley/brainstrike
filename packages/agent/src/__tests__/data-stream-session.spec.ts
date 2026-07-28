@@ -181,6 +181,43 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 5, outputTokens: 7 });
   });
 
+  it('encodes child-run-usage chunks as transient aui-data parts (BST-953)', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'Working.' },
+      {
+        type: 'child-run-usage',
+        value: {
+          estimated: true,
+          inputTokens: 24_000,
+          outputTokens: 900,
+          source: 'om-observation',
+        },
+      },
+      { type: 'finish', usage: { completionTokens: 7, promptTokens: 5 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-child-usage',
+      sessionId: 'sess-child-usage',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const usagePart = events.find(
+      (event) =>
+        event.code === 'aui-data' &&
+        (event.value as { name?: string }).name === 'brainstrike.child-run-usage'
+    );
+    expect(usagePart?.value).toEqual({
+      data: {
+        estimated: true,
+        inputTokens: 24_000,
+        outputTokens: 900,
+        source: 'om-observation',
+      },
+      name: 'brainstrike.child-run-usage',
+    });
+  });
+
   it('drops trailing args deltas after the tool call completed (renderer closes argsText on `9`)', async () => {
     // GLM-5.2 via OpenRouter emits trailing tool-call input deltas after the
     // complete tool call. A `c` frame after `9` makes assistant-stream's

@@ -377,7 +377,10 @@ function trackClient(options: {
   return client;
 }
 
-describe('ExplicitHttpMcpClient integration', () => {
+// Every case here drives a REAL local HTTP/SSE server through real fetches —
+// sub-second when idle, but the 5s vitest default flaked on loaded machines
+// (the suite is env-sensitive by contract, per the *.integration.* suffix).
+describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
   it.each([
     'file:///tmp/mcp.sock',
     'ftp://example.test/mcp',

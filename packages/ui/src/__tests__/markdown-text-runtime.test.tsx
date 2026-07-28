@@ -64,5 +64,8 @@ describe('MarkdownText runtime integration', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Visible answer.')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
-  });
+    // The inner findByText budget (10s) must fit inside the TEST deadline: with
+    // vitest's 5s default this timed out on loaded runners before its own wait
+    // could succeed.
+  }, 15_000);
 });

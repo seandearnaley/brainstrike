@@ -8,6 +8,7 @@ import {
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
@@ -64,6 +65,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
   type CumulativeUsageDisplay,
+  EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
   type ModelPricingResolver,
   resolveCumulativeUsageDisplay,
 } from './assistant-cumulative-usage';
@@ -1373,6 +1375,32 @@ export function AssistantUiPanelWrapper({
   // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
   // line is simply not shown.
   const [cumulativeUsage, setCumulativeUsage] = useState<CumulativeUsageDisplay | null>(null);
+  const clearThreadLiveRunUsage = useCallback(() => {
+    useContextUsageStore.getState().clearLiveRunUsage(selectedMemoryThreadId ?? 'active');
+  }, [selectedMemoryThreadId]);
+  // Terminal run bookkeeping + live-sum hygiene (review fix): a cancelled or
+  // failed run may never reach the abort-gated onUsage tap, so its accumulated
+  // live step usage would linger as phantom thread-total tokens (and a stuck
+  // 'live' badge) until the next successful run. Clear it on any non-completed
+  // terminal status; 'completed' rides handleUsage's own post-refresh clear.
+  // Thread attribution uses the CURRENT selection — a mid-run thread switch
+  // could miss, acceptable for a transient display sum.
+  const completeRequestAndSettleLiveUsage = useCallback(
+    async (
+      preparedRequestData: Record<string, unknown> | undefined,
+      status: 'cancelled' | 'completed' | 'failed',
+      error?: string
+    ): Promise<void> => {
+      try {
+        await completePreparedRequest(preparedRequestData, status, error);
+      } finally {
+        if (status !== 'completed') {
+          clearThreadLiveRunUsage();
+        }
+      }
+    },
+    [clearThreadLiveRunUsage, completePreparedRequest]
+  );
   const resolveModelPricing = useCallback<ModelPricingResolver>(
     (provider: string, model: string) => {
       if (!isSupportedProvider(provider)) {
@@ -1400,7 +1428,14 @@ export function AssistantUiPanelWrapper({
     try {
       const usage =
         await assistantThreadRepository.getThreadCumulativeUsage(selectedMemoryThreadId);
-      next = resolveCumulativeUsageDisplay(usage, resolveModelPricing);
+      // A repo-backed thread with no rows yet is an honest ZERO baseline, not
+      // "no thread totals": the first run's live step usage must render as the
+      // thread-total headline (review fix), which the meter only does over a
+      // present cumulative value. A LOAD FAILURE stays null — "couldn't read"
+      // must never display as $0.00.
+      next =
+        resolveCumulativeUsageDisplay(usage, resolveModelPricing) ??
+        EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY;
     } catch (error: unknown) {
       assistantUsageWriteBackLogger.warn('Failed to load cumulative run usage', { error });
     }
@@ -1420,6 +1455,30 @@ export function AssistantUiPanelWrapper({
       useContextUsageStore
         .getState()
         .recordBreakdown(threadId, parseAssistantContextBreakdown(data));
+    },
+    [selectedMemoryThreadId]
+  );
+
+  // Child model-call usage (subagent / OM cycle, BST-953). The desktop server
+  // already wrote the durable row before the transient part reached the wire
+  // (its write queue may still be committing — the post-run refresh is the
+  // backstop); the renderer only re-reads so the thread total moves mid-run.
+  const handleChildRunUsage = useCallback(
+    (data: unknown) => {
+      if (!isAssistantChildRunUsage(data)) {
+        assistantUsageWriteBackLogger.warn('Ignoring malformed child-run-usage part', { data });
+        return;
+      }
+      void refreshCumulativeUsage();
+    },
+    [refreshCumulativeUsage]
+  );
+
+  // Live thread-total tick (BST-953): accumulate the in-flight run's billed
+  // step usage; handleUsage clears the sum once the run's durable row lands.
+  const handleStepUsage = useCallback(
+    (step: { inputTokens: number; outputTokens: number }) => {
+      useContextUsageStore.getState().recordLiveStepUsage(selectedMemoryThreadId ?? 'active', step);
     },
     [selectedMemoryThreadId]
   );
@@ -1458,6 +1517,9 @@ export function AssistantUiPanelWrapper({
       // zustand sink still ran).
       const runContext = getActiveRunUsageContext();
       if (!(assistantThreadRepository && selectedMemoryThreadId && runContext)) {
+        // No durable sink → no refreshed cumulative will absorb the live sum;
+        // drop it now (the run is over, the exact usage is in the store).
+        useContextUsageStore.getState().clearLiveRunUsage(threadId);
         return;
       }
       assistantThreadRepository
@@ -1482,6 +1544,11 @@ export function AssistantUiPanelWrapper({
           // Never swallow silently — durable usage is best-effort relative to the
           // turn, but a failure must be observable.
           assistantUsageWriteBackLogger.warn('Failed to persist durable run usage', { error });
+        })
+        // Clear the live sum only AFTER the refreshed cumulative absorbed the
+        // run's row (clearing earlier makes the thread total dip and jump).
+        .finally(() => {
+          useContextUsageStore.getState().clearLiveRunUsage(threadId);
         });
     },
     [
@@ -1501,6 +1568,18 @@ export function AssistantUiPanelWrapper({
   useEffect(() => {
     void refreshCumulativeUsage();
   }, [refreshCumulativeUsage]);
+
+  // A thread that just became selected cannot have an in-flight accumulation
+  // of its own (runs stream on the selected thread), so any lingering live
+  // sum on it is a stranded remainder — e.g. steps recorded before the user
+  // switched away mid-run (review fix: the switch re-keys handleStepUsage to
+  // the new thread, so the old thread's partial sum would otherwise persist
+  // until an unrelated later run cleared it). Keyed ONLY on the thread id —
+  // the refresh effect above also refires on pricing/repo identity changes,
+  // which must not wipe a genuinely live sum mid-run.
+  useEffect(() => {
+    useContextUsageStore.getState().clearLiveRunUsage(selectedMemoryThreadId ?? 'active');
+  }, [selectedMemoryThreadId]);
 
   // OM informational stats (observed tokens + compaction saved). Desktop-only:
   // gated on the durable-assistant capability (NOT raw PGlite presence — web has
@@ -1633,7 +1712,7 @@ export function AssistantUiPanelWrapper({
                 {...(composerDraftCommand ? { composerDraftCommand } : {})}
                 {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                 {...(hasDesktopAssistantBridge() ? { onSteerActiveRun: steerActiveRun } : {})}
-                completePreparedRequest={completePreparedRequest}
+                completePreparedRequest={completeRequestAndSettleLiveUsage}
                 contextWindow={openRouterModelDef?.contextWindow}
                 {...(cumulativeUsage ? { cumulativeUsage } : {})}
                 effectiveInputBudget={effectiveInputBudget}
@@ -1645,11 +1724,13 @@ export function AssistantUiPanelWrapper({
                       onComposerTextChange: handleComposerTextChange,
                     }
                   : {})}
+                onChildRunUsage={handleChildRunUsage}
                 onContextBreakdown={handleContextBreakdown}
                 onProviderSettingsChange={handleProviderSettingsChange}
                 onProviderSettingsValidationChange={providerDraft.report}
                 onRunFailed={handleRunFailed}
                 onRunFinished={handleRunFinished}
+                onStepUsage={handleStepUsage}
                 onStreamActivity={renewActiveAssistantForegroundActivity}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}

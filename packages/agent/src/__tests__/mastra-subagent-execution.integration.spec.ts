@@ -328,6 +328,40 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     expect(toolEventNames).not.toContain(CHILD_TOOL);
   });
 
+  it('surfaces the child run aggregate usage as a subagent child-run-usage chunk (BST-953)', async () => {
+    modelHolder.current = createSupervisorModel('child-call-usage');
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      {
+        personas: [testPersona],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: {
+          'brainstrike.grepSearch': makeChildTool(vi.fn(() => Promise.resolve({ matches: [] }))),
+        },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    // The scripted model reports usage on every finish, so the child's two
+    // turns (tool call + summary) aggregate to non-zero provider-exact usage.
+    const usageChunks = chunks.filter((chunk) => chunk.type === 'child-run-usage');
+    expect(usageChunks).toHaveLength(1);
+    const value = usageChunks[0]?.type === 'child-run-usage' ? usageChunks[0].value : undefined;
+    expect(value).toMatchObject({
+      estimated: false,
+      personaId: 'explore',
+      provider: 'openai',
+      source: 'subagent',
+    });
+    expect(value?.inputTokens).toBeGreaterThan(0);
+    expect(value?.outputTokens).toBeGreaterThan(0);
+  });
+
   it('does NOT delegate when personas are absent (no-personas regression pin)', async () => {
     const executeSpy = vi.fn(() => Promise.resolve({ matches: [] }));
     // No personas → the delegation tool is never registered; the model sees only

@@ -7,6 +7,7 @@ import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { HookTrustRequest } from '@brainstrike/assistant-contract/hook-trust-request';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
@@ -339,6 +340,16 @@ export interface StreamChunkContextBreakdown {
   breakdown: AssistantContextBreakdown;
   type: 'context-breakdown';
 }
+/**
+ * Child model-call usage (BST-953): an OM observer/reflector cycle or a
+ * subagent delegation leg. The desktop server persists it as a durable
+ * `run_kind`-tagged usage row and forwards it to the renderer as a transient
+ * `brainstrike.child-run-usage` aui-data part (display refresh only).
+ */
+export interface StreamChunkChildRunUsage {
+  type: 'child-run-usage';
+  value: AssistantChildRunUsage;
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -387,6 +398,7 @@ export interface StreamChunkMessageFinish {
   };
 }
 export type StreamChunk =
+  | StreamChunkChildRunUsage
   | StreamChunkContextBreakdown
   | StreamChunkReasoning
   | StreamChunkRunEvent

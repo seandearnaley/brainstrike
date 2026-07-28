@@ -226,7 +226,12 @@ describe('FileTree Performance (BST-145)', () => {
             `[PERF] ${name} preset: target=${config.targetNodeCount}, actual=${nodeCount}`
           );
         }
-      }
+      },
+      // Same reasoning as the CI skip above, applied to loaded LOCAL machines:
+      // generating every preset (incl. the 84K-node mega tree) is a validation
+      // walk, not a perf bound — the individual budget tests own the timing
+      // assertions — so give it a generous deadline instead of flaking.
+      120_000
     );
   });
 

@@ -20,6 +20,7 @@ import {
   getDesktopMastraMemoryForTests,
   handleAssistantRequest,
   observeDesktopAssistantRunEvents,
+  persistDesktopChildRunUsage,
   resetDesktopMastraMemoryCacheForTests,
   startAssistantServer,
 } from '../assistant-server';
@@ -4207,6 +4208,112 @@ describe('assistant-server', () => {
         .flat();
       expect(persistedValues).not.toContain(1234);
       expect(persistedValues).toContain('run.finished');
+    });
+  });
+
+  describe('child-run-usage durable persistence (BST-953)', () => {
+    function usageInsertCalls(): unknown[][] {
+      return mockDesktopDatabase.query.mock.calls
+        .filter(
+          (call) =>
+            typeof call[0] === 'string' &&
+            call[0].includes('INSERT INTO brainstrike_assistant_run_usage')
+        )
+        .map((call) => call[1] as unknown[]);
+    }
+
+    async function drive(
+      chunks: StreamChunk[],
+      observerTarget: { model: string; provider: string } | undefined
+    ): Promise<StreamChunk[]> {
+      async function* source(): AsyncIterable<StreamChunk> {
+        for (const chunk of chunks) {
+          yield chunk;
+        }
+      }
+      const seen: StreamChunk[] = [];
+      for await (const chunk of persistDesktopChildRunUsage(
+        source(),
+        'run-child-usage',
+        observerTarget
+      )) {
+        seen.push(chunk);
+      }
+      return seen;
+    }
+
+    it('persists a subagent chunk as a run_kind=subagent row and forwards it', async () => {
+      const chunk = {
+        type: 'child-run-usage',
+        value: {
+          estimated: false,
+          inputTokens: 42,
+          model: 'gpt-5.2',
+          outputTokens: 7,
+          personaId: 'explore',
+          provider: 'openai',
+          source: 'subagent',
+        },
+      } as unknown as StreamChunk;
+
+      const seen = await drive([chunk], undefined);
+
+      expect(seen[0]).toBe(chunk);
+      const inserts = usageInsertCalls();
+      expect(inserts).toHaveLength(1);
+      expect(inserts[0]).toEqual(
+        expect.arrayContaining(['run-child-usage', 'gpt-5.2', 'openai', 42, 7, 'subagent'])
+      );
+    });
+
+    it('attributes an OM cycle row to the RESOLVED OBSERVER target, never the chat model', async () => {
+      const chunk = {
+        type: 'child-run-usage',
+        value: {
+          estimated: true,
+          inputTokens: 24_000,
+          outputTokens: 900,
+          source: 'om-observation',
+        },
+      } as unknown as StreamChunk;
+
+      await drive([chunk], { model: 'google/gemini-2.5-flash', provider: 'openrouter' });
+
+      const inserts = usageInsertCalls();
+      expect(inserts).toHaveLength(1);
+      expect(inserts[0]).toEqual(
+        expect.arrayContaining([
+          'run-child-usage',
+          'google/gemini-2.5-flash',
+          'openrouter',
+          24_000,
+          900,
+          'om-observation',
+        ])
+      );
+    });
+
+    it('drops an unattributable OM row visibly (no observer target) but still forwards the chunk', async () => {
+      const chunk = {
+        type: 'child-run-usage',
+        value: { estimated: true, inputTokens: 100, outputTokens: 10, source: 'om-reflection' },
+      } as unknown as StreamChunk;
+
+      const seen = await drive([chunk], undefined);
+
+      expect(seen[0]).toBe(chunk);
+      expect(usageInsertCalls()).toHaveLength(0);
+    });
+
+    it('skips local-observer rows (local inference is unbilled)', async () => {
+      const chunk = {
+        type: 'child-run-usage',
+        value: { estimated: true, inputTokens: 100, outputTokens: 10, source: 'om-observation' },
+      } as unknown as StreamChunk;
+
+      await drive([chunk], { model: 'gemma-3n', provider: 'local' });
+
+      expect(usageInsertCalls()).toHaveLength(0);
     });
   });
 
