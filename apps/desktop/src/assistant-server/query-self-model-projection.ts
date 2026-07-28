@@ -66,6 +66,37 @@ function escapeCell(value: string): string {
 }
 
 /**
+ * Finds the largest fitting prefix without serializing every shorter candidate.
+ *
+ * The full candidate is checked first because its zero-omission hint can differ
+ * from the omission note. Once an omission is required, every candidate has
+ * the same shape and adding a complete line cannot make it shorter, so binary
+ * search preserves the existing "keep as much as fits" result in logarithmic
+ * serialization calls.
+ */
+function fitLargestPrefix(itemCount: number, buildLines: (kept: number) => string[]): string[] {
+  const full = buildLines(itemCount);
+  if (serializedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    return full;
+  }
+
+  let best = buildLines(0);
+  let low = 0;
+  let high = itemCount - 1;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const candidate = buildLines(kept);
+    if (serializedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+      best = candidate;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  return best;
+}
+
+/**
  * Clips a tab-separated column list on WHOLE columns.
  *
  * Two things matter here. It must not normalize whitespace (the generic helper
@@ -97,15 +128,10 @@ function clipColumnLine(columns: readonly string[], maxChars: number): string {
  * largest.
  */
 function fitLines(header: string, body: readonly string[], note: (dropped: number) => string) {
-  let kept = body.length;
-  for (;;) {
+  return fitLargestPrefix(body.length, (kept) => {
     const dropped = body.length - kept;
-    const lines = [header, ...body.slice(0, kept), ...(dropped > 0 ? [note(dropped)] : [])];
-    if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET || kept === 0) {
-      return lines;
-    }
-    kept -= 1;
-  }
+    return [header, ...body.slice(0, kept), ...(dropped > 0 ? [note(dropped)] : [])];
+  });
 }
 
 function assertProjectionFits(lines: readonly string[]): void {
@@ -244,20 +270,15 @@ function projectPlan(result: Extract<QuerySelfResult, { kind: 'plan' }>): string
   const tail = lines.slice(-PLAN_TAIL_LINES);
   const head = lines.slice(0, Math.max(0, lines.length - PLAN_TAIL_LINES));
 
-  let kept = head.length;
-  for (;;) {
+  return fitLargestPrefix(head.length, (kept) => {
     const dropped = head.length - kept;
-    const candidate = [
+    return [
       header,
       ...head.slice(0, kept),
       ...(dropped > 0 ? [`…${dropped} more plan line(s) omitted to fit the output budget`] : []),
       ...tail,
     ];
-    if (serializedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET || kept === 0) {
-      return candidate;
-    }
-    kept -= 1;
-  }
+  });
 }
 
 function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string[] {
@@ -273,30 +294,21 @@ function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string
   const columnLine = clipColumnLine(result.columns.map(escapeCell), MAX_COLUMN_LINE_CHARS);
   const rowLines = result.rows.map((row) => row.cells.map(escapeCell).join(CELL_SEPARATOR));
 
-  let kept = rowLines.length;
-  let lines: string[] = [];
-
-  // Drop from the end until the whole projection fits. Equality with the budget
-  // is acceptable; central code only throws ABOVE it.
-  for (;;) {
+  // Keep the largest complete prefix that fits. Equality with the budget is
+  // acceptable; central code only throws ABOVE it.
+  return fitLargestPrefix(rowLines.length, (kept) => {
     const dropped = rowLines.length - kept;
     const hint =
       dropped > 0
         ? `omitted ${dropped} row(s) to fit the output budget; select fewer columns or aggregate`
         : result.hint;
-    lines = [
+    return [
       header(kept, dropped),
       columnLine,
       ...rowLines.slice(0, kept),
       ...(hint ? [singleLine(hint)] : []),
     ];
-    if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET || kept === 0) {
-      break;
-    }
-    kept -= 1;
-  }
-
-  return lines;
+  });
 }
 
 export function projectQuerySelfModelOutput(output: unknown): WorkspaceTextModelOutput {

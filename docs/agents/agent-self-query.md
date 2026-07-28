@@ -577,6 +577,16 @@ the model has seen most of.
 - **`pg_stat_statements` is not installed** (not in the PGlite extension set), so
   there is no per-query workload profile to rank by total time.
 
+## Projection fitting
+
+`querySelf` can return up to 200 rows, columns, lenses, or plan lines before its
+model-facing projection applies the 6,000-character domain budget. Keep the
+largest complete prefix by binary-searching the retained-item count. Dropping
+one item and re-serializing the whole candidate on every iteration makes the
+bounded maximum-row fixture quadratic; the paired performance test pins that
+fixture to nine full-projection serializations while preserving the same
+complete-prefix and explicit-omission contract.
+
 ## Paired tests
 
 - `packages/db/__tests__/agent-sql-service.test.ts` — all four layers, the
@@ -593,7 +603,8 @@ the model has seen most of.
 - `packages/assistant-contract/src/__tests__/user-personas.test.ts` — persona
   exclusion
 - `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts` and
-  `query-self-model-projection.test.ts` — error passthrough, projection budget
+  `query-self-model-projection.test.ts` — error passthrough, projection budget;
+  `query-self-model-projection-performance.test.ts` — bounded fitting work
 
 When changing this flow, update this section and the paired tests.
 
