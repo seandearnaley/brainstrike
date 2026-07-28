@@ -87,15 +87,20 @@ export function useQueueHealthMetrics(
     return null;
   }, [embeddingQueueContext]);
 
-  const metrics: QueueHealthMetrics = useMemo(
-    () => ({
-      durableQueue: durableQueueStats ?? null,
+  const metrics: QueueHealthMetrics = useMemo(() => {
+    let durableQueue: QueueHealthMetrics['durableQueue'] = null;
+    if (durableQueueStats) {
+      const { lastUpdated: _lastUpdated, ...queueStats } = durableQueueStats;
+      durableQueue = queueStats;
+    }
+
+    return {
+      durableQueue,
       ephemeralQueue: getEphemeralMetrics(),
-      lastUpdated: Date.now(),
+      lastUpdated: durableQueueStats?.lastUpdated ?? 0,
       workerHealth: getWorkerHealth(),
-    }),
-    [durableQueueStats, getEphemeralMetrics, getWorkerHealth]
-  );
+    };
+  }, [durableQueueStats, getEphemeralMetrics, getWorkerHealth]);
 
   return {
     error: null,

@@ -1,5 +1,6 @@
 export type {
   CancelParams,
+  ClaimedJob,
   ClaimParams,
   CompleteParams,
   EnqueueParams,

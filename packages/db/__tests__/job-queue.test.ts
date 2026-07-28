@@ -1,6 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobQueue } from '../src/queue/job-queue.js';
+import type { IDatabase } from '../src/repositories/interfaces.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue', () => {
@@ -25,6 +26,40 @@ describe('JobQueue', () => {
     expect(claimed?.id).toBe(job.id);
     expect(claimed?.state).toBe('running');
     expect(claimed?.leasedUntil).toBeTruthy();
+  });
+
+  it('rejects a claimed row without a lease token', async () => {
+    const baseRow = {
+      attempts: 1,
+      backoff_ms: 1000,
+      created_at: '2026-07-28T00:00:00.000Z',
+      job_type: 'embed_chunk',
+      max_attempts: 5,
+      payload: {},
+      queue: 'embeddings',
+      run_at: '2026-07-28T00:00:00.000Z',
+      state: 'running',
+      updated_at: '2026-07-28T00:00:00.000Z',
+    };
+    const query = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          ...baseRow,
+          id: 'co-claimed-valid-job',
+          lease_token: 'valid-lease',
+        },
+        {
+          ...baseRow,
+          id: 'job-without-lease',
+          lease_token: null,
+        },
+      ],
+    });
+    const queue = new JobQueue({ query } as unknown as IDatabase);
+
+    await expect(queue.claim({ leaseMs: 5000, queue: 'embeddings' })).rejects.toThrow(
+      'Claimed jobs are missing lease tokens; affected claimed ids: co-claimed-valid-job, job-without-lease'
+    );
   });
 
   it('persists chunk_id for indexed embedding-job cancellation', async () => {

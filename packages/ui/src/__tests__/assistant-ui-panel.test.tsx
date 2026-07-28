@@ -85,6 +85,7 @@ vi.mock('../../src/assistant-ui-panel/data-stream-runtime', () => ({
 vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
   AssistantMessageText: () => <div data-testid="markdown-text" />,
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
+  UserMessageText: () => <div data-testid="markdown-text" />,
 }));
 
 // Stub the heavy ToolFallback card. (The summary helpers the Activity group
