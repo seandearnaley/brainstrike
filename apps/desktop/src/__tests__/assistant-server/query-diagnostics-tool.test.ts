@@ -74,6 +74,51 @@ describe('queryDiagnostics native tool', () => {
     });
   });
 
+  it('scrubs credential-shaped values from every projected diagnostic field', async () => {
+    const githubToken = `ghp_${'a'.repeat(36)}`;
+    const openAiKey = `sk-${'b'.repeat(24)}`;
+    const slackToken = `xoxb-${'c'.repeat(20)}`;
+    const jwt = `eyJ${'d'.repeat(12)}.${'e'.repeat(12)}.${'f'.repeat(8)}`;
+    getDatabaseMock.mockResolvedValue({
+      query: vi.fn().mockResolvedValue({
+        rows: [
+          {
+            app_version: '1.0.0',
+            cause_chain: [{ message: `upstream ${slackToken}` }],
+            code: 'provider_failed',
+            context: { response: `Authorization: Bearer ${jwt}` },
+            fingerprint: 'fp-provider',
+            id: 'event-secret',
+            message: `Provider returned ${githubToken}`,
+            occurred_at: new Date(5000),
+            platform: 'darwin',
+            resource_id: null,
+            root_id: 'root-1',
+            run_id: 'run-1',
+            scope: 'Assistant',
+            session_id: 'session-1',
+            severity: 'error',
+            source: 'electron-main',
+            stack: `Error: ${openAiKey}`,
+            thread_id: 'thread-1',
+          },
+        ],
+      }),
+    });
+
+    const result = await runQueryDiagnostics({ mode: 'events' });
+    const serialized = JSON.stringify(result);
+
+    expect(serialized).not.toContain(githubToken);
+    expect(serialized).not.toContain(openAiKey);
+    expect(serialized).not.toContain(slackToken);
+    expect(serialized).not.toContain(jwt);
+    expect(serialized).toContain('[redacted-secret:github-token]');
+    expect(serialized).toContain('[redacted-secret:api-key]');
+    expect(serialized).toContain('[redacted-secret:slack-token]');
+    expect(serialized).toContain('[redacted-secret:bearer-token]');
+  });
+
   it('returns fingerprint groups and reports output-budget truncation explicitly', async () => {
     const oversizedMessage = 'x'.repeat(12_000);
     getDatabaseMock.mockResolvedValue({

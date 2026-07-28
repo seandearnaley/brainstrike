@@ -5,7 +5,7 @@ import {
   DiagnosticEventsRepository,
   type DiagnosticFingerprintGroup,
 } from '@brainstrike/db';
-import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
+import { type DiagnosticEvent, scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import { getDatabase } from '../db-main';
 
 export const QUERY_DIAGNOSTICS_TOOL_ID = NATIVE_TOOL_ID.queryDiagnostics;
@@ -127,6 +127,11 @@ function projectFingerprintGroup(
   };
 }
 
+function scrubProjectedItems<TItem>(items: readonly TItem[]): TItem[] {
+  const serialized = JSON.stringify(items);
+  return JSON.parse(scrubLikelySecretValues(serialized).text) as TItem[];
+}
+
 function toFilter(input: QueryDiagnosticsInput): DiagnosticEventsQueryFilter {
   const sinceMs = input.since === undefined ? undefined : Date.parse(input.since);
   const untilMs = input.until === undefined ? undefined : Date.parse(input.until);
@@ -183,7 +188,7 @@ export async function runQueryDiagnostics(
     const events = await repository.queryEvents(filter);
     return fitResult(
       'events',
-      events.map((event) => projectEvent(event)),
+      scrubProjectedItems(events.map((event) => projectEvent(event))),
       requestedLimit
     );
   }
@@ -191,7 +196,7 @@ export async function runQueryDiagnostics(
   const groups = await repository.queryFingerprintGroups(filter);
   return fitResult(
     'fingerprints',
-    groups.map((group) => projectFingerprintGroup(group)),
+    scrubProjectedItems(groups.map((group) => projectFingerprintGroup(group))),
     requestedLimit
   );
 }
