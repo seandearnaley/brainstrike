@@ -111,6 +111,22 @@ describe('MarkdownText', () => {
     expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
   });
 
+  it('keeps the thinking indicator when a running chunk is nothing but a citation marker', () => {
+    // Raw text is non-empty, but everything in it is stripped before render.
+    // Testing the raw text here would drop the streaming dots and leave the
+    // message blank until real prose arrived.
+    useMessagePartTextMock.mockReturnValue({
+      status: { type: 'running' },
+      text: '\u{E200}cite\u{E202}turn0search0\u{E201}',
+      type: 'text',
+    });
+
+    render(<MarkdownText />);
+
+    expect(screen.queryByTestId('markdown-primitive')).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-thinking-indicator')).toBeInTheDocument();
+  });
+
   it('keeps empty running reasoning parts in the markdown primitive', () => {
     useMessagePartTextMock.mockReturnValue({
       status: { type: 'running' },

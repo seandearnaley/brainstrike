@@ -1,52 +1,72 @@
 import { memo, useEffect, useState } from 'react';
 
-type MarkdownTextComponent = typeof import('./markdown-text').MarkdownText;
+type MarkdownModule = typeof import('./markdown-text');
+type MarkdownVariant = 'MarkdownText' | 'UserMarkdownText';
+type MarkdownTextComponent = MarkdownModule[MarkdownVariant];
 
-let markdownTextComponent: MarkdownTextComponent | null = null;
-let markdownTextComponentPromise: Promise<MarkdownTextComponent> | null = null;
+let markdownModule: MarkdownModule | null = null;
+let markdownModulePromise: Promise<MarkdownModule> | null = null;
 
-async function loadMarkdownTextComponent(): Promise<MarkdownTextComponent> {
-  if (markdownTextComponent) {
-    return markdownTextComponent;
+async function loadMarkdownModule(): Promise<MarkdownModule> {
+  if (markdownModule) {
+    return markdownModule;
   }
-  if (!markdownTextComponentPromise) {
-    markdownTextComponentPromise = import('./markdown-text').then((module) => {
-      markdownTextComponent = module.MarkdownText;
-      return module.MarkdownText;
+  if (!markdownModulePromise) {
+    markdownModulePromise = import('./markdown-text').then((module) => {
+      markdownModule = module;
+      return module;
     });
   }
-  return markdownTextComponentPromise;
+  return markdownModulePromise;
 }
 
 export async function preloadMarkdownText(): Promise<void> {
-  await loadMarkdownTextComponent();
+  await loadMarkdownModule();
 }
 
-export const AssistantMessageText = memo(function AssistantMessageText() {
-  const [LoadedComponent, setLoadedComponent] = useState<MarkdownTextComponent | null>(
-    markdownTextComponent
+function useMarkdownTextComponent(variant: MarkdownVariant): MarkdownTextComponent | null {
+  const [component, setComponent] = useState<MarkdownTextComponent | null>(
+    markdownModule?.[variant] ?? null
   );
 
   useEffect(() => {
-    if (LoadedComponent) {
+    if (component) {
       return;
     }
 
     let cancelled = false;
-    void loadMarkdownTextComponent().then((component) => {
+    void loadMarkdownModule().then((module) => {
       if (!cancelled) {
-        setLoadedComponent(() => component);
+        setComponent(() => module[variant]);
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [LoadedComponent]);
+  }, [component, variant]);
 
-  if (LoadedComponent) {
-    return <LoadedComponent />;
-  }
+  return component;
+}
 
+function MarkdownTextFallback() {
   return <div className="aui-md animate-pulse text-muted-foreground/70">Loading message…</div>;
+}
+
+/** Assistant-authored text parts. Provider citation markers are stripped. */
+export const AssistantMessageText = memo(function AssistantMessageText() {
+  const LoadedComponent = useMarkdownTextComponent('MarkdownText');
+
+  return LoadedComponent ? <LoadedComponent /> : <MarkdownTextFallback />;
+});
+
+/**
+ * User-authored text parts, rendered verbatim. A separate component rather than
+ * a role check inside the renderer, so the two call sites in
+ * assistant-ui-panel.tsx state plainly which text is normalized and which is not.
+ */
+export const UserMessageText = memo(function UserMessageText() {
+  const LoadedComponent = useMarkdownTextComponent('UserMarkdownText');
+
+  return LoadedComponent ? <LoadedComponent /> : <MarkdownTextFallback />;
 });

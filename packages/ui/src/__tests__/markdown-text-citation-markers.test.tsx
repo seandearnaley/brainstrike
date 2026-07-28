@@ -8,7 +8,10 @@ import {
 } from '@assistant-ui/react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { AssistantMessageText } from '../assistant-ui-panel/assistant-message-text';
+import {
+  AssistantMessageText,
+  UserMessageText,
+} from '../assistant-ui-panel/assistant-message-text';
 
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
@@ -33,6 +36,13 @@ const initialMessages: readonly ThreadMessageLike[] = [
   },
 ];
 
+const userMessages: readonly ThreadMessageLike[] = [
+  {
+    content: [{ text: `What does ${ANSWER_WITH_MARKER} mean?`, type: 'text' }],
+    role: 'user',
+  },
+];
+
 function WebSearchAnswerHarness() {
   const runtime = useLocalRuntime(chatModel, { initialMessages });
 
@@ -44,6 +54,21 @@ function WebSearchAnswerHarness() {
             <MessagePrimitive.Parts components={{ Text: AssistantMessageText }} />
           ),
           UserMessage: () => null,
+        }}
+      />
+    </AssistantRuntimeProvider>
+  );
+}
+
+function UserMessageHarness() {
+  const runtime = useLocalRuntime(chatModel, { initialMessages: userMessages });
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <ThreadPrimitive.Messages
+        components={{
+          AssistantMessage: () => null,
+          UserMessage: () => <MessagePrimitive.Parts components={{ Text: UserMessageText }} />,
         }}
       />
     </AssistantRuntimeProvider>
@@ -71,5 +96,16 @@ describe('MarkdownText citation-marker leakage', () => {
     expect(rendered).not.toMatch(/[\u{E200}-\u{E204}]/u);
     expect(rendered).not.toContain('turn0search0');
     expect(rendered).not.toContain('cite');
+  }, 15_000);
+
+  it('leaves a user-authored message containing the same markers verbatim', async () => {
+    // Asking the assistant ABOUT the markers must not make them vanish from
+    // your own bubble. The strip is assistant-only by construction: the user
+    // path renders through UserMessageText, which passes no `preprocess`.
+    render(<UserMessageHarness />);
+
+    const paragraph = await screen.findByText(/What does/u, undefined, { timeout: 10_000 });
+
+    expect(paragraph.textContent).toContain('turn0search0');
   }, 15_000);
 });

@@ -38,17 +38,41 @@ const REFERENCE_SPAN = /\u{E200}[^\u{E200}\u{E201}]*\u{E201}/gu;
 const HIDDEN_SPAN = /\u{E203}[^\u{E203}\u{E204}]*\u{E204}/gu;
 
 /**
- * An opening delimiter with no matching close, once every complete span is gone.
- * Everything after it is the marker's own payload — either the closing delimiter
- * has not streamed in yet, or the message was truncated mid-marker — so the end
- * of the string is the only correct boundary.
+ * An opening delimiter with no matching close, once every complete span is gone —
+ * the closing delimiter has not streamed in yet, or the message was truncated
+ * mid-marker.
+ *
+ * Deliberately NOT `[\s\S]*$`. U+E200-U+E2A9 is also the Nerd Fonts "Font Awesome
+ * Extension" block, so U+E200 and U+E203 arrive as real, renderable glyphs in
+ * answers about terminal/prompt config. An unbounded tail bite would delete the
+ * rest of such an answer with no signal — the quietest possible degradation, at a
+ * seam that runs on every render of every message part.
+ *
+ * Two properties make a half-arrived marker recognizable without that bite: its
+ * payload never contains whitespace, and it is always at the very end of the
+ * buffer. A stray glyph mid-prose satisfies neither, so it falls through to
+ * ORPHAN_DELIMITER and costs only itself. U+E202 is excluded from the negated
+ * class deliberately — it is the type separator and sits INSIDE every payload.
+ *
+ * The 256-char cap is a backstop well past any observed payload (`turn0search0`
+ * is 12). Exceeding it only means a marker leaks for the rest of that streamed
+ * chunk and is cleaned up once its closer arrives — bounded and self-healing,
+ * unlike deleting real prose.
  */
-const UNTERMINATED_SPAN = /[\u{E200}\u{E203}][\s\S]*$/u;
+const UNTERMINATED_SPAN = /[\u{E200}\u{E203}][^\s\u{E200}\u{E201}\u{E203}\u{E204}]{0,256}$/u;
 
 /**
- * Delimiters left with no span to belong to (a message whose stored text begins
- * part-way through a marker). These codepoints carry no prose meaning, so
- * dropping the character while keeping the surrounding text is the honest floor.
+ * Delimiters left with no span to belong to. These codepoints carry no prose
+ * meaning, so dropping the character while keeping the surrounding text is the
+ * honest floor.
+ *
+ * NOTE: this branch is deliberately NOT the mirror of UNTERMINATED_SPAN. Text
+ * that begins part-way through a marker still renders its payload as prose
+ * (`turn0search0 …`) with only the delimiter gone. Sweeping backwards from an
+ * orphan closer would reintroduce exactly the hazard UNTERMINATED_SPAN avoids:
+ * U+E201 is itself a legitimate Nerd Fonts glyph, so the rule would silently eat
+ * the word before any such glyph. Leaving payload text visible is the safer
+ * failure, and no observed case produces a leading-truncated marker.
  */
 const ORPHAN_DELIMITER = /[\u{E200}-\u{E204}]/gu;
 

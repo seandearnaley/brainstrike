@@ -45,7 +45,28 @@ describe('stripProviderCitationMarkers', () => {
     expect(stripProviderCitationMarkers(partial)).toBe('Electron v43.2.0.');
   });
 
+  it('keeps prose that follows a lone private-use glyph that is not a marker', () => {
+    // U+E200-U+E2A9 is also the Nerd Fonts "Font Awesome Extension" block, so
+    // this codepoint reaches us as a real glyph in terminal/prompt-config
+    // answers. The glyph itself goes (it is not prose), the answer stays.
+    const answer = `Add the glyph ${START} to your prompt.\n\nThen restart the shell.`;
+
+    expect(stripProviderCitationMarkers(answer)).toBe(
+      'Add the glyph  to your prompt.\n\nThen restart the shell.'
+    );
+  });
+
+  it('keeps the tail after a stray opener that follows a well-formed span', () => {
+    const answer = `A${START}cite${TYPE_SEP}turn0search0${END} B ${START} C`;
+
+    expect(stripProviderCitationMarkers(answer)).toBe('A B  C');
+  });
+
   it('drops orphan delimiters left by a message that starts mid-marker', () => {
+    // Deliberately conservative: the payload stays visible. Sweeping backwards
+    // from an orphan closer would eat the word before any legitimate U+E201
+    // Nerd Fonts glyph — the same silent-deletion hazard UNTERMINATED_SPAN is
+    // bounded to avoid. See the note on ORPHAN_DELIMITER.
     expect(stripProviderCitationMarkers(`turn0search0${END} rest of answer`)).toBe(
       'turn0search0 rest of answer'
     );

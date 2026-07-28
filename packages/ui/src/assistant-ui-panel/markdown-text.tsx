@@ -18,10 +18,15 @@ const REMARK_PLUGINS = [remarkGfm];
 // consumer) imports the hook from this module.
 export { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 
-export const MarkdownText = memo(function MarkdownTextImpl() {
+function MarkdownTextImpl({ preprocess }: { preprocess?: ((text: string) => string) | undefined }) {
   const { status, text, type } = useMessagePartText();
+  // Must match what the primitive will actually render: a chunk that is nothing
+  // BUT a half-arrived marker has non-empty raw text but preprocesses to '', so
+  // testing the raw text here would drop the streaming dots and leave the
+  // message blank until real prose arrives.
+  const visibleText = preprocess ? preprocess(text) : text;
 
-  if (type === 'text' && status.type === 'running' && text.trim().length === 0) {
+  if (type === 'text' && status.type === 'running' && visibleText.trim().length === 0) {
     return <AssistantThinkingIndicator className="bs-streaming-thinking" markClassName="size-4" />;
   }
 
@@ -35,15 +40,36 @@ export const MarkdownText = memo(function MarkdownTextImpl() {
       // source of streaming jank. Under load intermediate parses coalesce;
       // the final text always renders.
       defer
-      // The ONE seam every visible assistant text part passes through — live
-      // stream and reload hydration alike — so provider citation markers are
-      // stripped once here instead of per provider. `preprocess` runs on the
-      // full accumulated text before smoothing and parsing, so a marker split
-      // across streamed chunks is still matched whole.
-      preprocess={stripProviderCitationMarkers}
+      // Spread rather than `preprocess={preprocess}`: under
+      // exactOptionalPropertyTypes an explicit `undefined` is not assignable to
+      // the library's optional prop.
+      {...(preprocess ? { preprocess } : {})}
       remarkPlugins={REMARK_PLUGINS}
     />
   );
+}
+
+/**
+ * Assistant-authored markdown. Strips provider citation markers via the
+ * library's `preprocess` hook, which receives the FULL accumulated text (not a
+ * single delta), so a marker split across streamed chunks is matched whole.
+ *
+ * This is the one seam every visible assistant text part passes through — live
+ * stream and reload hydration alike — so the strip lives here once rather than
+ * per provider.
+ */
+export const MarkdownText = memo(function MarkdownText() {
+  return <MarkdownTextImpl preprocess={stripProviderCitationMarkers} />;
+});
+
+/**
+ * User-authored markdown. Renders verbatim: the citation strip must never touch
+ * content the user typed or pasted. Someone pasting the raw marker sequence to
+ * ask about it — or using these private-use codepoints intentionally, they are
+ * also Nerd Fonts icon glyphs — must see their own message unaltered.
+ */
+export const UserMarkdownText = memo(function UserMarkdownText() {
+  return <MarkdownTextImpl />;
 });
 
 // Module-scope adapter (NOT inline in defaultComponents): an inline component
