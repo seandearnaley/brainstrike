@@ -12,8 +12,6 @@ export { default as FolderSummaryThresholdSetting } from './folder-summary-thres
 export * from './hooks';
 export { default as IncludeProjectTreeSetting } from './include-project-tree-setting';
 export * from './indexing';
-export type { LoadingProgressState } from './loading-overlay';
-export * from './loading-overlay';
 export { default as NodeCheckbox } from './node-checkbox';
 export { default as NodeIcon } from './node-icon';
 export * from './preview';
