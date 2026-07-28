@@ -16,6 +16,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.manageTaskList',
   'brainstrike.manageCommandSession',
   'brainstrike.queryEmbeddingSpace',
+  'brainstrike.queryDiagnostics',
   'brainstrike.querySelf',
   'brainstrike.readToolOutputArtifact',
   'brainstrike.readWorkspaceContext',
@@ -122,5 +123,25 @@ describe('native tool input schema catalog', () => {
       manage.safeParse({ operation: { action: 'stop', cwd: 'ignored', sessionId: 'session-1' } })
         .success
     ).toBe(false);
+  });
+
+  it('requires an explicit diagnostics query mode and bounds its filters', () => {
+    const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.queryDiagnostics'];
+
+    expect(schema.safeParse({ mode: 'events' }).success).toBe(true);
+    expect(
+      schema.safeParse({
+        fingerprint: 'fp-provider',
+        limit: 100,
+        mode: 'fingerprints',
+        severity: 'error',
+        since: '2026-07-20T00:00:00.000Z',
+        threadId: 'thread-1',
+        until: '2026-07-28T00:00:00.000Z',
+      }).success
+    ).toBe(true);
+    expect(schema.safeParse({ limit: 201, mode: 'events' }).success).toBe(false);
+    expect(schema.safeParse({ mode: 'unknown' }).success).toBe(false);
+    expect(schema.safeParse({}).success).toBe(false);
   });
 });

@@ -608,6 +608,8 @@ export {
   type ManageTaskListInput,
   ManageTaskListInputSchema,
   NATIVE_TOOL_INPUT_SCHEMAS,
+  type QueryDiagnosticsInput,
+  QueryDiagnosticsInputSchema,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
   type QuerySelfInput,

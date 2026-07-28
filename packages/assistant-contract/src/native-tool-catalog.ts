@@ -20,6 +20,7 @@ const DESKTOP_NATIVE_TOOL_ID = {
   lspInspect: 'brainstrike.lspInspect',
   manageCommandSession: 'brainstrike.manageCommandSession',
   manageTaskList: 'brainstrike.manageTaskList',
+  queryDiagnostics: 'brainstrike.queryDiagnostics',
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   querySelf: 'brainstrike.querySelf',
   readToolOutputArtifact: 'brainstrike.readToolOutputArtifact',
@@ -56,6 +57,7 @@ export type WebNativeToolId = Exclude<
   DesktopNativeToolId,
   | typeof NATIVE_TOOL_ID.inspectCommandSessions
   | typeof NATIVE_TOOL_ID.manageCommandSession
+  | typeof NATIVE_TOOL_ID.queryDiagnostics
   | typeof NATIVE_TOOL_ID.querySelf
   | typeof NATIVE_TOOL_ID.runSkillScript
 >;
@@ -92,6 +94,7 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
     (id): id is WebNativeToolId =>
       id !== NATIVE_TOOL_ID.inspectCommandSessions &&
       id !== NATIVE_TOOL_ID.manageCommandSession &&
+      id !== NATIVE_TOOL_ID.queryDiagnostics &&
       id !== NATIVE_TOOL_ID.querySelf &&
       id !== NATIVE_TOOL_ID.runSkillScript
   )

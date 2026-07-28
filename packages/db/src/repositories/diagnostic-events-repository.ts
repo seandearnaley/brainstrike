@@ -65,6 +65,28 @@ export interface DiagnosticEventRow {
   thread_id: string | null;
 }
 
+export interface DiagnosticFingerprintGroup {
+  code: string | null;
+  count: number;
+  fingerprint: string;
+  firstSeenMs: number;
+  lastSeenMs: number;
+  latestMessage: string;
+  severity: DiagnosticSeverity;
+  source: string;
+}
+
+interface DiagnosticFingerprintGroupRow {
+  code: string | null;
+  count: number | string;
+  fingerprint: string;
+  first_seen: string | Date;
+  last_seen: string | Date;
+  latest_message: string;
+  severity: DiagnosticSeverity;
+  source: string;
+}
+
 function toMs(value: string | Date): number {
   return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
@@ -210,6 +232,68 @@ export class DiagnosticEventsRepository {
         firstSeenMs: row?.first_seen ? toMs(row.first_seen) : null,
         lastSeenMs: row?.last_seen ? toMs(row.last_seen) : null,
       };
+    } catch (error) {
+      throw new DiagnosticEventsStorageError('query', error);
+    }
+  }
+
+  async queryFingerprintGroups(
+    filter: DiagnosticEventsQueryFilter
+  ): Promise<DiagnosticFingerprintGroup[]> {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    const push = (clause: string, value: unknown) => {
+      params.push(value);
+      clauses.push(clause.replace('?', `$${params.length}`));
+    };
+    if (filter.severity) {
+      push('severity = ?', filter.severity);
+    }
+    if (filter.threadId) {
+      push('thread_id = ?', filter.threadId);
+    }
+    if (filter.runId) {
+      push('run_id = ?', filter.runId);
+    }
+    if (filter.fingerprint) {
+      push('fingerprint = ?', filter.fingerprint);
+    }
+    if (typeof filter.sinceMs === 'number') {
+      push('occurred_at >= ?', new Date(filter.sinceMs).toISOString());
+    }
+    if (typeof filter.untilMs === 'number') {
+      push('occurred_at <= ?', new Date(filter.untilMs).toISOString());
+    }
+    const limit = Math.min(Math.max(filter.limit ?? 50, 1), DEFAULT_QUERY_LIMIT);
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    try {
+      const result = await this.db.query<DiagnosticFingerprintGroupRow>(
+        `SELECT
+           fingerprint,
+           COUNT(*)::int AS count,
+           MIN(occurred_at) AS first_seen,
+           MAX(occurred_at) AS last_seen,
+           (ARRAY_AGG(severity ORDER BY occurred_at DESC, id DESC))[1] AS severity,
+           (ARRAY_AGG(source ORDER BY occurred_at DESC, id DESC))[1] AS source,
+           (ARRAY_AGG(code ORDER BY occurred_at DESC, id DESC))[1] AS code,
+           (ARRAY_AGG(message ORDER BY occurred_at DESC, id DESC))[1] AS latest_message
+         FROM ${TABLE}
+         ${where}
+         GROUP BY fingerprint
+         ORDER BY last_seen DESC, fingerprint ASC
+         LIMIT ${limit}`,
+        params
+      );
+      return result.rows.map((row) => ({
+        code: row.code,
+        count: Number(row.count),
+        fingerprint: row.fingerprint,
+        firstSeenMs: toMs(row.first_seen),
+        lastSeenMs: toMs(row.last_seen),
+        latestMessage: row.latest_message,
+        severity: row.severity,
+        source: row.source,
+      }));
     } catch (error) {
       throw new DiagnosticEventsStorageError('query', error);
     }

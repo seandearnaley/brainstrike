@@ -72,6 +72,61 @@ describe('DiagnosticEventsRepository', () => {
     expect(stats).toEqual({ count: 2, firstSeenMs: 1000, lastSeenMs: 5000 });
   });
 
+  it('groups recurring diagnostics by fingerprint with bounded filters and latest context', async () => {
+    await repo.insertBatch([
+      makeEvent({
+        code: 'provider_failed',
+        fingerprint: 'fp-x',
+        id: 'a',
+        message: 'first failure',
+        occurredAt: 1000,
+        runId: 'run-1',
+        severity: 'error',
+        source: 'electron-main',
+        threadId: 'thread-1',
+      }),
+      makeEvent({
+        code: 'provider_failed',
+        fingerprint: 'fp-x',
+        id: 'b',
+        message: 'latest failure',
+        occurredAt: 5000,
+        runId: 'run-1',
+        severity: 'error',
+        source: 'electron-main',
+        threadId: 'thread-1',
+      }),
+      makeEvent({
+        fingerprint: 'fp-y',
+        id: 'c',
+        occurredAt: 2000,
+        runId: 'run-2',
+        severity: 'warn',
+        threadId: 'thread-2',
+      }),
+    ]);
+
+    const groups = await repo.queryFingerprintGroups({
+      runId: 'run-1',
+      severity: 'error',
+      sinceMs: 500,
+      untilMs: 6000,
+    });
+
+    expect(groups).toEqual([
+      {
+        code: 'provider_failed',
+        count: 2,
+        fingerprint: 'fp-x',
+        firstSeenMs: 1000,
+        lastSeenMs: 5000,
+        latestMessage: 'latest failure',
+        severity: 'error',
+        source: 'electron-main',
+      },
+    ]);
+  });
+
   it('purges beyond the age bound oldest-first and reports the count', async () => {
     const now = Date.now();
     await repo.insertBatch([

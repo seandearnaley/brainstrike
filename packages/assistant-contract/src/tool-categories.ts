@@ -273,6 +273,17 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     loadingTier: 'deferred',
     requiresApproval: false,
   },
+  // Read-only, bounded access to the local diagnostic event store. Explicitly
+  // pinned because it reads application-internal failure context rather than
+  // workspace files, and must remain available under the normal read policy
+  // without being mistaken for arbitrary self-query SQL.
+  [NATIVE_TOOL_ID.queryDiagnostics]: {
+    category: 'analysis',
+    estimatedTokens: 210,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   // Read-only SQL over Brainstrike's OWN local database (run outcomes, edit
   // checkpoints, usage, queue metrics, the code index). `riskCategory` is
   // PINNED rather than derived: the input is arbitrary SQL, so a reader must

@@ -65,7 +65,14 @@ vi.mock('../../db-main', () => ({
 // first per the rule below: the values-field describe and the description
 // sentence were both cut to the bone (−16) before raising.
 //
-// HEADROOM IS ~13 TOKENS (the surface measures 8447 against this 8460 ceiling).
+// Raised 8460 → 9155 for `brainstrike.queryDiagnostics` (BST-853). Its 695
+// authored tokens are the genuine cost of a new read-only Flight Recorder
+// capability: one required row/group mode plus seven optional exact/bounded
+// filters. The tool remains deferred, so the critical initial surface is
+// unchanged at 2157 tokens. Parameter prose was kept terse before raising;
+// removing the fields or their bounds would remove acceptance behavior.
+//
+// HEADROOM IS ~13 TOKENS (the surface measures 9142 against this 9155 ceiling).
 // That is deliberate but very tight, and the forcing function has already fired
 // twice as intended: adding `explain` to the description prose pushed the
 // surface to 8302 and the fix was to trim wording; the BST-935 raise above went
@@ -73,7 +80,7 @@ vi.mock('../../db-main', () => ({
 // failed CI, that is the forcing function working, not a flake. Trim something
 // first; raise the ceiling only as a considered decision, and record what you
 // traded away.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8460;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9155;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
@@ -409,8 +416,10 @@ describe('desktop native tool provider prompt budget', () => {
       // model cannot write the BM25 arm at all.
       // +105 for the lens modes (BST-921): two enum values, the lens/values
       // fields, and the discovery sentence.
-      eagerDefinitionTokens: 7762,
-      eagerToolCount: 31,
+      // +695 / +1 for deferred `queryDiagnostics` (BST-853); the critical
+      // request remains unchanged.
+      eagerDefinitionTokens: 8457,
+      eagerToolCount: 32,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
         brainstrike_manageCommandSession: 482,
@@ -418,7 +427,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within 7,900 o200k tokens', async () => {
+  it('keeps the authored full hosted registry and instructions within 9,155 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

@@ -1045,6 +1045,18 @@ the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;
 there is no fallback alias or partially registered tool.
 
+`brainstrike.queryDiagnostics` is a desktop-only, explicit `read`-risk native
+tool over `brainstrike_diagnostic_events`. Its `mode` is required:
+`events` returns newest matching rows and `fingerprints` groups recurring
+failures with count/first-seen/last-seen plus the latest representative
+metadata. Both modes accept exact severity/fingerprint/run/thread filters and
+inclusive ISO-8601 `since`/`until` bounds. The schema hard-caps `limit` at 200;
+the repository applies the same bound, and the producer additionally
+self-bounds through `fitItemsToCharBudget`. Hitting either cap is reported in
+`truncated` plus an actionable `hint` — never presented as a complete result.
+Web omits the tool because its assistant server has no capability to read the
+client-local PGlite database; there is no remote fallback.
+
 ### Tool discovery contract (LIVE for hosted Mastra catalog search)
 
 `packages/assistant-contract/src/tool-discovery.ts` is the authoritative

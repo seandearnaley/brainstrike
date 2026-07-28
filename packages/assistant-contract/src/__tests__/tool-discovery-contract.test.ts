@@ -29,7 +29,7 @@ const EXPECTED_DEFERRED_NAMESPACES = {
     'brainstrike.updateWorkspaceContextSelection',
     'brainstrike.updateWorkspaceTapestrySelections',
   ],
-  database: ['brainstrike.querySelf'],
+  database: ['brainstrike.queryDiagnostics', 'brainstrike.querySelf'],
   embeddings: ['brainstrike.listEmbeddingSpaces', 'brainstrike.queryEmbeddingSpace'],
   semantics: [
     'brainstrike.findWorkspaceSymbol',

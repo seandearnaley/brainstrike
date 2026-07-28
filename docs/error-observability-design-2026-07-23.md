@@ -1,6 +1,6 @@
 # Error Observability & Debug Bundles ("Flight Recorder") — Design
 
-> 2026-07-23. Status: P1 + debug bundle + P2a (NDJSON backstop, persistent Log Viewer) + P2b (status chip, retention settings, sink-health banner) IMPLEMENTED; P3 / P5 pending. Companion presentation:
+> 2026-07-23. Status: P1–P5 IMPLEMENTED. Companion presentation:
 > `docs/error-observability-presentation-2026-07-23.html`.
 >
 > Problem owner: Sean. Motivating pain: as model/provider support grows, threads
@@ -422,7 +422,7 @@ server (#1187) for external agents; the NDJSON file covers them meanwhile.
 | **P2 — Surfaces** | Log Viewer persistent source, status-bar chip, settings, web NDJSON export, **desktop warn+ NDJSON file backstop + rotation (moved from P5 — see below)** | Errors are *seen*, not just stored; the DB-sink failure path has a durable destination before broad reliance |
 | **P3 — Run-error enrichment** | `run_errors` table, header-capturing fetch wrapper, retry-attempt recording, error-block code/request-id display | Multi-provider forensics |
 | **P4 — Debug bundle** | Builder + Copy/Save UI + bounds/redaction + tests with golden bundles | The headline feature; depends on P1+P3 for full value but ships useful after P1 |
-| **P5 — Agent access** | `brainstrike.queryDiagnostics` tool | Agents diagnose without re-running |
+| **P5 — Agent access (implemented)** | Bounded, read-risk `brainstrike.queryDiagnostics` event/fingerprint queries | Agents diagnose without re-running |
 
 **Move (review follow-up):** the desktop warn+ NDJSON backstop (file sink +
 rotation, §7) moved from P5 into **P2**. Rationale: the file mirror is the
@@ -455,7 +455,8 @@ most urgent pain.
   bound/elision tests (oversized transcript → visible markers, ≤ budget);
   redaction test (seeded secrets never appear in output, including the
   value-shape secret scrub over the final rendered string).
-- **P5**: tool registered across the multi-registry checklist tests.
+- **P5**: tool registered across the multi-registry checklist tests; repository
+  grouping and exact filter tests; output-budget truncation test.
 
 ## 12. Invariants honored (checklist)
 

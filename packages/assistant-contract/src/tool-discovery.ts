@@ -45,8 +45,8 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
   },
   database: {
     summary:
-      "Run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
-    toolIds: [NATIVE_TOOL_ID.querySelf],
+      "Inspect durable diagnostic failures or run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
+    toolIds: [NATIVE_TOOL_ID.queryDiagnostics, NATIVE_TOOL_ID.querySelf],
   },
   embeddings: {
     summary: 'Inspect and query configured embedding spaces.',
