@@ -1,4 +1,4 @@
-import type { IDatabase, Job } from '@brainstrike/db';
+import type { ClaimedJob, IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -833,9 +833,6 @@ export async function startEmbeddingWorker(
     });
     scheduledReinitPending = false;
   }
-
-  // biome-ignore lint/style/useNamingConvention: DB field name
-  type ClaimedJob = Job & { lease_token: string };
 
   async function generateLocalEmbeddings(
     chunks: LoadedChunkItem['chunk'][],
@@ -1879,12 +1876,12 @@ export async function startEmbeddingWorker(
         return;
       }
       // Claim a batch of jobs
-      const jobs = (await jq.claimMany({
+      const jobs = await jq.claimMany({
         leaseMs,
         limit: heldInFlightSlots,
         queue: queueName,
         workerId,
-      })) as ClaimedJob[];
+      });
       if (jobs.length > heldInFlightSlots) {
         throw new Error(
           `Embedding queue claimed ${jobs.length} jobs for ${heldInFlightSlots} reserved in-flight slots.`

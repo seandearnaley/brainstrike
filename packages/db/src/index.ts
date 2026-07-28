@@ -131,6 +131,7 @@ export type {
 export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 export type {
   CancelParams,
+  ClaimedJob,
   ClaimParams,
   CompleteParams,
   EnqueueParams,

@@ -34,6 +34,10 @@ export interface Job extends Omit<JobRow, 'job_type' | 'payload' | 'run_at' | 'l
   runAt: string;
 }
 
+export interface ClaimedJob extends Job {
+  lease_token: string;
+}
+
 const logger = createLogger('JobQueue');
 
 /**
@@ -63,6 +67,14 @@ function fromRow(row: JobRow): Job {
     worker_id: row.worker_id ?? null,
   };
   return job;
+}
+
+function fromClaimedRow(row: JobRow): ClaimedJob {
+  const job = fromRow(row);
+  if (typeof job.lease_token !== 'string' || job.lease_token.length === 0) {
+    throw new Error(`Claimed job ${job.id} is missing its lease token`);
+  }
+  return { ...job, lease_token: job.lease_token };
 }
 
 function extractEmbedChunkId(jobType: JobType, payload: unknown): string | null {
@@ -571,12 +583,12 @@ export class JobQueue {
     return jobs;
   }
 
-  async claim(params: ClaimParams): Promise<Job | null> {
+  async claim(params: ClaimParams): Promise<ClaimedJob | null> {
     const jobs = await this.claimMany({ ...params, limit: 1 });
     return jobs[0] ?? null;
   }
 
-  async claimMany(params: ClaimParams & { limit?: number }): Promise<Job[]> {
+  async claimMany(params: ClaimParams & { limit?: number }): Promise<ClaimedJob[]> {
     const now = params.now ?? new Date().toISOString();
     const leaseToken = generateUUID();
     const leasedUntil = new Date(Date.now() + params.leaseMs).toISOString();
@@ -617,7 +629,7 @@ export class JobQueue {
       [params.queue, now, leaseToken, leasedUntil, params.workerId ?? null, updatedAt, limit]
     );
 
-    const jobs = result.rows.map(fromRow);
+    const jobs = result.rows.map(fromClaimedRow);
     if (jobs.length > 0) {
       logger.trace('Jobs claimed', {
         count: jobs.length,
