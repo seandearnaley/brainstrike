@@ -3,6 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { X } from 'lucide-react';
 import type * as React from 'react';
 
+import { TOAST_LAYER_CLASS } from './layers';
 import { cn } from './lib/utils';
 
 const ToastProvider = ToastPrimitives.Provider;
@@ -16,7 +17,8 @@ const ToastViewport = ({
 }) => (
   <ToastPrimitives.Viewport
     className={cn(
-      'fixed right-0 bottom-0 z-100 flex max-h-screen w-full flex-col-reverse gap-2 p-4 sm:max-w-[420px]',
+      'fixed right-0 bottom-0 flex max-h-screen w-full flex-col-reverse gap-2 p-4 sm:max-w-[420px]',
+      TOAST_LAYER_CLASS,
       className
     )}
     ref={ref}

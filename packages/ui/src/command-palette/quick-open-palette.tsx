@@ -2,6 +2,7 @@ import { Description as DialogDescription, Title as DialogTitle } from '@radix-u
 import { Command as Cmdk } from 'cmdk';
 import { FileIcon } from 'lucide-react';
 import * as React from 'react';
+import { COMMAND_PALETTE_CONTENT_CLASS, COMMAND_PALETTE_OVERLAY_CLASS } from '../layers';
 import { cn } from '../lib/utils';
 
 /**
@@ -74,13 +75,14 @@ export function QuickOpenPalette({
   return (
     <Cmdk.Dialog
       contentClassName={cn(
-        'fixed top-[20%] left-1/2 z-[60] w-[min(640px,calc(100vw-2rem))] -translate-x-1/2',
+        'fixed top-[20%] left-1/2 w-[min(640px,calc(100vw-2rem))] -translate-x-1/2',
+        COMMAND_PALETTE_CONTENT_CLASS,
         'overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-2xl'
       )}
       label="Quick open file"
       onOpenChange={handleOpenChange}
       open={open}
-      overlayClassName="fixed inset-0 z-[59] bg-black/50"
+      overlayClassName={cn('fixed inset-0 bg-black/50', COMMAND_PALETTE_OVERLAY_CLASS)}
       shouldFilter={false}
     >
       {/* Satisfy @radix-ui/react-dialog's unconditional Title/Description
