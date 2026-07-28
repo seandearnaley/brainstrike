@@ -111,6 +111,28 @@ const NORMAL_ASSISTANT_REQUEST_BODY = requestBody({
   messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
 });
 
+function mockDisabledAssistantProviders(): void {
+  vi.mocked(resolveAssistantProviderConfig).mockImplementation((provider = 'openai') => ({
+    disabledReason: 'missing_api_key',
+    enabled: false,
+    provider,
+  }));
+}
+
+function mockOpenAiAssistantProvider(): void {
+  vi.mocked(resolveAssistantProviderConfig).mockImplementation((provider = 'openai') => {
+    if (provider === 'openai') {
+      return {
+        apiKey: 'key',
+        enabled: true,
+        provider,
+        source: 'OPENAI_API_KEY',
+      };
+    }
+    return { disabledReason: 'missing_api_key', enabled: false, provider };
+  });
+}
+
 async function listenOnLoopback(server: http.Server): Promise<number> {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -221,11 +243,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('sends assistant status payload', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: '',
-      disabledReason: 'missing_api_key',
-      enabled: false,
-    });
+    mockDisabledAssistantProviders();
 
     const res = new ResponseSink();
     sendAssistantStatusResponse(res as unknown as http.ServerResponse);
@@ -236,11 +254,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('handles chat endpoint when provider disabled', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: '',
-      disabledReason: 'missing_api_key',
-      enabled: false,
-    });
+    mockDisabledAssistantProviders();
 
     const res = new ResponseSink();
     await handleChatEndpoint(
@@ -256,11 +270,7 @@ describe('assistant-stream-helpers', () => {
 
   it('rejects a non-empty last-event-id even when the process-local registry resolves it', async () => {
     const createResponse = vi.fn(() => new Response('must-not-resume'));
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: '',
-      disabledReason: 'missing_api_key',
-      enabled: false,
-    });
+    mockDisabledAssistantProviders();
     vi.mocked(resolveDataStreamSession).mockReturnValue({
       createResponse,
     } as unknown as AssistantDataStreamSession);
@@ -282,7 +292,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('fails closed when last-event-id cannot be resolved on this Vite server instance', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {
@@ -311,7 +321,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns 502 when streaming initialization fails', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
 
     const req = new EventEmitter() as http.IncomingMessage;
@@ -334,7 +344,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns 400 when assistant data contains a server-only runtime field', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     vi.mocked(buildWebAssistantStream).mockRejectedValue(
       new InvalidWebAssistantRuntimeDataError('mcpConfig')
     );
@@ -360,7 +370,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('creates a stateless assistant response for streaming', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
@@ -388,7 +398,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('accepts shared-transport image-elision metadata on the Vite assistant route', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
         yield { type: 'text-delta', value: 'hello' } as StreamChunk;
@@ -430,7 +440,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('fails closed for a valid tool approval action in stateless Vite', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const approvalAction = {
       action: 'decline',
@@ -462,7 +472,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('fails closed for a valid tool suspend resume action in stateless Vite', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const resumeAction = {
       resumeData: { action: 'approved' },
@@ -494,7 +504,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('rejects malformed tool approval actions on the web assistant helper route', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
@@ -524,7 +534,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('rejects malformed tool suspend resume actions on the web assistant helper route', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
@@ -594,7 +604,7 @@ describe('assistant-stream-helpers', () => {
       },
     ],
   ])('returns typed 400 for a resume action with %s on the Vite route', async (_case, action) => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
     const res = new ResponseSink();
@@ -638,7 +648,7 @@ describe('assistant-stream-helpers', () => {
       },
     ],
   ])('returns typed 400 for approval actions with %s on the Vite route', async (_case, action) => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
     const res = new ResponseSink();
@@ -662,7 +672,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('streams chat response as JSON lines when provider is enabled', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'hello' } as StreamChunk,
@@ -687,7 +697,7 @@ describe('assistant-stream-helpers', () => {
           mcpEnabled: true,
           model: 'attacker-model',
           modelSettings: { maxOutputTokens: 1_000_000 },
-          provider: 'ollama',
+          provider: 'openai',
           providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
         },
         messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
@@ -710,7 +720,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('forwards valid image file parts through the Vite chat boundary', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(
       (async function* stream() {
         yield { type: 'text-delta', value: 'image received' } as StreamChunk;
@@ -761,7 +771,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('accepts an image-only user turn on the Vite chat boundary', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(
       (async function* stream() {
         yield { type: 'text-delta', value: 'image received' } as StreamChunk;
@@ -808,7 +818,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns the canonical attachment error from the Vite chat boundary', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const res = new ResponseSink();
 
     await handleChatEndpoint(
@@ -841,7 +851,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('rejects server-only runtime data on the chat endpoint', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(
       (async function* stream() {})() as AsyncIterable<StreamChunk>
     );
@@ -874,7 +884,7 @@ describe('assistant-stream-helpers', () => {
     ],
     ['empty', { messages: [] }, { error: 'empty_prompt' }],
   ])('returns typed 400 when chat messages are %s', async (_case, body, expected) => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const res = new ResponseSink();
 
     await handleChatEndpoint(requestBody(body), res as unknown as http.ServerResponse);
@@ -885,7 +895,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns typed 400 when a non-empty chat array normalizes to no messages', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const res = new ResponseSink();
 
     await handleChatEndpoint(
@@ -899,7 +909,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns empty_prompt when a normal assistant turn has no effective prompt', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {};
     const res = new ResponseSink();
@@ -918,7 +928,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('accepts an image-only user turn on the Vite assistant route', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
         yield { type: 'text-delta', value: 'a tiny image' } as StreamChunk;
@@ -991,7 +1001,7 @@ describe('assistant-stream-helpers', () => {
       ],
     ],
   ])('rejects a normal assistant turn whose final prompt role is %s', async (_case, messages) => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {};
     const res = new ResponseSink();
@@ -1008,7 +1018,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns typed 400 for a deeply nested chat message graph', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     let nested: Record<string, unknown> = { text: 'hello' };
     for (let depth = 0; depth < 3000; depth += 1) {
       nested = { content: nested };
@@ -1029,7 +1039,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns typed 400 for an invalid assistant attachment', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {};
     const res = new ResponseSink();
@@ -1064,7 +1074,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns typed invalid_attachment for an empty image on the Vite route', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {};
     const res = new ResponseSink();
@@ -1104,7 +1114,7 @@ describe('assistant-stream-helpers', () => {
     ['oversized string', { mainRootPath: 'x'.repeat(4097) }, 'mainRootPath'],
     ['invalid enum', { workspaceIndexStatusState: 'ready' }, 'workspaceIndexStatusState'],
   ])('rejects a known runtime field with %s', async (_case, data, field) => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(
       (async function* stream() {})() as AsyncIterable<StreamChunk>
     );
@@ -1127,7 +1137,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('rejects a non-empty last-event-id array without consulting the session registry', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = { 'last-event-id': ['evt-1', 'evt-2'] } as unknown as http.IncomingHttpHeaders;
@@ -1148,7 +1158,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('creates a stateless response when no last-event-id header is present', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
@@ -1179,7 +1189,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('calls res.end() when response body is null', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
     vi.mocked(buildWebAssistantStream).mockResolvedValue(
       (async function* stream() {})() as AsyncIterable<StreamChunk>
     );
@@ -1206,7 +1216,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('waits for drain event when write returns false (backpressure)', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     // Create a response that has a body with content
     const encoder = new TextEncoder();
@@ -1252,7 +1262,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('does not abort the runtime when a real Node request closes after a complete body', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     let runtimeSignal: AbortSignal | undefined;
     let requestWasComplete: boolean | undefined;
@@ -1299,7 +1309,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('aborts the runtime when a real Node client aborts an incomplete request body', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     let runtimeSignal: AbortSignal | undefined;
     let requestWasComplete: boolean | undefined;
@@ -1375,7 +1385,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('aborts and releases real Node response backpressure when the downstream closes', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
+    mockOpenAiAssistantProvider();
 
     let runtimeSignal: AbortSignal | undefined;
     let responseWritableEndedAtClose: boolean | undefined;
@@ -1490,10 +1500,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('sends enabled: true status when provider is enabled', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: 'key',
-      enabled: true,
-    });
+    mockOpenAiAssistantProvider();
 
     const res = new ResponseSink();
     sendAssistantStatusResponse(res as unknown as http.ServerResponse);
@@ -1504,6 +1511,8 @@ describe('assistant-stream-helpers', () => {
       enabled: true,
       model: 'gpt-5.6-terra',
       provider: 'openai',
+      providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
+      providers: ['openai'],
     });
   });
 });

@@ -28,6 +28,7 @@ describe('buildWebAssistantStream', () => {
       agentMessages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       apiKey: 'server-key',
       data: undefined,
+      provider: 'openai',
       signal,
     });
 

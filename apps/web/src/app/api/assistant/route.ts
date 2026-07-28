@@ -5,7 +5,10 @@ import {
   readRequestBodyText,
 } from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
-import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import {
+  resolveAssistantProviderConfig,
+  resolveAssistantProviderConfigs,
+} from '../../../server/assistant-config';
 import { resolveWebAssistantRequestBodyLimitBytes } from '../../../server/web-assistant-body-limit';
 import {
   describeWebAssistantInputError,
@@ -14,7 +17,10 @@ import {
   WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
   type WebAssistantInputError,
 } from '../../../server/web-assistant-request';
-import { InvalidWebAssistantRuntimeDataError } from '../../../server/web-assistant-runtime';
+import {
+  InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantProviderConfig,
+} from '../../../server/web-assistant-runtime';
 import { buildWebAssistantStream } from '../../../server/web-assistant-stream';
 
 const logger = createLogger('WebAssistantRoute');
@@ -64,12 +70,12 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const provider = resolveAssistantProviderConfig();
-  if (!(provider.enabled && provider.apiKey)) {
+  const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
+  if (configuredProviders.length === 0) {
     return new Response(
       JSON.stringify({
         error: 'assistant_disabled',
-        reason: provider.disabledReason ?? 'missing_api_key',
+        reason: 'missing_api_key',
       }),
       {
         headers: JSON_ERROR_HEADERS,
@@ -78,11 +84,19 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
+  let provider: ReturnType<typeof resolveWebAssistantProviderConfig>;
+  try {
+    provider = resolveWebAssistantProviderConfig(turn.payload.data, configuredProviders);
+  } catch (error) {
+    return createAssistantExecutionErrorResponse(error);
+  }
+
   try {
     const agentStream = await initializeAssistantStream({
       agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
       data: turn.payload.data,
+      provider: provider.provider,
       signal: req.signal,
     });
     return createStatelessAssistantDataStreamResponse(agentStream);
@@ -121,6 +135,7 @@ async function initializeAssistantStream(options: {
   agentMessages: AgentMessage[];
   apiKey: string;
   data: unknown;
+  provider: ReturnType<typeof resolveWebAssistantProviderConfig>['provider'];
   signal: AbortSignal;
 }): Promise<AsyncIterable<StreamChunk>> {
   // The seam admits only explicit request metadata. Hosted Web has no tool

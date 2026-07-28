@@ -1,19 +1,32 @@
-import { PROVIDER_DEFAULT_MODELS } from '@brainstrike/agent/hosted-web';
+import {
+  PROVIDER_DEFAULT_MODELS,
+  providerEnvKeys,
+  type SupportedProvider,
+} from '@brainstrike/agent/hosted-web';
 
-const API_KEY_ENV_VARS = [
-  'BRAINSTRIKE_OPENAI_API_KEY',
-  'BS_OPENAI_API_KEY',
-  'OPENAI_API_KEY',
-] as const;
+export const HOSTED_WEB_ASSISTANT_PROVIDERS = [
+  'openai',
+  'anthropic',
+  'google',
+  'openrouter',
+] as const satisfies readonly SupportedProvider[];
 
-type ApiKeyEnvVar = (typeof API_KEY_ENV_VARS)[number];
+export type HostedWebAssistantProvider = (typeof HOSTED_WEB_ASSISTANT_PROVIDERS)[number];
 
-export const HOSTED_WEB_ASSISTANT_PROVIDER = 'openai' as const;
+const HOSTED_WEB_ASSISTANT_PROVIDER_SET: ReadonlySet<string> = new Set(
+  HOSTED_WEB_ASSISTANT_PROVIDERS
+);
 
-export function resolveHostedWebAssistantModel(): string {
-  const model = PROVIDER_DEFAULT_MODELS[HOSTED_WEB_ASSISTANT_PROVIDER];
+export function isHostedWebAssistantProvider(
+  provider: string
+): provider is HostedWebAssistantProvider {
+  return HOSTED_WEB_ASSISTANT_PROVIDER_SET.has(provider);
+}
+
+export function resolveHostedWebAssistantModel(provider: HostedWebAssistantProvider): string {
+  const model = PROVIDER_DEFAULT_MODELS[provider];
   if (!model) {
-    throw new Error('Hosted Web OpenAI provider has no default model');
+    throw new Error(`Hosted Web provider ${provider} has no default model`);
   }
   return model;
 }
@@ -22,10 +35,30 @@ export interface AssistantProviderConfig {
   apiKey?: string;
   disabledReason?: 'missing_api_key';
   enabled: boolean;
-  source?: ApiKeyEnvVar;
+  provider?: HostedWebAssistantProvider;
+  source?: string;
 }
 
-function readEnvVar(name: ApiKeyEnvVar): string | undefined {
+export interface ConfiguredAssistantProviderConfig extends AssistantProviderConfig {
+  apiKey: string;
+  enabled: true;
+  provider: HostedWebAssistantProvider;
+}
+
+export interface HostedWebAssistantStatusPayload {
+  enabled: boolean;
+  model?: string;
+  provider?: HostedWebAssistantProvider;
+  providerKeySources?: readonly {
+    envVar: string;
+    provider: HostedWebAssistantProvider;
+    source: 'env';
+  }[];
+  providers?: readonly HostedWebAssistantProvider[];
+  reason?: 'missing_api_key';
+}
+
+function readEnvVar(name: string): string | undefined {
   const raw = process.env[name];
   if (typeof raw !== 'string') {
     return;
@@ -34,16 +67,71 @@ function readEnvVar(name: ApiKeyEnvVar): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function resolveAssistantProviderConfig(): AssistantProviderConfig {
-  for (const name of API_KEY_ENV_VARS) {
+export function resolveAssistantProviderConfig(
+  provider: HostedWebAssistantProvider = 'openai'
+): AssistantProviderConfig {
+  for (const name of providerEnvKeys(provider satisfies SupportedProvider)) {
     const value = readEnvVar(name);
     if (value) {
-      return { apiKey: value, enabled: true, source: name };
+      return { apiKey: value, enabled: true, provider, source: name };
     }
   }
-  return { disabledReason: 'missing_api_key', enabled: false };
+  return { disabledReason: 'missing_api_key', enabled: false, provider };
 }
 
-export function getAssistantApiKey(): string | undefined {
-  return resolveAssistantProviderConfig().apiKey;
+export function resolveAssistantProviderConfigs(
+  resolveConfig: (
+    provider: HostedWebAssistantProvider
+  ) => AssistantProviderConfig = resolveAssistantProviderConfig
+): readonly ConfiguredAssistantProviderConfig[] {
+  return HOSTED_WEB_ASSISTANT_PROVIDERS.map((provider) => {
+    const config = resolveConfig(provider);
+    if (config.provider !== provider) {
+      throw new Error(
+        `Hosted Web provider resolver returned ${String(config.provider)} for ${provider}`
+      );
+    }
+    return config;
+  }).filter(isConfiguredAssistantProvider);
+}
+
+export function resolveHostedWebAssistantStatus(
+  resolveConfig: (
+    provider: HostedWebAssistantProvider
+  ) => AssistantProviderConfig = resolveAssistantProviderConfig
+): HostedWebAssistantStatusPayload {
+  const configuredProviders = resolveAssistantProviderConfigs(resolveConfig);
+  const primary = configuredProviders[0];
+  if (!primary) {
+    return { enabled: false, reason: 'missing_api_key' };
+  }
+
+  return {
+    enabled: true,
+    model: resolveHostedWebAssistantModel(primary.provider),
+    provider: primary.provider,
+    providerKeySources: configuredProviders.map((config) => {
+      if (!config.source) {
+        throw new Error(`Hosted Web provider ${config.provider} is missing its credential source`);
+      }
+      return {
+        envVar: config.source,
+        provider: config.provider,
+        source: 'env' as const,
+      };
+    }),
+    providers: configuredProviders.map(({ provider }) => provider),
+  };
+}
+
+function isConfiguredAssistantProvider(
+  config: AssistantProviderConfig
+): config is ConfiguredAssistantProviderConfig {
+  return Boolean(config.enabled && config.apiKey && config.provider);
+}
+
+export function getAssistantApiKey(
+  provider: HostedWebAssistantProvider = 'openai'
+): string | undefined {
+  return resolveAssistantProviderConfig(provider).apiKey;
 }

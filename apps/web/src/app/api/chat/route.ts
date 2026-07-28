@@ -5,8 +5,10 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { AssistantProviderConfig } from '../../../server/assistant-config';
-import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import {
+  resolveAssistantProviderConfig,
+  resolveAssistantProviderConfigs,
+} from '../../../server/assistant-config';
 import {
   describeWebAssistantInputError,
   resolveWebAssistantChatTurn,
@@ -15,6 +17,7 @@ import {
 } from '../../../server/web-assistant-request';
 import {
   InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantProviderConfig,
   resolveWebAssistantRuntime,
 } from '../../../server/web-assistant-runtime';
 
@@ -48,12 +51,12 @@ export async function POST(req: Request): Promise<Response> {
     const bodyText = await readRequestBodyText(req, chatRequestBodyLimitBytes);
     const { agentMessages, payload } = resolveWebAssistantChatTurn(bodyText);
 
-    const provider = resolveAssistantProviderConfig();
-    if (!providerHasApiKey(provider)) {
+    const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
+    if (configuredProviders.length === 0) {
       return new Response(
         JSON.stringify({
           error: 'assistant_disabled',
-          reason: provider.disabledReason ?? 'missing_api_key',
+          reason: 'missing_api_key',
         }),
         {
           headers: JSON_ERROR_HEADERS,
@@ -62,7 +65,13 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    const runtime = resolveWebAssistantRuntime(payload.data, provider.apiKey);
+    const provider = resolveWebAssistantProviderConfig(payload.data, configuredProviders);
+    const runtime = resolveWebAssistantRuntime(
+      payload.data,
+      provider.apiKey,
+      undefined,
+      provider.provider
+    );
     let stream: Awaited<ReturnType<typeof toAiSdkStyleStream>>;
     try {
       stream = await toAiSdkStyleStream(agentMessages, runtime);
@@ -95,12 +104,6 @@ export async function POST(req: Request): Promise<Response> {
   } catch (err) {
     return createErrorResponse(err);
   }
-}
-
-function providerHasApiKey(
-  provider: AssistantProviderConfig
-): provider is AssistantProviderConfig & { apiKey: string } {
-  return Boolean(provider.enabled && provider.apiKey);
 }
 
 function resolveClientIdentifier(req: Request): string {

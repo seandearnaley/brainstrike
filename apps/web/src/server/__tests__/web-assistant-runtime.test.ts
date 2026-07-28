@@ -11,7 +11,7 @@ vi.mock('@brainstrike/agent', async () => {
 });
 
 import { type RuntimeData, resolveRequestPermissionPolicy } from '@brainstrike/agent';
-import { resolveWebAssistantRuntime } from '../web-assistant-runtime';
+import { resolveWebAssistantProvider, resolveWebAssistantRuntime } from '../web-assistant-runtime';
 
 const asRuntimeData = (value: Record<string, unknown>): RuntimeData => value as RuntimeData;
 const validPolicies = {
@@ -99,7 +99,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
   });
 
-  it('keeps server-owned cost, provider, model, and tool policy out of client control', () => {
+  it('keeps cost, model, and tool policy out of client control for an enabled provider', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
     const signal = new AbortController().signal;
     const runtime = resolveWebAssistantRuntime(
@@ -110,16 +110,17 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
         mcpEnabled: true,
         model: 'attacker-model',
         modelSettings: { maxOutputTokens: 1_000_000, temperature: 2 },
-        provider: 'ollama',
+        provider: 'anthropic',
         providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
       }),
       'key-3',
-      signal
+      signal,
+      'anthropic'
     );
     expect(runtime).toEqual({
       apiKey: 'key-3',
       contextTokenCount: 1200,
-      provider: 'openai',
+      provider: 'anthropic',
       signal,
     });
   });
@@ -353,5 +354,30 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     const runtime = resolveWebAssistantRuntime(undefined, 'key-5');
     expect(runtime).toEqual({ apiKey: 'key-5', provider: 'openai' });
     expect(runtime).not.toHaveProperty('permissionPolicy');
+  });
+
+  it('accepts a client-selected provider only when the server enabled it', () => {
+    expect(
+      resolveWebAssistantProvider(asRuntimeData({ provider: 'anthropic' }), ['openai', 'anthropic'])
+    ).toBe('anthropic');
+    expect(() =>
+      resolveWebAssistantProvider(asRuntimeData({ provider: 'openrouter' }), [
+        'openai',
+        'anthropic',
+      ])
+    ).toThrow('Invalid web assistant runtime field: provider');
+    expect(() =>
+      resolveWebAssistantProvider(asRuntimeData({ provider: 'ollama' }), ['openai', 'anthropic'])
+    ).toThrow('Invalid web assistant runtime field: provider');
+  });
+
+  it('uses the explicitly trusted Hosted Web provider in the runtime', () => {
+    const runtime = resolveWebAssistantRuntime(
+      asRuntimeData({ provider: 'google' }),
+      'google-key',
+      undefined,
+      'google'
+    );
+    expect(runtime).toEqual({ apiKey: 'google-key', provider: 'google' });
   });
 });

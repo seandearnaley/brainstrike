@@ -62,6 +62,17 @@ import {
 import { buildWebAssistantStream } from '../../../../server/web-assistant-stream';
 import { POST } from '../route';
 
+function mockOpenAiProviderConfig(
+  config: ReturnType<typeof resolveAssistantProviderConfig> & { readonly provider: 'openai' }
+): void {
+  vi.mocked(resolveAssistantProviderConfig).mockImplementation((provider = 'openai') => {
+    if (provider === 'openai') {
+      return config;
+    }
+    return { disabledReason: 'missing_api_key', enabled: false, provider };
+  });
+}
+
 describe('assistant route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -115,10 +126,11 @@ describe('assistant route', () => {
   });
 
   it('returns 503 when provider is disabled', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: '',
       disabledReason: 'missing_api_key',
       enabled: false,
+      provider: 'openai',
     });
 
     const req = new Request('http://localhost/api/assistant', {
@@ -135,10 +147,65 @@ describe('assistant route', () => {
     expect(payload).toMatchObject({ error: 'assistant_disabled' });
   });
 
+  it('accepts only a client-selected provider with a configured server credential', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockImplementation((provider = 'openai') => {
+      if (provider === 'anthropic') {
+        return {
+          apiKey: 'anthropic-server-key',
+          enabled: true,
+          provider,
+          source: 'ANTHROPIC_API_KEY',
+        };
+      }
+      return { disabledReason: 'missing_api_key', enabled: false, provider };
+    });
+    vi.mocked(buildWebAssistantStream).mockResolvedValue((async function* stream() {})());
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
+      new Response('ok', { status: 200 })
+    );
+
+    const enabledResponse = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          data: { provider: 'anthropic' },
+          messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+    expect(enabledResponse.status).toBe(200);
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'anthropic-server-key',
+        provider: 'anthropic',
+      })
+    );
+
+    vi.mocked(buildWebAssistantStream).mockClear();
+    const disabledResponse = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          data: { provider: 'openrouter' },
+          messages: [{ id: '2', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+    expect(disabledResponse.status).toBe(400);
+    await expect(disabledResponse.json()).resolves.toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Invalid web assistant runtime field: provider',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when request body is invalid JSON', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
       new Response('unexpected', { status: 200 })
@@ -343,9 +410,10 @@ describe('assistant route', () => {
   });
 
   it('returns typed 400 for a deeply nested message graph before normalization', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     let nested: Record<string, unknown> = { text: 'hello' };
     for (let depth = 0; depth < 3000; depth += 1) {
@@ -370,9 +438,10 @@ describe('assistant route', () => {
   });
 
   it('returns typed 400 for an invalid attachment', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
@@ -439,9 +508,10 @@ describe('assistant route', () => {
   });
 
   it('returns 400 when request body has no non-empty prompt', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
       new Response('unexpected', { status: 200 })
@@ -483,9 +553,10 @@ describe('assistant route', () => {
       ],
     ],
   ])('requires the final message to be a non-empty user prompt, not %s', async (_case, messages) => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
 
     const res = await POST(
@@ -502,9 +573,10 @@ describe('assistant route', () => {
   });
 
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -532,9 +604,10 @@ describe('assistant route', () => {
   });
 
   it('returns 502 when stream initialization fails', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
 
@@ -555,9 +628,10 @@ describe('assistant route', () => {
   });
 
   it('returns 400 when request data contains a server-only runtime field', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     vi.mocked(buildWebAssistantStream).mockRejectedValue(
       new InvalidWebAssistantRuntimeDataError('mcpConfig')
@@ -581,9 +655,10 @@ describe('assistant route', () => {
   });
 
   it('returns typed 400 when known runtime metadata has an invalid nested shape', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
       resolveWebAssistantRuntime(params.data, params.apiKey);
@@ -679,9 +754,10 @@ describe('assistant route', () => {
   });
 
   it('creates a new session when provider is enabled', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
 
     const stream: AsyncIterable<StreamChunk> = {
@@ -725,9 +801,10 @@ describe('assistant route', () => {
   });
 
   it('accepts an image-only user turn as a valid vision prompt', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
@@ -782,9 +859,10 @@ describe('assistant route', () => {
   });
 
   it('accepts the image-elision metadata emitted by the shared UI transport', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
@@ -828,9 +906,10 @@ describe('assistant route', () => {
   });
 
   it('fails closed for a valid tool approval action in stateless production', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
 
     const approvalAction = {
@@ -860,9 +939,10 @@ describe('assistant route', () => {
   });
 
   it('fails closed for a valid tool decline action in stateless production', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
       enabled: true,
+      provider: 'openai',
     });
 
     const approvalAction = {

@@ -29,25 +29,24 @@ import {
   DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
+import { providerEnvKeys } from '@brainstrike/agent/hosted-web';
+import { HOSTED_WEB_ASSISTANT_PROVIDERS } from '../../../../server/assistant-config';
 import { __resetRateLimiterForTests, __setRateLimiterEntryForTests, POST } from '../route';
 
 const streamMock = vi.mocked(toAiSdkStyleStream);
 
-const API_KEY_ENV_VARS = [
-  'OPENAI_API_KEY',
-  'BRAINSTRIKE_OPENAI_API_KEY',
-  'BS_OPENAI_API_KEY',
-] as const;
+const API_KEY_ENV_VARS = [...new Set(HOSTED_WEB_ASSISTANT_PROVIDERS.flatMap(providerEnvKeys))];
 
-let originalEnv: Partial<Record<(typeof API_KEY_ENV_VARS)[number], string | undefined>> = {};
+let originalEnv: Partial<Record<string, string | undefined>> = {};
 
 beforeEach(() => {
   __resetRateLimiterForTests();
   originalEnv = {};
   for (const key of API_KEY_ENV_VARS) {
     originalEnv[key] = process.env[key];
-    process.env[key] = 'test-key';
+    delete process.env[key];
   }
+  process.env['OPENAI_API_KEY'] = 'test-key';
 });
 
 function createStream(...chunks: StreamChunk[]): AsyncIterable<StreamChunk> {
@@ -393,7 +392,7 @@ describe('chat route schema', () => {
 
   it('accepts valid bodies and streams', async () => {
     const body = {
-      data: { model: 'attacker-model', projectId: 'p1', provider: 'ollama' },
+      data: { model: 'attacker-model', projectId: 'p1', provider: 'openai' },
       messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
 
@@ -419,6 +418,32 @@ describe('chat route schema', () => {
     expect(firstLine).toBeDefined();
     const chunk = JSON.parse(firstLine ?? '{}');
     expect(['tool-event', 'text-delta']).toContain(chunk.type);
+  });
+
+  it('selects a configured non-primary provider and keeps its key server-owned', async () => {
+    process.env['OPENAI_API_KEY'] = 'openai-key';
+    process.env['ANTHROPIC_API_KEY'] = 'anthropic-key';
+    streamMock.mockResolvedValue(
+      createStream({ type: 'text-delta', value: 'Hello from Anthropic' })
+    );
+    const req = new Request('http://localhost/api/chat', {
+      body: JSON.stringify({
+        data: { model: 'attacker-model', provider: 'anthropic' },
+        messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(streamMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ apiKey: 'anthropic-key', provider: 'anthropic' })
+    );
+    expect(streamMock.mock.calls[0]?.[1]).not.toHaveProperty('model');
+    await res.text();
   });
 
   it('returns 503 when assistant provider key is missing', async () => {

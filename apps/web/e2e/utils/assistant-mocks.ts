@@ -52,9 +52,12 @@ function buildChunks(): Chunk[] {
   ];
 }
 
-export async function mockAssistantApi(page: Page): Promise<void> {
+export async function mockAssistantApi(
+  page: Page,
+  statusPayload: Record<string, unknown> = { enabled: true }
+): Promise<void> {
   await page.addInitScript(
-    ({ chunks }) => {
+    ({ chunks, status }) => {
       if ((window as unknown as { __assistantMockApplied?: boolean }).__assistantMockApplied) {
         return;
       }
@@ -129,7 +132,7 @@ export async function mockAssistantApi(page: Page): Promise<void> {
         const url =
           typeof input === 'string' ? input : input instanceof Request ? input.url : input.href;
         if (url.includes('/api/assistant/status')) {
-          return new Response(JSON.stringify({ enabled: true }), {
+          return new Response(JSON.stringify(status), {
             headers: {
               'Cache-Control': 'no-store',
               'Content-Type': 'application/json',
@@ -146,6 +149,6 @@ export async function mockAssistantApi(page: Page): Promise<void> {
         return originalFetch(input, init);
       };
     },
-    { chunks: buildChunks() }
+    { chunks: buildChunks(), status: statusPayload }
   );
 }

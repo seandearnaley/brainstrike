@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantChatPanel } from '../assistant-chat-panel';
 
 const { assistantUiPanelWrapperLazyMock } = vi.hoisted(() => ({
-  assistantUiPanelWrapperLazyMock: vi.fn(() => <div>Assistant UI Panel</div>),
+  assistantUiPanelWrapperLazyMock: vi.fn((_props: Record<string, unknown>) => (
+    <div>Assistant UI Panel</div>
+  )),
 }));
 
 vi.mock('../hooks/use-assistant-availability-with-local', () => ({
@@ -199,11 +201,11 @@ describe('AssistantChatPanel', () => {
     );
   });
 
-  it('prefers the status provider list while retaining a fixed Hosted Web model', async () => {
+  it('fixes every Hosted Web provider to its registry default model', async () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
       model: 'gpt-5.6-terra',
       provider: 'openai',
-      providers: ['openai'],
+      providers: ['openai', 'anthropic', 'google', 'openrouter'],
       state: 'enabled',
     });
 
@@ -212,10 +214,52 @@ describe('AssistantChatPanel', () => {
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        fixedProviderModels: { openai: ['gpt-5.6-terra'] },
-        initialProviders: ['openai'],
+        fixedProviderModels: {
+          anthropic: ['claude-sonnet-5'],
+          google: ['gemini-3.5-flash'],
+          openai: ['gpt-5.6-terra'],
+          openrouter: ['openai/gpt-5.6-terra'],
+        },
+        initialProviders: ['openai', 'anthropic', 'google', 'openrouter'],
       }),
       undefined
     );
+  });
+
+  it('keeps fixed provider models referentially stable across equivalent renders', () => {
+    const status = {
+      model: 'gpt-5.6-terra',
+      provider: 'openai' as const,
+      providers: ['openai', 'anthropic'] as const,
+      state: 'enabled' as const,
+    };
+    useAssistantAvailabilityWithLocalMock.mockReturnValue(status);
+
+    const { rerender } = render(<AssistantChatPanel />);
+    const firstModels =
+      assistantUiPanelWrapperLazyMock.mock.calls.at(-1)?.[0]['fixedProviderModels'];
+
+    rerender(<AssistantChatPanel />);
+
+    expect(assistantUiPanelWrapperLazyMock.mock.calls.at(-1)?.[0]['fixedProviderModels']).toBe(
+      firstModels
+    );
+  });
+
+  it('surfaces an advertised provider without a registry default instead of crashing render', () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      providers: ['openai', 'cohere'],
+      state: 'enabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText('Assistant status provider cohere has no registry default model')
+    ).toBeInTheDocument();
+    expect(assistantUiPanelWrapperLazyMock).not.toHaveBeenCalled();
   });
 });

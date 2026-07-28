@@ -127,9 +127,17 @@
     Only root-scoped observational-memory and semantic-recall checks may be
     bypassed in that state; request-memory failures must disable the composer
     instead of reaching the strict request-memory assertion.
-  - Hosted Web: local Vite and protected Vercel Preview may read the server-only
-    OpenAI environment key and build an OpenAI runtime with the registry default
-    model. Because the Vite process holds a developer credential, its assistant
+  - Hosted Web: local Vite and protected Vercel Preview may read server-only
+    OpenAI, Anthropic, Google, and OpenRouter environment keys using each
+    provider registry entry's canonical precedence. Whitespace-only values are
+    unconfigured. Status advertises configured provider IDs and exact safe
+    environment-key sources, never values; each advertised provider is fixed to
+    its registry default model in the renderer. A request may select only one of
+    that configured set. Unknown, non-Hosted-Web, and credential-less providers
+    fail as `invalid_runtime_data` / HTTP 400 rather than falling back to another
+    key. The server injects the selected provider's key and ignores client
+    model/key/base-URL attempts. Because the Vite process holds developer
+    credentials, its assistant
     middleware has an explicit LOCAL request boundary before status, body
     parsing, or stream dispatch: the TCP peer must be IPv4/IPv6 loopback, the
     `Host` must be exactly `localhost` or a loopback IP authority, and browser
@@ -143,9 +151,11 @@
     `VERCEL_ENV=preview`; missing, development, production, and unknown values
     fail closed as `production_auth_required`. Production enablement requires
     application authentication plus distributed quota/cost controls. Never
-    expose the key through a `VITE_`-prefixed variable. The shared renderer's
-    model, provider, generation, loop, MCP, and enabled-tool fields are
-    wire-compatibility hints only and are never copied into that trusted runtime.
+    expose a key through a `VITE_`-prefixed variable. The shared renderer's
+    model, generation, loop, MCP, and enabled-tool fields are wire-compatibility
+    hints only and are never copied into that trusted runtime. The provider field
+    is the sole exception: it is copied only after exact membership validation
+    against the server-configured Hosted Web provider set.
     `resolveWebAssistantRuntime` copies an explicit allowlist of non-privileged
     request metadata only after strict runtime validation of every value,
     including bounded strings, arrays, numbers, and strict nested objects.
@@ -487,20 +497,23 @@ Assistant status endpoint resolution (in order):
 2. window.assistant.url       (static)
 3. /api/assistant/status      (fallback)
 
-An enabled Hosted Web status response advertises its trusted server runtime as
-`{enabled:true,provider:"openai",model:<registry default>}`. The app shell
-validates both values against the shared provider registry and exposes only
-that fixed server model in the picker; it must not attempt renderer-side key
-discovery or pretend client model toggles control a server-owned runtime.
-Desktop status may omit both fields, in which case its encrypted-key discovery
-remains authoritative. The pair is atomic, and incomplete or unknown runtime
-metadata fails visibly.
+An enabled Hosted Web status response advertises its trusted primary runtime
+pair plus every configured provider:
+`{enabled:true,provider:<first configured>,model:<registry default>,providers:[...],providerKeySources:[...]}`.
+The stable provider priority is OpenAI, Anthropic, Google, then OpenRouter. The
+server and app shell consume the same provider registry: the shell validates the
+primary pair, provider list, and environment provenance, skips renderer-side key
+discovery, and derives each secondary provider's fixed registry-default model.
+The primary pair remains atomic; a provider without a registry default, or any
+incomplete, unknown, duplicate, or inconsistent metadata, fails visibly.
+Desktop status may omit the pair, in which case its encrypted-key discovery
+remains authoritative.
 
 Desktop's non-fixed `providers` list is a validated seed, not an exhaustive
 renderer catalog. The app shell must merge it with renderer provider discovery
 so settings-owned, reachable or force-enabled Ollama and LM Studio runtimes
-remain selectable. Hosted Web's fixed provider/model pair stays authoritative
-and must continue to skip renderer discovery.
+remain selectable. Hosted Web's fixed provider/default-model set stays
+authoritative and must continue to skip renderer discovery.
 
 Desktop status also reports each unreadable stored credential as a validated
 `providerErrors` entry (`provider`, `api_key_unreadable`, typed error code, and
