@@ -1,10 +1,40 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import type * as React from 'react';
+import { createContext, use } from 'react';
 
+import { dialogLayerClasses } from './layers';
 import { cn } from './lib/utils';
 
-const Dialog = DialogPrimitive.Root;
+/**
+ * How many `Dialog`s enclose this subtree. React context crosses portals, so a
+ * dialog rendered from inside another dialog's content sees its parent's depth
+ * even though the two panels are sibling portals under `document.body`.
+ */
+const DialogDepthContext = createContext(0);
+
+/**
+ * Resolves the stacking tier for the dialog currently being rendered.
+ *
+ * Depth 0 means the component was used outside any `Dialog`, which Radix
+ * already rejects — `dialogLayerClasses` throws on it rather than guessing a
+ * tier.
+ */
+function useDialogLayerClasses() {
+  return dialogLayerClasses(use(DialogDepthContext));
+}
+
+const Dialog = ({ children, ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) => {
+  const enclosingDepth = use(DialogDepthContext);
+  return (
+    <DialogPrimitive.Root {...props}>
+      <DialogDepthContext.Provider value={enclosingDepth + 1}>
+        {children}
+      </DialogDepthContext.Provider>
+    </DialogPrimitive.Root>
+  );
+};
+Dialog.displayName = 'Dialog';
 
 const DialogTrigger = DialogPrimitive.Trigger;
 
@@ -18,17 +48,21 @@ const DialogOverlay = ({
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay> & {
   ref?: React.RefObject<React.ElementRef<typeof DialogPrimitive.Overlay> | null>;
-}) => (
-  <DialogPrimitive.Overlay
-    className={cn(
-      'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/80 data-[state=closed]:animate-out data-[state=open]:animate-in',
-      className
-    )}
-    data-slot="dialog-overlay"
-    ref={ref}
-    {...props}
-  />
-);
+}) => {
+  const layer = useDialogLayerClasses();
+  return (
+    <DialogPrimitive.Overlay
+      className={cn(
+        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 bg-black/80 data-[state=closed]:animate-out data-[state=open]:animate-in',
+        layer.overlay,
+        className
+      )}
+      data-slot="dialog-overlay"
+      ref={ref}
+      {...props}
+    />
+  );
+};
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const DialogContent = ({
@@ -40,33 +74,37 @@ const DialogContent = ({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   overlayClassName?: string;
   ref?: React.RefObject<React.ElementRef<typeof DialogPrimitive.Content> | null>;
-}) => (
-  <DialogPortal>
-    <DialogOverlay className={overlayClassName} />
-    <DialogPrimitive.Content
-      className={cn(
-        // Content above overlay (overlay stays z-50) so RemoveScroll + equal z-index cannot steal hits.
-        // NOTE: ModelPicker's popover is at z-[60] (see packages/ui/src/model-picker/model-picker.tsx)
-        // so it can render above this dialog content. Bumping z-[51] here without bumping the
-        // popover will silently re-introduce the layering bug.
-        'data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[51] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg outline-hidden duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in sm:max-w-lg',
-        className
-      )}
-      data-slot="dialog-content"
-      ref={ref}
-      {...props}
-    >
-      {children}
-      <DialogPrimitive.Close
-        className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-        data-slot="dialog-close"
+}) => {
+  const layer = useDialogLayerClasses();
+  return (
+    <DialogPortal>
+      <DialogOverlay className={overlayClassName} />
+      <DialogPrimitive.Content
+        className={cn(
+          // The panel sits one step above its own scrim (#831: at an equal
+          // z-index RemoveScroll's wrapper steals hits from the panel), and the
+          // whole tier moves up with nesting depth. Popups must stay above every
+          // tier — see POPUP_LAYER_CLASS in ./layers.
+          'data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg outline-hidden duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in sm:max-w-lg',
+          layer.content,
+          className
+        )}
+        data-slot="dialog-content"
+        ref={ref}
+        {...props}
       >
-        <X />
-        <span className="sr-only">Close</span>
-      </DialogPrimitive.Close>
-    </DialogPrimitive.Content>
-  </DialogPortal>
-);
+        {children}
+        <DialogPrimitive.Close
+          className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+          data-slot="dialog-close"
+        >
+          <X />
+          <span className="sr-only">Close</span>
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  );
+};
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
