@@ -880,7 +880,7 @@ describe('agent-runtime edge cases', () => {
       }
     });
 
-    it('terminates gracefully (visible reason + run.failed + finish) on a tripwire chunk', async () => {
+    it('preserves the Mastra 1.51 tripwire payload through visible and durable failure chunks', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
 
@@ -890,7 +890,16 @@ describe('agent-runtime edge cases', () => {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
-              tripwireReason: 'Content policy violation',
+              payload: {
+                metadata: {
+                  apiKey: 'must-not-cross-the-stream-boundary',
+                  category: 'copyright',
+                  score: 0.98,
+                },
+                processorId: 'regex-filter',
+                reason: 'Content policy violation',
+                retry: false,
+              },
               type: 'tripwire',
               usage: { completionTokens: 0, promptTokens: 5 },
             });
@@ -933,9 +942,182 @@ describe('agent-runtime edge cases', () => {
             chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
         );
         expect(failure?.event.metadata?.['runError']).toBeUndefined();
+        expect(failure?.event.detail).toBe('Content policy violation');
+        expect(failure?.event.metadata?.['tripwire']).toEqual({
+          metadata: {
+            category: 'copyright',
+            score: 0.98,
+          },
+          processorId: 'regex-filter',
+          retry: false,
+          source: 'mastra-1.51',
+        });
 
         const finish = chunks.find((chunk) => chunk.type === 'message-finish');
         expect(finish).toMatchObject({ finishReason: 'error' });
+      } finally {
+        Agent.prototype.stream = originalStream;
+      }
+    });
+
+    it('surfaces malformed Mastra tripwires instead of inventing a reason', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              payload: {
+                metadata: new Date('2026-07-28T00:00:00.000Z'),
+                processorId: { id: 'not-a-string' },
+                reason: 404,
+                retry: 'yes',
+              },
+              type: 'tripwire',
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      try {
+        const iterator = await streamMastraAgent(
+          [{ id: 'malformed-tripwire', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
+          { runtime: { apiKey: 'test-key', provider: 'openai' } }
+        );
+
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const visibleText = chunks
+          .filter(
+            (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+              chunk.type === 'text-delta'
+          )
+          .map((chunk) => chunk.value)
+          .join('');
+        expect(visibleText).toContain(
+          'Mastra emitted a malformed tripwire without a valid reason.'
+        );
+
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.metadata?.['tripwire']).toEqual({
+          malformedFields: ['metadata', 'processorId', 'reason', 'retry'],
+          source: 'malformed',
+        });
+      } finally {
+        Agent.prototype.stream = originalStream;
+      }
+    });
+
+    it('bounds tripwire reasons, processor ids, and structured metadata', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              payload: {
+                metadata: {
+                  note: 'n'.repeat(600),
+                  values: Array.from({ length: 40 }, (_, index) => index),
+                },
+                processorId: `processor-${'p'.repeat(300)}`,
+                reason: `blocked-${'r'.repeat(3000)}`,
+              },
+              type: 'tripwire',
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      try {
+        const iterator = await streamMastraAgent(
+          [{ id: 'bounded-tripwire', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
+          { runtime: { apiKey: 'test-key', provider: 'openai' } }
+        );
+
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.detail).toHaveLength(600);
+        expect(failure?.event.detail).toMatch(/… \[truncated\]$/u);
+
+        const tripwire = failure?.event.metadata?.['tripwire'] as
+          | {
+              metadata?: { note?: string; values?: unknown[] };
+              processorId?: string;
+            }
+          | undefined;
+        expect(tripwire?.processorId).toHaveLength(256);
+        expect(tripwire?.processorId).toMatch(/… \[truncated\]$/u);
+        expect(tripwire?.metadata?.note).toHaveLength(512);
+        expect(tripwire?.metadata?.note).toMatch(/… \[truncated\]$/u);
+        expect(tripwire?.metadata?.values).toHaveLength(33);
+        expect(tripwire?.metadata?.values?.at(-1)).toBe('[8 items omitted]');
+      } finally {
+        Agent.prototype.stream = originalStream;
+      }
+    });
+
+    it('keeps the pre-1.51 top-level tripwire reason as explicit compatibility input', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              tripwireReason: 'Legacy policy violation',
+              type: 'tripwire',
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      try {
+        const iterator = await streamMastraAgent(
+          [{ id: 'legacy-tripwire', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
+          { runtime: { apiKey: 'test-key', provider: 'openai' } }
+        );
+
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.detail).toBe('Legacy policy violation');
+        expect(failure?.event.metadata?.['tripwire']).toEqual({
+          source: 'legacy-tripwire-reason',
+        });
       } finally {
         Agent.prototype.stream = originalStream;
       }
