@@ -21,9 +21,11 @@ import {
   buildLineStartOffsets as buildLineStarts,
   findLineForOffset as lineForOffset,
 } from './line-offsets';
+import { mapInOrderedBatches } from './ordered-batch-map';
 import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
+import { analyzeContentRepetition } from './repetitive-content';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
 // Module-scoped flag for the one-shot "first parse audit" — see the
@@ -60,12 +62,11 @@ function auditFirstSuccessfulParse(adapterId: string): void {
 }
 
 const BINARY_DETECTION_PROBE_BYTES = 4096;
-const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
-const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
 const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
 const MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES = 10_000;
 const MAX_WHITESPACE_NORMALIZED_ANCHORS = 64;
+const TOKEN_COUNT_BATCH_SIZE = 32;
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
@@ -227,13 +228,7 @@ function shouldSkipChunking(
   }
 
   // Check for very repetitive content (common in generated files)
-  const allLines = content.split('\n');
-  const uniqueLines = new Set(allLines).size;
-  const totalLines = allLines.length;
-  if (
-    totalLines > REPETITIVE_CONTENT_LINE_THRESHOLD &&
-    uniqueLines / totalLines < REPETITIVE_CONTENT_UNIQUE_RATIO
-  ) {
+  if (analyzeContentRepetition(content).isHighlyRepetitive) {
     return {
       reason: 'Highly repetitive content (likely generated file)',
       skip: true,
@@ -1247,6 +1242,10 @@ export async function chunkContent(
     content: string;
     tokenCount: number;
   }
+  interface ChunkCandidate {
+    chunkType: ChunkType;
+    content: string;
+  }
   const pendingChunks: PendingChunk[] = [];
 
   // PERF: Reuse splitter instance for all oversized chunks
@@ -1264,42 +1263,57 @@ export async function chunkContent(
     ? (text: string) => accurateModule.countTokensAccurate(text)
     : (text: string) => Promise.resolve(estimateTokenCount(text));
 
+  const candidates: ChunkCandidate[] = [];
   for (const g of groups) {
     for (const txt of g.pieces) {
       const c = txt?.trim();
       if (!c) {
         continue;
       }
+      candidates.push({ chunkType: g.type, content: c });
+    }
+  }
 
-      const tokenCount = await countTokens(c);
+  // The tokenizer executes in this worker, so batching does not pretend to add
+  // CPU parallelism. It overlaps asynchronous module/asset work, bounds
+  // retained promises, and preserves the splitter's source order.
+  const sizedCandidates = await mapInOrderedBatches(
+    candidates,
+    TOKEN_COUNT_BATCH_SIZE,
+    async (candidate): Promise<PendingChunk> => ({
+      ...candidate,
+      tokenCount: await countTokens(candidate.content),
+    })
+  );
 
-      if (tokenCount > maxSafeTokens) {
-        const subPieces = await reSplitChunker.splitText(c);
+  for (const candidate of sizedCandidates) {
+    if (candidate.tokenCount > maxSafeTokens) {
+      const subPieces = await reSplitChunker.splitText(candidate.content);
+      const subCandidates: ChunkCandidate[] = [];
 
-        for (const subTxt of subPieces) {
-          const subC = subTxt?.trim();
-          if (!subC) {
-            continue;
-          }
-          // Reuse the hoisted dispatch so callers who opted into
-          // tokenTrueSizing keep getting accurate counts on sub-pieces too —
-          // downstream budget enforcement depends on those numbers being
-          // tight, not on a faster-but-loose char/4 heuristic.
-          pendingChunks.push({
-            chunkType: 'text',
-            content: subC,
-            tokenCount: await countTokens(subC),
-          });
+      for (const subTxt of subPieces) {
+        const subC = subTxt?.trim();
+        if (!subC) {
+          continue;
         }
-        continue;
+        subCandidates.push({ chunkType: 'text', content: subC });
       }
 
-      pendingChunks.push({
-        chunkType: g.type,
-        content: c,
-        tokenCount,
-      });
+      // Callers who opt into true sizing still get accurate sub-piece counts;
+      // batching changes scheduling only, never the output sequence.
+      const sizedSubCandidates = await mapInOrderedBatches(
+        subCandidates,
+        TOKEN_COUNT_BATCH_SIZE,
+        async (subCandidate): Promise<PendingChunk> => ({
+          ...subCandidate,
+          tokenCount: await countTokens(subCandidate.content),
+        })
+      );
+      pendingChunks.push(...sizedSubCandidates);
+      continue;
     }
+
+    pendingChunks.push(candidate);
   }
 
   // PERF: Batch hash generation with Promise.all

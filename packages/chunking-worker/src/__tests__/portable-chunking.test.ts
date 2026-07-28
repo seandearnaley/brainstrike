@@ -748,6 +748,7 @@ export function feature${index}() {
       });
 
       it('re-splits oversized chunks when true sizing exceeds the safety cap', async () => {
+        const content = Array.from({ length: 250 }, (_, index) => `word-${index}`).join(' ');
         vi.doMock('../token-utils-lite', () => ({
           countTokensAccurate: vi.fn(async (text: string) => {
             if (text.length > 120) {
@@ -757,7 +758,7 @@ export function feature${index}() {
           }),
         }));
 
-        const result = await chunkContent('word '.repeat(250), {
+        const result = await chunkContent(content, {
           fileName: 'true-sized.txt',
           maxTokens: 32,
           overlap: 8,
@@ -768,6 +769,14 @@ export function feature${index}() {
         expect(result.skipped).toBe(false);
         expect(result.strategyUsed).toBe('token');
         expect(result.chunks.length).toBeGreaterThan(1);
+        expect(result.chunks.map((chunk) => chunk.chunkIndex)).toEqual(
+          result.chunks.map((_, index) => index)
+        );
+        expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual(
+          [...result.chunks]
+            .map((chunk) => chunk.startOffset)
+            .toSorted((left, right) => left - right)
+        );
         for (const chunk of result.chunks) {
           expect(chunk.content.length).toBeGreaterThan(0);
           expect(chunk.tokenCount).toBeGreaterThan(0);
