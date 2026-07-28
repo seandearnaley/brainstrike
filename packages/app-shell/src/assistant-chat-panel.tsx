@@ -3,6 +3,10 @@ import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
 } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import {
+  PROVIDER_DEFAULT_MODELS,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type { ReactElement } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
@@ -15,6 +19,10 @@ export interface AssistantChatPanelProps {
 
 export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelProps): ReactElement {
   const status = useAssistantAvailabilityWithLocal();
+  const fixedProviderModels =
+    status.state === 'enabled' && status.provider && status.model
+      ? resolveFixedProviderModels(status.provider, status.model, status.providers)
+      : undefined;
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">
@@ -56,16 +64,32 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
             {...(status.providerKeySources
               ? { providerKeySources: status.providerKeySources }
               : {})}
-            {...(status.provider && status.model
-              ? {
-                  fixedProviderModels: { [status.provider]: [status.model] },
-                }
-              : {})}
+            {...(fixedProviderModels ? { fixedProviderModels } : {})}
           />
         )}
       </div>
     </div>
   );
+}
+
+function resolveFixedProviderModels(
+  primaryProvider: SupportedProvider,
+  primaryModel: string,
+  providers: readonly SupportedProvider[] | undefined
+): Partial<Record<SupportedProvider, readonly string[]>> {
+  const fixedModels: Partial<Record<SupportedProvider, readonly string[]>> = {};
+  for (const provider of providers ?? [primaryProvider]) {
+    if (provider === primaryProvider) {
+      fixedModels[provider] = [primaryModel];
+      continue;
+    }
+    const defaultModel = PROVIDER_DEFAULT_MODELS[provider];
+    if (!defaultModel) {
+      throw new Error(`Assistant status provider ${provider} has no registry default model`);
+    }
+    fixedModels[provider] = [defaultModel];
+  }
+  return fixedModels;
 }
 
 function toProviderReadErrors(

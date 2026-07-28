@@ -687,7 +687,7 @@ describe('assistant-stream-helpers', () => {
           mcpEnabled: true,
           model: 'attacker-model',
           modelSettings: { maxOutputTokens: 1_000_000 },
-          provider: 'ollama',
+          provider: 'openai',
           providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
         },
         messages: [{ id: 'chat-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
@@ -1490,9 +1490,16 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('sends enabled: true status when provider is enabled', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: 'key',
-      enabled: true,
+    vi.mocked(resolveAssistantProviderConfig).mockImplementation((provider = 'openai') => {
+      if (provider === 'openai') {
+        return {
+          apiKey: 'key',
+          enabled: true,
+          provider,
+          source: 'OPENAI_API_KEY',
+        };
+      }
+      return { disabledReason: 'missing_api_key', enabled: false, provider };
     });
 
     const res = new ResponseSink();
@@ -1504,6 +1511,8 @@ describe('assistant-stream-helpers', () => {
       enabled: true,
       model: 'gpt-5.6-terra',
       provider: 'openai',
+      providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
+      providers: ['openai'],
     });
   });
 });

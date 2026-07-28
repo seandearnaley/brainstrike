@@ -3,6 +3,7 @@ import {
   type StreamChunk,
   toAiSdkStyleStream,
 } from '@brainstrike/agent/hosted-web';
+import type { HostedWebAssistantProvider } from './assistant-config';
 import { resolveWebAssistantRuntime } from './web-assistant-runtime';
 
 /**
@@ -18,8 +19,14 @@ export async function buildWebAssistantStream(params: {
   readonly agentMessages: AgentMessage[];
   readonly data: unknown;
   readonly apiKey: string;
+  readonly provider: HostedWebAssistantProvider;
   readonly signal?: AbortSignal;
 }): Promise<AsyncIterable<StreamChunk>> {
-  const runtime = resolveWebAssistantRuntime(params.data, params.apiKey, params.signal);
+  const runtime = resolveWebAssistantRuntime(
+    params.data,
+    params.apiKey,
+    params.signal,
+    params.provider
+  );
   return await toAiSdkStyleStream(params.agentMessages, runtime);
 }

@@ -135,6 +135,60 @@ describe('assistant route', () => {
     expect(payload).toMatchObject({ error: 'assistant_disabled' });
   });
 
+  it('accepts only a client-selected provider with a configured server credential', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockImplementation((provider = 'openai') => {
+      if (provider === 'anthropic') {
+        return {
+          apiKey: 'anthropic-server-key',
+          enabled: true,
+          provider,
+          source: 'ANTHROPIC_API_KEY',
+        };
+      }
+      return { disabledReason: 'missing_api_key', enabled: false, provider };
+    });
+    vi.mocked(buildWebAssistantStream).mockResolvedValue((async function* stream() {})());
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
+      new Response('ok', { status: 200 })
+    );
+
+    const enabledResponse = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          data: { provider: 'anthropic' },
+          messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+    expect(enabledResponse.status).toBe(200);
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'anthropic-server-key',
+        provider: 'anthropic',
+      })
+    );
+
+    vi.mocked(buildWebAssistantStream).mockClear();
+    const disabledResponse = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          data: { provider: 'openrouter' },
+          messages: [{ id: '2', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+    expect(disabledResponse.status).toBe(400);
+    await expect(disabledResponse.json()).resolves.toEqual({
+      error: 'invalid_runtime_data',
+      message: 'Invalid web assistant runtime field: provider',
+    });
+    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when request body is invalid JSON', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
       apiKey: 'test-key',

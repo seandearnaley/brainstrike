@@ -10,11 +10,11 @@ vi.mock('../../../../../server/assistant-config', async () => {
   );
   return {
     ...actual,
-    resolveAssistantProviderConfig: vi.fn(),
+    resolveHostedWebAssistantStatus: vi.fn(),
   };
 });
 
-import { resolveAssistantProviderConfig } from '../../../../../server/assistant-config';
+import { resolveHostedWebAssistantStatus } from '../../../../../server/assistant-config';
 import { GET } from '../route';
 
 describe('assistant status route', () => {
@@ -22,10 +22,16 @@ describe('assistant status route', () => {
     vi.unstubAllEnvs();
   });
 
-  it('returns enabled status when provider is configured', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: 'test-key',
+  it('returns every configured provider and safe credential source', async () => {
+    vi.mocked(resolveHostedWebAssistantStatus).mockReturnValue({
       enabled: true,
+      model: 'claude-sonnet-5',
+      provider: 'anthropic',
+      providerKeySources: [
+        { envVar: 'ANTHROPIC_API_KEY', provider: 'anthropic', source: 'env' },
+        { envVar: 'OPENROUTER_API_KEY', provider: 'openrouter', source: 'env' },
+      ],
+      providers: ['anthropic', 'openrouter'],
     });
 
     const res = await GET();
@@ -33,16 +39,20 @@ describe('assistant status route', () => {
     const payload = await res.json();
     expect(payload).toEqual({
       enabled: true,
-      model: 'gpt-5.6-terra',
-      provider: 'openai',
+      model: 'claude-sonnet-5',
+      provider: 'anthropic',
+      providerKeySources: [
+        { envVar: 'ANTHROPIC_API_KEY', provider: 'anthropic', source: 'env' },
+        { envVar: 'OPENROUTER_API_KEY', provider: 'openrouter', source: 'env' },
+      ],
+      providers: ['anthropic', 'openrouter'],
     });
   });
 
   it('returns disabled status with reason when missing key', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: '',
-      disabledReason: 'missing_api_key',
+    vi.mocked(resolveHostedWebAssistantStatus).mockReturnValue({
       enabled: false,
+      reason: 'missing_api_key',
     });
 
     const res = await GET();
@@ -55,9 +65,12 @@ describe('assistant status route', () => {
     ['above the Hosted Web ceiling', String(HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1)],
   ])('returns a stable disabled reason when the body limit is %s', async (_, configuredValue) => {
     vi.stubEnv(ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR, configuredValue);
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      apiKey: 'test-key',
+    vi.mocked(resolveHostedWebAssistantStatus).mockReturnValue({
       enabled: true,
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
+      providers: ['openai'],
     });
 
     const res = await GET();

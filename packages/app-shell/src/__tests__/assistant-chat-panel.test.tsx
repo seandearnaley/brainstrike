@@ -199,11 +199,11 @@ describe('AssistantChatPanel', () => {
     );
   });
 
-  it('prefers the status provider list while retaining a fixed Hosted Web model', async () => {
+  it('fixes every Hosted Web provider to its registry default model', async () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
       model: 'gpt-5.6-terra',
       provider: 'openai',
-      providers: ['openai'],
+      providers: ['openai', 'anthropic', 'google', 'openrouter'],
       state: 'enabled',
     });
 
@@ -212,8 +212,13 @@ describe('AssistantChatPanel', () => {
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        fixedProviderModels: { openai: ['gpt-5.6-terra'] },
-        initialProviders: ['openai'],
+        fixedProviderModels: {
+          anthropic: ['claude-sonnet-5'],
+          google: ['gemini-3.5-flash'],
+          openai: ['gpt-5.6-terra'],
+          openrouter: ['openai/gpt-5.6-terra'],
+        },
+        initialProviders: ['openai', 'anthropic', 'google', 'openrouter'],
       }),
       undefined
     );

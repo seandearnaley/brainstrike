@@ -8,11 +8,10 @@ import {
 } from '@brainstrike/agent';
 import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { AssistantProviderConfig } from './server/assistant-config';
 import {
-  HOSTED_WEB_ASSISTANT_PROVIDER,
   resolveAssistantProviderConfig,
-  resolveHostedWebAssistantModel,
+  resolveAssistantProviderConfigs,
+  resolveHostedWebAssistantStatus,
 } from './server/assistant-config';
 import {
   describeWebAssistantInputError,
@@ -23,6 +22,7 @@ import {
 } from './server/web-assistant-request';
 import {
   InvalidWebAssistantRuntimeDataError,
+  resolveWebAssistantProviderConfig,
   resolveWebAssistantRuntime,
 } from './server/web-assistant-runtime';
 import { buildWebAssistantStream } from './server/web-assistant-stream';
@@ -138,16 +138,17 @@ export async function handleChatEndpoint(
     throw error;
   }
 
-  const provider = resolveAssistantProviderConfig();
-  if (!(provider.enabled && provider.apiKey)) {
-    sendAssistantDisabledResponse(res, provider);
+  const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
+  if (configuredProviders.length === 0) {
+    sendAssistantDisabledResponse(res);
     return;
   }
 
   try {
+    const provider = resolveWebAssistantProviderConfig(turn.payload.data, configuredProviders);
     stream = await toAiSdkStyleStream(
       turn.agentMessages,
-      resolveWebAssistantRuntime(turn.payload.data, provider.apiKey)
+      resolveWebAssistantRuntime(turn.payload.data, provider.apiKey, undefined, provider.provider)
     );
   } catch (error) {
     if (sendAssistantInputErrorResponse(res, error)) {
@@ -214,9 +215,9 @@ export async function handleAssistantEndpoint(
     return;
   }
 
-  const provider = resolveAssistantProviderConfig();
-  if (!(provider.enabled && provider.apiKey)) {
-    sendAssistantDisabledResponse(res, provider);
+  const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
+  if (configuredProviders.length === 0) {
+    sendAssistantDisabledResponse(res);
     return;
   }
 
@@ -225,12 +226,14 @@ export async function handleAssistantEndpoint(
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
+    const provider = resolveWebAssistantProviderConfig(turn.payload.data, configuredProviders);
     // The seam admits only explicit request metadata. Hosted Web has no tool
     // registry; permission-policy and server-only runtime fields fail visibly.
     agentStream = await buildWebAssistantStream({
       agentMessages: turn.agentMessages,
       apiKey: provider.apiKey,
       data: turn.payload.data,
+      provider: provider.provider,
       signal: abortController.signal,
     });
   } catch (error) {
@@ -260,21 +263,17 @@ export async function handleAssistantEndpoint(
 }
 
 export function sendAssistantStatusResponse(res: http.ServerResponse): void {
-  const provider = resolveAssistantProviderConfig();
   res.writeHead(200, {
     'Cache-Control': 'no-store',
     'Content-Type': 'application/json; charset=utf-8',
   });
-  res.end(JSON.stringify(assistantStatusPayload(provider)));
+  res.end(JSON.stringify(resolveHostedWebAssistantStatus(resolveAssistantProviderConfig)));
 }
 
-function sendAssistantDisabledResponse(
-  res: http.ServerResponse,
-  provider: AssistantProviderConfig
-): void {
+function sendAssistantDisabledResponse(res: http.ServerResponse): void {
   sendJsonResponse(res, 503, {
     error: 'assistant_disabled',
-    reason: assistantStatusPayload(provider).reason,
+    reason: 'missing_api_key',
   });
 }
 
@@ -294,25 +293,6 @@ function sendJsonResponse(
 ): void {
   res.writeHead(status, JSON_RESPONSE_HEADERS);
   res.end(JSON.stringify(payload));
-}
-
-function assistantStatusPayload(provider: AssistantProviderConfig): {
-  enabled: boolean;
-  model?: string;
-  provider?: 'openai';
-  reason?: string;
-} {
-  if (provider.enabled && provider.apiKey) {
-    return {
-      enabled: true,
-      model: resolveHostedWebAssistantModel(),
-      provider: HOSTED_WEB_ASSISTANT_PROVIDER,
-    };
-  }
-  return {
-    enabled: false,
-    reason: provider.disabledReason ?? 'missing_api_key',
-  };
 }
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {

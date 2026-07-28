@@ -393,7 +393,7 @@ describe('chat route schema', () => {
 
   it('accepts valid bodies and streams', async () => {
     const body = {
-      data: { model: 'attacker-model', projectId: 'p1', provider: 'ollama' },
+      data: { model: 'attacker-model', projectId: 'p1', provider: 'openai' },
       messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
 

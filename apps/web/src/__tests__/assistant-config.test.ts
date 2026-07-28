@@ -1,7 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getAssistantApiKey, resolveAssistantProviderConfig } from '../server/assistant-config';
+import {
+  getAssistantApiKey,
+  HOSTED_WEB_ASSISTANT_PROVIDERS,
+  resolveAssistantProviderConfig,
+  resolveAssistantProviderConfigs,
+  resolveHostedWebAssistantStatus,
+} from '../server/assistant-config';
 
-const ENV_KEYS = ['BRAINSTRIKE_OPENAI_API_KEY', 'BS_OPENAI_API_KEY', 'OPENAI_API_KEY'] as const;
+const ENV_KEYS = [
+  'BRAINSTRIKE_OPENAI_API_KEY',
+  'BS_OPENAI_API_KEY',
+  'OPENAI_API_KEY',
+  'AI_OPENAI_API_KEY',
+  'OPENAI_API_KEY_V1',
+  'OPENAI_API_KEY_V2',
+  'ANTHROPIC_API_KEY',
+  'AI_ANTHROPIC_API_KEY',
+  'GOOGLE_GENERATIVE_AI_API_KEY',
+  'GOOGLE_API_KEY',
+  'AI_GOOGLE_API_KEY',
+  'OPENROUTER_API_KEY',
+  'AI_OPENROUTER_API_KEY',
+] as const;
 
 const clearApiKeys = (): void => {
   for (const key of ENV_KEYS) {
@@ -39,40 +59,92 @@ describe('assistant-config', () => {
     restoreApiKeys();
   });
 
-  it('prefers BRAINSTRIKE_OPENAI_API_KEY over other keys', () => {
+  it('uses the canonical registry precedence within a provider', () => {
     process.env['OPENAI_API_KEY'] = 'openai';
     process.env['BS_OPENAI_API_KEY'] = 'bs';
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'brainstrike';
 
-    const result = resolveAssistantProviderConfig();
+    const result = resolveAssistantProviderConfig('openai');
     expect(result).toEqual({
       apiKey: 'brainstrike',
       enabled: true,
+      provider: 'openai',
       source: 'BRAINSTRIKE_OPENAI_API_KEY',
     });
-    expect(getAssistantApiKey()).toBe('brainstrike');
+    expect(getAssistantApiKey('openai')).toBe('brainstrike');
   });
 
   it('trims env values and skips empty strings', () => {
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = '   ';
     process.env['BS_OPENAI_API_KEY'] = '  bs-key  ';
 
-    const result = resolveAssistantProviderConfig();
+    const result = resolveAssistantProviderConfig('openai');
     expect(result).toEqual({
       apiKey: 'bs-key',
       enabled: true,
+      provider: 'openai',
       source: 'BS_OPENAI_API_KEY',
     });
   });
 
-  it('returns disabled config when no key is available', () => {
+  it('discovers all configured Hosted Web providers in stable picker order', () => {
+    process.env['OPENROUTER_API_KEY'] = ' openrouter ';
+    process.env['GOOGLE_API_KEY'] = 'google';
+    process.env['ANTHROPIC_API_KEY'] = 'anthropic';
+    process.env['OPENAI_API_KEY'] = 'openai';
+
+    expect(HOSTED_WEB_ASSISTANT_PROVIDERS).toEqual(['openai', 'anthropic', 'google', 'openrouter']);
+    expect(resolveAssistantProviderConfigs()).toEqual([
+      {
+        apiKey: 'openai',
+        enabled: true,
+        provider: 'openai',
+        source: 'OPENAI_API_KEY',
+      },
+      {
+        apiKey: 'anthropic',
+        enabled: true,
+        provider: 'anthropic',
+        source: 'ANTHROPIC_API_KEY',
+      },
+      {
+        apiKey: 'google',
+        enabled: true,
+        provider: 'google',
+        source: 'GOOGLE_API_KEY',
+      },
+      {
+        apiKey: 'openrouter',
+        enabled: true,
+        provider: 'openrouter',
+        source: 'OPENROUTER_API_KEY',
+      },
+    ]);
+    const status = resolveHostedWebAssistantStatus();
+    expect(status).toEqual({
+      enabled: true,
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      providerKeySources: [
+        { envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' },
+        { envVar: 'ANTHROPIC_API_KEY', provider: 'anthropic', source: 'env' },
+        { envVar: 'GOOGLE_API_KEY', provider: 'google', source: 'env' },
+        { envVar: 'OPENROUTER_API_KEY', provider: 'openrouter', source: 'env' },
+      ],
+      providers: ['openai', 'anthropic', 'google', 'openrouter'],
+    });
+    expect(JSON.stringify(status)).not.toContain('apiKey');
+  });
+
+  it('returns provider-specific disabled config when no key is available', () => {
     clearApiKeys();
 
-    const result = resolveAssistantProviderConfig();
+    const result = resolveAssistantProviderConfig('anthropic');
     expect(result).toEqual({
       disabledReason: 'missing_api_key',
       enabled: false,
+      provider: 'anthropic',
     });
-    expect(getAssistantApiKey()).toBeUndefined();
+    expect(getAssistantApiKey('anthropic')).toBeUndefined();
   });
 });
