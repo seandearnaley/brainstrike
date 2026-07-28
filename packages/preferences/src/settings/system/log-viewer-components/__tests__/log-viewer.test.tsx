@@ -502,6 +502,33 @@ describe('LogViewer', () => {
     expect(screen.queryByText('After range')).not.toBeInTheDocument();
   });
 
+  it('includes the full minute selected by the To filter', async () => {
+    const logs = [
+      createMockLogRecord({
+        message: 'Inside selected minute',
+        timestamp: new Date('2026-01-01T13:00:30').getTime(),
+      }),
+      createMockLogRecord({
+        message: 'Next minute',
+        timestamp: new Date('2026-01-01T13:01:00').getTime(),
+      }),
+    ];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(screen.getByText('Next minute')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('To time'), {
+      target: { value: '2026-01-01T13:00' },
+    });
+
+    expect(screen.getByText('Inside selected minute')).toBeInTheDocument();
+    expect(screen.queryByText('Next minute')).not.toBeInTheDocument();
+  });
+
   it('opens a structured diagnostic detail view with the cause chain', async () => {
     const user = userEvent.setup();
     const record = createMockLogRecord({
@@ -543,6 +570,64 @@ describe('LogViewer', () => {
     expect(screen.getByText('NetworkError')).toBeInTheDocument();
     expect(screen.getByText('Connection failed')).toBeInTheDocument();
     expect(screen.getByText('fingerprint-123')).toBeInTheDocument();
+  });
+
+  it('keeps the selected detail record stable across live snapshots', async () => {
+    let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
+    const originalRecord = createMockLogRecord({
+      message: 'Original detail record',
+      timestamp: 1000,
+    });
+    const replacementRecord = createMockLogRecord({
+      message: 'Replacement live record',
+      timestamp: 2000,
+    });
+    const logSource = {
+      getInitialRecords: async () => [originalRecord],
+      subscribe: (handler: (records: readonly LogRecord[]) => void) => {
+        subscribedHandler = handler;
+        return () => {};
+      },
+    };
+    const user = userEvent.setup();
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    await user.click(
+      await screen.findByRole('button', { name: 'View details for Original detail record' })
+    );
+
+    act(() => subscribedHandler?.([replacementRecord]));
+
+    await waitFor(() => expect(screen.getByText('Replacement live record')).toBeInTheDocument());
+    expect(screen.getByRole('dialog')).toHaveTextContent('Original detail record');
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('Replacement live record');
+  });
+
+  it('surfaces malformed cause entries while retaining valid causes', async () => {
+    const record = createMockLogRecord({
+      args: [
+        {
+          causeChain: [
+            { code: null, message: 'Root failed', name: 'RootError' },
+            { code: 42, message: 'Malformed', name: 'BadCodeError' },
+          ],
+        },
+      ],
+      message: 'Partial cause chain',
+    });
+    const logSource = {
+      getInitialRecords: async () => [record],
+      subscribe: () => () => {},
+    };
+    const user = userEvent.setup();
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    await user.click(
+      await screen.findByRole('button', { name: 'View details for Partial cause chain' })
+    );
+
+    expect(screen.getByText('RootError')).toBeInTheDocument();
+    expect(screen.getByText('1 malformed cause entry was omitted.')).toBeInTheDocument();
   });
 
   it('copies one row as JSON through the shared clipboard service', async () => {

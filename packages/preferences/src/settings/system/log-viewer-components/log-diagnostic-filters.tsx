@@ -15,6 +15,7 @@ import { getLogRecordCode, getLogRecordSource } from './log-diagnostic-metadata'
 export const ALL_SOURCES_VALUE = '__all_sources__';
 export const ALL_CODES_VALUE = '__all_codes__';
 export const NO_CODE_VALUE = '__no_code__';
+const END_OF_MINUTE_OFFSET_MS = 60_000 - 1;
 
 interface LogDiagnosticFiltersProps {
   codeFilter: string;
@@ -37,7 +38,7 @@ function toLocalDateTimeValue(timestamp: number | null): string {
   return new Date(localTimestamp).toISOString().slice(0, 16);
 }
 
-function parseLocalDateTime(value: string): number | null {
+function parseLocalDateTime(value: string, boundary: 'start' | 'end'): number | null {
   if (value.length === 0) {
     return null;
   }
@@ -45,7 +46,7 @@ function parseLocalDateTime(value: string): number | null {
   if (!Number.isFinite(timestamp)) {
     throw new Error(`Invalid local diagnostic time: ${value}`);
   }
-  return timestamp;
+  return boundary === 'end' ? timestamp + END_OF_MINUTE_OFFSET_MS : timestamp;
 }
 
 export function LogDiagnosticFilters({
@@ -136,7 +137,9 @@ export function LogDiagnosticFilters({
           aria-label="From time"
           className="h-8 w-[190px] border-border/50 bg-muted/40 text-xs"
           id="log-viewer-time-start"
-          onChange={(event) => onTimeStartChange(parseLocalDateTime(event.currentTarget.value))}
+          onChange={(event) =>
+            onTimeStartChange(parseLocalDateTime(event.currentTarget.value, 'start'))
+          }
           type="datetime-local"
           value={toLocalDateTimeValue(timeStart)}
         />
@@ -151,7 +154,9 @@ export function LogDiagnosticFilters({
           aria-label="To time"
           className="h-8 w-[190px] border-border/50 bg-muted/40 text-xs"
           id="log-viewer-time-end"
-          onChange={(event) => onTimeEndChange(parseLocalDateTime(event.currentTarget.value))}
+          onChange={(event) =>
+            onTimeEndChange(parseLocalDateTime(event.currentTarget.value, 'end'))
+          }
           type="datetime-local"
           value={toLocalDateTimeValue(timeEnd)}
         />

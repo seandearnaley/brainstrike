@@ -11,7 +11,13 @@ function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function isCauseEntry(value: unknown): value is DiagnosticCauseEntry {
+interface RawCauseEntry {
+  code?: string | null;
+  message: string;
+  name: string;
+}
+
+function isCauseEntry(value: unknown): value is RawCauseEntry {
   if (!isRecord(value)) {
     return false;
   }
@@ -19,7 +25,7 @@ function isCauseEntry(value: unknown): value is DiagnosticCauseEntry {
   return (
     typeof value['message'] === 'string' &&
     typeof value['name'] === 'string' &&
-    (code === undefined || typeof code === 'string')
+    (code === null || code === undefined || typeof code === 'string')
   );
 }
 
@@ -37,23 +43,51 @@ export function getLogRecordSource(record: LogRecord): string {
   if (explicitSource) {
     return explicitSource;
   }
-  return readNonEmptyString(record.bindings['runtime']) ?? 'unknown';
+  return readNonEmptyString(record.bindings?.['runtime']) ?? 'unknown';
 }
 
 export function getLogRecordCode(record: LogRecord): string | null {
   return (
-    readNonEmptyString(record.bindings['code']) ??
+    readNonEmptyString(record.bindings?.['code']) ??
     readNonEmptyString(getLogRecordContext(record)?.['code'])
   );
 }
 
 export function getLogRecordFingerprint(record: LogRecord): string | null {
-  return readNonEmptyString(record.bindings['fingerprint']);
+  return readNonEmptyString(record.bindings?.['fingerprint']);
 }
 
-export function getLogRecordCauseChain(record: LogRecord): readonly DiagnosticCauseEntry[] {
+interface LogRecordCauseChainDiagnostics {
+  entries: readonly DiagnosticCauseEntry[];
+  malformedEntryCount: number;
+}
+
+export function getLogRecordCauseChainDiagnostics(
+  record: LogRecord
+): LogRecordCauseChainDiagnostics {
   const causeChain = getLogRecordContext(record)?.['causeChain'];
-  return Array.isArray(causeChain) && causeChain.every(isCauseEntry) ? causeChain : [];
+  if (causeChain === null || causeChain === undefined) {
+    return { entries: [], malformedEntryCount: 0 };
+  }
+  if (!Array.isArray(causeChain)) {
+    return { entries: [], malformedEntryCount: 1 };
+  }
+
+  const entries: DiagnosticCauseEntry[] = [];
+  let malformedEntryCount = 0;
+  for (const candidate of causeChain) {
+    if (!isCauseEntry(candidate)) {
+      malformedEntryCount += 1;
+      continue;
+    }
+    const code = readNonEmptyString(candidate.code);
+    entries.push({
+      ...(code ? { code } : {}),
+      message: candidate.message,
+      name: candidate.name,
+    });
+  }
+  return { entries, malformedEntryCount };
 }
 
 export function getLogRecordStack(record: LogRecord): string | null {
@@ -66,33 +100,71 @@ export function getLogRecordStack(record: LogRecord): string | null {
  * or cycles. Those values are represented explicitly instead of crashing the
  * row action or silently dropping the copy.
  */
+function normalizeDiagnosticNumber(value: number): number | string {
+  if (Number.isFinite(value)) {
+    return value;
+  }
+  if (Number.isNaN(value)) {
+    return '[NaN]';
+  }
+  return value > 0 ? '[Infinity]' : '[-Infinity]';
+}
+
+function normalizeDiagnosticValue(value: unknown, active: WeakSet<object>): unknown {
+  if (value === undefined) {
+    return '[Undefined]';
+  }
+  if (typeof value === 'bigint') {
+    return `${value}n`;
+  }
+  if (typeof value === 'function') {
+    return value.name ? `[Function ${value.name}]` : '[Function]';
+  }
+  if (typeof value === 'symbol') {
+    return String(value);
+  }
+  if (typeof value === 'number') {
+    return normalizeDiagnosticNumber(value);
+  }
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  if (active.has(value)) {
+    return CIRCULAR_REFERENCE_MARKER;
+  }
+
+  active.add(value);
+  try {
+    if (value instanceof Date) {
+      return Number.isFinite(value.getTime()) ? value.toISOString() : '[Invalid Date]';
+    }
+    if (Array.isArray(value)) {
+      return value.map((entry) => normalizeDiagnosticValue(entry, active));
+    }
+    if (value instanceof Error) {
+      const customEntries = Object.entries(value).filter(
+        ([key]) => !['cause', 'message', 'name', 'stack'].includes(key)
+      );
+      return {
+        ...Object.fromEntries(
+          customEntries.map(([key, entry]) => [key, normalizeDiagnosticValue(entry, active)])
+        ),
+        cause: normalizeDiagnosticValue(value.cause, active),
+        message: value.message,
+        name: value.name,
+        stack: value.stack ?? '[Undefined]',
+      };
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, normalizeDiagnosticValue(entry, active)])
+    );
+  } finally {
+    active.delete(value);
+  }
+}
+
 function serializeDiagnosticJson(value: unknown, description: string): string {
-  const visited = new WeakSet<object>();
-  const json = JSON.stringify(
-    value,
-    (_key, value: unknown) => {
-      if (typeof value === 'bigint') {
-        return `${value}n`;
-      }
-      if (typeof value !== 'object' || value === null) {
-        return value;
-      }
-      if (visited.has(value)) {
-        return CIRCULAR_REFERENCE_MARKER;
-      }
-      visited.add(value);
-      if (value instanceof Error) {
-        return {
-          cause: value.cause,
-          message: value.message,
-          name: value.name,
-          stack: value.stack,
-        };
-      }
-      return value;
-    },
-    2
-  );
+  const json = JSON.stringify(normalizeDiagnosticValue(value, new WeakSet<object>()), null, 2);
   if (json === undefined) {
     throw new Error(`${description} could not be serialized as JSON`);
   }

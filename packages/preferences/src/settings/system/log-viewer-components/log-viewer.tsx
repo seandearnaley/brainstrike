@@ -26,7 +26,7 @@ import {
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   ALL_CODES_VALUE,
   ALL_SOURCES_VALUE,
@@ -35,7 +35,7 @@ import {
 } from './log-diagnostic-filters';
 import { getLogRecordCode, getLogRecordSource } from './log-diagnostic-metadata';
 import { LogList } from './log-list';
-import { LogRowActions } from './log-record-detail-dialog';
+import { LogRecordDetailDialog, LogRowActions } from './log-record-detail-dialog';
 import { LogToolbar } from './log-toolbar';
 import {
   formatLogTimestamp,
@@ -132,17 +132,28 @@ function shouldIncludeLogRecord(
   timeStart: number | null,
   timeEnd: number | null
 ): boolean {
-  const code = getLogRecordCode(record);
-  return (
-    matchesLogLevel(record, minimumLevelIndex) &&
-    matchesScopeSelection(record, scopeSelection) &&
-    matchesSearchTerm(record, term) &&
-    (sourceSelection === ALL_SOURCES_VALUE || getLogRecordSource(record) === sourceSelection) &&
-    (codeSelection === ALL_CODES_VALUE ||
-      (codeSelection === NO_CODE_VALUE ? code === null : code === codeSelection)) &&
-    (timeStart === null || record.timestamp >= timeStart) &&
-    (timeEnd === null || record.timestamp <= timeEnd)
-  );
+  if (!matchesLogLevel(record, minimumLevelIndex)) {
+    return false;
+  }
+  if (!matchesScopeSelection(record, scopeSelection)) {
+    return false;
+  }
+  if (!matchesSearchTerm(record, term)) {
+    return false;
+  }
+  if (sourceSelection !== ALL_SOURCES_VALUE && getLogRecordSource(record) !== sourceSelection) {
+    return false;
+  }
+  if (codeSelection !== ALL_CODES_VALUE) {
+    const code = getLogRecordCode(record);
+    if (codeSelection === NO_CODE_VALUE ? code !== null : code !== codeSelection) {
+      return false;
+    }
+  }
+  if (timeStart !== null && record.timestamp < timeStart) {
+    return false;
+  }
+  return timeEnd === null || record.timestamp <= timeEnd;
 }
 
 function getRuntimeSource(record: LogRecord): string {
@@ -169,7 +180,10 @@ function formatSourceCoverage(records: readonly LogRecord[]): string {
     .join(' · ')}`;
 }
 
-function buildLogColumns(wrapLines: boolean): ColumnDef<LogRecordRow>[] {
+function buildLogColumns(
+  wrapLines: boolean,
+  onShowDetails: (record: LogRecord) => void
+): ColumnDef<LogRecordRow>[] {
   const messageClassName = wrapLines ? 'line-clamp-2 break-words' : 'truncate';
   const payloadClassName = wrapLines ? 'line-clamp-2 break-all' : 'truncate';
   return [
@@ -276,7 +290,9 @@ function buildLogColumns(wrapLines: boolean): ColumnDef<LogRecordRow>[] {
       size: 220,
     },
     {
-      cell: ({ row }) => <LogRowActions record={row.original.originalRecord} />,
+      cell: ({ row }) => (
+        <LogRowActions onShowDetails={onShowDetails} record={row.original.originalRecord} />
+      ),
       enableHiding: false,
       enableSorting: false,
       header: 'Actions',
@@ -386,6 +402,7 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
 
 export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) {
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
+  const [selectedRecord, setSelectedRecord] = useState<LogRecord | null>(null);
   const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
   const {
     logRecords,
@@ -518,7 +535,13 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     });
   }, [filteredRecords]);
 
-  const columns = useMemo(() => buildLogColumns(wrapLines), [wrapLines]);
+  const handleShowDetails = useCallback((record: LogRecord) => {
+    setSelectedRecord(record);
+  }, []);
+  const columns = useMemo(
+    () => buildLogColumns(wrapLines, handleShowDetails),
+    [handleShowDetails, wrapLines]
+  );
 
   const sortNewestFirst = sorting[0]?.desc ?? false;
   const lastPageIndex = Math.max(0, Math.ceil(filteredRecords.length / pagination.pageSize) - 1);
@@ -661,90 +684,93 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
   }
 
   return (
-    <Card className="flex h-[600px] flex-col overflow-hidden border-border/60 shadow-sm transition-all duration-300 hover:shadow-md">
-      <CardHeader className="border-border/40 border-b bg-muted/10 pb-3">
-        <CardTitle className="font-semibold text-lg tracking-tight">Log Viewer</CardTitle>
-        <CardDescription className="text-xs">
-          Real-time application logs and diagnostics.
-        </CardDescription>
-      </CardHeader>
+    <>
+      <Card className="flex h-[600px] flex-col overflow-hidden border-border/60 shadow-sm transition-all duration-300 hover:shadow-md">
+        <CardHeader className="border-border/40 border-b bg-muted/10 pb-3">
+          <CardTitle className="font-semibold text-lg tracking-tight">Log Viewer</CardTitle>
+          <CardDescription className="text-xs">
+            Real-time application logs and diagnostics.
+          </CardDescription>
+        </CardHeader>
 
-      <LogToolbar
-        autoScroll={autoScroll}
-        canRefresh={Boolean(logSource.getInitialRecords)}
-        diagnosticFilters={
-          <LogDiagnosticFilters
-            codeFilter={codeFilter}
-            onCodeChange={(code) => dispatch({ code, type: 'SET_CODE_FILTER' })}
-            onSourceChange={(source) => dispatch({ source, type: 'SET_SOURCE_FILTER' })}
-            onTimeEndChange={(value) => dispatch({ type: 'SET_TIME_END', value })}
-            onTimeStartChange={(value) => dispatch({ type: 'SET_TIME_START', value })}
-            records={logRecords}
-            sourceFilter={sourceFilter}
-            timeEnd={timeEnd}
-            timeStart={timeStart}
-          />
-        }
-        globalFilter={globalFilter}
-        logLevelFilter={logLevelFilter}
-        logLevelItems={LOG_LEVEL_ITEMS}
-        logsLoading={logsLoading}
-        onAutoScrollChange={(value) => dispatch({ type: 'SET_AUTO_SCROLL', value })}
-        onExport={handleExportLogs}
-        onLevelChange={(level) => dispatch({ level, type: 'SET_LOG_LEVEL_FILTER' })}
-        onPageSizeChange={handlePageSizeChange}
-        onRefresh={handleRefreshLogs}
-        onRetentionChange={(limit) => dispatch({ limit, type: 'SET_RETENTION_LIMIT' })}
-        onScopeChange={(scope) => dispatch({ scope, type: 'SET_SCOPE_FILTER' })}
-        onSearchChange={(filter) => dispatch({ filter, type: 'SET_GLOBAL_FILTER' })}
-        onSortNewestFirstChange={handleSortNewestFirstChange}
-        onWrapLinesChange={(value) => dispatch({ type: 'SET_WRAP_LINES', value })}
-        pageSize={pagination.pageSize}
-        pageSizeItems={PAGE_SIZE_ITEMS}
-        retentionItems={RETENTION_ITEMS}
-        retentionLimit={retentionLimit}
-        rowsCount={filteredRecords.length}
-        scopeFilter={scopeFilter}
-        scopeItems={scopeItems}
-        sortNewestFirst={sortNewestFirst}
-        table={table}
-        wrapLines={wrapLines}
-      />
-
-      <CardContent className="relative flex flex-1 flex-col overflow-hidden p-0">
-        <LogList
+        <LogToolbar
           autoScroll={autoScroll}
-          autoScrollAnchor={sortNewestFirst ? 'start' : 'end'}
+          canRefresh={Boolean(logSource.getInitialRecords)}
+          diagnosticFilters={
+            <LogDiagnosticFilters
+              codeFilter={codeFilter}
+              onCodeChange={(code) => dispatch({ code, type: 'SET_CODE_FILTER' })}
+              onSourceChange={(source) => dispatch({ source, type: 'SET_SOURCE_FILTER' })}
+              onTimeEndChange={(value) => dispatch({ type: 'SET_TIME_END', value })}
+              onTimeStartChange={(value) => dispatch({ type: 'SET_TIME_START', value })}
+              records={logRecords}
+              sourceFilter={sourceFilter}
+              timeEnd={timeEnd}
+              timeStart={timeStart}
+            />
+          }
+          globalFilter={globalFilter}
+          logLevelFilter={logLevelFilter}
+          logLevelItems={LOG_LEVEL_ITEMS}
           logsLoading={logsLoading}
-          rows={rows}
+          onAutoScrollChange={(value) => dispatch({ type: 'SET_AUTO_SCROLL', value })}
+          onExport={handleExportLogs}
+          onLevelChange={(level) => dispatch({ level, type: 'SET_LOG_LEVEL_FILTER' })}
+          onPageSizeChange={handlePageSizeChange}
+          onRefresh={handleRefreshLogs}
+          onRetentionChange={(limit) => dispatch({ limit, type: 'SET_RETENTION_LIMIT' })}
+          onScopeChange={(scope) => dispatch({ scope, type: 'SET_SCOPE_FILTER' })}
+          onSearchChange={(filter) => dispatch({ filter, type: 'SET_GLOBAL_FILTER' })}
+          onSortNewestFirstChange={handleSortNewestFirstChange}
+          onWrapLinesChange={(value) => dispatch({ type: 'SET_WRAP_LINES', value })}
+          pageSize={pagination.pageSize}
+          pageSizeItems={PAGE_SIZE_ITEMS}
+          retentionItems={RETENTION_ITEMS}
+          retentionLimit={retentionLimit}
+          rowsCount={filteredRecords.length}
+          scopeFilter={scopeFilter}
+          scopeItems={scopeItems}
+          sortNewestFirst={sortNewestFirst}
           table={table}
           wrapLines={wrapLines}
-          {...(emptyStateText === undefined ? {} : { emptyStateText })}
         />
-        <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-background to-transparent opacity-50" />
-      </CardContent>
 
-      <div className="flex items-center justify-between border-border/40 border-t bg-muted/20 px-4 py-2 text-[10px] text-muted-foreground">
-        <span data-testid="log-viewer-summary">{summaryText}</span>
-        <span className="flex items-center gap-3">
-          <span data-testid="log-viewer-source-coverage">{sourceCoverageText}</span>
-          <span>{autoScroll ? 'Auto-scroll on' : 'Scroll paused'}</span>
-        </span>
-      </div>
-      {totalPages > 1 ? (
-        <TablePagination
-          currentPage={resolvedPageIndex}
-          onPageChange={(page) => {
-            dispatch({ type: 'SET_AUTO_SCROLL', value: false });
-            dispatch({
-              pagination: (previous) => ({ ...previous, pageIndex: page }),
-              type: 'SET_PAGINATION',
-            });
-          }}
-          totalItems={filteredRecords.length}
-          totalPages={totalPages}
-        />
-      ) : null}
-    </Card>
+        <CardContent className="relative flex flex-1 flex-col overflow-hidden p-0">
+          <LogList
+            autoScroll={autoScroll}
+            autoScrollAnchor={sortNewestFirst ? 'start' : 'end'}
+            logsLoading={logsLoading}
+            rows={rows}
+            table={table}
+            wrapLines={wrapLines}
+            {...(emptyStateText === undefined ? {} : { emptyStateText })}
+          />
+          <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-background to-transparent opacity-50" />
+        </CardContent>
+
+        <div className="flex items-center justify-between border-border/40 border-t bg-muted/20 px-4 py-2 text-[10px] text-muted-foreground">
+          <span data-testid="log-viewer-summary">{summaryText}</span>
+          <span className="flex items-center gap-3">
+            <span data-testid="log-viewer-source-coverage">{sourceCoverageText}</span>
+            <span>{autoScroll ? 'Auto-scroll on' : 'Scroll paused'}</span>
+          </span>
+        </div>
+        {totalPages > 1 ? (
+          <TablePagination
+            currentPage={resolvedPageIndex}
+            onPageChange={(page) => {
+              dispatch({ type: 'SET_AUTO_SCROLL', value: false });
+              dispatch({
+                pagination: (previous) => ({ ...previous, pageIndex: page }),
+                type: 'SET_PAGINATION',
+              });
+            }}
+            totalItems={filteredRecords.length}
+            totalPages={totalPages}
+          />
+        ) : null}
+      </Card>
+      <LogRecordDetailDialog onClose={() => setSelectedRecord(null)} record={selectedRecord} />
+    </>
   );
 }

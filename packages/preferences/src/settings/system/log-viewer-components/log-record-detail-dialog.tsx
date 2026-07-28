@@ -7,12 +7,11 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import { ListTree } from 'lucide-react';
 import {
-  getLogRecordCauseChain,
+  getLogRecordCauseChainDiagnostics,
   getLogRecordCode,
   getLogRecordContext,
   getLogRecordFingerprint,
@@ -23,6 +22,12 @@ import {
 } from './log-diagnostic-metadata';
 
 interface LogRecordDetailDialogProps {
+  onClose: () => void;
+  record: LogRecord | null;
+}
+
+interface LogRowActionsProps {
+  onShowDetails: (record: LogRecord) => void;
   record: LogRecord;
 }
 
@@ -31,7 +36,9 @@ interface DetailValueProps {
   value: string | null | undefined;
 }
 
-function buildCauseRows(causeChain: ReturnType<typeof getLogRecordCauseChain>) {
+function buildCauseRows(
+  causeChain: ReturnType<typeof getLogRecordCauseChainDiagnostics>['entries']
+) {
   const occurrences = new Map<string, number>();
   return causeChain.map((cause) => {
     const signature = `${cause.name}:${cause.code ?? ''}:${cause.message}`;
@@ -50,25 +57,25 @@ function DetailValue({ label, value }: DetailValueProps) {
   );
 }
 
-export function LogRecordDetailDialog({ record }: LogRecordDetailDialogProps) {
-  const causeChain = getLogRecordCauseChain(record);
+export function LogRecordDetailDialog({ record, onClose }: LogRecordDetailDialogProps) {
+  if (!record) {
+    return null;
+  }
+  const causeDiagnostics = getLogRecordCauseChainDiagnostics(record);
+  const causeChain = causeDiagnostics.entries;
   const causeRows = buildCauseRows(causeChain);
   const stack = getLogRecordStack(record);
   const context = getLogRecordContext(record);
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          aria-label={`View details for ${record.message ?? 'log record'}`}
-          className="h-7 gap-1.5 px-2 text-xs"
-          size="sm"
-          variant="ghost"
-        >
-          <ListTree aria-hidden="true" className="h-3.5 w-3.5" />
-          Details
-        </Button>
-      </DialogTrigger>
+    <Dialog
+      onOpenChange={(open) => {
+        if (!open) {
+          onClose();
+        }
+      }}
+      open
+    >
       <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Diagnostic details</DialogTitle>
@@ -110,6 +117,15 @@ export function LogRecordDetailDialog({ record }: LogRecordDetailDialogProps) {
                 ))}
               </ol>
             )}
+            {causeDiagnostics.malformedEntryCount > 0 ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive text-sm">
+                {causeDiagnostics.malformedEntryCount}{' '}
+                {causeDiagnostics.malformedEntryCount === 1
+                  ? 'malformed cause entry was'
+                  : 'malformed cause entries were'}{' '}
+                omitted.
+              </div>
+            ) : null}
           </section>
 
           {stack ? (
@@ -133,11 +149,20 @@ export function LogRecordDetailDialog({ record }: LogRecordDetailDialogProps) {
   );
 }
 
-export function LogRowActions({ record }: LogRecordDetailDialogProps) {
+export function LogRowActions({ record, onShowDetails }: LogRowActionsProps) {
   const recordLabel = record.message ?? 'log record';
   return (
     <div className="flex items-center gap-1">
-      <LogRecordDetailDialog record={record} />
+      <Button
+        aria-label={`View details for ${recordLabel}`}
+        className="h-7 gap-1.5 px-2 text-xs"
+        onClick={() => onShowDetails(record)}
+        size="sm"
+        variant="ghost"
+      >
+        <ListTree aria-hidden="true" className="h-3.5 w-3.5" />
+        Details
+      </Button>
       <CopyTextButton
         ariaLabel={`Copy ${recordLabel} as JSON`}
         label="Copy JSON"
