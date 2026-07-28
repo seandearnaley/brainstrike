@@ -782,9 +782,8 @@ export function AssistantUiPanelWrapper({
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
   const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
-  useAssistantThreadTitleSync({
+  const refreshThreadsAfterRun = useAssistantThreadTitleSync({
     enabled: Boolean(db && !dbInitializing && resourceThreadsReady),
-    loadReady: resourceThreadsReady,
     refreshResourceThreads,
     repository: assistantThreadRepository,
     resourceId: memoryResourceId,
@@ -1449,6 +1448,9 @@ export function AssistantUiPanelWrapper({
         useContextUsageStore.getState().clearBreakdown(threadId);
       }
       useContextUsageStore.getState().recordUsage(threadId, pickContextMeterUsage(usage));
+      // Keep recency, latest-run details, and ordering fresh after each turn.
+      // Live title sync handles the later async write and logs subscription failures.
+      refreshThreadsAfterRun();
 
       // Durable sink: requires a real thread id, the desktop PGlite repo, and the
       // in-flight run's request-start usage context. A missing piece means we
@@ -1488,6 +1490,7 @@ export function AssistantUiPanelWrapper({
       localChatTransport,
       memoryResourceId,
       refreshCumulativeUsage,
+      refreshThreadsAfterRun,
       selectedMemoryThreadId,
       selectedProvider,
     ]

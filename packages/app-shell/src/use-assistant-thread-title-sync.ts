@@ -1,6 +1,6 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import type { AssistantThreadRepository } from './assistant-memory-repository';
 
 const logger = createLogger('AssistantThreadTitleSync');
@@ -19,7 +19,6 @@ interface AssistantThreadTitleRow {
 
 interface UseAssistantThreadTitleSyncInput {
   readonly enabled: boolean;
-  readonly loadReady: boolean;
   readonly refreshResourceThreads: (
     repository: AssistantThreadRepository,
     resourceId: string
@@ -31,18 +30,17 @@ interface UseAssistantThreadTitleSyncInput {
 /**
  * Keep the thread store aligned with out-of-band Mastra title writes.
  *
- * Idle observational-memory buffering finishes after the main provider turn,
- * so a message-finish callback races the title update. PGlite's live query is
- * the exact local mutation signal. Depending on a stable id/title signature
- * avoids re-listing threads when Mastra only bumps a thread's updatedAt.
+ * Mastra title generation settles after the main provider turn, so a
+ * message-finish callback can race the title update. PGlite's live query is the
+ * exact local mutation signal. Depending on a stable id/title signature avoids
+ * re-listing threads when Mastra only bumps a thread's updatedAt.
  */
 export function useAssistantThreadTitleSync({
   enabled,
-  loadReady,
   refreshResourceThreads,
   repository,
   resourceId,
-}: UseAssistantThreadTitleSyncInput): void {
+}: UseAssistantThreadTitleSyncInput): () => void {
   const { error, loading, rows } = usePGliteLiveQuery<AssistantThreadTitleRow>({
     cacheKey: makeLiveQueryKey('assistant-thread-titles', resourceId),
     clearOnDisable: true,
@@ -54,6 +52,17 @@ export function useAssistantThreadTitleSync({
     () => JSON.stringify(rows.map(({ id, title }) => [id, title])),
     [rows]
   );
+  const refreshAfterRun = useCallback(() => {
+    if (!repository) {
+      return;
+    }
+    refreshResourceThreads(repository, resourceId).catch((refreshError: unknown) => {
+      logger.warn('Failed to refresh assistant threads after run', {
+        error: refreshError,
+        resourceId,
+      });
+    });
+  }, [refreshResourceThreads, repository, resourceId]);
 
   useEffect(() => {
     if (error) {
@@ -62,7 +71,7 @@ export function useAssistantThreadTitleSync({
   }, [error, resourceId]);
 
   useEffect(() => {
-    if (!(enabled && loadReady && repository) || loading || error) {
+    if (!(enabled && repository) || loading || error) {
       return;
     }
     refreshResourceThreads(repository, resourceId).catch((refreshError: unknown) => {
@@ -71,14 +80,7 @@ export function useAssistantThreadTitleSync({
         resourceId,
       });
     });
-  }, [
-    enabled,
-    error,
-    loadReady,
-    loading,
-    refreshResourceThreads,
-    repository,
-    resourceId,
-    titleSignature,
-  ]);
+  }, [enabled, error, loading, refreshResourceThreads, repository, resourceId, titleSignature]);
+
+  return refreshAfterRun;
 }
