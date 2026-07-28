@@ -66,19 +66,10 @@ describe('logging-preferences', () => {
       },
     });
 
-    applyLoggingPreferences(preferences, 'electron-main');
-
-    expect(configureLoggerSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        file: {
-          append: false,
-          destination: '/tmp/brainstrike.log',
-          enabled: true,
-          level: LogLevel.DEBUG,
-          mkdir: true,
-        },
-      })
+    expect(() => applyLoggingPreferences(preferences, 'electron-main')).toThrow(
+      /explicit rotating fileTransport/
     );
+    expect(configureLoggerSpy).not.toHaveBeenCalled();
   });
 
   it('applies an Electron-owned rotating transport without changing file preferences', () => {

@@ -897,13 +897,23 @@ closed the fd by the time these `rm` calls execute.
 
 **Full INFO-log rotation (BST-854)**: `brainstrike.log` now uses the standalone
 Pino worker target `apps/desktop/src/diagnostics/main-log-transport.ts`, bundled
-as the flat main-process entry `dist/main-log-transport.js`. The target passes
-Pino's already-delimited bytes unchanged to the same `RotatingFileSink` used by
-the diagnostic backstop: 10 MB × 5 files, drop-oldest slot math, encoded-byte
-accounting, short-write failure, and append/mkdir preference semantics. The
-ordinary `file` logger configuration carries the custom target through both
-initialization and every runtime preference reconfiguration; falling back to
-`pino/file` would silently restore unbounded growth and is forbidden.
+as the flat main-process entry `dist/main-log-transport.js`. Packaged builds
+explicitly put that entry in `app.asar.unpacked`, and
+`resolveMainLogTransportPath` rejects an unexpected packaged layout rather than
+depending on worker-thread ASAR loading or silently trying another target. The
+target passes Pino's already-delimited bytes unchanged to the same
+`RotatingFileSink` used by the diagnostic backstop: 10 MB × 5 files,
+drop-oldest slot math, encoded-byte accounting, short-write failure, and
+append/mkdir preference semantics. It coalesces complete records up to each
+rotation boundary, preserving line-granular rotation without a synchronous
+write per record. Sink failure reports exactly once through the worker's raw
+console channel and disables only the file sink; it does not error the shared
+Pino transport stream and take the console target down with it. The ordinary
+`file` logger configuration carries the custom target through both
+initialization and every runtime preference reconfiguration;
+`applyLoggingPreferences` throws if Electron main enables file logging without
+an explicit target, because falling back to `pino/file` would silently restore
+unbounded growth.
 `brainstrike.log` and its rotated siblings remain deliberately PRESERVED by
 factory reset. They are the full operational log, not a plaintext mirror of
 the reset diagnostic table. Shutdown still owns no new main-thread sink handle:
@@ -957,6 +967,8 @@ rather than a swallowed failure rendering as a successful-but-empty file.
 **Paired tests**: `packages/utils/src/__tests__/diagnostic-event-ndjson.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/rotating-file-sink.integration.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/main-log-transport.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/main-log-transport-path.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/main-log-transport-worker.integration.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/error-log-sink.test.ts`,
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (the
 `recordDurableLog handler` describe block covers the two `logging-ipc.ts`

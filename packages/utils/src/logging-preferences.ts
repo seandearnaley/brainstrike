@@ -117,6 +117,11 @@ export function applyLoggingPreferences(
   };
 
   const fileConfig = buildFileConfig(preferences, runtime);
+  if (fileConfig && runtime === 'electron-main' && !additionalConfig?.fileTransport) {
+    throw new Error(
+      'applyLoggingPreferences: electron-main file logging requires an explicit rotating fileTransport'
+    );
+  }
   if (fileConfig !== undefined) {
     config.file =
       fileConfig && additionalConfig?.fileTransport

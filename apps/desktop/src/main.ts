@@ -57,6 +57,7 @@ import {
   type ErrorLogSinkHandle,
   listErrorLogFilePaths,
 } from './diagnostics/error-log-sink';
+import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-path';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import {
   type DimensionIndexBuildStrategy,
@@ -211,7 +212,7 @@ function createMainLogTransportConfig(): Pick<FileTransportConfig, 'options' | '
       maxBytes: DEFAULT_MAX_BYTES,
       maxFiles: DEFAULT_MAX_FILES,
     },
-    target: path.join(app.getAppPath(), 'dist', 'main-log-transport.js'),
+    target: resolveMainLogTransportPath(app.getAppPath(), app.isPackaged),
   };
 }
 

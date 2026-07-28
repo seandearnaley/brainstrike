@@ -94,8 +94,67 @@ export class RotatingFileSink {
    * `writeLine` to add its own delimiter.
    */
   writeChunk(chunk: string | Uint8Array): void {
-    const buffer = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : Buffer.from(chunk);
+    const buffer =
+      typeof chunk === 'string'
+        ? Buffer.from(chunk, 'utf8')
+        : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
     this.writeBuffer(buffer);
+  }
+
+  /**
+   * Writes complete record chunks while coalescing adjacent records that fit
+   * before the next rotation boundary. The record boundaries remain the unit
+   * of rotation, but the common case becomes one copy and one syscall for an
+   * entire Pino worker batch instead of one of each per record.
+   */
+  writeRecordChunks(chunks: readonly Uint8Array[]): void {
+    if (this.isDisabled || chunks.length === 0) {
+      return;
+    }
+
+    try {
+      this.ensureOpen();
+    } catch (error) {
+      this.disable(error);
+      return;
+    }
+
+    let batch: Buffer[] = [];
+    let batchBytes = 0;
+    const flushBatch = (): void => {
+      if (batchBytes === 0) {
+        return;
+      }
+      const output = batch.length === 1 ? batch[0] : Buffer.concat(batch, batchBytes);
+      if (output) {
+        this.writeBuffer(output);
+      }
+      batch = [];
+      batchBytes = 0;
+    };
+
+    for (const chunk of chunks) {
+      if (this.isDisabled) {
+        return;
+      }
+      const buffer = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      if (buffer.byteLength === 0) {
+        continue;
+      }
+
+      const projectedSize = this.currentSize + batchBytes;
+      if (projectedSize > 0 && projectedSize + buffer.byteLength > this.maxBytes) {
+        flushBatch();
+        if (this.isDisabled) {
+          return;
+        }
+      }
+
+      batch.push(buffer);
+      batchBytes += buffer.byteLength;
+    }
+
+    flushBatch();
   }
 
   /**
