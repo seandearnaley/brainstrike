@@ -122,13 +122,21 @@ function executeHook(
     // Hooks need ordinary shell/runtime variables, but repository-controlled
     // commands must never inherit provider credentials resolved into the
     // privileged Desktop main-process environment.
+    const childEnvironment = createCredentialIsolatedChildEnvironment(process.env);
+    const strippedCredentialCount =
+      Object.keys(process.env).length - Object.keys(childEnvironment).length;
+    if (strippedCredentialCount > 0) {
+      logger.debug('hook environment removed provider credentials', {
+        strippedCredentialCount,
+      });
+    }
     const child = spawn(shell, shellArgs, {
       cwd: hook.source.cwd,
       // POSIX: own process group so the timeout can group-kill the whole tree
       // (see killHookTree). Windows has no process groups here.
       detached: !isWindows,
       env: {
-        ...createCredentialIsolatedChildEnvironment(process.env),
+        ...childEnvironment,
         BRAINSTRIKE_HOOK_EVENT: stdin.hook_event_name,
       },
       stdio: ['pipe', 'pipe', 'pipe'],

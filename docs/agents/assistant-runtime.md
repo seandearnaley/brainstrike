@@ -1357,9 +1357,12 @@ Stdin payloads are secret-redacted before spawn (`executor.ts` `redactSecrets`,
 mirrors the logger redact key set). The hook keeps ordinary parent shell/runtime
 variables, but `createCredentialIsolatedChildEnvironment` removes every provider
 and Tavily credential name derived from the same canonical registries used by
-desktop environment-file loading before spawn. This boundary is required even
-for SHA-256-approved project hooks: approval authorizes the reviewed command,
-not ambient disclosure of unrelated Brainstrike credentials.
+desktop environment-file loading before hooks and non-interactive command/skill
+children spawn. This boundary is required even for SHA-256-approved project
+hooks: approval authorizes the reviewed command, not ambient disclosure of
+unrelated Brainstrike credentials. Scope: interactive terminal/command-session
+PTYs and the LSP child still inherit the full parent environment; those
+human-controlled/runtime-support processes are separate trust decisions.
 
 **Config paths (D6):** global `~/.brainstrike/hooks.json` (new home-dotfile, for
 discoverability); per-root `<root>/.brainstrike/hooks.json`. Merge order:

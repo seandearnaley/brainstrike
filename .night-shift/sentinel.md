@@ -57,6 +57,6 @@
 **Prevention:** Apply a separate per-owner cap to logical registrations in the same synchronous section that resolves sharing and native capacity.
 
 ## Repository-controlled child processes must not inherit provider credentials
-**Vulnerability:** Approved project hooks inherited the Desktop main process's complete environment, including provider and Tavily credentials loaded from supported environment files.
-**Learning:** Hash approval authorizes the reviewed hook command but does not isolate unrelated ambient authority; stdin redaction cannot protect child-process environment variables.
-**Prevention:** Derive the credential deny-set from the canonical provider registry plus Tavily keys, remove those names before spawning repository hooks, and prove ordinary shell variables and the hook event marker remain available.
+**Vulnerability:** Approved project hooks and non-interactive repository command/skill children inherited the Desktop main process's complete environment, including provider and Tavily credentials loaded from supported environment files.
+**Learning:** Hash or tool approval authorizes the reviewed command but does not isolate unrelated ambient authority; stdin redaction cannot protect child-process environment variables, and Windows environment names are case-insensitive.
+**Prevention:** Derive a dedicated credential deny-set from the canonical provider registry plus Tavily keys, filter names case-insensitively before spawning non-interactive repository children, log the stripped count, and prove ordinary shell variables remain available.
