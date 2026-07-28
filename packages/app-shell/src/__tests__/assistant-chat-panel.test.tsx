@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantChatPanel } from '../assistant-chat-panel';
 
 const { assistantUiPanelWrapperLazyMock } = vi.hoisted(() => ({
-  assistantUiPanelWrapperLazyMock: vi.fn(() => <div>Assistant UI Panel</div>),
+  assistantUiPanelWrapperLazyMock: vi.fn((_props: Record<string, unknown>) => (
+    <div>Assistant UI Panel</div>
+  )),
 }));
 
 vi.mock('../hooks/use-assistant-availability-with-local', () => ({
@@ -222,5 +224,42 @@ describe('AssistantChatPanel', () => {
       }),
       undefined
     );
+  });
+
+  it('keeps fixed provider models referentially stable across equivalent renders', () => {
+    const status = {
+      model: 'gpt-5.6-terra',
+      provider: 'openai' as const,
+      providers: ['openai', 'anthropic'] as const,
+      state: 'enabled' as const,
+    };
+    useAssistantAvailabilityWithLocalMock.mockReturnValue(status);
+
+    const { rerender } = render(<AssistantChatPanel />);
+    const firstModels =
+      assistantUiPanelWrapperLazyMock.mock.calls.at(-1)?.[0]['fixedProviderModels'];
+
+    rerender(<AssistantChatPanel />);
+
+    expect(assistantUiPanelWrapperLazyMock.mock.calls.at(-1)?.[0]['fixedProviderModels']).toBe(
+      firstModels
+    );
+  });
+
+  it('surfaces an advertised provider without a registry default instead of crashing render', () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      model: 'gpt-5.6-terra',
+      provider: 'openai',
+      providers: ['openai', 'cohere'],
+      state: 'enabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText('Assistant status provider cohere has no registry default model')
+    ).toBeInTheDocument();
+    expect(assistantUiPanelWrapperLazyMock).not.toHaveBeenCalled();
   });
 });

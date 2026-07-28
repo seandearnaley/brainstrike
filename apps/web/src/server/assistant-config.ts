@@ -9,7 +9,7 @@ export const HOSTED_WEB_ASSISTANT_PROVIDERS = [
   'anthropic',
   'google',
   'openrouter',
-] as const;
+] as const satisfies readonly SupportedProvider[];
 
 export type HostedWebAssistantProvider = (typeof HOSTED_WEB_ASSISTANT_PROVIDERS)[number];
 
@@ -84,10 +84,15 @@ export function resolveAssistantProviderConfigs(
     provider: HostedWebAssistantProvider
   ) => AssistantProviderConfig = resolveAssistantProviderConfig
 ): readonly ConfiguredAssistantProviderConfig[] {
-  return HOSTED_WEB_ASSISTANT_PROVIDERS.map((provider) => ({
-    ...resolveConfig(provider),
-    provider,
-  })).filter(isConfiguredAssistantProvider);
+  return HOSTED_WEB_ASSISTANT_PROVIDERS.map((provider) => {
+    const config = resolveConfig(provider);
+    if (config.provider !== provider) {
+      throw new Error(
+        `Hosted Web provider resolver returned ${String(config.provider)} for ${provider}`
+      );
+    }
+    return config;
+  }).filter(isConfiguredAssistantProvider);
 }
 
 export function resolveHostedWebAssistantStatus(

@@ -7,7 +7,7 @@ import {
   PROVIDER_DEFAULT_MODELS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import type { ReactElement } from 'react';
+import { type ReactElement, useMemo } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
 import type { AssistantProviderReadError } from './hooks/use-assistant-availability';
@@ -19,9 +19,15 @@ export interface AssistantChatPanelProps {
 
 export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelProps): ReactElement {
   const status = useAssistantAvailabilityWithLocal();
+  const fixedProviderModelsResolution = useMemo<FixedProviderModelsResolution>(() => {
+    if (!(status.state === 'enabled' && status.provider && status.model)) {
+      return { state: 'not-required' };
+    }
+    return resolveFixedProviderModels(status.provider, status.model, status.providers);
+  }, [status]);
   const fixedProviderModels =
-    status.state === 'enabled' && status.provider && status.model
-      ? resolveFixedProviderModels(status.provider, status.model, status.providers)
+    fixedProviderModelsResolution.state === 'ready'
+      ? fixedProviderModelsResolution.models
       : undefined;
 
   return (
@@ -50,7 +56,17 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
             />
           </div>
         )}
-        {status.state === 'enabled' && (
+        {status.state === 'enabled' && fixedProviderModelsResolution.state === 'error' && (
+          <div className="p-4">
+            <AssistantStatusCallout
+              description="Could not validate the assistant provider configuration."
+              detail={fixedProviderModelsResolution.message}
+              title="Assistant unavailable"
+              variant="error"
+            />
+          </div>
+        )}
+        {status.state === 'enabled' && fixedProviderModelsResolution.state !== 'error' && (
           <AssistantUiPanelWrapperLazy
             {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
             {...(status.provider && status.model
@@ -72,11 +88,19 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
   );
 }
 
+type FixedProviderModelsResolution =
+  | { readonly state: 'not-required' }
+  | {
+      readonly models: Partial<Record<SupportedProvider, readonly string[]>>;
+      readonly state: 'ready';
+    }
+  | { readonly message: string; readonly state: 'error' };
+
 function resolveFixedProviderModels(
   primaryProvider: SupportedProvider,
   primaryModel: string,
   providers: readonly SupportedProvider[] | undefined
-): Partial<Record<SupportedProvider, readonly string[]>> {
+): FixedProviderModelsResolution {
   const fixedModels: Partial<Record<SupportedProvider, readonly string[]>> = {};
   for (const provider of providers ?? [primaryProvider]) {
     if (provider === primaryProvider) {
@@ -85,11 +109,14 @@ function resolveFixedProviderModels(
     }
     const defaultModel = PROVIDER_DEFAULT_MODELS[provider];
     if (!defaultModel) {
-      throw new Error(`Assistant status provider ${provider} has no registry default model`);
+      return {
+        message: `Assistant status provider ${provider} has no registry default model`,
+        state: 'error',
+      };
     }
     fixedModels[provider] = [defaultModel];
   }
-  return fixedModels;
+  return { models: fixedModels, state: 'ready' };
 }
 
 function toProviderReadErrors(

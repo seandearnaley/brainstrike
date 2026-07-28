@@ -7,6 +7,7 @@ import {
 import {
   isSupportedProvider,
   isValidModelForProvider,
+  PROVIDER_DEFAULT_MODELS,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -524,6 +525,11 @@ function validateProviderStatusConsistency({
 }): void {
   if (providers && providers.length === 0) {
     throw new Error('Enabled assistant status must include an available provider');
+  }
+  for (const provider of providers ?? []) {
+    if (!PROVIDER_DEFAULT_MODELS[provider]) {
+      throw new Error(`Assistant status provider ${provider} has no registry default model`);
+    }
   }
   const failedProviders = new Set(providerErrors?.map(({ provider }) => provider));
   if (providers?.some((provider) => failedProviders.has(provider))) {

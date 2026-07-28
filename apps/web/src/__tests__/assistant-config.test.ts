@@ -1,3 +1,4 @@
+import { providerEnvKeys } from '@brainstrike/agent/hosted-web';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getAssistantApiKey,
@@ -7,21 +8,7 @@ import {
   resolveHostedWebAssistantStatus,
 } from '../server/assistant-config';
 
-const ENV_KEYS = [
-  'BRAINSTRIKE_OPENAI_API_KEY',
-  'BS_OPENAI_API_KEY',
-  'OPENAI_API_KEY',
-  'AI_OPENAI_API_KEY',
-  'OPENAI_API_KEY_V1',
-  'OPENAI_API_KEY_V2',
-  'ANTHROPIC_API_KEY',
-  'AI_ANTHROPIC_API_KEY',
-  'GOOGLE_GENERATIVE_AI_API_KEY',
-  'GOOGLE_API_KEY',
-  'AI_GOOGLE_API_KEY',
-  'OPENROUTER_API_KEY',
-  'AI_OPENROUTER_API_KEY',
-] as const;
+const ENV_KEYS = [...new Set(HOSTED_WEB_ASSISTANT_PROVIDERS.flatMap(providerEnvKeys))];
 
 const clearApiKeys = (): void => {
   for (const key of ENV_KEYS) {
@@ -29,7 +16,7 @@ const clearApiKeys = (): void => {
   }
 };
 
-const originalValues = new Map<(typeof ENV_KEYS)[number], string | undefined>();
+const originalValues = new Map<string, string | undefined>();
 
 const snapshotApiKeys = (): void => {
   originalValues.clear();
@@ -134,6 +121,17 @@ describe('assistant-config', () => {
       providers: ['openai', 'anthropic', 'google', 'openrouter'],
     });
     expect(JSON.stringify(status)).not.toContain('apiKey');
+  });
+
+  it('rejects a resolver result whose provider does not match the requested credential', () => {
+    expect(() =>
+      resolveAssistantProviderConfigs((provider) => ({
+        apiKey: `${provider}-key`,
+        enabled: true,
+        provider: provider === 'openai' ? 'anthropic' : provider,
+        source: provider === 'openai' ? 'ANTHROPIC_API_KEY' : `${provider.toUpperCase()}_API_KEY`,
+      }))
+    ).toThrowError('Hosted Web provider resolver returned anthropic for openai');
   });
 
   it('returns provider-specific disabled config when no key is available', () => {

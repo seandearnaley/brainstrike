@@ -501,10 +501,11 @@ An enabled Hosted Web status response advertises its trusted primary runtime
 pair plus every configured provider:
 `{enabled:true,provider:<first configured>,model:<registry default>,providers:[...],providerKeySources:[...]}`.
 The stable provider priority is OpenAI, Anthropic, Google, then OpenRouter. The
-app shell validates the pair, provider list, and environment provenance against
-the shared registry, skips renderer-side key discovery, and fixes every
-advertised provider to its registry default model. The primary pair remains
-atomic; incomplete, unknown, duplicate, or inconsistent metadata fails visibly.
+server and app shell consume the same provider registry: the shell validates the
+primary pair, provider list, and environment provenance, skips renderer-side key
+discovery, and derives each secondary provider's fixed registry-default model.
+The primary pair remains atomic; a provider without a registry default, or any
+incomplete, unknown, duplicate, or inconsistent metadata, fails visibly.
 Desktop status may omit the pair, in which case its encrypted-key discovery
 remains authoritative.
 
