@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isDiagnosticCauseEntry,
   parseDiagnosticEventLine,
   serializeDiagnosticEventLine,
   serializeDiagnosticEventsNdjson,
@@ -73,6 +74,12 @@ const EXPECTED_KEY_ORDER = [
 ];
 
 describe('serializeDiagnosticEventLine / parseDiagnosticEventLine', () => {
+  it('exports the canonical cause-entry shape guard', () => {
+    expect(isDiagnosticCauseEntry({ message: 'failed', name: 'Error' })).toBe(true);
+    expect(isDiagnosticCauseEntry({ code: 'E_FAIL', message: 'failed', name: 'Error' })).toBe(true);
+    expect(isDiagnosticCauseEntry({ code: null, message: 'failed', name: 'Error' })).toBe(false);
+  });
+
   it('round-trips a fully populated event (causeChain + context present)', () => {
     const line = serializeDiagnosticEventLine(FULL_EVENT);
     expect(parseDiagnosticEventLine(line)).toEqual(FULL_EVENT);

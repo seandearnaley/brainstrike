@@ -1,4 +1,4 @@
-import type { DiagnosticCauseEntry } from '@brainstrike/utils/diagnostics';
+import { type DiagnosticCauseEntry, isDiagnosticCauseEntry } from '@brainstrike/utils/diagnostics';
 import type { LogRecord } from '@brainstrike/utils/logger';
 
 const CIRCULAR_REFERENCE_MARKER = '[Circular]';
@@ -9,24 +9,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-interface RawCauseEntry {
-  code?: string | null;
-  message: string;
-  name: string;
-}
-
-function isCauseEntry(value: unknown): value is RawCauseEntry {
-  if (!isRecord(value)) {
-    return false;
-  }
-  const code = value['code'];
-  return (
-    typeof value['message'] === 'string' &&
-    typeof value['name'] === 'string' &&
-    (code === null || code === undefined || typeof code === 'string')
-  );
 }
 
 export function getLogRecordContext(record: LogRecord): Record<string, unknown> | null {
@@ -76,15 +58,19 @@ export function getLogRecordCauseChainDiagnostics(
   const entries: DiagnosticCauseEntry[] = [];
   let malformedEntryCount = 0;
   for (const candidate of causeChain) {
-    if (!isCauseEntry(candidate)) {
+    const normalizedCandidate =
+      isRecord(candidate) && candidate['code'] === null
+        ? { ...candidate, code: undefined }
+        : candidate;
+    if (!isDiagnosticCauseEntry(normalizedCandidate)) {
       malformedEntryCount += 1;
       continue;
     }
-    const code = readNonEmptyString(candidate.code);
+    const code = readNonEmptyString(normalizedCandidate.code);
     entries.push({
       ...(code ? { code } : {}),
-      message: candidate.message,
-      name: candidate.name,
+      message: normalizedCandidate.message,
+      name: normalizedCandidate.name,
     });
   }
   return { entries, malformedEntryCount };

@@ -360,8 +360,20 @@ const initialLogViewerState: LogViewerState = {
 
 function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogViewerState {
   switch (action.type) {
-    case 'SET_LOG_RECORDS':
-      return { ...state, logRecords: action.records };
+    case 'SET_LOG_RECORDS': {
+      const sourceFilter =
+        state.sourceFilter === ALL_SOURCES_VALUE ||
+        action.records.some((record) => getLogRecordSource(record) === state.sourceFilter)
+          ? state.sourceFilter
+          : ALL_SOURCES_VALUE;
+      const codeFilter =
+        state.codeFilter === ALL_CODES_VALUE ||
+        state.codeFilter === NO_CODE_VALUE ||
+        action.records.some((record) => getLogRecordCode(record) === state.codeFilter)
+          ? state.codeFilter
+          : ALL_CODES_VALUE;
+      return { ...state, codeFilter, logRecords: action.records, sourceFilter };
+    }
     case 'SET_LOGS_LOADING':
       return { ...state, logsLoading: action.loading };
     case 'SET_RETENTION_LIMIT':

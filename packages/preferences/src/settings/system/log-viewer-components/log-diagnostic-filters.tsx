@@ -9,7 +9,7 @@ import {
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import type { LogRecord } from '@brainstrike/utils/logger';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { getLogRecordCode, getLogRecordSource } from './log-diagnostic-metadata';
 
 export const ALL_SOURCES_VALUE = '__all_sources__';
@@ -60,6 +60,7 @@ export function LogDiagnosticFilters({
   timeEnd,
   onTimeEndChange,
 }: LogDiagnosticFiltersProps) {
+  const [invalidTimeBoundary, setInvalidTimeBoundary] = useState<'start' | 'end' | null>(null);
   const sourceOptions = useMemo(
     () =>
       Array.from(new Set(records.map(getLogRecordSource))).sort((left, right) =>
@@ -78,6 +79,25 @@ export function LogDiagnosticFilters({
     return Array.from(codes).sort((left, right) => defaultCollator.compare(left, right));
   }, [records]);
   const invalidRange = timeStart !== null && timeEnd !== null && timeStart > timeEnd;
+  const errorMessage =
+    invalidTimeBoundary === null
+      ? invalidRange
+        ? 'From time must be before To time.'
+        : null
+      : `${invalidTimeBoundary === 'start' ? 'From' : 'To'} time is invalid.`;
+
+  const handleTimeChange = (
+    value: string,
+    boundary: 'start' | 'end',
+    onChange: (value: number | null) => void
+  ): void => {
+    try {
+      onChange(parseLocalDateTime(value, boundary));
+      setInvalidTimeBoundary(null);
+    } catch {
+      setInvalidTimeBoundary(boundary);
+    }
+  };
 
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="log-diagnostic-filters">
@@ -133,12 +153,12 @@ export function LogDiagnosticFilters({
           From
         </Label>
         <Input
-          aria-invalid={invalidRange}
+          aria-invalid={invalidRange || invalidTimeBoundary === 'start'}
           aria-label="From time"
           className="h-8 w-[190px] border-border/50 bg-muted/40 text-xs"
           id="log-viewer-time-start"
           onChange={(event) =>
-            onTimeStartChange(parseLocalDateTime(event.currentTarget.value, 'start'))
+            handleTimeChange(event.currentTarget.value, 'start', onTimeStartChange)
           }
           type="datetime-local"
           value={toLocalDateTimeValue(timeStart)}
@@ -150,21 +170,19 @@ export function LogDiagnosticFilters({
           To
         </Label>
         <Input
-          aria-invalid={invalidRange}
+          aria-invalid={invalidRange || invalidTimeBoundary === 'end'}
           aria-label="To time"
           className="h-8 w-[190px] border-border/50 bg-muted/40 text-xs"
           id="log-viewer-time-end"
-          onChange={(event) =>
-            onTimeEndChange(parseLocalDateTime(event.currentTarget.value, 'end'))
-          }
+          onChange={(event) => handleTimeChange(event.currentTarget.value, 'end', onTimeEndChange)}
           type="datetime-local"
           value={toLocalDateTimeValue(timeEnd)}
         />
       </div>
 
-      {invalidRange ? (
+      {errorMessage ? (
         <span className="pb-1 text-destructive text-xs" role="alert">
-          From time must be before To time.
+          {errorMessage}
         </span>
       ) : null}
     </div>

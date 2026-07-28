@@ -529,6 +529,55 @@ describe('LogViewer', () => {
     expect(screen.queryByText('Next minute')).not.toBeInTheDocument();
   });
 
+  it('surfaces malformed time input instead of throwing from the change handler', async () => {
+    const logSource = {
+      getInitialRecords: async () => [createMockLogRecord()],
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await screen.findByText('Test log message');
+    const toInput = screen.getByLabelText('To time') as HTMLInputElement;
+    const valueSpy = vi.spyOn(toInput, 'value', 'get').mockReturnValue('not-a-local-time');
+    expect(() => fireEvent.change(toInput)).not.toThrow();
+    valueSpy.mockRestore();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('To time is invalid.');
+  });
+
+  it('resets source and code filters when live records remove the selected options', async () => {
+    let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
+    const selectedRecord = createMockLogRecord({
+      args: [{ code: 'selected-code', logSource: 'electron-main' }],
+      message: 'Selected record',
+    });
+    const remainingRecord = createMockLogRecord({
+      args: [{ code: 'remaining-code', logSource: 'web-renderer' }],
+      message: 'Remaining record',
+    });
+    const logSource = {
+      getInitialRecords: async () => [selectedRecord, remainingRecord],
+      subscribe: (handler: (records: readonly LogRecord[]) => void) => {
+        subscribedHandler = handler;
+        return () => {};
+      },
+    };
+    const user = userEvent.setup();
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    await user.click(await screen.findByRole('combobox', { name: 'Source' }));
+    await user.click(screen.getByRole('option', { name: 'electron-main' }));
+    await user.click(screen.getByRole('combobox', { name: 'Code' }));
+    await user.click(screen.getByRole('option', { name: 'selected-code' }));
+
+    act(() => subscribedHandler?.([remainingRecord]));
+
+    await waitFor(() => expect(screen.getByText('Remaining record')).toBeInTheDocument());
+    expect(screen.getByRole('combobox', { name: 'Source' })).toHaveTextContent('All sources');
+    expect(screen.getByRole('combobox', { name: 'Code' })).toHaveTextContent('All codes');
+  });
+
   it('opens a structured diagnostic detail view with the cause chain', async () => {
     const user = userEvent.setup();
     const record = createMockLogRecord({
