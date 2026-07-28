@@ -27,7 +27,7 @@ import { readResetProbeCounts, seedResetProbeRows } from './utils/reset-seed-hel
  */
 
 /**
- * The Settings-panel "Clear All Collections" button is gated on the ACTIVE
+ * The Settings-panel "Clear Database" button is gated on the ACTIVE
  * collection's row counts (`ACTIVE_COLLECTION_LIVE_COUNTS_QUERY` in
  * packages/db/src/services/collection-indexing-stats.ts), not on global table
  * counts. `seedResetProbeRows` deliberately seeds bare probe rows with a NULL

@@ -163,58 +163,54 @@ export async function showDatabaseDemoPanel(
     // Loading placeholders are observations, not terminal states. Returning while
     // one is visible lets callers race controls that have not mounted yet.
     verboseLog('⏳ Waiting for a terminal database panel state...');
-    const successPanel = activePage.locator('[data-testid="database-demo-panel"]');
+    const databasePanel = activePage.locator('[data-testid="database-demo-panel"]');
+    const readyControl = databasePanel.getByRole('button', {
+      exact: true,
+      name: 'Refresh',
+    });
     const errorPanel = activePage.locator('[data-testid="db-init-error"]');
-    const terminalPanel = successPanel.or(errorPanel).filter({ visible: true });
+    const terminalState = readyControl.or(errorPanel).filter({ visible: true });
     const loadingDatabaseCard = activePage.getByText(/Loading PGlite database/i);
     const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
 
     try {
-      await terminalPanel.first().waitFor({ state: 'visible', timeout: panelTimeoutMs });
+      await terminalState.first().waitFor({ state: 'visible', timeout: panelTimeoutMs });
 
-      const terminalStateCount = await terminalPanel.count();
-      if (terminalStateCount !== 1) {
-        throw new Error(
-          `Expected exactly one visible terminal database panel state, found ${terminalStateCount}.`
-        );
-      }
-
-      const hasSuccessPanel = await successPanel.isVisible();
+      const hasReadyControl = await readyControl.isVisible();
       const hasErrorPanel = await errorPanel.isVisible();
       const hasLoadingCard = await loadingDatabaseCard.isVisible().catch(() => false);
       const hasLoadingFallback = await loadingTabFallback.isVisible().catch(() => false);
 
-      if (hasSuccessPanel) {
+      if (hasReadyControl && !hasErrorPanel) {
         verboseLog('✅ Database demo panel is visible and ready');
         return activePage;
       }
 
-      if (hasErrorPanel) {
+      if (hasErrorPanel && !hasReadyControl) {
         const errorText = await errorPanel.textContent();
         verboseLog('⚠️ Database initialization failed:', errorText);
         return activePage;
       }
 
       throw new Error(
-        `Database terminal state disappeared after becoming visible (loading database: ${hasLoadingCard}; loading tab: ${hasLoadingFallback}).`
+        `Expected exactly one visible terminal database state (ready control: ${hasReadyControl}; error: ${hasErrorPanel}; loading database: ${hasLoadingCard}; loading tab: ${hasLoadingFallback}).`
       );
     } catch (waitError) {
-      console.warn('⚠️ Database panel did not appear within timeout, checking current state...');
+      if (activePage.isClosed() && attempt < 1) {
+        console.warn('⚠️ Active window closed; retrying database panel lookup.');
+        continue;
+      }
+
+      if (!(waitError instanceof Error) || waitError.name !== 'TimeoutError') {
+        throw waitError;
+      }
+
+      console.warn('⚠️ Database panel did not reach a terminal state within timeout.');
       const bodyText = await activePage
         .locator('body')
         .textContent()
         .catch(() => 'Could not get body text');
       verboseLog('Current page content snippet:', bodyText?.slice(0, 500));
-
-      if (attempt < 1 && activePage.isClosed()) {
-        console.warn('⚠️ Active window closed; retrying database panel lookup.');
-        continue;
-      }
-
-      if (attempt < 1) {
-        await activePage.waitForTimeout(1000);
-        continue;
-      }
 
       throw waitError;
     }
@@ -230,111 +226,79 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   const activePage = await resolveActivePage(page);
   await waitForAppReadyInHelpers(activePage);
   const errorPanel = activePage.locator('[data-testid="db-init-error"]');
-  const successPanel = activePage.locator('[data-testid="database-demo-panel"]');
-  // Check if we're in error state or success state
-  const hasErrorPanel = await errorPanel.isVisible().catch(() => false);
-  const hasSuccessPanel = await successPanel.isVisible().catch(() => false);
-
-  if (hasErrorPanel) {
-    verboseLog('⚠️ Database is in error state - skipping database readiness checks');
-    return activePage; // Don't wait for database operations if we're in error state
-  }
-
-  if (!hasSuccessPanel) {
-    // Wait for the database demo panel to be visible if it's not already
-    // We race against the error panel to avoid waiting for timeout if error occurs
-    await Promise.race([
-      successPanel.waitFor({
-        state: 'visible',
-        timeout: 15_000,
-      }),
-      errorPanel.waitFor({
-        state: 'visible',
-        timeout: 15_000,
-      }),
-    ]);
-  }
-
-  if (await errorPanel.isVisible().catch(() => false)) {
-    console.log('⚠️ Database entered error state during initialization - skipping readiness checks');
-    return activePage;
-  }
-
-  // Wait for any loading states to complete
-  const loadingIndicator = activePage.locator('text=Loading PGlite database...');
-  if (await loadingIndicator.isVisible()) {
-    console.log('⏳ Waiting for database to finish loading...');
-    await loadingIndicator.waitFor({ state: 'hidden', timeout: 30_000 });
-  }
-
+  const databasePanel = activePage.locator('[data-testid="database-demo-panel"]');
+  const refreshButton = databasePanel.getByRole('button', {
+    exact: true,
+    name: 'Refresh',
+  });
   const statusConnected = activePage.locator('[data-testid="status-bar-db-connected"]');
   const statusDisconnected = activePage.locator('[data-testid="status-bar-db-disconnected"]');
   const statusLoading = activePage.locator('[data-testid="status-bar-db-loading"]');
-  const refreshButton = successPanel.getByRole('button', { exact: true, name: 'Refresh' });
+  const loadingIndicator = activePage.getByText(/Loading PGlite database/i);
 
-  // Wait for connection status to be ready (either success or failure indicator)
-  try {
-    await Promise.race([
-      statusConnected.waitFor({ state: 'visible', timeout: 20_000 }),
-      statusDisconnected.waitFor({ state: 'visible', timeout: 20_000 }),
-      statusLoading.waitFor({ state: 'visible', timeout: 20_000 }),
-      refreshButton.waitFor({ state: 'visible', timeout: 20_000 }),
-      errorPanel.waitFor({ state: 'visible', timeout: 20_000 }),
-    ]);
-  } catch {
-    const bodyText = await activePage
-      .locator('body')
-      .textContent()
-      .catch(() => 'Could not get body text');
-    throw new Error(
-      `Database readiness signals not found (status bar, refresh button, or error). Body snippet: ${bodyText?.slice(0, 300)}`
-    );
-  }
-
-  if (await errorPanel.isVisible().catch(() => false)) {
-    console.log('⚠️ Database is in error state after status check - skipping readiness checks');
+  if (await errorPanel.isVisible()) {
+    verboseLog('⚠️ Database is in error state - skipping database readiness checks');
     return activePage;
   }
 
-  if (await statusLoading.isVisible().catch(() => false)) {
-    try {
-      await Promise.race([
-        statusConnected.waitFor({ state: 'visible', timeout: 20_000 }),
-        statusDisconnected.waitFor({ state: 'visible', timeout: 20_000 }),
-        refreshButton.waitFor({ state: 'visible', timeout: 20_000 }),
-        errorPanel.waitFor({ state: 'visible', timeout: 20_000 }),
-      ]);
-    } catch {
-      const bodyText = await activePage
-        .locator('body')
-        .textContent()
-        .catch(() => 'Could not get body text');
-      throw new Error(
-        `Database stayed in loading state without resolving (connected/disconnected/refresh). Body snippet: ${bodyText?.slice(0, 300)}`
-      );
-    }
-  }
-
-  if (await errorPanel.isVisible().catch(() => false)) {
-    verboseLog('⚠️ Database is in error state after loading - skipping readiness checks');
-    return activePage;
-  }
-
-  // Final check: ensure the panel is interactive
-  try {
-    await refreshButton.waitFor({ state: 'visible', timeout: 5000 });
+  if (await refreshButton.isVisible()) {
     verboseLog('✅ Database panel is ready and interactive');
+    return activePage;
+  }
+
+  try {
+    await refreshButton
+      .or(errorPanel)
+      .or(statusConnected)
+      .filter({ visible: true })
+      .first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
   } catch (error) {
     const bodyText = await activePage
       .locator('body')
       .textContent()
       .catch(() => 'Could not get body text');
     throw new Error(
-      `Database panel reached a non-interactive state without its Refresh control. Body snippet: ${bodyText?.slice(0, 300)}`,
+      `Database readiness signals not found (connected status, Refresh control, or database error; loading status: ${await statusLoading.isVisible()}; disconnected status: ${await statusDisconnected.isVisible()}; loading panel: ${await loadingIndicator.isVisible()}). Body snippet: ${bodyText?.slice(0, 300)}`,
       { cause: error }
     );
   }
 
+  if (await errorPanel.isVisible()) {
+    verboseLog('⚠️ Database entered an error state during initialization');
+    return activePage;
+  }
+
+  if (await databasePanel.isVisible()) {
+    try {
+      await refreshButton
+        .or(errorPanel)
+        .filter({ visible: true })
+        .first()
+        .waitFor({ state: 'visible', timeout: 20_000 });
+    } catch (error) {
+      const bodyText = await activePage
+        .locator('body')
+        .textContent()
+        .catch(() => 'Could not get body text');
+      throw new Error(
+        `Mounted database panel stayed non-interactive (Refresh control or database error not found; loading panel: ${await loadingIndicator.isVisible()}). Body snippet: ${bodyText?.slice(0, 300)}`,
+        { cause: error }
+      );
+    }
+
+    if (await errorPanel.isVisible()) {
+      verboseLog('⚠️ Database entered an error state while its panel was loading');
+      return activePage;
+    }
+
+    await refreshButton.waitFor({ state: 'visible', timeout: 20_000 });
+    verboseLog('✅ Database panel is ready and interactive');
+    return activePage;
+  }
+
+  await statusConnected.waitFor({ state: 'visible', timeout: 20_000 });
+  verboseLog('✅ Database is connected without mounting the Collections panel');
   return activePage;
 }
 
