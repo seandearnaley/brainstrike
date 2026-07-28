@@ -1770,10 +1770,18 @@ describe('mastra streaming integration', () => {
     // v2 parts report `inputTokens`/`outputTokens`; the step event must carry
     // BOTH counts or the renderer live tick silently never fires (its reader
     // requires promptTokens AND completionTokens).
+    //
+    // The usage rides `payload.output` — the shape production actually emits.
+    // This fixture originally put it top-level, which no real `step-finish`
+    // does, so the guard it advertised was fictitious and stayed green through
+    // the outage it was meant to catch (review finding).
     setMockStreamParts([
       { messageId: 'msg-1', type: 'start' },
       { messageId: 'msg-1', type: 'step-start' },
-      { type: 'step-finish', usage: { inputTokens: 321, outputTokens: 45 } },
+      {
+        payload: { output: { usage: { inputTokens: 321, outputTokens: 45 } } },
+        type: 'step-finish',
+      },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 45, promptTokens: 321 } },
     ]);
 
