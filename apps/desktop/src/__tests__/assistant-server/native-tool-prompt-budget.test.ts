@@ -406,7 +406,7 @@ describe('desktop native tool provider prompt budget', () => {
         ])
       ),
     }).toEqual({
-      criticalDefinitionTokens: 2157,
+      criticalDefinitionTokens: 2166,
       criticalToolCount: 8,
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
@@ -423,7 +423,13 @@ describe('desktop native tool provider prompt budget', () => {
       // fields, and the discovery sentence.
       // +350 / +1 for deferred `queryDiagnostics` (BST-853); the critical
       // request remains unchanged.
-      eagerDefinitionTokens: 8112,
+      // +9 for the grepSearch `filePaths` contract (BST-764): the parameter
+      // said only "Restrict to these file paths" and never stated whether the
+      // paths were workspace-relative, so models passed absolute paths and got
+      // a clean zero-match. The wording is terse on purpose — the first draft
+      // spent 38 tokens and overran the authored budget by 25 (BST-927 called
+      // this: ~13 tokens of headroom left).
+      eagerDefinitionTokens: 8121,
       eagerToolCount: 32,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {

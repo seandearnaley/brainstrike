@@ -11,6 +11,7 @@ import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getDatabase } from '../db-main';
+import { resolveGrepFilePaths } from './grep-file-paths';
 import {
   type GrepContentToolResult,
   type GrepFileSummary,
@@ -443,6 +444,8 @@ function runIndexSearch(args: {
   service: GrepSearchService;
   input: GrepSearchInput;
   contextLines: number;
+  /** BST-764: the normalized allowlist — NOT `input.filePaths`. Both passes take this same list. */
+  filePaths: readonly string[] | undefined;
   serviceMaxResults: number;
   embeddingSetId: string | undefined;
   rootId: string | undefined;
@@ -452,7 +455,7 @@ function runIndexSearch(args: {
     pattern: input.pattern,
     ...(input.isRegex === undefined ? {} : { isRegex: input.isRegex }),
     ...(input.caseSensitive === undefined ? {} : { caseSensitive: input.caseSensitive }),
-    ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
+    ...(args.filePaths === undefined ? {} : { filePaths: [...args.filePaths] }),
     contextLines: args.contextLines,
     maxResults: args.serviceMaxResults,
     ...(args.embeddingSetId === undefined ? {} : { embeddingSetId: args.embeddingSetId }),
@@ -501,10 +504,30 @@ export async function runGrepSearch(
   const liveMatcher = createGrepLineMatcher(input.pattern, isRegex, caseSensitive);
   const liveRoots = resolveLiveRoots(runtimeData, scopedRoot);
 
+  // BST-764. Resolve the `filePaths` allowlist ONCE, here, and feed the same
+  // normalized list to both passes. Previously the raw model input went to both
+  // and only the live pass touched it — with `p.replace(/^\/+/, '')`, which
+  // turned an absolute path into a never-matching relative one and reported a
+  // clean zero-match for a file that plainly matched.
+  //
+  // Thrown BEFORE the try/catch so the actionable message reaches the model
+  // intact, the same reason `resolveOptionalWorkspaceRoot` is resolved early;
+  // the catch below maps unknown errors to a generic string.
+  const resolvedFilePaths = resolveGrepFilePaths({
+    filePaths: input.filePaths,
+    roots: liveRoots,
+    scopedRoot,
+  });
+  if (!resolvedFilePaths.ok) {
+    throw new Error(resolvedFilePaths.message);
+  }
+  const filePaths = resolvedFilePaths.filePaths;
+
   try {
     const serviceResult = await runIndexSearch({
       contextLines,
       embeddingSetId,
+      filePaths,
       input,
       rootId,
       service,
@@ -517,7 +540,7 @@ export async function runGrepSearch(
       isRegex,
       pattern: input.pattern,
       roots: liveRoots,
-      ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
+      ...(filePaths === undefined ? {} : { filePaths }),
       matcher: liveMatcher,
     });
 
@@ -538,6 +561,10 @@ export async function runGrepSearch(
       /^Invalid regular expression pattern:/,
       /^Grep pattern must be at least \d+ characters/,
       /^findGrepCandidates filePaths limit exceeded/,
+      // BST-764: the filePaths scope errors are authored for the model and
+      // contain only paths it supplied plus the open-folder list it can already
+      // see, so they must reach it rather than becoming "Try again."
+      /^filePaths entry /,
     ];
     if (knownSafeMessages.some((re) => re.test(message))) {
       throw error;

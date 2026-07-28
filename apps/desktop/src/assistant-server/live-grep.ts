@@ -681,10 +681,16 @@ export async function runLiveGrep(
     return { engine: 'skipped', matches: [], truncated: false };
   }
 
+  // BST-764. `filePaths` arrives ALREADY normalized to root-relative form by
+  // `resolveGrepFilePaths`, which both this pass and the indexed pass share.
+  //
+  // This used to be `p.replace(/^\/+/, '')`, which turned an absolute path into
+  // `Users/sean/…` — never equal to the root-relative candidate `proof.html` —
+  // and so reported a clean zero-match for a file that plainly matched. Do NOT
+  // reintroduce a local transform here: a second, different normalization is
+  // exactly how the two passes diverged.
   const filePathAllow =
-    options.filePaths && options.filePaths.length > 0
-      ? new Set(options.filePaths.map((p) => p.replace(/^\/+/, '')))
-      : null;
+    options.filePaths && options.filePaths.length > 0 ? new Set(options.filePaths) : null;
 
   const ripgrepPath = await resolveRipgrepPath();
   const rgPresent = ripgrepPath !== null;

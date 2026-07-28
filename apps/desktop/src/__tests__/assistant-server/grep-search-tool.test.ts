@@ -434,3 +434,115 @@ describe('grep search tool multi-root', () => {
     expect(queryMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * BST-764. `runGrepSearch` forwarded the model's raw `filePaths` to BOTH the
+ * indexed and live passes, and only the live pass transformed it — with
+ * `p.replace(/^\/+/, '')`, which turns an absolute path into a never-matching
+ * relative one. The call succeeded with `totalMatches: 0` for a file that
+ * plainly matched.
+ *
+ * These are the tool-level half of the contract: the resolver's own unit tests
+ * prove the mapping, and these prove the tool actually USES it — for both
+ * passes, from one list.
+ */
+describe('grep search tool filePaths scope (BST-764)', () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+  });
+
+  const ONE_ROOT = {
+    workspaceRoots: [{ displayName: 'site-qa', path: '/work/site-qa', rootId: 'db-root-a' }],
+  } as unknown as RuntimeData;
+
+  /** The `filePaths` array actually handed to the indexed SQL query. */
+  function indexedFilePathParam(): string[] | undefined {
+    const call = queryMock.mock.calls.at(0);
+    const params = call?.[1] as unknown[] | undefined;
+    return params?.find(
+      (param): param is string[] =>
+        Array.isArray(param) && param.every((entry) => typeof entry === 'string')
+    );
+  }
+
+  it('resolves an absolute path inside the root to the root-relative form the index stores', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'needle', path: 'proof.html', root_id: 'db-root-a', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch(
+      { filePaths: ['/work/site-qa/proof.html'], pattern: 'needle' },
+      ONE_ROOT
+    );
+
+    // The indexed pass must receive `proof.html`, NOT the absolute path and NOT
+    // the old `work/site-qa/proof.html` mangling.
+    expect(indexedFilePathParam()).toEqual(['proof.html']);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    // ...and the call actually finds the file, which is the whole point.
+    expect(result.totalMatches).toBe(1);
+  });
+
+  it('rejects a path outside every open folder instead of returning a clean zero-match', async () => {
+    await expect(
+      runGrepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
+    ).rejects.toThrow(/not inside any open folder/i);
+    // Rejected before any DB work.
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the scope error to the model rather than the generic fallback', async () => {
+    // `Unable to perform grep search right now` would tell the model nothing and
+    // invite a retry of the same broken call.
+    await expect(
+      runGrepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
+    ).rejects.toThrow(/Open folders:/);
+    await expect(
+      runGrepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
+    ).rejects.not.toThrow(/Try again/);
+  });
+
+  it('leaves a relative path untouched', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await runGrepSearch({ filePaths: ['src/x.ts'], pattern: 'needle' }, ONE_ROOT);
+    expect(indexedFilePathParam()).toEqual(['src/x.ts']);
+  });
+
+  it('deduplicates an absolute and relative spelling of the same file', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await runGrepSearch(
+      { filePaths: ['/work/site-qa/proof.html', 'proof.html'], pattern: 'needle' },
+      ONE_ROOT
+    );
+    expect(indexedFilePathParam()).toEqual(['proof.html']);
+  });
+
+  it('rejects an ambiguous path under nested roots', async () => {
+    const NESTED = {
+      workspaceRoots: [
+        { displayName: 'outer', path: '/work/site-qa', rootId: 'db-root-a' },
+        { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
+      ],
+    } as unknown as RuntimeData;
+    await expect(
+      runGrepSearch({ filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle' }, NESTED)
+    ).rejects.toThrow(/more than one open folder/i);
+  });
+
+  it('uses an explicit root to disambiguate nested roots', async () => {
+    const NESTED = {
+      workspaceRoots: [
+        { displayName: 'outer', path: '/work/site-qa', rootId: 'db-root-a' },
+        { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
+      ],
+    } as unknown as RuntimeData;
+    queryMock.mockResolvedValue({ rows: [] });
+    await runGrepSearch(
+      { filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle', root: 'inner' },
+      NESTED
+    );
+    expect(indexedFilePathParam()).toEqual(['f.ts']);
+  });
+});
