@@ -49,6 +49,20 @@ export function ChunkingNumberField({
   const [error, setError] = useState<string | undefined>(undefined);
   const errorId = useId();
 
+  // Review follow-up on #2086: the draft used to be cleared only on blur, so it
+  // could go stale against `value`. When the committed value changes from
+  // OUTSIDE this field — a preset chip, the token-cap Select, the cross-field
+  // partner — the input kept rendering the old draft and its now-wrong error,
+  // which is exactly what the blur handler promises can never happen. Deriving
+  // from the committed value during render (rather than an effect) drops both
+  // the moment the store moves, with no extra render pass.
+  const [lastCommitted, setLastCommitted] = useState(value);
+  if (lastCommitted !== value) {
+    setLastCommitted(value);
+    setDraft(undefined);
+    setError(undefined);
+  }
+
   const handleChange = (raw: string) => {
     setDraft(raw);
     // An emptied field is not a zero. `Number('')` is 0, which used to be

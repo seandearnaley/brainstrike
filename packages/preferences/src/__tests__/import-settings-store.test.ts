@@ -69,14 +69,25 @@ describe('import-settings-store', () => {
     const snapshot = useImportSettingsStore.getState();
     // Each value is individually in range; only the pair is impossible.
     expect(() => snapshot.setChunkOverlap(256)).toThrow(/smaller than chunk size/);
-    // Shrinking size below the CURRENT overlap is the same violation from the
-    // other side, and was equally unguarded.
     expect(() => snapshot.setChunkSize(128)).not.toThrow(); // 50 < 128, still fine
-    useImportSettingsStore.getState().setChunkOverlap(100);
-    expect(() => useImportSettingsStore.getState().setChunkSize(64)).toThrow(
-      /smaller than chunk size|at least/
+  });
+
+  // Review follow-up on #2086. The size direction used to be asserted with
+  // `setChunkSize(64)`, which fails at `validateChunkSize` first (64 < the 128
+  // minimum) and never reaches the pair check — so the test passed for the
+  // wrong reason and stayed green even with the cross-field assert deleted.
+  // Both values must be individually VALID to reach the pair check.
+  it('rejects shrinking chunk size below the current overlap', () => {
+    useImportSettingsStore.getState().setChunkOverlap(200);
+    // 150 is a legal chunk size (>= 128) and 200 is a legal overlap (<= 256);
+    // only together are they impossible.
+    expect(() => useImportSettingsStore.getState().setChunkSize(150)).toThrow(
+      /larger than the overlap/
     );
-    expect(useImportSettingsStore.getState().chunkOverlap).toBe(100);
+    // The message names the field being edited, not the other one.
+    expect(() => useImportSettingsStore.getState().setChunkSize(150)).toThrow(/Chunk size/);
+    expect(useImportSettingsStore.getState().chunkSize).toBe(256);
+    expect(useImportSettingsStore.getState().chunkOverlap).toBe(200);
   });
 
   it('still accepts legitimate boolean coercion for token sizing', () => {

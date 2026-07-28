@@ -286,4 +286,52 @@ describe('SettingsPanel', () => {
 
     expect(setEnableChunking).toHaveBeenCalledWith(false);
   });
+
+  // Review follow-up on #2086: the draft was cleared only on blur, so an error
+  // (and the stale draft behind it) survived a committed-value change that came
+  // from OUTSIDE the field — a preset chip, the token-cap Select, or the
+  // cross-field partner. That contradicts the field's own invariant that it
+  // never displays a value the store does not hold.
+  it('drops a stale draft and its error when the committed value changes externally', () => {
+    const { rerender } = render(
+      <SettingsPanel importSettings={createImportSettings({ chunkingPreset: 'custom' })} />
+    );
+
+    const sizeInput = screen.getByLabelText(/^Chunk size$/) as HTMLInputElement;
+    fireEvent.change(sizeInput, { target: { value: '4' } });
+    expect(screen.getByText(/Chunk size must be at least 128/)).toBeInTheDocument();
+    expect(sizeInput.value).toBe('4');
+
+    // Something else moves the committed value (e.g. selecting a preset).
+    rerender(
+      <SettingsPanel
+        importSettings={createImportSettings({ chunkingPreset: 'custom', chunkSize: 512 })}
+      />
+    );
+
+    expect(screen.queryByText(/Chunk size must be at least 128/)).not.toBeInTheDocument();
+    expect((screen.getByLabelText(/^Chunk size$/) as HTMLInputElement).value).toBe('512');
+  });
+
+  it('names the field being edited in a cross-field error', () => {
+    // Editing Chunk size used to produce "Overlap must be smaller than chunk
+    // size (…)", naming the wrong field.
+    const setChunkSize = vi.fn();
+    render(
+      <SettingsPanel
+        importSettings={createImportSettings({
+          chunkingPreset: 'custom',
+          chunkOverlap: 200,
+          chunkSize: 256,
+          setChunkSize,
+        })}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/^Chunk size$/), { target: { value: '150' } });
+    expect(setChunkSize).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Chunk size must be larger than the overlap \(200\)/)
+    ).toBeInTheDocument();
+  });
 });

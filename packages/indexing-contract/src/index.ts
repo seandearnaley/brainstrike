@@ -375,6 +375,40 @@ export function validateChunkTokenLimit(value: number): ChunkingSettingFieldResu
  * independently parsed: comparing against NaN would emit a nonsense second
  * issue and bury the real one.
  */
+/**
+ * The cross-field rule, owned here so every caller renders the SAME sentence.
+ *
+ * Review follow-up on #2086: this previously existed in three places — this
+ * package, two hand-rolled literals in the settings panel, and a bare `Error`
+ * in the store — which is the same drift-prone shape the field rules had just
+ * escaped. The drift was already visible: the size-direction message said
+ * "Overlap must be smaller than chunk size (64)" while the user was editing
+ * the Chunk size input.
+ *
+ * `field` names the input the user is actually editing, so the message can
+ * point at the other side of the pair.
+ */
+export function validateChunkOverlapAgainstSize(
+  chunkOverlap: number,
+  chunkSize: number,
+  field: 'chunkOverlap' | 'chunkSize'
+): ChunkingSettingFieldResult {
+  if (chunkOverlap < chunkSize) {
+    return { ok: true, value: field === 'chunkSize' ? chunkSize : chunkOverlap };
+  }
+  return {
+    issue: {
+      code: 'overlap-not-less-than-size',
+      field,
+      message:
+        field === 'chunkSize'
+          ? `Chunk size must be larger than the overlap (${chunkOverlap}).`
+          : `Overlap must be smaller than chunk size (${chunkSize}).`,
+    },
+    ok: false,
+  };
+}
+
 export function validateChunkingSettings(values: ChunkingSettingsValues): ChunkingSettingsResult {
   const size = validateChunkSize(values.chunkSize);
   const overlap = validateChunkOverlap(values.chunkOverlap);
@@ -382,15 +416,11 @@ export function validateChunkingSettings(values: ChunkingSettingsValues): Chunki
 
   const issues = [size, overlap, tokenLimit].flatMap((result) => (result.ok ? [] : [result.issue]));
 
-  if (size.ok && overlap.ok && overlap.value >= size.value) {
-    // Overlap >= size makes every chunk re-read at least the whole previous
-    // chunk, so the splitter cannot advance. Each field can be individually in
-    // range here, so nothing but a cross-field check catches it.
-    issues.push({
-      code: 'overlap-not-less-than-size',
-      field: 'chunkOverlap',
-      message: `Overlap must be smaller than chunk size (${size.value}).`,
-    });
+  if (size.ok && overlap.ok) {
+    const pair = validateChunkOverlapAgainstSize(overlap.value, size.value, 'chunkOverlap');
+    if (!pair.ok) {
+      issues.push(pair.issue);
+    }
   }
 
   if (issues.length > 0) {

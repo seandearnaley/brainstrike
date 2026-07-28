@@ -3,6 +3,7 @@ import {
   CHUNK_SIZE_BOUNDS,
   CHUNK_TOKEN_LIMIT_BOUNDS,
   validateChunkOverlap,
+  validateChunkOverlapAgainstSize,
   validateChunkSize,
   validateChunkTokenLimit,
 } from '@brainstrike/indexing-contract';
@@ -375,40 +376,28 @@ export function SettingsPanel({
   // without needing an effect to sync.
   const [advancedOpen, setAdvancedOpen] = useState(isCustom);
 
-  // BST-423. The cross-field rule (`chunkOverlap < chunkSize`) is checked here
-  // too, not only in the store, so a user typing an impossible pair sees an
-  // inline explanation instead of the store throwing out of an onChange
-  // handler. Both directions are covered: raising overlap above size and
-  // lowering size below overlap are the same violation.
+  // BST-423. The cross-field rule is checked here too, not only in the store,
+  // so a user typing an impossible pair sees an inline explanation instead of
+  // the store throwing out of an onChange handler.
+  //
+  // Review follow-up on #2086: these used to be hand-rolled result literals,
+  // so the cross-field rule had THREE implementations and the messages had
+  // already drifted (the size-direction one named "Overlap" while the user was
+  // editing Chunk size). They now delegate to the contract, making the
+  // single-ownership claim structural rather than aspirational.
   const chunkSizeValue = importSettings.chunkSize;
   const chunkOverlapValue = importSettings.chunkOverlap;
   const validateChunkSizeAgainstOverlap = (candidate: number) => {
     const result = validateChunkSize(candidate);
-    if (result.ok && chunkOverlapValue >= result.value) {
-      return {
-        issue: {
-          code: 'overlap-not-less-than-size' as const,
-          field: 'chunkSize' as const,
-          message: `Overlap (${chunkOverlapValue}) must be smaller than chunk size.`,
-        },
-        ok: false as const,
-      };
-    }
-    return result;
+    return result.ok
+      ? validateChunkOverlapAgainstSize(chunkOverlapValue, result.value, 'chunkSize')
+      : result;
   };
   const validateOverlapAgainstSize = (candidate: number) => {
     const result = validateChunkOverlap(candidate);
-    if (result.ok && result.value >= chunkSizeValue) {
-      return {
-        issue: {
-          code: 'overlap-not-less-than-size' as const,
-          field: 'chunkOverlap' as const,
-          message: `Overlap must be smaller than chunk size (${chunkSizeValue}).`,
-        },
-        ok: false as const,
-      };
-    }
-    return result;
+    return result.ok
+      ? validateChunkOverlapAgainstSize(result.value, chunkSizeValue, 'chunkOverlap')
+      : result;
   };
 
   if (!selectedStrategy) {
