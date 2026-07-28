@@ -72,6 +72,101 @@ describe('DiagnosticEventsRepository', () => {
     expect(stats).toEqual({ count: 2, firstSeenMs: 1000, lastSeenMs: 5000 });
   });
 
+  it('groups recurring diagnostics by fingerprint with bounded filters and latest context', async () => {
+    await repo.insertBatch([
+      makeEvent({
+        code: 'provider_failed',
+        fingerprint: 'fp-x',
+        id: 'a',
+        message: 'first failure',
+        occurredAt: 1000,
+        runId: 'run-1',
+        severity: 'error',
+        source: 'electron-main',
+        threadId: 'thread-1',
+      }),
+      makeEvent({
+        code: 'provider_failed',
+        fingerprint: 'fp-x',
+        id: 'b',
+        message: 'latest failure',
+        occurredAt: 5000,
+        runId: 'run-1',
+        severity: 'error',
+        source: 'electron-main',
+        threadId: 'thread-1',
+      }),
+      makeEvent({
+        fingerprint: 'fp-y',
+        id: 'c',
+        occurredAt: 2000,
+        runId: 'run-2',
+        severity: 'warn',
+        threadId: 'thread-2',
+      }),
+    ]);
+
+    const groups = await repo.queryFingerprintGroups({
+      runId: 'run-1',
+      severity: 'error',
+      sinceMs: 500,
+      untilMs: 6000,
+    });
+
+    expect(groups).toEqual([
+      {
+        code: 'provider_failed',
+        count: 2,
+        fingerprint: 'fp-x',
+        firstSeenMs: 1000,
+        lastSeenMs: 5000,
+        latestMessage: 'latest failure',
+        severity: 'error',
+        source: 'electron-main',
+      },
+    ]);
+  });
+
+  it('orders fingerprint groups by recurrence and selects each latest row once', async () => {
+    await repo.insertBatch([
+      makeEvent({
+        code: 'old-code',
+        fingerprint: 'fp-recurring',
+        id: 'recurring-old',
+        message: 'old recurring failure',
+        occurredAt: 1000,
+        severity: 'warn',
+        source: 'web-renderer',
+      }),
+      makeEvent({
+        code: 'latest-code',
+        fingerprint: 'fp-recurring',
+        id: 'recurring-new',
+        message: 'latest recurring failure',
+        occurredAt: 2000,
+        severity: 'error',
+        source: 'electron-main',
+      }),
+      makeEvent({
+        fingerprint: 'fp-recent-single',
+        id: 'recent-single',
+        message: 'newer but not recurring',
+        occurredAt: 5000,
+      }),
+    ]);
+
+    const groups = await repo.queryFingerprintGroups({ limit: 2 });
+
+    expect(groups.map((group) => group.fingerprint)).toEqual(['fp-recurring', 'fp-recent-single']);
+    expect(groups[0]).toMatchObject({
+      code: 'latest-code',
+      count: 2,
+      latestMessage: 'latest recurring failure',
+      severity: 'error',
+      source: 'electron-main',
+    });
+  });
+
   it('purges beyond the age bound oldest-first and reports the count', async () => {
     const now = Date.now();
     await repo.insertBatch([

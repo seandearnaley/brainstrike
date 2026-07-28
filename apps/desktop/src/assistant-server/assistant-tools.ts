@@ -15,6 +15,7 @@ import {
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   projectToolOutputArtifactPage,
+  type QueryDiagnosticsInput,
   type QueryEmbeddingSpaceInput,
   type QuerySelfInput,
   type ReadToolOutputArtifactCursorInput,
@@ -61,6 +62,7 @@ import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
 import { runFindWorkspaceSymbol, runLspInspect } from './lsp-inspection-tools';
 import { runManageTaskList } from './manage-task-list-tool';
+import { runQueryDiagnostics } from './query-diagnostics-tool';
 import { projectQuerySelfModelOutput } from './query-self-model-projection';
 import { runQuerySelf, toQuerySelfInputError } from './query-self-tool';
 import { runReadWorkspaceDirectory } from './read-workspace-directory-tool';
@@ -262,6 +264,23 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.querySelf,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
       toModelOutput: projectQuerySelfModelOutput,
+    },
+    [NATIVE_TOOL_ID.queryDiagnostics]: {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryDiagnostics],
+      execute: async (input: ToolExecuteInput<QueryDiagnosticsInput>) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryDiagnostics],
+          input
+        );
+        try {
+          return await runQueryDiagnostics(resolvedInput);
+        } catch (error) {
+          logToolFailure('queryDiagnostics failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.queryDiagnostics,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryDiagnostics],
     },
     [NATIVE_TOOL_ID.webSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],

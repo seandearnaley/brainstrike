@@ -24,6 +24,7 @@ export {
   type DiagnosticEventsQueryFilter,
   DiagnosticEventsRepository,
   DiagnosticEventsStorageError,
+  type DiagnosticFingerprintGroup,
   mapDiagnosticEventRow,
 } from './diagnostic-events-repository.js';
 // Drizzle ORM implementations

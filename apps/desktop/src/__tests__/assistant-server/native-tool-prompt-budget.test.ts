@@ -65,15 +65,18 @@ vi.mock('../../db-main', () => ({
 // first per the rule below: the values-field describe and the description
 // sentence were both cut to the bone (−16) before raising.
 //
-// HEADROOM IS ~13 TOKENS (the surface measures 8447 against this 8460 ceiling).
-// That is deliberate but very tight, and the forcing function has already fired
-// twice as intended: adding `explain` to the description prose pushed the
-// surface to 8302 and the fix was to trim wording; the BST-935 raise above went
-// through the same gate. If you are reading this because a one-word change
-// failed CI, that is the forcing function working, not a flake. Trim something
-// first; raise the ceiling only as a considered decision, and record what you
-// traded away.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8460;
+// `brainstrike.queryDiagnostics` (BST-853) costs 351 authored tokens for one
+// required row/group mode plus seven optional exact/bounded filters. Replacing
+// Zod's two generated leap-year date-time regexes with bounded strings plus
+// explicit runtime validation recovered 345 tokens, so this capability fits
+// well below the originally proposed 9155 ceiling. The tool remains deferred,
+// leaving the 2157-token critical initial surface unchanged.
+//
+// HEADROOM IS ~13 TOKENS (the complete authored surface measures 8797 with
+// instructions against this 8810 ceiling). If a future change fails this gate,
+// trim something first; raise the ceiling only as a considered decision and
+// record the trade.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8810;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
@@ -374,6 +377,12 @@ describe('desktop native tool provider prompt budget', () => {
     const sessionProviderTools = eagerProviderTools.filter((tool) =>
       tool.function.name.includes('CommandSession')
     );
+    const queryDiagnosticsProviderTool = eagerProviderTools.find((tool) =>
+      tool.function.name.includes('queryDiagnostics')
+    );
+    if (!queryDiagnosticsProviderTool) {
+      throw new Error('queryDiagnostics provider definition is missing');
+    }
     for (const tool of sessionProviderTools) {
       const properties = asRecord(asRecord(tool.function.parameters)?.['properties']);
       expect(
@@ -387,6 +396,9 @@ describe('desktop native tool provider prompt budget', () => {
       criticalToolCount: criticalProviderTools.length,
       eagerDefinitionTokens: countO200kTokens(JSON.stringify(eagerProviderTools)),
       eagerToolCount: eagerProviderTools.length,
+      queryDiagnosticsDefinitionTokens: countO200kTokens(
+        JSON.stringify(queryDiagnosticsProviderTool)
+      ),
       sessionDefinitionTokens: Object.fromEntries(
         sessionProviderTools.map((tool) => [
           tool.function.name,
@@ -409,8 +421,11 @@ describe('desktop native tool provider prompt budget', () => {
       // model cannot write the BM25 arm at all.
       // +105 for the lens modes (BST-921): two enum values, the lens/values
       // fields, and the discovery sentence.
-      eagerDefinitionTokens: 7762,
-      eagerToolCount: 31,
+      // +350 / +1 for deferred `queryDiagnostics` (BST-853); the critical
+      // request remains unchanged.
+      eagerDefinitionTokens: 8112,
+      eagerToolCount: 32,
+      queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
         brainstrike_manageCommandSession: 482,
@@ -418,7 +433,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within 7,900 o200k tokens', async () => {
+  it('keeps the authored full hosted registry and instructions within 8,810 o200k tokens', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

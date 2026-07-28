@@ -651,6 +651,22 @@ chars>].md` — timestamp first so a Downloads folder sorts chronologically,
 and colon-free because Windows rejects `:` (an unmangled `toISOString()` in
 `anchor.download` does not survive there).
 
+**Agent diagnostics query**: desktop registers the read-risk
+`brainstrike.queryDiagnostics` native tool
+(`apps/desktop/src/assistant-server/query-diagnostics-tool.ts`) over
+`DiagnosticEventsRepository`. `mode=events` returns bounded newest-first rows;
+`mode=fingerprints` groups recurring fingerprints with count, first/last seen,
+and the latest representative message/source/code/severity. Exact
+severity/fingerprint/run/thread and inclusive ISO time filters are shared by
+both modes. The schema and repository both hard-cap results at 200, and the
+tool applies the native output-character budget after bounding individual
+message/stack/context fields. A row/group cap or output-budget cut is visible
+through `truncated` and `hint`. The hosted web assistant omits this capability
+because its server cannot read browser-local PGlite; it never substitutes a
+remote query. The bundle's Download action already satisfies the
+save-to-file half of P5 (BST-946), so the native tool does not duplicate file
+delivery.
+
 **The diagnostics downloads — filename AND save — go through
 `packages/utils/src/browser-download.ts`** (subpath
 `@brainstrike/utils/browser-download`; pure-half tests

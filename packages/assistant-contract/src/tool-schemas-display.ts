@@ -654,6 +654,75 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     toolId: 'brainstrike.manageTaskList',
   },
 
+  'brainstrike.queryDiagnostics': {
+    description:
+      'Read bounded durable diagnostic events from the local Flight Recorder, either as newest rows or grouped recurring fingerprints.',
+    parameters: [
+      {
+        description: 'Exact diagnostic fingerprint',
+        maxLength: 256,
+        minLength: 1,
+        name: 'fingerprint',
+        required: false,
+        type: 'string',
+      },
+      {
+        default: 50,
+        description: 'Maximum events or groups to inspect (hard max 200)',
+        max: 200,
+        min: 1,
+        name: 'limit',
+        required: false,
+        type: 'number',
+      },
+      {
+        description: 'events returns newest rows; fingerprints groups recurring failures',
+        enumValues: ['events', 'fingerprints'],
+        name: 'mode',
+        required: true,
+        type: 'enum',
+      },
+      {
+        description: 'Exact assistant run id',
+        maxLength: 256,
+        minLength: 1,
+        name: 'runId',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Exact severity',
+        enumValues: ['warn', 'error', 'fatal'],
+        name: 'severity',
+        required: false,
+        type: 'enum',
+      },
+      {
+        description: 'Inclusive ISO-8601 lower time bound',
+        name: 'since',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Exact assistant thread id',
+        maxLength: 256,
+        minLength: 1,
+        name: 'threadId',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Inclusive ISO-8601 upper time bound',
+        name: 'until',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Bounded newest diagnostic rows or recurring fingerprint groups with explicit cap/output truncation metadata',
+    toolId: 'brainstrike.queryDiagnostics',
+  },
+
   'brainstrike.queryEmbeddingSpace': {
     description:
       'Query semantic workspace context. Omit embeddingSetId for codebase searches to use the Workspace Index; provide embeddingSetId only to query a specific non-default embedding space.',

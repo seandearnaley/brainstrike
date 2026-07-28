@@ -65,6 +65,28 @@ export interface DiagnosticEventRow {
   thread_id: string | null;
 }
 
+export interface DiagnosticFingerprintGroup {
+  code: string | null;
+  count: number;
+  fingerprint: string;
+  firstSeenMs: number;
+  lastSeenMs: number;
+  latestMessage: string;
+  severity: DiagnosticSeverity;
+  source: string;
+}
+
+interface DiagnosticFingerprintGroupRow {
+  code: string | null;
+  count: number | string;
+  fingerprint: string;
+  first_seen: string | Date;
+  last_seen: string | Date;
+  latest_message: string;
+  severity: DiagnosticSeverity;
+  source: string;
+}
+
 function toMs(value: string | Date): number {
   return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
@@ -210,6 +232,89 @@ export class DiagnosticEventsRepository {
         firstSeenMs: row?.first_seen ? toMs(row.first_seen) : null,
         lastSeenMs: row?.last_seen ? toMs(row.last_seen) : null,
       };
+    } catch (error) {
+      throw new DiagnosticEventsStorageError('query', error);
+    }
+  }
+
+  async queryFingerprintGroups(
+    filter: DiagnosticEventsQueryFilter
+  ): Promise<DiagnosticFingerprintGroup[]> {
+    const clauses: string[] = [];
+    const latestClauses: string[] = [];
+    const params: unknown[] = [];
+    const push = (column: string, operator: string, value: unknown) => {
+      params.push(value);
+      const placeholder = `$${params.length}`;
+      clauses.push(`${column} ${operator} ${placeholder}`);
+      latestClauses.push(`latest.${column} ${operator} ${placeholder}`);
+    };
+    if (filter.severity) {
+      push('severity', '=', filter.severity);
+    }
+    if (filter.threadId) {
+      push('thread_id', '=', filter.threadId);
+    }
+    if (filter.runId) {
+      push('run_id', '=', filter.runId);
+    }
+    if (filter.fingerprint) {
+      push('fingerprint', '=', filter.fingerprint);
+    }
+    if (typeof filter.sinceMs === 'number') {
+      push('occurred_at', '>=', new Date(filter.sinceMs).toISOString());
+    }
+    if (typeof filter.untilMs === 'number') {
+      push('occurred_at', '<=', new Date(filter.untilMs).toISOString());
+    }
+    const limit = Math.min(Math.max(filter.limit ?? DEFAULT_QUERY_LIMIT, 1), DEFAULT_QUERY_LIMIT);
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const latestWhere = latestClauses.length > 0 ? `AND ${latestClauses.join(' AND ')}` : '';
+    try {
+      const result = await this.db.query<DiagnosticFingerprintGroupRow>(
+        `WITH grouped AS (
+           SELECT
+             fingerprint,
+             COUNT(*)::int AS count,
+             MIN(occurred_at) AS first_seen,
+             MAX(occurred_at) AS last_seen
+           FROM ${TABLE}
+           ${where}
+           GROUP BY fingerprint
+           ORDER BY count DESC, last_seen DESC, fingerprint ASC
+           LIMIT ${limit}
+         )
+         SELECT
+           grouped.fingerprint,
+           grouped.count,
+           grouped.first_seen,
+           grouped.last_seen,
+           latest.severity,
+           latest.source,
+           latest.code,
+           latest.message AS latest_message
+         FROM grouped
+         JOIN LATERAL (
+           SELECT severity, source, code, message
+           FROM ${TABLE} AS latest
+           WHERE latest.fingerprint = grouped.fingerprint
+             ${latestWhere}
+           ORDER BY latest.occurred_at DESC, latest.id DESC
+           LIMIT 1
+         ) AS latest ON true
+         ORDER BY grouped.count DESC, grouped.last_seen DESC, grouped.fingerprint ASC`,
+        params
+      );
+      return result.rows.map((row) => ({
+        code: row.code,
+        count: Number(row.count),
+        fingerprint: row.fingerprint,
+        firstSeenMs: toMs(row.first_seen),
+        lastSeenMs: toMs(row.last_seen),
+        latestMessage: row.latest_message,
+        severity: row.severity,
+        source: row.source,
+      }));
     } catch (error) {
       throw new DiagnosticEventsStorageError('query', error);
     }

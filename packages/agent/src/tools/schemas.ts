@@ -115,6 +115,43 @@ export const QuerySelfInputSchema = z
 export type QuerySelfInput = z.infer<typeof QuerySelfInputSchema>;
 
 // ============================================================================
+// Query Diagnostics Tool Schema
+// ============================================================================
+
+export const QueryDiagnosticsInputSchema = z
+  .object({
+    fingerprint: z.string().min(1).max(256).optional().describe('Exact diagnostic fingerprint'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe('Maximum events or groups to inspect (default 50, hard max 200)'),
+    mode: z
+      .enum(['events', 'fingerprints'])
+      .describe('events returns newest rows; fingerprints groups recurring failures'),
+    runId: z.string().min(1).max(256).optional().describe('Exact assistant run id'),
+    severity: z.enum(['warn', 'error', 'fatal']).optional().describe('Exact severity'),
+    since: z
+      .string()
+      .min(20)
+      .max(35)
+      .optional()
+      .describe('Inclusive ISO-8601 lower bound, e.g. 2026-07-20T00:00:00Z'),
+    threadId: z.string().min(1).max(256).optional().describe('Exact assistant thread id'),
+    until: z
+      .string()
+      .min(20)
+      .max(35)
+      .optional()
+      .describe('Inclusive ISO-8601 upper bound, e.g. 2026-07-28T00:00:00Z'),
+  })
+  .strict();
+
+export type QueryDiagnosticsInput = z.infer<typeof QueryDiagnosticsInputSchema>;
+
+// ============================================================================
 // Queue Status Tool Schema
 // ============================================================================
 
@@ -988,6 +1025,7 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.lspInspect]: LspInspectInputSchema,
   [NATIVE_TOOL_ID.manageCommandSession]: ManageCommandSessionInputSchema,
   [NATIVE_TOOL_ID.manageTaskList]: ManageTaskListInputSchema,
+  [NATIVE_TOOL_ID.queryDiagnostics]: QueryDiagnosticsInputSchema,
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: QueryEmbeddingSpaceInputSchema,
   [NATIVE_TOOL_ID.querySelf]: QuerySelfInputSchema,
   [NATIVE_TOOL_ID.readToolOutputArtifact]: ReadToolOutputArtifactCursorInputSchema,
