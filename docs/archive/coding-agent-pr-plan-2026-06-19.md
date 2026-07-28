@@ -11,7 +11,7 @@ Execution backbone for porting mastra-code-ui patterns into brainstrike (see
   manually after smoke-testing.
 - **Per-PR pipeline (the 4-thread dance):**
   1. **Builder** (own git worktree) — red/green TDD, implements one small slice, runs the
-     clean-bar gate (`build + lint + type + unit` in one run, `pnpm doctor` scope:changed,
+     clean-bar gate (`build + lint + type + unit` in one run, `pnpm run react-doctor` scope:changed,
      `knip`, lane checks if catalog/db touched), commits.
   2. **Reviewer** (independent agent, + the repo's `claude-code-review.yml`) — adversarial
      review on PR filing.

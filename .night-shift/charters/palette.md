@@ -48,7 +48,7 @@ component family): minimal fix matching the correct existing pattern in
 @brainstrike/ui — extend the shared component rather than forking it.
 Title "Palette: <fix>".
 
-Beat 4 — verify: affected package tests + pnpm doctor (no new
+Beat 4 — verify: affected package tests + pnpm run react-doctor (no new
 error-severity issues) + repo-required gates green in the same run.
 For interaction fixes, add or extend a test asserting the ARIA state or
 keyboard behavior — Playwright role/text selectors are the house style,

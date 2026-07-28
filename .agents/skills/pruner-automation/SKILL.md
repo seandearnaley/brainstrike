@@ -61,7 +61,7 @@ redirection cannot leave an empty baseline file on preflight failure. Install
 dependencies explicitly with `pnpm install --frozen-lockfile`, then rerun the
 collector. It:
 
-- runs `pnpm knip` and `REACT_DOCTOR_NO_TELEMETRY=1 pnpm exec react-doctor . --json` without shell pipelines (invoking the binary directly, because `pnpm run doctor -- --json` leaks a literal `--` that makes react-doctor ignore `--json`; it asserts the root `doctor` script is react-doctor first);
+- runs `pnpm knip` and `REACT_DOCTOR_NO_TELEMETRY=1 pnpm exec react-doctor . --json` without shell pipelines (invoking the binary directly, because `pnpm run react-doctor -- --json` leaks a literal `--` that makes react-doctor ignore `--json`; it asserts the root `react-doctor` script is react-doctor first — the script is named `react-doctor`, not `doctor`, because pnpm's builtin `doctor` subcommand would shadow it, see BST-852);
 - preserves each command's real exit code and distinguishes findings from operational failure for BOTH tools — Knip via exit-code + category counts, Doctor via its structured `--json` report (`ok`/`summary`), never scraped CLI copy;
 - classifies a completed Doctor scan with error-severity diagnostics as a `findings` outcome (exit 1 is expected there), and only `ok:false` as operational failure; skipped checks are surfaced as `incompleteResults`, never treated as a clean bill;
 - records Git heads, branch, worktree status, and exact log paths;

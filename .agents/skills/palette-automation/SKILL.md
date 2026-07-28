@@ -80,7 +80,7 @@ capability.
 
 ## Verify, checkpoint, and finish
 
-For a code change, run the affected package tests, `pnpm doctor`, and every
+For a code change, run the affected package tests, `pnpm run react-doctor`, and every
 repository-required gate in one final run. Confirm no new error-severity
 Doctor issue was introduced. Re-check the final diff for scope, source of
 truth, test coverage, and unrelated changes before proposing a PR. Follow

@@ -82,6 +82,27 @@ function parsePackageScripts(repo, revision, allPaths) {
   return packages;
 }
 
+/**
+ * pnpm subcommands that SHADOW an identically-named package script: running
+ * `pnpm <name>` executes pnpm's builtin and never reaches the script.
+ *
+ * This set is EMPIRICALLY derived and must stay that way. `pnpm help -a` is NOT
+ * a usable source for it, in both directions (verified against pnpm 11.15.0):
+ *
+ *   - `doctor` is ABSENT from `pnpm help -a` but shadows. A fixture whose
+ *     `doctor` script echoes a sentinel prints pnpm's environment report and
+ *     "All checks passed with 1 warning(s)", exit 0 — the sentinel never runs.
+ *     Deriving this set from the help listing would have produced a guard that
+ *     passes on the exact bug it exists to catch (BST-852, cf. BST-836).
+ *   - `clean` is PRESENT in `pnpm help -a` but does NOT shadow: a `clean`
+ *     script runs normally. Including it would be a false positive.
+ *
+ * To add an entry: build a scratch package.json whose script by that name
+ * echoes a sentinel, run the bare `pnpm <name>`, and add it only if the
+ * sentinel does not appear. Do not add a name because the help text lists it.
+ */
+const PNPM_SHADOWED_BUILTINS = new Set(['doctor']);
+
 function classifyCommand(command, packages, allPaths) {
   const normalized = command.trim();
   const root = packages.get('__root__');
@@ -89,8 +110,10 @@ function classifyCommand(command, packages, allPaths) {
   const pnpmExec = normalized.match(/^pnpm\s+exec\s+([^\s]+)/);
   const filtered = normalized.match(/^pnpm\s+--filter\s+([^\s]+)\s+(?:run\s+)?([^\s]+)/);
   // Must start with a letter so `pnpm --version` / `pnpm -r` are not read as
-  // a script named "--version".
-  const rootScript = normalized.match(/^pnpm\s+(?:run\s+)?([A-Za-z][\w:-]*)/);
+  // a script named "--version". Group 1 captures the explicit `run` keyword so
+  // the shadowed-builtin check below can tell `pnpm doctor` from
+  // `pnpm run doctor` — they are NOT equivalent (see PNPM_SHADOWED_BUILTINS).
+  const rootScript = normalized.match(/^pnpm\s+(run\s+)?([A-Za-z][\w:-]*)/);
   const nodeScript = normalized.match(/^node\s+([^\s]+)/);
   const npxPackage = normalized.match(/^npx\s+([@\w/-]+)/);
 
@@ -113,7 +136,24 @@ function classifyCommand(command, packages, allPaths) {
     return packageJson?.scripts?.[filtered[2]] ? 'ACCURATE' : 'DANGLING';
   }
   if (rootScript) {
-    const name = rootScript[1];
+    const name = rootScript[2];
+    // BST-852. A pnpm builtin subcommand wins the bare shorthand outright: the
+    // builtin runs and the identically-named package script NEVER does. So a
+    // documented bare `pnpm <shadowed>` is DANGLING — the same fail-closed
+    // verdict an unknown script name gets. `pnpm run <name>` is unambiguous and
+    // stays ACCURATE.
+    //
+    // This deliberately does NOT depend on whether a script of that name
+    // currently exists. An earlier draft gated on `root?.scripts?.[name]`,
+    // reasoning that with no such script the doc must mean pnpm's own builtin.
+    // That conjunct was inert (with the script now renamed, the no-script case
+    // already fell through to DANGLING anyway) and the reasoning was wrong for
+    // this repo: the shorthand is misleading either way, and a doc that means
+    // pnpm's builtin should say so explicitly rather than relying on a reader
+    // knowing which names pnpm claims. Fail closed.
+    if (!rootScript[1] && PNPM_SHADOWED_BUILTINS.has(name)) {
+      return 'DANGLING';
+    }
     if (root?.scripts?.[name]) {
       return 'ACCURATE';
     }
@@ -364,6 +404,7 @@ export {
   classifyProjectPath,
   isFileToken,
   isSymbol,
+  PNPM_SHADOWED_BUILTINS,
   sourceAnchorEnd,
   stripSourceAnchor,
 };

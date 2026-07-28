@@ -129,7 +129,7 @@ export const parseDoctor = (stdoutText, exitCode) => {
     report = JSON.parse(trimmed);
   } catch {
     throw new Error(
-      `pnpm doctor --json did not emit a parseable JSON report (exit code ${exitCode})`
+      `react-doctor --json did not emit a parseable JSON report (exit code ${exitCode})`
     );
   }
   if (
@@ -139,15 +139,15 @@ export const parseDoctor = (stdoutText, exitCode) => {
     report.summary === null ||
     typeof report.summary !== 'object'
   ) {
-    throw new Error('pnpm doctor --json report is missing the expected ok/summary shape');
+    throw new Error('react-doctor --json report is missing the expected ok/summary shape');
   }
   if (report.ok !== true) {
     const detail = report.error?.message ? `: ${report.error.message}` : '';
-    throw new Error(`pnpm doctor failed operationally${detail}`);
+    throw new Error(`react-doctor failed operationally${detail}`);
   }
   const summary = report.summary;
   if (typeof summary.errorCount !== 'number' || typeof summary.warningCount !== 'number') {
-    throw new Error('pnpm doctor --json summary is missing diagnostic counts');
+    throw new Error('react-doctor --json summary is missing diagnostic counts');
   }
   const skippedChecks = Array.isArray(report.projects)
     ? report.projects.reduce(
@@ -177,9 +177,14 @@ function readRootDoctorScript(repoRoot) {
   } catch (error) {
     fail(`could not read root package.json: ${error instanceof Error ? error.message : error}`);
   }
-  const script = packageJson.scripts?.doctor;
+  // BST-852: the script is named `react-doctor`, NOT `doctor`. `doctor` is a
+  // pnpm builtin subcommand, so a script by that name is unreachable via the
+  // bare `pnpm doctor` shorthand — pnpm runs its own environment doctor and
+  // prints "All checks passed", which reads exactly like a clean react-doctor
+  // run. The script was renamed so the collision cannot be typed by accident.
+  const script = packageJson.scripts?.['react-doctor'];
   if (typeof script !== 'string') {
-    fail('root package.json has no "doctor" script');
+    fail('root package.json has no "react-doctor" script');
   }
   return script;
 }
@@ -386,15 +391,17 @@ async function main() {
   assertWorkspaceManifestsCurrent(repoRoot);
 
   const knipRun = run('pnpm', ['knip'], repoRoot);
-  // `pnpm run doctor -- --json` passes a literal `--` through to react-doctor,
-  // whose commander parser then treats --json as a positional operand and
-  // ignores it; `pnpm run doctor --json` fails because pnpm claims --json for
-  // itself. So invoke the binary directly with `pnpm exec`. Guard first: the
-  // doctor script must actually be react-doctor, or a tool swap would surface
-  // as an opaque JSON-parse error instead of a clear failure.
+  // `pnpm run react-doctor -- --json` passes a literal `--` through to
+  // react-doctor, whose commander parser then treats --json as a positional
+  // operand and ignores it; `pnpm run react-doctor --json` fails because pnpm
+  // claims --json for itself. So invoke the binary directly with `pnpm exec`.
+  // Guard first: the script must actually be react-doctor, or a tool swap would
+  // surface as an opaque JSON-parse error instead of a clear failure.
   const doctorScript = readRootDoctorScript(repoRoot);
   if (!/\breact-doctor\b/.test(doctorScript)) {
-    fail(`root "doctor" script is not react-doctor ("${doctorScript}"); update this collector`);
+    fail(
+      `root "react-doctor" script is not react-doctor ("${doctorScript}"); update this collector`
+    );
   }
   const doctorRun = run('pnpm', ['exec', 'react-doctor', '.', '--json'], repoRoot, {
     REACT_DOCTOR_NO_TELEMETRY: '1',
