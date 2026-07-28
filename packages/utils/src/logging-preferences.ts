@@ -1,6 +1,7 @@
 import {
   type ConsoleTransportConfig,
   configureLogger,
+  type FileTransportConfig,
   type LoggerConfig,
   LogLevel,
 } from '@brainstrike/utils/logger';
@@ -104,7 +105,9 @@ function normalizeRedactPaths(paths: readonly string[]): readonly string[] {
 export function applyLoggingPreferences(
   preferences: LoggingPreferences,
   runtime: LoggerRuntime,
-  additionalConfig?: Pick<LoggerConfig, 'baseBindings'>
+  additionalConfig?: Pick<LoggerConfig, 'baseBindings'> & {
+    fileTransport?: Pick<FileTransportConfig, 'options' | 'target'>;
+  }
 ): void {
   const config: LoggerConfig = {
     console: buildConsoleConfig(preferences),
@@ -114,8 +117,19 @@ export function applyLoggingPreferences(
   };
 
   const fileConfig = buildFileConfig(preferences, runtime);
+  if (fileConfig && runtime === 'electron-main' && !additionalConfig?.fileTransport) {
+    throw new Error(
+      'applyLoggingPreferences: electron-main file logging requires an explicit rotating fileTransport'
+    );
+  }
   if (fileConfig !== undefined) {
-    config.file = fileConfig;
+    config.file =
+      fileConfig && additionalConfig?.fileTransport
+        ? {
+            ...fileConfig,
+            ...additionalConfig.fileTransport,
+          }
+        : fileConfig;
   }
 
   if (additionalConfig?.baseBindings) {

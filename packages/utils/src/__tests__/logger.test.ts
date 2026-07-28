@@ -280,6 +280,20 @@ describe('logger', () => {
     });
   });
 
+  describe('transport lifecycle', () => {
+    it('synchronously drains an old transport before ending it', () => {
+      const lifecycle: string[] = [];
+
+      __loggerTesting.drainNodeDestination({
+        end: () => lifecycle.push('end'),
+        flushSync: () => lifecycle.push('flush'),
+        write: vi.fn(),
+      });
+
+      expect(lifecycle).toEqual(['flush', 'end']);
+    });
+  });
+
   describe('listeners', () => {
     beforeEach(() => {
       setEnvironment(true);

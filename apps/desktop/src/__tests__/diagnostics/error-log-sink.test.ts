@@ -1,9 +1,9 @@
 /**
  * Unit coverage for `createErrorLogSink` (Flight Recorder P2a Task 3): the
- * conversion + serialization wrapper around `RotatingNdjsonSink` that turns a
+ * conversion + serialization wrapper around `RotatingFileSink` that turns a
  * warn+ `LogRecord` into one durable NDJSON line. Real fs via a tmpdir — the
  * writes here are a handful of short lines, not the rotation/failure-mode
- * territory `rotating-ndjson-sink.integration.test.ts` covers, so this stays
+ * territory `rotating-file-sink.integration.test.ts` covers, so this stays
  * a plain unit test per the brief's file name.
  */
 import fsPromises from 'node:fs/promises';

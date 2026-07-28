@@ -6,41 +6,46 @@ import path from 'node:path';
  * via `listErrorLogFilePaths` in `error-log-sink.ts`) can enumerate every
  * rotated-sibling slot the sink can occupy on disk without duplicating this
  * default. */
-const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_MAX_FILES = 5;
 
-export interface RotatingNdjsonSinkOptions {
+export interface RotatingFileSinkOptions {
+  readonly append?: boolean;
   readonly filePath: string;
   readonly maxBytes?: number;
   readonly maxFiles?: number;
+  readonly mkdir?: boolean;
   /** Called ONCE when the sink disables itself after a failure. */
   readonly onFailure?: (error: unknown) => void;
 }
 
 /**
- * Self-contained, fd-owning rotating NDJSON file writer for the Electron main
- * process. This is the durable BACKSTOP for the diagnostics system: it must
- * keep working even when the PGlite diagnostic sink itself is broken, so it
- * has no dependency on the database, on IPC, or — critically — on the logger.
+ * Self-contained, fd-owning rotating file writer for the Electron main
+ * process. It is shared by the full Pino log transport and the durable
+ * diagnostics backstop, so it has no dependency on the database, IPC, or the
+ * logger.
  *
  * NEVER import or call `@brainstrike/utils/logger` (or anything that logs)
- * from this module. The sink is fed BY a log listener (Task 3 taps every log
- * record and forwards it here); logging from inside the sink would re-enter
- * that listener and recurse without bound. Any failure here is reported
- * exactly once through the injected `onFailure` callback instead — the
- * caller decides how to surface it (Task 3 uses a raw `console.error`).
+ * from this module. One caller is itself a log transport, while the other is
+ * fed by a log listener; logging from inside the sink would recurse. Any
+ * failure is reported exactly once through the injected `onFailure` callback
+ * instead, and stream adapters can also inspect `failure`.
  */
-export class RotatingNdjsonSink {
+export class RotatingFileSink {
+  private readonly append: boolean;
   private readonly filePath: string;
   private readonly maxBytes: number;
   private readonly maxFiles: number;
+  private readonly mkdir: boolean;
   private readonly onFailure: ((error: unknown) => void) | undefined;
 
   private currentSize = 0;
   private fd: number | null = null;
+  private hasOpened = false;
   private isDisabled = false;
+  private sinkFailure: unknown = null;
 
-  constructor(options: RotatingNdjsonSinkOptions) {
+  constructor(options: RotatingFileSinkOptions) {
     const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
     // NO SILENT FALLBACKS: a degenerate retention window (maxFiles < 2 means
@@ -51,17 +56,19 @@ export class RotatingNdjsonSink {
     // sink instance yet to disable, and misconfiguration should fail the
     // caller's setup immediately rather than surface later as a runtime
     // write failure.
-    if (maxFiles < 2) {
+    if (!(Number.isSafeInteger(maxFiles) && maxFiles >= 2)) {
       throw new Error(
-        `RotatingNdjsonSink: maxFiles must be >= 2 (the live file plus at least one rotated sibling), got ${maxFiles}`
+        `RotatingFileSink: maxFiles must be a safe integer >= 2 (the live file plus at least one rotated sibling), got ${maxFiles}`
       );
     }
-    if (maxBytes < 1) {
-      throw new Error(`RotatingNdjsonSink: maxBytes must be >= 1, got ${maxBytes}`);
+    if (!(Number.isSafeInteger(maxBytes) && maxBytes >= 1)) {
+      throw new Error(`RotatingFileSink: maxBytes must be a safe integer >= 1, got ${maxBytes}`);
     }
+    this.append = options.append ?? true;
     this.filePath = options.filePath;
     this.maxBytes = maxBytes;
     this.maxFiles = maxFiles;
+    this.mkdir = options.mkdir ?? true;
     this.onFailure = options.onFailure;
   }
 
@@ -75,6 +82,81 @@ export class RotatingNdjsonSink {
     return this.isDisabled;
   }
 
+  /** The exact failure that disabled the sink, for stream adapters that need
+   * to propagate it through their own error channel. */
+  get failure(): unknown {
+    return this.sinkFailure;
+  }
+
+  /**
+   * Appends one transport chunk without changing its bytes. Pino already
+   * supplies newline-delimited JSON, while the diagnostics wrapper below uses
+   * `writeLine` to add its own delimiter.
+   */
+  writeChunk(chunk: string | Uint8Array): void {
+    const buffer =
+      typeof chunk === 'string'
+        ? Buffer.from(chunk, 'utf8')
+        : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    this.writeBuffer(buffer);
+  }
+
+  /**
+   * Writes complete record chunks while coalescing adjacent records that fit
+   * before the next rotation boundary. The record boundaries remain the unit
+   * of rotation, but the common case becomes one copy and one syscall for an
+   * entire Pino worker batch instead of one of each per record.
+   */
+  writeRecordChunks(chunks: readonly Uint8Array[]): void {
+    if (this.isDisabled || chunks.length === 0) {
+      return;
+    }
+
+    try {
+      this.ensureOpen();
+    } catch (error) {
+      this.disable(error);
+      return;
+    }
+
+    let batch: Buffer[] = [];
+    let batchBytes = 0;
+    const flushBatch = (): void => {
+      if (batchBytes === 0) {
+        return;
+      }
+      const output = batch.length === 1 ? batch[0] : Buffer.concat(batch, batchBytes);
+      if (output) {
+        this.writeBuffer(output);
+      }
+      batch = [];
+      batchBytes = 0;
+    };
+
+    for (const chunk of chunks) {
+      if (this.isDisabled) {
+        return;
+      }
+      const buffer = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      if (buffer.byteLength === 0) {
+        continue;
+      }
+
+      const projectedSize = this.currentSize + batchBytes;
+      if (projectedSize > 0 && projectedSize + buffer.byteLength > this.maxBytes) {
+        flushBatch();
+        if (this.isDisabled) {
+          return;
+        }
+      }
+
+      batch.push(buffer);
+      batchBytes += buffer.byteLength;
+    }
+
+    flushBatch();
+  }
+
   /**
    * Appends `line + '\n'` to the live file, rotating first if the write
    * would push the live file over `maxBytes`. NEVER throws: the caller is a
@@ -83,12 +165,15 @@ export class RotatingNdjsonSink {
    * or writing — permanently disables the sink instead (see `disable`).
    */
   writeLine(line: string): void {
+    this.writeChunk(`${line}\n`);
+  }
+
+  private writeBuffer(buffer: Buffer): void {
     if (this.isDisabled) {
       return;
     }
     try {
       let fd = this.ensureOpen();
-      const buffer = Buffer.from(`${line}\n`, 'utf8');
       if (this.currentSize > 0 && this.currentSize + buffer.byteLength > this.maxBytes) {
         fd = this.rotate();
       }
@@ -102,7 +187,7 @@ export class RotatingNdjsonSink {
         // the sink and reports it — a truncated durable record must
         // surface, never pass silently.
         throw new Error(
-          `RotatingNdjsonSink: short write to "${this.filePath}" (${bytesWritten}/${buffer.byteLength} bytes)`
+          `RotatingFileSink: short write to "${this.filePath}" (${bytesWritten}/${buffer.byteLength} bytes)`
         );
       }
       this.currentSize += buffer.byteLength;
@@ -114,7 +199,7 @@ export class RotatingNdjsonSink {
   /**
    * Idempotent: closes the fd if open. Safe to call multiple times.
    *
-   * Does NOT disable the sink. A `writeLine` call after `close()`
+   * Does NOT disable the sink. A write after `close()`
    * transparently reopens the file (re-seeding `currentSize` from disk) and
    * keeps writing — this class itself never drops a post-close write.
    *
@@ -156,9 +241,13 @@ export class RotatingNdjsonSink {
     if (this.fd !== null) {
       return this.fd;
     }
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const fd = fs.openSync(this.filePath, 'a');
+    if (this.mkdir) {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+    }
+    const flags = this.append || this.hasOpened ? 'a' : 'w';
+    const fd = fs.openSync(this.filePath, flags);
     this.fd = fd;
+    this.hasOpened = true;
     // Seed from the file's actual size — NOT 0 — so a reopen after a
     // process restart continues the same rotation budget instead of
     // silently growing the live file past maxBytes before the next
@@ -206,14 +295,16 @@ export class RotatingNdjsonSink {
 
   /**
    * Permanently disables the sink after any open/write/rotate failure and
-   * reports it exactly once via `onFailure`. Every later `writeLine` becomes
-   * a silent no-op so the caller's log listener never throws.
+   * reports it exactly once via `onFailure`. Every later write becomes a
+   * no-op so the caller's log listener never throws; adapters that must expose
+   * the failure can inspect the `failure` getter.
    */
   private disable(error: unknown): void {
     if (this.isDisabled) {
       return;
     }
     this.isDisabled = true;
+    this.sinkFailure = error;
     if (this.fd !== null) {
       try {
         fs.closeSync(this.fd);

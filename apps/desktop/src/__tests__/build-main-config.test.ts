@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -16,13 +17,24 @@ import {
  *   bundled main.js, so outputs must stay FLAT in dist/)
  */
 describe('main-process bundle config', () => {
-  it('bundles exactly the four runtime entry points', () => {
+  it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
       'db-host-entry': 'src/db-host-entry.ts',
       main: 'src/main-bootstrap.ts',
+      'main-log-transport': 'src/diagnostics/main-log-transport.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
     });
+  });
+
+  it('unpacks the logging transport worker for a plain packaged-worker path', () => {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.resolve(import.meta.dirname, '../../package.json'), 'utf8')
+    ) as {
+      build?: { asarUnpack?: readonly string[] };
+    };
+
+    expect(packageJson.build?.asarUnpack).toContain('dist/main-log-transport.js');
   });
 
   it('bundles app code only, as flat CJS for the Electron main process', () => {
