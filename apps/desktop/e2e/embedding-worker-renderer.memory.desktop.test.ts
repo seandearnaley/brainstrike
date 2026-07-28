@@ -61,6 +61,29 @@ const {
   withTemporaryProcessEnv,
 } = shared;
 
+async function expectVisibleRecordPage(
+  page: Page,
+  displayPage: number,
+  totalPages: number
+): Promise<void> {
+  const databasePanel = page.locator('[data-testid="database-demo-panel"]');
+  const editablePageNumber = databasePanel.getByRole('spinbutton', { name: 'Page number' });
+  const compactPageNumber = databasePanel.locator('output[aria-label^="Page "]');
+
+  await expect(editablePageNumber.or(compactPageNumber)).toHaveCount(1);
+
+  if ((await editablePageNumber.count()) === 1) {
+    await expect(editablePageNumber).toHaveValue(String(displayPage));
+    return;
+  }
+
+  await expect(compactPageNumber).toHaveAttribute(
+    'aria-label',
+    `Page ${displayPage} of ${totalPages}`
+  );
+  await expect(compactPageNumber).toHaveText(`${displayPage}/${totalPages}`);
+}
+
 test.describe('Embedding Host Renderer - memory', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -386,18 +409,26 @@ test.describe('Embedding Host Renderer - memory', () => {
     await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
     expect(((await firstVisibleDataRow.textContent()) ?? '').trim().length).toBeGreaterThan(0);
 
-    const pageNumberInput = activeWindow.getByRole('spinbutton', { name: 'Page number' });
-    await expect(pageNumberInput).toHaveValue('1');
+    const totalPages = Math.max(1, Math.ceil(fixture.fileCount / 50));
     await expect
-      .poll(async () => {
-        const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
-        return snapshot?.recordPagination.currentPage ?? -1;
-      })
-      .toBe(0);
+      .poll(
+        async () => {
+          const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
+          return JSON.stringify(snapshot?.recordPagination ?? null);
+        },
+        { timeout: 30_000 }
+      )
+      .toBe(
+        JSON.stringify({
+          currentPage: 0,
+          pageSize: 50,
+          totalRecords: fixture.fileCount,
+        })
+      );
+    await expectVisibleRecordPage(activeWindow, 1, totalPages);
 
     await activeWindow.getByRole('button', { name: 'Go to next page' }).click({ timeout: 5000 });
 
-    await expect(pageNumberInput).toHaveValue('2');
     await expect
       .poll(
         async () => {
@@ -413,6 +444,7 @@ test.describe('Embedding Host Renderer - memory', () => {
           totalRecords: fixture.fileCount,
         })
       );
+    await expectVisibleRecordPage(activeWindow, 2, totalPages);
 
     await forceRendererGarbageCollection(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
