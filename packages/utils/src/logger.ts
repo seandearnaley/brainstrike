@@ -8,6 +8,10 @@ import pino from 'pino';
 import { isDevEnv } from './env-utils';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
+type ManagedNodeDestination = DestinationStream & {
+  end: () => void;
+  flushSync: () => void;
+};
 
 /**
  * Detect if we're in a browser-like environment (browser or Web Worker).
@@ -162,6 +166,7 @@ interface InternalLoggerConfig {
 
 let internalConfig: InternalLoggerConfig = createDefaultConfig();
 let rootLogger: PinoLogger | undefined;
+let activeNodeDestination: ManagedNodeDestination | undefined;
 let currentLevel: LogLevel = resolveEffectiveLevel(internalConfig);
 const scopedLoggers = new Map<string, PinoLogger>();
 const logListeners = new Set<LogListener>();
@@ -453,8 +458,25 @@ function createBrowserWrite(
   };
 }
 
+function drainNodeDestination(destination: ManagedNodeDestination): void {
+  destination.flushSync();
+  destination.end();
+}
+
+function requireManagedNodeDestination(destination: DestinationStream): ManagedNodeDestination {
+  const candidate = destination as DestinationStream &
+    Partial<Pick<ManagedNodeDestination, 'end' | 'flushSync'>>;
+  if (typeof candidate.flushSync !== 'function' || typeof candidate.end !== 'function') {
+    throw new Error('pino transport does not expose the required synchronous drain lifecycle');
+  }
+  return candidate as ManagedNodeDestination;
+}
+
 function rebuildRootLogger(): void {
-  if (rootLogger && typeof rootLogger.flush === 'function') {
+  if (activeNodeDestination) {
+    drainNodeDestination(activeNodeDestination);
+    activeNodeDestination = undefined;
+  } else if (rootLogger && typeof rootLogger.flush === 'function') {
     // Flush any pending logs before rebuilding
     rootLogger.flush();
   }
@@ -524,6 +546,7 @@ function createRootLogger(): PinoLogger {
   }
 
   const logger = destination ? pino(baseOptions, destination) : pino(baseOptions);
+  activeNodeDestination = destination ? requireManagedNodeDestination(destination) : undefined;
   logger.level = resolvedLevel;
   return logger;
 }
@@ -916,6 +939,7 @@ export function addLogListener(listener: LogListener): () => void {
 
 export const __loggerTesting = {
   createBrowserWrite,
+  drainNodeDestination,
   formatBrowserConsoleMessage,
   normalizePinoLogArgs,
   sanitizeBrowserConsoleValue,
