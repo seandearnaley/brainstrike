@@ -805,7 +805,6 @@ function hasCurrentTripwirePayload(
     payload !== undefined &&
     (Object.hasOwn(payload, 'reason') ||
       Object.hasOwn(payload, 'retry') ||
-      Object.hasOwn(payload, 'metadata') ||
       Object.hasOwn(payload, 'processorId'))
   );
 }

@@ -1123,6 +1123,58 @@ describe('agent-runtime edge cases', () => {
       }
     });
 
+    it('prefers a valid legacy payload reason when legacy metadata is also present', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-streaming');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStream = Agent.prototype.stream;
+      // @ts-expect-error - test override
+      Agent.prototype.stream = async function stream() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              payload: {
+                metadata: { policy: 'legacy-policy' },
+                tripwireReason: 'Legacy payload policy violation',
+              },
+              type: 'tripwire',
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      try {
+        const iterator = await streamMastraAgent(
+          [
+            {
+              id: 'legacy-payload-tripwire',
+              parts: [{ text: 'test', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          { runtime: { apiKey: 'test-key', provider: 'openai' } }
+        );
+
+        const chunks: StreamChunk[] = [];
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+
+        const failure = chunks.find(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+        );
+        expect(failure?.event.detail).toBe('Legacy payload policy violation');
+        expect(failure?.event.metadata?.['tripwire']).toEqual({
+          source: 'legacy-tripwire-reason',
+        });
+      } finally {
+        Agent.prototype.stream = originalStream;
+      }
+    });
+
     it('processes unknown stream part types gracefully', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-streaming');
       const { Agent } = await import('@mastra/core/agent');
