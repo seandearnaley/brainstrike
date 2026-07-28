@@ -6,13 +6,6 @@ import type { AssistantThreadRepository } from './assistant-memory-repository';
 
 const logger = createLogger('AssistantThreadTitleSync');
 
-const ASSISTANT_THREAD_TITLES_QUERY = `
-  SELECT id, title
-  FROM ${MASTRA_MEMORY_TABLES.threads}
-  WHERE "resourceId" = $1
-  ORDER BY id ASC
-`;
-
 interface AssistantThreadTitleRow {
   readonly id: string;
   readonly title: string | null;
@@ -42,12 +35,23 @@ export function useAssistantThreadTitleSync({
   repository,
   resourceId,
 }: UseAssistantThreadTitleSyncInput): () => void {
+  // Schema constants are initialized by the assistant-contract chunk. Reading
+  // them inside the hook avoids a module-evaluation ordering dependency.
+  const titleQuery = useMemo(
+    () => `
+      SELECT id, title
+      FROM ${MASTRA_MEMORY_TABLES.threads}
+      WHERE "resourceId" = $1
+      ORDER BY id ASC
+    `,
+    []
+  );
   const { error, loading, rows } = usePGliteLiveQuery<AssistantThreadTitleRow>({
     cacheKey: makeLiveQueryKey('assistant-thread-titles', resourceId),
     clearOnDisable: true,
     enabled,
     params: [resourceId],
-    query: ASSISTANT_THREAD_TITLES_QUERY,
+    query: titleQuery,
   });
   const titleSignature = useMemo(
     () => JSON.stringify(rows.map(({ id, title }) => [id, title])),
