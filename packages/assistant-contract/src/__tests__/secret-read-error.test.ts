@@ -40,13 +40,33 @@ describe('matchSecretReadError', () => {
     });
   });
 
-  it('rejects a plain Error, a wrong name, an invalid code, and a missing provider', () => {
+  it('matches a REVIVED plain object (no Error prototype), the cross-boundary shape', () => {
+    // What a SecretReadError looks like after structured-clone/JSON across a
+    // worker or service boundary: own properties survive, prototype does not.
+    expect(
+      matchSecretReadError({
+        code: 'encryption_unavailable',
+        message: 'Secret for "anthropic" is unreadable.',
+        name: 'SecretReadError',
+        provider: 'anthropic',
+      })
+    ).toEqual({
+      code: 'encryption_unavailable',
+      message: 'Secret for "anthropic" is unreadable.',
+      provider: 'anthropic',
+    });
+  });
+
+  it('rejects a plain Error, a wrong name, an invalid code, a missing provider, and a missing message', () => {
     expect(matchSecretReadError(new Error('SecretReadError'))).toBeUndefined();
     const wrongName = new SecretReadErrorLike('decrypt_failed', 'openai');
     wrongName.name = 'Error';
     expect(matchSecretReadError(wrongName)).toBeUndefined();
     expect(matchSecretReadError(new SecretReadErrorLike('not_a_code', 'openai'))).toBeUndefined();
     expect(matchSecretReadError(new SecretReadErrorLike('decrypt_failed', 7))).toBeUndefined();
+    expect(
+      matchSecretReadError({ code: 'decrypt_failed', name: 'SecretReadError', provider: 'openai' })
+    ).toBeUndefined();
     expect(matchSecretReadError('SecretReadError')).toBeUndefined();
     expect(matchSecretReadError(undefined)).toBeUndefined();
   });
