@@ -13,6 +13,7 @@ vi.mock('electron', () => ({
 
 vi.mock('electron-store', () => ({ default: class {} }));
 
+import { matchSecretReadError } from '@brainstrike/assistant-contract';
 import { createSecretsService, SecretReadError } from '../secrets';
 
 interface FakeStore {
@@ -83,5 +84,21 @@ describe('secrets getKey failure surfacing (BST-574)', () => {
     safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
 
     await expect(service(fakeStore()).getKey('openai')).resolves.toBeNull();
+  });
+});
+
+describe('SecretReadError structural conformance (BST-972 A3)', () => {
+  // MONEY TEST for the cross-package contract: server modules classify these
+  // failures via assistant-contract's STRUCTURAL matchSecretReadError instead
+  // of instanceof. A rename of `name`/`code`/`provider` on the class would
+  // compile fine and silently stop every classifier from matching — this is
+  // the test that goes red instead.
+  it('the real class matches assistant-contract matchSecretReadError', () => {
+    const error = new SecretReadError('decrypt_failed', 'openai');
+    expect(matchSecretReadError(error)).toEqual({
+      code: 'decrypt_failed',
+      message: error.message,
+      provider: 'openai',
+    });
   });
 });

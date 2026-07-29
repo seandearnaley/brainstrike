@@ -1,11 +1,12 @@
-// Deliberately separate from http-responses.ts: these two responders import
-// ../secrets (and through it electron/electron-store), while the plain
-// responders are pure http helpers. Keeping the main-process-only dependency
-// out of the responder floor lets later slices — and the eventual BST-972
-// transport-independent extraction — depend on http-responses.ts without
-// inheriting an Electron coupling.
+// Secret-read failure classification + responder. Classification is
+// STRUCTURAL via assistant-contract's matchSecretReadError (BST-972 A3), so
+// this module no longer carries the electron coupling (../secrets) that
+// originally forced its separation from http-responses.ts; it stays a separate
+// module because payload-shaping for one failure family is not a generic http
+// helper. The conformance money test — the real SecretReadError through the
+// structural matcher — lives in __tests__/secrets.test.ts.
 import type http from 'node:http';
-import { SecretReadError } from '../secrets';
+import { matchSecretReadError } from '@brainstrike/assistant-contract';
 import { respondJson } from './http-responses';
 
 export function getSecretReadErrorPayload(error: unknown):
@@ -16,14 +17,15 @@ export function getSecretReadErrorPayload(error: unknown):
       provider: string;
     }
   | undefined {
-  if (!(error instanceof SecretReadError)) {
+  const match = matchSecretReadError(error);
+  if (!match) {
     return;
   }
   return {
-    code: error.code,
+    code: match.code,
     error: 'api_key_unreadable',
-    message: error.message,
-    provider: error.provider,
+    message: match.message,
+    provider: match.provider,
   };
 }
 

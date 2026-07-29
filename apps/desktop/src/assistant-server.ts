@@ -28,6 +28,7 @@ import { streamResponse } from './assistant-server/http';
 import { respondJson, respondNotFound } from './assistant-server/http-responses';
 import type { AssistantLlmHostManager } from './assistant-server/local-llm-host-client';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
+import { resolveProviderApiKey } from './assistant-server/provider-credentials';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { prepareAssistantPostRequest } from './assistant-server/request-preparation';
 import { readLastEventId, resolveAssistantRoute } from './assistant-server/routing';
@@ -315,6 +316,7 @@ async function streamAssistantPostResponse({
     getDatabase,
     mcpConfig,
     messages,
+    resolveProviderApiKey,
     runId,
     runtimeData,
     signal: executionSignal,
