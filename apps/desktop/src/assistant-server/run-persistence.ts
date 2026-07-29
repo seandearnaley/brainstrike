@@ -25,7 +25,7 @@ import { desktopAssistantServerLogger as logger } from './logger';
  * paired integration tests can drive a real PGlite handle without the remote
  * client.
  */
-export type RunPersistenceDatabase = AssistantRunErrorDatabase;
+type RunPersistenceDatabase = AssistantRunErrorDatabase;
 
 /**
  * The stream observers and the status writer take a PROVIDER, not a resolved
@@ -37,7 +37,7 @@ export type RunPersistenceDatabase = AssistantRunErrorDatabase;
  * resolves the handle inside the verdict recorder it builds, so it keeps
  * taking the resolved handle directly.)
  */
-export type RunPersistenceDatabaseProvider = () => Promise<RunPersistenceDatabase>;
+type RunPersistenceDatabaseProvider = () => Promise<RunPersistenceDatabase>;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
