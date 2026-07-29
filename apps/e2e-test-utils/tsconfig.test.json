@@ -3,6 +3,15 @@
   "compilerOptions": {
     "skipLibCheck": true,
     "strictNullChecks": true,
+    // Pinned to source, matching the vitest alias and the root tsconfig. This package
+    // has no build script, so type-check gets no upstream edge that would guarantee
+    // packages/preferences/dist exists — and checking against dist is the stale-output
+    // trap the alignment test exists to catch.
+    "paths": {
+      "@brainstrike/preferences/*": [
+        "../../packages/preferences/src/*"
+      ]
+    },
     "types": [
       "node",
       "vitest/globals"

@@ -37,7 +37,15 @@
       "planningArtifact": "docs/architecture-reset/phase-4-domain-moves-plan-2026-05-19.html"
     }
   ],
-  "boundaryExceptions": [],
+  "boundaryExceptions": [
+    {
+      "id": "e2e-test-utils-preferences-merge-alignment",
+      "sourcePackage": "@brainstrike/e2e-test-utils",
+      "importedPackage": "@brainstrike/preferences",
+      "reason": "The Playwright override helper must stay behaviourally aligned with the product's own merge implementation, so its alignment test imports the real module from packages/preferences/src. Recorded as a single visible crossing rather than placing the helper in `applications`, which would exempt every one of its imports from checking.",
+      "retireByPhase": "phase-4"
+    }
+  ],
   "domains": [
     {
       "id": "applications",
@@ -45,7 +53,6 @@
       "owner": "platform",
       "packages": [
         "@brainstrike/desktop",
-        "@brainstrike/e2e-test-utils",
         "@brainstrike/web"
       ],
       "mayDependOn": [
@@ -136,6 +143,7 @@
         "@brainstrike/assistant-contract",
         "@brainstrike/commands",
         "@brainstrike/context-actions",
+        "@brainstrike/e2e-test-utils",
         "@brainstrike/file-system",
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",
