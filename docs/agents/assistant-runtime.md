@@ -224,15 +224,20 @@ than another optional parameter on `makeRunEventChunk` because `detail` and
 `timestamp` are both `string`, so a positional slip between them would
 type-check cleanly while writing a timestamp into the detail field.
 
-**NOT closed by this: `finishReason: 'unknown'` still has the same split.**
-`makeTerminalRunEvent` emits `run.failed` for anything that is not
-`stop`/`tool-calls`, so `unknown` produces a `run.failed` event while the
-outcome stays `completed`. Do NOT simply add `'unknown'` to the error-finish
-condition: `resolveFinishReason` also returns `'unknown'` when a provider omits
-`finishReason` on an otherwise-normal final chunk, so that would mark healthy
-runs failed. The run-event side and the outcome side genuinely disagree about
-what `unknown` means; reconciling them needs one deliberate decision, not a
-reflex at either site.
+**Finish-reason absence is distinct from a raw unsupported value (BST-868).**
+`readFinishReason` and `resolveFinishReason` preserve a missing, empty, or
+non-string Mastra field as Brainstrike's internal `'absent'` sentinel. The AI
+SDK's literal `'unknown'` also remains completed because that upstream value
+already combines "provider omitted the field" with provider values the SDK does
+not recognize; Brainstrike cannot safely reconstruct that lost distinction.
+Only a non-empty raw value outside the SDK/Brainstrike union becomes the
+internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
+"unrecognized finish reason" message, and persists `thread_runs` as failed.
+Before data-stream serialization, internal `absent` becomes assistant-stream
+0.3.25's completed wire value `unknown`; internal `unrecognized` becomes the
+terminal wire value `error`. Intermediate steps start as `absent`, never as the
+SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
+protocol and never infer provider failure from the AI SDK `unknown` value.
 
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence

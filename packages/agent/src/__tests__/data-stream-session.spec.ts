@@ -1,3 +1,8 @@
+import {
+  type AssistantMessage,
+  AssistantMessageAccumulator,
+  DataStreamDecoder,
+} from 'assistant-stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { StreamChunk } from '../index';
 import {
@@ -54,6 +59,23 @@ async function readResponse(response: Response): Promise<string[]> {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+async function accumulateResponse(response: Response): Promise<AssistantMessage> {
+  if (!response.body) {
+    throw new Error('response body is required');
+  }
+  const messages = response.body
+    .pipeThrough(new DataStreamDecoder())
+    .pipeThrough(new AssistantMessageAccumulator());
+  let lastMessage: AssistantMessage | undefined;
+  for await (const message of messages) {
+    lastMessage = message;
+  }
+  if (!lastMessage) {
+    throw new Error('assistant-stream accumulator yielded no message');
+  }
+  return lastMessage;
 }
 
 function parseLines(lines: string[]): Encoded[] {
@@ -965,6 +987,98 @@ describe('AssistantDataStreamSession', () => {
     expect(session.getTerminalOutcome()).toEqual({
       error: 'Assistant run failed.',
       status: 'failed',
+    });
+  });
+
+  it('keeps the AI SDK unknown sentinel completed because it includes provider absence', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        finishReason: 'unknown',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 5, promptTokens: 3 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-explicit-unknown',
+      sessionId: 'explicit-unknown',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+
+    expect(session.getTerminalOutcome()).toEqual({
+      error: null,
+      status: 'completed',
+    });
+    expect(events.find((event) => event.code === '3')).toBeUndefined();
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'unknown' });
+  });
+
+  it('records a Brainstrike unrecognized finish sentinel as failed', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        event: {
+          id: 'run-event-unrecognized',
+          kind: 'run.failed',
+          label: 'Assistant run ended abnormally (unrecognized)',
+          metadata: { finishReason: 'unrecognized' },
+          status: 'failed',
+          timestamp: '2026-07-28T00:00:00.000Z',
+        },
+        type: 'run-event',
+      },
+      {
+        finishReason: 'unrecognized',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 5, promptTokens: 3 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-unrecognized',
+      sessionId: 'unrecognized',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+
+    expect(session.getTerminalOutcome()).toEqual({
+      error: 'Assistant stream ended with an unrecognized finish reason.',
+      status: 'failed',
+    });
+    expect(events.find((event) => event.code === '3')?.value).toBe(
+      'Assistant stream ended with an unrecognized finish reason.'
+    );
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'error' });
+  });
+
+  it('keeps an absent finish reason internal while emitting a complete protocol value', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } },
+    ];
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-absent-finish',
+      sessionId: 'absent-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+
+    expect(session.getTerminalOutcome()).toEqual({
+      error: null,
+      status: 'completed',
+    });
+    expect(events.find((event) => event.code === '3')).toBeUndefined();
+    expect(events.at(-1)?.value).toMatchObject({ finishReason: 'unknown' });
+
+    const accumulatedSession = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-absent-finish-accumulated',
+      sessionId: 'absent-finish-accumulated',
+    });
+    const accumulated = await accumulateResponse(accumulatedSession.createResponse());
+    expect(accumulated.status).toEqual({
+      reason: 'unknown',
+      type: 'complete',
     });
   });
 

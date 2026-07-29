@@ -181,9 +181,12 @@ function resolveFinishReason(
 ): StreamFinishReason {
   const reason = (chunk as { finishReason?: unknown }).finishReason;
   if (typeof reason !== 'string') {
-    return 'unknown';
+    return 'absent';
   }
   switch (reason) {
+    // `absent` is Brainstrike's internal sentinel re-entering the mapper from
+    // agent-streaming; providers do not own this namespace.
+    case 'absent':
     case 'stop':
     case 'length':
     case 'content-filter':
@@ -194,9 +197,10 @@ function resolveFinishReason(
     case 'error':
     case 'other':
     case 'unknown':
+    case 'unrecognized':
       return reason;
     default:
-      return 'unknown';
+      return 'unrecognized';
   }
 }
 
@@ -208,6 +212,9 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
       return 'Assistant stream ended without a normal stop signal.';
+    case 'unrecognized':
+      return 'Assistant stream ended with an unrecognized finish reason.';
+    case 'absent':
     case 'stop':
     case 'tool-calls':
     case 'error':
@@ -216,6 +223,20 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
     default:
       return;
   }
+}
+
+function toProtocolFinishReason(
+  reason: StreamFinishReason
+): Exclude<StreamFinishReason, 'absent' | 'unrecognized'> {
+  if (reason === 'absent') {
+    // assistant-stream 0.3.25 has no `absent` wire value. Its `unknown` value
+    // is explicitly complete and preserves that no provider reason was known.
+    return 'unknown';
+  }
+  if (reason === 'unrecognized') {
+    return 'error';
+  }
+  return reason;
 }
 
 function extractToolInput(payload: unknown): unknown {
@@ -1079,14 +1100,6 @@ export class DataStreamMapper {
       // Deliberately NOT setting `pendingRunErrorText`: that drives the visible
       // fallback text, which would duplicate the helper's text-delta.
       //
-      // KNOWN REMAINING GAP: `finishReason: 'unknown'` still has the same
-      // split — `makeTerminalRunEvent` emits `run.failed` for it while this
-      // branch leaves the outcome `completed`. It is deliberately NOT handled
-      // here: `resolveFinishReason` also returns 'unknown' when a provider
-      // simply omits `finishReason` on an otherwise-normal final chunk, so
-      // sweeping it in would mark healthy runs failed. The two sides genuinely
-      // disagree about what 'unknown' means and that needs reconciling in one
-      // place, not a reflex here. Tracked separately.
       this.terminalFailureText = this.runFailedEventText ?? ERROR_FINISH_FALLBACK_TEXT;
     }
     const stepBeforeFinalize = this.currentStep;
@@ -1102,9 +1115,9 @@ export class DataStreamMapper {
       code: DataStreamCode.finishMessage,
       value: {
         ...(chunk.billedCostUsd === undefined ? {} : { billedCostUsd: chunk.billedCostUsd }),
-        finishReason: abnormalFinishMessage
-          ? 'error'
-          : (stepBeforeFinalize?.finishReason ?? finishReason),
+        finishReason: toProtocolFinishReason(
+          abnormalFinishMessage ? 'error' : (stepBeforeFinalize?.finishReason ?? finishReason)
+        ),
         path: [],
         usage,
       },
@@ -1121,7 +1134,7 @@ export class DataStreamMapper {
     }
     const stepId = `${this.messageId}:step:${this.nextStepIndex}`;
     this.currentStep = {
-      finishReason: 'unknown',
+      finishReason: 'absent',
       id: stepId,
       index: this.nextStepIndex,
       status: 'success',
@@ -1154,7 +1167,7 @@ export class DataStreamMapper {
     yield {
       code: DataStreamCode.finishStep,
       value: {
-        finishReason: step.finishReason,
+        finishReason: toProtocolFinishReason(step.finishReason),
         isContinued: false,
         path: [],
         usage: step.usage,
