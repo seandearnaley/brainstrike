@@ -1228,7 +1228,7 @@ untouched. Flow:
   observational-memory configuration could otherwise resolve its provider key
   before the inert listing model is reached, violating the keyless contract.
 - Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
-  (`apps/desktop/src/assistant-server.ts`): recomputes `riskCategory` from
+  (`apps/desktop/src/assistant-server/status-endpoints.ts`): recomputes `riskCategory` from
   `buildNativeToolRiskMap()` and stamps `stale` against
   `BRAINSTRIKE_APPROVAL_STALE_MS`. Missing thread ctx → 400; no storage → 503.
 - Renderer client `createSuspendedApprovalDiscovery` (app-shell,
