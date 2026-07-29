@@ -1,17 +1,26 @@
 /**
  * Status, OpenRouter model metadata, and suspended-runs endpoints (moved
  * verbatim from the pre-split assistant-server.integration.test.ts,
- * BST-1028 slice 2). Two deliberate deltas from the monolith:
+ * BST-1028 slice 2). Deliberate deltas from the monolith, exactly:
  * - the dead `vi.mock('../openai-api-key')` and its two
  *   `readOpenAIApiKey.mockResolvedValueOnce` reads are gone — that module is
  *   imported only by ipc-agent.ts, outside this graph, so the reads primed a
  *   mock nothing consumed (the missing-key test passes via listProviders: []);
- * - mock defaults prime in beforeEach (slice-1 review lesson), so every test
- *   is independently runnable via -t.
- * The `@brainstrike/agent` mock is narrowed to the two members these routes
- * touch (listSuspendedMastraRuns stub + the provider allow-list); db-main
- * stays mocked because mastra-memory.ts still imports getDatabase directly
- * (its injection is the MemoryFactory slice of BST-972).
+ * - ALL mock defaults prime in beforeEach (slice-1 review lesson), including
+ *   the memory-family stubs, so every test is independently runnable via -t
+ *   and a future non-Once override cannot bleed forward;
+ * - the `@brainstrike/agent` mock is narrowed to the two members these routes
+ *   touch (listSuspendedMastraRuns + the provider allow-list);
+ * - `../assistant-server/http` is NOT mocked: these routes write via
+ *   res.setHeader/res.end/respondJson and never reach http.ts (streamResponse
+ *   is referenced only from stream-resume.ts), so the real module is safe —
+ *   unlike the monolith, whose status tests ran with writeHeaders stubbed;
+ * - `getSecretsService` is a plain arrow, not a vi.fn (nothing asserts on it).
+ * Kept as one-line stubs purely to hold the import graph narrow (the real
+ * assistant-tools barrel is ~800 lines / 32 imports evaluated at module load):
+ * mcp-loader, assistant-tools, workspace-text-file-reader. db-main stays
+ * mocked because mastra-memory.ts still imports getDatabase directly (its
+ * injection is the MemoryFactory slice of BST-972).
  */
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
@@ -45,13 +54,16 @@ vi.mock('../../agent-client-loader', async (importOriginal) => {
   };
 });
 
+const mockListSuspendedMastraRuns = vi.hoisted(() => vi.fn());
+const mockCreatePgliteMastraMemory = vi.hoisted(() => vi.fn());
+
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
   return {
     ...actual,
     isSupportedProvider: (provider: string) =>
       ['openai', 'anthropic', 'google', 'openrouter', 'local', 'ollama'].includes(provider),
-    listSuspendedMastraRuns: vi.fn(() => Promise.resolve({ approvals: [] })),
+    listSuspendedMastraRuns: mockListSuspendedMastraRuns,
   };
 });
 
@@ -63,19 +75,23 @@ const mockDesktopDatabase = {
 };
 
 vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
-  createPgliteMastraMemory: vi.fn(() =>
-    Promise.resolve({
-      memory: mockPgliteMastraMemory,
-      storage: mockPgliteMastraStorage,
-      store: {},
-      vector: {},
-      workflows: {},
-    })
-  ),
+  createPgliteMastraMemory: mockCreatePgliteMastraMemory,
 }));
 
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
+}));
+
+vi.mock('../../mcp-loader', () => ({
+  loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
+}));
+
+vi.mock('../../assistant-server/assistant-tools', () => ({
+  buildDesktopAssistantTools: vi.fn(() => ({})),
+}));
+
+vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
+  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
 }));
 
 const runRequest = createRunRequest(handleAssistantRequest);
@@ -84,6 +100,14 @@ beforeEach(() => {
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });
+  mockListSuspendedMastraRuns.mockReset().mockResolvedValue({ approvals: [] });
+  mockCreatePgliteMastraMemory.mockReset().mockResolvedValue({
+    memory: mockPgliteMastraMemory,
+    storage: mockPgliteMastraStorage,
+    store: {},
+    vector: {},
+    workflows: {},
+  });
   resetDesktopMastraMemoryCacheForTests();
 });
 
