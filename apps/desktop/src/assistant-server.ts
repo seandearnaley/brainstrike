@@ -60,7 +60,6 @@ import {
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 import {
   type AssistantServerAuth,
@@ -106,6 +105,7 @@ import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
+import { desktopAssistantServerLogger } from './assistant-server/logger';
 import {
   createOpenRouterModelMetadataService,
   type OpenRouterModelMetadataService,
@@ -154,8 +154,10 @@ import {
   resolveProviderEnvKey,
 } from './provider-api-key';
 
-const logger = createLogger('DesktopAssistantServer');
-export const desktopAssistantServerLogger = logger;
+const logger = desktopAssistantServerLogger;
+
+export { desktopAssistantServerLogger };
+
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
 const SUSPENDED_RUN_DISCOVERY_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
   observationalMemory: {

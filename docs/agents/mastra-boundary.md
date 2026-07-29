@@ -61,9 +61,9 @@ Owned by Brainstrike, on both surfaces:
 | --- | --- | --- |
 | Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-92` | `apps/desktop/src/assistant-server.ts:273-314` |
 | Auth | none per-request; env key only (`assistant-config.ts:3-7`), preview-gated | per-boot capability token, constant-time compare (`assistant-server/auth.ts:12-32`) |
-| Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`:329-332`, `:1778-1786`) |
+| Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`handleAssistantRequest`'s origin gate + `hasDisallowedAssistantOrigin`, both in `assistant-server.ts`) |
 | Body parsing | shared parser | shared limit + shared error type |
-| Streaming | stateless (`packages/agent/src/stream/data-stream.ts:249`) | resumable sessions + `Last-Event-ID` (`:666-676`, `:1819-1834`) |
+| Streaming | stateless (`packages/agent/src/stream/data-stream.ts:249`) | resumable sessions + `Last-Event-ID` (session create in `assistant-server.ts` + `resumeStreamIfAvailable`) |
 | Persistence | **none, deliberately** (`web-assistant-stream.ts:8-25`) | PGlite run/event/outcome tables (table consts in `assistant-server/run-persistence.ts`) |
 
 ### Why not Mastra Server
@@ -185,8 +185,9 @@ Three field classes, and the third is the reason this ruling is narrow:
    `packages/agent/src/types.ts:110`.
 3. **Client-supplied then stripped and re-derived server-side**:
    `permissionPolicy`, `hookRunner`, `mcpConfig`, `personaProviderApiKeys`,
-   `workspaceSkills` (`apps/desktop/src/assistant-server.ts:2287-2306`), and
-   `workspaceRoots` (`stripClientWorkspaceRoots`, `:2223`). The code comment states
+   `workspaceSkills` (`prepareRequestSkillsFromDisk` in
+   `apps/desktop/src/assistant-server.ts`), and
+   `workspaceRoots` (`stripClientWorkspaceRoots`, same file). The code comment states
    the rule: *"TypeScript types alone are not a request trust boundary."*
 
 **Explicit non-goal:** migrating class 3 into `RequestContext`.
