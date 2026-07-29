@@ -1,5 +1,5 @@
+import { installSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
 import type { Page } from '@playwright/test';
-import { installSettingsTestOverrides } from '../../e2e-test-utils/settings-test-overrides';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';

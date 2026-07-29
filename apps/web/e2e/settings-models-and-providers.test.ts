@@ -1,8 +1,8 @@
-import type { Page } from '@playwright/test';
 import {
   installSettingsTestOverrides,
   updateSettingsTestOverrides,
-} from '../../e2e-test-utils/settings-test-overrides';
+} from '@brainstrike/e2e-test-utils/settings-test-overrides';
+import type { Page } from '@playwright/test';
 import type { WebE2ETestHooks } from '../src/web-e2e-test-hooks';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';

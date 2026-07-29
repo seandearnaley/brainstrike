@@ -1,0 +1,29 @@
+{
+  "name": "@brainstrike/e2e-test-utils",
+  "description": "Shared Playwright helpers for Brainstrike end-to-end tests",
+  "version": "0.1.0",
+  "devDependencies": {
+    "@brainstrike/preferences": "workspace:*",
+    "@brainstrike/test-utils": "workspace:*",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "exports": {
+    "./settings-test-overrides": "./settings-test-overrides.ts"
+  },
+  "private": true,
+  "scripts": {
+    "lint": "pnpm -w lint",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "sideEffects": false,
+  "type": "module"
+}

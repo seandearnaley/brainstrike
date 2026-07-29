@@ -1,4 +1,4 @@
-import { updateSettingsTestOverrides } from '../../e2e-test-utils/settings-test-overrides';
+import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';

@@ -1,0 +1,17 @@
+import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  resolve: {
+    // Resolve @brainstrike/preferences from source so the alignment test cannot
+    // pass against stale dist output.
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '../../packages'))],
+  },
+  test: {
+    environment: 'node',
+    exclude: ['node_modules'],
+    globals: true,
+    include: ['__tests__/**/*.test.ts'],
+  },
+});

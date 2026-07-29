@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { updateSettingsTestOverrides } from '../../e2e-test-utils/settings-test-overrides';
+import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';

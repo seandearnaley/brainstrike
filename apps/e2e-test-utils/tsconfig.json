@@ -1,0 +1,16 @@
+{
+  "extends": "../../packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "settings-test-overrides.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/__tests__/**"
+  ]
+}
