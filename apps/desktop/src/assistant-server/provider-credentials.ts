@@ -30,6 +30,7 @@ export async function resolveProviderApiKey(provider: string): Promise<string | 
   }
   return;
 }
+
 export async function collectAvailableProviders(): Promise<{
   providerErrors: Array<{
     code: string;
@@ -57,6 +58,7 @@ export async function collectAvailableProviders(): Promise<{
     providers: Array.from(providers),
   };
 }
+
 export function hydrateRuntimeDataWithLocalRuntimeToken(
   runtimeData: RuntimeData,
   provider: string,
@@ -81,6 +83,7 @@ export function hydrateRuntimeDataWithLocalRuntimeToken(
     providerOptions,
   };
 }
+
 export async function resolveProviderApiKeyOrRespond(
   provider: string,
   res: http.ServerResponse

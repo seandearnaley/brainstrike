@@ -62,6 +62,7 @@ export function resolveRequestedProvider(
   const normalized = raw.toLowerCase();
   return isSupportedProvider(normalized) ? normalized : undefined;
 }
+
 function parseModelTarget(
   modelTarget: string,
   {
@@ -95,6 +96,7 @@ function parseModelTarget(
 
   return { model, provider };
 }
+
 export function parseObservationalMemoryModelTarget(
   modelTarget: string
 ): DesktopMemoryModelTargetDescriptor {
@@ -106,6 +108,7 @@ export function parseObservationalMemoryModelTarget(
     unsupportedProviderLabel: 'observational memory',
   });
 }
+
 /**
  * The {provider, model} the OM observer/reflector actually runs on this
  * request, for attributing child-run-usage rows (BST-953). Undefined when OM
@@ -131,6 +134,7 @@ export function resolveDesktopObserverUsageTarget(
     return;
   }
 }
+
 export function parseSemanticRecallEmbeddingModelTarget(
   modelTarget: string
 ): DesktopMemoryModelTargetDescriptor {
