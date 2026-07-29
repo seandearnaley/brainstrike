@@ -36,8 +36,8 @@ import {
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getDatabase } from '../db-main';
-import { createNodeFsScanDeps } from '../ipc-user-commands-handlers';
 import { scanUserLenses, type UserLensScanResult } from './lens-loader';
+import { createNodeFsScanDeps } from './node-fs-scan-deps';
 
 const logger = createLogger('AssistantQuerySelfTool');
 
