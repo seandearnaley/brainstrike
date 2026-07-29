@@ -1476,7 +1476,7 @@ Rules (`hooks/run-verdict.ts`, strict — hook stdout is UNTRUSTED repo data):
   `onRunVerdict` IN FRONT of the `message-finish` yield, so the label lands
   before the post-stream `thread_runs` status write — a finishing run cannot
   lose it to teardown. `recordDesktopAssistantHookRunOutcome`
-  (assistant-server.ts) upserts `brainstrike_assistant_run_outcomes` via the
+  (assistant-server/run-persistence.ts) upserts `brainstrike_assistant_run_outcomes` via the
   desktop DB handle, deriving thread/resource ids from the runs row (mirrors
   the run-event insert); a missing runs row THROWS (never a silent no-op).
   The upsert is byte-consistent with the app-shell repository's

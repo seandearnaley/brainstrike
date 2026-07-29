@@ -64,7 +64,7 @@ Owned by Brainstrike, on both surfaces:
 | Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`:329-332`, `:1778-1786`) |
 | Body parsing | shared parser | shared limit + shared error type |
 | Streaming | stateless (`packages/agent/src/stream/data-stream.ts:249`) | resumable sessions + `Last-Event-ID` (`:666-676`, `:1819-1834`) |
-| Persistence | **none, deliberately** (`web-assistant-stream.ts:8-25`) | PGlite run/event/outcome tables (`:230-232`) |
+| Persistence | **none, deliberately** (`web-assistant-stream.ts:8-25`) | PGlite run/event/outcome tables (table consts in `assistant-server/run-persistence.ts`) |
 
 ### Why not Mastra Server
 
@@ -377,7 +377,8 @@ browser. It is not a run-timeline substitute.
 
 The run timeline is the Brainstrike contract: 31 event kinds in
 `packages/assistant-contract/src/run-events.ts:3-35`, persisted by two writers with
-byte-identical SQL (`apps/desktop/src/assistant-server.ts:884-935`;
+byte-identical SQL (`recordDesktopAssistantRunEvent` in
+`apps/desktop/src/assistant-server/run-persistence.ts`;
 `packages/app-shell/src/assistant-memory-repository.ts:2449-2502`), read by reload
 hydration, the live timeline UI, and the debug bundle.
 

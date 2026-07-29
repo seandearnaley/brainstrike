@@ -140,7 +140,9 @@ describe('main-process run-event schema provenance', () => {
   });
 
   it('throws when the schema was never bootstrapped (never drops run events silently)', async () => {
-    const { observeDesktopAssistantRunEvents } = await import('../../assistant-server');
+    const { observeDesktopAssistantRunEvents } = await import(
+      '../../assistant-server/run-persistence'
+    );
     const db = await wasmLoader.createPGlite(`memory://run-event-provenance-loud-${Date.now()}`);
     mainProcessDatabase = db;
     try {

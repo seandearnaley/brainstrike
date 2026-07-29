@@ -1,0 +1,408 @@
+/**
+ * Run persistence for the desktop assistant server (BST-975 slice 2).
+ *
+ * Provenance contract (docs/agents/assistant-persistence.md, settled
+ * 2026-07-24 — do not relitigate): brainstrike_assistant_thread_runs and
+ * brainstrike_assistant_run_events are created ONLY by the renderer's
+ * bootstrap. The writers here never CREATE TABLE, and the `if (runId)` gates
+ * live at the CALL sites — repository.createThreadRun is the sole runId
+ * producer and awaits the bootstrap before returning an id.
+ */
+import {
+  type AssistantRunEvent,
+  readProviderRunError,
+  type StreamChunk,
+  sanitizeAssistantRunEventMetadata,
+} from '@brainstrike/agent';
+import { AssistantRunErrorRepository } from '@brainstrike/db';
+import { getDatabase } from '../db-main';
+import type { HookRunVerdict } from './hooks/run-verdict';
+import { desktopAssistantServerLogger as logger } from './logger';
+
+const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
+const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
+const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
+
+export async function* observeDesktopAssistantRunEvents(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string,
+  queuedEvents: AssistantRunEvent[]
+): AsyncIterable<StreamChunk> {
+  let sequence = 0;
+  let persistenceErrorCount = 0;
+  let persistenceError: unknown;
+  let persistenceQueue: Promise<void> = Promise.resolve();
+  const persistEvent = (event: AssistantRunEvent): void => {
+    persistenceQueue = persistenceQueue
+      .then(() => recordDesktopAssistantRunEvent(runId, event))
+      .catch((error: unknown) => {
+        persistenceErrorCount += 1;
+        persistenceError ??= error;
+        logger.error('Failed to persist assistant run event', {
+          error,
+          eventId: event.id,
+          runId,
+        });
+      });
+  };
+  const flushPersistedEvents = async (): Promise<void> => {
+    await persistenceQueue;
+    if (persistenceError) {
+      if (persistenceErrorCount > 1) {
+        logger.error('Multiple assistant run events failed to persist', {
+          failureCount: persistenceErrorCount,
+          firstError: persistenceError,
+          runId,
+          suppressedFailureCount: persistenceErrorCount - 1,
+        });
+      }
+      throw persistenceError;
+    }
+  };
+  const drainQueuedEvents = async function* (): AsyncIterable<StreamChunk> {
+    while (queuedEvents.length > 0) {
+      const queuedEvent = queuedEvents.shift();
+      if (!queuedEvent) {
+        continue;
+      }
+      const event: AssistantRunEvent = {
+        ...queuedEvent,
+        runId,
+        sequence: queuedEvent.sequence ?? sequence,
+      };
+      sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
+      persistEvent(event);
+      yield { event, type: 'run-event' };
+    }
+  };
+  let sourceError: unknown;
+  let persistenceFlushError: unknown;
+  try {
+    yield* drainQueuedEvents();
+    for await (const chunk of stream) {
+      yield* drainQueuedEvents();
+      if (chunk.type !== 'run-event') {
+        yield chunk;
+        continue;
+      }
+      const event: AssistantRunEvent = {
+        ...chunk.event,
+        runId,
+        sequence: chunk.event.sequence ?? sequence,
+      };
+      sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
+      persistEvent(event);
+      yield { event, type: 'run-event' };
+    }
+    yield* drainQueuedEvents();
+  } catch (error) {
+    sourceError = error;
+  } finally {
+    try {
+      await flushPersistedEvents();
+    } catch (error) {
+      persistenceFlushError = error;
+    }
+  }
+
+  if (persistenceFlushError) {
+    if (!sourceError) {
+      throw persistenceFlushError;
+    }
+    logger.error('Failed to flush assistant run event persistence after stream error', {
+      error: persistenceFlushError,
+      runId,
+      sourceError,
+    });
+  }
+  if (sourceError) {
+    throw sourceError;
+  }
+}
+
+/**
+ * Persist `child-run-usage` chunks (BST-953) as durable run_kind-tagged rows in
+ * `brainstrike_assistant_run_usage`, forwarding every chunk unchanged (the
+ * renderer refreshes its thread-total readout from the transient aui-data part;
+ * it never writes child rows itself, so the two writers cannot double-count).
+ *
+ * DUPLICATION NOTE (same precedent as recordDesktopAssistantHookRunOutcome):
+ * the INSERT mirrors `recordRunUsage` in
+ * packages/app-shell/src/assistant-memory-repository.ts. thread/resource ids
+ * are derived from the runs row (main trusts its own bookkeeping, and — like
+ * recordDesktopAssistantRunEvent — a missing runs row inserts nothing).
+ *
+ * Attribution rules (honesty over completeness):
+ * - subagent rows: chunk-carried model/provider (persona pin ?? parent), with
+ *   the runs row as the SQL fallback — the child genuinely ran on one of those.
+ * - OM rows: ONLY the resolved observer target — falling back to the chat
+ *   model would mislabel spend to the wrong model. Unattributable → dropped
+ *   with a visible warn, never written under a guess.
+ * - local observer targets are skipped entirely: local inference is unbilled,
+ *   and an unpriceable row would honestly (but uselessly) blank the whole
+ *   thread's cost readout.
+ */
+export async function* persistDesktopChildRunUsage(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string,
+  observerTarget: { readonly model: string; readonly provider: string } | undefined
+): AsyncIterable<StreamChunk> {
+  const persist = async (value: {
+    readonly inputTokens: number;
+    readonly model?: string;
+    readonly outputTokens: number;
+    readonly provider?: string;
+    readonly source: string;
+  }): Promise<void> => {
+    const isOmRow = value.source !== 'subagent';
+    const model = value.model ?? (isOmRow ? observerTarget?.model : undefined);
+    const provider = value.provider ?? (isOmRow ? observerTarget?.provider : undefined);
+    if (isOmRow && !(model && provider)) {
+      logger.warn('Dropping unattributable child run usage (no resolved observer target)', {
+        code: 'assistant_child_run_usage_unattributable',
+        runId,
+        source: value.source,
+      });
+      return;
+    }
+    if (provider === 'local') {
+      // Local inference is unbilled; the thread-total meter is a billing view.
+      return;
+    }
+    try {
+      const database = await getDatabase();
+      const result = await database.query(
+        `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, run_kind)
+         SELECT $1, runs.thread_id, runs.id, runs.resource_id, COALESCE($3, runs.model), COALESCE($4, runs.provider), $5, $6, $7, $8
+         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+         WHERE runs.id = $2
+         RETURNING id`,
+        [
+          crypto.randomUUID(),
+          runId,
+          model ?? null,
+          provider ?? null,
+          Math.round(value.inputTokens),
+          Math.round(value.outputTokens),
+          new Date(),
+          value.source,
+        ]
+      );
+      if (result.rows.length === 0) {
+        // INSERT..SELECT wrote nothing: no runs row for this id. Loud like the
+        // other drops in this function — never a silent zero-row no-op.
+        logger.warn('Child run usage has no thread-run row to attribute to', {
+          code: 'assistant_child_run_usage_missing_run_row',
+          runId,
+          source: value.source,
+        });
+      }
+    } catch (error: unknown) {
+      // Best-effort relative to the turn (mirrors the renderer's durable
+      // usage sink), but never silent.
+      logger.warn('Failed to persist child run usage', {
+        error,
+        runId,
+        source: value.source,
+      });
+    }
+  };
+
+  for await (const chunk of stream) {
+    if (chunk.type === 'child-run-usage') {
+      // AWAIT the row before forwarding: the renderer refreshes its cumulative
+      // aggregate the moment the transient part arrives, so a chunk that
+      // outran its INSERT would make that refresh reliably read the pre-write
+      // state (review fix). The forwarding delay is one local PGlite insert.
+      await persist(chunk.value);
+    }
+    yield chunk;
+  }
+}
+
+export async function recordDesktopAssistantThreadRunStatus(
+  runId: string,
+  status: 'cancelled' | 'completed' | 'failed',
+  error: string | null
+): Promise<void> {
+  try {
+    await completeDesktopAssistantThreadRun(runId, status, error);
+  } catch (statusError) {
+    logger.error('Failed to update assistant thread run status', {
+      error: statusError,
+      runId,
+      status,
+    });
+  }
+}
+
+async function completeDesktopAssistantThreadRun(
+  runId: string,
+  status: 'cancelled' | 'completed' | 'failed',
+  error: string | null
+): Promise<void> {
+  const now = new Date();
+  const database = await getDatabase();
+  await database.query(
+    `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
+     SET status = $2, error = $3, completed_at = $4, updated_at = $5
+     WHERE id = $1`,
+    [runId, status, error, now, now]
+  );
+}
+
+/**
+ * Minimal structural DB surface for the hook-run-outcome writer, so the paired
+ * integration test can drive a real PGlite handle without the remote client.
+ */
+interface HookRunOutcomeDatabase {
+  readonly query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+}
+
+/**
+ * Task Ledger source 'hook': persist a Stop-hook-reported verdict for a run.
+ *
+ * DUPLICATION NOTE (same precedent as the repository's bootstrap-SQL mirror of
+ * migration 060): this upsert's column set + SET list are kept byte-consistent
+ * with `recordRunOutcome` in packages/app-shell/src/assistant-memory-repository.ts.
+ * Two deliberate differences: thread/resource ids are derived from the runs row
+ * (mirrors recordDesktopAssistantRunEvent — the main process trusts its own
+ * bookkeeping, not hook-adjacent input), and the conflict clause carries the
+ * precedence rule `source <> 'user'` — a hook label must NEVER overwrite an
+ * explicit user verdict, while a later user verdict (plain repository upsert)
+ * still replaces a hook label. Keep the three writers' semantics in sync.
+ *
+ * Zero affected rows is disambiguated loudly: a missing runs row THROWS (a
+ * verdict for an unknown run is a caller bug, never a silent no-op); an
+ * existing user label logs the skip (expected precedence).
+ */
+export async function recordDesktopAssistantHookRunOutcome(
+  database: HookRunOutcomeDatabase,
+  runId: string,
+  verdict: HookRunVerdict
+): Promise<void> {
+  const result = await database.query(
+    `INSERT INTO ${ASSISTANT_RUN_OUTCOMES_TABLE}
+      (run_id, thread_id, resource_id, verdict, source, detail, labeled_at, created_at, updated_at)
+     SELECT runs.id, runs.thread_id, runs.resource_id, $2, 'hook', $3, NOW(), NOW(), NOW()
+     FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+     WHERE runs.id = $1
+     ON CONFLICT (run_id) DO UPDATE SET
+      thread_id = EXCLUDED.thread_id,
+      resource_id = EXCLUDED.resource_id,
+      verdict = EXCLUDED.verdict,
+      source = EXCLUDED.source,
+      detail = EXCLUDED.detail,
+      labeled_at = EXCLUDED.labeled_at,
+      updated_at = NOW()
+     WHERE ${ASSISTANT_RUN_OUTCOMES_TABLE}.source <> 'user'
+     RETURNING run_id`,
+    [runId, verdict.verdict, verdict.detail ?? null]
+  );
+  if (result.rows.length === 1) {
+    return;
+  }
+  const run = await database.query(`SELECT 1 FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE id = $1`, [
+    runId,
+  ]);
+  if (run.rows.length === 0) {
+    throw new Error(
+      `Cannot record hook run verdict: assistant run ${runId} has no thread-run row.`
+    );
+  }
+  logger.info('Hook run verdict skipped: an existing user label takes precedence', {
+    runId,
+    verdict: verdict.verdict,
+  });
+}
+
+async function recordDesktopAssistantRunEvent(
+  runId: string,
+  event: AssistantRunEvent
+): Promise<void> {
+  const now = new Date();
+  const metadata = sanitizeAssistantRunEventMetadata(event.metadata);
+  const database = await getDatabase();
+  await database.query(
+    `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
+      (
+        id,
+        run_id,
+        resource_id,
+        thread_id,
+        sequence,
+        kind,
+        status,
+        label,
+        detail,
+        metadata,
+        duration_ms,
+        occurred_at,
+        created_at,
+        updated_at
+      )
+     SELECT
+        $1,
+        runs.id,
+        runs.resource_id,
+        runs.thread_id,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8::jsonb,
+        $9,
+        $10,
+        $11,
+        $12
+     FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+     WHERE runs.id = $2
+     ON CONFLICT (id) DO UPDATE SET
+        sequence = EXCLUDED.sequence,
+        kind = EXCLUDED.kind,
+        status = EXCLUDED.status,
+        label = EXCLUDED.label,
+        detail = EXCLUDED.detail,
+        metadata = EXCLUDED.metadata,
+        duration_ms = EXCLUDED.duration_ms,
+        occurred_at = EXCLUDED.occurred_at,
+        updated_at = EXCLUDED.updated_at`,
+    [
+      event.id,
+      runId,
+      event.sequence ?? 0,
+      event.kind,
+      event.status,
+      event.label,
+      event.detail ?? null,
+      metadata ? JSON.stringify(metadata) : null,
+      event.durationMs ?? null,
+      new Date(event.timestamp),
+      now,
+      now,
+    ]
+  );
+  if (event.kind !== 'run.failed') {
+    return;
+  }
+  const runError = readProviderRunError(metadata);
+  if (!runError) {
+    return;
+  }
+  try {
+    await new AssistantRunErrorRepository(database).record({
+      ...runError,
+      occurredAt: new Date(event.timestamp),
+      runId,
+    });
+  } catch (error) {
+    logger.error('Failed to persist assistant provider failure forensics', {
+      error,
+      eventId: event.id,
+      runId,
+    });
+  }
+}

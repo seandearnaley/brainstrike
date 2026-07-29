@@ -23,7 +23,7 @@
 import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';
 import { describe, expect, it } from 'vitest';
-import { recordDesktopAssistantHookRunOutcome } from '../../assistant-server';
+import { recordDesktopAssistantHookRunOutcome } from '../../assistant-server/run-persistence';
 
 interface OutcomeRow {
   detail: string | null;
