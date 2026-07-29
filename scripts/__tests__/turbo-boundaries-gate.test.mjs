@@ -25,7 +25,12 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const turboBin = path.join(repoRoot, 'node_modules', '.bin', 'turbo');
+const turboBin = path.join(
+  repoRoot,
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'turbo.cmd' : 'turbo'
+);
 
 function writeFixture(dir, { violating }) {
   mkdirSync(path.join(dir, 'packages', 'alpha', 'src'), { recursive: true });
@@ -53,7 +58,11 @@ function writeFixture(dir, { violating }) {
 function runBoundaries(cwd) {
   // --skip-infer: the fixture must use THIS repo's turbo binary, not re-resolve
   // one from the fixture (which has no node_modules).
-  return spawnSync(turboBin, ['boundaries', '--skip-infer'], { cwd, encoding: 'utf8' });
+  const result = spawnSync(turboBin, ['boundaries', '--skip-infer'], { cwd, encoding: 'utf8' });
+  // A spawn failure yields status null, which would satisfy notEqual(status, 0)
+  // and turn the MONEY TEST vacuous. Fail here, with the real reason.
+  assert.equal(result.error, undefined, `could not spawn ${turboBin}: ${result.error?.message}`);
+  return result;
 }
 
 test('MONEY TEST: a fixture workspace with an undeclared import FAILS boundaries (exit != 0)', () => {
@@ -104,7 +113,17 @@ test('the Static job runs boundaries BEFORE any step that can materialize dist/'
 
   // Any step invoking the turbo task graph (type-check depends on build) or a
   // package build can write dist/ and reintroduce the phantom-violation class.
-  const distProducingIndex = runs.findIndex((run) => /type-check|turbo run|run build/.test(run));
+  // Word-boundary `build` also catches `pnpm build`, `pnpm build:web`,
+  // `turbo build`, and `pnpm check` idioms (check.mjs runs the full build via
+  // its `build` step name — the token appears in the command either way).
+  // Known blind spot: `uses:` steps are invisible here (runs is built from
+  // step.run). Today's composite only restores the `.turbo` tarball cache,
+  // which boundaries cannot parse; a future action restoring real build
+  // outputs would slip past this assertion — keep dist-producing work in
+  // `run:` steps or extend this test.
+  const distProducingIndex = runs.findIndex((run) =>
+    /\b(build|type-check)\b|turbo\s+run/.test(run)
+  );
   assert.ok(
     distProducingIndex === -1 || boundariesIndex < distProducingIndex,
     `boundaries (step ${boundariesIndex}) must run before dist-producing steps (first at ${distProducingIndex})`
@@ -114,7 +133,20 @@ test('the Static job runs boundaries BEFORE any step that can materialize dist/'
 test('every @boundaries-ignore in the repo carries a reason', () => {
   const grep = spawnSync(
     'git',
-    ['grep', '-n', '@boundaries-ignore', '--', '*.ts', '*.tsx', '*.mts', '*.mjs'],
+    [
+      'grep',
+      '-n',
+      '@boundaries-ignore',
+      '--',
+      '*.ts',
+      '*.tsx',
+      '*.mts',
+      '*.cts',
+      '*.js',
+      '*.jsx',
+      '*.mjs',
+      '*.cjs',
+    ],
     { cwd: repoRoot, encoding: 'utf8' }
   );
   // git grep exits 1 on zero matches, which would make this test vacuous the
@@ -122,8 +154,11 @@ test('every @boundaries-ignore in the repo carries a reason', () => {
   // but a real error (exit > 1) must surface.
   assert.ok(grep.status === 0 || grep.status === 1, grep.stderr);
   const lines = grep.stdout.split('\n').filter(Boolean);
-  // This test file mentions the directive in prose; only source annotations count.
-  const annotations = lines.filter((line) => !line.startsWith('scripts/__tests__/'));
+  // This test file mentions the directive in prose; exempt exactly this file,
+  // not the whole scripts/__tests__ directory.
+  const annotations = lines.filter(
+    (line) => !line.startsWith('scripts/__tests__/turbo-boundaries-gate.test.mjs:')
+  );
   for (const line of annotations) {
     const reason = line.split('@boundaries-ignore')[1]?.trim() ?? '';
     assert.ok(
@@ -131,26 +166,32 @@ test('every @boundaries-ignore in the repo carries a reason', () => {
       `@boundaries-ignore must carry a substantive reason (>=20 chars): ${line}`
     );
   }
-  // Anti-vacuous floor: the five sanctioned crossings from #2101 exist today.
+  // Anti-vacuous floor: the six sanctioned crossings (five from #2101 plus
+  // file-import/src/resolve-chunking-worker-url.ts) exist today.
   // If this number legitimately drops, update it alongside the removal.
   assert.ok(
-    annotations.length >= 5,
-    `expected at least 5 annotated crossings, found ${annotations.length} — did a sweep remove reasons?`
+    annotations.length >= 6,
+    `expected at least 6 annotated crossings, found ${annotations.length} — did a sweep remove reasons?`
   );
 });
 
-test('the sanctioned-crossing count matches what boundaries actually tolerates', () => {
-  // The repo's own source tree must be clean under the gate's conditions. We
-  // cannot delete dist/ here (developers' builds live there), so this asserts
-  // the SOURCE-side count is zero by checking every reported violation path is
-  // inside a dist/ directory. On a fresh CI checkout there is no dist and the
-  // exit code alone decides.
+// In CI the workflow's own `Package boundaries` step (fresh checkout, no dist)
+// IS this verdict; re-scanning the repo here would only pay for a second full
+// analysis to assert nothing. The value is local, where stale dist would
+// otherwise hide a source violation behind the phantoms — hence skip-in-CI.
+test('the sanctioned-crossing count matches what boundaries actually tolerates', {
+  skip: Boolean(process.env.CI),
+}, () => {
+  // We cannot delete dist/ here (developers' builds live there), so this
+  // asserts the SOURCE-side count is zero by checking every reported
+  // violation path is inside a dist/ directory.
   const result = spawnSync(turboBin, ['boundaries', '--skip-infer'], {
     cwd: repoRoot,
     encoding: 'utf8',
   });
+  assert.equal(result.error, undefined, `could not spawn ${turboBin}: ${result.error?.message}`);
   if (result.status === 0) {
-    return; // fully clean tree (fresh checkout) — nothing to inspect
+    return; // fully clean tree — nothing to inspect
   }
   const text = `${result.stdout}\n${result.stderr}`.replace(
     // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI color codes from turbo output
@@ -158,8 +199,13 @@ test('the sanctioned-crossing count matches what boundaries actually tolerates',
     ''
   );
   const paths = [...text.matchAll(/,-\[([^\]]+?):\d+:\d+\]/g)].map((match) => match[1]);
-  assert.ok(paths.length > 0, 'boundaries failed but no violation paths were parseable');
-  const sourceViolations = paths.filter((violationPath) => !/\/dist\//.test(violationPath));
+  assert.ok(
+    paths.length > 0,
+    `boundaries failed but no violation paths were parseable from its output:\n${text}`
+  );
+  // (^|\/) so a root-level `dist/...` path (no leading segment) is classified
+  // as build output rather than misreported as a source violation.
+  const sourceViolations = paths.filter((violationPath) => !/(^|\/)dist\//.test(violationPath));
   assert.deepEqual(
     sourceViolations,
     [],
