@@ -403,7 +403,7 @@ function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtim
  * db-main transitively via ./mastra-memory and ./assistant-tools — those edges
  * are later slices in the BST-972 sequence.)
  */
-type AgentStreamDatabaseProvider = () => Promise<DesktopDatabase>;
+export type AgentStreamDatabaseProvider = () => Promise<DesktopDatabase>;
 
 /**
  * Params object rather than positional arguments (ruling from the #2115
@@ -416,6 +416,11 @@ export interface InitializeAgentStreamParams {
   readonly apiKey: string | undefined;
   readonly getDatabase: AgentStreamDatabaseProvider;
   readonly mcpConfig: McpConfig | undefined;
+  // Deliberately the mutable array type: this exact array is handed through
+  // runUserPromptSubmitGate and resolveInitialAgentStream into
+  // @brainstrike/agent's toAiSdkStyleStream, whose signature is AgentMessage[].
+  // `readonly AgentMessage[]` here means threading readonly through that whole
+  // chain — request-boundary type work for the package-extraction slice.
   readonly messages: AgentMessage[];
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData | undefined;
