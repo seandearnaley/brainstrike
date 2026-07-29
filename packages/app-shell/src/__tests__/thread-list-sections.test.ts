@@ -324,4 +324,36 @@ describe('getGroupMemberIds', () => {
     expect(second).toBe(first);
     expect(idReads).toBe(2);
   });
+
+  it('invalidates by view identity and projects ungrouped and unknown groups', () => {
+    const groups = [makeGroup({ id: 'group-a', rank: 'a0' })];
+    const before = buildThreadListSections({
+      groupBy: 'custom-groups',
+      groups,
+      placements: [makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' })],
+      sortBy: 'recency',
+      threads: [makeThread({ id: 'thread-1' }), makeThread({ id: 'ungrouped-1' })],
+    });
+    const after = buildThreadListSections({
+      groupBy: 'custom-groups',
+      groups,
+      placements: [
+        makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' }),
+        makePlacement({ groupId: 'group-a', rank: 'a1', threadId: 'thread-2' }),
+      ],
+      sortBy: 'recency',
+      threads: [
+        makeThread({ id: 'thread-1' }),
+        makeThread({ id: 'thread-2' }),
+        makeThread({ id: 'ungrouped-2' }),
+      ],
+    });
+
+    expect(getGroupMemberIds(before, 'group-a')).toEqual(['thread-1']);
+    expect(getGroupMemberIds(after, 'group-a')).toEqual(['thread-1', 'thread-2']);
+    expect(getGroupMemberIds(before, 'group-a')).toEqual(['thread-1']);
+    expect(getGroupMemberIds(before, null)).toEqual(['ungrouped-1']);
+    expect(getGroupMemberIds(after, null)).toEqual(['ungrouped-2']);
+    expect(getGroupMemberIds(after, 'unknown-group')).toEqual([]);
+  });
 });
