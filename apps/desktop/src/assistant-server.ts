@@ -32,10 +32,8 @@ import {
   createLocalHostEmbeddingModel,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasAssistantPromptContent,
-  isSupportedProvider,
   listSuspendedMastraRuns,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
   type RediscoveredToolApproval,
   readToolApprovalRunConfigAction,
@@ -57,7 +55,6 @@ import {
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
-  type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import {
@@ -105,16 +102,35 @@ import {
 } from './assistant-server/hooks/server-integration';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import { respondJson, respondNotFound } from './assistant-server/http-responses';
+import type { AssistantLlmHostManager } from './assistant-server/local-llm-host-client';
 import {
-  type AssistantLlmHostManager,
-  createMainLlmHostClient,
-} from './assistant-server/local-llm-host-client';
+  collectLocalLlmWarmupModelIds,
+  isLocalChatProvider,
+  resolveLocalLlmHostClient,
+} from './assistant-server/local-provider-runtime';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
+import {
+  type DesktopMemoryModelTargetDescriptor,
+  type DesktopMemoryModelTargetResolution,
+  type DesktopObservationalMemoryModelTarget,
+  type DesktopSemanticRecallEmbeddingModelTarget,
+  parseObservationalMemoryModelTarget,
+  parseSemanticRecallEmbeddingModelTarget,
+  type RuntimeMemoryOptions,
+  resolveDesktopObserverUsageTarget,
+  resolveRequestedProvider,
+} from './assistant-server/memory-model-targets';
 import {
   createOpenRouterModelMetadataService,
   type OpenRouterModelMetadataService,
   requireOpenRouterModelId,
 } from './assistant-server/openrouter-model-metadata';
+import {
+  collectAvailableProviders,
+  hydrateRuntimeDataWithLocalRuntimeToken,
+  resolveProviderApiKey,
+  resolveProviderApiKeyOrRespond,
+} from './assistant-server/provider-credentials';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { prepareRequestSkills } from './assistant-server/request-skills';
@@ -125,10 +141,7 @@ import {
   recordDesktopAssistantHookRunOutcome,
   recordDesktopAssistantThreadRunStatus,
 } from './assistant-server/run-persistence';
-import {
-  getSecretReadErrorPayload,
-  respondToSecretReadError,
-} from './assistant-server/secret-error-responses';
+import { getSecretReadErrorPayload } from './assistant-server/secret-error-responses';
 import type {
   AgentStreamFailure,
   AgentStreamInitializationStage,
@@ -151,11 +164,6 @@ import { getDatabase } from './db-main';
 import type { DesktopEnvLoadFailure } from './desktop-env';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
-import {
-  inspectProviderKeys,
-  readProviderSecretKey,
-  resolveProviderEnvKey,
-} from './provider-api-key';
 
 const logger = desktopAssistantServerLogger;
 
@@ -187,50 +195,6 @@ const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // Each map is independently bounded to the same small desktop cache limit.
 const desktopMastraMemoryPromises = new Map<string, DesktopMastraMemoryPromise>();
 const desktopMastraMemoryResolutionPromises = new Map<string, DesktopMastraMemoryPromise>();
-const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
-  'openai',
-  'anthropic',
-  'google',
-  'openrouter',
-  // Built-in local model: resolved to the llm-host proxy chat model (no API
-  // key); requires the llm-host manager to be injected into the runtime.
-  'local',
-]);
-const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
-  'openai',
-  'google',
-  // Built-in local embedders: proxied to the hidden embedding-host renderer
-  // (no API key); requires the embedding host manager.
-  'local',
-]);
-
-interface DesktopMemoryModelTargetDescriptor {
-  readonly model: string;
-  readonly provider: SupportedProvider;
-}
-
-interface DesktopObservationalMemoryModelTarget extends DesktopMemoryModelTargetDescriptor {
-  readonly apiKey: string;
-  readonly cacheKey: string;
-}
-
-interface DesktopSemanticRecallEmbeddingModelTarget extends DesktopMemoryModelTargetDescriptor {
-  readonly apiKey: string;
-  readonly cacheKey: string;
-}
-
-type DesktopMemoryModelTargetResolution<T extends DesktopMemoryModelTargetDescriptor> =
-  | { readonly kind: 'disabled' }
-  | {
-      readonly descriptor: T;
-      readonly kind: 'needs_async_resolution';
-    }
-  | {
-      readonly kind: 'resolved';
-      readonly target: T & { readonly apiKey: string; readonly cacheKey: string };
-    };
-
-type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
 
 interface DesktopMastraMemoryCacheState {
   readonly cachedPromise?: DesktopMastraMemoryPromise | undefined;
@@ -1094,190 +1058,8 @@ async function handleSuspendedRunsRequest(
   }
 }
 
-function resolveRequestedProvider(data: RuntimeData | undefined): SupportedProvider | undefined {
-  const raw = typeof data?.provider === 'string' ? data.provider.trim() : '';
-  if (!raw) {
-    return;
-  }
-
-  const normalized = raw.toLowerCase();
-  return isSupportedProvider(normalized) ? normalized : undefined;
-}
-
-function parseModelTarget(
-  modelTarget: string,
-  {
-    allowedProviders,
-    formatLabel,
-    unsupportedProviderLabel,
-    disallowedProviderMessage,
-  }: {
-    readonly allowedProviders: ReadonlySet<SupportedProvider>;
-    readonly disallowedProviderMessage: (provider: SupportedProvider) => string;
-    readonly formatLabel: string;
-    readonly unsupportedProviderLabel: string;
-  }
-): DesktopMemoryModelTargetDescriptor {
-  const trimmed = modelTarget.trim();
-  const separatorIndex = trimmed.indexOf('/');
-  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
-    throw new Error(`${formatLabel} must use provider/model format; received "${modelTarget}".`);
-  }
-
-  const provider = trimmed.slice(0, separatorIndex).toLowerCase();
-  const model = trimmed.slice(separatorIndex + 1).trim();
-  if (!isSupportedProvider(provider)) {
-    throw new Error(
-      `Unsupported ${unsupportedProviderLabel} provider "${provider}" in model target "${modelTarget}".`
-    );
-  }
-  if (!allowedProviders.has(provider)) {
-    throw new Error(disallowedProviderMessage(provider));
-  }
-
-  return { model, provider };
-}
-
-function parseObservationalMemoryModelTarget(
-  modelTarget: string
-): DesktopMemoryModelTargetDescriptor {
-  return parseModelTarget(modelTarget, {
-    allowedProviders: DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS,
-    disallowedProviderMessage: (provider) =>
-      `Desktop observational memory requires a hosted model provider or the built-in local model; received "${provider}" in "${modelTarget}".`,
-    formatLabel: 'Observational memory model target',
-    unsupportedProviderLabel: 'observational memory',
-  });
-}
-
-/**
- * The {provider, model} the OM observer/reflector actually runs on this
- * request, for attributing child-run-usage rows (BST-953). Undefined when OM
- * is off or the target is unresolvable — in that state no observer runs, so no
- * OM usage chunks can arrive; a chunk that somehow does is dropped with a
- * visible warn by the persister rather than written under a guessed model.
- */
-function resolveDesktopObserverUsageTarget(
-  memorySettings: RuntimeAssistantMemorySettings | undefined
-): { readonly model: string; readonly provider: string } | undefined {
-  const observationalMemory = memorySettings?.observationalMemory;
-  if (
-    !observationalMemory?.enabled ||
-    observationalMemory.modelTarget === OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET
-  ) {
-    return;
-  }
-  try {
-    return parseObservationalMemoryModelTarget(observationalMemory.modelTarget);
-  } catch {
-    // Memory construction parses the same target and throws loudly; reaching
-    // here means no observer was built for this run.
-    return;
-  }
-}
-
-function parseSemanticRecallEmbeddingModelTarget(
-  modelTarget: string
-): DesktopMemoryModelTargetDescriptor {
-  return parseModelTarget(modelTarget, {
-    allowedProviders: DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS,
-    disallowedProviderMessage: (provider) =>
-      `Desktop Mastra semantic recall supports hosted OpenAI/Google embedders or the built-in local embedder; received "${provider}" in "${modelTarget}".`,
-    formatLabel: 'Semantic recall embedding model target',
-    unsupportedProviderLabel: 'semantic recall embedding',
-  });
-}
-
-async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
-  if (!isSupportedProvider(provider)) {
-    return;
-  }
-
-  const supportedProvider = provider as SupportedProvider;
-
-  const envKey = resolveProviderEnvKey(supportedProvider);
-  if (envKey) {
-    logger.info('Using environment API key for provider', { provider });
-    return envKey;
-  }
-
-  const storedKey = await readProviderSecretKey(supportedProvider);
-  if (storedKey) {
-    logger.info('Retrieved stored API key for provider', { provider });
-    return storedKey;
-  }
-  return;
-}
-
-async function collectAvailableProviders(): Promise<{
-  providerErrors: Array<{
-    code: string;
-    error: 'api_key_unreadable';
-    message: string;
-    provider: SupportedProvider;
-  }>;
-  providerKeySources: ProviderKeySource<SupportedProvider>[];
-  providers: string[];
-}> {
-  const inspection = await inspectProviderKeys();
-  const providers = new Set(inspection.configuredProviders.map(({ provider }) => provider));
-
-  // Local provider is always available (runs in-browser, no API key needed)
-  providers.add('local');
-
-  return {
-    providerErrors: inspection.readFailures.map((failure) => ({
-      code: failure.code,
-      error: 'api_key_unreadable' as const,
-      message: failure.message,
-      provider: failure.provider,
-    })),
-    providerKeySources: inspection.configuredProviders,
-    providers: Array.from(providers),
-  };
-}
-
-function hydrateRuntimeDataWithLocalRuntimeToken(
-  runtimeData: RuntimeData,
-  provider: string,
-  fetchedApiKey: string | undefined
-): RuntimeData {
-  // Only local-runtime providers need their `apiToken` injected into
-  // providerOptions so the OpenAI-compat factory can forward it as a bearer
-  // header. Hosted providers receive the key through the top-level `apiKey`.
-  if (!((provider === 'ollama' || provider === 'lmstudio') && fetchedApiKey)) {
-    return runtimeData;
-  }
-
-  const providerOptions = { ...(runtimeData.providerOptions ?? {}) };
-  const existing = providerOptions[provider];
-  providerOptions[provider] = {
-    ...(existing ?? {}),
-    apiToken: fetchedApiKey,
-  };
-
-  return {
-    ...runtimeData,
-    providerOptions,
-  };
-}
-
 function hasPromptContent(messages: AgentMessage[]): boolean {
   return hasAssistantPromptContent(messages);
-}
-
-async function resolveProviderApiKeyOrRespond(
-  provider: string,
-  res: http.ServerResponse
-): Promise<{ apiKey: string | undefined } | undefined> {
-  try {
-    return { apiKey: await resolveProviderApiKey(provider) };
-  } catch (error) {
-    if (respondToSecretReadError(res, error)) {
-      return;
-    }
-    throw error;
-  }
 }
 
 async function parseAssistantRequestPayload(
@@ -1347,81 +1129,6 @@ async function handleAssistantResumeRequest(
     error: 'assistant_stream_unavailable',
     message: 'The assistant stream is no longer available for replay.',
   });
-}
-
-function isLocalChatProvider(runtimeData: RuntimeData | undefined): boolean {
-  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
-  return provider.toLowerCase() === 'local';
-}
-
-/** Model id from a 'local/<modelId>' observational-memory target, if active. */
-function resolveLocalObservationalMemoryModelId(
-  runtimeData: RuntimeData | undefined
-): string | undefined {
-  const observationalMemory = runtimeData?.memory?.memorySettings?.observationalMemory;
-  if (!observationalMemory?.enabled) {
-    return;
-  }
-  const target = observationalMemory.modelTarget?.trim() ?? '';
-  if (!target.toLowerCase().startsWith('local/')) {
-    return;
-  }
-  const modelId = target.slice('local/'.length).trim();
-  return modelId.length > 0 ? modelId : undefined;
-}
-
-function resolveLocalLlmHostClient(
-  runtimeData: RuntimeData | undefined,
-  toolDependencies: {
-    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
-  }
-): ReturnType<typeof createMainLlmHostClient> | undefined {
-  const needsClient =
-    isLocalChatProvider(runtimeData) ||
-    resolveLocalObservationalMemoryModelId(runtimeData) !== undefined;
-  if (!needsClient) {
-    return;
-  }
-  const manager = toolDependencies.llmHostManager;
-  if (!manager) {
-    throw new Error(
-      'The built-in local model requires the llm-host manager; the assistant server was started without one.'
-    );
-  }
-  return createMainLlmHostClient(manager);
-}
-
-function resolveLocalModelId(runtimeData: RuntimeData | undefined): string {
-  const requested = typeof runtimeData?.model === 'string' ? runtimeData.model.trim() : '';
-  if (requested.length > 0) {
-    return requested;
-  }
-  const fallback = PROVIDER_DEFAULT_MODELS['local'];
-  if (!fallback) {
-    throw new Error('No default model is registered for the local provider.');
-  }
-  return fallback;
-}
-
-/**
- * Every local model this request will drive (chat and/or memory), deduped.
- *
- * SINGLE-ENGINE ASSUMPTION: the llm-host backend holds ONE engine, so warming
- * model A then model B unloads A. With today's catalog (one Gemma spec) chat
- * and local-OM targets always dedupe to one id; if the local catalog grows a
- * second spec, differing chat/OM targets would thrash (warm A → warm B
- * unloads A → the chat generation reloads A → the OM observation reloads B…).
- */
-function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): string[] {
-  const modelIds = new Set<string>();
-  if (isLocalChatProvider(runtimeData)) {
-    modelIds.add(resolveLocalModelId(runtimeData));
-  }
-  const memoryModelId = resolveLocalObservationalMemoryModelId(runtimeData);
-  if (memoryModelId) {
-    modelIds.add(memoryModelId);
-  }
-  return [...modelIds];
 }
 
 /**
