@@ -336,7 +336,7 @@ function respondToInvalidEnabledNativeToolIds(
   });
 }
 
-export function respondToAssistantPayloadError(res: http.ServerResponse, error: unknown): boolean {
+function respondToAssistantPayloadError(res: http.ServerResponse, error: unknown): boolean {
   if (error instanceof InvalidEnabledNativeToolIdsError) {
     respondToInvalidEnabledNativeToolIds(res, error.invalidValues);
     return true;
@@ -363,11 +363,11 @@ export function respondToAssistantPayloadError(res: http.ServerResponse, error: 
   return false;
 }
 
-export function hasPromptContent(messages: AgentMessage[]): boolean {
+function hasPromptContent(messages: AgentMessage[]): boolean {
   return hasAssistantPromptContent(messages);
 }
 
-export async function parseAssistantRequestPayload(
+async function parseAssistantRequestPayload(
   req: http.IncomingMessage
 ): Promise<AssistantRequestPayload> {
   const body = await readRequestBody(req, {
