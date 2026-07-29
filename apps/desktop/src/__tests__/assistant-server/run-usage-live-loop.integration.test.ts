@@ -24,13 +24,13 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
-import { type DbHandle, wasmLoader } from '@brainstrike/db';
-import { describe, expect, it, vi } from 'vitest';
 // The repository is internal to @brainstrike/app-shell (not on its barrel); the
 // live-loop proof needs the REAL implementation, so it imports the source
 // module directly. The repo's runtime imports (assistant-contract subpaths, db)
 // resolve through the workspace like every other desktop test dependency.
-import { createPgliteAssistantThreadRepository } from '../../../../../packages/app-shell/src/assistant-memory-repository';
+import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
+import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { describe, expect, it, vi } from 'vitest';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
 // an empty generator). Everything else from the package keeps its real impl.

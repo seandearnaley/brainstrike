@@ -15,12 +15,13 @@
  * The schema comes from the REAL repository bootstrap (byte-identical to
  * migration 060), so the guarded upsert is proven against the production shape.
  */
-import { type DbHandle, wasmLoader } from '@brainstrike/db';
-import { describe, expect, it } from 'vitest';
+
 // Real repository (schema bootstrap + the renderer-side recordRunOutcome used
 // for the user-precedence half of the contract). Internal module, same import
 // convention as run-usage-live-loop.integration.test.ts.
-import { createPgliteAssistantThreadRepository } from '../../../../../packages/app-shell/src/assistant-memory-repository';
+import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
+import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { describe, expect, it } from 'vitest';
 import { recordDesktopAssistantHookRunOutcome } from '../../assistant-server';
 
 interface OutcomeRow {

@@ -31,12 +31,12 @@
  * § RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP.
  */
 import type { StreamChunk } from '@brainstrike/agent';
+// Real repository (the production schema bootstrap + the sole runId-minting
+// site). Internal module, same import convention as hook-run-outcome.integration.test.ts.
+import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
-// Real repository (the production schema bootstrap + the sole runId-minting
-// site). Internal module, same import convention as hook-run-outcome.integration.test.ts.
-import { createPgliteAssistantThreadRepository } from '../../../../../packages/app-shell/src/assistant-memory-repository';
 
 type TestDatabase = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 

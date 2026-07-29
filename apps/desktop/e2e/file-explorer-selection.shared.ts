@@ -1,14 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  buildQuerySelectionFingerprint,
+  FILE_EXPLORER_STORAGE_KEY,
+  FILE_EXPLORER_STORAGE_VERSION,
+} from '@brainstrike/file-explorer';
+import { serializeState } from '@brainstrike/file-explorer/testing';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import type { ElectronApplication, Locator, Page } from 'playwright';
-import {
-  FILE_EXPLORER_STORAGE_KEY,
-  FILE_EXPLORER_STORAGE_VERSION,
-} from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
-import { serializeState } from '../../../packages/file-explorer/src/persistence/state-serialization.ts';
-import { buildQuerySelectionFingerprint } from '../../../packages/file-explorer/src/utils/query-selection-manifest.ts';
 import { expect, test } from './fixtures/electron-fixture';
 
 export { expect, test };

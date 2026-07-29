@@ -61,6 +61,10 @@
       "types": "./dist/assistant-durable-usage-capability.d.ts",
       "import": "./dist/assistant-durable-usage-capability.js"
     },
+    "./assistant-memory-repository": {
+      "types": "./dist/assistant-memory-repository.d.ts",
+      "import": "./dist/assistant-memory-repository.js"
+    },
     "./cost-tracking": {
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"
