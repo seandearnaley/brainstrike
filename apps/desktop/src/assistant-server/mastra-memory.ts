@@ -2,9 +2,9 @@
  * Desktop Mastra memory construction (BST-975 slice 5).
  *
  * ORDER-SENSITIVE ATOM: the two cache Maps, DESKTOP_MEMORY_CACHE_LIMIT, their
- * LRU evictors, and resetDesktopMastraMemoryCacheForTests moved here together
- * — splitting the maps from the evictors or the reset silently breaks LRU
- * pairing and cross-test isolation (BST-975 seam map).
+ * insertion-order (FIFO) evictors, and resetDesktopMastraMemoryCacheForTests
+ * moved here together — splitting the maps from the evictors or the reset
+ * silently breaks eviction pairing and cross-test isolation (BST-975 seam map).
  */
 
 import { createHash } from 'node:crypto';
@@ -608,9 +608,7 @@ export function resetDesktopMastraMemoryCacheForTests(): void {
 export async function getDesktopMastraMemoryForTests(
   memorySettings: RuntimeAssistantMemorySettings | undefined,
   runtimeData?: RuntimeData | undefined,
-  memoryDependencies?: {
-    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
-  }
+  memoryDependencies?: DesktopMemoryDependencies
 ): Promise<DesktopMastraMemoryResult> {
   return getDesktopMastraMemory(
     memorySettings,
