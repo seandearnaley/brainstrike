@@ -14,10 +14,30 @@ import {
   type StreamChunk,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/agent';
-import { AssistantRunErrorRepository } from '@brainstrike/db';
-import { getDatabase } from '../db-main';
+import { type AssistantRunErrorDatabase, AssistantRunErrorRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
+
+/**
+ * Minimal structural DB surface shared by every writer in this module (BST-972
+ * A1). Aliased to the repository's own query surface so one injected handle
+ * satisfies both the raw SQL here and `AssistantRunErrorRepository`, and so the
+ * paired integration tests can drive a real PGlite handle without the remote
+ * client.
+ */
+export type RunPersistenceDatabase = AssistantRunErrorDatabase;
+
+/**
+ * The stream observers and the status writer take a PROVIDER, not a resolved
+ * handle: each write awaits the current main-process database exactly where
+ * the previous direct `getDatabase()` calls did, so resolution timing — and
+ * behavior across a mid-run handle swap (e.g. factory reset) — is unchanged.
+ * Desktop composition sites pass db-main's `getDatabase` verbatim.
+ * (`recordDesktopAssistantHookRunOutcome` differs deliberately: its caller
+ * resolves the handle inside the verdict recorder it builds, so it keeps
+ * taking the resolved handle directly.)
+ */
+export type RunPersistenceDatabaseProvider = () => Promise<RunPersistenceDatabase>;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
@@ -27,7 +47,8 @@ const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
-  queuedEvents: AssistantRunEvent[]
+  queuedEvents: AssistantRunEvent[],
+  getDatabase: RunPersistenceDatabaseProvider
 ): AsyncIterable<StreamChunk> {
   let sequence = 0;
   let persistenceErrorCount = 0;
@@ -35,7 +56,7 @@ export async function* observeDesktopAssistantRunEvents(
   let persistenceQueue: Promise<void> = Promise.resolve();
   const persistEvent = (event: AssistantRunEvent): void => {
     persistenceQueue = persistenceQueue
-      .then(() => recordDesktopAssistantRunEvent(runId, event))
+      .then(() => recordDesktopAssistantRunEvent(runId, event, getDatabase))
       .catch((error: unknown) => {
         persistenceErrorCount += 1;
         persistenceError ??= error;
@@ -146,7 +167,8 @@ export async function* observeDesktopAssistantRunEvents(
 export async function* persistDesktopChildRunUsage(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
-  observerTarget: { readonly model: string; readonly provider: string } | undefined
+  observerTarget: { readonly model: string; readonly provider: string } | undefined,
+  getDatabase: RunPersistenceDatabaseProvider
 ): AsyncIterable<StreamChunk> {
   const persist = async (value: {
     readonly inputTokens: number;
@@ -225,10 +247,11 @@ export async function* persistDesktopChildRunUsage(
 export async function recordDesktopAssistantThreadRunStatus(
   runId: string,
   status: 'cancelled' | 'completed' | 'failed',
-  error: string | null
+  error: string | null,
+  getDatabase: RunPersistenceDatabaseProvider
 ): Promise<void> {
   try {
-    await completeDesktopAssistantThreadRun(runId, status, error);
+    await completeDesktopAssistantThreadRun(runId, status, error, getDatabase);
   } catch (statusError) {
     logger.error('Failed to update assistant thread run status', {
       error: statusError,
@@ -241,7 +264,8 @@ export async function recordDesktopAssistantThreadRunStatus(
 async function completeDesktopAssistantThreadRun(
   runId: string,
   status: 'cancelled' | 'completed' | 'failed',
-  error: string | null
+  error: string | null,
+  getDatabase: RunPersistenceDatabaseProvider
 ): Promise<void> {
   const now = new Date();
   const database = await getDatabase();
@@ -251,14 +275,6 @@ async function completeDesktopAssistantThreadRun(
      WHERE id = $1`,
     [runId, status, error, now, now]
   );
-}
-
-/**
- * Minimal structural DB surface for the hook-run-outcome writer, so the paired
- * integration test can drive a real PGlite handle without the remote client.
- */
-interface HookRunOutcomeDatabase {
-  readonly query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
 }
 
 /**
@@ -279,7 +295,7 @@ interface HookRunOutcomeDatabase {
  * existing user label logs the skip (expected precedence).
  */
 export async function recordDesktopAssistantHookRunOutcome(
-  database: HookRunOutcomeDatabase,
+  database: RunPersistenceDatabase,
   runId: string,
   verdict: HookRunVerdict
 ): Promise<void> {
@@ -320,7 +336,8 @@ export async function recordDesktopAssistantHookRunOutcome(
 
 async function recordDesktopAssistantRunEvent(
   runId: string,
-  event: AssistantRunEvent
+  event: AssistantRunEvent,
+  getDatabase: RunPersistenceDatabaseProvider
 ): Promise<void> {
   const now = new Date();
   const metadata = sanitizeAssistantRunEventMetadata(event.metadata);

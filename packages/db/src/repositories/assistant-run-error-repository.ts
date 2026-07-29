@@ -19,8 +19,15 @@ export class AssistantRunErrorStorageError extends Error {
   }
 }
 
+/**
+ * Minimal structural query surface — deliberately NON-generic (rows come back
+ * `unknown[]`): every row field is validated dynamically by the mapper below,
+ * so a typed-rows generic added no safety while excluding handles whose
+ * `query` is not generic (a bare PGlite instance in integration tests, and the
+ * desktop run-persistence injection seam, BST-972 A1).
+ */
 export interface AssistantRunErrorDatabase {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 
 interface AssistantRunErrorRow {
@@ -100,7 +107,13 @@ function requireNullableResponseHeaders(value: unknown): Readonly<Record<string,
   return Object.fromEntries(entries) as Readonly<Record<string, string>>;
 }
 
-function mapAssistantRunErrorRow(row: AssistantRunErrorRow): AssistantRunErrorRecord {
+function mapAssistantRunErrorRow(value: unknown): AssistantRunErrorRecord {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Assistant run error row must be an object.');
+  }
+  // Sound after the object guard: every AssistantRunErrorRow field is
+  // `unknown`, and each is validated by the require* mappers below.
+  const row = value as AssistantRunErrorRow;
   return {
     causeChain: requireNullableCauseChain(row.cause_chain),
     code: requireNonEmptyString(row.code, 'code'),
@@ -140,7 +153,7 @@ export class AssistantRunErrorRepository {
   async record(input: RecordAssistantRunErrorInput): Promise<AssistantRunErrorRecord> {
     validateRecordInput(input);
     try {
-      const result = await this.db.query<AssistantRunErrorRow>(
+      const result = await this.db.query(
         `WITH parent AS (
            SELECT thread_id, resource_id
            FROM ${ASSISTANT_THREAD_RUNS_TABLE}
@@ -208,7 +221,7 @@ export class AssistantRunErrorRepository {
   async getByRunId(runId: string): Promise<AssistantRunErrorRecord | null> {
     requireNonEmptyString(runId, 'runId');
     try {
-      const result = await this.db.query<AssistantRunErrorRow>(
+      const result = await this.db.query(
         `SELECT *
          FROM ${ASSISTANT_RUN_ERRORS_TABLE}
          WHERE run_id = $1`,
