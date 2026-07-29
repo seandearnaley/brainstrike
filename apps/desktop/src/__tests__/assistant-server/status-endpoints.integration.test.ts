@@ -1,0 +1,543 @@
+/**
+ * Status, OpenRouter model metadata, and suspended-runs endpoints (moved
+ * verbatim from the pre-split assistant-server.integration.test.ts,
+ * BST-1028 slice 2). Two deliberate deltas from the monolith:
+ * - the dead `vi.mock('../openai-api-key')` and its two
+ *   `readOpenAIApiKey.mockResolvedValueOnce` reads are gone — that module is
+ *   imported only by ipc-agent.ts, outside this graph, so the reads primed a
+ *   mock nothing consumed (the missing-key test passes via listProviders: []);
+ * - mock defaults prime in beforeEach (slice-1 review lesson), so every test
+ *   is independently runnable via -t.
+ * The `@brainstrike/agent` mock is narrowed to the two members these routes
+ * touch (listSuspendedMastraRuns stub + the provider allow-list); db-main
+ * stays mocked because mastra-memory.ts still imports getDatabase directly
+ * (its injection is the MemoryFactory slice of BST-972).
+ */
+import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/agent';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { desktopAssistantServerLogger, handleAssistantRequest } from '../../assistant-server';
+import { resetDesktopMastraMemoryCacheForTests } from '../../assistant-server/mastra-memory';
+import { DESKTOP_DEV_RENDERER_URL } from '../../desktop-renderer-url';
+import { createRunRequest } from './_harness';
+
+const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
+
+const mockSecretsService = vi.hoisted(() => ({
+  deleteKey: vi.fn(),
+  getKey: vi.fn((_provider: string) => Promise.resolve('test-api-key')),
+  listProviders: vi.fn(() => Promise.resolve(['openai'])),
+  saveKey: vi.fn(),
+}));
+
+vi.mock('../../secrets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../secrets')>();
+  return {
+    ...actual,
+    getSecretsService: () => mockSecretsService,
+  };
+});
+
+vi.mock('../../agent-client-loader', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent-client-loader')>();
+  return {
+    ...actual,
+    getAgentProviderEnvKeys: vi.fn(() => []),
+  };
+});
+
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return {
+    ...actual,
+    isSupportedProvider: (provider: string) =>
+      ['openai', 'anthropic', 'google', 'openrouter', 'local', 'ollama'].includes(provider),
+    listSuspendedMastraRuns: vi.fn(() => Promise.resolve({ approvals: [] })),
+  };
+});
+
+const mockPgliteMastraMemory = { id: 'desktop-memory' };
+const mockPgliteMastraStorage = { id: 'desktop-storage' };
+const mockDesktopDatabase = {
+  exec: vi.fn(),
+  query: vi.fn(),
+};
+
+vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
+  createPgliteMastraMemory: vi.fn(() =>
+    Promise.resolve({
+      memory: mockPgliteMastraMemory,
+      storage: mockPgliteMastraStorage,
+      store: {},
+      vector: {},
+      workflows: {},
+    })
+  ),
+}));
+
+vi.mock('../../db-main', () => ({
+  getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
+}));
+
+const runRequest = createRunRequest(handleAssistantRequest);
+
+beforeEach(() => {
+  mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
+  mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
+  mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });
+  resetDesktopMastraMemoryCacheForTests();
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+  resetDesktopMastraMemoryCacheForTests();
+});
+
+describe('status endpoint', () => {
+  it('should handle status route with API key present', async () => {
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+    mockSecretsService.getKey.mockResolvedValueOnce('test-key');
+
+    const response = await runRequest({
+      headers: { origin: desktopRendererOrigin },
+      method: 'GET',
+      url: '/assistant/status',
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['access-control-allow-origin']).toBe(desktopRendererOrigin);
+    expect(response.headers['access-control-allow-methods']).toContain('OPTIONS');
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+    const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
+    // 'local' provider is always available (no API key required)
+    expect(data).toEqual({
+      enabled: true,
+      providerKeySources: [{ provider: 'openai', source: 'stored' }],
+      providers: ['openai', 'local'],
+    });
+  }, 10_000);
+
+  it('reports an unreadable provider key without disabling other providers', async () => {
+    const { SecretReadError } = await import('../../secrets');
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openrouter']);
+    mockSecretsService.getKey.mockRejectedValueOnce(
+      new SecretReadError('encryption_unavailable', 'openrouter')
+    );
+
+    const response = await runRequest({
+      headers: { origin: desktopRendererOrigin },
+      method: 'GET',
+      url: '/assistant/status',
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      enabled: true,
+      providerErrors: [
+        {
+          code: 'encryption_unavailable',
+          error: 'api_key_unreadable',
+          message:
+            'Secret for "openrouter" is unreadable: safeStorage encryption is unavailable or insecure on this system. Re-enter the key to repair it.',
+          provider: 'openrouter',
+        },
+      ],
+      providerKeySources: [],
+      providers: ['local'],
+    });
+  });
+
+  it('surfaces environment-file failures without partial provider availability', async () => {
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      },
+      {
+        envFileFailures: [
+          {
+            code: 'env_file_invalid',
+            file: 'dev-local',
+            message: 'Desktop environment file dev-local is invalid at line 2.',
+          },
+        ],
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      enabled: false,
+      envFileFailures: [
+        {
+          code: 'env_file_invalid',
+          file: 'dev-local',
+          message: 'Desktop environment file dev-local is invalid at line 2.',
+        },
+      ],
+      error: 'assistant_configuration_invalid',
+      message: 'Desktop environment configuration is invalid.',
+      providers: [],
+    });
+    expect(mockSecretsService.listProviders).not.toHaveBeenCalled();
+  });
+
+  it('should handle status route with query parameters', async () => {
+    const response = await runRequest({
+      headers: { origin: desktopRendererOrigin },
+      method: 'GET',
+      url: '/assistant/status?source=healthcheck',
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['access-control-allow-origin']).toBe(desktopRendererOrigin);
+  });
+
+  it('should handle status route with missing API key', async () => {
+    mockSecretsService.listProviders.mockResolvedValueOnce([]);
+
+    const response = await runRequest({ method: 'GET', url: '/status' });
+
+    expect(response.status).toBe(200);
+    const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
+    // 'local' provider is always available (no API key required)
+    expect(data).toEqual({
+      enabled: true,
+      providerKeySources: [],
+      providers: ['local'],
+    });
+  }, 10_000);
+
+  it('keeps other providers available when the legacy OpenAI key is unreadable', async () => {
+    const { SecretReadError } = await import('../../secrets');
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+    mockSecretsService.getKey.mockRejectedValueOnce(
+      new SecretReadError('decrypt_failed', 'openai')
+    );
+
+    const response = await runRequest({ method: 'GET', url: '/status' });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      enabled: true,
+      providerErrors: [
+        {
+          error: 'api_key_unreadable',
+          provider: 'openai',
+        },
+      ],
+      providerKeySources: [],
+      providers: ['local'],
+    });
+  });
+
+  it('should handle status route errors', async () => {
+    mockSecretsService.listProviders.mockRejectedValueOnce(new Error('API key read failed'));
+
+    const response = await runRequest({ method: 'GET', url: '/status' });
+
+    expect(response.status).toBe(500);
+    const data = JSON.parse(response.body) as { error: string; message: string };
+    expect(data).toEqual({
+      error: 'assistant_status_failed',
+      message: 'Assistant status unavailable.',
+    });
+    expect(response.body).not.toContain('API key read failed');
+  }, 10_000);
+});
+
+describe('OpenRouter model metadata endpoint', () => {
+  it('returns selected OpenRouter model metadata from the bounded service', async () => {
+    mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+    const get = vi.fn().mockResolvedValue({
+      freshness: 'live',
+      metadata: {
+        checkedAt: 1000,
+        contextWindow: 400_000,
+        id: 'openai/gpt-5.4-mini',
+        maxOutputTokens: 128_000,
+        source: 'openrouter-models-api',
+        supportedParameters: ['tools', 'reasoning'],
+      },
+    });
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/openrouter-model?model=openai%2Fgpt-5.4-mini',
+      },
+      { openRouterModelMetadataService: { get } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(JSON.parse(response.body)).toMatchObject({
+      freshness: 'live',
+      metadata: { id: 'openai/gpt-5.4-mini' },
+    });
+    expect(get).toHaveBeenCalledWith('openai/gpt-5.4-mini', 'openrouter-key');
+  });
+
+  it('surfaces an unreadable OpenRouter key without calling the metadata service', async () => {
+    const { SecretReadError } = await import('../../secrets');
+    mockSecretsService.getKey.mockRejectedValueOnce(
+      new SecretReadError('decrypt_failed', 'openrouter')
+    );
+    const get = vi.fn();
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/openrouter-model?model=openai%2Fgpt-5.4-mini',
+      },
+      { openRouterModelMetadataService: { get } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      code: 'decrypt_failed',
+      error: 'api_key_unreadable',
+      message:
+        'Secret for "openrouter" is unreadable: stored secret could not be decrypted (the OS keychain entry may have changed). Re-enter the key to repair it.',
+      provider: 'openrouter',
+    });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects an OpenRouter metadata request without an exact model id', async () => {
+    const get = vi.fn();
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/openrouter-model',
+      },
+      { openRouterModelMetadataService: { get } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'missing_model',
+      message: 'OpenRouter model metadata requires a model query parameter.',
+    });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('classifies a malformed OpenRouter model id as a client error', async () => {
+    const get = vi.fn();
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/openrouter-model?model=garbage',
+      },
+      { openRouterModelMetadataService: { get } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'invalid_model',
+      message: 'OpenRouter model id must use the provider/model form',
+    });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('surfaces OpenRouter metadata failures without a static silent fallback', async () => {
+    mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+    const get = vi.fn().mockRejectedValue(new Error('OpenRouter Models API returned status 503'));
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/openrouter-model?model=openai%2Fgpt-5.4-mini',
+      },
+      { openRouterModelMetadataService: { get } }
+    );
+
+    expect(response.status).toBe(502);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'openrouter_model_metadata_failed',
+      message: 'OpenRouter Models API returned status 503',
+    });
+  });
+});
+
+describe('suspended-runs endpoint', () => {
+  it('GET /assistant/suspended-runs returns rediscovered approvals with recomputed risk + staleness', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    // NAME-FORM CONTRACT: `listSuspendedMastraRuns` returns the ORIGINAL
+    // dotted tool name (it maps Mastra's registered/sanitized id back via the
+    // runtime toolNameMap + the static native map) — the SAME form
+    // `buildNativeToolRiskMap()` is keyed by. The live proof is
+    // packages/agent/src/__tests__/mastra-suspended-runs-discovery.integration.spec.ts;
+    // this mock must mirror that contract, never a sanitized id.
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [
+        {
+          args: { command: 'echo hi' },
+          runId: 'run-restart-1',
+          suspendedAt: new Date().toISOString(),
+          toolCallId: 'call-restart-1',
+          toolName: 'brainstrike.executeCommand',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      headers: { 'content-type': 'application/json' },
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    expect(listSuspendedMastraRuns).toHaveBeenCalledWith(
+      { resourceId: 'workspace-a', threadId: 'thread-1' },
+      expect.objectContaining({
+        runtime: expect.objectContaining({ provider: 'ollama' }),
+        storage: mockPgliteMastraStorage,
+      })
+    );
+    expect(createPgliteMastraMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memorySettings: {
+          observationalMemory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+            enabled: false,
+            retrievalMode: 'off',
+          },
+          semanticRecall: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
+            enabled: false,
+          },
+        },
+      })
+    );
+    expect(mockSecretsService.getKey).not.toHaveBeenCalled();
+    expect((createPgliteMastraMemory as Mock).mock.calls[0]?.[0]).not.toHaveProperty(
+      'observationalMemoryModel'
+    );
+    const body = JSON.parse(response.body);
+    expect(body).toEqual({
+      approvals: [
+        {
+          args: { command: 'echo hi' },
+          policyDecision: 'ask',
+          riskCategory: 'execute',
+          runId: 'run-restart-1',
+          stale: false,
+          suspendedAt: expect.any(String),
+          toolCallId: 'call-restart-1',
+          toolName: 'brainstrike.executeCommand',
+        },
+      ],
+    });
+  });
+
+  it('GET /assistant/suspended-runs flags a run older than the staleness threshold', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [
+        {
+          runId: 'run-old-1',
+          // Two days ago — beyond the 24h default BRAINSTRIKE_APPROVAL_STALE_MS.
+          suspendedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          toolCallId: 'call-old-1',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.approvals[0]).toMatchObject({
+      riskCategory: 'edit',
+      stale: true,
+      toolName: 'brainstrike.writeWorkspaceFile',
+    });
+  });
+
+  it('GET /assistant/suspended-runs omits riskCategory for a tool absent from the risk map and warns LOUDLY', async () => {
+    // An MCP (or no-longer-registered) tool has no entry in
+    // buildNativeToolRiskMap(): the response must omit riskCategory /
+    // policyDecision HONESTLY (the notice then renders no grant buttons) and
+    // the degradation must be observable — never a silent metadata drop.
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [
+        {
+          args: { query: 'hello' },
+          runId: 'run-mcp-1',
+          suspendedAt: new Date().toISOString(),
+          toolCallId: 'call-mcp-1',
+          toolName: 'someServer.someTool',
+        },
+      ],
+    });
+    const warnSpy = vi.spyOn(desktopAssistantServerLogger, 'warn').mockImplementation(() => {
+      // Silence expected warning output.
+    });
+
+    try {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+      });
+
+      expect(response.status).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.approvals[0]).toMatchObject({ toolName: 'someServer.someTool' });
+      expect(body.approvals[0]).not.toHaveProperty('riskCategory');
+      expect(body.approvals[0]).not.toHaveProperty('policyDecision');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          code: 'assistant_suspended_approval_risk_unresolved',
+          toolName: 'someServer.someTool',
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('GET /assistant/suspended-runs returns 400 when thread context is missing', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body).error).toBe('missing_thread_context');
+    expect(listSuspendedMastraRuns).not.toHaveBeenCalled();
+  });
+
+  it('GET /assistant/suspended-runs returns 503 when workflow storage is unavailable', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    (createPgliteMastraMemory as Mock).mockResolvedValueOnce({
+      memory: mockPgliteMastraMemory,
+      store: {},
+      vector: {},
+      workflows: {},
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(503);
+    expect(JSON.parse(response.body).error).toBe('tool_approval_storage_unavailable');
+    expect(listSuspendedMastraRuns).not.toHaveBeenCalled();
+  });
+});
