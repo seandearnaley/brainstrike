@@ -8,7 +8,6 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
   AssistantUiMessageConversionResult,
-  AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
   RuntimeData,
@@ -58,7 +57,6 @@ import {
   ASSISTANT_AUTH_HEADER_NAME,
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-  ASSISTANT_STREAM_RESUME_PATH,
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
   type ProviderKeySource,
@@ -80,59 +78,6 @@ import {
 } from './assistant-server/run-steering-registry';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
 import { createNodeFsScanDeps } from './ipc-user-commands-handlers';
-
-type AssistantUiMessage = AssistantUiMessageStrict;
-
-type AssistantRoute =
-  | 'status'
-  | 'assistant'
-  | 'cancel'
-  | 'openrouter-model'
-  | 'resume'
-  | 'steer'
-  | 'suspended-runs'
-  | 'not-found';
-interface AssistantRequestPayload {
-  assistantMessageId?: string;
-  data: RuntimeData | undefined;
-  rawMessages: AssistantUiMessage[];
-  toolApprovalAction?: AssistantToolApprovalAction;
-  toolApprovalActionInvalid?: boolean;
-  toolResumeAction?: AssistantToolResumeAction;
-  toolResumeActionInvalid?: boolean;
-}
-interface AgentStreamSuccess {
-  ok: true;
-  stream: AsyncIterable<StreamChunk>;
-  terminalError?: string | null;
-  /**
-   * Terminal run-row status to record after the stream is served. Defaults to
-   * `completed`; a turn that streams a visible failure BEFORE the model runs
-   * (e.g. a UserPromptSubmit hook block) sets `failed` so the persisted run row
-   * matches the visible `run.failed` event instead of a contradictory
-   * `completed`.
-   */
-  terminalStatus?: 'cancelled' | 'completed' | 'failed';
-}
-interface AgentStreamFailure {
-  ok: false;
-  payload: {
-    code?: string;
-    correlationId?: string;
-    error: string;
-    feature?: DesktopMemoryFeature;
-    message: string;
-    provider?: string;
-    stage?: AgentStreamInitializationStage;
-  };
-  status: number;
-}
-type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
-type AgentStreamInitializationStage =
-  | 'native_tool_preferences'
-  | 'provider_model_bootstrap'
-  | 'stream_construction'
-  | 'workspace_root_resolution';
 
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 const SAFE_NATIVE_TOOL_ID_PATTERN = /^[a-zA-Z0-9_.:-]{1,128}$/;
@@ -159,6 +104,12 @@ import {
 } from './assistant-server/hooks/server-integration';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import {
+  getSecretReadErrorPayload,
+  respondJson,
+  respondNotFound,
+  respondToSecretReadError,
+} from './assistant-server/http-responses';
+import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
@@ -168,7 +119,17 @@ import {
   requireOpenRouterModelId,
 } from './assistant-server/openrouter-model-metadata';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { registerRequestAbort } from './assistant-server/request-abort';
 import { prepareRequestSkills } from './assistant-server/request-skills';
+import { readLastEventId, resolveAssistantRoute } from './assistant-server/routing';
+import type {
+  AgentStreamFailure,
+  AgentStreamInitializationStage,
+  AgentStreamResult,
+  AssistantRequestPayload,
+  AssistantUiMessage,
+  DesktopMemoryFeature,
+} from './assistant-server/server-types';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
@@ -189,7 +150,6 @@ import {
   readProviderSecretKey,
   resolveProviderEnvKey,
 } from './provider-api-key';
-import { SecretReadError } from './secrets';
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
@@ -255,8 +215,6 @@ interface DesktopSemanticRecallEmbeddingModelTarget extends DesktopMemoryModelTa
   readonly apiKey: string;
   readonly cacheKey: string;
 }
-
-type DesktopMemoryFeature = 'observational_memory' | 'semantic_recall';
 
 type DesktopMemoryModelTargetResolution<T extends DesktopMemoryModelTargetDescriptor> =
   | { readonly kind: 'disabled' }
@@ -1853,40 +1811,6 @@ async function collectAvailableProviders(): Promise<{
   };
 }
 
-function registerRequestAbort(
-  req: http.IncomingMessage,
-  res: http.ServerResponse
-): {
-  signal: AbortSignal;
-  cleanup: () => void;
-} {
-  const abortController = new AbortController();
-  const onAbort = () => {
-    abortController.abort();
-  };
-  const onRequestClose = () => {
-    if (!req.complete) {
-      onAbort();
-    }
-  };
-  const onResponseClose = () => {
-    if (!res.writableEnded) {
-      onAbort();
-    }
-  };
-
-  req.on('close', onRequestClose);
-  res.on('close', onResponseClose);
-
-  return {
-    cleanup: () => {
-      req.removeListener('close', onRequestClose);
-      res.removeListener('close', onResponseClose);
-    },
-    signal: abortController.signal,
-  };
-}
-
 function hydrateRuntimeDataWithLocalRuntimeToken(
   runtimeData: RuntimeData,
   provider: string,
@@ -1914,106 +1838,6 @@ function hydrateRuntimeDataWithLocalRuntimeToken(
 
 function hasPromptContent(messages: AgentMessage[]): boolean {
   return hasAssistantPromptContent(messages);
-}
-
-function readLastEventId(req: http.IncomingMessage): string | undefined {
-  const header = req.headers['last-event-id'];
-  if (!header) {
-    return;
-  }
-  if (Array.isArray(header)) {
-    return header.at(-1);
-  }
-  return header;
-}
-
-function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
-  const requestPath = resolveRequestPath(req);
-  if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
-    return 'status';
-  }
-  if (req.method === 'GET' && requestPath === '/assistant/openrouter-model') {
-    return 'openrouter-model';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant/steer' || requestPath === '/steer')) {
-    return 'steer';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant/cancel' || requestPath === '/cancel')) {
-    return 'cancel';
-  }
-  if (req.method === 'GET' && requestPath === ASSISTANT_STREAM_RESUME_PATH) {
-    return 'resume';
-  }
-  if (
-    req.method === 'GET' &&
-    (requestPath === '/assistant/suspended-runs' || requestPath === '/suspended-runs')
-  ) {
-    return 'suspended-runs';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant' || requestPath === '/')) {
-    return 'assistant';
-  }
-  return 'not-found';
-}
-
-function resolveRequestPath(req: http.IncomingMessage): string {
-  const rawUrl = req.url ?? '/';
-  try {
-    return new URL(rawUrl, 'http://127.0.0.1').pathname;
-  } catch {
-    return rawUrl;
-  }
-}
-
-function respondNotFound(res: http.ServerResponse): void {
-  res.writeHead(404).end('not found');
-}
-
-function respondJson(
-  res: http.ServerResponse,
-  status: number,
-  payload: {
-    code?: string;
-    correlationId?: string;
-    error: string;
-    feature?: DesktopMemoryFeature;
-    message: string;
-    provider?: string;
-    reason?: string;
-    stage?: AgentStreamInitializationStage;
-  }
-): void {
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = status;
-  res.end(JSON.stringify(payload));
-}
-
-function getSecretReadErrorPayload(error: unknown):
-  | {
-      code: string;
-      error: 'api_key_unreadable';
-      message: string;
-      provider: string;
-    }
-  | undefined {
-  if (!(error instanceof SecretReadError)) {
-    return;
-  }
-  return {
-    code: error.code,
-    error: 'api_key_unreadable',
-    message: error.message,
-    provider: error.provider,
-  };
-}
-
-function respondToSecretReadError(res: http.ServerResponse, error: unknown): boolean {
-  const payload = getSecretReadErrorPayload(error);
-  if (!payload) {
-    return false;
-  }
-  respondJson(res, 400, payload);
-  return true;
 }
 
 async function resolveProviderApiKeyOrRespond(
