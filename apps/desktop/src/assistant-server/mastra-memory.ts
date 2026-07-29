@@ -1,0 +1,622 @@
+/**
+ * Desktop Mastra memory construction (BST-975 slice 5).
+ *
+ * ORDER-SENSITIVE ATOM: the two cache Maps, DESKTOP_MEMORY_CACHE_LIMIT, their
+ * LRU evictors, and resetDesktopMastraMemoryCacheForTests moved here together
+ * — splitting the maps from the evictors or the reset silently breaks LRU
+ * pairing and cross-test isolation (BST-975 seam map).
+ */
+
+import { createHash } from 'node:crypto';
+import {
+  type AssistantRunEvent,
+  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  createEmbeddingProvider,
+  createLanguageModelProvider,
+  createLocalHostEmbeddingModel,
+  type RuntimeAssistantMemorySettings,
+  type RuntimeData,
+} from '@brainstrike/agent';
+import type { SupportedProvider } from '@brainstrike/agent/client';
+import { getDatabase } from '../db-main';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
+import {
+  type DesktopMemoryModelTargetDescriptor,
+  type DesktopMemoryModelTargetResolution,
+  type DesktopObservationalMemoryModelTarget,
+  type DesktopSemanticRecallEmbeddingModelTarget,
+  parseObservationalMemoryModelTarget,
+  parseSemanticRecallEmbeddingModelTarget,
+  type RuntimeMemoryOptions,
+  resolveRequestedProvider,
+} from './memory-model-targets';
+import { resolveProviderApiKey } from './provider-credentials';
+import type { DesktopMemoryFeature } from './server-types';
+
+export type DesktopMastraMemoryResult =
+  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;
+type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
+
+const DESKTOP_MEMORY_CACHE_LIMIT = 16;
+// Fully resolved memory instances are keyed by provider/model plus hashed API
+// keys. Pending keychain resolutions are keyed by unresolved descriptors so
+// concurrent desktop requests dedupe before the concrete cache key exists.
+// Each map is independently bounded to the same small desktop cache limit.
+const desktopMastraMemoryPromises = new Map<string, DesktopMastraMemoryPromise>();
+const desktopMastraMemoryResolutionPromises = new Map<string, DesktopMastraMemoryPromise>();
+
+interface DesktopMastraMemoryCacheState {
+  readonly cachedPromise?: DesktopMastraMemoryPromise | undefined;
+  readonly observationalMemoryResolution: DesktopMemoryModelTargetResolution<DesktopMemoryModelTargetDescriptor>;
+  readonly semanticRecallEmbeddingResolution: DesktopMemoryModelTargetResolution<DesktopMemoryModelTargetDescriptor>;
+}
+
+export class DesktopMemoryCredentialMissingError extends Error {
+  readonly feature: DesktopMemoryFeature;
+  readonly provider: SupportedProvider;
+
+  constructor(feature: DesktopMemoryFeature, target: DesktopMemoryModelTargetDescriptor) {
+    const featureLabel =
+      feature === 'observational_memory' ? 'Observational memory' : 'Semantic recall';
+    super(
+      `${featureLabel} requires an API key for "${target.provider}". Add the key in Settings, then retry.`
+    );
+    this.name = 'DesktopMemoryCredentialMissingError';
+    this.feature = feature;
+    this.provider = target.provider;
+  }
+}
+
+/** Host services memory construction can use (injected from the server options). */
+interface DesktopMemoryDependencies {
+  readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+}
+
+export async function getDesktopMastraMemory(
+  memorySettings: RuntimeAssistantMemorySettings | undefined,
+  runId?: string | undefined,
+  eventSink?: ((event: AssistantRunEvent) => void) | undefined,
+  runtimeData?: RuntimeData | undefined,
+  memoryDependencies?: DesktopMemoryDependencies | undefined
+): Promise<DesktopMastraMemoryResult> {
+  const memoryOptions = runtimeData?.memory?.memoryOptions;
+  const cacheState = createDesktopMastraMemoryCacheState({
+    memoryOptions,
+    memorySettings,
+    runId,
+    runtimeData,
+  });
+  if (cacheState.cachedPromise) {
+    return cacheState.cachedPromise;
+  }
+
+  if (!(runId || eventSink) && needsAsyncDesktopMemoryResolution(cacheState)) {
+    const resolutionKey = buildDesktopMastraMemoryResolutionKey({
+      memoryOptions,
+      memorySettings,
+      observationalMemoryDescriptor: getDesktopMemoryModelTargetDescriptor(
+        cacheState.observationalMemoryResolution
+      ),
+      semanticRecallEmbeddingDescriptor: getDesktopMemoryModelTargetDescriptor(
+        cacheState.semanticRecallEmbeddingResolution
+      ),
+    });
+    const pendingResolution = desktopMastraMemoryResolutionPromises.get(resolutionKey);
+    if (pendingResolution) {
+      return pendingResolution;
+    }
+    const pendingMemory = createDesktopMastraMemoryFromCacheState({
+      cacheState,
+      eventSink,
+      memoryDependencies,
+      memoryOptions,
+      memorySettings,
+      runId,
+      runtimeData,
+    });
+    evictOldestDesktopMastraMemoryResolutionPromise();
+    desktopMastraMemoryResolutionPromises.set(resolutionKey, pendingMemory);
+    void pendingMemory.then(
+      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory),
+      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory)
+    );
+    return pendingMemory;
+  }
+
+  return createDesktopMastraMemoryFromCacheState({
+    cacheState,
+    eventSink,
+    memoryDependencies,
+    memoryOptions,
+    memorySettings,
+    runId,
+    runtimeData,
+  });
+}
+
+function createDesktopMastraMemoryCacheState({
+  memoryOptions,
+  memorySettings,
+  runId,
+  runtimeData,
+}: {
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly runId: string | undefined;
+  readonly runtimeData: RuntimeData | undefined;
+}): DesktopMastraMemoryCacheState {
+  const observationalMemoryDescriptor =
+    resolveDesktopObservationalMemoryModelTargetDescriptor(memorySettings);
+  const semanticRecallEmbeddingDescriptor =
+    resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(memorySettings);
+  const observationalMemoryResolution = resolveRuntimeMemoryModelTarget(
+    observationalMemoryDescriptor,
+    runtimeData
+  );
+  const semanticRecallEmbeddingResolution = resolveRuntimeMemoryModelTarget(
+    semanticRecallEmbeddingDescriptor,
+    runtimeData
+  );
+  if (
+    runId ||
+    observationalMemoryResolution.kind === 'needs_async_resolution' ||
+    semanticRecallEmbeddingResolution.kind === 'needs_async_resolution'
+  ) {
+    return {
+      observationalMemoryResolution,
+      semanticRecallEmbeddingResolution,
+    };
+  }
+
+  const cacheKey = buildDesktopMastraMemoryCacheKey({
+    memoryOptions,
+    memorySettings,
+    observationalMemoryTarget: getResolvedDesktopMemoryModelTarget(observationalMemoryResolution),
+    semanticRecallEmbeddingTarget: getResolvedDesktopMemoryModelTarget(
+      semanticRecallEmbeddingResolution
+    ),
+  });
+  return {
+    cachedPromise: desktopMastraMemoryPromises.get(cacheKey),
+    observationalMemoryResolution,
+    semanticRecallEmbeddingResolution,
+  };
+}
+
+function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheState): boolean {
+  return (
+    cacheState.observationalMemoryResolution.kind === 'needs_async_resolution' ||
+    cacheState.semanticRecallEmbeddingResolution.kind === 'needs_async_resolution'
+  );
+}
+
+async function createDesktopMastraMemoryFromCacheState({
+  cacheState,
+  eventSink,
+  memoryDependencies,
+  memoryOptions,
+  memorySettings,
+  runId,
+  runtimeData,
+}: {
+  readonly cacheState: DesktopMastraMemoryCacheState;
+  readonly eventSink: ((event: AssistantRunEvent) => void) | undefined;
+  readonly memoryDependencies: DesktopMemoryDependencies | undefined;
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly runId: string | undefined;
+  readonly runtimeData: RuntimeData | undefined;
+}): Promise<DesktopMastraMemoryResult> {
+  const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+  const observationalMemoryTarget = await resolveDesktopMemoryModelTargetResolution(
+    cacheState.observationalMemoryResolution,
+    'observational_memory'
+  );
+  const semanticRecallEmbeddingTarget = await resolveDesktopMemoryModelTargetResolution(
+    cacheState.semanticRecallEmbeddingResolution,
+    'semantic_recall'
+  );
+  const { embedder, observationalMemoryModel } = createDesktopMastraMemoryProviderBindings({
+    memoryDependencies,
+    observationalMemoryTarget,
+    runtimeData,
+    semanticRecallEmbeddingTarget,
+  });
+  if (runId) {
+    const database = await getDatabase();
+    // Run-scoped memory instances intentionally bypass the shared cache so the
+    // per-run event sink cannot leak observability events across concurrent runs.
+    return createPgliteMastraMemory({
+      database,
+      ...(embedder ? { embedder } : {}),
+      ...(eventSink ? { eventSink } : {}),
+      ...(memoryOptions ? { memoryOptions } : {}),
+      ...(memorySettings ? { memorySettings } : {}),
+      ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
+      runId,
+    });
+  }
+  const cacheKey = buildDesktopMastraMemoryCacheKey({
+    memoryOptions,
+    memorySettings,
+    observationalMemoryTarget,
+    semanticRecallEmbeddingTarget,
+  });
+  const cachedPromise = desktopMastraMemoryPromises.get(cacheKey);
+  if (cachedPromise) {
+    return cachedPromise;
+  }
+  const memoryPromise = (async () => {
+    const database = await getDatabase();
+    return createPgliteMastraMemory({
+      database,
+      ...(embedder ? { embedder } : {}),
+      ...(memoryOptions ? { memoryOptions } : {}),
+      ...(memorySettings ? { memorySettings } : {}),
+      ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
+    });
+  })();
+  evictOldestDesktopMastraMemoryPromise();
+  desktopMastraMemoryPromises.set(cacheKey, memoryPromise);
+  memoryPromise.catch(() => {
+    if (desktopMastraMemoryPromises.get(cacheKey) === memoryPromise) {
+      desktopMastraMemoryPromises.delete(cacheKey);
+    }
+  });
+  return memoryPromise;
+}
+
+function resolveDesktopObservationalMemoryModelTargetDescriptor(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): DesktopMemoryModelTargetDescriptor | undefined {
+  // Absent settings must never manufacture an enabled observer — the UI
+  // default's 'auto' sentinel is resolved renderer-side; requests without
+  // memory settings get the construction-safe (observation-off) defaults.
+  const effectiveSettings = memorySettings ?? CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
+  const observationalMemorySettings = effectiveSettings.observationalMemory;
+  if (!observationalMemorySettings.enabled) {
+    return;
+  }
+
+  return parseObservationalMemoryModelTarget(observationalMemorySettings.modelTarget);
+}
+
+function resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): DesktopMemoryModelTargetDescriptor | undefined {
+  const effectiveSettings = memorySettings ?? CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
+  const semanticRecallSettings = effectiveSettings.semanticRecall;
+  // Observational-memory vector retrieval embeds observations with the SAME
+  // configured embedder, so it needs the target resolved even when the
+  // semantic-recall toggle itself is off (createPgliteMastraMemory throws
+  // without an embedder in that mode).
+  const observationalVectorRetrieval =
+    effectiveSettings.observationalMemory.enabled &&
+    effectiveSettings.observationalMemory.retrievalMode === 'vector';
+  if (!(semanticRecallSettings.enabled || observationalVectorRetrieval)) {
+    return;
+  }
+  if (!semanticRecallSettings.embeddingModelTarget?.trim()) {
+    throw new Error(
+      semanticRecallSettings.enabled
+        ? 'Semantic recall requires a configured embedding model target.'
+        : 'Observational vector retrieval requires a configured semantic recall embedding model target.'
+    );
+  }
+
+  return parseSemanticRecallEmbeddingModelTarget(semanticRecallSettings.embeddingModelTarget);
+}
+
+function getDesktopMemoryModelTargetDescriptor<T extends DesktopMemoryModelTargetDescriptor>(
+  resolution: DesktopMemoryModelTargetResolution<T>
+): DesktopMemoryModelTargetDescriptor | undefined {
+  if (resolution.kind === 'disabled') {
+    return;
+  }
+  const target = resolution.kind === 'resolved' ? resolution.target : resolution.descriptor;
+  return {
+    model: target.model,
+    provider: target.provider,
+  };
+}
+
+function getResolvedDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  resolution: DesktopMemoryModelTargetResolution<T>
+): (T & { readonly apiKey: string; readonly cacheKey: string }) | undefined {
+  if (resolution.kind === 'disabled') {
+    return;
+  }
+  if (resolution.kind === 'resolved') {
+    return resolution.target;
+  }
+  throw new Error(
+    `Desktop memory target "${resolution.descriptor.provider}/${resolution.descriptor.model}" requires async resolution before cache lookup.`
+  );
+}
+
+/**
+ * The built-in local provider needs no API key: its memory models are proxied
+ * to the hidden llm-host, so the cache key carries a fixed marker instead of
+ * a key hash.
+ */
+function resolveLocalMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  target: T
+): T & { readonly apiKey: string; readonly cacheKey: string } {
+  return {
+    ...target,
+    apiKey: '',
+    cacheKey: `${target.provider}/${target.model}:local-llm-host`,
+  };
+}
+
+async function resolveDesktopMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  target: T,
+  feature: DesktopMemoryFeature
+): Promise<T & { readonly apiKey: string; readonly cacheKey: string }> {
+  const { model, provider } = target;
+  if (provider === 'local') {
+    return resolveLocalMemoryModelTarget(target);
+  }
+  const apiKey = await resolveProviderApiKey(provider);
+  if (!apiKey) {
+    throw new DesktopMemoryCredentialMissingError(feature, target);
+  }
+
+  return {
+    ...target,
+    apiKey,
+    cacheKey: `${provider}/${model}:${hashSecretForCacheKey(apiKey)}`,
+  };
+}
+
+async function resolveDesktopMemoryModelTargetResolution<
+  T extends DesktopMemoryModelTargetDescriptor,
+>(
+  resolution: DesktopMemoryModelTargetResolution<T>,
+  feature: DesktopMemoryFeature
+): Promise<(T & { readonly apiKey: string; readonly cacheKey: string }) | undefined> {
+  if (resolution.kind === 'disabled') {
+    return;
+  }
+  if (resolution.kind === 'resolved') {
+    return resolution.target;
+  }
+  return resolveDesktopMemoryModelTarget(resolution.descriptor, feature);
+}
+
+function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
+  target: T | undefined,
+  runtimeData: RuntimeData | undefined
+): DesktopMemoryModelTargetResolution<T> {
+  if (!target) {
+    return { kind: 'disabled' };
+  }
+  if (target.provider === 'local') {
+    return {
+      kind: 'resolved',
+      target: resolveLocalMemoryModelTarget(target),
+    };
+  }
+  const runtimeProvider = resolveRequestedProvider(runtimeData);
+  const apiKey =
+    runtimeProvider === target.provider && runtimeData?.apiKey?.trim()
+      ? runtimeData.apiKey.trim()
+      : undefined;
+  if (!apiKey) {
+    return {
+      descriptor: target,
+      kind: 'needs_async_resolution',
+    };
+  }
+  return {
+    kind: 'resolved',
+    target: {
+      ...target,
+      apiKey,
+      cacheKey: `${target.provider}/${target.model}:${hashSecretForCacheKey(apiKey)}`,
+    },
+  };
+}
+
+/**
+ * Build the semantic-recall embedder for a local target: queries are proxied
+ * to the hidden embedding-host renderer, and dimensions resolve lazily from
+ * the models catalog.
+ */
+function createLocalSemanticRecallEmbedder(
+  modelId: string,
+  memoryDependencies: DesktopMemoryDependencies | undefined
+): ReturnType<typeof createEmbeddingProvider> {
+  const embeddingHostManager = memoryDependencies?.embeddingHostManager;
+  if (!embeddingHostManager) {
+    throw new Error(
+      'Local semantic recall requires the embedding host manager; the assistant server was started without one.'
+    );
+  }
+  // Mastra ships an internal copy of the AI SDK v5 types, so the structurally
+  // identical EmbeddingModelV2 needs the same cast provider-factory uses for
+  // MastraModelConfig.
+  return createLocalHostEmbeddingModel({
+    client: embeddingHostManager,
+    modelId,
+    resolveDimensions: () => resolveLocalEmbeddingDimensions(modelId),
+  }) as unknown as ReturnType<typeof createEmbeddingProvider>;
+}
+
+async function resolveLocalEmbeddingDimensions(modelId: string): Promise<number> {
+  const database = await getDatabase();
+  const result = await database.query(
+    'SELECT capabilities FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
+    [modelId, 'local']
+  );
+  const row = (result.rows as Array<{ capabilities?: unknown }>)[0];
+  if (!row) {
+    throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
+  }
+  const capabilities =
+    typeof row.capabilities === 'string'
+      ? (JSON.parse(row.capabilities) as { defaultDimension?: unknown })
+      : (row.capabilities as { defaultDimension?: unknown } | null | undefined);
+  const dimension = capabilities?.defaultDimension;
+  if (typeof dimension !== 'number' || !Number.isSafeInteger(dimension) || dimension <= 0) {
+    throw new Error(
+      `Local embedding model "${modelId}" has no valid defaultDimension in the model catalog.`
+    );
+  }
+  return dimension;
+}
+
+function createDesktopMastraMemoryProviderBindings({
+  memoryDependencies,
+  observationalMemoryTarget,
+  runtimeData,
+  semanticRecallEmbeddingTarget,
+}: {
+  readonly memoryDependencies: DesktopMemoryDependencies | undefined;
+  readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
+  readonly runtimeData: RuntimeData | undefined;
+  readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
+}): {
+  readonly embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
+  readonly observationalMemoryModel: ReturnType<typeof createLanguageModelProvider> | undefined;
+} {
+  if (observationalMemoryTarget?.provider === 'local' && !runtimeData?.localLlmHostClient) {
+    // Without the injected client, createLanguageModelProvider would construct the
+    // in-process browser backend, which cannot run in Electron main.
+    throw new Error(
+      'Local observational memory model requires the llm-host proxy client on the runtime.'
+    );
+  }
+  const observationalMemoryModel = observationalMemoryTarget
+    ? createLanguageModelProvider(
+        observationalMemoryTarget.provider,
+        observationalMemoryTarget.apiKey,
+        observationalMemoryTarget.model,
+        runtimeData
+      )
+    : undefined;
+  let embedder: ReturnType<typeof createEmbeddingProvider> | undefined;
+  if (semanticRecallEmbeddingTarget) {
+    embedder =
+      semanticRecallEmbeddingTarget.provider === 'local'
+        ? createLocalSemanticRecallEmbedder(semanticRecallEmbeddingTarget.model, memoryDependencies)
+        : createEmbeddingProvider(
+            semanticRecallEmbeddingTarget.provider,
+            semanticRecallEmbeddingTarget.apiKey,
+            semanticRecallEmbeddingTarget.model
+          );
+  }
+  return { embedder, observationalMemoryModel };
+}
+
+function buildDesktopMastraMemoryCacheKey({
+  memoryOptions,
+  memorySettings,
+  observationalMemoryTarget,
+  semanticRecallEmbeddingTarget,
+}: {
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
+  readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
+}): string {
+  return stableJsonStringify({
+    memoryOptions: memoryOptions ?? null,
+    memorySettings: memorySettings ?? null,
+    observationalMemoryModel: observationalMemoryTarget?.cacheKey ?? null,
+    semanticRecallEmbedder: semanticRecallEmbeddingTarget?.cacheKey ?? null,
+  });
+}
+
+function buildDesktopMastraMemoryResolutionKey({
+  memoryOptions,
+  memorySettings,
+  observationalMemoryDescriptor,
+  semanticRecallEmbeddingDescriptor,
+}: {
+  readonly memoryOptions: RuntimeMemoryOptions | undefined;
+  readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
+  readonly observationalMemoryDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
+  readonly semanticRecallEmbeddingDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
+}): string {
+  return stableJsonStringify({
+    memoryOptions: memoryOptions ?? null,
+    memorySettings: memorySettings ?? null,
+    observationalMemoryDescriptor: observationalMemoryDescriptor ?? null,
+    semanticRecallEmbeddingDescriptor: semanticRecallEmbeddingDescriptor ?? null,
+  });
+}
+
+function cleanupDesktopMastraMemoryResolutionPromise(
+  resolutionKey: string,
+  pendingMemory: DesktopMastraMemoryPromise
+): void {
+  if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
+    desktopMastraMemoryResolutionPromises.delete(resolutionKey);
+  }
+}
+
+function evictOldestDesktopMastraMemoryPromise(): void {
+  if (desktopMastraMemoryPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+    return;
+  }
+  const oldestKey = desktopMastraMemoryPromises.keys().next().value;
+  if (typeof oldestKey === 'string') {
+    desktopMastraMemoryPromises.delete(oldestKey);
+  }
+}
+
+function evictOldestDesktopMastraMemoryResolutionPromise(): void {
+  if (desktopMastraMemoryResolutionPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+    return;
+  }
+  const oldestKey = desktopMastraMemoryResolutionPromises.keys().next().value;
+  if (typeof oldestKey === 'string') {
+    desktopMastraMemoryResolutionPromises.delete(oldestKey);
+  }
+}
+
+function hashSecretForCacheKey(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJsonValue(item));
+  }
+  // Relational operators are significantly faster than localeCompare for ASCII strings
+  // which is exactly what object keys are in 99% of these payloads
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      .map((key) => [key, sortJsonValue((value as Record<string, unknown>)[key])])
+  );
+}
+
+export function resetDesktopMastraMemoryCacheForTests(): void {
+  desktopMastraMemoryPromises.clear();
+  desktopMastraMemoryResolutionPromises.clear();
+}
+
+export async function getDesktopMastraMemoryForTests(
+  memorySettings: RuntimeAssistantMemorySettings | undefined,
+  runtimeData?: RuntimeData | undefined,
+  memoryDependencies?: {
+    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  }
+): Promise<DesktopMastraMemoryResult> {
+  return getDesktopMastraMemory(
+    memorySettings,
+    undefined,
+    undefined,
+    runtimeData,
+    memoryDependencies
+  );
+}
