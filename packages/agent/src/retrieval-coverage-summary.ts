@@ -1,4 +1,13 @@
-import type { SkippedSourceRangeChunk } from './tools/retrieval-tool';
+/**
+ * A retrieved chunk skipped because it lacked source-range provenance.
+ * Previously imported from the deleted dead-code retrieval tool (BST-974);
+ * the live desktop implementation keeps its own private equivalent.
+ */
+export interface SkippedSourceRangeChunk {
+  chunkId: string;
+  chunkIndex: number;
+  fileRecordId: string;
+}
 
 const MAX_AFFECTED_FILES = 3;
 

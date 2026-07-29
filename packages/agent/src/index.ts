@@ -536,21 +536,6 @@ export {
   type HookToolGateResult,
 } from './tools/hook-runner';
 export { applyToolHooks } from './tools/hook-tool-wrap';
-// Hybrid search tool factory
-export {
-  buildToolsWithHybridSearch,
-  createHybridSearchTool,
-  HYBRID_SEARCH_ERROR_MESSAGES,
-  HYBRID_SEARCH_TOOL_ID,
-  type HybridSearchResultItem,
-  type HybridSearchServiceMetadata,
-  type HybridSearchServiceResult,
-  type HybridSearchToolDependencies,
-  type HybridSearchToolResult,
-  SAFE_HYBRID_SEARCH_ERRORS,
-  type SearchChunk,
-  type SearchFileRecord,
-} from './tools/hybrid-search-tool';
 // Queue status tool factory
 export {
   buildToolsWithQueueStatus,
@@ -565,21 +550,6 @@ export {
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
-// Retrieval tool factory (BST-174)
-export {
-  buildToolsWithRetrieval,
-  type ChunkSearchResultInput,
-  createRetrievalTool,
-  type EmbeddingSetInfo,
-  type FileRecordInfo,
-  RETRIEVAL_ERROR_MESSAGES,
-  RETRIEVAL_TOOL_ID,
-  type RetrievalSelectionState,
-  type RetrievalToolDependencies,
-  type RetrievalToolResult,
-  SAFE_ERROR_MESSAGES,
-  type SkippedSourceRangeChunk,
-} from './tools/retrieval-tool';
 export {
   type AskUserInput,
   AskUserInputSchema,
