@@ -392,8 +392,6 @@ export async function handleAssistantRequest(
   await handleAssistantPost(req, res, options);
 }
 
-/** Transport ceiling shared with approval/resume action identifiers. */
-
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
