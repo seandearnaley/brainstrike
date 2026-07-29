@@ -1,5 +1,5 @@
 // Import shared test utilities setup
-import '../test-utils/src/vitest.setup';
+import '@brainstrike/test-utils/vitest.setup';
 
 const actEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;

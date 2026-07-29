@@ -4,13 +4,13 @@ import {
   FileChunkRepository,
   FileRecordRepository,
   migrate,
+  wasmLoader,
 } from '@brainstrike/db';
 import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
 import type { ChunkingWorkerPort } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { afterEach, describe, expect, it } from 'vitest';
-import { wasmLoader } from '../../../../db/src/wasm-loader';
 import {
   type PreparedCacheChange,
   runRootFolderCacheImport,
