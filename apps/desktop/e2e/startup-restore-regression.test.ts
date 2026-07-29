@@ -1,4 +1,4 @@
-import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer';
+import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testing';
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';

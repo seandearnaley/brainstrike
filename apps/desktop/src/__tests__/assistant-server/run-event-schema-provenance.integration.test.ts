@@ -32,7 +32,9 @@
  */
 import type { StreamChunk } from '@brainstrike/agent';
 // Real repository (the production schema bootstrap + the sole runId-minting
-// site). Internal module, same import convention as hook-run-outcome.integration.test.ts.
+// site). Imported via app-shell's narrow `./assistant-memory-repository`
+// subpath, same convention as hook-run-outcome.integration.test.ts; placement
+// is interim per R04 (BST-984).
 import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';

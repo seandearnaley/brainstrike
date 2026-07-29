@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { buildQuerySelectionFingerprint } from '@brainstrike/file-explorer';
 import {
-  buildQuerySelectionFingerprint,
   FILE_EXPLORER_STORAGE_KEY,
   FILE_EXPLORER_STORAGE_VERSION,
-} from '@brainstrike/file-explorer';
-import { serializeState } from '@brainstrike/file-explorer/testing';
+  serializeState,
+} from '@brainstrike/file-explorer/testing';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import type { ElectronApplication, Locator, Page } from 'playwright';

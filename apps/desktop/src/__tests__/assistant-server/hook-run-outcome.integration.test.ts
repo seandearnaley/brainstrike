@@ -17,8 +17,9 @@
  */
 
 // Real repository (schema bootstrap + the renderer-side recordRunOutcome used
-// for the user-precedence half of the contract). Internal module, same import
-// convention as run-usage-live-loop.integration.test.ts.
+// for the user-precedence half of the contract). Imported via app-shell's
+// narrow `./assistant-memory-repository` subpath, same convention as
+// run-usage-live-loop.integration.test.ts; placement is interim per R04 (BST-984).
 import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';
 import { describe, expect, it } from 'vitest';
