@@ -963,7 +963,9 @@ Where state lives (do not relitigate):
 Layers: repository `assistant-thread-groups-repository.ts` → store
 `assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`
 (grouping/sorting; `buildThreadMembership` is the single source of effective
-membership; `getGroupMemberIds` answers section membership) → panel state
+membership; `getGroupMemberIds` answers section membership and weakly caches
+the projected ids by immutable `ThreadListView`, so selection-only rerenders do
+not rescan sections or reallocate every group's id array) → panel state
 `use-thread-panel-selection.ts` (disclosure limits + bulk selection, owned by
 `ThreadsPanel` so the toolbar and the treegrid read one source of truth rather
 than two copies) → body arbitration `thread-panel-content-state.ts` (pure: tree

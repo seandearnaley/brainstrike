@@ -4,7 +4,7 @@ import type {
   AssistantThreadGroup,
   AssistantThreadPlacement,
 } from '../assistant-thread-groups-repository';
-import { buildThreadListSections } from '../thread-list-sections';
+import { buildThreadListSections, getGroupMemberIds } from '../thread-list-sections';
 
 function makeThread(overrides: {
   id: string;
@@ -290,5 +290,38 @@ describe('buildThreadListSections', () => {
       return;
     }
     expect(view.sections[0]?.threads.map((thread) => thread.id)).toEqual(['thread-1', 'thread-2']);
+  });
+});
+
+describe('getGroupMemberIds', () => {
+  it('reuses member ids while the immutable view is unchanged', () => {
+    let idReads = 0;
+    const threads = ['thread-1', 'thread-2'].map((id) => {
+      const thread = makeThread({ id });
+      Object.defineProperty(thread, 'id', {
+        get: () => {
+          idReads += 1;
+          return id;
+        },
+      });
+      return thread;
+    });
+    const view = {
+      kind: 'grouped',
+      sections: [
+        {
+          group: makeGroup({ id: 'group-a', rank: 'a0' }),
+          threads,
+        },
+      ],
+      ungrouped: [],
+    } as const;
+
+    const first = getGroupMemberIds(view, 'group-a');
+    const second = getGroupMemberIds(view, 'group-a');
+
+    expect(first).toEqual(['thread-1', 'thread-2']);
+    expect(second).toBe(first);
+    expect(idReads).toBe(2);
   });
 });

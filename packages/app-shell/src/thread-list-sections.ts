@@ -20,6 +20,9 @@ export type ThreadListView =
       readonly ungrouped: readonly AssistantMemoryThread[];
     };
 
+const EMPTY_THREAD_IDS: readonly string[] = [];
+const groupMemberIdsByView = new WeakMap<ThreadListView, Map<string | null, readonly string[]>>();
+
 function compareByRecency(left: AssistantMemoryThread, right: AssistantMemoryThread): number {
   const byUpdatedAt = right.updatedAt.getTime() - left.updatedAt.getTime();
   return byUpdatedAt === 0 ? left.id.localeCompare(right.id) : byUpdatedAt;
@@ -154,14 +157,23 @@ export function buildThreadListSections({
 /** Thread ids belonging to a group section (`null` = the Ungrouped section). */
 export function getGroupMemberIds(view: ThreadListView, groupId: string | null): readonly string[] {
   if (view.kind === 'flat') {
-    return [];
+    return EMPTY_THREAD_IDS;
   }
-  if (groupId === null) {
-    return view.ungrouped.map((thread) => thread.id);
+  let memberIdsByGroupId = groupMemberIdsByView.get(view);
+  if (memberIdsByGroupId === undefined) {
+    memberIdsByGroupId = new Map();
+    groupMemberIdsByView.set(view, memberIdsByGroupId);
   }
-  return (
-    view.sections
-      .find((section) => section.group.id === groupId)
-      ?.threads.map((thread) => thread.id) ?? []
-  );
+  const cachedMemberIds = memberIdsByGroupId.get(groupId);
+  if (cachedMemberIds !== undefined) {
+    return cachedMemberIds;
+  }
+  const memberIds =
+    groupId === null
+      ? view.ungrouped.map((thread) => thread.id)
+      : (view.sections
+          .find((section) => section.group.id === groupId)
+          ?.threads.map((thread) => thread.id) ?? EMPTY_THREAD_IDS);
+  memberIdsByGroupId.set(groupId, memberIds);
+  return memberIds;
 }
