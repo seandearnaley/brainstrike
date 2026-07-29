@@ -24,6 +24,31 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### The package-boundary gate runs first in Static (BST-967)
+
+The `Static` job runs `pnpm exec turbo boundaries` as its first substantive
+step (right after the secret scan), and the ORDERING is the invariant, not a
+style choice: the analyzer scans build output as well as source, so any step
+that materializes `dist/` before it — `type-check` (whose turbo task
+`dependsOn: ["build"]`), any `pnpm build`/`pnpm --filter X build`, or a cache
+restore of real build outputs — reintroduces phantom violations from stale
+artifacts (observed live: `dist/turso/*` files from an unmerged branch flagged
+a dependency no source on `main` imports). On the fresh checkout the step sees,
+a non-zero exit means a REAL source violation.
+
+Deliberate crossings carry inline `// @boundaries-ignore <reason>` comments at
+the import site. The contract tests in
+`scripts/__tests__/turbo-boundaries-gate.test.mjs` keep all of this honest:
+they prove the gate can fail (fixture workspace with a violation → non-zero
+exit, clean fixture → zero), assert the Static step stays ordered before any
+dist-producing step, and require every ignore comment to carry a substantive
+reason. Division of labor with the custom checker:
+`architecture-domain-boundaries.mjs` owns cross-DOMAIN direction rules; `turbo
+boundaries` owns package-escaping imports and undeclared dependencies. Known
+blind spots (tracked, not solved here): CLI-flag dependencies such as the
+coverage provider (BST-1017) and non-import reaches via `fileURLToPath` are
+invisible to the analyzer.
+
 ### Vercel Preview is advisory
 
 The Vercel GitHub integration reports a `Vercel` commit status on pull
