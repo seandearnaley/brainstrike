@@ -371,13 +371,15 @@ export interface StreamChunkFinish {
 }
 
 export type StreamFinishReason =
+  | 'absent'
   | 'stop'
   | 'length'
   | 'content-filter'
   | 'tool-calls'
   | 'error'
   | 'other'
-  | 'unknown';
+  | 'unknown'
+  | 'unrecognized';
 
 export interface StreamChunkMessageFinish {
   billedCostUsd?: number;

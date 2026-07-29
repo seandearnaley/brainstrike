@@ -477,6 +477,88 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('logs bounded, sanitized Mastra 1.51 tripwire diagnostics with durable correlation', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          metadata: {
+            apiKey: 'must-not-reach-diagnostics',
+            category: 'copyright',
+            score: 0.98,
+          },
+          processorId: 'regex-filter',
+          reason: 'Content policy violation',
+          retry: false,
+        },
+        type: 'tripwire',
+      },
+    ]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-correlated-tripwire', parts: [{ text: 'hi' }], role: 'user' }],
+        {
+          memory: { id: 'memory-instance' } as never,
+          runtime: {
+            apiKey: 'test-key',
+            boundWorkspaceRootId: 'root-a',
+            memory: {
+              resourceId: 'resource-a',
+              runId: 'run-a',
+              threadId: 'thread-a',
+            },
+            provider: 'openai',
+          },
+        }
+      );
+      for await (const _chunk of iterator) {
+        // Drain the tripwire termination.
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const tripwireLog = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_tripwire'
+      )
+    );
+    expect(tripwireLog).toBeDefined();
+    if (!tripwireLog) {
+      throw new Error('Expected the tripwire diagnostic log.');
+    }
+
+    const diagnosticFields = tripwireLog.args.find(
+      (arg): arg is Record<string, unknown> =>
+        typeof arg === 'object' &&
+        arg !== null &&
+        (arg as { code?: unknown }).code === 'mastra_agent_stream_tripwire'
+    );
+    expect(diagnosticFields).toMatchObject({
+      code: 'mastra_agent_stream_tripwire',
+      detail: 'Content policy violation',
+      resourceId: 'resource-a',
+      rootId: 'root-a',
+      runId: 'run-a',
+      threadId: 'thread-a',
+      tripwire: {
+        metadata: {
+          category: 'copyright',
+          score: 0.98,
+        },
+        processorId: 'regex-filter',
+        retry: false,
+        source: 'mastra-1.51',
+      },
+    });
+    expect(JSON.stringify(diagnosticFields)).not.toContain('must-not-reach-diagnostics');
+  });
+
   it('records bounded token diagnostics with actual provider prompt usage', async () => {
     setMockStreamParts([
       { textDelta: 'hello', type: 'text-delta' },
@@ -3384,7 +3466,7 @@ describe('mastra streaming integration', () => {
     });
   });
 
-  it('marks finish chunks without an explicit reason as unknown', async () => {
+  it('marks finish chunks without an explicit reason as absent and completes the run', async () => {
     setMockStreamParts([{ type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } }]);
 
     const iterator = await streamMastraAgent(
@@ -3397,8 +3479,18 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.finished',
+          metadata: expect.objectContaining({ finishReason: 'absent' }),
+          status: 'completed',
+        }),
+        type: 'run-event',
+      })
+    );
     expect(chunks).toContainEqual({
-      finishReason: 'unknown',
+      finishReason: 'absent',
       path: [],
       type: 'message-finish',
       usage: {
@@ -3408,6 +3500,74 @@ describe('mastra streaming integration', () => {
         promptTokens: 3,
       },
     });
+  });
+
+  it('keeps the AI SDK unknown sentinel completed because it includes provider absence', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'unknown',
+        type: 'finish',
+        usage: { completionTokens: 5, promptTokens: 3 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'finish with SDK unknown', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.finished',
+          metadata: expect.objectContaining({ finishReason: 'unknown' }),
+          status: 'completed',
+        }),
+        type: 'run-event',
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'unknown', type: 'message-finish' })
+    );
+  });
+
+  it('normalizes an unrecognized non-empty finish reason to a failing sentinel', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'future-provider-reason',
+        type: 'finish',
+        usage: { completionTokens: 5, promptTokens: 3 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'finish with unknown reason', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'run.failed',
+          metadata: expect.objectContaining({ finishReason: 'unrecognized' }),
+          status: 'failed',
+        }),
+        type: 'run-event',
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'unrecognized', type: 'message-finish' })
+    );
   });
 
   it('throws a typed error when Mastra closes after tool activity without a terminal finish', async () => {

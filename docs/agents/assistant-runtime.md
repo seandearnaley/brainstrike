@@ -138,7 +138,31 @@ The adjacent diagnostic breadcrumb uses the provider code plus validated HTTP
 status in its diagnostic code so unrelated provider failures do not collapse
 into one fingerprint. Content-policy tripwires terminate visibly through their
 own `mastra_agent_stream_tripwire` diagnostic and never carry the provider
-`metadata.runError` envelope.
+`metadata.runError` envelope. Mastra 1.51's canonical tripwire shape is
+`{type:'tripwire', payload:{reason,retry?,metadata?,processorId?}}`; the mapper
+must read that payload rather than the obsolete top-level fixture shape. The
+bounded reason becomes visible assistant text plus durable `run.failed.detail`.
+The sanitized processor fields travel under `metadata.tripwire` and the same
+object is logged with durable run/thread/resource/root correlation. Arbitrary
+metadata is JSON-validated, passed through the shared run-event denial-list,
+then reduced by value shape before either persistence or logging: only
+identifier-shaped values for the explicit safe diagnostic keys plus finite
+numbers, booleans, null, and Mastra's literal `[REDACTED_MATCH]` marker retain
+their value. Other strings become character-count summaries. Arrays and objects
+are capped at 32 items/keys and use the reserved `__brainstrikeSummary`
+envelope for unambiguous type/count/omission bookkeeping; keys are capped at
+128 characters. Processor ids are capped at 256 characters. The visible,
+durable, and logged tripwire reason is capped at the shared 600-character
+provider-error limit because policy-triggering content must not gain a larger
+server-log exposure than it has in the thread.
+Malformed fields are enumerated in
+`metadata.tripwire.malformedFields`, and a missing/malformed reason produces an
+explicit visible compatibility error rather than the generic word "tripwire".
+The pre-1.51 top-level or payload `tripwireReason` reader remains an explicit
+compatibility input tagged `source:'legacy-tripwire-reason'`, including hybrid
+parts that also carry current sibling fields but omit `payload.reason`; remove
+it only alongside a Mastra compatibility-baseline change and its paired
+regression test.
 
 Response headers are a literal, case-normalized allowlist limited to
 rate-limit, `Retry-After`, and provider request-id variants. Request/response
@@ -200,15 +224,20 @@ than another optional parameter on `makeRunEventChunk` because `detail` and
 `timestamp` are both `string`, so a positional slip between them would
 type-check cleanly while writing a timestamp into the detail field.
 
-**NOT closed by this: `finishReason: 'unknown'` still has the same split.**
-`makeTerminalRunEvent` emits `run.failed` for anything that is not
-`stop`/`tool-calls`, so `unknown` produces a `run.failed` event while the
-outcome stays `completed`. Do NOT simply add `'unknown'` to the error-finish
-condition: `resolveFinishReason` also returns `'unknown'` when a provider omits
-`finishReason` on an otherwise-normal final chunk, so that would mark healthy
-runs failed. The run-event side and the outcome side genuinely disagree about
-what `unknown` means; reconciling them needs one deliberate decision, not a
-reflex at either site.
+**Finish-reason absence is distinct from a raw unsupported value (BST-868).**
+`readFinishReason` and `resolveFinishReason` preserve a missing, empty, or
+non-string Mastra field as Brainstrike's internal `'absent'` sentinel. The AI
+SDK's literal `'unknown'` also remains completed because that upstream value
+already combines "provider omitted the field" with provider values the SDK does
+not recognize; Brainstrike cannot safely reconstruct that lost distinction.
+Only a non-empty raw value outside the SDK/Brainstrike union becomes the
+internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
+"unrecognized finish reason" message, and persists `thread_runs` as failed.
+Before data-stream serialization, internal `absent` becomes assistant-stream
+0.3.25's completed wire value `unknown`; internal `unrecognized` becomes the
+terminal wire value `error`. Intermediate steps start as `absent`, never as the
+SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
+protocol and never infer provider failure from the AI SDK `unknown` value.
 
 **Raw/model tool-output split (LIVE):**
 `createMastraAgentRuntime` composes tools in this order (the stage sequence
