@@ -310,17 +310,18 @@ async function streamAssistantPostResponse({
   };
 }): Promise<void> {
   const mcpConfig = (await loadMcpConfig()).config;
-  const streamResult = await initializeAgentStream(
-    messages,
-    runtimeData,
+  const streamResult = await initializeAgentStream({
     apiKey,
+    getDatabase,
     mcpConfig,
-    executionSignal,
+    messages,
     runId,
+    runtimeData,
+    signal: executionSignal,
     toolApprovalAction,
+    toolDependencies,
     toolResumeAction,
-    toolDependencies
-  );
+  });
   if (!streamResult.ok) {
     if (runId) {
       await recordDesktopAssistantThreadRunStatus(

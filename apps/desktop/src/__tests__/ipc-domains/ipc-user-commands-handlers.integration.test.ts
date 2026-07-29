@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/utils';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createNodeFsScanDeps } from '../../assistant-server/node-fs-scan-deps';
 import { __resetUserCommandWarningsForTests } from '../../assistant-server/user-slash-commands-loader';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
-import { createNodeFsScanDeps, listUserSlashCommands } from '../../ipc-user-commands-handlers';
+import { listUserSlashCommands } from '../../ipc-user-commands-handlers';
 
 let tempRoot: string | undefined;
 const scanDependencies: ReturnType<typeof createNodeFsScanDeps>[] = [];

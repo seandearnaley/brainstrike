@@ -21,9 +21,8 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
-import { getDatabase } from '../db-main';
+import type { DesktopDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { createNodeFsScanDeps } from '../ipc-user-commands-handlers';
 import type { DesktopAssistantToolDependencies } from './assistant-tools';
 import { buildDesktopAssistantTools } from './assistant-tools';
 import type { HookRunVerdict } from './hooks/run-verdict';
@@ -47,6 +46,7 @@ import {
   getDesktopMastraMemory,
 } from './mastra-memory';
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets';
+import { createNodeFsScanDeps } from './node-fs-scan-deps';
 import { resolveProviderApiKey } from './provider-credentials';
 import { injectReferencedFilesContext } from './referenced-files-context';
 import { resolveRequestPersonas } from './request-personas';
@@ -113,7 +113,8 @@ interface ToolOutputArtifactCapabilities {
 
 function buildToolOutputArtifactCapabilities(
   runtimeData: RuntimeData | undefined,
-  runId: string | undefined
+  runId: string | undefined,
+  getDatabase: AgentStreamDatabaseProvider
 ): ToolOutputArtifactCapabilities {
   const resourceId = runtimeData?.memory?.resourceId;
   const threadId = runtimeData?.memory?.threadId;
@@ -310,7 +311,10 @@ async function resolvePersonaRuntimeFields(
  * handle. Without a runId there is no run to label, so no recorder is threaded
  * (hooks themselves still run).
  */
-function buildHookRunVerdictRecorder(runId: string | undefined): {
+function buildHookRunVerdictRecorder(
+  runId: string | undefined,
+  getDatabase: AgentStreamDatabaseProvider
+): {
   onRunVerdict?: (verdict: HookRunVerdict) => Promise<void>;
 } {
   if (!runId) {
@@ -389,20 +393,54 @@ function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtim
   return runtimeWithoutWorkspaceRoots;
 }
 
-export async function initializeAgentStream(
-  messages: AgentMessage[],
-  incomingRuntimeData: RuntimeData | undefined,
-  apiKey: string | undefined,
-  mcpConfig: McpConfig | undefined,
-  signal: AbortSignal,
-  runId: string | undefined,
-  toolApprovalAction: AssistantToolApprovalAction | undefined,
-  toolResumeAction: AssistantToolResumeAction | undefined,
-  toolDependencies: {
+/**
+ * Injected main-process database provider (BST-972 A2). A provider, not a
+ * resolved handle, for the same reason as run-persistence.ts: each use awaits
+ * the current handle exactly where the previous direct `getDatabase()` calls
+ * did. The desktop composition site (assistant-server.ts) passes db-main's
+ * `getDatabase` verbatim; the type-only `DesktopDatabase` import is erased at
+ * runtime, so this module no longer executes db-main (→ electron) to load.
+ */
+type AgentStreamDatabaseProvider = () => Promise<DesktopDatabase>;
+
+/**
+ * Params object rather than positional arguments (ruling from the #2115
+ * review): dependencies accumulate here slice by slice, and adjacent
+ * positional parameters stay mistake-proof only while their types happen to
+ * differ — desktop's type-check excludes test files, so a missed test call
+ * site would surface only at runtime.
+ */
+export interface InitializeAgentStreamParams {
+  readonly apiKey: string | undefined;
+  readonly getDatabase: AgentStreamDatabaseProvider;
+  readonly mcpConfig: McpConfig | undefined;
+  readonly messages: AgentMessage[];
+  readonly runId: string | undefined;
+  readonly runtimeData: RuntimeData | undefined;
+  readonly signal: AbortSignal;
+  readonly toolApprovalAction: AssistantToolApprovalAction | undefined;
+  readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
-  }
+  };
+  readonly toolResumeAction: AssistantToolResumeAction | undefined;
+}
+
+export async function initializeAgentStream(
+  params: InitializeAgentStreamParams
 ): Promise<AgentStreamResult> {
+  const {
+    messages,
+    runtimeData: incomingRuntimeData,
+    apiKey,
+    mcpConfig,
+    signal,
+    runId,
+    toolApprovalAction,
+    toolResumeAction,
+    toolDependencies,
+    getDatabase,
+  } = params;
   // Multi-root: resolve the active workspace roots from the DB `roots` table so
   // the assistant's file/search tools can disambiguate paths across roots. The
   // helper falls back to the single focused root on an empty/failed lookup.
@@ -498,7 +536,11 @@ export async function initializeAgentStream(
     // preference applied (master toggle / per-skill disables — reduce-only).
     // Undefined when skills are off or the provider is the built-in local model.
     const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData);
-    const artifactCapabilities = buildToolOutputArtifactCapabilities(runtimeData, runId);
+    const artifactCapabilities = buildToolOutputArtifactCapabilities(
+      runtimeData,
+      runId,
+      getDatabase
+    );
     initializationStage = 'native_tool_preferences';
     const mastraTools = buildDesktopAssistantTools(
       runtimeData,
@@ -640,7 +682,7 @@ export async function initializeAgentStream(
         logger,
         manager: hookManager,
         observe,
-        ...buildHookRunVerdictRecorder(runId),
+        ...buildHookRunVerdictRecorder(runId, getDatabase),
         runner: hookRunner,
         signal,
       }),

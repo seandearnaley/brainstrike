@@ -11,15 +11,12 @@ import {
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
 } from '@brainstrike/assistant-contract';
+import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
 import {
   scanUserPersonas,
   type UserPersonaScanEntry,
 } from './assistant-server/user-personas-loader';
-import {
-  createNodeFsScanDeps,
-  resolveScanRoots,
-  type UserCommandsListDeps,
-} from './ipc-user-commands-handlers';
+import { resolveScanRoots, type UserCommandsListDeps } from './ipc-user-commands-handlers';
 
 /** Same deps shape as the commands list handler (fs + DB + homedir). */
 export type UserPersonasListDeps = UserCommandsListDeps;
