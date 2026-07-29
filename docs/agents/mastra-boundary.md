@@ -61,7 +61,7 @@ Owned by Brainstrike, on both surfaces:
 | --- | --- | --- |
 | Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-92` | `apps/desktop/src/assistant-server.ts:273-314` |
 | Auth | none per-request; env key only (`assistant-config.ts:3-7`), preview-gated | per-boot capability token, constant-time compare (`assistant-server/auth.ts:12-32`) |
-| Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`handleAssistantRequest`'s origin gate + `hasDisallowedAssistantOrigin`, both in `assistant-server.ts`) |
+| Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`handleAssistantRequest`'s origin gate in `assistant-server.ts` + `hasDisallowedAssistantOrigin` in `assistant-server/cors.ts`) |
 | Body parsing | shared parser | shared limit + shared error type |
 | Streaming | stateless (`packages/agent/src/stream/data-stream.ts:249`) | resumable sessions + `Last-Event-ID` (session create in `assistant-server.ts` + `resumeStreamIfAvailable`) |
 | Persistence | **none, deliberately** (`web-assistant-stream.ts:8-25`) | PGlite run/event/outcome tables (table consts in `assistant-server/run-persistence.ts`) |
