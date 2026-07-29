@@ -3710,7 +3710,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // over nothing/hook/edit_revert but NEVER over an explicit user verdict —
     // enforced in the upsert SQL itself, in EVERY write path (this repository
     // AND the byte-consistent main-process writer in apps/desktop
-    // assistant-server.ts recordDesktopAssistantHookRunOutcome).
+    // assistant-server/run-persistence.ts recordDesktopAssistantHookRunOutcome).
     pgliteDataDir = createPgliteTestDataDir('assistant-run-outcome-hook-precedence');
     const db = await wasmLoader.createPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);

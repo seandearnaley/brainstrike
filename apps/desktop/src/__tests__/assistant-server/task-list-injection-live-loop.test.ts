@@ -5,7 +5,7 @@
  * `toAiSdkStyleStream` to a canned stream, so the REAL instructions-assembly
  * code in `createMastraAgentRuntime` (packages/agent/src/mastra/agent-runtime.ts)
  * never actually runs in that suite — a break in EITHER half of the seam (the
- * DB read + `RuntimeData.taskList` assembly in assistant-server.ts, or the
+ * DB read + `RuntimeData.taskList` assembly in assistant-server/agent-stream-init.ts, or the
  * `<current-task-list>` note injection in agent-runtime.ts) could regress
  * silently while every mocked test stayed green. This file closes that gap: it
  * persists a task list through the REAL repository (`writeThreadTaskList`),

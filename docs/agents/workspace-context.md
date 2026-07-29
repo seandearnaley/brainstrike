@@ -91,7 +91,7 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
 
 - **Injection** (`apps/desktop/src/assistant-server/workspace-instructions-context.ts`)
   wired at the SAME request boundary as `injectReferencedFilesContext`
-  (`assistant-server.ts` `resolveInitialAgentStream`): referenced-files first,
+  (`assistant-server/agent-stream-init.ts` `resolveInitialAgentStream`): referenced-files first,
   then workspace instructions LAST so the general conventions land FRONTMOST.
   Per root, first-match-wins over `AGENTS.md` → `AGENT.md` → `CLAUDE.md` at the
   root's top level, read through `readWorkspaceTextFile`'s existing

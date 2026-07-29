@@ -196,7 +196,7 @@ function handleQuerySelfError(error: unknown): never {
 /**
  * Scan lenses from disk over the request's already-resolved workspace roots
  * (SecureRoot-backed fs; disposed after the scan). Mirrors
- * `scanUserPersonasFromDisk` in assistant-server.ts.
+ * `scanUserPersonasFromDisk` in assistant-server/agent-stream-init.ts.
  */
 function scanLensesFromDisk(workspaceRoots: RuntimeData['workspaceRoots']): UserLensScanResult {
   const filesystem = createNodeFsScanDeps();

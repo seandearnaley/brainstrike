@@ -140,7 +140,7 @@ function resolveQueryEmbeddingSpaceInput(
 
 /**
  * True when the request targets the built-in on-device provider. Mirrors
- * `isLocalChatProvider` in assistant-server.ts (kept separate: that module
+ * `isLocalChatProvider` in assistant-server/local-provider-runtime.ts (kept separate: that module
  * pulls in Electron IPC imports this file must stay free of for its own
  * unit-test surface).
  */
@@ -158,7 +158,7 @@ export function buildDesktopAssistantTools(
 ): MastraTools {
   // The built-in local model never gets the task-list tool: its persisted plan
   // is never re-injected into local instructions either (see
-  // readThreadTaskListForTurn in assistant-server.ts and the provider gate on
+  // readThreadTaskListForTurn in assistant-server/agent-stream-init.ts and the provider gate on
   // buildCurrentTaskListNote in agent-runtime.ts), and the tiny on-device
   // model's WebGPU prefill budget cannot afford advertising a tool whose state
   // it will never see reflected back.
