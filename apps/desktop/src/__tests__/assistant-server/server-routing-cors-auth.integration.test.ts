@@ -92,16 +92,18 @@ describe('startAssistantServer', () => {
     const originalEnv = process.env['BS_ASSISTANT_PORT'];
     process.env['BS_ASSISTANT_PORT'] = '0'; // Use 0 for dynamic port
 
-    server = await startAssistantServer(undefined, { listen: false });
+    try {
+      server = await startAssistantServer(undefined, { listen: false });
 
-    expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
-
-    if (originalEnv === undefined) {
-      // Pre-split version assigned `undefined`, which stringifies to the
-      // literal "undefined" in process.env — deletion is the real restore.
-      Reflect.deleteProperty(process.env, 'BS_ASSISTANT_PORT');
-    } else {
-      process.env['BS_ASSISTANT_PORT'] = originalEnv;
+      expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    } finally {
+      if (originalEnv === undefined) {
+        // Pre-split version assigned `undefined`, which stringifies to the
+        // literal "undefined" in process.env — deletion is the real restore.
+        Reflect.deleteProperty(process.env, 'BS_ASSISTANT_PORT');
+      } else {
+        process.env['BS_ASSISTANT_PORT'] = originalEnv;
+      }
     }
   });
 
