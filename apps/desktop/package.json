@@ -129,6 +129,7 @@
     "jszip": "catalog:",
     "minimatch": "catalog:",
     "pino": "catalog:",
+    "playwright": "catalog:",
     "react-helmet-async": "catalog:",
     "react-hotkeys-hook": "catalog:",
     "react-resizable-panels": "catalog:",

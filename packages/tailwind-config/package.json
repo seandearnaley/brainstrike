@@ -2,6 +2,9 @@
   "name": "@brainstrike/tailwind-config",
   "description": "Shared Tailwind CSS configuration for Brainstrike apps and packages",
   "version": "0.1.0",
+  "devDependencies": {
+    "vitest": "catalog:"
+  },
   "engines": {
     "node": ">=22"
   },

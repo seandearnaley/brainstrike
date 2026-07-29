@@ -32,7 +32,8 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "jsdom": "catalog:",
-    "lucide-react": "catalog:"
+    "lucide-react": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
