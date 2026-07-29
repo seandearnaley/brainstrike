@@ -8,7 +8,6 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
   AssistantUiMessageConversionResult,
-  AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
   RuntimeData,
@@ -39,7 +38,6 @@ import {
   PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
   type RediscoveredToolApproval,
-  readProviderRunError,
   readToolApprovalRunConfigAction,
   readToolResumeRunConfigAction,
   resolveApprovalStaleMs,
@@ -48,7 +46,6 @@ import {
   resolveDataStreamSession,
   resolveRequestPermissionPolicy,
   type SuspendedApprovalsResponse,
-  sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
   toAiSdkStyleStream,
@@ -58,14 +55,11 @@ import {
   ASSISTANT_AUTH_HEADER_NAME,
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-  ASSISTANT_STREAM_RESUME_PATH,
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
-import { AssistantRunErrorRepository, ToolOutputArtifactRepository } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
-import { app } from 'electron';
+import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import {
   type AssistantServerAuth,
   isAuthorizedAssistantToken,
@@ -74,65 +68,10 @@ import {
 import { resolveRequestPersonas } from './assistant-server/request-personas';
 import {
   registerSteerableRun,
-  requestRunCancel,
-  requestRunSteer,
   unregisterSteerableRun,
 } from './assistant-server/run-steering-registry';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
 import { createNodeFsScanDeps } from './ipc-user-commands-handlers';
-
-type AssistantUiMessage = AssistantUiMessageStrict;
-
-type AssistantRoute =
-  | 'status'
-  | 'assistant'
-  | 'cancel'
-  | 'openrouter-model'
-  | 'resume'
-  | 'steer'
-  | 'suspended-runs'
-  | 'not-found';
-interface AssistantRequestPayload {
-  assistantMessageId?: string;
-  data: RuntimeData | undefined;
-  rawMessages: AssistantUiMessage[];
-  toolApprovalAction?: AssistantToolApprovalAction;
-  toolApprovalActionInvalid?: boolean;
-  toolResumeAction?: AssistantToolResumeAction;
-  toolResumeActionInvalid?: boolean;
-}
-interface AgentStreamSuccess {
-  ok: true;
-  stream: AsyncIterable<StreamChunk>;
-  terminalError?: string | null;
-  /**
-   * Terminal run-row status to record after the stream is served. Defaults to
-   * `completed`; a turn that streams a visible failure BEFORE the model runs
-   * (e.g. a UserPromptSubmit hook block) sets `failed` so the persisted run row
-   * matches the visible `run.failed` event instead of a contradictory
-   * `completed`.
-   */
-  terminalStatus?: 'cancelled' | 'completed' | 'failed';
-}
-interface AgentStreamFailure {
-  ok: false;
-  payload: {
-    code?: string;
-    correlationId?: string;
-    error: string;
-    feature?: DesktopMemoryFeature;
-    message: string;
-    provider?: string;
-    stage?: AgentStreamInitializationStage;
-  };
-  status: number;
-}
-type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
-type AgentStreamInitializationStage =
-  | 'native_tool_preferences'
-  | 'provider_model_bootstrap'
-  | 'stream_construction'
-  | 'workspace_root_resolution';
 
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 const SAFE_NATIVE_TOOL_ID_PATTERN = /^[a-zA-Z0-9_.:-]{1,128}$/;
@@ -149,6 +88,13 @@ class InvalidEnabledNativeToolIdsError extends Error {
 
 import type { DesktopAssistantToolDependencies } from './assistant-server/assistant-tools';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
+import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
+import {
+  applyAssistantCorsHeaders,
+  hasDisallowedAssistantOrigin,
+  isAssistantCorsPreflight,
+  respondForbiddenOrigin,
+} from './assistant-server/cors';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
@@ -158,17 +104,39 @@ import {
   runUserPromptSubmitGate,
 } from './assistant-server/hooks/server-integration';
 import { readRequestBody, streamResponse } from './assistant-server/http';
+import { respondJson, respondNotFound } from './assistant-server/http-responses';
 import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
+import { desktopAssistantServerLogger } from './assistant-server/logger';
 import {
   createOpenRouterModelMetadataService,
   type OpenRouterModelMetadataService,
   requireOpenRouterModelId,
 } from './assistant-server/openrouter-model-metadata';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { registerRequestAbort } from './assistant-server/request-abort';
 import { prepareRequestSkills } from './assistant-server/request-skills';
+import { readLastEventId, resolveAssistantRoute } from './assistant-server/routing';
+import {
+  observeDesktopAssistantRunEvents,
+  persistDesktopChildRunUsage,
+  recordDesktopAssistantHookRunOutcome,
+  recordDesktopAssistantThreadRunStatus,
+} from './assistant-server/run-persistence';
+import {
+  getSecretReadErrorPayload,
+  respondToSecretReadError,
+} from './assistant-server/secret-error-responses';
+import type {
+  AgentStreamFailure,
+  AgentStreamInitializationStage,
+  AgentStreamResult,
+  AssistantRequestPayload,
+  AssistantUiMessage,
+  DesktopMemoryFeature,
+} from './assistant-server/server-types';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
@@ -181,7 +149,6 @@ import {
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
 import type { DesktopEnvLoadFailure } from './desktop-env';
-import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 import {
@@ -189,10 +156,11 @@ import {
   readProviderSecretKey,
   resolveProviderEnvKey,
 } from './provider-api-key';
-import { SecretReadError } from './secrets';
 
-const logger = createLogger('DesktopAssistantServer');
-export const desktopAssistantServerLogger = logger;
+const logger = desktopAssistantServerLogger;
+
+export { desktopAssistantServerLogger };
+
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
 const SUSPENDED_RUN_DISCOVERY_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
   observationalMemory: {
@@ -236,11 +204,6 @@ const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
   'local',
 ]);
 
-const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
-const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
-const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
-const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
-
 interface DesktopMemoryModelTargetDescriptor {
   readonly model: string;
   readonly provider: SupportedProvider;
@@ -255,8 +218,6 @@ interface DesktopSemanticRecallEmbeddingModelTarget extends DesktopMemoryModelTa
   readonly apiKey: string;
   readonly cacheKey: string;
 }
-
-type DesktopMemoryFeature = 'observational_memory' | 'semantic_recall';
 
 type DesktopMemoryModelTargetResolution<T extends DesktopMemoryModelTargetDescriptor> =
   | { readonly kind: 'disabled' }
@@ -429,125 +390,6 @@ export async function handleAssistantRequest(
   }
 
   await handleAssistantPost(req, res, options);
-}
-
-/** Transport ceiling shared with approval/resume action identifiers. */
-const STEER_RUN_ID_MAX_CHARS = 512;
-const STEER_BODY_LIMIT_BYTES = 4096;
-
-/**
- * Mid-run steering control endpoint (BST-588): POST /assistant/steer with
- * exactly `{ runId }`. Flips the registered run's control so the agent loop
- * ends gracefully at the next step boundary; the renderer then dispatches the
- * queued steer message via the follow-up queue's run-end bridge. An unknown
- * run answers a visible 404 — steering a finished run must not pretend
- * success.
- */
-async function handleSteerRequest(
-  req: http.IncomingMessage,
-  res: http.ServerResponse
-): Promise<void> {
-  let parsed: unknown;
-  try {
-    const body = await readRequestBody(req, { maxBodyBytes: STEER_BODY_LIMIT_BYTES });
-    parsed = JSON.parse(body) as unknown;
-  } catch {
-    respondJson(res, 400, {
-      error: 'invalid_steer_action',
-      message: 'Steer request body must be a small JSON object.',
-    });
-    return;
-  }
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    Array.isArray(parsed) ||
-    Object.keys(parsed).length !== 1
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_steer_action',
-      message: 'Steer request accepts exactly one field: runId.',
-    });
-    return;
-  }
-  const runId = (parsed as Record<string, unknown>)['runId'];
-  if (
-    typeof runId !== 'string' ||
-    runId.trim().length === 0 ||
-    runId.length > STEER_RUN_ID_MAX_CHARS
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_steer_action',
-      message: `Steer runId must be a non-empty string of at most ${STEER_RUN_ID_MAX_CHARS} characters.`,
-    });
-    return;
-  }
-  if (!requestRunSteer(runId)) {
-    respondJson(res, 404, {
-      error: 'no_active_run',
-      message: 'No active steerable run with that id; it may have already finished.',
-    });
-    return;
-  }
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = 200;
-  res.end(JSON.stringify({ accepted: true, runId }));
-}
-
-/**
- * Explicit hard-stop endpoint. Connection loss is only a subscriber detach;
- * cancellation must arrive through this route so long-running execution
- * survives renderer reloads and transient transport failures.
- */
-async function handleCancelRequest(
-  req: http.IncomingMessage,
-  res: http.ServerResponse
-): Promise<void> {
-  let parsed: unknown;
-  try {
-    const body = await readRequestBody(req, { maxBodyBytes: STEER_BODY_LIMIT_BYTES });
-    parsed = JSON.parse(body) as unknown;
-  } catch {
-    respondJson(res, 400, {
-      error: 'invalid_cancel_action',
-      message: 'Cancel request body must be a small JSON object.',
-    });
-    return;
-  }
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    Array.isArray(parsed) ||
-    Object.keys(parsed).length !== 1
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_cancel_action',
-      message: 'Cancel request accepts exactly one field: runId.',
-    });
-    return;
-  }
-  const runId = (parsed as Record<string, unknown>)['runId'];
-  if (
-    typeof runId !== 'string' ||
-    runId.trim().length === 0 ||
-    runId.length > STEER_RUN_ID_MAX_CHARS
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_cancel_action',
-      message: `Cancel runId must be a non-empty string of at most ${STEER_RUN_ID_MAX_CHARS} characters.`,
-    });
-    return;
-  }
-  if (!requestRunCancel(runId)) {
-    respondJson(res, 404, {
-      error: 'no_active_run',
-      message: 'No active cancellable run with that id; it may have already finished.',
-    });
-    return;
-  }
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = 200;
-  res.end(JSON.stringify({ accepted: true, runId }));
 }
 
 async function handleAssistantPost(
@@ -723,389 +565,6 @@ async function streamAssistantPostResponse({
         ? 'Assistant run canceled by user.'
         : (streamResult.terminalError ?? sessionOutcome.error)
     );
-  }
-}
-
-export async function* observeDesktopAssistantRunEvents(
-  stream: AsyncIterable<StreamChunk>,
-  runId: string,
-  queuedEvents: AssistantRunEvent[]
-): AsyncIterable<StreamChunk> {
-  let sequence = 0;
-  let persistenceErrorCount = 0;
-  let persistenceError: unknown;
-  let persistenceQueue: Promise<void> = Promise.resolve();
-  const persistEvent = (event: AssistantRunEvent): void => {
-    persistenceQueue = persistenceQueue
-      .then(() => recordDesktopAssistantRunEvent(runId, event))
-      .catch((error: unknown) => {
-        persistenceErrorCount += 1;
-        persistenceError ??= error;
-        logger.error('Failed to persist assistant run event', {
-          error,
-          eventId: event.id,
-          runId,
-        });
-      });
-  };
-  const flushPersistedEvents = async (): Promise<void> => {
-    await persistenceQueue;
-    if (persistenceError) {
-      if (persistenceErrorCount > 1) {
-        logger.error('Multiple assistant run events failed to persist', {
-          failureCount: persistenceErrorCount,
-          firstError: persistenceError,
-          runId,
-          suppressedFailureCount: persistenceErrorCount - 1,
-        });
-      }
-      throw persistenceError;
-    }
-  };
-  const drainQueuedEvents = async function* (): AsyncIterable<StreamChunk> {
-    while (queuedEvents.length > 0) {
-      const queuedEvent = queuedEvents.shift();
-      if (!queuedEvent) {
-        continue;
-      }
-      const event: AssistantRunEvent = {
-        ...queuedEvent,
-        runId,
-        sequence: queuedEvent.sequence ?? sequence,
-      };
-      sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
-      persistEvent(event);
-      yield { event, type: 'run-event' };
-    }
-  };
-  let sourceError: unknown;
-  let persistenceFlushError: unknown;
-  try {
-    yield* drainQueuedEvents();
-    for await (const chunk of stream) {
-      yield* drainQueuedEvents();
-      if (chunk.type !== 'run-event') {
-        yield chunk;
-        continue;
-      }
-      const event: AssistantRunEvent = {
-        ...chunk.event,
-        runId,
-        sequence: chunk.event.sequence ?? sequence,
-      };
-      sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
-      persistEvent(event);
-      yield { event, type: 'run-event' };
-    }
-    yield* drainQueuedEvents();
-  } catch (error) {
-    sourceError = error;
-  } finally {
-    try {
-      await flushPersistedEvents();
-    } catch (error) {
-      persistenceFlushError = error;
-    }
-  }
-
-  if (persistenceFlushError) {
-    if (!sourceError) {
-      throw persistenceFlushError;
-    }
-    logger.error('Failed to flush assistant run event persistence after stream error', {
-      error: persistenceFlushError,
-      runId,
-      sourceError,
-    });
-  }
-  if (sourceError) {
-    throw sourceError;
-  }
-}
-
-/**
- * Persist `child-run-usage` chunks (BST-953) as durable run_kind-tagged rows in
- * `brainstrike_assistant_run_usage`, forwarding every chunk unchanged (the
- * renderer refreshes its thread-total readout from the transient aui-data part;
- * it never writes child rows itself, so the two writers cannot double-count).
- *
- * DUPLICATION NOTE (same precedent as recordDesktopAssistantHookRunOutcome):
- * the INSERT mirrors `recordRunUsage` in
- * packages/app-shell/src/assistant-memory-repository.ts. thread/resource ids
- * are derived from the runs row (main trusts its own bookkeeping, and — like
- * recordDesktopAssistantRunEvent — a missing runs row inserts nothing).
- *
- * Attribution rules (honesty over completeness):
- * - subagent rows: chunk-carried model/provider (persona pin ?? parent), with
- *   the runs row as the SQL fallback — the child genuinely ran on one of those.
- * - OM rows: ONLY the resolved observer target — falling back to the chat
- *   model would mislabel spend to the wrong model. Unattributable → dropped
- *   with a visible warn, never written under a guess.
- * - local observer targets are skipped entirely: local inference is unbilled,
- *   and an unpriceable row would honestly (but uselessly) blank the whole
- *   thread's cost readout.
- */
-export async function* persistDesktopChildRunUsage(
-  stream: AsyncIterable<StreamChunk>,
-  runId: string,
-  observerTarget: { readonly model: string; readonly provider: string } | undefined
-): AsyncIterable<StreamChunk> {
-  const persist = async (value: {
-    readonly inputTokens: number;
-    readonly model?: string;
-    readonly outputTokens: number;
-    readonly provider?: string;
-    readonly source: string;
-  }): Promise<void> => {
-    const isOmRow = value.source !== 'subagent';
-    const model = value.model ?? (isOmRow ? observerTarget?.model : undefined);
-    const provider = value.provider ?? (isOmRow ? observerTarget?.provider : undefined);
-    if (isOmRow && !(model && provider)) {
-      logger.warn('Dropping unattributable child run usage (no resolved observer target)', {
-        code: 'assistant_child_run_usage_unattributable',
-        runId,
-        source: value.source,
-      });
-      return;
-    }
-    if (provider === 'local') {
-      // Local inference is unbilled; the thread-total meter is a billing view.
-      return;
-    }
-    try {
-      const database = await getDatabase();
-      const result = await database.query(
-        `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
-          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, run_kind)
-         SELECT $1, runs.thread_id, runs.id, runs.resource_id, COALESCE($3, runs.model), COALESCE($4, runs.provider), $5, $6, $7, $8
-         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
-         WHERE runs.id = $2
-         RETURNING id`,
-        [
-          crypto.randomUUID(),
-          runId,
-          model ?? null,
-          provider ?? null,
-          Math.round(value.inputTokens),
-          Math.round(value.outputTokens),
-          new Date(),
-          value.source,
-        ]
-      );
-      if (result.rows.length === 0) {
-        // INSERT..SELECT wrote nothing: no runs row for this id. Loud like the
-        // other drops in this function — never a silent zero-row no-op.
-        logger.warn('Child run usage has no thread-run row to attribute to', {
-          code: 'assistant_child_run_usage_missing_run_row',
-          runId,
-          source: value.source,
-        });
-      }
-    } catch (error: unknown) {
-      // Best-effort relative to the turn (mirrors the renderer's durable
-      // usage sink), but never silent.
-      logger.warn('Failed to persist child run usage', {
-        error,
-        runId,
-        source: value.source,
-      });
-    }
-  };
-
-  for await (const chunk of stream) {
-    if (chunk.type === 'child-run-usage') {
-      // AWAIT the row before forwarding: the renderer refreshes its cumulative
-      // aggregate the moment the transient part arrives, so a chunk that
-      // outran its INSERT would make that refresh reliably read the pre-write
-      // state (review fix). The forwarding delay is one local PGlite insert.
-      await persist(chunk.value);
-    }
-    yield chunk;
-  }
-}
-
-async function recordDesktopAssistantThreadRunStatus(
-  runId: string,
-  status: 'cancelled' | 'completed' | 'failed',
-  error: string | null
-): Promise<void> {
-  try {
-    await completeDesktopAssistantThreadRun(runId, status, error);
-  } catch (statusError) {
-    logger.error('Failed to update assistant thread run status', {
-      error: statusError,
-      runId,
-      status,
-    });
-  }
-}
-
-async function completeDesktopAssistantThreadRun(
-  runId: string,
-  status: 'cancelled' | 'completed' | 'failed',
-  error: string | null
-): Promise<void> {
-  const now = new Date();
-  const database = await getDatabase();
-  await database.query(
-    `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
-     SET status = $2, error = $3, completed_at = $4, updated_at = $5
-     WHERE id = $1`,
-    [runId, status, error, now, now]
-  );
-}
-
-/**
- * Minimal structural DB surface for the hook-run-outcome writer, so the paired
- * integration test can drive a real PGlite handle without the remote client.
- */
-interface HookRunOutcomeDatabase {
-  readonly query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-}
-
-/**
- * Task Ledger source 'hook': persist a Stop-hook-reported verdict for a run.
- *
- * DUPLICATION NOTE (same precedent as the repository's bootstrap-SQL mirror of
- * migration 060): this upsert's column set + SET list are kept byte-consistent
- * with `recordRunOutcome` in packages/app-shell/src/assistant-memory-repository.ts.
- * Two deliberate differences: thread/resource ids are derived from the runs row
- * (mirrors recordDesktopAssistantRunEvent — the main process trusts its own
- * bookkeeping, not hook-adjacent input), and the conflict clause carries the
- * precedence rule `source <> 'user'` — a hook label must NEVER overwrite an
- * explicit user verdict, while a later user verdict (plain repository upsert)
- * still replaces a hook label. Keep the three writers' semantics in sync.
- *
- * Zero affected rows is disambiguated loudly: a missing runs row THROWS (a
- * verdict for an unknown run is a caller bug, never a silent no-op); an
- * existing user label logs the skip (expected precedence).
- */
-export async function recordDesktopAssistantHookRunOutcome(
-  database: HookRunOutcomeDatabase,
-  runId: string,
-  verdict: HookRunVerdict
-): Promise<void> {
-  const result = await database.query(
-    `INSERT INTO ${ASSISTANT_RUN_OUTCOMES_TABLE}
-      (run_id, thread_id, resource_id, verdict, source, detail, labeled_at, created_at, updated_at)
-     SELECT runs.id, runs.thread_id, runs.resource_id, $2, 'hook', $3, NOW(), NOW(), NOW()
-     FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
-     WHERE runs.id = $1
-     ON CONFLICT (run_id) DO UPDATE SET
-      thread_id = EXCLUDED.thread_id,
-      resource_id = EXCLUDED.resource_id,
-      verdict = EXCLUDED.verdict,
-      source = EXCLUDED.source,
-      detail = EXCLUDED.detail,
-      labeled_at = EXCLUDED.labeled_at,
-      updated_at = NOW()
-     WHERE ${ASSISTANT_RUN_OUTCOMES_TABLE}.source <> 'user'
-     RETURNING run_id`,
-    [runId, verdict.verdict, verdict.detail ?? null]
-  );
-  if (result.rows.length === 1) {
-    return;
-  }
-  const run = await database.query(`SELECT 1 FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE id = $1`, [
-    runId,
-  ]);
-  if (run.rows.length === 0) {
-    throw new Error(
-      `Cannot record hook run verdict: assistant run ${runId} has no thread-run row.`
-    );
-  }
-  logger.info('Hook run verdict skipped: an existing user label takes precedence', {
-    runId,
-    verdict: verdict.verdict,
-  });
-}
-
-async function recordDesktopAssistantRunEvent(
-  runId: string,
-  event: AssistantRunEvent
-): Promise<void> {
-  const now = new Date();
-  const metadata = sanitizeAssistantRunEventMetadata(event.metadata);
-  const database = await getDatabase();
-  await database.query(
-    `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
-      (
-        id,
-        run_id,
-        resource_id,
-        thread_id,
-        sequence,
-        kind,
-        status,
-        label,
-        detail,
-        metadata,
-        duration_ms,
-        occurred_at,
-        created_at,
-        updated_at
-      )
-     SELECT
-        $1,
-        runs.id,
-        runs.resource_id,
-        runs.thread_id,
-        $3,
-        $4,
-        $5,
-        $6,
-        $7,
-        $8::jsonb,
-        $9,
-        $10,
-        $11,
-        $12
-     FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
-     WHERE runs.id = $2
-     ON CONFLICT (id) DO UPDATE SET
-        sequence = EXCLUDED.sequence,
-        kind = EXCLUDED.kind,
-        status = EXCLUDED.status,
-        label = EXCLUDED.label,
-        detail = EXCLUDED.detail,
-        metadata = EXCLUDED.metadata,
-        duration_ms = EXCLUDED.duration_ms,
-        occurred_at = EXCLUDED.occurred_at,
-        updated_at = EXCLUDED.updated_at`,
-    [
-      event.id,
-      runId,
-      event.sequence ?? 0,
-      event.kind,
-      event.status,
-      event.label,
-      event.detail ?? null,
-      metadata ? JSON.stringify(metadata) : null,
-      event.durationMs ?? null,
-      new Date(event.timestamp),
-      now,
-      now,
-    ]
-  );
-  if (event.kind !== 'run.failed') {
-    return;
-  }
-  const runError = readProviderRunError(metadata);
-  if (!runError) {
-    return;
-  }
-  try {
-    await new AssistantRunErrorRepository(database).record({
-      ...runError,
-      occurredAt: new Date(event.timestamp),
-      runId,
-    });
-  } catch (error) {
-    logger.error('Failed to persist assistant provider failure forensics', {
-      error,
-      eventId: event.id,
-      runId,
-    });
   }
 }
 
@@ -1635,81 +1094,6 @@ async function handleSuspendedRunsRequest(
   }
 }
 
-const ASSISTANT_CORS_ALLOWED_HEADERS =
-  'Accept, Content-Type, Last-Event-ID, X-Brainstrike-Assistant-Token';
-const ASSISTANT_CORS_EXPOSED_HEADERS = [
-  ASSISTANT_STREAM_EVENT_ID_HEADER,
-  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-].join(', ');
-const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
-const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
-const ASSISTANT_CORS_NULL_ORIGIN = 'null';
-const ASSISTANT_CORS_ALLOWED_RENDERER_ORIGIN = new URL(DESKTOP_DEV_RENDERER_URL).origin;
-
-function isAllowedAssistantOrigin(origin: string): boolean {
-  // Packaged Electron loads from file:// and sends Origin: null.
-  // This is a deliberate trade-off for desktop compatibility while the server
-  // remains loopback-only. If this server is ever exposed beyond loopback,
-  // remove this allowance and require explicit origin whitelisting.
-  if (origin === ASSISTANT_CORS_NULL_ORIGIN) {
-    return true;
-  }
-
-  if (app.isPackaged) {
-    return false;
-  }
-
-  let parsedOrigin: URL;
-  try {
-    parsedOrigin = new URL(origin);
-  } catch {
-    return false;
-  }
-
-  return parsedOrigin.origin === ASSISTANT_CORS_ALLOWED_RENDERER_ORIGIN;
-}
-
-function resolveRequestOrigin(req: http.IncomingMessage): string {
-  const origin = req.headers.origin;
-  if (typeof origin !== 'string' || origin.length === 0) {
-    return ASSISTANT_CORS_NULL_ORIGIN;
-  }
-
-  if (isAllowedAssistantOrigin(origin)) {
-    return origin;
-  }
-
-  return ASSISTANT_CORS_NULL_ORIGIN;
-}
-
-function hasDisallowedAssistantOrigin(req: http.IncomingMessage): boolean {
-  const origin = req.headers.origin;
-  if (typeof origin !== 'string' || origin.length === 0) {
-    return false;
-  }
-
-  return !isAllowedAssistantOrigin(origin);
-}
-
-function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const origin = resolveRequestOrigin(req);
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Access-Control-Allow-Headers', ASSISTANT_CORS_ALLOWED_HEADERS);
-  res.setHeader('Access-Control-Allow-Methods', ASSISTANT_CORS_ALLOWED_METHODS);
-  res.setHeader('Access-Control-Expose-Headers', ASSISTANT_CORS_EXPOSED_HEADERS);
-  if (origin !== ASSISTANT_CORS_NULL_ORIGIN) {
-    res.setHeader('Access-Control-Allow-Credentials', ASSISTANT_CORS_ALLOW_CREDENTIALS);
-  }
-  res.setHeader('Access-Control-Max-Age', '86400');
-  res.setHeader('Vary', 'Origin');
-}
-
-function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
-  return (
-    req.method === 'OPTIONS' && typeof req.headers['access-control-request-method'] === 'string'
-  );
-}
-
 function resolveRequestedProvider(data: RuntimeData | undefined): SupportedProvider | undefined {
   const raw = typeof data?.provider === 'string' ? data.provider.trim() : '';
   if (!raw) {
@@ -1853,40 +1237,6 @@ async function collectAvailableProviders(): Promise<{
   };
 }
 
-function registerRequestAbort(
-  req: http.IncomingMessage,
-  res: http.ServerResponse
-): {
-  signal: AbortSignal;
-  cleanup: () => void;
-} {
-  const abortController = new AbortController();
-  const onAbort = () => {
-    abortController.abort();
-  };
-  const onRequestClose = () => {
-    if (!req.complete) {
-      onAbort();
-    }
-  };
-  const onResponseClose = () => {
-    if (!res.writableEnded) {
-      onAbort();
-    }
-  };
-
-  req.on('close', onRequestClose);
-  res.on('close', onResponseClose);
-
-  return {
-    cleanup: () => {
-      req.removeListener('close', onRequestClose);
-      res.removeListener('close', onResponseClose);
-    },
-    signal: abortController.signal,
-  };
-}
-
 function hydrateRuntimeDataWithLocalRuntimeToken(
   runtimeData: RuntimeData,
   provider: string,
@@ -1916,106 +1266,6 @@ function hasPromptContent(messages: AgentMessage[]): boolean {
   return hasAssistantPromptContent(messages);
 }
 
-function readLastEventId(req: http.IncomingMessage): string | undefined {
-  const header = req.headers['last-event-id'];
-  if (!header) {
-    return;
-  }
-  if (Array.isArray(header)) {
-    return header.at(-1);
-  }
-  return header;
-}
-
-function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
-  const requestPath = resolveRequestPath(req);
-  if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
-    return 'status';
-  }
-  if (req.method === 'GET' && requestPath === '/assistant/openrouter-model') {
-    return 'openrouter-model';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant/steer' || requestPath === '/steer')) {
-    return 'steer';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant/cancel' || requestPath === '/cancel')) {
-    return 'cancel';
-  }
-  if (req.method === 'GET' && requestPath === ASSISTANT_STREAM_RESUME_PATH) {
-    return 'resume';
-  }
-  if (
-    req.method === 'GET' &&
-    (requestPath === '/assistant/suspended-runs' || requestPath === '/suspended-runs')
-  ) {
-    return 'suspended-runs';
-  }
-  if (req.method === 'POST' && (requestPath === '/assistant' || requestPath === '/')) {
-    return 'assistant';
-  }
-  return 'not-found';
-}
-
-function resolveRequestPath(req: http.IncomingMessage): string {
-  const rawUrl = req.url ?? '/';
-  try {
-    return new URL(rawUrl, 'http://127.0.0.1').pathname;
-  } catch {
-    return rawUrl;
-  }
-}
-
-function respondNotFound(res: http.ServerResponse): void {
-  res.writeHead(404).end('not found');
-}
-
-function respondJson(
-  res: http.ServerResponse,
-  status: number,
-  payload: {
-    code?: string;
-    correlationId?: string;
-    error: string;
-    feature?: DesktopMemoryFeature;
-    message: string;
-    provider?: string;
-    reason?: string;
-    stage?: AgentStreamInitializationStage;
-  }
-): void {
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = status;
-  res.end(JSON.stringify(payload));
-}
-
-function getSecretReadErrorPayload(error: unknown):
-  | {
-      code: string;
-      error: 'api_key_unreadable';
-      message: string;
-      provider: string;
-    }
-  | undefined {
-  if (!(error instanceof SecretReadError)) {
-    return;
-  }
-  return {
-    code: error.code,
-    error: 'api_key_unreadable',
-    message: error.message,
-    provider: error.provider,
-  };
-}
-
-function respondToSecretReadError(res: http.ServerResponse, error: unknown): boolean {
-  const payload = getSecretReadErrorPayload(error);
-  if (!payload) {
-    return false;
-  }
-  respondJson(res, 400, payload);
-  return true;
-}
-
 async function resolveProviderApiKeyOrRespond(
   provider: string,
   res: http.ServerResponse
@@ -2028,16 +1278,6 @@ async function resolveProviderApiKeyOrRespond(
     }
     throw error;
   }
-}
-
-function respondForbiddenOrigin(res: http.ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', ASSISTANT_CORS_NULL_ORIGIN);
-  res.setHeader('Vary', 'Origin');
-
-  respondJson(res, 403, {
-    error: 'forbidden_origin',
-    message: 'Requests from this origin are not allowed.',
-  });
 }
 
 async function parseAssistantRequestPayload(

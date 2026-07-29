@@ -19,8 +19,6 @@ import {
   desktopAssistantServerLogger,
   getDesktopMastraMemoryForTests,
   handleAssistantRequest,
-  observeDesktopAssistantRunEvents,
-  persistDesktopChildRunUsage,
   resetDesktopMastraMemoryCacheForTests,
   startAssistantServer,
 } from '../assistant-server';
@@ -30,6 +28,10 @@ import {
   finalizeHookedStream,
   hookRunEventToAssistant,
 } from '../assistant-server/hooks/server-integration';
+import {
+  observeDesktopAssistantRunEvents,
+  persistDesktopChildRunUsage,
+} from '../assistant-server/run-persistence';
 import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
 
 const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
