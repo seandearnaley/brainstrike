@@ -16,7 +16,7 @@ import {
   requireOpenRouterModelId,
 } from './openrouter-model-metadata';
 import { collectAvailableProviders, resolveProviderApiKeyOrRespond } from './provider-credentials';
-import type { AssistantServerOptions } from './server-types';
+import type { AssistantServerOptions } from './server-options';
 
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
 

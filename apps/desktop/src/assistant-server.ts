@@ -123,12 +123,12 @@ import {
   recordDesktopAssistantThreadRunStatus,
 } from './assistant-server/run-persistence';
 import { getSecretReadErrorPayload } from './assistant-server/secret-error-responses';
+import type { AssistantServerOptions } from './assistant-server/server-options';
 import type {
   AgentStreamFailure,
   AgentStreamInitializationStage,
   AgentStreamResult,
   AssistantRequestPayload,
-  AssistantServerOptions,
   AssistantUiMessage,
 } from './assistant-server/server-types';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
