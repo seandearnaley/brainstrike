@@ -9,7 +9,7 @@
  */
 import type http from 'node:http';
 import { app } from 'electron';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleAssistantRequest, startAssistantServer } from '../../assistant-server';
 import { DESKTOP_DEV_RENDERER_URL } from '../../desktop-renderer-url';
 import { createRunRequest, MockRequest, MockResponse } from './_harness';
@@ -43,6 +43,17 @@ const runRequest = createRunRequest(handleAssistantRequest);
 
 let server: { url: string; stop: () => Promise<void>; authToken?: string } | undefined;
 
+// Defaults install BEFORE each test (review finding on this PR): the pre-split
+// suite installed them only in afterEach, so a test selected in isolation via
+// `-t` ran against bare vi.fn()s — listProviders() yielded undefined and the
+// expected 200 became a 500. beforeEach makes every test independently
+// runnable.
+beforeEach(() => {
+  mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
+  mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
+  Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
+});
+
 afterEach(async () => {
   if (server) {
     try {
@@ -61,9 +72,6 @@ afterEach(async () => {
     server = undefined;
   }
   vi.clearAllMocks();
-  mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
-  mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
-  Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
 }, 15_000);
 
 describe('startAssistantServer', () => {
