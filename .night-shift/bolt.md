@@ -91,7 +91,7 @@
 **Action:** Keep grouped thread-list construction on one-pass group buckets; do not reintroduce per-group full-list filters.
 ## Immutable thread-list views retain projected group ids
 **Learning:** `getGroupMemberIds()` is read during every grouped TreeTable checkbox render and again for group selection. The memoized `ThreadListView` is immutable, so remapping every section's threads to ids on selection-only rerenders repeated exact property reads and allocated equivalent arrays.
-**Action:** Keep group member-id projections weakly cached by `ThreadListView`; invalidation should continue to happen by constructing a new immutable view, not by mutating cached sections.
+**Action:** Keep group member-id projections weakly cached by `ThreadListView` and lazy per requested group because TreeTable virtualizes rows; invalidation should continue to happen by constructing a new immutable view, not by mutating cached sections.
 ## Import completion summaries use one result pass
 **Learning:** `packages/db-explorer/src/hooks/use-import-completion.ts` built one completion summary with four full-array filters and two reductions. Over 100,000 representative import results x 100 rounds on Node 24.16.0, repeated passes took a 305.63ms median while one-pass accumulation took 29.37ms with identical count checksums.
 **Action:** Keep import completion outcome and chunk counts in one accumulation pass; do not reintroduce independent filters or reductions for each summary field.

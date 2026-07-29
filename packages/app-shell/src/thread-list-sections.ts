@@ -21,7 +21,12 @@ export type ThreadListView =
     };
 
 const EMPTY_THREAD_IDS: readonly string[] = Object.freeze([]);
-const groupMemberIdsByView = new WeakMap<ThreadListView, Map<string | null, readonly string[]>>();
+interface GroupMemberIdsCache {
+  readonly memberIdsByGroupId: Map<string | null, readonly string[]>;
+  readonly threadsByGroupId: ReadonlyMap<string, readonly AssistantMemoryThread[]>;
+}
+
+const groupMemberIdsByView = new WeakMap<ThreadListView, GroupMemberIdsCache>();
 
 function projectThreadIds(threads: readonly AssistantMemoryThread[]): readonly string[] {
   return threads.length === 0 ? EMPTY_THREAD_IDS : threads.map((thread) => thread.id);
@@ -163,14 +168,25 @@ export function getGroupMemberIds(view: ThreadListView, groupId: string | null):
   if (view.kind === 'flat') {
     return EMPTY_THREAD_IDS;
   }
-  let memberIdsByGroupId = groupMemberIdsByView.get(view);
-  if (memberIdsByGroupId === undefined) {
-    memberIdsByGroupId = new Map();
-    for (const section of view.sections) {
-      memberIdsByGroupId.set(section.group.id, projectThreadIds(section.threads));
-    }
-    memberIdsByGroupId.set(null, projectThreadIds(view.ungrouped));
-    groupMemberIdsByView.set(view, memberIdsByGroupId);
+  let cache = groupMemberIdsByView.get(view);
+  if (cache === undefined) {
+    cache = {
+      memberIdsByGroupId: new Map(),
+      threadsByGroupId: new Map(
+        view.sections.map((section) => [section.group.id, section.threads] as const)
+      ),
+    };
+    groupMemberIdsByView.set(view, cache);
   }
-  return memberIdsByGroupId.get(groupId) ?? EMPTY_THREAD_IDS;
+  const cachedMemberIds = cache.memberIdsByGroupId.get(groupId);
+  if (cachedMemberIds !== undefined) {
+    return cachedMemberIds;
+  }
+  const threads = groupId === null ? view.ungrouped : cache.threadsByGroupId.get(groupId);
+  if (threads === undefined) {
+    return EMPTY_THREAD_IDS;
+  }
+  const memberIds = projectThreadIds(threads);
+  cache.memberIdsByGroupId.set(groupId, memberIds);
+  return memberIds;
 }

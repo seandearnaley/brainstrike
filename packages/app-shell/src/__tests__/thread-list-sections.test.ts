@@ -325,6 +325,42 @@ describe('getGroupMemberIds', () => {
     expect(idReads).toBe(2);
   });
 
+  it('projects only requested groups for a virtualized first render', () => {
+    let idReads = 0;
+    const sections = Array.from({ length: 100 }, (_, index) => {
+      const id = `thread-${index}`;
+      const thread = makeThread({ id });
+      Object.defineProperty(thread, 'id', {
+        get: () => {
+          idReads += 1;
+          return id;
+        },
+      });
+      return {
+        group: makeGroup({
+          id: `group-${index}`,
+          rank: index.toString().padStart(3, '0'),
+        }),
+        threads: [thread],
+      };
+    });
+    const view = {
+      kind: 'grouped',
+      sections,
+      ungrouped: [],
+    } as const;
+
+    const first = getGroupMemberIds(view, 'group-0');
+    const repeated = getGroupMemberIds(view, 'group-0');
+
+    expect(first).toEqual(['thread-0']);
+    expect(repeated).toBe(first);
+    expect(idReads).toBe(1);
+
+    expect(getGroupMemberIds(view, 'group-99')).toEqual(['thread-99']);
+    expect(idReads).toBe(2);
+  });
+
   it('invalidates by view identity and projects ungrouped and unknown groups', () => {
     const groups = [makeGroup({ id: 'group-a', rank: 'a0' })];
     const before = buildThreadListSections({
