@@ -399,7 +399,9 @@ function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtim
  * the current handle exactly where the previous direct `getDatabase()` calls
  * did. The desktop composition site (assistant-server.ts) passes db-main's
  * `getDatabase` verbatim; the type-only `DesktopDatabase` import is erased at
- * runtime, so this module no longer executes db-main (→ electron) to load.
+ * runtime, so this module no longer names db-main directly. (It still loads
+ * db-main transitively via ./mastra-memory and ./assistant-tools — those edges
+ * are later slices in the BST-972 sequence.)
  */
 type AgentStreamDatabaseProvider = () => Promise<DesktopDatabase>;
 
