@@ -25,7 +25,11 @@ import {
   respondForbiddenOrigin,
 } from './assistant-server/cors';
 import { streamResponse } from './assistant-server/http';
-import { respondJson, respondNotFound } from './assistant-server/http-responses';
+import {
+  respondAssistantRejection,
+  respondJson,
+  respondNotFound,
+} from './assistant-server/http-responses';
 import type { AssistantLlmHostManager } from './assistant-server/local-llm-host-client';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import { resolveProviderApiKey } from './assistant-server/provider-credentials';
@@ -183,8 +187,9 @@ async function handleAssistantPost(
   res: http.ServerResponse,
   options: AssistantServerOptions
 ): Promise<void> {
-  const prepared = await prepareAssistantPostRequest(req, res);
-  if (!prepared) {
+  const prepared = await prepareAssistantPostRequest({ req, resolveProviderApiKey });
+  if (!prepared.ok) {
+    respondAssistantRejection(res, prepared.rejection);
     return;
   }
   const {
@@ -194,7 +199,7 @@ async function handleAssistantPost(
     apiKey,
     toolApprovalAction,
     toolResumeAction,
-  } = prepared;
+  } = prepared.request;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {

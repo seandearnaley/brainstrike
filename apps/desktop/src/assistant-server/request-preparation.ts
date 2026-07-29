@@ -24,14 +24,15 @@ import {
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { readRequestBody } from './http';
-import { respondJson } from './http-responses';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { resolveRequestedProvider } from './memory-model-targets';
-import {
-  hydrateRuntimeDataWithLocalRuntimeToken,
-  resolveProviderApiKeyOrRespond,
-} from './provider-credentials';
-import type { AssistantRequestPayload, AssistantUiMessage } from './server-types';
+import { hydrateRuntimeDataWithLocalRuntimeToken } from './provider-credentials';
+import { getSecretReadErrorPayload } from './secret-error-responses';
+import type {
+  AssistantPostRejection,
+  AssistantRequestPayload,
+  AssistantUiMessage,
+} from './server-types';
 
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
@@ -60,6 +61,59 @@ interface PreparedAssistantPostRequest {
   toolResumeAction?: AssistantToolResumeAction;
 }
 
+/**
+ * Injected provider-credential reader — the structural twin of
+ * agent-stream-init's AgentStreamProviderApiKeyReader (BST-972 A3/A4). The two
+ * declarations unify at the ports module when the package-extraction slice
+ * lands; until then each module states the shape it consumes.
+ */
+export type PreparationProviderApiKeyReader = (provider: string) => Promise<string | undefined>;
+
+export interface PrepareAssistantPostRequestParams {
+  readonly req: http.IncomingMessage;
+  readonly resolveProviderApiKey: PreparationProviderApiKeyReader;
+}
+
+/**
+ * De-transported result (BST-972 A4): preparation never writes the response —
+ * every failure path returns a rejection the transport maps via
+ * respondAssistantRejection. `req` remains only for the bounded body read;
+ * it goes with the package-extraction slice.
+ */
+export type PrepareAssistantPostRequestResult =
+  | { readonly ok: true; readonly request: PreparedAssistantPostRequest }
+  | { readonly ok: false; readonly rejection: AssistantPostRejection };
+
+function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestResult {
+  return { ok: false, rejection };
+}
+
+/**
+ * Absorbs the previous resolveProviderApiKeyOrRespond: a classified
+ * secret-read failure becomes the same 400 payload; anything else still
+ * propagates loudly. The in-browser 'local' runtime never needs a key.
+ */
+async function resolveApiKeyOrReject(
+  provider: SupportedProvider,
+  resolveProviderApiKey: PreparationProviderApiKeyReader
+): Promise<
+  | { readonly apiKey: string | undefined; readonly rejection?: undefined }
+  | { readonly apiKey?: undefined; readonly rejection: AssistantPostRejection }
+> {
+  if (provider === 'local') {
+    return { apiKey: '' };
+  }
+  try {
+    return { apiKey: await resolveProviderApiKey(provider) };
+  } catch (error) {
+    const payload = getSecretReadErrorPayload(error);
+    if (!payload) {
+      throw error;
+    }
+    return { rejection: { payload, status: 400 } };
+  }
+}
+
 function withTrustedAssistantMessageId(
   data: RuntimeData | undefined,
   provider: SupportedProvider,
@@ -73,22 +127,27 @@ function withTrustedAssistantMessageId(
   };
 }
 
-function convertAssistantMessagesOrRespond(
-  rawMessages: readonly AssistantUiMessage[],
-  res: http.ServerResponse
-): AssistantUiMessageConversionResult | undefined {
+function convertAssistantMessages(
+  rawMessages: readonly AssistantUiMessage[]
+):
+  | { readonly conversion: AssistantUiMessageConversionResult; readonly rejection?: undefined }
+  | { readonly conversion?: undefined; readonly rejection: AssistantPostRejection } {
   try {
-    return convertAssistantUiMessagesWithFinalInput(rawMessages);
+    return { conversion: convertAssistantUiMessagesWithFinalInput(rawMessages) };
   } catch (error) {
     if (!(error instanceof AssistantAttachmentValidationError)) {
       throw error;
     }
-    respondJson(res, 400, {
-      error: 'invalid_attachment',
-      message: 'Assistant attachment payload is invalid.',
-      reason: error.reason,
-    });
-    return;
+    return {
+      rejection: {
+        payload: {
+          error: 'invalid_attachment',
+          message: 'Assistant attachment payload is invalid.',
+          reason: error.reason,
+        },
+        status: 400,
+      },
+    };
   }
 }
 
@@ -110,43 +169,48 @@ interface ParsedToolContinuationActions {
   readonly toolResumeActionInvalid: boolean;
 }
 
-function respondToToolContinuationInputError(
-  res: http.ServerResponse,
+function rejectToolContinuationInputError(
   actions: ParsedToolContinuationActions
-): boolean {
+): AssistantPostRejection | undefined {
   if (actions.toolApprovalActionInvalid) {
-    respondJson(res, 400, {
-      error: 'invalid_tool_approval_action',
-      message:
-        'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
-    });
-    return true;
+    return {
+      payload: {
+        error: 'invalid_tool_approval_action',
+        message:
+          'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+      },
+      status: 400,
+    };
   }
 
   if (actions.toolResumeActionInvalid) {
-    respondJson(res, 400, {
-      error: 'invalid_tool_resume_action',
-      message:
-        'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
-    });
-    return true;
+    return {
+      payload: {
+        error: 'invalid_tool_resume_action',
+        message:
+          'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
+      },
+      status: 400,
+    };
   }
 
   if (actions.toolApprovalAction && actions.toolResumeAction) {
-    respondJson(res, 400, {
-      error: 'conflicting_tool_continuation_actions',
-      message: 'Assistant request must contain at most one tool continuation action.',
-    });
-    return true;
+    return {
+      payload: {
+        error: 'conflicting_tool_continuation_actions',
+        message: 'Assistant request must contain at most one tool continuation action.',
+      },
+      status: 400,
+    };
   }
 
-  return false;
+  return;
 }
 
 export async function prepareAssistantPostRequest(
-  req: http.IncomingMessage,
-  res: http.ServerResponse
-): Promise<PreparedAssistantPostRequest | undefined> {
+  params: PrepareAssistantPostRequestParams
+): Promise<PrepareAssistantPostRequestResult> {
+  const { req, resolveProviderApiKey } = params;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
@@ -164,36 +228,38 @@ export async function prepareAssistantPostRequest(
     toolResumeAction = payload.toolResumeAction;
     toolResumeActionInvalid = Boolean(payload.toolResumeActionInvalid);
   } catch (error) {
-    if (!respondToAssistantPayloadError(res, error)) {
+    const rejection = rejectAssistantPayloadError(error);
+    if (!rejection) {
       throw error;
     }
-    return;
+    return reject(rejection);
   }
 
-  const conversion = convertAssistantMessagesOrRespond(rawMessages, res);
-  if (!conversion) {
-    return;
+  const converted = convertAssistantMessages(rawMessages);
+  if (converted.rejection) {
+    return reject(converted.rejection);
   }
-  const { finalInputMessage, messages } = conversion;
+  const { finalInputMessage, messages } = converted.conversion;
   const provider = resolveRequestedProvider(data);
 
-  if (
-    respondToToolContinuationInputError(res, {
-      toolApprovalAction,
-      toolApprovalActionInvalid,
-      toolResumeAction,
-      toolResumeActionInvalid,
-    })
-  ) {
-    return;
+  const continuationRejection = rejectToolContinuationInputError({
+    toolApprovalAction,
+    toolApprovalActionInvalid,
+    toolResumeAction,
+    toolResumeActionInvalid,
+  });
+  if (continuationRejection) {
+    return reject(continuationRejection);
   }
 
   if (!provider) {
-    respondJson(res, 400, {
-      error: 'missing_provider',
-      message: 'No provider specified or provider is not supported.',
+    return reject({
+      payload: {
+        error: 'missing_provider',
+        message: 'No provider specified or provider is not supported.',
+      },
+      status: 400,
     });
-    return;
   }
 
   // Providers that never require a bearer token: the in-browser Gemma runtime
@@ -202,12 +268,11 @@ export async function prepareAssistantPostRequest(
   // the absence of a token is not an error — most setups don't have auth.
   const providerAllowsMissingAuth =
     provider === 'local' || provider === 'ollama' || provider === 'lmstudio';
-  const apiKeyResolution =
-    provider === 'local' ? { apiKey: '' } : await resolveProviderApiKeyOrRespond(provider, res);
-  if (!apiKeyResolution) {
-    return;
+  const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey);
+  if (resolved.rejection) {
+    return reject(resolved.rejection);
   }
-  const { apiKey } = apiKeyResolution;
+  const { apiKey } = resolved;
 
   const runtimeData: RuntimeData = resolveServerAutoObservationalMemory(
     hydrateRuntimeDataWithLocalRuntimeToken(
@@ -224,27 +289,30 @@ export async function prepareAssistantPostRequest(
   });
 
   if (!(apiKey || providerAllowsMissingAuth)) {
-    respondJson(res, 400, {
-      error: 'missing_api_key',
-      message: `No API key configured for provider "${provider}".`,
+    return reject({
+      payload: {
+        error: 'missing_api_key',
+        message: `No API key configured for provider "${provider}".`,
+      },
+      status: 400,
     });
-    return;
   }
 
   if (!hasAssistantPromptOrAction(finalInputMessage, toolApprovalAction, toolResumeAction)) {
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.statusCode = 400;
-    res.end(JSON.stringify({ error: 'empty_prompt' }));
-    return;
+    // Deliberately message-less on the wire (the pre-A4 hand-rolled write).
+    return reject({ payload: { error: 'empty_prompt' }, status: 400 });
   }
 
   return {
-    apiKey: apiKey ?? '',
-    ...(assistantMessageId ? { assistantMessageId } : {}),
-    messages,
-    runtimeData,
-    ...(toolApprovalAction ? { toolApprovalAction } : {}),
-    ...(toolResumeAction ? { toolResumeAction } : {}),
+    ok: true,
+    request: {
+      apiKey: apiKey ?? '',
+      ...(assistantMessageId ? { assistantMessageId } : {}),
+      messages,
+      runtimeData,
+      ...(toolApprovalAction ? { toolApprovalAction } : {}),
+      ...(toolResumeAction ? { toolResumeAction } : {}),
+    },
   };
 }
 
@@ -305,10 +373,9 @@ function validateEnabledNativeToolIds(runtimeData: RuntimeData | undefined): voi
   }
 }
 
-function respondToInvalidEnabledNativeToolIds(
-  res: http.ServerResponse,
+function rejectInvalidEnabledNativeToolIds(
   invalidValues: readonly unknown[]
-): void {
+): AssistantPostRejection {
   const correlationId = randomUUID();
   const identifiers = Array.from(
     new Set(
@@ -328,39 +395,45 @@ function respondToInvalidEnabledNativeToolIds(
     correlationId,
     toolIdentifiers: identifiers,
   });
-  respondJson(res, 400, {
-    correlationId,
-    error: 'invalid_enabled_native_tool_ids',
-    message: 'Assistant request contains unknown enabled native tool IDs.',
-    stage: 'native_tool_preferences',
-  });
+  return {
+    payload: {
+      correlationId,
+      error: 'invalid_enabled_native_tool_ids',
+      message: 'Assistant request contains unknown enabled native tool IDs.',
+      stage: 'native_tool_preferences',
+    },
+    status: 400,
+  };
 }
 
-function respondToAssistantPayloadError(res: http.ServerResponse, error: unknown): boolean {
+function rejectAssistantPayloadError(error: unknown): AssistantPostRejection | undefined {
   if (error instanceof InvalidEnabledNativeToolIdsError) {
-    respondToInvalidEnabledNativeToolIds(res, error.invalidValues);
-    return true;
+    return rejectInvalidEnabledNativeToolIds(error.invalidValues);
   }
   if (
     error instanceof AssistantInvalidJsonError ||
     error instanceof AssistantMessageValidationError ||
     error instanceof AssistantRequestEnvelopeValidationError
   ) {
-    respondJson(res, 400, {
-      error: error.code,
-      message: error.message,
-    });
-    return true;
+    return {
+      payload: {
+        error: error.code,
+        message: error.message,
+      },
+      status: 400,
+    };
   }
   if (error instanceof AssistantRequestBodyTooLargeError) {
-    res.setHeader('Connection', 'close');
-    respondJson(res, 413, {
-      error: error.code,
-      message: error.message,
-    });
-    return true;
+    return {
+      closeConnection: true,
+      payload: {
+        error: error.code,
+        message: error.message,
+      },
+      status: 413,
+    };
   }
-  return false;
+  return;
 }
 
 async function parseAssistantRequestPayload(
