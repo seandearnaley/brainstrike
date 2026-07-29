@@ -622,7 +622,7 @@ Runtime invariants:
   writers, never overlapping: the renderer writes ONLY parent `'chat'` rows
   (the `handleUsage` message-finish tap); the desktop server writes ONLY child
   rows, from the `child-run-usage` StreamChunk
-  (`persistDesktopChildRunUsage` in apps/desktop/src/assistant-server.ts, a
+  (`persistDesktopChildRunUsage` in apps/desktop/src/assistant-server/run-persistence.ts, a
   DUPLICATION-NOTE mirror of `recordRunUsage`). Child sources:
   - subagent: `onDelegationComplete`'s aggregate usage
     (`createDelegationConfig.onChildUsage` → per-leg `DelegationUsageCapture`
@@ -693,7 +693,7 @@ migration-backed (062, registered in both runners) *and* mirrored in the
 bootstrap SQL.
 
 The desktop MAIN process has THREE writers against these relations, none of
-which creates them (all in `apps/desktop/src/assistant-server.ts`, all reached
+which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all reached
 through the same `db-main` `getDatabase()` handle and all gated on `if (runId)`):
 
 | Writer | Shape | On a missing parent row |
@@ -726,10 +726,10 @@ un-bootstrapped write always raises PG `42P01` at the driver, but only one path
 propagates it:
 
 - `observeDesktopAssistantRunEvents` `logger.error`s every failed event and
-  rethrows on flush — but the rethrow is CONDITIONAL (`assistant-server.ts`
-  ~`:773-785`): when the source stream ALSO threw, the persistence failure is
+  rethrows on flush — but the rethrow is CONDITIONAL (in
+  `assistant-server/run-persistence.ts`): when the source stream ALSO threw, the persistence failure is
   downgraded to a `logger.error` and only the stream error propagates.
-- `recordDesktopAssistantThreadRunStatus` (`:788-802`) wraps
+- `recordDesktopAssistantThreadRunStatus` (same module) wraps
   `completeDesktopAssistantThreadRun` in a `try/catch` that only logs. A
   `42P01` on the run-status `UPDATE` is SWALLOWED; the run row simply never
   reaches a terminal status.
@@ -805,7 +805,7 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   Stop-hook run-verdict protocol (a Stop hook prints one strict
   `{"brainstrikeRunVerdict":…}` JSON line; see assistant-runtime.md
   § TOOL-LIFECYCLE HOOKS), recorded MAIN-PROCESS-side by
-  `recordDesktopAssistantHookRunOutcome` (apps/desktop assistant-server.ts) —
+  `recordDesktopAssistantHookRunOutcome` (apps/desktop assistant-server/run-persistence.ts) —
   an upsert byte-consistent with `recordRunOutcome` (documented duplication,
   same precedent as the bootstrap SQL) that derives thread/resource ids from
   the runs row and carries the SQL precedence guard `source <> 'user'`: a hook
