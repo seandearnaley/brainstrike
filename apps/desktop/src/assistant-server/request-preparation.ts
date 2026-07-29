@@ -100,7 +100,7 @@ function hasAssistantPromptOrAction(
   if (toolApprovalAction || toolResumeAction) {
     return true;
   }
-  return Boolean(finalInputMessage && hasPromptContent([finalInputMessage]));
+  return Boolean(finalInputMessage && hasAssistantPromptContent([finalInputMessage]));
 }
 
 interface ParsedToolContinuationActions {
@@ -361,10 +361,6 @@ function respondToAssistantPayloadError(res: http.ServerResponse, error: unknown
     return true;
   }
   return false;
-}
-
-function hasPromptContent(messages: AgentMessage[]): boolean {
-  return hasAssistantPromptContent(messages);
 }
 
 async function parseAssistantRequestPayload(
