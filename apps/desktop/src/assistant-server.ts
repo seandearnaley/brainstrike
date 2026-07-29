@@ -60,7 +60,6 @@ import {
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
-import { app } from 'electron';
 import {
   type AssistantServerAuth,
   isAuthorizedAssistantToken,
@@ -69,8 +68,6 @@ import {
 import { resolveRequestPersonas } from './assistant-server/request-personas';
 import {
   registerSteerableRun,
-  requestRunCancel,
-  requestRunSteer,
   unregisterSteerableRun,
 } from './assistant-server/run-steering-registry';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
@@ -91,6 +88,13 @@ class InvalidEnabledNativeToolIdsError extends Error {
 
 import type { DesktopAssistantToolDependencies } from './assistant-server/assistant-tools';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
+import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
+import {
+  applyAssistantCorsHeaders,
+  hasDisallowedAssistantOrigin,
+  isAssistantCorsPreflight,
+  respondForbiddenOrigin,
+} from './assistant-server/cors';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
@@ -145,7 +149,6 @@ import {
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
 import type { DesktopEnvLoadFailure } from './desktop-env';
-import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 import {
@@ -387,125 +390,6 @@ export async function handleAssistantRequest(
   }
 
   await handleAssistantPost(req, res, options);
-}
-
-/** Transport ceiling shared with approval/resume action identifiers. */
-const STEER_RUN_ID_MAX_CHARS = 512;
-const STEER_BODY_LIMIT_BYTES = 4096;
-
-/**
- * Mid-run steering control endpoint (BST-588): POST /assistant/steer with
- * exactly `{ runId }`. Flips the registered run's control so the agent loop
- * ends gracefully at the next step boundary; the renderer then dispatches the
- * queued steer message via the follow-up queue's run-end bridge. An unknown
- * run answers a visible 404 — steering a finished run must not pretend
- * success.
- */
-async function handleSteerRequest(
-  req: http.IncomingMessage,
-  res: http.ServerResponse
-): Promise<void> {
-  let parsed: unknown;
-  try {
-    const body = await readRequestBody(req, { maxBodyBytes: STEER_BODY_LIMIT_BYTES });
-    parsed = JSON.parse(body) as unknown;
-  } catch {
-    respondJson(res, 400, {
-      error: 'invalid_steer_action',
-      message: 'Steer request body must be a small JSON object.',
-    });
-    return;
-  }
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    Array.isArray(parsed) ||
-    Object.keys(parsed).length !== 1
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_steer_action',
-      message: 'Steer request accepts exactly one field: runId.',
-    });
-    return;
-  }
-  const runId = (parsed as Record<string, unknown>)['runId'];
-  if (
-    typeof runId !== 'string' ||
-    runId.trim().length === 0 ||
-    runId.length > STEER_RUN_ID_MAX_CHARS
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_steer_action',
-      message: `Steer runId must be a non-empty string of at most ${STEER_RUN_ID_MAX_CHARS} characters.`,
-    });
-    return;
-  }
-  if (!requestRunSteer(runId)) {
-    respondJson(res, 404, {
-      error: 'no_active_run',
-      message: 'No active steerable run with that id; it may have already finished.',
-    });
-    return;
-  }
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = 200;
-  res.end(JSON.stringify({ accepted: true, runId }));
-}
-
-/**
- * Explicit hard-stop endpoint. Connection loss is only a subscriber detach;
- * cancellation must arrive through this route so long-running execution
- * survives renderer reloads and transient transport failures.
- */
-async function handleCancelRequest(
-  req: http.IncomingMessage,
-  res: http.ServerResponse
-): Promise<void> {
-  let parsed: unknown;
-  try {
-    const body = await readRequestBody(req, { maxBodyBytes: STEER_BODY_LIMIT_BYTES });
-    parsed = JSON.parse(body) as unknown;
-  } catch {
-    respondJson(res, 400, {
-      error: 'invalid_cancel_action',
-      message: 'Cancel request body must be a small JSON object.',
-    });
-    return;
-  }
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    Array.isArray(parsed) ||
-    Object.keys(parsed).length !== 1
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_cancel_action',
-      message: 'Cancel request accepts exactly one field: runId.',
-    });
-    return;
-  }
-  const runId = (parsed as Record<string, unknown>)['runId'];
-  if (
-    typeof runId !== 'string' ||
-    runId.trim().length === 0 ||
-    runId.length > STEER_RUN_ID_MAX_CHARS
-  ) {
-    respondJson(res, 400, {
-      error: 'invalid_cancel_action',
-      message: `Cancel runId must be a non-empty string of at most ${STEER_RUN_ID_MAX_CHARS} characters.`,
-    });
-    return;
-  }
-  if (!requestRunCancel(runId)) {
-    respondJson(res, 404, {
-      error: 'no_active_run',
-      message: 'No active cancellable run with that id; it may have already finished.',
-    });
-    return;
-  }
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = 200;
-  res.end(JSON.stringify({ accepted: true, runId }));
 }
 
 async function handleAssistantPost(
@@ -1210,81 +1094,6 @@ async function handleSuspendedRunsRequest(
   }
 }
 
-const ASSISTANT_CORS_ALLOWED_HEADERS =
-  'Accept, Content-Type, Last-Event-ID, X-Brainstrike-Assistant-Token';
-const ASSISTANT_CORS_EXPOSED_HEADERS = [
-  ASSISTANT_STREAM_EVENT_ID_HEADER,
-  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-].join(', ');
-const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
-const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
-const ASSISTANT_CORS_NULL_ORIGIN = 'null';
-const ASSISTANT_CORS_ALLOWED_RENDERER_ORIGIN = new URL(DESKTOP_DEV_RENDERER_URL).origin;
-
-function isAllowedAssistantOrigin(origin: string): boolean {
-  // Packaged Electron loads from file:// and sends Origin: null.
-  // This is a deliberate trade-off for desktop compatibility while the server
-  // remains loopback-only. If this server is ever exposed beyond loopback,
-  // remove this allowance and require explicit origin whitelisting.
-  if (origin === ASSISTANT_CORS_NULL_ORIGIN) {
-    return true;
-  }
-
-  if (app.isPackaged) {
-    return false;
-  }
-
-  let parsedOrigin: URL;
-  try {
-    parsedOrigin = new URL(origin);
-  } catch {
-    return false;
-  }
-
-  return parsedOrigin.origin === ASSISTANT_CORS_ALLOWED_RENDERER_ORIGIN;
-}
-
-function resolveRequestOrigin(req: http.IncomingMessage): string {
-  const origin = req.headers.origin;
-  if (typeof origin !== 'string' || origin.length === 0) {
-    return ASSISTANT_CORS_NULL_ORIGIN;
-  }
-
-  if (isAllowedAssistantOrigin(origin)) {
-    return origin;
-  }
-
-  return ASSISTANT_CORS_NULL_ORIGIN;
-}
-
-function hasDisallowedAssistantOrigin(req: http.IncomingMessage): boolean {
-  const origin = req.headers.origin;
-  if (typeof origin !== 'string' || origin.length === 0) {
-    return false;
-  }
-
-  return !isAllowedAssistantOrigin(origin);
-}
-
-function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const origin = resolveRequestOrigin(req);
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Access-Control-Allow-Headers', ASSISTANT_CORS_ALLOWED_HEADERS);
-  res.setHeader('Access-Control-Allow-Methods', ASSISTANT_CORS_ALLOWED_METHODS);
-  res.setHeader('Access-Control-Expose-Headers', ASSISTANT_CORS_EXPOSED_HEADERS);
-  if (origin !== ASSISTANT_CORS_NULL_ORIGIN) {
-    res.setHeader('Access-Control-Allow-Credentials', ASSISTANT_CORS_ALLOW_CREDENTIALS);
-  }
-  res.setHeader('Access-Control-Max-Age', '86400');
-  res.setHeader('Vary', 'Origin');
-}
-
-function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
-  return (
-    req.method === 'OPTIONS' && typeof req.headers['access-control-request-method'] === 'string'
-  );
-}
-
 function resolveRequestedProvider(data: RuntimeData | undefined): SupportedProvider | undefined {
   const raw = typeof data?.provider === 'string' ? data.provider.trim() : '';
   if (!raw) {
@@ -1469,16 +1278,6 @@ async function resolveProviderApiKeyOrRespond(
     }
     throw error;
   }
-}
-
-function respondForbiddenOrigin(res: http.ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', ASSISTANT_CORS_NULL_ORIGIN);
-  res.setHeader('Vary', 'Origin');
-
-  respondJson(res, 403, {
-    error: 'forbidden_origin',
-    message: 'Requests from this origin are not allowed.',
-  });
 }
 
 async function parseAssistantRequestPayload(
