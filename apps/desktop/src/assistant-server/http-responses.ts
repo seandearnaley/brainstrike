@@ -7,6 +7,7 @@ import type http from 'node:http';
 import type {
   AgentStreamInitializationStage,
   AssistantPostRejection,
+  AssistantRejectionPayload,
   DesktopMemoryFeature,
 } from './server-types';
 
@@ -23,9 +24,23 @@ export function respondAssistantRejection(
   if (rejection.closeConnection) {
     res.setHeader('Connection', 'close');
   }
+  writeJsonPayload(res, rejection.status, rejection.payload);
+}
+
+/**
+ * The single JSON-error writer both responders delegate to, so a future change
+ * to the write mechanics (Content-Length, nosniff, a headersSent guard) cannot
+ * land on one and silently miss the other. Takes the widest payload shape;
+ * respondJson narrows to require `message`.
+ */
+function writeJsonPayload(
+  res: http.ServerResponse,
+  status: number,
+  payload: AssistantRejectionPayload & { readonly feature?: DesktopMemoryFeature }
+): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = rejection.status;
-  res.end(JSON.stringify(rejection.payload));
+  res.statusCode = status;
+  res.end(JSON.stringify(payload));
 }
 
 export function respondNotFound(res: http.ServerResponse): void {
@@ -46,7 +61,5 @@ export function respondJson(
     stage?: AgentStreamInitializationStage;
   }
 ): void {
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.statusCode = status;
-  res.end(JSON.stringify(payload));
+  writeJsonPayload(res, status, payload);
 }
