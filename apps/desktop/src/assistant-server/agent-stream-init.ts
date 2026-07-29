@@ -594,9 +594,10 @@ export async function initializeAgentStream(
     const observe = (source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
       runId
         ? persistDesktopChildRunUsage(
-            observeDesktopAssistantRunEvents(source, runId, queuedRunEvents),
+            observeDesktopAssistantRunEvents(source, runId, queuedRunEvents, getDatabase),
             runId,
-            resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings)
+            resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
+            getDatabase
           )
         : source;
 

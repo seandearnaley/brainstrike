@@ -38,27 +38,10 @@ import type { StreamChunk } from '@brainstrike/agent';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
 
 type TestDatabase = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
-
-/**
- * The main-process writer resolves its handle through `getDatabase()`, so the
- * un-bootstrapped-database case is driven by pointing that at a bare PGlite.
- */
-let mainProcessDatabase: TestDatabase | undefined;
-vi.mock('../../db-main', () => ({
-  // Throw rather than resolve `undefined`: an unseeded handle is a test-setup
-  // mistake, and this file's whole point is telling "schema missing" apart from
-  // "handle missing" — a `Cannot read properties of undefined` raised from
-  // inside production code would blur exactly that distinction.
-  getDatabase: vi.fn(() => {
-    if (!mainProcessDatabase) {
-      throw new Error('Test did not seed mainProcessDatabase before the main-process write.');
-    }
-    return Promise.resolve(mainProcessDatabase);
-  }),
-}));
 
 interface ExistsRow {
   exists: boolean;
@@ -140,19 +123,19 @@ describe('main-process run-event schema provenance', () => {
   });
 
   it('throws when the schema was never bootstrapped (never drops run events silently)', async () => {
-    const { observeDesktopAssistantRunEvents } = await import(
-      '../../assistant-server/run-persistence'
-    );
     const db = await wasmLoader.createPGlite(`memory://run-event-provenance-loud-${Date.now()}`);
-    mainProcessDatabase = db;
     try {
       expect(await tableExists(db, 'brainstrike_assistant_run_events')).toBe(false);
 
+      // The writer takes its database provider by injection (BST-972 A1), so
+      // the un-bootstrapped case is driven by handing it the bare PGlite
+      // directly — no module mock needed.
       const drainStream = async (): Promise<void> => {
         for await (const _chunk of observeDesktopAssistantRunEvents(
           singleRunEventStream(),
           'run-1',
-          []
+          [],
+          async () => db
         )) {
           // The chunk is yielded before persistence settles by design; the
           // failure surfaces when the observer flushes its persistence queue.
@@ -161,7 +144,6 @@ describe('main-process run-event schema provenance', () => {
 
       await expect(drainStream()).rejects.toThrow(/brainstrike_assistant_run_events/);
     } finally {
-      mainProcessDatabase = undefined;
       await db.close();
     }
   });

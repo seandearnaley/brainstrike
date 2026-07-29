@@ -46,6 +46,7 @@ import {
   handleAssistantResumeRequest,
   resumeStreamIfAvailable,
 } from './assistant-server/stream-resume';
+import { getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 
@@ -263,7 +264,8 @@ async function handleAssistantPostStreamError({
     await recordDesktopAssistantThreadRunStatus(
       runId,
       signal.aborted ? 'cancelled' : 'failed',
-      message
+      message,
+      getDatabase
     );
   }
   if (signal.aborted) {
@@ -321,7 +323,12 @@ async function streamAssistantPostResponse({
   );
   if (!streamResult.ok) {
     if (runId) {
-      await recordDesktopAssistantThreadRunStatus(runId, 'failed', streamResult.payload.message);
+      await recordDesktopAssistantThreadRunStatus(
+        runId,
+        'failed',
+        streamResult.payload.message,
+        getDatabase
+      );
     }
     respondJson(res, streamResult.status, streamResult.payload);
     return;
@@ -347,7 +354,8 @@ async function streamAssistantPostResponse({
         : (streamResult.terminalStatus ?? sessionOutcome.status),
       executionSignal.aborted
         ? 'Assistant run canceled by user.'
-        : (streamResult.terminalError ?? sessionOutcome.error)
+        : (streamResult.terminalError ?? sessionOutcome.error),
+      getDatabase
     );
   }
 }

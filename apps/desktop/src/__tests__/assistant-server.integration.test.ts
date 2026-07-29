@@ -4198,7 +4198,12 @@ describe('assistant-server', () => {
       }
 
       const seen: StreamChunk[] = [];
-      for await (const chunk of observeDesktopAssistantRunEvents(source(), runId, [])) {
+      for await (const chunk of observeDesktopAssistantRunEvents(
+        source(),
+        runId,
+        [],
+        async () => mockDesktopDatabase
+      )) {
         seen.push(chunk);
       }
 
@@ -4239,7 +4244,8 @@ describe('assistant-server', () => {
       for await (const chunk of persistDesktopChildRunUsage(
         source(),
         'run-child-usage',
-        observerTarget
+        observerTarget,
+        async () => mockDesktopDatabase
       )) {
         seen.push(chunk);
       }
@@ -4377,7 +4383,13 @@ describe('assistant-server', () => {
         const controller = new AbortController();
         const source = finalizeHookedStream(model(), {
           manager,
-          observe: (src) => observeDesktopAssistantRunEvents(src, runId, queuedRunEvents),
+          observe: (src) =>
+            observeDesktopAssistantRunEvents(
+              src,
+              runId,
+              queuedRunEvents,
+              async () => mockDesktopDatabase
+            ),
           runner,
           signal: controller.signal,
         });

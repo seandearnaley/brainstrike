@@ -694,7 +694,13 @@ bootstrap SQL.
 
 The desktop MAIN process has THREE writers against these relations, none of
 which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all reached
-through the same `db-main` `getDatabase()` handle and all gated on `if (runId)`):
+through injected handles rather than a module-level import —
+`recordDesktopAssistantRunEvent` and `completeDesktopAssistantThreadRun` take a
+database PROVIDER, `recordDesktopAssistantHookRunOutcome` takes an
+already-resolved handle; the desktop composition sites (`assistant-server.ts`,
+`agent-stream-init.ts`) supply `db-main`'s `getDatabase` or its awaited result,
+so every write still resolves the same main-process handle (BST-972 A1) — and
+all gated on `if (runId)`):
 
 | Writer | Shape | On a missing parent row |
 | --- | --- | --- |
@@ -711,7 +717,8 @@ That is safe, and the reason is **runId provenance — NOT startup ordering**:
   puts no `runId` on `data.memory`, so no stale or restored id can bypass the mint.
 - Desktop has ONE physical database: the renderer's handle is
   `window.electronAPI.db`, whose `db:exec` resolves through the same `db-main`
-  `getDatabase()` the assistant server calls.
+  `getDatabase()` the assistant server's composition sites inject into the
+  run-persistence writers.
 
 Therefore do NOT add a defensive `CREATE TABLE IF NOT EXISTS` in main, and do
 not add an ordering handshake: both would be machinery for an unreachable state,
