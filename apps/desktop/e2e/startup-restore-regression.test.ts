@@ -1,6 +1,6 @@
+import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testing';
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
-import { FILE_EXPLORER_STORAGE_VERSION } from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
 import { expect, test } from './fixtures/electron-fixture';
 
 interface BufferedLogRecord {

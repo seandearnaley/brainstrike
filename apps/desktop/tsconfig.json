@@ -94,6 +94,9 @@
       "@brainstrike/app-shell": [
         "../../packages/app-shell/src"
       ],
+      "@brainstrike/app-shell/assistant-memory-repository": [
+        "../../packages/app-shell/src/assistant-memory-repository.ts"
+      ],
       "@brainstrike/platform-utils": [
         "../../packages/platform-utils/src"
       ],
