@@ -13,6 +13,7 @@ vi.mock('electron', () => ({
 
 vi.mock('electron-store', () => ({ default: class {} }));
 
+import { matchSecretReadError, SECRET_READ_ERROR_CODES } from '@brainstrike/assistant-contract';
 import { createSecretsService, SecretReadError } from '../secrets';
 
 interface FakeStore {
@@ -83,5 +84,29 @@ describe('secrets getKey failure surfacing (BST-574)', () => {
     safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
 
     await expect(service(fakeStore()).getKey('openai')).resolves.toBeNull();
+  });
+});
+
+describe('SecretReadError structural conformance (BST-972 A3)', () => {
+  // MONEY TEST for the cross-package contract: server modules classify these
+  // failures via assistant-contract's STRUCTURAL matchSecretReadError instead
+  // of instanceof. A rename of `name`/`code`/`provider` on the class would
+  // compile fine and silently stop every classifier from matching — this is
+  // the test that goes red instead. Driven per code because the constructor's
+  // detail branch treats the codes asymmetrically.
+  it.each(
+    SECRET_READ_ERROR_CODES
+  )('the real class matches assistant-contract matchSecretReadError (%s)', (code) => {
+    const error = new SecretReadError(code, 'openai');
+    // The matcher keys on the `name` OWN property — `this.name = ...` in the
+    // constructor. Asserted directly because it is the field most likely to
+    // be dropped by an unrelated refactor (constructor.name does NOT cover
+    // it after minification).
+    expect(error.name).toBe('SecretReadError');
+    expect(matchSecretReadError(error)).toEqual({
+      code,
+      message: error.message,
+      provider: 'openai',
+    });
   });
 });

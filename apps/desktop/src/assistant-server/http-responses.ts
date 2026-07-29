@@ -1,7 +1,8 @@
 // Pure http responders only. The SecretReadError responders live in
-// secret-error-responses.ts so this floor module never imports ../secrets
-// (and through it electron) — later slices and the BST-972 extraction depend
-// on this file staying main-process-agnostic.
+// secret-error-responses.ts because payload-shaping for one failure family is
+// not a generic http helper — since BST-972 A3 made that classification
+// structural, the split is organizational, no longer an Electron-coupling
+// firewall (secret-error-responses no longer imports ../secrets).
 import type http from 'node:http';
 import type { AgentStreamInitializationStage, DesktopMemoryFeature } from './server-types';
 

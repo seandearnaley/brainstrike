@@ -47,7 +47,6 @@ import {
 } from './mastra-memory';
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets';
 import { createNodeFsScanDeps } from './node-fs-scan-deps';
-import { resolveProviderApiKey } from './provider-credentials';
 import { injectReferencedFilesContext } from './referenced-files-context';
 import { resolveRequestPersonas } from './request-personas';
 import { prepareRequestSkills } from './request-skills';
@@ -288,7 +287,8 @@ function scanUserPersonasFromDisk(
  */
 async function resolvePersonaRuntimeFields(
   runtimeData: RuntimeData | undefined,
-  subagentPersonasRequest: RuntimeData['subagentPersonasRequest']
+  subagentPersonasRequest: RuntimeData['subagentPersonasRequest'],
+  resolveProviderApiKey: AgentStreamProviderApiKeyReader
 ): Promise<Pick<RuntimeData, 'personas' | 'personaProviderApiKeys'>> {
   const resolved = await resolveRequestPersonas({
     logger,
@@ -406,6 +406,17 @@ function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtim
 export type AgentStreamDatabaseProvider = () => Promise<DesktopDatabase>;
 
 /**
+ * Injected provider-credential reader (BST-972 A3): the persona pin-key path
+ * resolves keys through this instead of importing provider-credentials at
+ * module scope. Same structural shape request-personas.ts already declares for
+ * its `resolveApiKey` dependency; the desktop composition site
+ * (assistant-server.ts) passes provider-credentials' `resolveProviderApiKey`
+ * verbatim, so resolution order (env key, then stored secret) and the thrown
+ * SecretReadError contract are unchanged.
+ */
+export type AgentStreamProviderApiKeyReader = (provider: string) => Promise<string | undefined>;
+
+/**
  * Params object rather than positional arguments (ruling from the #2115
  * review): dependencies accumulate here slice by slice, and adjacent
  * positional parameters stay mistake-proof only while their types happen to
@@ -422,6 +433,7 @@ export interface InitializeAgentStreamParams {
   // `readonly AgentMessage[]` here means threading readonly through that whole
   // chain — request-boundary type work for the package-extraction slice.
   readonly messages: AgentMessage[];
+  readonly resolveProviderApiKey: AgentStreamProviderApiKeyReader;
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData | undefined;
   readonly signal: AbortSignal;
@@ -447,6 +459,7 @@ export async function initializeAgentStream(
     toolResumeAction,
     toolDependencies,
     getDatabase,
+    resolveProviderApiKey,
   } = params;
   // Multi-root: resolve the active workspace roots from the DB `roots` table so
   // the assistant's file/search tools can disambiguate paths across roots. The
@@ -517,7 +530,8 @@ export async function initializeAgentStream(
   // provider (D10).
   const personaRuntimeFields = await resolvePersonaRuntimeFields(
     runtimeData,
-    subagentPersonasRequest
+    subagentPersonasRequest,
+    resolveProviderApiKey
   );
 
   let initializationStage: AgentStreamInitializationStage = 'provider_model_bootstrap';
