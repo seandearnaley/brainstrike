@@ -20,6 +20,18 @@ export type ThreadListView =
       readonly ungrouped: readonly AssistantMemoryThread[];
     };
 
+const EMPTY_THREAD_IDS: readonly string[] = Object.freeze([]);
+interface GroupMemberIdsCache {
+  readonly memberIdsByGroupId: Map<string | null, readonly string[]>;
+  readonly threadsByGroupId: ReadonlyMap<string, readonly AssistantMemoryThread[]>;
+}
+
+const groupMemberIdsByView = new WeakMap<ThreadListView, GroupMemberIdsCache>();
+
+function projectThreadIds(threads: readonly AssistantMemoryThread[]): readonly string[] {
+  return threads.length === 0 ? EMPTY_THREAD_IDS : threads.map((thread) => thread.id);
+}
+
 function compareByRecency(left: AssistantMemoryThread, right: AssistantMemoryThread): number {
   const byUpdatedAt = right.updatedAt.getTime() - left.updatedAt.getTime();
   return byUpdatedAt === 0 ? left.id.localeCompare(right.id) : byUpdatedAt;
@@ -154,14 +166,27 @@ export function buildThreadListSections({
 /** Thread ids belonging to a group section (`null` = the Ungrouped section). */
 export function getGroupMemberIds(view: ThreadListView, groupId: string | null): readonly string[] {
   if (view.kind === 'flat') {
-    return [];
+    return EMPTY_THREAD_IDS;
   }
-  if (groupId === null) {
-    return view.ungrouped.map((thread) => thread.id);
+  let cache = groupMemberIdsByView.get(view);
+  if (cache === undefined) {
+    cache = {
+      memberIdsByGroupId: new Map(),
+      threadsByGroupId: new Map(
+        view.sections.map((section) => [section.group.id, section.threads] as const)
+      ),
+    };
+    groupMemberIdsByView.set(view, cache);
   }
-  return (
-    view.sections
-      .find((section) => section.group.id === groupId)
-      ?.threads.map((thread) => thread.id) ?? []
-  );
+  const cachedMemberIds = cache.memberIdsByGroupId.get(groupId);
+  if (cachedMemberIds !== undefined) {
+    return cachedMemberIds;
+  }
+  const threads = groupId === null ? view.ungrouped : cache.threadsByGroupId.get(groupId);
+  if (threads === undefined) {
+    return EMPTY_THREAD_IDS;
+  }
+  const memberIds = projectThreadIds(threads);
+  cache.memberIdsByGroupId.set(groupId, memberIds);
+  return memberIds;
 }

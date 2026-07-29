@@ -4,7 +4,7 @@ import type {
   AssistantThreadGroup,
   AssistantThreadPlacement,
 } from '../assistant-thread-groups-repository';
-import { buildThreadListSections } from '../thread-list-sections';
+import { buildThreadListSections, getGroupMemberIds } from '../thread-list-sections';
 
 function makeThread(overrides: {
   id: string;
@@ -290,5 +290,106 @@ describe('buildThreadListSections', () => {
       return;
     }
     expect(view.sections[0]?.threads.map((thread) => thread.id)).toEqual(['thread-1', 'thread-2']);
+  });
+});
+
+describe('getGroupMemberIds', () => {
+  it('reuses member ids while the immutable view is unchanged', () => {
+    let idReads = 0;
+    const threads = ['thread-1', 'thread-2'].map((id) => {
+      const thread = makeThread({ id });
+      Object.defineProperty(thread, 'id', {
+        get: () => {
+          idReads += 1;
+          return id;
+        },
+      });
+      return thread;
+    });
+    const view = {
+      kind: 'grouped',
+      sections: [
+        {
+          group: makeGroup({ id: 'group-a', rank: 'a0' }),
+          threads,
+        },
+      ],
+      ungrouped: [],
+    } as const;
+
+    const first = getGroupMemberIds(view, 'group-a');
+    const second = getGroupMemberIds(view, 'group-a');
+
+    expect(first).toEqual(['thread-1', 'thread-2']);
+    expect(second).toBe(first);
+    expect(idReads).toBe(2);
+  });
+
+  it('projects only requested groups for a virtualized first render', () => {
+    let idReads = 0;
+    const sections = Array.from({ length: 100 }, (_, index) => {
+      const id = `thread-${index}`;
+      const thread = makeThread({ id });
+      Object.defineProperty(thread, 'id', {
+        get: () => {
+          idReads += 1;
+          return id;
+        },
+      });
+      return {
+        group: makeGroup({
+          id: `group-${index}`,
+          rank: index.toString().padStart(3, '0'),
+        }),
+        threads: [thread],
+      };
+    });
+    const view = {
+      kind: 'grouped',
+      sections,
+      ungrouped: [],
+    } as const;
+
+    const first = getGroupMemberIds(view, 'group-0');
+    const repeated = getGroupMemberIds(view, 'group-0');
+
+    expect(first).toEqual(['thread-0']);
+    expect(repeated).toBe(first);
+    expect(idReads).toBe(1);
+
+    expect(getGroupMemberIds(view, 'group-99')).toEqual(['thread-99']);
+    expect(idReads).toBe(2);
+  });
+
+  it('invalidates by view identity and projects ungrouped and unknown groups', () => {
+    const groups = [makeGroup({ id: 'group-a', rank: 'a0' })];
+    const before = buildThreadListSections({
+      groupBy: 'custom-groups',
+      groups,
+      placements: [makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' })],
+      sortBy: 'recency',
+      threads: [makeThread({ id: 'thread-1' }), makeThread({ id: 'ungrouped-1' })],
+    });
+    const after = buildThreadListSections({
+      groupBy: 'custom-groups',
+      groups,
+      placements: [
+        makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' }),
+        makePlacement({ groupId: 'group-a', rank: 'a1', threadId: 'thread-2' }),
+      ],
+      sortBy: 'recency',
+      threads: [
+        makeThread({ id: 'thread-1' }),
+        makeThread({ id: 'thread-2' }),
+        makeThread({ id: 'ungrouped-2' }),
+      ],
+    });
+
+    expect(getGroupMemberIds(before, 'group-a')).toEqual(['thread-1']);
+    expect(getGroupMemberIds(after, 'group-a')).toEqual(['thread-1', 'thread-2']);
+    expect(getGroupMemberIds(before, 'group-a')).toEqual(['thread-1']);
+    expect(getGroupMemberIds(before, null)).toEqual(['ungrouped-1']);
+    expect(getGroupMemberIds(after, null)).toEqual(['ungrouped-2']);
+    expect(getGroupMemberIds(after, 'unknown-group')).toEqual([]);
   });
 });
