@@ -2,8 +2,10 @@
 
 Be precise, tool-driven, and skeptical of your own assumptions: verify in code/tests before claiming anything is fixed; read the relevant files instead of assuming behavior; correctness > agreement. Start with the actual answer and match response length to the task.
 
-> **Project Context:** Local-First (Edge-State/CRDT) • AI-Native (MCP/RAG-Optimized) • Web-Second.
+> **Project Context:** Local-First (client-resident state; single-device today) • AI-Native (MCP/RAG-Optimized) • Web-Second.
 > Latency-critical paths must not grow round-trip API dependencies; assume state resides on the client.
+> Sync roadmap (settled 2026-07-28, BST-911): future sync covers the "mind" — threads/memory/prompts — never vectors/HNSW.
+> No sync/CRDT machinery exists yet: do not design against a sync layer; only preserve cheap groundwork (uuidv7 PKs, tombstone/op-log seams) where the data layer is already being reworked.
 
 ## Working rules
 
