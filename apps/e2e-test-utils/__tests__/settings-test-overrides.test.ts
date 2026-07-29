@@ -60,13 +60,9 @@ describe('settings test overrides helper', () => {
     };
     const originalWindow = globalObject.window;
     const browserWindow = {} as NonNullable<typeof globalObject.window>;
-    const modulePath = new URL(
-      '../../../packages/preferences/src/testing/e2e-settings-test-overrides.ts',
-      import.meta.url
-    ).pathname;
-    const { mergeSettingsTestOverrides } = (await import(modulePath)) as {
-      mergeSettingsTestOverrides: (current: unknown, updates: unknown) => unknown;
-    };
+    const { mergeSettingsTestOverrides } = await import(
+      '@brainstrike/preferences/testing/e2e-settings-test-overrides'
+    );
 
     try {
       globalObject.window = browserWindow;

@@ -45,6 +45,7 @@
       "owner": "platform",
       "packages": [
         "@brainstrike/desktop",
+        "@brainstrike/e2e-test-utils",
         "@brainstrike/web"
       ],
       "mayDependOn": [

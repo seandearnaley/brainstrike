@@ -1,8 +1,8 @@
-import type { Page } from '@playwright/test';
 import {
   installSettingsTestOverrides,
   updateSettingsTestOverrides,
-} from '../../e2e-test-utils/settings-test-overrides';
+} from '@brainstrike/e2e-test-utils/settings-test-overrides';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { SettingsPage } from './page-objects/settings-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
