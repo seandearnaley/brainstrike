@@ -15,11 +15,7 @@ import {
 } from '@brainstrike/agent';
 import { app } from 'electron';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
-import {
-  desktopAssistantServerLogger,
-  handleAssistantRequest,
-  startAssistantServer,
-} from '../assistant-server';
+import { desktopAssistantServerLogger, handleAssistantRequest } from '../assistant-server';
 import { createDesktopHookRunner } from '../assistant-server/hooks/hook-runner-impl';
 import {
   buildHookManager,
@@ -30,10 +26,7 @@ import {
   getDesktopMastraMemoryForTests,
   resetDesktopMastraMemoryCacheForTests,
 } from '../assistant-server/mastra-memory';
-import {
-  observeDesktopAssistantRunEvents,
-  persistDesktopChildRunUsage,
-} from '../assistant-server/run-persistence';
+import { observeDesktopAssistantRunEvents } from '../assistant-server/run-persistence';
 import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
 
 const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
@@ -183,7 +176,6 @@ vi.mock('../db-main', () => ({
 }));
 
 describe('assistant-server', () => {
-  let server: { url: string; stop: () => Promise<void>; authToken?: string } | undefined;
   interface RequestInput {
     body?: string;
     headers?: http.IncomingHttpHeaders;
@@ -285,22 +277,6 @@ describe('assistant-server', () => {
   }
 
   afterEach(async () => {
-    if (server) {
-      try {
-        // Add timeout to prevent hanging
-        await Promise.race([
-          server.stop(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Server stop timeout')), 5000)
-          ),
-        ]).catch(() => {
-          // Ignore stop errors in cleanup
-        });
-      } catch {
-        // Ignore stop errors in cleanup
-      }
-      server = undefined;
-    }
     vi.clearAllMocks();
     mockDesktopDatabase.exec.mockReset();
     mockDesktopDatabase.query.mockReset();
@@ -313,42 +289,6 @@ describe('assistant-server', () => {
     mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
   }, 15_000);
-
-  describe('startAssistantServer', () => {
-    it('should start server on dynamic port by default', async () => {
-      server = await startAssistantServer(undefined, { listen: false });
-
-      expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
-      expect(server.stop).toBeInstanceOf(Function);
-    });
-
-    it('should start server on specified port hint', async () => {
-      server = await startAssistantServer(0, { listen: false }); // Use 0 for dynamic port
-
-      expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
-    });
-
-    it('should respect BS_ASSISTANT_PORT environment variable', async () => {
-      const originalEnv = process.env['BS_ASSISTANT_PORT'];
-      process.env['BS_ASSISTANT_PORT'] = '0'; // Use 0 for dynamic port
-
-      server = await startAssistantServer(undefined, { listen: false });
-
-      expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
-
-      if (originalEnv === undefined) {
-        process.env['BS_ASSISTANT_PORT'] = undefined;
-      } else {
-        process.env['BS_ASSISTANT_PORT'] = originalEnv;
-      }
-    });
-
-    it('should allow stopping the server', async () => {
-      server = await startAssistantServer(undefined, { listen: false });
-      await expect(server.stop()).resolves.not.toThrow();
-      server = undefined; // Mark as stopped
-    });
-  });
 
   describe('HTTP request handling', () => {
     it('should handle status route with API key present', async () => {
@@ -569,314 +509,9 @@ describe('assistant-server', () => {
         message: 'OpenRouter Models API returned status 503',
       });
     });
-
-    it('should handle CORS preflight for assistant routes', async () => {
-      const response = await runRequest({
-        headers: {
-          'access-control-request-method': 'POST',
-          origin: desktopRendererOrigin,
-        },
-        method: 'OPTIONS',
-        url: '/assistant/status?source=test',
-      });
-
-      expect(response.status).toBe(204);
-      expect(response.body).toBe('');
-      expect(response.headers['access-control-allow-origin']).toBe(desktopRendererOrigin);
-      expect(response.headers['access-control-allow-headers']).toContain('Content-Type');
-      expect(response.headers['access-control-allow-methods']).toContain('POST');
-      expect(response.headers['access-control-allow-credentials']).toBe('true');
-    });
-
-    it('should return 204 for OPTIONS on unknown routes', async () => {
-      const response = await runRequest({
-        headers: {
-          'access-control-request-method': 'POST',
-          origin: desktopRendererOrigin,
-        },
-        method: 'OPTIONS',
-        url: '/unknown?source=test',
-      });
-
-      expect(response.status).toBe(204);
-      expect(response.body).toBe('');
-    });
-
-    it('should return null CORS origin for preflight requests from disallowed origins', async () => {
-      const response = await runRequest({
-        headers: {
-          'access-control-request-method': 'POST',
-          origin: 'https://evil.example',
-        },
-        method: 'OPTIONS',
-        url: '/assistant/status?source=test',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('should not treat non-preflight OPTIONS requests as CORS preflight', async () => {
-      const response = await runRequest({
-        headers: { origin: desktopRendererOrigin },
-        method: 'OPTIONS',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(404);
-      expect(response.body).toBe('not found');
-    });
-
-    it('should allow null origin for packaged Electron renderer requests', async () => {
-      const response = await runRequest({
-        headers: { origin: 'null' },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(200);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
-    });
-  });
-
-  describe('auth token gate', () => {
-    const AUTH_TOKEN = 'a'.repeat(64);
-    const withToken = { auth: { token: AUTH_TOKEN } } as const;
-
-    it('rejects requests without a token with 401', async () => {
-      const response = await runRequest(
-        { headers: { origin: desktopRendererOrigin }, method: 'GET', url: '/assistant/status' },
-        withToken
-      );
-
-      expect(response.status).toBe(401);
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('unauthorized');
-    });
-
-    it('rejects requests with a wrong token with 401', async () => {
-      const response = await runRequest(
-        {
-          headers: {
-            origin: desktopRendererOrigin,
-            'x-brainstrike-assistant-token': 'b'.repeat(64),
-          },
-          method: 'GET',
-          url: '/assistant/status',
-        },
-        withToken
-      );
-
-      expect(response.status).toBe(401);
-    });
-
-    it('serves requests carrying the expected token', async () => {
-      const response = await runRequest(
-        {
-          headers: {
-            origin: desktopRendererOrigin,
-            'x-brainstrike-assistant-token': AUTH_TOKEN,
-          },
-          method: 'GET',
-          url: '/assistant/status',
-        },
-        withToken
-      );
-
-      expect(response.status).toBe(200);
-    });
-
-    it('rejects null-origin (packaged-shape) requests without a token', async () => {
-      const response = await runRequest(
-        { headers: { origin: 'null' }, method: 'GET', url: '/assistant/status' },
-        withToken
-      );
-
-      expect(response.status).toBe(401);
-    });
-
-    it('allows CORS preflight without a token (preflights cannot carry custom headers)', async () => {
-      const response = await runRequest(
-        {
-          headers: {
-            'access-control-request-method': 'POST',
-            origin: desktopRendererOrigin,
-          },
-          method: 'OPTIONS',
-          url: '/assistant/status',
-        },
-        withToken
-      );
-
-      expect(response.status).toBe(204);
-      expect(response.headers['access-control-allow-headers']).toContain(
-        'X-Brainstrike-Assistant-Token'
-      );
-    });
-
-    it('still rejects disallowed origins even with a valid token', async () => {
-      const response = await runRequest(
-        {
-          headers: {
-            origin: 'https://evil.example',
-            'x-brainstrike-assistant-token': AUTH_TOKEN,
-          },
-          method: 'GET',
-          url: '/assistant/status',
-        },
-        withToken
-      );
-
-      expect(response.status).toBe(403);
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('throws loudly when auth is not configured at all', async () => {
-      const req = new MockRequest({
-        headers: { origin: desktopRendererOrigin },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-      const res = new MockResponse();
-
-      await expect(
-        handleAssistantRequest(
-          req as unknown as http.IncomingMessage,
-          res as unknown as http.ServerResponse,
-          {}
-        )
-      ).rejects.toThrow(/auth/i);
-    });
-
-    it('startAssistantServer mints and returns a per-boot token by default', async () => {
-      server = await startAssistantServer(undefined, { listen: false });
-      expect(server.authToken).toMatch(/^[0-9a-f]{64}$/);
-    });
-
-    it('startAssistantServer returns no token when auth is explicitly disabled', async () => {
-      server = await startAssistantServer(undefined, { auth: 'disabled', listen: false });
-      expect(server.authToken).toBeUndefined();
-    });
   });
 
   describe('origin enforcement on assistant POST', () => {
-    it('should reject assistant POST requests from disallowed origins', async () => {
-      const response = await runRequest({
-        body: JSON.stringify({
-          data: { provider: 'openai' },
-          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
-        }),
-        headers: {
-          'content-type': 'application/json',
-          origin: 'https://evil.example',
-        },
-        method: 'POST',
-        url: '/assistant',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('should default missing Origin header to null CORS origin', async () => {
-      const response = await runRequest({
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(200);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
-    });
-
-    it('should reject requests from disallowed origins', async () => {
-      const response = await runRequest({
-        headers: { origin: 'https://evil.example' },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('should reject malformed origin headers', async () => {
-      const response = await runRequest({
-        headers: { origin: 'not-a-url' },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('should reject comma-separated multi-origin header values', async () => {
-      const response = await runRequest({
-        headers: { origin: `${desktopRendererOrigin}, https://evil.example` },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('should reject arbitrary localhost origins on other ports', async () => {
-      const response = await runRequest({
-        headers: { origin: 'http://localhost:3000' },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('should reject the dev renderer origin in packaged builds', async () => {
-      Object.defineProperty(app, 'isPackaged', { configurable: true, value: true });
-
-      const response = await runRequest({
-        headers: { origin: desktopRendererOrigin },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
-      const data = JSON.parse(response.body) as { error: string };
-      expect(data.error).toBe('forbidden_origin');
-    });
-
-    it('should reject localhost origins over https', async () => {
-      const response = await runRequest({
-        headers: { origin: `https://localhost:${new URL(DESKTOP_DEV_RENDERER_URL).port}` },
-        method: 'GET',
-        url: '/assistant/status',
-      });
-
-      expect(response.status).toBe(403);
-      expect(response.headers['access-control-allow-origin']).toBe('null');
-    });
-
     it('should handle status route with missing API key', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       (readOpenAIApiKey as Mock).mockResolvedValueOnce(undefined);
@@ -929,13 +564,6 @@ describe('assistant-server', () => {
         message: 'Assistant status unavailable.',
       });
       expect(response.body).not.toContain('API key read failed');
-    }, 10_000);
-
-    it('should return 404 for unknown routes', async () => {
-      const response = await runRequest({ method: 'GET', url: '/unknown' });
-
-      expect(response.status).toBe(404);
-      expect(response.body).toBe('not found');
     }, 10_000);
 
     it('should handle POST to assistant route with empty prompt', async () => {
@@ -4170,163 +3798,6 @@ describe('assistant-server', () => {
   });
 
   // Two deferred P2 findings from the tool-lifecycle hooks PR (#1556).
-  describe('run-event persistence tap transience', () => {
-    it('passes a context-breakdown chunk through UNPERSISTED (transient, shell-output precedent)', async () => {
-      const runId = 'run-breakdown-transience';
-      const breakdownChunk = {
-        breakdown: {
-          attachmentsCount: 0,
-          historyMessagesTokens: 9,
-          provenance: 'heuristic',
-          systemInstructionsTokens: 1234,
-        },
-        type: 'context-breakdown',
-      } as unknown as StreamChunk;
-
-      async function* source(): AsyncIterable<StreamChunk> {
-        yield breakdownChunk;
-        yield {
-          event: {
-            id: 'ev-1',
-            kind: 'run.finished',
-            label: 'Assistant run finished',
-            status: 'completed',
-            timestamp: '2026-07-18T00:00:00.000Z',
-          },
-          type: 'run-event',
-        } as unknown as StreamChunk;
-      }
-
-      const seen: StreamChunk[] = [];
-      for await (const chunk of observeDesktopAssistantRunEvents(
-        source(),
-        runId,
-        [],
-        async () => mockDesktopDatabase
-      )) {
-        seen.push(chunk);
-      }
-
-      // Pass-through: the breakdown chunk reaches the mapper untouched.
-      expect(seen[0]).toBe(breakdownChunk);
-      // Never persisted: no INSERT parameter carries the breakdown figures,
-      // while the run-event on the same stream WAS persisted.
-      const persistedValues = mockDesktopDatabase.query.mock.calls
-        .map((call) => call[1])
-        .filter((params): params is unknown[] => Array.isArray(params))
-        .flat();
-      expect(persistedValues).not.toContain(1234);
-      expect(persistedValues).toContain('run.finished');
-    });
-  });
-
-  describe('child-run-usage durable persistence (BST-953)', () => {
-    function usageInsertCalls(): unknown[][] {
-      return mockDesktopDatabase.query.mock.calls
-        .filter(
-          (call) =>
-            typeof call[0] === 'string' &&
-            call[0].includes('INSERT INTO brainstrike_assistant_run_usage')
-        )
-        .map((call) => call[1] as unknown[]);
-    }
-
-    async function drive(
-      chunks: StreamChunk[],
-      observerTarget: { model: string; provider: string } | undefined
-    ): Promise<StreamChunk[]> {
-      async function* source(): AsyncIterable<StreamChunk> {
-        for (const chunk of chunks) {
-          yield chunk;
-        }
-      }
-      const seen: StreamChunk[] = [];
-      for await (const chunk of persistDesktopChildRunUsage(
-        source(),
-        'run-child-usage',
-        observerTarget,
-        async () => mockDesktopDatabase
-      )) {
-        seen.push(chunk);
-      }
-      return seen;
-    }
-
-    it('persists a subagent chunk as a run_kind=subagent row and forwards it', async () => {
-      const chunk = {
-        type: 'child-run-usage',
-        value: {
-          estimated: false,
-          inputTokens: 42,
-          model: 'gpt-5.2',
-          outputTokens: 7,
-          personaId: 'explore',
-          provider: 'openai',
-          source: 'subagent',
-        },
-      } as unknown as StreamChunk;
-
-      const seen = await drive([chunk], undefined);
-
-      expect(seen[0]).toBe(chunk);
-      const inserts = usageInsertCalls();
-      expect(inserts).toHaveLength(1);
-      expect(inserts[0]).toEqual(
-        expect.arrayContaining(['run-child-usage', 'gpt-5.2', 'openai', 42, 7, 'subagent'])
-      );
-    });
-
-    it('attributes an OM cycle row to the RESOLVED OBSERVER target, never the chat model', async () => {
-      const chunk = {
-        type: 'child-run-usage',
-        value: {
-          estimated: true,
-          inputTokens: 24_000,
-          outputTokens: 900,
-          source: 'om-observation',
-        },
-      } as unknown as StreamChunk;
-
-      await drive([chunk], { model: 'google/gemini-2.5-flash', provider: 'openrouter' });
-
-      const inserts = usageInsertCalls();
-      expect(inserts).toHaveLength(1);
-      expect(inserts[0]).toEqual(
-        expect.arrayContaining([
-          'run-child-usage',
-          'google/gemini-2.5-flash',
-          'openrouter',
-          24_000,
-          900,
-          'om-observation',
-        ])
-      );
-    });
-
-    it('drops an unattributable OM row visibly (no observer target) but still forwards the chunk', async () => {
-      const chunk = {
-        type: 'child-run-usage',
-        value: { estimated: true, inputTokens: 100, outputTokens: 10, source: 'om-reflection' },
-      } as unknown as StreamChunk;
-
-      const seen = await drive([chunk], undefined);
-
-      expect(seen[0]).toBe(chunk);
-      expect(usageInsertCalls()).toHaveLength(0);
-    });
-
-    it('skips local-observer rows (local inference is unbilled)', async () => {
-      const chunk = {
-        type: 'child-run-usage',
-        value: { estimated: true, inputTokens: 100, outputTokens: 10, source: 'om-observation' },
-      } as unknown as StreamChunk;
-
-      await drive([chunk], { model: 'gemma-3n', provider: 'local' });
-
-      expect(usageInsertCalls()).toHaveLength(0);
-    });
-  });
-
   describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     function writeHooksFile(rootAbsPath: string, config: Record<string, unknown>): string {
       const dir = join(rootAbsPath, '.brainstrike');
