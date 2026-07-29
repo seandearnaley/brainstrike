@@ -26,10 +26,11 @@ export class MockRequest extends Readable {
   method?: string;
   url?: string;
   headers: http.IncomingHttpHeaders;
-  // `string | undefined` (not `?:`): exactOptionalPropertyTypes rejects
-  // assigning `undefined` to an optional property, and _read() clears by
-  // assignment. Unlike its previous home inside a test file, this module IS
-  // covered by the desktop tsc project.
+  // `string | undefined` (not `?:`): _read() clears by assignment, and the
+  // explicit union is what exactOptionalPropertyTypes-strict tooling expects.
+  // NOTE: like the test files around it, this module is NOT in the desktop
+  // tsc project today (tsconfig excludes src/**/__tests__/** and no script
+  // wires tsconfig.test.json) — it compiles under vitest's transform only.
   private payload: string | undefined;
 
   constructor(input: RequestInput) {
