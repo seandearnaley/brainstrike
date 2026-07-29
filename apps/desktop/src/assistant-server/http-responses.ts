@@ -1,5 +1,8 @@
+// Pure http responders only. The SecretReadError responders live in
+// secret-error-responses.ts so this floor module never imports ../secrets
+// (and through it electron) — later slices and the BST-972 extraction depend
+// on this file staying main-process-agnostic.
 import type http from 'node:http';
-import { SecretReadError } from '../secrets';
 import type { AgentStreamInitializationStage, DesktopMemoryFeature } from './server-types';
 
 export function respondNotFound(res: http.ServerResponse): void {
@@ -23,32 +26,4 @@ export function respondJson(
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.statusCode = status;
   res.end(JSON.stringify(payload));
-}
-
-export function getSecretReadErrorPayload(error: unknown):
-  | {
-      code: string;
-      error: 'api_key_unreadable';
-      message: string;
-      provider: string;
-    }
-  | undefined {
-  if (!(error instanceof SecretReadError)) {
-    return;
-  }
-  return {
-    code: error.code,
-    error: 'api_key_unreadable',
-    message: error.message,
-    provider: error.provider,
-  };
-}
-
-export function respondToSecretReadError(res: http.ServerResponse, error: unknown): boolean {
-  const payload = getSecretReadErrorPayload(error);
-  if (!payload) {
-    return false;
-  }
-  respondJson(res, 400, payload);
-  return true;
 }

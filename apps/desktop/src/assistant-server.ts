@@ -103,12 +103,7 @@ import {
   runUserPromptSubmitGate,
 } from './assistant-server/hooks/server-integration';
 import { readRequestBody, streamResponse } from './assistant-server/http';
-import {
-  getSecretReadErrorPayload,
-  respondJson,
-  respondNotFound,
-  respondToSecretReadError,
-} from './assistant-server/http-responses';
+import { respondJson, respondNotFound } from './assistant-server/http-responses';
 import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
@@ -122,6 +117,10 @@ import { injectReferencedFilesContext } from './assistant-server/referenced-file
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { prepareRequestSkills } from './assistant-server/request-skills';
 import { readLastEventId, resolveAssistantRoute } from './assistant-server/routing';
+import {
+  getSecretReadErrorPayload,
+  respondToSecretReadError,
+} from './assistant-server/secret-error-responses';
 import type {
   AgentStreamFailure,
   AgentStreamInitializationStage,

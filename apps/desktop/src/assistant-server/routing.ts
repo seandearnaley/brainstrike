@@ -42,7 +42,7 @@ export function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute
   return 'not-found';
 }
 
-export function resolveRequestPath(req: http.IncomingMessage): string {
+function resolveRequestPath(req: http.IncomingMessage): string {
   const rawUrl = req.url ?? '/';
   try {
     return new URL(rawUrl, 'http://127.0.0.1').pathname;
