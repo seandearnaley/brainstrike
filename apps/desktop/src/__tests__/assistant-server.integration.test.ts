@@ -17,9 +17,7 @@ import { app } from 'electron';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   desktopAssistantServerLogger,
-  getDesktopMastraMemoryForTests,
   handleAssistantRequest,
-  resetDesktopMastraMemoryCacheForTests,
   startAssistantServer,
 } from '../assistant-server';
 import { createDesktopHookRunner } from '../assistant-server/hooks/hook-runner-impl';
@@ -28,6 +26,10 @@ import {
   finalizeHookedStream,
   hookRunEventToAssistant,
 } from '../assistant-server/hooks/server-integration';
+import {
+  getDesktopMastraMemoryForTests,
+  resetDesktopMastraMemoryCacheForTests,
+} from '../assistant-server/mastra-memory';
 import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
