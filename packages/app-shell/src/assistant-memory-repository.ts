@@ -3060,7 +3060,7 @@ export function createPgliteAssistantThreadRepository(
       // flow). EXCEPTION: NO derived writer ('hook' OR 'edit_revert') ever
       // overwrites an explicit 'user' label — the conflict clause carries the
       // precedence rule so it holds in SQL, byte-consistent with the
-      // main-process writer (apps/desktop assistant-server.ts
+      // main-process writer (apps/desktop assistant-server/run-persistence.ts
       // recordDesktopAssistantHookRunOutcome). Review #1694: without this, a
       // post-verdict revert would silently clobber the user's authoritative
       // verdict.

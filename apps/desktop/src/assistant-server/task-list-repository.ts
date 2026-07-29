@@ -44,7 +44,7 @@ function isAssistantTaskItemArray(value: unknown): value is AssistantTaskItem[] 
  * or building on unvalidated data (mirrors the require*-throws convention in
  * app-shell's assistant-memory-repository.ts for structurally-required
  * fields). Both call sites already have a boundary for this: the per-turn
- * re-injection read in assistant-server.ts catches and logs a warn (a corrupt
+ * re-injection read in assistant-server/agent-stream-init.ts catches and logs a warn (a corrupt
  * row this turn legitimately degrades to "no plan"), and the manageTaskList
  * tool's read is caught by the tool execution wrapper, surfacing as a visible
  * structured tool failure instead of a silent no-op.
