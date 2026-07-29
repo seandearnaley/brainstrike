@@ -31,9 +31,13 @@ At a high level the package is responsible for:
 - Implementing a small set of **web tools** (`web.echo`, `web.searchDocs` and  
     `web.docSummary`) that run in the browser and use zod to validate inputs.
     
-- Exposing a **retrieval tool** (`brainstrike.retrieveContext`) that fetches
-    semantic matches from the local embedding store, packs them under a token
-    budget, and returns citation-ready metadata for the assistant.
+- Providing the **shared retrieval building blocks** (input schemas in
+    `tools/schemas.ts`, `ContextPacker`, Workspace-Index helpers in
+    `tools/workspace-index-retrieval.ts`) consumed by the live retrieval,
+    query-embedding-space, and hybrid-search tools. The tool implementations
+    themselves live in `apps/desktop/src/assistant-server/` (registry-wired
+    `run*` functions); a package-local DI copy was dead code and was deleted
+    (BST-974, #2105).
     
 - Exposing a simple **in‑memory memory store** for development and testing; this  
     can be replaced with a more sophisticated store (e.g. backed by a DB or  
@@ -153,35 +157,25 @@ spawning. Never replace this with a reconstructed absolute path or a shell
 command/heredoc. It is execute-risk and approval-gated; use native workspace
 tools for project mutation.
     
-### `brainstrike.retrieveContext` tool
+### Retrieval / hybrid-search tools (implemented in desktop, schemas here)
 
-Purpose: fetch semantically relevant chunks from the active embedding set,
-respect selection constraints, and pack them under a token budget for chat.
+This package owns the retrieval-family **contract surface** — the zod input
+schemas (`RetrievalContextInputSchema`, `HybridSearchInputSchema` in
+`tools/schemas.ts`, both entries in `NATIVE_TOOL_INPUT_SCHEMAS`), the
+`ContextPacker`, and the Workspace-Index availability helpers — but NOT the
+implementations. The live tools (`brainstrike.queryEmbeddingSpace`,
+`brainstrike.hybridSearch`) are the `run*` functions in
+`apps/desktop/src/assistant-server/retrieval-tool.ts` and
+`hybrid-search-tool.ts`, registered by `assistant-tools.ts`, with behavior
+(multi-root scoping, selection snapshots, provider/secrets resolution, output
+budgeting) documented in `docs/agents/assistant-providers.md` under
+ASSISTANT SEARCH TOOLS.
 
-Input (zod-validated):
-- `query` (string, required): the user query to embed and retrieve against.
-- `limit` (number, optional): max retrieval candidates before packing.
-- `threshold` (number, optional): similarity threshold (0-1).
-- `tokenBudget` (number, optional): max tokens to pack.
-- `maxChunks` (number, optional): hard cap on packed chunks.
-- `embeddingSetId` (string, optional): override active set (runtime wins).
-- `filePaths` (string[], optional): allowlist (runtime wins).
-- `selectionSnapshotId` (string, optional): snapshot allowlist id.
-
-Behavior/constraints:
-- Requires an active embedding set; errors if missing.
-- Hosted embedding providers only; local models are rejected (renderer-only).
-- Selection constraints are enforced using runtime-provided file paths/snapshot.
-- Creates selection snapshots when the allowlist exceeds inline limits.
-
-Output:
-- `context` (string): concatenated context with file headers.
-- `chunks` (array): packed chunks with `filePath`, `chunkIndex`, `tokenCount`,
-  `score`, and `offsets` when available.
-- `totalTokens`, `budget`, `remainingTokens`, `skipped`.
-
-Errors:
-- Safe, user-facing messages only (no secrets or raw file contents).
+A package-local dependency-injected copy of both tools existed here until
+BST-974 (#2105); it was dead code — zero production callers — and was deleted
+rather than back-fed six features of drift. If a browser consumer ever needs
+these tools, extract the shared core from the DESKTOP implementation (see the
+ticket's divergence map), not from git history of the deleted files.
 
 
 ### Remote tools via MCP
