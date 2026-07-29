@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
+// @boundaries-ignore Vite `?worker&url` must reference the worker SOURCE so the bundler owns the worker graph and emits sibling chunks (resolving the built package asset dropped them and broke desktop worker startup — see the doc comment below); the dependency on chunking-worker is declared.
 import chunkingWorkerUrlHref from '../../chunking-worker/src/chunking.worker.ts?worker&url';
 
 const logger = createLogger('resolveChunkingWorkerUrl');

@@ -1,5 +1,6 @@
-architecture-domain-boundaries.mjs → wired/paired/armed → cross-domain import boundaries
+architecture-domain-boundaries.mjs → wired/paired/armed → cross-domain import boundaries (direction rules only; package-level escapes/undeclared deps are `turbo boundaries`' job — BST-971 division of labor)
 architecture-domain-contract.mjs → wired/paired/armed → complete and valid architecture domain map
+(turbo boundaries) → wired/paired/armed → package-escaping imports + undeclared dependencies; Static-lane step ordered before any dist-producing step; contract: scripts/__tests__/turbo-boundaries-gate.test.mjs (BST-967)
 assistant-run-id-producer-guard.mjs → wired/paired/armed → single assistant runId producer (bootstrap-only run-event schema)
 browser-events-literal-guard.mjs → wired/paired/armed → shared browser CustomEvent names
 catalog-user-choice-guard.mjs → wired/paired/armed → catalog migrations preserving user model enablement
