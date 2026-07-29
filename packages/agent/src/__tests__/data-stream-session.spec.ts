@@ -1212,8 +1212,10 @@ describe('AssistantDataStreamSession', () => {
     // Cancel the stream
     await reader.cancel();
 
-    // Give it time to process any in-flight chunks
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // This is a negative assertion: response cancellation must NOT cancel the
+    // server-owned source. Await the session's actual terminal signal instead
+    // of racing a loaded runner against a fixed wall-clock sleep.
+    await session.whenClosed();
 
     expect(consumedCount).toBe(maxChunks);
     expect(session.isClosed()).toBe(true);
@@ -1415,6 +1417,10 @@ describe('AssistantDataStreamSession', () => {
   it('calls cleanup callback when session closes with no listeners', async () => {
     let cleanupCalled = false;
     let cleanupSessionId = '';
+    let resolveCleanup: (() => void) | undefined;
+    const cleanupCompleted = new Promise<void>((resolve) => {
+      resolveCleanup = resolve;
+    });
 
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Quick' },
@@ -1426,6 +1432,7 @@ describe('AssistantDataStreamSession', () => {
       (sessionId) => {
         cleanupCalled = true;
         cleanupSessionId = sessionId;
+        resolveCleanup?.();
       },
       {
         cleanupDelayMs: 10, // Short delay for testing
@@ -1437,8 +1444,9 @@ describe('AssistantDataStreamSession', () => {
     // Read full stream, which should close the session
     await readResponse(session.createResponse());
 
-    // Wait for cleanup to be scheduled and executed
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Observe the callback rather than racing cleanupDelayMs against a larger
+    // wall-clock sleep. Vitest's test timeout remains the failure bound.
+    await cleanupCompleted;
 
     expect(cleanupCalled).toBe(true);
     expect(cleanupSessionId).toBe('cleanup-test');
