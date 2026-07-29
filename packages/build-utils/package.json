@@ -24,6 +24,9 @@
   ],
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
+  "peerDependencies": {
+    "vite": "catalog:"
+  },
   "private": true,
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
