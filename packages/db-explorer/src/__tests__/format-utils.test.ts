@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatFileSize } from '../../../db-explorer/src/utils/format';
+import { formatDate, formatFileSize } from '../utils/format';
 
 describe('formatFileSize', () => {
   it('formats bytes correctly', () => {

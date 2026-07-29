@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+// @boundaries-ignore build-time config importing repo build tooling from scripts/; never ships in package output. Shared with chunking-worker's tsup config; a future move into build-utils would need the config-load-resolves-to-dist ordering solved first (BST-745 class).
 import { tokenizerAssetPlugin } from '../../scripts/tiktoken-asset-plugin';
 
 export default defineConfig((options) => ({

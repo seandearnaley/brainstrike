@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+// @boundaries-ignore this test deliberately validates the REPO-ROOT biome config against the package's exports; the crossing is the point of the test.
 import biome from '../../../biome.json';
 import baseTsconfig from '../tsconfig/base.json';
 

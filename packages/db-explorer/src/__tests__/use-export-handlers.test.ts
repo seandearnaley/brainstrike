@@ -3,14 +3,14 @@ import type { useToast } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as csvExportUtils from '../../../db-explorer/src/csv-export-utils';
-import { useExportHandlers } from '../../../db-explorer/src/hooks/use-export-handlers';
+import * as csvExportUtils from '../csv-export-utils';
+import { useExportHandlers } from '../hooks/use-export-handlers';
 
 // Type for the toast function from useToast hook
 type ToastFn = ReturnType<typeof useToast>['toast'];
 
 // Mock the CSV export utilities at the resolved path
-vi.mock('../../../db-explorer/src/csv-export-utils', () => ({
+vi.mock('../csv-export-utils', () => ({
   createCSVBlob: vi.fn((content: string) => new Blob([content], { type: 'text/csv' })),
   exportAllDataAsZip: vi.fn(),
   generateChunksCSV: vi.fn(() => 'chunk,data'),

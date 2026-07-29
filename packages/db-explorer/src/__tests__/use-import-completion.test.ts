@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createImportCompletionHandler } from '../../../db-explorer/src/hooks/use-import-completion';
-import type { EnhancedImportResult } from '../../../db-explorer/src/types';
+import { createImportCompletionHandler } from '../hooks/use-import-completion';
+import type { EnhancedImportResult } from '../types';
 
 describe('createImportCompletionHandler', () => {
   const setup = () => {
