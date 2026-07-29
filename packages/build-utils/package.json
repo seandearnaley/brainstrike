@@ -25,7 +25,7 @@
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "peerDependencies": {
-    "vite": "catalog:"
+    "vite": "^8"
   },
   "private": true,
   "scripts": {
