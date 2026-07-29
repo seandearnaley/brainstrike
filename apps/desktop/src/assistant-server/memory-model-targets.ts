@@ -1,8 +1,8 @@
-import type { RuntimeData } from '@brainstrike/agent';
 import {
   isSupportedProvider,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
   type RuntimeAssistantMemorySettings,
+  type RuntimeData,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 
@@ -62,7 +62,7 @@ export function resolveRequestedProvider(
   const normalized = raw.toLowerCase();
   return isSupportedProvider(normalized) ? normalized : undefined;
 }
-export function parseModelTarget(
+function parseModelTarget(
   modelTarget: string,
   {
     allowedProviders,
