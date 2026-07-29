@@ -693,11 +693,14 @@ migration-backed (062, registered in both runners) *and* mirrored in the
 bootstrap SQL.
 
 The desktop MAIN process has THREE writers against these relations, none of
-which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all writing
-through an injected `RunPersistenceDatabaseProvider` — the desktop composition
-sites (`assistant-server.ts`, `agent-stream-init.ts`) pass `db-main`'s
-`getDatabase` verbatim, so every write still resolves the same main-process
-handle (BST-972 A1) — and all gated on `if (runId)`):
+which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all reached
+through injected handles rather than a module-level import —
+`recordDesktopAssistantRunEvent` and `completeDesktopAssistantThreadRun` take a
+database PROVIDER, `recordDesktopAssistantHookRunOutcome` takes an
+already-resolved handle; the desktop composition sites (`assistant-server.ts`,
+`agent-stream-init.ts`) supply `db-main`'s `getDatabase` or its awaited result,
+so every write still resolves the same main-process handle (BST-972 A1) — and
+all gated on `if (runId)`):
 
 | Writer | Shape | On a missing parent row |
 | --- | --- | --- |

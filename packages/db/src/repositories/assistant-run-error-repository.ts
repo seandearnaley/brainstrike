@@ -24,7 +24,9 @@ export class AssistantRunErrorStorageError extends Error {
  * `unknown[]`): every row field is validated dynamically by the mapper below,
  * so a typed-rows generic added no safety while excluding handles whose
  * `query` is not generic (a bare PGlite instance in integration tests, and the
- * desktop run-persistence injection seam, BST-972 A1).
+ * desktop run-persistence injection seam, BST-972 A1). Sibling repositories
+ * still declare `query<T = unknown>`; that divergence is deliberate and scoped
+ * here — converging them is BST-1027.
  */
 export interface AssistantRunErrorDatabase {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;

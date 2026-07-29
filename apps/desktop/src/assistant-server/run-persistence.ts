@@ -14,18 +14,22 @@ import {
   type StreamChunk,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/agent';
-import { type AssistantRunErrorDatabase, AssistantRunErrorRepository } from '@brainstrike/db';
+import { AssistantRunErrorRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
 
 /**
  * Minimal structural DB surface shared by every writer in this module (BST-972
- * A1). Aliased to the repository's own query surface so one injected handle
- * satisfies both the raw SQL here and `AssistantRunErrorRepository`, and so the
- * paired integration tests can drive a real PGlite handle without the remote
- * client.
+ * A1): exactly the `query` shape the raw SQL here needs — satisfied by
+ * db-main's handle and by a bare PGlite in the paired integration tests, and
+ * structurally assignable to the `AssistantRunErrorDatabase` the forensics
+ * repository requires. Declared locally (not aliased to that repository's
+ * type) so this module's callers are not coupled to a surface owned by one
+ * `@brainstrike/db` repository.
  */
-type RunPersistenceDatabase = AssistantRunErrorDatabase;
+interface RunPersistenceDatabase {
+  readonly query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+}
 
 /**
  * The stream observers and the status writer take a PROVIDER, not a resolved
