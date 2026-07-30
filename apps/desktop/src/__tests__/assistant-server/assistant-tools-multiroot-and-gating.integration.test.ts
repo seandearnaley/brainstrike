@@ -3,7 +3,12 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_DEFAULTS, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  TOOL_DESCRIPTIONS,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
@@ -356,6 +361,88 @@ describe('assistant-tools multi-root read tools', () => {
     } finally {
       await cleanup();
     }
+  });
+
+  describe('tool registry and risk catalog', () => {
+    it('marks deleteWorkspaceFile as an edit-risk approval-gated action tool', () => {
+      expect(NATIVE_TOOL_DEFAULTS['brainstrike.deleteWorkspaceFile']).toMatchObject({
+        category: 'action',
+        requiresApproval: true,
+        riskCategory: 'edit',
+      });
+    });
+
+    it('marks renameWorkspaceFile as an edit-risk approval-gated action tool', () => {
+      expect(NATIVE_TOOL_DEFAULTS['brainstrike.renameWorkspaceFile']).toMatchObject({
+        category: 'action',
+        requiresApproval: true,
+        riskCategory: 'edit',
+      });
+    });
+
+    it('marks writeWorkspaceFile as an edit-risk approval-gated action tool', () => {
+      expect(NATIVE_TOOL_DEFAULTS['brainstrike.writeWorkspaceFile']).toMatchObject({
+        category: 'action',
+        requiresApproval: true,
+        riskCategory: 'edit',
+      });
+    });
+
+    it('marks stringReplaceWorkspaceFile as an edit-risk approval-gated action tool', () => {
+      expect(NATIVE_TOOL_DEFAULTS['brainstrike.stringReplaceWorkspaceFile']).toMatchObject({
+        category: 'action',
+        requiresApproval: true,
+        riskCategory: 'edit',
+      });
+    });
+
+    it('marks webExtract as a read-risk retrieval tool (no approval, like webSearch)', () => {
+      expect(NATIVE_TOOL_DEFAULTS['brainstrike.webExtract']).toMatchObject({
+        category: 'retrieval',
+        requiresApproval: false,
+        riskCategory: 'read',
+      });
+    });
+
+    it('marks the artifact reader as a deferred read-only retrieval tool', () => {
+      expect(NATIVE_TOOL_DEFAULTS['brainstrike.readToolOutputArtifact']).toMatchObject({
+        category: 'retrieval',
+        loadingTier: 'deferred',
+        requiresApproval: false,
+        riskCategory: 'read',
+      });
+    });
+
+    it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
+      // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
+      // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools
+      // in real assistant runs — so a tool registered here but not there works only
+      // in tests. Guard against that drift.
+      const tools = buildDesktopAssistantTools(undefined);
+      const missing = Object.keys(tools).filter((id) => !(id in NATIVE_TOOL_DEFAULTS));
+      expect(missing).toEqual([]);
+    });
+
+    it('keeps the live desktop registry identical to the canonical catalog', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData, {
+        skillScriptResolver: {
+          resolveScriptExecution: async () => {
+            throw new Error('not executed by registry parity test');
+          },
+        },
+        toolOutputArtifactReader: {
+          readRange: async () => ({ status: 'not_found' }),
+        },
+      });
+
+      expect(Object.keys(tools).sort()).toEqual([...DESKTOP_NATIVE_TOOL_IDS].sort());
+      for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
+        const tool = tools[toolId];
+        expect(tool?.id).toBe(toolId);
+        expect(tool?.description).toBe(TOOL_DESCRIPTIONS[toolId]);
+        expect(tool?.inputSchema).toBe(NATIVE_TOOL_INPUT_SCHEMAS[toolId]);
+      }
+    });
   });
 
   describe('manageTaskList provider gating', () => {

@@ -6,6 +6,7 @@ import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike
 import type { ToolInputError } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { createWorkspaceFixture } from './_workspace-fixture';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -66,29 +67,6 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 // one suite per service seam, sharing the fixture module and repeating the
 // vi.mock preamble per file (hoisting is per-importing-module).
 describe('assistant-tools write tools', () => {
-  async function createWorkspaceFixture(): Promise<string> {
-    const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-agent-tools-'));
-    await fsPromises.mkdir(path.join(root, 'src', 'components'), { recursive: true });
-    await fsPromises.mkdir(path.join(root, 'src', 'lib'), { recursive: true });
-    await fsPromises.writeFile(path.join(root, 'README.md'), '# Test Workspace\n', 'utf8');
-    await fsPromises.writeFile(
-      path.join(root, 'src', 'main.ts'),
-      'line 1\nline 2\nline 3\nline 4',
-      'utf8'
-    );
-    await fsPromises.writeFile(
-      path.join(root, 'src', 'components', 'button.tsx'),
-      'export const Button = () => null;\n',
-      'utf8'
-    );
-    await fsPromises.writeFile(
-      path.join(root, 'src', 'lib', 'math.ts'),
-      'export const add = () => 1;\n',
-      'utf8'
-    );
-    return root;
-  }
-
   beforeEach(() => {
     vi.clearAllMocks();
   });

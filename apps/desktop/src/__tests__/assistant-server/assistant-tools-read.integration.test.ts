@@ -25,6 +25,7 @@ import {
   clearWindowRoleByWebContentsId,
   type DesktopWindowRole,
 } from '../../window-role';
+import { createWorkspaceFixture, workspaceRuntime } from './_workspace-fixture';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -106,36 +107,6 @@ describe('assistant-tools read tools', () => {
     assignWindowRole(browserWindow, role);
     trackedWindowIds.push(id);
     return browserWindow;
-  }
-
-  async function createWorkspaceFixture(): Promise<string> {
-    const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-agent-tools-'));
-    await fsPromises.mkdir(path.join(root, 'src', 'components'), { recursive: true });
-    await fsPromises.mkdir(path.join(root, 'src', 'lib'), { recursive: true });
-    await fsPromises.writeFile(path.join(root, 'README.md'), '# Test Workspace\n', 'utf8');
-    await fsPromises.writeFile(
-      path.join(root, 'src', 'main.ts'),
-      'line 1\nline 2\nline 3\nline 4',
-      'utf8'
-    );
-    await fsPromises.writeFile(
-      path.join(root, 'src', 'components', 'button.tsx'),
-      'export const Button = () => null;\n',
-      'utf8'
-    );
-    await fsPromises.writeFile(
-      path.join(root, 'src', 'lib', 'math.ts'),
-      'export const add = () => 1;\n',
-      'utf8'
-    );
-    return root;
-  }
-
-  function workspaceRuntime(workspaceRootPath: string, threadId = 'assistant-tools-thread') {
-    return {
-      memory: { resourceId: 'assistant-tools-workspace', threadId },
-      workspaceRootPath,
-    } as RuntimeData;
   }
 
   beforeEach(() => {
@@ -2085,6 +2056,339 @@ describe('assistant-tools read tools', () => {
     expect(result.files[0]?.content).not.toContain('literal <selection index="1">');
     expect(result.files[0]?.content).not.toContain('literal <selection/>');
     expect(result.files[0]?.content).not.toContain('literal </selection> tag');
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('lists embedding spaces with optional coverage stats', async () => {
+    getDatabaseMock.mockResolvedValue({
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                averageTokensPerChunk: '10',
+                createdAt: '2026-01-01T00:00:00.000Z',
+                description: null,
+                dimensions: 1536,
+                distance: 'cosine',
+                embeddedChunks: '3',
+                fileCount: '2',
+                id: 'set-1',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai:text-embedding-3-small',
+                name: 'Main',
+                tokenizedChunkCount: '4',
+                totalChunks: '5',
+                totalTokens: '40',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    });
+    const tools = buildDesktopAssistantTools({
+      workspaceIndexEmbeddingSetId: 'set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as RuntimeData);
+    const tool = tools['brainstrike.listEmbeddingSpaces'];
+
+    const result = await tool.execute({ context: { includeStats: true } });
+
+    expect(result.count).toBe(1);
+    expect(result.workspaceIndex).toEqual({
+      embeddingSetId: 'set-1',
+      enabled: true,
+      mode: 'root-folder-cache',
+      paused: false,
+    });
+    expect(result.spaces[0]).toMatchObject({
+      coverage: {
+        averageTokensPerChunk: 10,
+        coveragePercent: 60,
+        embeddedChunks: 3,
+        fileCount: 2,
+        tokenizedChunkCount: 4,
+        totalChunks: 5,
+        totalTokens: 40,
+      },
+      dimensions: 1536,
+      distance: 'cosine',
+      id: 'set-1',
+      isWorkspaceIndex: true,
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai:text-embedding-3-small',
+      name: 'Main',
+      recommendedForWorkspaceSearch: true,
+    });
+  });
+
+  it('preserves nullable embedding space names in tool output', async () => {
+    getDatabaseMock.mockResolvedValue({
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                createdAt: '2026-01-01T00:00:00.000Z',
+                description: null,
+                dimensions: 384,
+                distance: 'cosine',
+                id: 'set-1',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local:Xenova/all-MiniLM-L6-v2',
+                name: null,
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    });
+    const tools = buildDesktopAssistantTools(undefined);
+    const tool = tools['brainstrike.listEmbeddingSpaces'];
+
+    const result = await tool.execute({ context: {} });
+
+    expect(result.spaces).toEqual([
+      expect.objectContaining({
+        createdAt: '2026-01-01T00:00:00.000Z',
+        id: 'set-1',
+        name: null,
+      }),
+    ]);
+  });
+
+  it('can narrow embedding spaces to the configured workspace index', async () => {
+    getDatabaseMock.mockResolvedValue({
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                createdAt: '2026-01-02T00:00:00.000Z',
+                description: null,
+                dimensions: 1536,
+                distance: 'cosine',
+                id: 'set-1',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai:text-embedding-3-small',
+                name: 'Workspace Index',
+              },
+              {
+                createdAt: '2026-01-01T00:00:00.000Z',
+                description: null,
+                dimensions: 1536,
+                distance: 'cosine',
+                id: 'set-2',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai:text-embedding-3-small',
+                name: 'Scratch',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    });
+    const tools = buildDesktopAssistantTools({
+      workspaceIndexEmbeddingSetId: 'set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as RuntimeData);
+    const tool = tools['brainstrike.listEmbeddingSpaces'];
+
+    const result = await tool.execute({ context: { workspaceIndexOnly: true } });
+
+    expect(result.count).toBe(1);
+    expect(result.spaces).toEqual([
+      expect.objectContaining({
+        id: 'set-1',
+        isWorkspaceIndex: true,
+        recommendedForWorkspaceSearch: true,
+      }),
+    ]);
+  });
+
+  it('requires an explicit embedding space id for semantic context queries', async () => {
+    const tools = buildDesktopAssistantTools(undefined);
+    const tool = tools['brainstrike.queryEmbeddingSpace'];
+
+    await expect(
+      tool.execute({
+        context: {
+          query: 'where is context assembled?',
+        },
+      })
+    ).rejects.toThrow('Select an embedding space before querying semantic context.');
+  });
+
+  it('allows semantic context queries without explicit id when the workspace index is blocked', async () => {
+    const tools = buildDesktopAssistantTools({
+      workspaceIndexBlockedReason: 'missing-provider-key',
+      workspaceIndexEmbeddingSetId: 'workspace-index-set',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingPaused: false,
+      workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
+      workspaceIndexQueueProgress: {
+        failed: 0,
+        pending: 0,
+        processed: 0,
+        totalQueued: 0,
+      },
+      workspaceIndexStatusState: 'blocked',
+    } as RuntimeData);
+    const tool = tools['brainstrike.queryEmbeddingSpace'];
+
+    const result = await tool.execute({
+      context: {
+        query: 'where is context assembled?',
+      },
+    });
+
+    expect(result).toMatchObject({
+      reason: 'workspace-index-blocked',
+      status: 'unavailable',
+      workspaceIndex: {
+        blockedReason: 'missing-provider-key',
+        embeddingSetId: 'workspace-index-set',
+      },
+    });
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid directory payloads instead of crashing', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceDirectory'];
+
+    await expect(
+      tool.execute({
+        path: null,
+      } as unknown as { path: string })
+    ).rejects.toThrow();
+
+    await expect(
+      tool.execute({
+        context: {
+          path: null,
+        },
+      } as unknown as { path: string })
+    ).rejects.toThrow();
+
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('rejects binary files for text reads', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const binaryPath = path.join(workspaceRootPath, 'src', 'image.bin');
+    await fsPromises.writeFile(binaryPath, Buffer.from([0, 255, 17, 23]));
+
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceFile'];
+
+    await expect(
+      tool.execute({
+        path: '/src/image.bin',
+      })
+    ).rejects.toThrow('is a binary file and cannot be read as text');
+
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('fails explicitly when workspace root is missing for directory reads', async () => {
+    const tools = buildDesktopAssistantTools(undefined);
+    const tool = tools['brainstrike.readWorkspaceDirectory'];
+
+    await expect(
+      tool.execute({
+        path: '/',
+      })
+    ).rejects.toThrow(
+      'No folder is open in the workspace. Add a folder in the left file tree first.'
+    );
+  });
+
+  it('redacts native tool input and error values from failure logs', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceFile'];
+
+    await expect(
+      tool.execute({
+        path: '/private/customer-secret.ts',
+      })
+    ).rejects.toThrow();
+
+    expect(loggerErrorMock).toHaveBeenCalledWith('readWorkspaceFile failed', {
+      error: expect.objectContaining({
+        code: 'ENOENT',
+        name: 'Error',
+        redacted: true,
+      }),
+      input: {
+        fields: ['path'],
+        redacted: true,
+      },
+    });
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('customer-secret');
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(workspaceRootPath);
+  });
+
+  it('findWorkspaceSymbol returns a precise enclosing range without whole-file content', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
+      [
+        'export function add(a: number, b: number): number {',
+        '  return a + b;',
+        '}',
+        '',
+        'export const PI = 3.14;',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.findWorkspaceSymbol'];
+
+    const result = await tool.execute({ context: { path: '/src/lib/math.ts', query: 'add' } });
+    expect(result.matches[0]).toMatchObject({ declarationLine: 1, endLine: 3, startLine: 1 });
+    expect(result.path).toBe('/src/lib/math.ts');
+    expect(result).not.toHaveProperty('content');
+
+    const none = await tool.execute({ context: { path: '/src/lib/math.ts', query: 'nope' } });
+    expect(none).toMatchObject({ matches: [], totalMatches: 0, truncated: false });
+
+    await expect(
+      tool.execute({ context: { path: '../outside.ts', query: 'x' } })
+    ).rejects.toThrow();
+
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('findWorkspaceSymbol applies the workspace read guards (binary / non-file)', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    // Binary file (NUL byte) must error cleanly, not be scanned as UTF-8 garbage.
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'lib', 'bin.dat'),
+      Buffer.from([0x41, 0x00, 0x42])
+    );
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.findWorkspaceSymbol'];
+
+    await expect(
+      tool.execute({ context: { path: '/src/lib/bin.dat', query: 'A' } })
+    ).rejects.toThrow(/binary file/i);
+
+    // A directory path must give the friendly "is not a file" error, not EISDIR.
+    await expect(tool.execute({ context: { path: '/src/lib', query: 'x' } })).rejects.toThrow(
+      /is not a file/i
+    );
+
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
