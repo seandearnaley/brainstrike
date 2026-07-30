@@ -1,5 +1,9 @@
 import type http from 'node:http';
-import { AssistantRequestBodyTooLargeError } from '@brainstrike/agent';
+import {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantRequestBodyTooLargeError,
+  resolveAssistantRequestBodyLimitBytes,
+} from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('DesktopAssistantHttpStream');
@@ -12,6 +16,15 @@ type ServerResponseWithFlush = http.ServerResponse & {
 export interface ReadRequestBodyOptions {
   maxBodyBytes?: number;
 }
+
+/**
+ * Byte ceiling for assistant POST bodies (env-overridable). Owned by the
+ * transport since BST-972 B2: the service core takes a readBody thunk and
+ * maps the typed 413 it throws; the limit itself is read mechanics.
+ */
+export const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+  process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
+);
 
 export async function readRequestBody(
   req: http.IncomingMessage,

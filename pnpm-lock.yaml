@@ -1235,6 +1235,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*

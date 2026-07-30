@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { isSupportedProvider, type RuntimeData } from '@brainstrike/agent';
+import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import {
@@ -56,31 +56,6 @@ export async function collectAvailableProviders(): Promise<{
     })),
     providerKeySources: inspection.configuredProviders,
     providers: Array.from(providers),
-  };
-}
-
-export function hydrateRuntimeDataWithLocalRuntimeToken(
-  runtimeData: RuntimeData,
-  provider: string,
-  fetchedApiKey: string | undefined
-): RuntimeData {
-  // Only local-runtime providers need their `apiToken` injected into
-  // providerOptions so the OpenAI-compat factory can forward it as a bearer
-  // header. Hosted providers receive the key through the top-level `apiKey`.
-  if (!((provider === 'ollama' || provider === 'lmstudio') && fetchedApiKey)) {
-    return runtimeData;
-  }
-
-  const providerOptions = { ...(runtimeData.providerOptions ?? {}) };
-  const existing = providerOptions[provider];
-  providerOptions[provider] = {
-    ...(existing ?? {}),
-    apiToken: fetchedApiKey,
-  };
-
-  return {
-    ...runtimeData,
-    providerOptions,
   };
 }
 

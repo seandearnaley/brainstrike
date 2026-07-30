@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
-    "@brainstrike/assistant-contract": "workspace:*"
+    "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -29,6 +30,11 @@
       "types": "./dist/ports.d.ts",
       "import": "./dist/ports.js",
       "require": "./dist/ports.js"
+    },
+    "./request": {
+      "types": "./dist/request.d.ts",
+      "import": "./dist/request.js",
+      "require": "./dist/request.js"
     },
     "./steering": {
       "types": "./dist/steering.d.ts",
