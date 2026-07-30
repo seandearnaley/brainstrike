@@ -34,6 +34,9 @@
       "@brainstrike/assistant-service/request": [
         "../../packages/assistant-service/src/request.ts"
       ],
+      "@brainstrike/assistant-service/run-turn": [
+        "../../packages/assistant-service/src/run-turn.ts"
+      ],
       "@brainstrike/assistant-service/secret-errors": [
         "../../packages/assistant-service/src/secret-errors.ts"
       ],

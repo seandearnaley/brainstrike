@@ -63,7 +63,7 @@ Owned by Brainstrike, on both surfaces:
 | Auth | none per-request; env key only (`assistant-config.ts:3-7`), preview-gated | per-boot capability token, constant-time compare (`assistant-server/auth.ts:12-32`) |
 | Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`handleAssistantRequest`'s origin gate in `assistant-server.ts` + `hasDisallowedAssistantOrigin` in `assistant-server/cors.ts`) |
 | Body parsing | shared parser | shared limit + shared error type |
-| Streaming | stateless (`packages/agent/src/stream/data-stream.ts:249`) | resumable sessions + `Last-Event-ID` (session create in `assistant-server.ts` + `resumeStreamIfAvailable` in `assistant-server/stream-resume.ts`) |
+| Streaming | stateless (`packages/agent/src/stream/data-stream.ts:249`) | resumable sessions + `Last-Event-ID` (session create in `runAssistantTurn`, packages/assistant-service/src/run-turn.ts since BST-972 B3; the desktop transport pumps its Response + `resumeStreamIfAvailable` in `assistant-server/stream-resume.ts`) |
 | Persistence | **none, deliberately** (`web-assistant-stream.ts:8-25`) | PGlite run/event/outcome tables (table consts in `assistant-server/run-persistence.ts`) |
 
 ### Why not Mastra Server
