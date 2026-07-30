@@ -7,6 +7,98 @@ import { createSpawnInvocation } from './spawn-command.mjs';
 
 const DEFAULT_TURBO_CACHE_MAX_BYTES = 25 * 1024 * 1024 * 1024;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const NESTED_TURBO_RUN_LOCK_DIRNAME = 'nested-turbo-run.lock';
+const NESTED_RUN_LOCK_POLL_MS = 200;
+const NESTED_RUN_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+
+export function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'EPERM';
+  }
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// Sharing one cache dir makes concurrent nested runs consistent, not
+// serialized: turbo has no cross-process execution lock, so two nested runs
+// (e.g. web and desktop predev under root `pnpm dev`) can both miss the same
+// task hash on a cold cache and both execute it — including its `rimraf dist`
+// — while the other is reading those outputs. Nested invocations therefore
+// serialize behind this lock. Root invocations must NOT take it: the root run
+// would hold it while its own nested children wait on it forever.
+export function acquireNestedTurboRunLock(cacheDir, options = {}) {
+  const {
+    fs: fileSystem = fs,
+    isProcessAlive: isProcessAliveImpl = isProcessAlive,
+    log = console.log,
+    pid = process.pid,
+    pollMs = NESTED_RUN_LOCK_POLL_MS,
+    sleep = sleepSync,
+    timeoutMs = NESTED_RUN_LOCK_TIMEOUT_MS,
+  } = options;
+
+  const lockDir = path.join(cacheDir, NESTED_TURBO_RUN_LOCK_DIRNAME);
+  const pidFile = path.join(lockDir, 'pid');
+  let waitedMs = 0;
+  let announcedWait = false;
+
+  for (;;) {
+    try {
+      fileSystem.mkdirSync(lockDir);
+      fileSystem.writeFileSync(pidFile, String(pid));
+      return () => {
+        fileSystem.rmSync(lockDir, { force: true, recursive: true });
+      };
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) {
+        throw error;
+      }
+    }
+
+    let holderPid;
+    try {
+      holderPid = Number.parseInt(fileSystem.readFileSync(pidFile, 'utf8'), 10);
+    } catch {
+      // The holder is mid-acquisition (or just released); treat as held and
+      // re-contend on the next iteration.
+      holderPid = Number.NaN;
+    }
+
+    if (Number.isSafeInteger(holderPid) && !isProcessAliveImpl(holderPid)) {
+      // Rename-then-remove so concurrent waiters cannot double-steal: rename
+      // is atomic, so exactly one waiter moves the stale dir aside; the rest
+      // hit ENOENT here and re-contend on mkdir.
+      const staleDir = `${lockDir}.stale-${pid}`;
+      try {
+        fileSystem.renameSync(lockDir, staleDir);
+        fileSystem.rmSync(staleDir, { force: true, recursive: true });
+        log(`Removed stale nested-turbo run lock held by dead pid ${holderPid}.`);
+      } catch {
+        // Another waiter stole it first; fall through and re-contend.
+      }
+      continue;
+    }
+
+    if (waitedMs >= timeoutMs) {
+      throw new Error(
+        `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for the nested-turbo run lock at ${lockDir} (held by pid ${holderPid}). If that process is wedged, kill it; the next run steals locks from dead holders automatically.`
+      );
+    }
+    if (!announcedWait) {
+      log(
+        `Waiting for a concurrent nested turbo run to finish (lock ${lockDir}, held by pid ${holderPid}).`
+      );
+      announcedWait = true;
+    }
+    sleep(pollMs);
+    waitedMs += pollMs;
+  }
+}
 
 export function resolveTurboCacheDir({ env = process.env, platform = process.platform } = {}) {
   const configuredCacheDir = env['TURBO_CACHE_DIR'] || env['BRAINSTRIKE_TURBO_CACHE_DIR'];
@@ -250,26 +342,43 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   const cacheDir = getCacheDirFromArgs(args);
   fs.mkdirSync(cacheDir, { recursive: true });
 
-  const invocation = createSpawnInvocation('turbo', args, platform);
-  const result = spawnSyncImpl(invocation.command, invocation.args, {
-    env,
-    shell: invocation.shell,
-    stdio: 'inherit',
-  });
-
-  if (result.error) {
-    logError(result.error.message);
-    return 1;
+  // TURBO_HASH ⇒ an outer turbo task is running this script, so sibling
+  // nested runs may be executing concurrently — serialize them (see
+  // acquireNestedTurboRunLock). Root invocations skip the lock.
+  let releaseNestedRunLock;
+  if (env['TURBO_HASH']) {
+    try {
+      releaseNestedRunLock = acquireNestedTurboRunLock(cacheDir, { log });
+    } catch (error) {
+      logError(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
   }
 
-  const status = result.status ?? 1;
-  if (status !== 0) {
-    return status;
+  try {
+    const invocation = createSpawnInvocation('turbo', args, platform);
+    const result = spawnSyncImpl(invocation.command, invocation.args, {
+      env,
+      shell: invocation.shell,
+      stdio: 'inherit',
+    });
+
+    if (result.error) {
+      logError(result.error.message);
+      return 1;
+    }
+
+    const status = result.status ?? 1;
+    if (status !== 0) {
+      return status;
+    }
+
+    pruneTurboCache(cacheDir, env);
+
+    return 0;
+  } finally {
+    releaseNestedRunLock?.();
   }
-
-  pruneTurboCache(cacheDir, env);
-
-  return 0;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -12,6 +21,10 @@ const require = createRequire(import.meta.url);
 function makeFakeHome() {
   return mkdtempSync(join(tmpdir(), 'run-turbo-command-home-'));
 }
+
+// Declared before the describe blocks: suite bodies call the sweep walkers
+// during module evaluation, so a later const would still be in its TDZ.
+const sweepIgnoredDirectories = new Set(['.claude', '.git', '.turbo', 'dist', 'node_modules']);
 
 describe('run turbo command helper', () => {
   it('uses an explicit cache directory outside the repo when no cache is configured', () => {
@@ -206,6 +219,150 @@ describe('run turbo command helper', () => {
     assert.deepEqual(warnings, [
       'Skipped Turborepo cache pruning: BRAINSTRIKE_TURBO_CACHE_MAX_BYTES must be a positive integer byte count.',
     ]);
+  });
+});
+
+describe('nested turbo run lock', () => {
+  // Sharing one cache dir makes concurrent nested runs CONSISTENT, not
+  // SERIALIZED: turbo has no cross-process execution lock, so on a cold cache
+  // the web and desktop predev builds can both miss the same task hash and
+  // both execute it (rimraf dist under a live reader). The wrapper therefore
+  // takes an exclusive lock for nested invocations. Root invocations must
+  // never take it — the root `pnpm dev` would hold the lock while its own
+  // nested predev children wait on it forever.
+  it('holds the cache-dir lock while spawning a nested invocation and releases it after', () => {
+    const home = makeFakeHome();
+    const lockDir = join(home, 'Library/Caches/BrainStrike/turbo', 'nested-turbo-run.lock');
+    const lockSeenDuringSpawn = [];
+
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--', 'run', 'desktop-dev-dependencies'],
+      'darwin',
+      {
+        env: { HOME: home, TURBO_HASH: '649b8853e23bc395' },
+        log: () => {},
+        logError: () => {},
+        spawnSyncImpl: () => {
+          lockSeenDuringSpawn.push(existsSync(lockDir));
+          return { status: 0 };
+        },
+      }
+    );
+
+    assert.equal(status, 0);
+    assert.deepEqual(lockSeenDuringSpawn, [true]);
+    assert.equal(existsSync(lockDir), false);
+  });
+
+  it('releases the lock even when the nested invocation fails', () => {
+    const home = makeFakeHome();
+    const lockDir = join(home, 'Library/Caches/BrainStrike/turbo', 'nested-turbo-run.lock');
+
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--', 'run', 'desktop-dev-dependencies'],
+      'darwin',
+      {
+        env: { HOME: home, TURBO_HASH: '649b8853e23bc395' },
+        log: () => {},
+        logError: () => {},
+        spawnSyncImpl: () => ({ status: 3 }),
+      }
+    );
+
+    assert.equal(status, 3);
+    assert.equal(existsSync(lockDir), false);
+  });
+
+  it('does not take the lock for root invocations', () => {
+    const home = makeFakeHome();
+    const lockDir = join(home, 'Library/Caches/BrainStrike/turbo', 'nested-turbo-run.lock');
+    const lockSeenDuringSpawn = [];
+
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--', 'run', 'build'],
+      'darwin',
+      {
+        env: { HOME: home },
+        log: () => {},
+        logError: () => {},
+        spawnSyncImpl: () => {
+          lockSeenDuringSpawn.push(existsSync(lockDir));
+          return { status: 0 };
+        },
+      }
+    );
+
+    assert.equal(status, 0);
+    assert.deepEqual(lockSeenDuringSpawn, [false]);
+  });
+
+  it('waits for a live holder and acquires once the holder releases', () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'nested-run-lock-'));
+    const lockDir = join(cacheDir, 'nested-turbo-run.lock');
+    mkdirSync(lockDir);
+    writeFileSync(join(lockDir, 'pid'), String(process.pid));
+    const sleeps = [];
+
+    const release = turboCommand.acquireNestedTurboRunLock(cacheDir, {
+      log: () => {},
+      sleep: (ms) => {
+        sleeps.push(ms);
+        rmSync(lockDir, { force: true, recursive: true });
+      },
+    });
+
+    assert.equal(sleeps.length, 1);
+    assert.equal(existsSync(lockDir), true);
+    release();
+    assert.equal(existsSync(lockDir), false);
+  });
+
+  it('steals a lock left behind by a dead holder without sleeping', () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'nested-run-lock-'));
+    const lockDir = join(cacheDir, 'nested-turbo-run.lock');
+    mkdirSync(lockDir);
+    writeFileSync(join(lockDir, 'pid'), '99999');
+    const logs = [];
+
+    const release = turboCommand.acquireNestedTurboRunLock(cacheDir, {
+      isProcessAlive: () => false,
+      log: (message) => logs.push(message),
+      sleep: () => {
+        throw new Error('must not sleep when the holder is dead');
+      },
+    });
+
+    assert.equal(existsSync(join(lockDir, 'pid')), true);
+    assert.equal(readFileSync(join(lockDir, 'pid'), 'utf8'), String(process.pid));
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /stale/u);
+    release();
+  });
+
+  it('fails loudly instead of waiting forever on a wedged holder', () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'nested-run-lock-'));
+    const lockDir = join(cacheDir, 'nested-turbo-run.lock');
+    mkdirSync(lockDir);
+    writeFileSync(join(lockDir, 'pid'), String(process.pid));
+
+    assert.throws(
+      () =>
+        turboCommand.acquireNestedTurboRunLock(cacheDir, {
+          log: () => {},
+          pollMs: 100,
+          sleep: () => {},
+          timeoutMs: 300,
+        }),
+      /Timed out/u
+    );
+  });
+
+  it('reports live processes as alive and reaped processes as dead', () => {
+    assert.equal(turboCommand.isProcessAlive(process.pid), true);
+
+    const reaped = spawnSync(process.execPath, ['-e', '']);
+    assert.equal(reaped.status, 0);
+    assert.equal(turboCommand.isProcessAlive(reaped.pid), false);
   });
 });
 
@@ -413,8 +570,6 @@ function workspaceDependencyClosure(manifest, manifests) {
 function parseFilterList(command) {
   return [...command.matchAll(/--filter=(@brainstrike\/[\w-]+)/gu)].map(([, name]) => name);
 }
-
-const sweepIgnoredDirectories = new Set(['.claude', '.git', '.turbo', 'dist', 'node_modules']);
 
 function findPackageJsonFiles(root) {
   return findRepoFiles(root, (entry) => entry.name === 'package.json');
