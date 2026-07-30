@@ -186,7 +186,7 @@ Three field classes, and the third is the reason this ruling is narrow:
 3. **Client-supplied then stripped and re-derived server-side**:
    `permissionPolicy`, `hookRunner`, `mcpConfig`, `personaProviderApiKeys`,
    `workspaceSkills` (`prepareRequestSkillsFromDisk` in
-   `apps/desktop/src/assistant-server/agent-stream-init.ts`), and
+   `packages/assistant-service/src/stream-init.ts`), and
    `workspaceRoots` (`stripClientWorkspaceRoots`, same file). The code comment states
    the rule: *"TypeScript types alone are not a request trust boundary."*
 

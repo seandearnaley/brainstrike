@@ -1349,7 +1349,7 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   receive the clean original result, and the provider view gets centrally
   composed context within the final model-output budget. A hook-runner FAULT is
   allow-on-fault (a runner bug must not brick tool calling).
-- `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server/agent-stream-init.ts`
+- `UserPromptSubmit`/`Stop` run in `packages/assistant-service/src/stream-init.ts`
   (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
   a visible message + `run.failed` and NEVER invokes the model; additionalContext
   prepends a `system` message. The blocked branch returns an `ok:true` stream but
