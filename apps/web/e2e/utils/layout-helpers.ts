@@ -617,6 +617,38 @@ export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise
 }
 
 /**
+ * Assert the Appearance settings section is the ACTIVE category and return
+ * its locator. SettingsPageContent renders only the active category (selected
+ * from the `#settings/<id>` hash, first category as the fallback), so specs
+ * that assume Appearance must say so here — a default-category change then
+ * fails at this named point instead of one interaction later.
+ */
+export async function waitForAppearanceSection(page: Page) {
+  const expect = await getPlaywrightExpect();
+  const appearanceSection = page.getByTestId('settings-category-appearance');
+  await expect(appearanceSection).toBeVisible();
+  return appearanceSection;
+}
+
+/**
+ * Click a theme button inside the Appearance section. Scoped to the section
+ * so the nav sidebar's theme toggle can never match; dispatchEvent because a
+ * plain click can land on the focus ring while the dialog animates. The ONE
+ * appearance-theme flow both theme specs share (review finding on #2138 —
+ * previously three near-verbatim copies).
+ */
+export async function activateAppearanceThemeButton(
+  page: Page,
+  label: 'Dark' | 'Light' | 'System'
+): Promise<void> {
+  const expect = await getPlaywrightExpect();
+  const appearanceSection = await waitForAppearanceSection(page);
+  const themeButton = appearanceSection.getByRole('button', { exact: true, name: label });
+  await expect(themeButton).toBeVisible();
+  await themeButton.dispatchEvent('click');
+}
+
+/**
  * Activate a sidebar navigation destination.
  *
  * `label` is deliberately the single literal 'Context Explorer': Settings is not

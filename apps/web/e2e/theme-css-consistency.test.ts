@@ -7,18 +7,32 @@
 
 import { expect, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
+import {
+  activateAppearanceThemeButton,
+  closeSettingsModal,
+  ensureRightPanelVisible,
+  openSettingsModal,
+  waitForAppearanceSection,
+  waitForAppLoad,
+  waitForSettingsPage,
+} from './utils/layout-helpers';
 
 /**
- * Helper to click a theme button in the settings page appearance section.
- * Uses scoped selector to avoid conflicts with nav sidebar theme toggle.
+ * Open Settings (the profile-launched modal — BST-1023/1024/1025: the old
+ * sidebar `Settings` button was removed in #1626, so every launch routes
+ * through the canonical layout-helpers flow) and ASSERT the appearance
+ * section is active (these specs depend on Appearance being the default
+ * category). The modal STAYS open for the CSS-variable assertions below:
+ * they read document-level computed styles, which the dialog does not
+ * affect.
  */
-async function clickSettingsThemeButton(page: Page, themeName: 'Light' | 'Dark' | 'System') {
-  await page
-    .getByTestId('settings-category-appearance')
-    .getByRole('button', { exact: true, name: themeName })
-    .click();
+async function openAppearanceSettings(page: Page): Promise<void> {
+  await openSettingsModal(page);
+  await waitForSettingsPage(page);
+  await waitForAppearanceSection(page);
 }
+
+const clickSettingsThemeButton = activateAppearanceThemeButton;
 
 async function waitForThemeApplied(page: Page, mode: 'light' | 'dark'): Promise<void> {
   const shouldBeDark = mode === 'dark';
@@ -46,8 +60,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should load CSS variables in light mode', async ({ page }) => {
-    // Switch to light mode (use settings-specific selector to avoid nav button conflict)
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    // Switch to light mode via the Settings modal's appearance section
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Light');
     await waitForThemeApplied(page, 'light');
 
@@ -74,7 +88,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
   test('should load CSS variables in dark mode', async ({ page }) => {
     // Switch to dark mode
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -102,7 +116,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should maintain warm neutral theme in dark mode (not pure black)', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -133,7 +147,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('uses neutral focus tokens instead of brand-blue borders', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
 
     for (const mode of ['Light', 'Dark'] as const) {
       await clickSettingsThemeButton(page, mode);
@@ -156,7 +170,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should ensure --background equals --bs-background', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -181,7 +195,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should verify all theme variables are consistent', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -221,7 +235,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should not have assistant-ui hardcoded values overriding theme', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -247,7 +261,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should have visible gradients with sufficient color separation', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -272,12 +286,13 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should maintain theme when opening assistant panel', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    // Navigate back to main page
-    await page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
+    // "Navigate back" is closing the modal: Settings is a dialog over the
+    // explorer, not a route, and the sidebar is aria-hidden while it is open.
+    await closeSettingsModal(page);
 
     // Open tools panel (assistant panel)
     await ensureRightPanelVisible(page);
@@ -298,11 +313,11 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should apply theme to assistant panel elements', async ({ page }) => {
-    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
+    await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    await page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
+    await closeSettingsModal(page);
     await ensureRightPanelVisible(page);
     await page.waitForTimeout(200);
 
