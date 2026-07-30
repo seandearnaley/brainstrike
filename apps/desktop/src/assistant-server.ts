@@ -12,11 +12,11 @@ import {
   registerSteerableRun,
   unregisterSteerableRun,
 } from '@brainstrike/assistant-service/steering';
-import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import {
   type AgentStreamCapabilities,
   initializeAgentStream,
-} from './assistant-server/agent-stream-init';
+} from '@brainstrike/assistant-service/stream-init';
+import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import {
   type AssistantServerAuth,
@@ -30,6 +30,7 @@ import {
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
+import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
   hookRunEventToAssistant,
@@ -81,20 +82,41 @@ import {
   enrichRuntimeDataWithWorkspaceRoots,
 } from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
-import { getDatabase } from './db-main';
+import { type DesktopDatabase, getDatabase } from './db-main';
+import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 
 const logger = desktopAssistantServerLogger;
 
 /**
- * The desktop AgentStreamCapabilities composition (BST-972 B4a): every value
- * agent-stream-init previously imported from desktop modules, passed verbatim.
- * Kept at the ROOT so suites that vi.mock these specifiers keep intercepting
- * (only assistant-tools, mastra-memory, and workspace-text-file-reader are
- * mocked today; the census is on the BST-972 plan comment). The two matchers
- * use the REAL error classes, so identity semantics are unchanged.
+ * Desktop's instantiation of the service's opaque capability kinds
+ * (BST-972 B4b): the host-internal types the stream initializer routes
+ * between capability calls without inspecting. Derived from the real
+ * implementations so they cannot drift.
  */
-export const desktopAgentStreamCapabilities: AgentStreamCapabilities = {
+interface DesktopAgentStreamKinds {
+  database: DesktopDatabase;
+  embeddingHost: Pick<EmbeddingHostManager, 'queryEmbedding'>;
+  hookEvent: Parameters<typeof hookRunEventToAssistant>[0];
+  hookManager: ReturnType<typeof prepareRequestHooks>['manager'];
+  hookVerdict: HookRunVerdict;
+  personaScan: ReturnType<typeof scanUserPersonas>;
+  scanFilesystem: ReturnType<typeof createNodeFsScanDeps>;
+  skillsFilesystem: ReturnType<typeof createSecureSkillsFs>;
+}
+
+/**
+ * The desktop AgentStreamCapabilities composition (BST-972 B4a): every value
+ * the stream initializer previously imported from desktop modules, passed
+ * verbatim. Kept at the ROOT so suites that vi.mock these specifiers keep
+ * intercepting (only assistant-tools, mastra-memory, and
+ * workspace-text-file-reader are mocked today; the census is on the BST-972
+ * plan comment). The two matchers use the REAL error classes, so identity
+ * semantics are unchanged. The identity-pin test in
+ * agent-stream-init-and-memory.integration.test.ts guards the same-signature
+ * members against transposition.
+ */
+export const desktopAgentStreamCapabilities: AgentStreamCapabilities<DesktopAgentStreamKinds> = {
   artifacts: {
     createRepository: (database) => new ToolOutputArtifactRepository(database),
   },

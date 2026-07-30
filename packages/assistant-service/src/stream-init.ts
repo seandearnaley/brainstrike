@@ -7,6 +7,7 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
   McpConfig,
+  RuntimeAssistantMemorySettings,
   RuntimeData,
   ScannedWorkspaceSkills,
   ScopedToolOutputArtifactReader,
@@ -19,27 +20,23 @@ import {
   streamMastraToolResumeAction,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
+import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { ScopedLogger } from '@brainstrike/utils/logger';
 import {
   collectLocalLlmWarmupModelIds,
   isLocalChatProvider,
   resolveLocalLlmHostClient,
-} from '@brainstrike/assistant-service/local-provider-runtime';
-import { resolveDesktopObserverUsageTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
-import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
+} from './local-provider-runtime.js';
+import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
+import type { AssistantLlmHostManager } from './ports.js';
+import { getSecretReadErrorPayload } from './secret-errors.js';
 import type {
   AgentStreamFailure,
   AgentStreamInitializationStage,
   AgentStreamResult,
   DesktopMemoryFeature,
-} from '@brainstrike/assistant-service/types';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
-import type { DesktopDatabase } from '../db-main';
-import type { EmbeddingHostManager } from '../embedding-host-manager';
-import type { DesktopAssistantToolDependencies } from './assistant-tools';
-import type { HookRunVerdict } from './hooks/run-verdict';
-import type { DesktopMastraMemoryResult } from './mastra-memory';
+} from './types.js';
 
 /**
  * Read the current thread's task list for re-injection this turn. Returns `[]`
@@ -50,10 +47,10 @@ import type { DesktopMastraMemoryResult } from './mastra-memory';
  * by the provider check on `taskListNote` in agent-runtime.ts, and by omitting
  * the manageTaskList tool for local in buildDesktopAssistantTools.
  */
-async function readThreadTaskListForTurn(
+async function readThreadTaskListForTurn<K extends AgentStreamCapabilityKinds>(
   runtimeData: RuntimeData | undefined,
-  database: Parameters<AgentStreamCapabilities['taskList']['read']>[0] | null,
-  deps: AgentStreamHelperDeps
+  database: K['database'] | null,
+  deps: AgentStreamHelperDeps<K>
 ): Promise<readonly AssistantTaskItem[]> {
   const threadId = runtimeData?.memory?.threadId;
   if (!(threadId && database) || isLocalChatProvider(runtimeData)) {
@@ -68,8 +65,8 @@ async function readThreadTaskListForTurn(
 }
 
 interface InitialStreamMemoryOptions {
-  memory?: DesktopMastraMemoryResult['memory'];
-  storage?: DesktopMastraMemoryResult['storage'];
+  memory?: AgentStreamMemoryResult['memory'];
+  storage?: AgentStreamMemoryResult['storage'];
   toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
 }
@@ -79,11 +76,11 @@ interface ToolOutputArtifactCapabilities {
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
 }
 
-function buildToolOutputArtifactCapabilities(
+function buildToolOutputArtifactCapabilities<K extends AgentStreamCapabilityKinds>(
   runtimeData: RuntimeData | undefined,
   runId: string | undefined,
-  getDatabase: AgentStreamDatabaseProvider,
-  deps: AgentStreamHelperDeps
+  getDatabase: () => Promise<K['database']>,
+  deps: AgentStreamHelperDeps<K>
 ): ToolOutputArtifactCapabilities {
   const resourceId = runtimeData?.memory?.resourceId;
   const threadId = runtimeData?.memory?.threadId;
@@ -119,20 +116,20 @@ function buildToolOutputArtifactCapabilities(
   };
 }
 
-function withToolOutputArtifactReader(
-  dependencies: DesktopAssistantToolDependencies,
+function withToolOutputArtifactReader<K extends AgentStreamCapabilityKinds>(
+  dependencies: AgentStreamToolDependencies<K>,
   reader: ScopedToolOutputArtifactReader | undefined
-): DesktopAssistantToolDependencies {
+): AgentStreamToolDependencies<K> {
   if (!reader) {
     return dependencies;
   }
   return { ...dependencies, toolOutputArtifactReader: reader };
 }
 
-function withSkillScriptResolver(
-  dependencies: DesktopAssistantToolDependencies,
-  resolver: ReturnType<typeof prepareRequestSkillsFromDisk>['workspaceSkills']
-): DesktopAssistantToolDependencies {
+function withSkillScriptResolver<K extends AgentStreamCapabilityKinds>(
+  dependencies: AgentStreamToolDependencies<K>,
+  resolver: ScannedWorkspaceSkills | undefined
+): AgentStreamToolDependencies<K> {
   if (!resolver) {
     return dependencies;
   }
@@ -140,7 +137,7 @@ function withSkillScriptResolver(
 }
 
 function buildInitialStreamMemoryOptions(
-  memoryResult: DesktopMastraMemoryResult | undefined,
+  memoryResult: AgentStreamMemoryResult | undefined,
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
   webExtractInlineMaxSerializedChars: number
 ): InitialStreamMemoryOptions {
@@ -163,8 +160,8 @@ function buildInitialStreamMemoryOptions(
  * `injectReferencedFilesContext` — there is no new user turn to scan — mirroring
  * the approval path's contract.
  */
-async function resolveInitialAgentStream(args: {
-  deps: AgentStreamHelperDeps;
+async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(args: {
+  deps: AgentStreamHelperDeps<K>;
   messages: AgentMessage[];
   runtime: RuntimeData;
   memoryOptions: InitialStreamMemoryOptions;
@@ -221,9 +218,9 @@ async function resolveInitialAgentStream(args: {
  * surface spanning the request's resolved workspace roots + the home dir.
  * Extracted from initializeAgentStream for the cognitive-complexity budget.
  */
-function prepareRequestSkillsFromDisk(
+function prepareRequestSkillsFromDisk<K extends AgentStreamCapabilityKinds>(
   runtimeData: RuntimeData | undefined,
-  deps: AgentStreamHelperDeps
+  deps: AgentStreamHelperDeps<K>
 ): {
   workspaceSkills?: ScannedWorkspaceSkills;
 } {
@@ -247,10 +244,10 @@ function prepareRequestSkillsFromDisk(
  * workspace roots (SecureRoot-backed fs; disposed after the scan). Extracted
  * from initializeAgentStream for the cognitive-complexity budget.
  */
-function scanUserPersonasFromDisk(
+function scanUserPersonasFromDisk<K extends AgentStreamCapabilityKinds>(
   workspaceRoots: RuntimeData['workspaceRoots'],
-  deps: AgentStreamHelperDeps
-): ReturnType<AgentStreamCapabilities['personas']['scan']> {
+  deps: AgentStreamHelperDeps<K>
+): K['personaScan'] {
   const filesystem = deps.capabilities.personas.createScanDeps();
   try {
     const scanRoots = (workspaceRoots ?? [])
@@ -272,11 +269,11 @@ function scanUserPersonasFromDisk(
  * fields to spread onto the request RuntimeData. See request-personas.ts for
  * the trust boundaries.
  */
-async function resolvePersonaRuntimeFields(
+async function resolvePersonaRuntimeFields<K extends AgentStreamCapabilityKinds>(
   runtimeData: RuntimeData | undefined,
   subagentPersonasRequest: RuntimeData['subagentPersonasRequest'],
   resolveProviderApiKey: AgentStreamProviderApiKeyReader,
-  deps: AgentStreamHelperDeps
+  deps: AgentStreamHelperDeps<K>
 ): Promise<Pick<RuntimeData, 'personas' | 'personaProviderApiKeys'>> {
   const resolved = await deps.capabilities.personas.resolve({
     logger: deps.logger,
@@ -299,28 +296,28 @@ async function resolvePersonaRuntimeFields(
  * handle. Without a runId there is no run to label, so no recorder is threaded
  * (hooks themselves still run).
  */
-function buildHookRunVerdictRecorder(
+function buildHookRunVerdictRecorder<K extends AgentStreamCapabilityKinds>(
   runId: string | undefined,
-  getDatabase: AgentStreamDatabaseProvider,
-  deps: AgentStreamHelperDeps
+  getDatabase: () => Promise<K['database']>,
+  deps: AgentStreamHelperDeps<K>
 ): {
-  onRunVerdict?: (verdict: HookRunVerdict) => Promise<void>;
+  onRunVerdict?: (verdict: K['hookVerdict']) => Promise<void>;
 } {
   if (!runId) {
     return {};
   }
   return {
-    onRunVerdict: async (verdict: HookRunVerdict): Promise<void> => {
+    onRunVerdict: async (verdict: K['hookVerdict']): Promise<void> => {
       const database = await getDatabase();
       await deps.capabilities.runPersistence.recordHookRunOutcome(database, runId, verdict);
     },
   };
 }
 
-function buildAgentStreamInitializationFailure(
+function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKinds>(
   error: unknown,
   stage: AgentStreamInitializationStage,
-  deps: AgentStreamHelperDeps
+  deps: AgentStreamHelperDeps<K>
 ): AgentStreamFailure {
   const secretReadErrorPayload = getSecretReadErrorPayload(error);
   if (secretReadErrorPayload) {
@@ -357,9 +354,9 @@ function buildAgentStreamInitializationFailure(
   };
 }
 
-function buildWorkspaceRootResolutionFailure(
+function buildWorkspaceRootResolutionFailure<K extends AgentStreamCapabilityKinds>(
   error: unknown,
-  deps: AgentStreamHelperDeps
+  deps: AgentStreamHelperDeps<K>
 ): AgentStreamFailure {
   const boundRootUnavailable =
     deps.capabilities.workspaceRoots.matchBoundRootUnavailableError(error);
@@ -399,7 +396,7 @@ function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtim
  * db-main transitively via ./mastra-memory and ./assistant-tools — those edges
  * are later slices in the BST-972 sequence.)
  */
-export type AgentStreamDatabaseProvider = () => Promise<DesktopDatabase>;
+export type AgentStreamDatabaseProvider<TDb> = () => Promise<TDb>;
 
 /**
  * Injected provider-credential reader (BST-972 A3): the persona pin-key path
@@ -413,38 +410,139 @@ export type AgentStreamDatabaseProvider = () => Promise<DesktopDatabase>;
 export type AgentStreamProviderApiKeyReader = (provider: string) => Promise<string | undefined>;
 
 /**
- * Root-composed desktop capabilities (BST-972 B4a): every remaining
- * desktop-module VALUE edge of this module, inverted into injected members so
- * the module can move into @brainstrike/assistant-service (B4b) without
- * dragging the tool floor, hooks, memory factory, or fs scanners with it.
- * Member types are `typeof import(...)` so the behavior contracts stay pinned
- * to the desktop implementations while every import stays type-only (erased).
- * The single composition site is assistant-server.ts, which passes the real
- * implementations verbatim — suites that vi.mock these specifiers keep
- * intercepting because the ROOT still imports them (the dd8599895 lesson,
- * avoided here by construction).
+ * A workspace text-file reader with the same containment/size/binary guards as
+ * the read tools (implemented host-side; the service only routes it into the
+ * context injectors).
  */
-export interface AgentStreamCapabilities {
+export type WorkspaceFileReader = (args: {
+  rootPath: string;
+  requestedPath: string;
+}) => Promise<{ content: string; path: string; size: number }>;
+
+/**
+ * The host-internal types the service routes BETWEEN capability calls without
+ * ever inspecting (BST-972 B4b): a hook manager produced by `hooks.prepare` is
+ * consumed only by `hooks.runUserPromptSubmitGate`/`hooks.finalize`, a persona
+ * scan result only by `personas.resolve`, and so on. Opaque generics keep the
+ * intra-request wiring type-safe without restating host types structurally —
+ * the drift the B4a `typeof import(...)` pins existed to prevent.
+ */
+export interface AgentStreamCapabilityKinds {
+  readonly database: unknown;
+  readonly embeddingHost: unknown;
+  readonly hookEvent: unknown;
+  readonly hookManager: unknown;
+  readonly hookVerdict: unknown;
+  readonly personaScan: unknown;
+  /** Disposed after the persona scan, so the constraint is structural. */
+  readonly scanFilesystem: { readonly dispose: () => void };
+  readonly skillsFilesystem: unknown;
+}
+
+/**
+ * The tool-construction dependency bag: what the service THREADS (host
+ * managers from the request params, plus the per-request artifact reader and
+ * skill-script resolver it builds). Hosts may accept more fields; every field
+ * here is optional so the host's own bag type stays assignable.
+ */
+export interface AgentStreamToolDependencies<K extends AgentStreamCapabilityKinds> {
+  readonly embeddingHostManager?: K['embeddingHost'] | null | undefined;
+  readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+  readonly skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
+  readonly toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
+}
+
+/** What `memory.create` yields: the Mastra memory/storage pair for the run. */
+export type AgentStreamMemoryResult = PgliteMastraMemoryResult;
+
+/**
+ * Host-composed capabilities (BST-972 B4a/B4b): every host-module VALUE edge
+ * of this module, injected so the service owns orchestration while the host
+ * owns adapters. The desktop composition site is assistant-server.ts, which
+ * passes the real implementations verbatim — suites that vi.mock those
+ * specifiers keep intercepting because the ROOT still imports them (the
+ * dd8599895 lesson, avoided by construction). Host-internal value types ride
+ * the opaque `AgentStreamCapabilityKinds` bag; everything else is the shared
+ * agent vocabulary.
+ */
+export interface AgentStreamCapabilities<
+  K extends AgentStreamCapabilityKinds = AgentStreamCapabilityKinds,
+> {
   readonly artifacts: {
-    /** Scoped tool-output artifact repository over the main-process DB handle. */
-    readonly createRepository: (
-      database: DesktopDatabase
-    ) => InstanceType<typeof import('@brainstrike/db')['ToolOutputArtifactRepository']>;
+    /** Scoped tool-output artifact repository over the host DB handle. */
+    readonly createRepository: (database: K['database']) => {
+      readonly readRange: (
+        input: Parameters<ScopedToolOutputArtifactReader['readRange']>[0] & {
+          readonly resourceId: string;
+          readonly threadId: string;
+        }
+      ) => ReturnType<ScopedToolOutputArtifactReader['readRange']>;
+      readonly store: (
+        input: Parameters<ToolOutputArtifactSettlementStore['store']>[0] & {
+          readonly resourceId: string;
+          readonly runId: string;
+          readonly threadId: string;
+        }
+      ) => ReturnType<ToolOutputArtifactSettlementStore['store']>;
+    };
   };
   readonly contextInjectors: {
-    readonly activatedSkills: typeof import('./skills-activation-context')['injectActivatedSkillsContext'];
-    readonly referencedFiles: typeof import('./referenced-files-context')['injectReferencedFilesContext'];
-    readonly workspaceInstructions: typeof import('./workspace-instructions-context')['injectWorkspaceInstructionsContext'];
+    readonly activatedSkills: (
+      messages: AgentMessage[],
+      workspaceSkills: RuntimeData['workspaceSkills']
+    ) => Promise<AgentMessage[]>;
+    readonly referencedFiles: (
+      messages: AgentMessage[],
+      runtimeData: RuntimeData,
+      readFile: WorkspaceFileReader
+    ) => Promise<AgentMessage[]>;
+    readonly workspaceInstructions: (
+      messages: AgentMessage[],
+      runtimeData: RuntimeData,
+      readFile: WorkspaceFileReader
+    ) => Promise<AgentMessage[]>;
   };
   readonly hooks: {
-    readonly eventToAssistant: typeof import('./hooks/server-integration')['hookRunEventToAssistant'];
-    readonly finalize: typeof import('./hooks/server-integration')['finalizeHookedStream'];
-    readonly makeBlockedStream: typeof import('./hooks/server-integration')['makeHookBlockedStream'];
-    readonly prepare: typeof import('./hooks/server-integration')['prepareRequestHooks'];
-    readonly runUserPromptSubmitGate: typeof import('./hooks/server-integration')['runUserPromptSubmitGate'];
+    readonly eventToAssistant: (event: K['hookEvent']) => AssistantRunEvent;
+    readonly finalize: (
+      stream: AsyncIterable<StreamChunk>,
+      opts: {
+        readonly logger: ScopedLogger;
+        readonly manager: K['hookManager'];
+        readonly observe: (source: AsyncIterable<StreamChunk>) => AsyncIterable<StreamChunk>;
+        readonly onRunVerdict?: (verdict: K['hookVerdict']) => Promise<void>;
+        readonly runner: RuntimeData['hookRunner'] | undefined;
+        readonly signal: AbortSignal;
+      }
+    ) => AsyncIterable<StreamChunk>;
+    readonly makeBlockedStream: (reason: string) => AsyncIterable<StreamChunk>;
+    readonly prepare: (input: {
+      readonly emitRunEvent: (event: K['hookEvent']) => void;
+      readonly hookTrustRequest: RuntimeData['hookTrustRequest'];
+      readonly logger: ScopedLogger;
+      readonly runId: string | undefined;
+      readonly runtimeData: RuntimeData | undefined;
+    }) => {
+      readonly manager: K['hookManager'];
+      readonly runner: RuntimeData['hookRunner'] | undefined;
+    };
+    readonly runUserPromptSubmitGate: (
+      manager: K['hookManager'],
+      messages: AgentMessage[],
+      isResumeOrApproval: boolean
+    ) => Promise<
+      | { readonly kind: 'block'; readonly reason: string }
+      | { readonly kind: 'proceed'; readonly messages: AgentMessage[] }
+    >;
   };
   readonly memory: {
-    readonly create: typeof import('./mastra-memory')['getDesktopMastraMemory'];
+    readonly create: (
+      memorySettings: RuntimeAssistantMemorySettings | undefined,
+      runId: string | undefined,
+      eventSink: ((event: AssistantRunEvent) => void) | undefined,
+      runtimeData: RuntimeData | undefined,
+      dependencies: { readonly embeddingHostManager?: K['embeddingHost'] | null | undefined }
+    ) => Promise<AgentStreamMemoryResult>;
     /**
      * Structural stand-in for the previous `instanceof
      * DesktopMemoryCredentialMissingError` check (the A3 matchSecretReadError
@@ -460,30 +558,73 @@ export interface AgentStreamCapabilities {
       | undefined;
   };
   readonly personas: {
-    readonly createScanDeps: typeof import('./node-fs-scan-deps')['createNodeFsScanDeps'];
-    readonly resolve: typeof import('./request-personas')['resolveRequestPersonas'];
-    readonly scan: typeof import('./user-personas-loader')['scanUserPersonas'];
+    readonly createScanDeps: () => K['scanFilesystem'];
+    readonly resolve: (params: {
+      readonly logger: ScopedLogger;
+      readonly parentProvider: string;
+      readonly request: RuntimeData['subagentPersonasRequest'];
+      readonly resolveApiKey: AgentStreamProviderApiKeyReader;
+      readonly scanUserPersonas: () => K['personaScan'];
+    }) => Promise<{
+      readonly personas: NonNullable<RuntimeData['personas']>;
+      readonly personaProviderApiKeys?: RuntimeData['personaProviderApiKeys'];
+    }>;
+    readonly scan: (
+      input: {
+        readonly homeDir: string;
+        readonly roots: ReadonlyArray<{
+          readonly absPath: string;
+          readonly displayName: string;
+          readonly id: string;
+        }>;
+      },
+      deps: K['scanFilesystem']
+    ) => K['personaScan'];
   };
-  readonly readWorkspaceTextFile: typeof import('./workspace-text-file-reader')['readWorkspaceTextFile'];
+  readonly readWorkspaceTextFile: WorkspaceFileReader;
   readonly runPersistence: {
-    readonly observeRunEvents: typeof import('./run-persistence')['observeDesktopAssistantRunEvents'];
-    readonly persistChildRunUsage: typeof import('./run-persistence')['persistDesktopChildRunUsage'];
-    readonly recordHookRunOutcome: typeof import('./run-persistence')['recordDesktopAssistantHookRunOutcome'];
+    readonly observeRunEvents: (
+      stream: AsyncIterable<StreamChunk>,
+      runId: string,
+      queuedEvents: AssistantRunEvent[],
+      getDatabase: () => Promise<K['database']>
+    ) => AsyncIterable<StreamChunk>;
+    readonly persistChildRunUsage: (
+      stream: AsyncIterable<StreamChunk>,
+      runId: string,
+      observerTarget: { readonly model: string; readonly provider: string } | undefined,
+      getDatabase: () => Promise<K['database']>
+    ) => AsyncIterable<StreamChunk>;
+    readonly recordHookRunOutcome: (
+      database: K['database'],
+      runId: string,
+      verdict: K['hookVerdict']
+    ) => Promise<void>;
   };
   readonly skills: {
-    readonly createFs: typeof import('./skills-fs-deps')['createSecureSkillsFs'];
-    readonly prepare: typeof import('./request-skills')['prepareRequestSkills'];
+    readonly createFs: (candidateRoots: readonly string[]) => K['skillsFilesystem'];
+    readonly prepare: (params: {
+      readonly fs: K['skillsFilesystem'];
+      readonly homedir: () => string;
+      readonly runtimeData: RuntimeData | undefined;
+    }) => { readonly workspaceSkills?: ScannedWorkspaceSkills };
   };
   readonly taskList: {
-    readonly read: typeof import('./task-list-repository')['readThreadTaskList'];
+    readonly read: (database: K['database'], threadId: string) => Promise<AssistantTaskItem[]>;
   };
   readonly tools: {
-    readonly build: typeof import('./assistant-tools')['buildDesktopAssistantTools'];
+    readonly build: (
+      runtimeData: RuntimeData | undefined,
+      dependencies: AgentStreamToolDependencies<K>
+    ) => NonNullable<RuntimeData['mastraTools']>;
   };
-  /** WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS, injected as a plain number. */
+  /** The webExtract inline-serialization cap, injected as a plain number. */
   readonly webExtractInlineMaxSerializedChars: number;
   readonly workspaceRoots: {
-    readonly enrich: typeof import('./workspace-roots')['enrichRuntimeDataWithWorkspaceRoots'];
+    readonly enrich: (
+      runtimeData: RuntimeData | undefined,
+      db: K['database'] | null
+    ) => Promise<RuntimeData | undefined>;
     /** Structural stand-in for `instanceof BoundWorkspaceRootUnavailableError`. */
     readonly matchBoundRootUnavailableError: (
       error: unknown
@@ -497,8 +638,8 @@ export interface AgentStreamCapabilities {
  * hazard the params-object ruling names would otherwise re-accumulate on
  * every helper tail, two positionals at a time.
  */
-interface AgentStreamHelperDeps {
-  readonly capabilities: AgentStreamCapabilities;
+interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
+  readonly capabilities: AgentStreamCapabilities<K>;
   readonly logger: ScopedLogger;
 }
 
@@ -509,10 +650,10 @@ interface AgentStreamHelperDeps {
  * differ — desktop's type-check excludes test files, so a missed test call
  * site would surface only at runtime.
  */
-export interface InitializeAgentStreamParams {
+export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
   readonly apiKey: string | undefined;
-  readonly capabilities: AgentStreamCapabilities;
-  readonly getDatabase: AgentStreamDatabaseProvider;
+  readonly capabilities: AgentStreamCapabilities<K>;
+  readonly getDatabase: () => Promise<K['database']>;
   readonly logger: ScopedLogger;
   readonly mcpConfig: McpConfig | undefined;
   // Deliberately the mutable array type: this exact array is handed through
@@ -527,14 +668,14 @@ export interface InitializeAgentStreamParams {
   readonly signal: AbortSignal;
   readonly toolApprovalAction: AssistantToolApprovalAction | undefined;
   readonly toolDependencies: {
-    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+    readonly embeddingHostManager?: K['embeddingHost'] | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   };
   readonly toolResumeAction: AssistantToolResumeAction | undefined;
 }
 
-export async function initializeAgentStream(
-  params: InitializeAgentStreamParams
+export async function initializeAgentStream<K extends AgentStreamCapabilityKinds>(
+  params: InitializeAgentStreamParams<K>
 ): Promise<AgentStreamResult> {
   const {
     capabilities,
@@ -551,7 +692,7 @@ export async function initializeAgentStream(
     getDatabase,
     resolveProviderApiKey,
   } = params;
-  const deps: AgentStreamHelperDeps = { capabilities, logger };
+  const deps: AgentStreamHelperDeps<K> = { capabilities, logger };
   // Multi-root: resolve the active workspace roots from the DB `roots` table so
   // the assistant's file/search tools can disambiguate paths across roots. The
   // helper falls back to the single focused root on an empty/failed lookup.
