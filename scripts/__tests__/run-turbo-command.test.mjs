@@ -55,6 +55,20 @@ describe('run turbo command helper', () => {
     assert.deepEqual(directTurboScripts, []);
   });
 
+  it('routes automation-script turbo spawns through the bounded wrapper', () => {
+    // The package.json sweep above cannot see turbo spawns buried inside .mjs
+    // helpers (e.g. spawnSync('pnpm', ['turbo', ...])), which resolve the
+    // repo-local .turbo cache instead of the wrapper's shared cache dir. Only
+    // run-turbo-command.mjs may name the turbo binary.
+    const wrapperPath = resolve(process.cwd(), 'scripts/run-turbo-command.mjs');
+    const directTurboSpawns = findModuleFiles(process.cwd()).filter(
+      (modulePath) =>
+        modulePath !== wrapperPath && /['"`]turbo['"`]/u.test(readFileSync(modulePath, 'utf8'))
+    );
+
+    assert.deepEqual(directTurboSpawns, []);
+  });
+
   it('plans oldest cache entries for pruning until the cache is under the byte cap', () => {
     assert.equal(typeof turboCommand.planTurboCachePrune, 'function');
 
@@ -400,18 +414,32 @@ function parseFilterList(command) {
   return [...command.matchAll(/--filter=(@brainstrike\/[\w-]+)/gu)].map(([, name]) => name);
 }
 
+const sweepIgnoredDirectories = new Set(['.claude', '.git', '.turbo', 'dist', 'node_modules']);
+
 function findPackageJsonFiles(root) {
-  const packageJsonFiles = [];
-  const ignored = new Set(['.git', '.turbo', 'dist', 'node_modules']);
+  return findRepoFiles(root, (entry) => entry.name === 'package.json');
+}
+
+function findModuleFiles(root) {
+  return findRepoFiles(
+    root,
+    (entry, dir) => entry.name.endsWith('.mjs') && !dir.endsWith('__tests__')
+  );
+}
+
+function findRepoFiles(root, matches) {
+  const matchedFiles = [];
 
   function visit(dir) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'package.json') {
-        packageJsonFiles.push(join(dir, entry.name));
+      if (!entry.isDirectory()) {
+        if (matches(entry, dir)) {
+          matchedFiles.push(join(dir, entry.name));
+        }
         continue;
       }
 
-      if (!entry.isDirectory() || ignored.has(entry.name)) {
+      if (sweepIgnoredDirectories.has(entry.name)) {
         continue;
       }
 
@@ -423,5 +451,5 @@ function findPackageJsonFiles(root) {
   }
 
   visit(root);
-  return packageJsonFiles;
+  return matchedFiles;
 }

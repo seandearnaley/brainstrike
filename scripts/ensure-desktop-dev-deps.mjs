@@ -3,8 +3,14 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// Nested turbo must go through run-turbo-command.mjs so it resolves the same
+// cache directory as every other turbo invocation in the repo; a direct
+// `pnpm turbo` resolves the repo-local .turbo cache and can execute the same
+// task hash concurrently with the wrapper-routed nested builds under
+// root `pnpm dev` (the rimraf-under-a-live-reader race from PR #2132).
 const desktopDevDependencyBuildArgs = [
-  'turbo',
+  'scripts/run-turbo-command.mjs',
+  '--',
   'run',
   'desktop-dev-dependencies',
   '--filter=@brainstrike/desktop',
@@ -18,9 +24,8 @@ export function runDesktopDevDependencyBuild({
   repoRoot = path.resolve(import.meta.dirname, '..'),
   spawnSyncImpl = spawnSync,
 } = {}) {
-  const result = spawnSyncImpl('pnpm', getDesktopDevDependencyBuildArgs(), {
+  const result = spawnSyncImpl(process.execPath, getDesktopDevDependencyBuildArgs(), {
     cwd: repoRoot,
-    shell: process.platform === 'win32',
     stdio: 'inherit',
   });
 
