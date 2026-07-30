@@ -347,6 +347,7 @@ describe('assistant stream serving', () => {
   });
 
   it('should return JSON 413 when the request body exceeds the default byte limit', async () => {
+    const { streamResponse } = await import('../../assistant-server/http');
     const response = await runRequest({
       body: 'x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),
       headers: { 'content-type': 'application/json' },
@@ -361,7 +362,32 @@ describe('assistant stream serving', () => {
       `Assistant request body exceeds ${DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`
     );
     expect(response.headers['connection']).toBe('close');
+    expect(streamResponse).not.toHaveBeenCalled();
   }, 10_000);
+
+  it('a semantically rejected POST responds without ever constructing a stream', async () => {
+    // The transport half of the rejection contract, asserted ONCE at this
+    // boundary instead of 19 times through every rejection case (which now
+    // prove the returned rejection directly in the pure suite): when
+    // preparation rejects, handleAssistantPost responds and returns — the
+    // stream pump is never reached. The empty prompt rejects DEEPEST in
+    // preparation (after parse, conversion, and the credential read), so it is
+    // the strongest single probe of that early return.
+    const { streamResponse } = await import('../../assistant-server/http');
+    const response = await runRequest({
+      body: JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [{ parts: [{ text: '   ', type: 'text' }], role: 'user' }],
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/assistant',
+    });
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({ error: 'empty_prompt' });
+    expect(streamResponse).not.toHaveBeenCalled();
+  });
 });
 
 describe('stream resume', () => {

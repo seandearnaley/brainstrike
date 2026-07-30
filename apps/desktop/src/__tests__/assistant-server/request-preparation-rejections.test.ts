@@ -52,7 +52,10 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-import { prepareAssistantPostRequest } from '../../assistant-server/request-preparation';
+import {
+  type PrepareAssistantPostRequestResult,
+  prepareAssistantPostRequest,
+} from '../../assistant-server/request-preparation';
 import { SecretReadError } from '../../secrets';
 import { MockRequest } from './_harness';
 
@@ -71,7 +74,7 @@ function postRequest(body: string): MockRequest {
   });
 }
 
-async function prepare(body: string) {
+async function prepare(body: string): Promise<PrepareAssistantPostRequestResult> {
   return await prepareAssistantPostRequest({
     req: postRequest(body) as unknown as Parameters<typeof prepareAssistantPostRequest>[0]['req'],
     resolveProviderApiKey,
