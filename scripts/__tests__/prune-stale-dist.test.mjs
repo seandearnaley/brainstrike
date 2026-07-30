@@ -19,9 +19,15 @@
 // Two layers under test here:
 //   1. the prune script's behavior (fixture-driven, including entrypoint
 //      control tests per the BST-836 guard-script false-green rule), and
-//   2. the WIRING CONTRACT: every workspace package whose build script invokes
-//      `tsc -b` / `tsc --build` must clean dist or prune stale artifacts
-//      BEFORE tsc runs, so no package can silently rejoin the vulnerable class.
+//   2. the WIRING CONTRACT: every build-chain script (build/prebuild/
+//      postbuild/build:*) that runs an EMITTING tsc (any form — `-b`,
+//      `--build`, `--project`, bare `tsc`; anything without `--noEmit`) must
+//      clean dist or prune stale artifacts first. Scope note: non-build-chain
+//      scripts (e.g. type-check) are deliberately not scanned — only the
+//      `build` task's dist/** outputs are snapshotted by the nested turbo,
+//      and an emitting tsc cannot CREATE orphans (it only emits current
+//      program outputs); the prune before every snapshot-producing build is
+//      what launders dist before archiving.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
@@ -30,6 +36,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -44,10 +51,30 @@ const PRUNE_SCRIPT = path.join(SCRIPTS_DIR, 'prune-stale-dist.mjs');
 
 const { main } = await import(PRUNE_SCRIPT);
 
-/** Create a temp package dir populated from { 'src/a.ts': '...', 'dist/a.js': '...' } maps. */
+/**
+ * Create a temp package dir populated from { 'src/a.ts': '...', 'dist/a.js': '...' } maps.
+ * A minimal src->dist tsconfig is written unless the files map provides its own —
+ * the pruner resolves the real tsc program (include/exclude respected), so every
+ * fixture needs one, exactly like every wired package has one.
+ */
 function makeFixture(files) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'prune-stale-dist-'));
-  for (const [rel, content] of Object.entries(files)) {
+  const withConfig = {
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: {
+        module: 'esnext',
+        moduleResolution: 'bundler',
+        outDir: 'dist',
+        resolveJsonModule: true,
+        rootDir: 'src',
+        skipLibCheck: true,
+        target: 'es2022',
+      },
+      include: ['src/**/*', 'src/**/*.json'],
+    }),
+    ...files,
+  };
+  for (const [rel, content] of Object.entries(withConfig)) {
     const abs = path.join(dir, rel);
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, content);
@@ -91,6 +118,9 @@ test('prunes every dist artifact flavor whose source file is gone', () => {
     'dist/keep.js': '',
     'dist/sub/gone5.d.ts': '',
     'dist/sub/gone5.js': '',
+    // A json source in the program activates json-orphan pruning (see the
+    // "compiles no json" test for the inverse).
+    'src/data.json': '{}',
     'src/keep.ts': 'export {};',
   });
 
@@ -124,6 +154,78 @@ test('keeps artifacts backed by any source flavor (.ts/.tsx/.mts/.js/.json)', ()
 
   assert.deepEqual(result.deleted, []);
   assert.equal(listFiles(path.join(dir, 'dist')).length, 9);
+});
+
+test('prunes artifacts whose source exists on disk but is excluded from the tsc program', () => {
+  // The review-found residual class: 9 of the 10 wired packages exclude
+  // `**/*.test.*` from tsconfig. A dist test artifact left from before the
+  // exclude landed looks "live" to a filesystem existence check because
+  // src/foo.test.ts is still on disk — but tsc will never emit it again, and
+  // compiled tests are exactly the vitest-importing shape that trips
+  // `turbo boundaries`. Pruning must follow the PROGRAM, not the filesystem.
+  const dir = makeFixture({
+    'dist/foo.test.d.ts': '',
+    'dist/foo.test.js': '',
+    'dist/keep.d.ts': '',
+    'dist/keep.js': '',
+    'src/foo.test.ts': '',
+    'src/keep.ts': '',
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: { outDir: 'dist', rootDir: 'src', skipLibCheck: true },
+      exclude: ['**/*.test.ts'],
+      include: ['src/**/*'],
+    }),
+  });
+
+  main({ log: () => {}, packageDir: dir });
+
+  assert.deepEqual(listFiles(path.join(dir, 'dist')), ['keep.d.ts', 'keep.js']);
+});
+
+test('keeps outputs of on-disk .js sources outside the program (bundler entries)', () => {
+  // packages/file-explorer bundles src/worker-storage.worker.js via tsup, but
+  // its tsconfig include only covers .ts/.tsx — the worker is NOT a program
+  // member. Its dist outputs must survive, or every build would delete and
+  // re-emit them, eroding the concurrent-build disjointness guarantee.
+  const dir = makeFixture({
+    'dist/worker.worker.js': '',
+    'dist/worker.worker.mjs': '',
+    'src/index.ts': '',
+    'src/worker.worker.js': '',
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: { outDir: 'dist', rootDir: 'src', skipLibCheck: true },
+      include: ['src/**/*.ts'],
+    }),
+  });
+
+  const result = main({ log: () => {}, packageDir: dir });
+
+  assert.deepEqual(result.deleted, []);
+});
+
+test('leaves dist json alone when the program compiles no json', () => {
+  // A dist json without a src twin is NOT necessarily an orphan: a
+  // {"type":"commonjs"} marker or generated manifest is produced, not
+  // compiled, and would only come back if its producing step reran. Json
+  // pruning therefore activates only when the package's tsc program
+  // demonstrably owns json emission (contains at least one json source).
+  const dir = makeFixture({
+    'dist/marker.json': '{"type":"commonjs"}',
+    'src/index.ts': '',
+  });
+
+  const result = main({ log: () => {}, packageDir: dir });
+
+  assert.deepEqual(result.deleted, []);
+  assert.equal(existsSync(path.join(dir, 'dist', 'marker.json')), true);
+});
+
+test('throws when tsconfig.json is missing (misconfigured wiring, no silent fallback)', () => {
+  const dir = makeFixture({ 'dist/gone.js': '', 'src/index.ts': '' });
+  rmSync(path.join(dir, 'tsconfig.json'));
+
+  assert.throws(() => main({ log: () => {}, packageDir: dir }), /tsconfig/);
+  assert.deepEqual(listFiles(path.join(dir, 'dist')), ['gone.js']);
 });
 
 test('never touches non-artifact files, even without a source counterpart', () => {
@@ -268,11 +370,33 @@ function workspacePackageDirs() {
   return dirs;
 }
 
-const TSC_BUILD_RE = /\btsc (?:-b\b|--build\b)/;
+/**
+ * Script names participating in a package's BUILD CHAIN. The scan is scoped to
+ * these rather than all scripts because cache poisoning happens exclusively
+ * through the `build` task — its `outputs: ["dist/**"]` is what the nested
+ * turbo snapshots (`type-check` and `test` have `outputs: []` in turbo.jsonc).
+ * An emitting tsc elsewhere (e.g. apps/web's `type-check` running
+ * `tsc --build --force` over referenced packages) can refresh dist but cannot
+ * create orphans (tsc only emits current program outputs) and cannot be
+ * snapshotted; the prune preceding every snapshot-producing build launders
+ * dist before archiving.
+ */
+const BUILD_CHAIN_SCRIPT = /^(?:build|prebuild|postbuild|build:.+)$/;
 
 /**
- * A tsc-building package is protected when, BEFORE the first tsc invocation,
- * its build script either:
+ * An EMITTING tsc invocation, judged per &&/;/| command segment: any `tsc`
+ * without `--noEmit` and without `--watch`. This deliberately catches plain
+ * `tsc`, `tsc -b`/`--build`, AND `tsc --project ... --emitDeclarationOnly` —
+ * the review found `build:types` scripts using the `--project` form that a
+ * `-b`-only regex was blind to.
+ */
+function isEmittingTsc(segment) {
+  return /\btsc\b/.test(segment) && !(segment.includes('--noEmit') || segment.includes('--watch'));
+}
+
+/**
+ * A build-chain script is protected when, in a segment BEFORE its first
+ * emitting tsc invocation, it either:
  *   - cleans dist (inline `node <depth>/scripts/rimraf.mjs dist` or
  *     `pnpm run clean` — the sibling canonical-form contract pins clean to the
  *     rimraf form, so the alias is trustworthy), or
@@ -281,26 +405,25 @@ const TSC_BUILD_RE = /\btsc (?:-b\b|--build\b)/;
  *     fail at build time, but only on the machines that build that package).
  * Anything else leaves stale dist files for the nested-turbo cache snapshot.
  */
-function classifyBuildScript(build, relDir) {
-  const tscMatch = build.search(TSC_BUILD_RE);
-  if (tscMatch === -1) {
-    return { protected: true, reason: 'no tsc build' };
+function classifyBuildScript(script, relDir) {
+  const segments = script.split(/&&|;|\|/);
+  const tscIndex = segments.findIndex((segment) => isEmittingTsc(segment));
+  if (tscIndex === -1) {
+    return { protected: true, reason: 'no emitting tsc invocation' };
   }
-  const beforeTsc = build.slice(0, tscMatch);
-  const depth = '../'.repeat(relDir.split(path.sep).length);
-  if (
-    new RegExp(`node ${depth.replaceAll('/', '\\/')}scripts\\/prune-stale-dist\\.mjs`).test(
-      beforeTsc
-    )
-  ) {
+  const before = segments.slice(0, tscIndex).join(' && ');
+  // Escape `.` as well as `/`: an unescaped `.` matches any character, so
+  // `node ab/cd/scripts/prune-stale-dist.mjs` would satisfy a `../../` check.
+  const depthPattern = '../'
+    .repeat(relDir.split(path.sep).length)
+    .replaceAll('.', '\\.')
+    .replaceAll('/', '\\/');
+  if (new RegExp(`node ${depthPattern}scripts\\/prune-stale-dist\\.mjs`).test(before)) {
     return { protected: true, reason: 'prunes stale dist artifacts before tsc' };
   }
   // `(?!\S)` keeps `pnpm run clean:generated` (ui — cleans stray compiled JS in
   // SRC, not dist) from masquerading as a dist clean: `:` is a \b boundary.
-  if (
-    /scripts\/rimraf\.mjs dist(?!\S)/.test(beforeTsc) ||
-    /\bpnpm run clean(?!\S)/.test(beforeTsc)
-  ) {
+  if (/scripts\/rimraf\.mjs dist(?!\S)/.test(before) || /\bpnpm run clean(?!\S)/.test(before)) {
     return { protected: true, reason: 'cleans dist before tsc' };
   }
   return { protected: false };
@@ -336,45 +459,73 @@ test('control: the classifier flags an unguarded tsc build (this contract can go
       .protected,
     false
   );
+  // A same-length path with different characters must not satisfy the depth
+  // check — unescaped `.` in the generated pattern would match any character.
+  assert.equal(
+    classifyBuildScript(
+      'node ab/cd/scripts/prune-stale-dist.mjs && tsc -b .',
+      path.join('packages', 'db')
+    ).protected,
+    false
+  );
+  // The `--project ... --emitDeclarationOnly` form emits into dist too (the
+  // build:types shape the review found); a `-b`-only regex is blind to it.
+  assert.equal(
+    classifyBuildScript(
+      'tsc --project tsconfig.json --declaration --emitDeclarationOnly',
+      path.join('packages', 'storage')
+    ).protected,
+    false
+  );
+  // `tsc --noEmit` cannot poison dist and must not be flagged.
+  assert.equal(classifyBuildScript('tsc --noEmit', path.join('packages', 'db')).protected, true);
 });
 
-test('every tsc-building package cleans or prunes dist before tsc runs', () => {
+test('every build-chain script with an emitting tsc cleans or prunes dist first', () => {
   const violations = [];
-  let tscBuilders = 0;
-  let prunedBuilders = 0;
+  let emittingScripts = 0;
+  let prunedScripts = 0;
 
   for (const dir of workspacePackageDirs()) {
     const manifest = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
-    const build = manifest.scripts?.build;
-    if (build === undefined || !TSC_BUILD_RE.test(build)) {
-      continue;
-    }
-    tscBuilders += 1;
     const relDir = path.relative(REPO_ROOT, dir);
-    const verdict = classifyBuildScript(build, relDir);
-    if (!verdict.protected) {
-      violations.push(
-        `${relDir} (${manifest.name}) has build = ${JSON.stringify(build)}, which runs tsc into dist without ` +
-          'cleaning or pruning first. Stale artifacts from deleted sources will be snapshotted into the ' +
-          'machine-global turbo cache and resurrected on cold runs (2026-07-30 poisoning incident). Prepend ' +
-          '`node <depth>/scripts/prune-stale-dist.mjs && ` (preserves incremental builds) or a dist clean.'
-      );
-    } else if (verdict.reason.startsWith('prunes')) {
-      prunedBuilders += 1;
+    for (const [name, script] of Object.entries(manifest.scripts ?? {})) {
+      if (!BUILD_CHAIN_SCRIPT.test(name)) {
+        continue;
+      }
+      const verdict = classifyBuildScript(script, relDir);
+      if (verdict.reason === 'no emitting tsc invocation') {
+        continue;
+      }
+      emittingScripts += 1;
+      if (!verdict.protected) {
+        violations.push(
+          `${relDir} (${manifest.name}) has ${name} = ${JSON.stringify(script)}, which runs an emitting tsc ` +
+            'into dist without cleaning or pruning first. Stale artifacts from deleted sources will be ' +
+            'snapshotted into the machine-global turbo cache and resurrected on cold runs (2026-07-30 ' +
+            'poisoning incident). Prepend `node <depth>/scripts/prune-stale-dist.mjs && ` (preserves ' +
+            'incremental builds) or a dist clean. (Scope note: only build-chain scripts are scanned — the ' +
+            "`build` task's dist/** outputs are the only thing the nested turbo snapshots; an emitting tsc " +
+            'in type-check cannot create orphans or archives.)'
+        );
+      } else if (verdict.reason.startsWith('prunes')) {
+        prunedScripts += 1;
+      }
     }
   }
 
-  assert.deepEqual(violations, [], `Unguarded tsc builds:\n${violations.join('\n')}`);
+  assert.deepEqual(violations, [], `Unguarded emitting tsc invocations:\n${violations.join('\n')}`);
 
-  // Anti-vacuous-green floors: if enumeration or the tsc regex silently breaks,
-  // the loop above passes while checking nothing.
+  // Anti-vacuous-green floors: if enumeration or the emit detection silently
+  // breaks, the loop above passes while checking nothing.
   assert.ok(
-    tscBuilders >= 15,
-    `Only ${tscBuilders} tsc-building package(s) discovered (expected >= 15) — enumeration or TSC_BUILD_RE broke.`
+    emittingScripts >= 15,
+    `Only ${emittingScripts} emitting build-chain script(s) discovered (expected >= 15) — enumeration or ` +
+      'isEmittingTsc() broke.'
   );
   assert.ok(
-    prunedBuilders >= 8,
-    `Only ${prunedBuilders} package(s) wire prune-stale-dist (expected >= 8) — the guard was unwired somewhere.`
+    prunedScripts >= 8,
+    `Only ${prunedScripts} script(s) wire prune-stale-dist (expected >= 8) — the guard was unwired somewhere.`
   );
 });
 

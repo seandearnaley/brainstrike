@@ -517,22 +517,40 @@ and the next cache save immortalizes them: cold runs restore the poisoned
 archive verbatim even after local deletion, tripping `turbo boundaries`
 (2026-07-30 incident: 16 boundary issues, 125 poisoned archives purged).
 
-The guard: every package whose `build` runs `tsc -b`/`tsc --build` must either
-clean `dist` first or prepend `node <depth>/scripts/prune-stale-dist.mjs`,
-which deletes only dist artifacts whose corresponding `src/` file no longer
-exists. Pruning — not cleaning — is deliberate for the wired packages: it
-preserves incremental builds, and it is safe under concurrent builds of the
-same package (the reason agent's tsup pins `clean: false`) because a concurrent
-build only emits files that do have a source counterpart, so the prune set is
-disjoint from its writes. The pruner assumes per-file emit from `src/` into
-`dist/` with no bundler code splitting; a package that breaks that assumption
-must clean instead. `ui`'s `pnpm run clean:generated` cleans stray compiled JS
-in `src`, not `dist` — it does not satisfy this contract (ui's
-`dist/prompt-management` was a proven poisoning vector behind exactly that
-prefix). The wiring contract, pruner behavior, entrypoint controls, and the
-`turbo.jsonc` `globalDependencies` hash entry for the pruner (editing it must
-invalidate cached builds) are guarded by
-`scripts/__tests__/prune-stale-dist.test.mjs`.
+The guard: every build-chain script (`build`, `prebuild`, `postbuild`,
+`build:*`) that runs an emitting tsc (any form without `--noEmit` — `-b`,
+`--build`, `--project ... --emitDeclarationOnly`, bare `tsc`) must either
+clean `dist` first or prepend `node <depth>/scripts/prune-stale-dist.mjs`.
+The pruner resolves the package's real tsc program (tsconfig
+extends/include/exclude respected, via the TypeScript config loader) and
+deletes dist artifacts no program source would emit. Program membership — not
+filesystem existence — is the orphan test: a `dist/foo.test.js` whose
+`src/foo.test.ts` still exists but is tsconfig-excluded is an orphan (most
+wired packages exclude `**/*.test.*`, and compiled tests import vitest — the
+exact `turbo boundaries` shape). Two carve-outs: outputs of on-disk
+`.js`/`.jsx` sources outside the program are kept (bundler entries like
+file-explorer's `.worker.js`), and `.json` pruning activates only when the
+program itself contains json sources (db's `drizzle/migrations.json`) — a
+generated dist json (a `{"type":"commonjs"}` marker, a copied manifest) is
+produced, not compiled, and deleting it would not self-heal. Residual class,
+accepted: a generated dist json inside a json-compiling package.
+
+Pruning — not cleaning — is deliberate for the wired packages: it preserves
+incremental builds, and it is safe under concurrent builds of the same package
+(the reason agent's tsup pins `clean: false`) because a concurrent build only
+emits files whose sources are in the current program, so the prune set is
+disjoint from its writes. The pruner requires `tsconfig.json` with rootDir
+`src` and outDir `dist`, per-file emit, no bundler code splitting — anything
+else throws, and such a package must clean instead. `ui`'s
+`pnpm run clean:generated` cleans stray compiled JS in `src`, not `dist` — it
+does not satisfy this contract (ui's `dist/prompt-management` was a proven
+poisoning vector behind exactly that prefix). The contract scans build-chain
+scripts only: `type-check`'s emitting `tsc --build --force` (apps/web) cannot
+create orphans or archives — only `build` has `dist/**` outputs, and the prune
+before every snapshot-producing build launders dist before archiving. The
+wiring contract, pruner behavior, entrypoint controls, and the `turbo.jsonc`
+`globalDependencies` hash entry for the pruner (editing it must invalidate
+cached builds) are guarded by `scripts/__tests__/prune-stale-dist.test.mjs`.
 
 ### Agent declaration build split
 

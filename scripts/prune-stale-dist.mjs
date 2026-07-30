@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Deletes dist artifacts whose corresponding src file no longer exists.
+// Deletes dist artifacts that the package's tsc program no longer emits.
 //
 // Why this exists (2026-07-30 cache-poisoning incident): tsc's incremental
 // builder never deletes outputs of deleted sources, and several packages build
@@ -12,24 +12,43 @@
 // This script runs BEFORE tsc in those packages' build scripts. Unlike a full
 // clean it preserves incremental builds, and it is safe under CONCURRENT
 // builds of the same package (the reason packages/agent's tsup pins
-// `clean: false`): a concurrent build only emits files that DO have a source
-// counterpart, so the set pruned here is disjoint from anything it writes.
+// `clean: false`): a concurrent build only emits files whose sources are in
+// the current program, so the set pruned here is disjoint from anything it
+// writes.
 //
-// Assumed layout (uniform across every wired package, enforced by the paired
-// contract test): per-file emit from `src/` into `dist/`, no bundler code
-// splitting — every artifact maps 1:1 back to a source path. A package that
-// breaks that assumption must clean instead of prune. NO SILENT FALLBACKS:
-// a missing src/ directory is a misconfigured invocation and throws.
+// The orphan test is PROGRAM membership, not filesystem existence: the
+// package's tsconfig is resolved with the real TypeScript config loader
+// (extends/include/exclude respected), and an artifact is stale when no
+// program source would emit it. A bare "does src/<base>.ts exist" check
+// wrongly retains artifacts of sources that exist but are EXCLUDED — e.g. a
+// dist/foo.test.js left from before a `**/*.test.*` exclude landed, which is
+// exactly the vitest-importing shape that trips `turbo boundaries`.
+//
+// Two deliberate carve-outs:
+//   - Outputs of on-disk `.js`/`.jsx` sources are kept even outside the
+//     program: they are bundler entries (file-explorer's .worker.js), and
+//     pruning them would erode the concurrent-build disjointness above.
+//   - `.json` pruning activates only when the program itself contains json
+//     sources (tsc copies included json verbatim — packages/db's
+//     drizzle/migrations.json). In packages whose tsc does not own json, a
+//     dist json (a generated {"type":"commonjs"} marker, a copied manifest)
+//     is produced rather than compiled, and deleting it would not self-heal.
+//
+// Assumed layout (enforced, not assumed silently): tsconfig.json at the
+// package root with rootDir src and outDir dist, per-file emit, no bundler
+// code splitting. NO SILENT FALLBACKS: a missing src/, missing tsconfig.json,
+// or divergent rootDir/outDir throws — a package that breaks the layout must
+// clean instead of prune.
 //
 // Paired test: scripts/__tests__/prune-stale-dist.test.mjs (behavior,
 // entrypoint controls, and the repo-wide wiring contract).
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 
 // Longest-first so `foo.d.ts.map` strips as a declaration map, not a `.map`
-// suffix miss. `.json` is included because tsc copies imported src JSON into
-// dist verbatim (e.g. packages/db src/drizzle/migrations.json).
+// suffix miss.
 const ARTIFACT_SUFFIXES = [
   '.d.ts.map',
   '.d.mts.map',
@@ -46,9 +65,7 @@ const ARTIFACT_SUFFIXES = [
   '.json',
 ];
 
-// Any of these source flavors legitimizes a compiled artifact base. `.js` and
-// `.jsx` cover checked-in JS sources (e.g. file-explorer's .worker.js entry).
-const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx'];
+const PROGRAM_SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx'];
 
 /** Split a dist-relative artifact path into { base, suffix }, or null if the file is not a build artifact. */
 function splitArtifact(relPath) {
@@ -60,13 +77,84 @@ function splitArtifact(relPath) {
   return null;
 }
 
-/** True when some source file that would emit this artifact base still exists. */
-function hasSource(srcDir, artifact) {
-  if (artifact.suffix === '.json') {
-    // JSON is copied verbatim; only an identical src JSON path backs it.
-    return fs.existsSync(path.join(srcDir, `${artifact.base}.json`));
+/**
+ * Resolve the package's tsc program and reduce it to the emit-relevant view:
+ * src-relative artifact bases plus the set of src-relative json paths tsc
+ * copies verbatim.
+ */
+function resolveProgram(packageDir, srcDir, distDir) {
+  const tsconfigPath = path.join(packageDir, 'tsconfig.json');
+  if (!fs.existsSync(tsconfigPath)) {
+    throw new Error(
+      `prune-stale-dist: no tsconfig.json at ${tsconfigPath}. The orphan test is tsc-program membership; ` +
+        'without the config there is no program to consult. A package without a root tsconfig must clean ' +
+        'instead of prune.'
+    );
   }
-  return SOURCE_EXTENSIONS.some((ext) => fs.existsSync(path.join(srcDir, artifact.base + ext)));
+
+  const host = {
+    ...ts.sys,
+    onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+      throw new Error(
+        `prune-stale-dist: failed to parse ${tsconfigPath}: ${ts.flattenDiagnosticMessageText(
+          diagnostic.messageText,
+          '\n'
+        )}`
+      );
+    },
+  };
+  const parsed = ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, host);
+  if (!parsed) {
+    throw new Error(`prune-stale-dist: failed to parse ${tsconfigPath}.`);
+  }
+
+  const resolvedOutDir = parsed.options.outDir ? path.resolve(parsed.options.outDir) : null;
+  const resolvedRootDir = parsed.options.rootDir ? path.resolve(parsed.options.rootDir) : null;
+  if (resolvedOutDir !== distDir || resolvedRootDir !== srcDir) {
+    throw new Error(
+      `prune-stale-dist: ${tsconfigPath} must declare rootDir src and outDir dist (found rootDir=` +
+        `${resolvedRootDir ?? '<unset>'}, outDir=${resolvedOutDir ?? '<unset>'}). This script only ` +
+        'understands the uniform src->dist per-file layout; a divergent package must clean instead.'
+    );
+  }
+
+  const bases = new Set();
+  const jsonSources = new Set();
+  for (const fileName of parsed.fileNames) {
+    const abs = path.resolve(fileName);
+    if (!abs.startsWith(srcDir + path.sep)) {
+      continue;
+    }
+    const rel = path.relative(srcDir, abs);
+    if (rel.endsWith('.json')) {
+      jsonSources.add(rel);
+      continue;
+    }
+    const ext = PROGRAM_SOURCE_EXTENSIONS.find((candidate) => rel.endsWith(candidate));
+    if (ext) {
+      bases.add(rel.slice(0, -ext.length));
+    }
+  }
+  return { bases, jsonSources };
+}
+
+/** True when the current build would still emit this artifact. */
+function isLiveArtifact(artifact, program, srcDir) {
+  if (artifact.suffix === '.json') {
+    // Json pruning only in packages whose program owns json (see header).
+    if (program.jsonSources.size === 0) {
+      return true;
+    }
+    return program.jsonSources.has(`${artifact.base}.json`);
+  }
+  if (program.bases.has(artifact.base)) {
+    return true;
+  }
+  // Bundler entries: checked-in .js/.jsx sources outside the program (see header).
+  return (
+    fs.existsSync(path.join(srcDir, `${artifact.base}.js`)) ||
+    fs.existsSync(path.join(srcDir, `${artifact.base}.jsx`))
+  );
 }
 
 function walkFiles(root) {
@@ -105,12 +193,13 @@ export function main({ packageDir = process.cwd(), log = console.log } = {}) {
     return { deleted: [], removedDirs: [] };
   }
 
+  const program = resolveProgram(packageDir, srcDir, distDir);
   const { dirs, files } = walkFiles(distDir);
 
   const deleted = [];
   for (const abs of files) {
     const artifact = splitArtifact(path.relative(distDir, abs));
-    if (artifact === null || hasSource(srcDir, artifact)) {
+    if (artifact === null || isLiveArtifact(artifact, program, srcDir)) {
       continue;
     }
     // force:true keeps concurrent prunes of the same package idempotent — the
