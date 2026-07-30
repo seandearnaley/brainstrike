@@ -1,10 +1,12 @@
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
+  activateAppearanceThemeButton,
   activateSidebarNavigation,
   closeSettingsModal,
   contextExplorerActiveNavLocator,
   openSettingsModal,
+  waitForAppearanceSection,
   waitForAppLoad,
   waitForContextExplorerPage,
   waitForSettingsPage,
@@ -20,22 +22,6 @@ async function activateNavigationThemeToggle(
   // This keeps keyboard semantics while avoiding the nav-toggle rerender detach race.
   await themeToggle.focus();
   await page.keyboard.press('Enter');
-}
-
-async function waitForAppearanceSection(page: Page): Promise<Locator> {
-  const appearanceSection = page.getByTestId('settings-category-appearance');
-  await expect(appearanceSection).toBeVisible();
-  return appearanceSection;
-}
-
-async function activateAppearanceThemeButton(
-  page: Page,
-  label: 'Dark' | 'Light' | 'System'
-): Promise<void> {
-  const appearanceSection = await waitForAppearanceSection(page);
-  const themeButton = appearanceSection.getByRole('button', { exact: true, name: label });
-  await expect(themeButton).toBeVisible();
-  await themeButton.dispatchEvent('click');
 }
 
 test.describe('Theme Switching', () => {

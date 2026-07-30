@@ -8,9 +8,11 @@
 import { expect, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
+  activateAppearanceThemeButton,
   closeSettingsModal,
   ensureRightPanelVisible,
   openSettingsModal,
+  waitForAppearanceSection,
   waitForAppLoad,
   waitForSettingsPage,
 } from './utils/layout-helpers';
@@ -18,28 +20,19 @@ import {
 /**
  * Open Settings (the profile-launched modal — BST-1023/1024/1025: the old
  * sidebar `Settings` button was removed in #1626, so every launch routes
- * through the canonical layout-helpers flow) and land on the appearance
- * section. The modal STAYS open for the CSS-variable assertions below: they
- * read document-level computed styles, which the dialog does not affect.
+ * through the canonical layout-helpers flow) and ASSERT the appearance
+ * section is active (these specs depend on Appearance being the default
+ * category). The modal STAYS open for the CSS-variable assertions below:
+ * they read document-level computed styles, which the dialog does not
+ * affect.
  */
 async function openAppearanceSettings(page: Page): Promise<void> {
   await openSettingsModal(page);
   await waitForSettingsPage(page);
+  await waitForAppearanceSection(page);
 }
 
-/**
- * Helper to click a theme button in the settings appearance section.
- * Uses scoped selector to avoid conflicts with nav sidebar theme toggle;
- * dispatchEvent mirrors theme-switching.test.ts (a plain click can land on
- * the button's focus ring while the dialog animates).
- */
-async function clickSettingsThemeButton(page: Page, themeName: 'Light' | 'Dark' | 'System') {
-  const appearanceSection = page.getByTestId('settings-category-appearance');
-  await expect(appearanceSection).toBeVisible();
-  const themeButton = appearanceSection.getByRole('button', { exact: true, name: themeName });
-  await expect(themeButton).toBeVisible();
-  await themeButton.dispatchEvent('click');
-}
+const clickSettingsThemeButton = activateAppearanceThemeButton;
 
 async function waitForThemeApplied(page: Page, mode: 'light' | 'dark'): Promise<void> {
   const shouldBeDark = mode === 'dark';
@@ -67,7 +60,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should load CSS variables in light mode', async ({ page }) => {
-    // Switch to light mode (use settings-specific selector to avoid nav button conflict)
+    // Switch to light mode via the Settings modal's appearance section
     await openAppearanceSettings(page);
     await clickSettingsThemeButton(page, 'Light');
     await waitForThemeApplied(page, 'light');
