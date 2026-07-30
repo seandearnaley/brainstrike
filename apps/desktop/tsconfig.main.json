@@ -35,6 +35,9 @@
       "@brainstrike/assistant-service/request": [
         "../../packages/assistant-service/dist/request.d.ts"
       ],
+      "@brainstrike/assistant-service/run-turn": [
+        "../../packages/assistant-service/dist/run-turn.d.ts"
+      ],
       "@brainstrike/assistant-service/secret-errors": [
         "../../packages/assistant-service/dist/secret-errors.d.ts"
       ],

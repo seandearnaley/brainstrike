@@ -1354,7 +1354,7 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   a visible message + `run.failed` and NEVER invokes the model; additionalContext
   prepends a `system` message. The blocked branch returns an `ok:true` stream but
   carries `terminalStatus:'failed'` (+ `terminalError`) on `AgentStreamSuccess`, so
-  `streamAssistantPostResponse` persists the `thread_runs` row as `failed` — never
+  ``runAssistantTurn` (packages/assistant-service/src/run-turn.ts, since BST-972 B3)` persists the `thread_runs` row as `failed` — never
   the default `completed`, which would contradict the visible `run.failed`.
   **Stop is NOTIFY-ONLY in v1** (surface the block reason as a `hook.notice`; NO
   auto-continue). Stop is ALSO the only phase that may report a **Task Ledger

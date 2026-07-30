@@ -36,6 +36,11 @@
       "import": "./dist/request.js",
       "require": "./dist/request.js"
     },
+    "./run-turn": {
+      "types": "./dist/run-turn.d.ts",
+      "import": "./dist/run-turn.js",
+      "require": "./dist/run-turn.js"
+    },
     "./secret-errors": {
       "types": "./dist/secret-errors.d.ts",
       "import": "./dist/secret-errors.js",

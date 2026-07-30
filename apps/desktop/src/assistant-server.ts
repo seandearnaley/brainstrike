@@ -1,18 +1,8 @@
 import http from 'node:http';
-import type {
-  AgentMessage,
-  AssistantToolApprovalAction,
-  AssistantToolResumeAction,
-  RuntimeData,
-} from '@brainstrike/agent';
 import { assistantDataStreamSessions } from '@brainstrike/agent';
-import {
-  ASSISTANT_AUTH_HEADER_NAME,
-  ASSISTANT_STREAM_EVENT_ID_HEADER,
-  ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-} from '@brainstrike/assistant-contract';
-import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
+import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
+import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
 import {
   registerSteerableRun,
   unregisterSteerableRun,
@@ -56,10 +46,18 @@ import {
   resumeStreamIfAvailable,
 } from './assistant-server/stream-resume';
 import { getDatabase } from './db-main';
-import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 
 const logger = desktopAssistantServerLogger;
+
+/** RunPersistencePort adapter: the desktop status writer with db-main closed over. */
+const desktopRunPersistencePort = {
+  recordThreadRunStatus: (
+    runId: string,
+    status: 'cancelled' | 'completed' | 'failed',
+    error: string | null
+  ) => recordDesktopAssistantThreadRunStatus(runId, status, error, getDatabase),
+};
 
 export { desktopAssistantServerLogger };
 
@@ -231,22 +229,45 @@ async function handleAssistantPost(
       runtimeData.steering = registerSteerableRun(runId, executionAbortController);
       registeredSteerableRun = true;
     }
-    await streamAssistantPostResponse({
+    // Orchestration lives in the service package since B3; this transport
+    // composes the initializer (MCP config + desktop adapters closed over)
+    // and the persistence port, then pumps the returned WHATWG Response and
+    // awaits completion — the pre-B3 order exactly.
+    const turn = await runAssistantTurn({
       apiKey,
       assistantMessageId,
       executionSignal: executionAbortController.signal,
+      initializeStream: async (core) =>
+        initializeAgentStream({
+          apiKey: core.apiKey,
+          getDatabase,
+          mcpConfig: (await loadMcpConfig()).config,
+          messages: core.messages,
+          resolveProviderApiKey,
+          runId: core.runId,
+          runtimeData: core.runtimeData,
+          signal: core.signal,
+          toolApprovalAction: core.toolApprovalAction,
+          toolDependencies: {
+            embeddingHostManager: options.embeddingHostManager,
+            llmHostManager: options.llmHostManager,
+          },
+          toolResumeAction: core.toolResumeAction,
+        }),
       messages,
-      requestSignal,
-      res,
+      persistence: desktopRunPersistencePort,
       runId,
       runtimeData,
+      sessions: assistantDataStreamSessions,
       toolApprovalAction,
-      toolDependencies: {
-        embeddingHostManager: options.embeddingHostManager,
-        llmHostManager: options.llmHostManager,
-      },
       toolResumeAction,
     });
+    if (!turn.ok) {
+      respondJson(res, turn.status, turn.payload);
+      return;
+    }
+    await streamResponse(res, turn.response, requestSignal);
+    await turn.completion();
   } catch (error) {
     await handleAssistantPostStreamError({
       error,
@@ -293,85 +314,4 @@ async function handleAssistantPostStreamError({
     error: 'assistant_stream_failed',
     message: 'Assistant stream failed.',
   });
-}
-
-async function streamAssistantPostResponse({
-  res,
-  messages,
-  runtimeData,
-  apiKey,
-  assistantMessageId,
-  executionSignal,
-  requestSignal,
-  runId,
-  toolApprovalAction,
-  toolResumeAction,
-  toolDependencies,
-}: {
-  readonly res: http.ServerResponse;
-  readonly messages: AgentMessage[];
-  readonly runtimeData: RuntimeData;
-  readonly apiKey: string | undefined;
-  readonly assistantMessageId: string | undefined;
-  readonly executionSignal: AbortSignal;
-  readonly requestSignal: AbortSignal;
-  readonly runId: string | undefined;
-  readonly toolApprovalAction?: AssistantToolApprovalAction | undefined;
-  readonly toolResumeAction?: AssistantToolResumeAction | undefined;
-  readonly toolDependencies: {
-    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
-    readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
-  };
-}): Promise<void> {
-  const mcpConfig = (await loadMcpConfig()).config;
-  const streamResult = await initializeAgentStream({
-    apiKey,
-    getDatabase,
-    mcpConfig,
-    messages,
-    resolveProviderApiKey,
-    runId,
-    runtimeData,
-    signal: executionSignal,
-    toolApprovalAction,
-    toolDependencies,
-    toolResumeAction,
-  });
-  if (!streamResult.ok) {
-    if (runId) {
-      await recordDesktopAssistantThreadRunStatus(
-        runId,
-        'failed',
-        streamResult.payload.message,
-        getDatabase
-      );
-    }
-    respondJson(res, streamResult.status, streamResult.payload);
-    return;
-  }
-
-  const session = assistantDataStreamSessions.create(streamResult.stream, {
-    ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
-  });
-  const response = session.createResponse({
-    headers: {
-      [ASSISTANT_STREAM_EVENT_ID_HEADER]: `${session.id}:-1`,
-      [ASSISTANT_STREAM_MESSAGE_ID_HEADER]: session.messageId,
-    },
-  });
-  await streamResponse(res, response, requestSignal);
-  await session.whenClosed();
-  if (runId) {
-    const sessionOutcome = session.getTerminalOutcome();
-    await recordDesktopAssistantThreadRunStatus(
-      runId,
-      executionSignal.aborted
-        ? 'cancelled'
-        : (streamResult.terminalStatus ?? sessionOutcome.status),
-      executionSignal.aborted
-        ? 'Assistant run canceled by user.'
-        : (streamResult.terminalError ?? sessionOutcome.error),
-      getDatabase
-    );
-  }
 }

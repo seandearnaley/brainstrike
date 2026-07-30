@@ -11,7 +11,14 @@
  * satisfies it structurally (the pre-B1 `Pick<LlmHostManager, ...>` alias
  * asserted the same compatibility from the desktop side).
  */
+import type {
+  AgentMessage,
+  AssistantToolApprovalAction,
+  AssistantToolResumeAction,
+  RuntimeData,
+} from '@brainstrike/agent';
 import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
+import type { AgentStreamResult } from './types.js';
 
 type LocalLlmGenerateArgs = Parameters<LocalLlmHostClient['generate']>;
 type LocalLlmWarmupArgs = Parameters<LocalLlmHostClient['warmup']>;
@@ -62,3 +69,42 @@ export function createMainLlmHostClient(manager: AssistantLlmHostManager): Local
  * resolveProviderApiKey verbatim.
  */
 export type ProviderApiKeyReader = (provider: string) => Promise<string | undefined>;
+
+/**
+ * Stream-initializer capability (BST-972 B3): produce the turn's
+ * AgentStreamResult from the prepared request core. Injected so
+ * runAssistantTurn moves BEFORE the initializer implementation does — the
+ * desktop composes agent-stream-init (with its MCP-config load, tool floor,
+ * and memory factory closed over) until B4 moves that engine too.
+ */
+export type StreamInitializer = (params: {
+  readonly apiKey: string | undefined;
+  readonly messages: AgentMessage[];
+  readonly runId: string | undefined;
+  readonly runtimeData: RuntimeData;
+  readonly signal: AbortSignal;
+  readonly toolApprovalAction?: AssistantToolApprovalAction | undefined;
+  readonly toolResumeAction?: AssistantToolResumeAction | undefined;
+}) => Promise<AgentStreamResult>;
+
+/**
+ * RunPersistencePort (partial, BST-972 B3): terminal run-row status. The
+ * desktop adapter is run-persistence.ts's recordDesktopAssistantThreadRunStatus
+ * with db-main's getDatabase closed over; failures are logged there, never
+ * thrown (the write is bookkeeping relative to the served turn).
+ *
+ * PROVENANCE RULE (docs/agents/assistant-persistence.md, settled 2026-07-24 —
+ * carried onto this port deliberately): the run relations are created ONLY by
+ * the renderer's bootstrap, and holding a runId implies they exist because
+ * repository.createThreadRun is the sole minting site. ANY new producer that
+ * mints runIds — an in-process caller of this service is exactly the "second
+ * producer" hazard that section names — must guarantee that schema bootstrap
+ * itself before its first write.
+ */
+export interface RunPersistencePort {
+  readonly recordThreadRunStatus: (
+    runId: string,
+    status: 'cancelled' | 'completed' | 'failed',
+    error: string | null
+  ) => Promise<void>;
+}
