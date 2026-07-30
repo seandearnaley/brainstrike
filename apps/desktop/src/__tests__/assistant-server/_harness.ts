@@ -5,8 +5,10 @@
  * Deliberately contains NO `vi.mock` calls and imports NO production module:
  * `vi.mock(<literal path>)` CALL SITES are hoisted per-importing-module by
  * the Vite transform, so they cannot live here — each test file declares its
- * own (factory BODIES could be shared from a non-.test module, since
- * factories run lazily after hoisting; tracked as a BST-1028 follow-up) — and
+ * own; the factory BODIES are shared from _assistant-server-mocks.ts
+ * (BST-1029), reached via a vi.hoisted dynamic-import accessor because the
+ * hoisted calls evaluate their arguments before static imports initialize —
+ * and
  * taking the request handler as a parameter keeps this file outside every
  * mocked graph. The `_`-prefixed name carries no `.test.` segment, so neither
  * vitest lane collects it as a suite.
