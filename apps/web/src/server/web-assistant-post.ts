@@ -1,0 +1,159 @@
+import type { StreamChunk } from '@brainstrike/agent/hosted-web';
+import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
+import type { AssistantRejectionPayload } from '@brainstrike/assistant-service/types';
+import type { ScopedLogger } from '@brainstrike/utils/logger';
+import {
+  resolveAssistantProviderConfig,
+  resolveAssistantProviderConfigs,
+} from './assistant-config';
+import {
+  describeWebAssistantInputError,
+  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
+} from './web-assistant-request';
+import {
+  filterWebAssistantBodyText,
+  InvalidWebAssistantRuntimeDataError,
+} from './web-assistant-runtime';
+import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream';
+
+export interface WebAssistantPostRejection {
+  readonly kind: 'rejection';
+  readonly payload: AssistantRejectionPayload;
+  readonly status: number;
+}
+
+export type WebAssistantPostOutcome =
+  | WebAssistantPostRejection
+  | { readonly kind: 'stream'; readonly stream: AsyncIterable<StreamChunk> };
+
+/**
+ * The ONE Hosted Web assistant POST decision path (BST-973-2, Sean's ruling:
+ * "if the web stuff can converge, it should"). Both web transports — the
+ * deployed Vercel function (`app/api/assistant/route.ts`) and the Vite
+ * dev/preview middleware (`assistant-stream-helpers.ts`) — consume this, so
+ * dev and prod cannot drift apart on wire semantics.
+ *
+ * Flow, with what stays web-specific named:
+ *   1. no keys configured at all -> 503 assistant_disabled — server state,
+ *      ahead of request semantics;
+ *   2. the allow-list PRE-FILTER — web's trust boundary, kept: unsupported
+ *      data fields still 400 invalid_runtime_data, and non-hosted or
+ *      unconfigured providers are rejected here because the shared
+ *      preparation waves keyless local-server providers through;
+ *   3. the SHARED prepareAssistantPostRequest with the env-key reader — this
+ *      is the convergence: absent provider now 400 missing_provider (the old
+ *      web-only default-provider fallback is gone), and rejection shapes and
+ *      ordering match desktop;
+ *   4. tool approval/resume -> 409 — ARCHITECTURAL (no durable workflow
+ *      storage on stateless hosting), checked after preparation like desktop
+ *      checks them;
+ *   5. the stateless stream (no sessions, no persistence — the run-turn half
+ *      stays desktop-only until durable storage exists).
+ *
+ * Transport-owned and NOT here: the bounded body read (413) and the
+ * `last-event-id` -> 409 replay rejection, both of which touch the raw
+ * request object each transport holds.
+ */
+export async function runWebAssistantPost(params: {
+  readonly bodyText: string;
+  /** Injected so each transport keeps its scope-cached logger identity. */
+  readonly logger: ScopedLogger;
+  readonly signal?: AbortSignal;
+}): Promise<WebAssistantPostOutcome> {
+  const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
+  if (configuredProviders.length === 0) {
+    return {
+      kind: 'rejection',
+      payload: { error: 'assistant_disabled', reason: 'missing_api_key' },
+      status: 503,
+    };
+  }
+
+  let filteredBodyText: string;
+  try {
+    filteredBodyText = filterWebAssistantBodyText(
+      params.bodyText,
+      configuredProviders.map((config) => config.provider)
+    );
+  } catch (error) {
+    const rejection = describeWebAssistantRejection(error);
+    if (!rejection) {
+      throw error;
+    }
+    return rejection;
+  }
+
+  const prepared = await prepareAssistantPostRequest({
+    logger: params.logger,
+    readBody: async () => filteredBodyText,
+    resolveProviderApiKey: async (provider) =>
+      configuredProviders.find((config) => config.provider === provider)?.apiKey,
+  });
+  if (!prepared.ok) {
+    // Destructuring drops closeConnection EXPLICITLY: the 413 path is
+    // unreachable here (each transport bounds the body before this runs), and
+    // stateless/managed hosts have no connection to instruct.
+    return {
+      kind: 'rejection',
+      payload: prepared.rejection.payload,
+      status: prepared.rejection.status,
+    };
+  }
+
+  if (prepared.request.toolApprovalAction) {
+    return {
+      kind: 'rejection',
+      payload: {
+        error: 'tool_approval_unavailable',
+        message: 'Hosted Web tool approval requires durable workflow storage.',
+      },
+      status: 409,
+    };
+  }
+  if (prepared.request.toolResumeAction) {
+    return {
+      kind: 'rejection',
+      payload: {
+        error: 'tool_resume_unavailable',
+        message: 'Hosted Web tool resume requires durable workflow storage.',
+      },
+      status: 409,
+    };
+  }
+
+  try {
+    const stream = await buildWebAssistantStreamFromPrepared({
+      agentMessages: prepared.request.messages,
+      apiKey: prepared.request.apiKey,
+      runtimeData: prepared.request.runtimeData,
+      ...(params.signal ? { signal: params.signal } : {}),
+    });
+    return { kind: 'stream', stream };
+  } catch (error) {
+    const rejection = describeWebAssistantRejection(error);
+    if (rejection) {
+      return rejection;
+    }
+    params.logger.error('Failed to initialize assistant stream', { error });
+    return {
+      kind: 'rejection',
+      payload: WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload,
+      status: WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
+    };
+  }
+}
+
+function describeWebAssistantRejection(error: unknown): WebAssistantPostRejection | undefined {
+  const inputError = describeWebAssistantInputError(error);
+  if (inputError) {
+    return { kind: 'rejection', payload: inputError.payload, status: inputError.status };
+  }
+  if (error instanceof InvalidWebAssistantRuntimeDataError) {
+    return {
+      kind: 'rejection',
+      payload: { error: 'invalid_runtime_data', message: error.message },
+      status: 400,
+    };
+  }
+  return;
+}

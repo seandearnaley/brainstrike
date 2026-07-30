@@ -52,7 +52,7 @@ vi.mock('../server/assistant-config', async () => {
 
 // The handler builds normal stateless hosted-Web turns through this seam.
 vi.mock('../server/web-assistant-stream', () => ({
-  buildWebAssistantStream: vi.fn(),
+  buildWebAssistantStreamFromPrepared: vi.fn(),
 }));
 
 import type { AssistantDataStreamSession, RuntimeData, StreamChunk } from '@brainstrike/agent';
@@ -73,11 +73,8 @@ import {
   sendAssistantStatusResponse,
 } from '../assistant-stream-helpers';
 import { resolveAssistantProviderConfig } from '../server/assistant-config';
-import {
-  InvalidWebAssistantRuntimeDataError,
-  resolveWebAssistantRuntime,
-} from '../server/web-assistant-runtime';
-import { buildWebAssistantStream } from '../server/web-assistant-stream';
+import { InvalidWebAssistantRuntimeDataError } from '../server/web-assistant-runtime';
+import { buildWebAssistantStreamFromPrepared } from '../server/web-assistant-stream';
 
 class ResponseSink extends EventEmitter {
   status?: number;
@@ -108,6 +105,7 @@ function requestBody(value: unknown): string {
 }
 
 const NORMAL_ASSISTANT_REQUEST_BODY = requestBody({
+  data: { provider: 'openai' },
   messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
 });
 
@@ -316,13 +314,13 @@ describe('assistant-stream-helpers', () => {
     });
     expect(resolveDataStreamSession).not.toHaveBeenCalled();
     expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
   it('returns 502 when streaming initialization fails', async () => {
     mockOpenAiAssistantProvider();
-    vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockRejectedValue(new Error('boom'));
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
@@ -332,6 +330,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       })
     );
@@ -345,7 +344,7 @@ describe('assistant-stream-helpers', () => {
 
   it('returns 400 when assistant data contains a server-only runtime field', async () => {
     mockOpenAiAssistantProvider();
-    vi.mocked(buildWebAssistantStream).mockRejectedValue(
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockRejectedValue(
       new InvalidWebAssistantRuntimeDataError('mcpConfig')
     );
 
@@ -378,7 +377,7 @@ describe('assistant-stream-helpers', () => {
       },
     };
 
-    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(stream);
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(new Response('ok'));
 
     const req = new EventEmitter() as http.IncomingMessage;
@@ -389,6 +388,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       })
     );
@@ -404,9 +404,9 @@ describe('assistant-stream-helpers', () => {
         yield { type: 'text-delta', value: 'hello' } as StreamChunk;
       },
     };
-    let resolvedRuntime: RuntimeData | undefined;
-    vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
-      resolvedRuntime = resolveWebAssistantRuntime(params.data, params.apiKey);
+    let receivedRuntime: RuntimeData | undefined;
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementation(async (params) => {
+      receivedRuntime = params.runtimeData;
       return stream;
     });
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(new Response('ok'));
@@ -419,6 +419,7 @@ describe('assistant-stream-helpers', () => {
       res as unknown as http.ServerResponse,
       requestBody({
         data: {
+          provider: 'openai',
           transportImageElision: {
             elidedImageBytes: 5_242_880,
             elidedImageCount: 1,
@@ -433,10 +434,10 @@ describe('assistant-stream-helpers', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(resolvedRuntime).toEqual({
-      apiKey: 'key',
-      provider: 'openai',
-    });
+    expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: 'key' })
+    );
+    expect(receivedRuntime).toEqual({ provider: 'openai' });
   });
 
   it('fails closed for a valid tool approval action in stateless Vite', async () => {
@@ -456,6 +457,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [{ id: '1', parts: [], role: 'user' }],
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
       })
@@ -466,8 +468,10 @@ describe('assistant-stream-helpers', () => {
       error: 'tool_approval_unavailable',
       message: 'Hosted Web tool approval requires durable workflow storage.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
@@ -488,6 +492,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [],
         runConfig: { custom: { [TOOL_SUSPEND_RUN_CONFIG_KEY]: resumeAction } },
       })
@@ -498,8 +503,10 @@ describe('assistant-stream-helpers', () => {
       error: 'tool_resume_unavailable',
       message: 'Hosted Web tool resume requires durable workflow storage.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
@@ -562,8 +569,10 @@ describe('assistant-stream-helpers', () => {
       message:
         'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
@@ -624,8 +633,10 @@ describe('assistant-stream-helpers', () => {
       message:
         'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
@@ -668,7 +679,7 @@ describe('assistant-stream-helpers', () => {
       message:
         'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('streams chat response as JSON lines when provider is enabled', async () => {
@@ -781,6 +792,7 @@ describe('assistant-stream-helpers', () => {
 
     await handleChatEndpoint(
       requestBody({
+        data: { provider: 'openai' },
         messages: [
           {
             id: 'image-only',
@@ -918,13 +930,14 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [{ id: 'empty-1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
       })
     );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('accepts an image-only user turn on the Vite assistant route', async () => {
@@ -934,7 +947,7 @@ describe('assistant-stream-helpers', () => {
         yield { type: 'text-delta', value: 'a tiny image' } as StreamChunk;
       },
     };
-    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(stream);
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(new Response('ok'));
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {};
@@ -944,6 +957,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [
           {
             id: 'image-only',
@@ -961,7 +975,7 @@ describe('assistant-stream-helpers', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+    expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         agentMessages: [
           {
@@ -1009,12 +1023,12 @@ describe('assistant-stream-helpers', () => {
     await handleAssistantEndpoint(
       req,
       res as unknown as http.ServerResponse,
-      requestBody({ messages })
+      requestBody({ data: { provider: 'openai' }, messages })
     );
 
     expect(res.status).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: 'empty_prompt' });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns typed 400 for a deeply nested chat message graph', async () => {
@@ -1070,7 +1084,7 @@ describe('assistant-stream-helpers', () => {
       message: 'Assistant attachment payload is invalid.',
       reason: 'unsupported-media-type',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns typed invalid_attachment for an empty image on the Vite route', async () => {
@@ -1106,7 +1120,7 @@ describe('assistant-stream-helpers', () => {
       message: 'Assistant attachment payload is invalid.',
       reason: 'invalid-base64',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -1153,7 +1167,7 @@ describe('assistant-stream-helpers', () => {
     });
     expect(resolveDataStreamSession).not.toHaveBeenCalled();
     expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
@@ -1166,7 +1180,7 @@ describe('assistant-stream-helpers', () => {
       },
     };
 
-    vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(stream);
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
       new Response('fresh-session')
     );
@@ -1179,6 +1193,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       })
     );
@@ -1190,7 +1205,7 @@ describe('assistant-stream-helpers', () => {
 
   it('calls res.end() when response body is null', async () => {
     mockOpenAiAssistantProvider();
-    vi.mocked(buildWebAssistantStream).mockResolvedValue(
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(
       (async function* stream() {})() as AsyncIterable<StreamChunk>
     );
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
@@ -1207,6 +1222,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       })
     );
@@ -1228,7 +1244,7 @@ describe('assistant-stream-helpers', () => {
     });
     const response = new Response(bodyStream, { status: 200 });
 
-    vi.mocked(buildWebAssistantStream).mockResolvedValue(
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(
       (async function* stream() {})() as AsyncIterable<StreamChunk>
     );
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(response);
@@ -1253,6 +1269,7 @@ describe('assistant-stream-helpers', () => {
       req,
       res as unknown as http.ServerResponse,
       requestBody({
+        data: { provider: 'openai' },
         messages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       })
     );
@@ -1279,7 +1296,7 @@ describe('assistant-stream-helpers', () => {
       });
       req.resume();
 
-      vi.mocked(buildWebAssistantStream).mockImplementationOnce(async ({ signal }) => {
+      vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementationOnce(async ({ signal }) => {
         runtimeSignal = signal;
         await requestClosed;
         return (async function* stream() {})() as AsyncIterable<StreamChunk>;
@@ -1327,7 +1344,7 @@ describe('assistant-stream-helpers', () => {
       req.once('close', () => {
         requestWasComplete = req.complete;
       });
-      vi.mocked(buildWebAssistantStream).mockImplementationOnce(async ({ signal }) => {
+      vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementationOnce(async ({ signal }) => {
         if (!signal) {
           throw new Error('Expected the Hosted Web runtime to receive a cancellation signal.');
         }
@@ -1425,10 +1442,12 @@ describe('assistant-stream-helpers', () => {
           resolveResponseClose();
         });
 
-        vi.mocked(buildWebAssistantStream).mockImplementationOnce(async ({ signal }) => {
-          runtimeSignal = signal;
-          return (async function* stream() {})() as AsyncIterable<StreamChunk>;
-        });
+        vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementationOnce(
+          async ({ signal }) => {
+            runtimeSignal = signal;
+            return (async function* stream() {})() as AsyncIterable<StreamChunk>;
+          }
+        );
         vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValueOnce(
           new Response(
             new ReadableStream<Uint8Array>({

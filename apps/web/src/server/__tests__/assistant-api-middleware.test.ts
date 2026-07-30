@@ -432,6 +432,9 @@ describe('assistant API middleware request body limit', () => {
       },
     ],
   ] as const)('returns the canonical envelope error in %s for %s', async (mode, url, body, expected) => {
+    // Convergence (BST-973-2): the assistant path's 503 server-config gate now
+    // precedes validation, so a configured provider is needed to reach the 400s.
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const middleware = createAssistantApiMiddleware(mode);
     const req = createRequest({});
     req.url = url;
@@ -473,6 +476,7 @@ describe('assistant API middleware request body limit', () => {
   });
 
   it('returns typed 400 for a malformed assistant message id', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const middleware = createAssistantApiMiddleware('dev');
     const req = createRequest({});
     req.url = '/api/assistant';

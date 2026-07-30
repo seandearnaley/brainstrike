@@ -1,159 +1,59 @@
-import type { AgentMessage, StreamChunk } from '@brainstrike/agent/hosted-web';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   createStatelessAssistantDataStreamResponse,
   readRequestBodyText,
 } from '@brainstrike/agent/hosted-web';
-import {
-  createAssistantRejectionResponse,
-  ASSISTANT_JSON_ERROR_HEADERS as JSON_ERROR_HEADERS,
-} from '@brainstrike/assistant-service/http';
+import { createAssistantRejectionResponse } from '@brainstrike/assistant-service/http';
 import { createLogger } from '@brainstrike/utils/logger';
-import {
-  resolveAssistantProviderConfig,
-  resolveAssistantProviderConfigs,
-} from '../../../server/assistant-config';
 import { resolveWebAssistantRequestBodyLimitBytes } from '../../../server/web-assistant-body-limit';
+import { runWebAssistantPost } from '../../../server/web-assistant-post';
 import {
   describeWebAssistantInputError,
-  resolveWebAssistantTurn,
-  WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
   WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
-  type WebAssistantInputError,
 } from '../../../server/web-assistant-request';
-import {
-  InvalidWebAssistantRuntimeDataError,
-  resolveWebAssistantProviderConfig,
-} from '../../../server/web-assistant-runtime';
-import { buildWebAssistantStream } from '../../../server/web-assistant-stream';
 
 const logger = createLogger('WebAssistantRoute');
 const assistantRequestBodyLimitBytes = resolveWebAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
 
+/**
+ * Hosted Web assistant route: the WHATWG transport shell over the converged
+ * decision core in `web-assistant-post.ts` (BST-973-2). This file owns only
+ * what touches the raw Request:
+ *   - the bounded body read (web's clamped limit -> 413);
+ *   - `last-event-id` -> 409 — ARCHITECTURAL: stateless streams cannot replay
+ *     across Vercel instances;
+ * everything else — 503 gate, allow-list pre-filter, the SHARED
+ * prepareAssistantPostRequest, tool-continuation 409s, stream construction —
+ * is the core, shared byte-for-byte with the dev/preview middleware.
+ */
 export async function POST(req: Request): Promise<Response> {
   let bodyText: string;
   try {
-    bodyText = await readAssistantRequestBodyText(req);
+    bodyText = await readRequestBodyText(req, assistantRequestBodyLimitBytes);
   } catch (error) {
-    return createAssistantRequestReadErrorResponse(error);
+    const inputError = describeWebAssistantInputError(error);
+    if (!inputError) {
+      throw error;
+    }
+    return createAssistantRejectionResponse(inputError);
   }
 
   const lastEventId = req.headers.get('last-event-id');
   if (lastEventId) {
-    return jsonError(
-      409,
-      WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE.error,
-      WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE.message
-    );
-  }
-
-  let turn: ReturnType<typeof resolveWebAssistantTurn>;
-  try {
-    turn = resolveWebAssistantTurn(bodyText);
-  } catch (error) {
-    return createAssistantRequestReadErrorResponse(error);
-  }
-  if (turn.toolApprovalAction) {
-    return jsonError(
-      409,
-      'tool_approval_unavailable',
-      'Hosted Web tool approval requires durable workflow storage.'
-    );
-  }
-  if (turn.toolResumeAction) {
-    return jsonError(
-      409,
-      'tool_resume_unavailable',
-      'Hosted Web tool resume requires durable workflow storage.'
-    );
-  }
-
-  const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
-  if (configuredProviders.length === 0) {
-    return new Response(
-      JSON.stringify({
-        error: 'assistant_disabled',
-        reason: 'missing_api_key',
-      }),
-      {
-        headers: JSON_ERROR_HEADERS,
-        status: 503,
-      }
-    );
-  }
-
-  let provider: ReturnType<typeof resolveWebAssistantProviderConfig>;
-  try {
-    provider = resolveWebAssistantProviderConfig(turn.payload.data, configuredProviders);
-  } catch (error) {
-    return createAssistantExecutionErrorResponse(error);
-  }
-
-  try {
-    const agentStream = await initializeAssistantStream({
-      agentMessages: turn.agentMessages,
-      apiKey: provider.apiKey,
-      data: turn.payload.data,
-      provider: provider.provider,
-      signal: req.signal,
+    return createAssistantRejectionResponse({
+      payload: WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
+      status: 409,
     });
-    return createStatelessAssistantDataStreamResponse(agentStream);
-  } catch (error) {
-    return createAssistantExecutionErrorResponse(error);
   }
-}
 
-function jsonError(status: number, error: string, message?: string): Response {
-  return new Response(JSON.stringify(message ? { error, message } : { error }), {
-    headers: JSON_ERROR_HEADERS,
-    status,
-  });
-}
-
-async function readAssistantRequestBodyText(req: Request): Promise<string> {
-  return await readRequestBodyText(req, assistantRequestBodyLimitBytes);
-}
-
-function createAssistantRequestReadErrorResponse(error: unknown): Response {
-  const inputError = describeWebAssistantInputError(error);
-  if (inputError) {
-    return createAssistantInputErrorResponse(inputError);
+  const outcome = await runWebAssistantPost({ bodyText, logger, signal: req.signal });
+  if (outcome.kind === 'rejection') {
+    return createAssistantRejectionResponse({
+      payload: outcome.payload,
+      status: outcome.status,
+    });
   }
-  throw error;
-}
-
-function createAssistantInputErrorResponse(error: WebAssistantInputError): Response {
-  // Shared WHATWG mapper (BST-973): WebAssistantInputError is a strict
-  // subtype of the service's rejection shape, and the mapper's headers are
-  // this route's previous literal — wire bytes unchanged.
-  return createAssistantRejectionResponse(error);
-}
-
-async function initializeAssistantStream(options: {
-  agentMessages: AgentMessage[];
-  apiKey: string;
-  data: unknown;
-  provider: ReturnType<typeof resolveWebAssistantProviderConfig>['provider'];
-  signal: AbortSignal;
-}): Promise<AsyncIterable<StreamChunk>> {
-  // The seam admits only explicit request metadata. Hosted Web has no tool
-  // registry, so permission-policy and server-only runtime fields fail visibly.
-  return await buildWebAssistantStream(options);
-}
-
-function createAssistantExecutionErrorResponse(error: unknown): Response {
-  const inputError = describeWebAssistantInputError(error);
-  if (inputError) {
-    return createAssistantInputErrorResponse(inputError);
-  }
-  if (error instanceof InvalidWebAssistantRuntimeDataError) {
-    return jsonError(400, 'invalid_runtime_data', error.message);
-  }
-  logger.error('Failed to initialize assistant stream', { error });
-  return new Response(JSON.stringify(WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload), {
-    headers: JSON_ERROR_HEADERS,
-    status: WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
-  });
+  return createStatelessAssistantDataStreamResponse(outcome.stream);
 }
