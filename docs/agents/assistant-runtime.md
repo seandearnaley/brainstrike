@@ -671,7 +671,7 @@ Proofs: `command-session-manager.test.ts` (scoping, cursors/gaps, retention,
 stdin, typed failures, startup-abort/dispose races, stuck-PTY settlement) and
 `command-session-manager.integration.test.ts` (real PTY HTTP server survival,
 natural non-zero exit, and leader/descendant reaping), plus the command-session
-cases in `assistant-tools.integration.test.ts` (transcript redaction, UTF-8
+cases in `assistant-tools-read.integration.test.ts` (transcript redaction, UTF-8
 result ceilings, manager/tool continuation composition, and surrogate-safe
 paging).
 
@@ -903,7 +903,7 @@ Diagnostics run OUTSIDE the per-file write lock (a language-server round-trip
 must not extend the write's critical section). Proofs:
 `lsp-diagnostics.integration.test.ts` (real subprocess: diagnostics,
 pooling, no-orphan dispose, honest degrade) + the `post-edit LSP diagnostics`
-cases in `assistant-tools.integration.test.ts`. When changing this flow, update
+cases in `assistant-tools-multiroot-and-gating.integration.test.ts`. When changing this flow, update
 this section and those tests.
 
 ---

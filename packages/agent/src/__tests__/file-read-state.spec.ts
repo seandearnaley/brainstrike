@@ -7,7 +7,7 @@
  * keyed by scope (threadId) + canonical absolute path. The desktop edit tools
  * stat the file at write time and refuse when the recorded observation no
  * longer matches disk — the classic lost-update guard. The fs compare itself is
- * proved in assistant-tools.integration.test.ts; this spec pins the state
+ * proved in assistant-tools-write.integration.test.ts; this spec pins the state
  * semantics (record/read-back, scope isolation, bounded size, reset).
  */
 import { beforeEach, describe, expect, it } from 'vitest';
