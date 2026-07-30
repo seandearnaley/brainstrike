@@ -12,23 +12,22 @@ vi.mock('@brainstrike/agent/hosted-web', async () => {
 });
 
 import { toAiSdkStyleStream } from '@brainstrike/agent/hosted-web';
-import { buildWebAssistantStream } from '../web-assistant-stream';
+import { buildWebAssistantStreamFromPrepared } from '../web-assistant-stream';
 
-describe('buildWebAssistantStream', () => {
+describe('buildWebAssistantStreamFromPrepared', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('builds a request-scoped stream without workflow storage', async () => {
+  it('re-attaches the separately-carried apiKey and signal to the prepared runtime', async () => {
     const stream = (async function* stream(): AsyncIterable<StreamChunk> {})();
     vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
     const signal = new AbortController().signal;
 
-    const result = await buildWebAssistantStream({
+    const result = await buildWebAssistantStreamFromPrepared({
       agentMessages: [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       apiKey: 'server-key',
-      data: undefined,
-      provider: 'openai',
+      runtimeData: { provider: 'openai' },
       signal,
     });
 
@@ -36,12 +35,27 @@ describe('buildWebAssistantStream', () => {
     expect(toAiSdkStyleStream).toHaveBeenCalledOnce();
     expect(toAiSdkStyleStream).toHaveBeenCalledWith(
       [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-      expect.objectContaining({
+      {
         apiKey: 'server-key',
         provider: 'openai',
         signal,
-      })
+      }
     );
-    expect(vi.mocked(toAiSdkStyleStream).mock.calls[0]).toHaveLength(2);
+  });
+
+  it('omits signal from the runtime when none is provided', async () => {
+    const stream = (async function* stream(): AsyncIterable<StreamChunk> {})();
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
+
+    await buildWebAssistantStreamFromPrepared({
+      agentMessages: [],
+      apiKey: 'server-key',
+      runtimeData: { provider: 'openai' },
+    });
+
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith([], {
+      apiKey: 'server-key',
+      provider: 'openai',
+    });
   });
 });

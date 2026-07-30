@@ -174,8 +174,20 @@
     model, generation, loop, MCP, and enabled-tool fields are wire-compatibility
     hints only and are never copied into that trusted runtime. The provider field
     is the sole exception: it is copied only after exact membership validation
-    against the server-configured Hosted Web provider set.
-    `resolveWebAssistantRuntime` copies an explicit allowlist of non-privileged
+    against the server-configured Hosted Web provider set — and since the
+    BST-973-2 convergence it is REQUIRED on assistant turns. Both Hosted Web
+    transports (the Vercel function and the Vite dev/preview middleware) run one
+    converged decision core (`runWebAssistantPost` in
+    `apps/web/src/server/web-assistant-post.ts`, which applies the allow-list
+    pre-filter `filterWebAssistantBodyText` and then the SHARED
+    `prepareAssistantPostRequest` from `@brainstrike/assistant-service`), so a
+    request that names no `data.provider` is rejected `missing_provider` /
+    HTTP 400 exactly like desktop — the old web-only default-provider fallback
+    is gone, and the 503 server-config gate precedes request validation. Do not
+    reintroduce a fallback in either transport; the shared renderer always
+    names its provider.
+    `resolveWebAssistantRuntime` (still the chat endpoint's boundary) and the
+    assistant pre-filter copy an explicit allowlist of non-privileged
     request metadata only after strict runtime validation of every value,
     including bounded strings, arrays, numbers, and strict nested objects.
     Malformed known fields and server-only, capability-inapplicable, or unknown

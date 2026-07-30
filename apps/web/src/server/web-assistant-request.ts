@@ -1,9 +1,4 @@
-import type {
-  AgentMessage,
-  AssistantRequestPayload,
-  AssistantToolApprovalAction,
-  AssistantToolResumeAction,
-} from '@brainstrike/agent/hosted-web';
+import type { AgentMessage, AssistantRequestPayload } from '@brainstrike/agent/hosted-web';
 import {
   AssistantAttachmentValidationError,
   AssistantInvalidJsonError,
@@ -13,8 +8,6 @@ import {
   convertAssistantUiMessagesWithFinalInput,
   hasAssistantPromptContent,
   parseAssistantRequestPayloadText,
-  readToolApprovalRunConfigAction,
-  readToolResumeRunConfigAction,
 } from '@brainstrike/agent/hosted-web';
 
 export interface WebAssistantInputError {
@@ -44,42 +37,12 @@ export interface WebAssistantNormalTurn {
   payload: AssistantRequestPayload;
 }
 
-export interface WebAssistantTurn extends WebAssistantNormalTurn {
-  toolApprovalAction?: AssistantToolApprovalAction;
-  toolResumeAction?: AssistantToolResumeAction;
-}
-
 export class EmptyAssistantPromptError extends Error {
   constructor() {
     super(
       'Assistant request must end with user prompt content: non-empty text or a validated image attachment.'
     );
     this.name = 'EmptyAssistantPromptError';
-  }
-}
-
-export class InvalidToolApprovalActionError extends Error {
-  constructor() {
-    super(
-      'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.'
-    );
-    this.name = 'InvalidToolApprovalActionError';
-  }
-}
-
-export class InvalidToolResumeActionError extends Error {
-  constructor() {
-    super(
-      'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.'
-    );
-    this.name = 'InvalidToolResumeActionError';
-  }
-}
-
-export class ConflictingToolContinuationActionsError extends Error {
-  constructor() {
-    super('Assistant request must contain at most one tool continuation action.');
-    this.name = 'ConflictingToolContinuationActionsError';
   }
 }
 
@@ -96,28 +59,6 @@ function resolveNormalTurn(payload: AssistantRequestPayload): WebAssistantNormal
 
 export function resolveWebAssistantChatTurn(bodyText: string): WebAssistantNormalTurn {
   return resolveNormalTurn(parseAssistantRequestPayloadText(bodyText));
-}
-
-export function resolveWebAssistantTurn(bodyText: string): WebAssistantTurn {
-  const payload = parseAssistantRequestPayloadText(bodyText);
-  const approvalResult = readToolApprovalRunConfigAction(payload.runConfig);
-  if (approvalResult && 'invalid' in approvalResult) {
-    throw new InvalidToolApprovalActionError();
-  }
-  const resumeResult = readToolResumeRunConfigAction(payload.runConfig);
-  if (resumeResult && 'invalid' in resumeResult) {
-    throw new InvalidToolResumeActionError();
-  }
-  if (approvalResult?.action && resumeResult?.action) {
-    throw new ConflictingToolContinuationActionsError();
-  }
-  if (approvalResult?.action) {
-    return { agentMessages: [], payload, toolApprovalAction: approvalResult.action };
-  }
-  if (resumeResult?.action) {
-    return { agentMessages: [], payload, toolResumeAction: resumeResult.action };
-  }
-  return resolveNormalTurn(payload);
 }
 
 export function describeWebAssistantInputError(error: unknown): WebAssistantInputError | null {
@@ -149,33 +90,6 @@ export function describeWebAssistantInputError(error: unknown): WebAssistantInpu
   }
   if (error instanceof EmptyAssistantPromptError) {
     return { payload: { error: 'empty_prompt' }, status: 400 };
-  }
-  if (error instanceof InvalidToolApprovalActionError) {
-    return {
-      payload: {
-        error: 'invalid_tool_approval_action',
-        message: error.message,
-      },
-      status: 400,
-    };
-  }
-  if (error instanceof InvalidToolResumeActionError) {
-    return {
-      payload: {
-        error: 'invalid_tool_resume_action',
-        message: error.message,
-      },
-      status: 400,
-    };
-  }
-  if (error instanceof ConflictingToolContinuationActionsError) {
-    return {
-      payload: {
-        error: 'conflicting_tool_continuation_actions',
-        message: error.message,
-      },
-      status: 400,
-    };
   }
   return null;
 }

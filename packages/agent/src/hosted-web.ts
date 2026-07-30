@@ -8,6 +8,12 @@
 
 export { AssistantAttachmentValidationError } from '@brainstrike/assistant-contract';
 export {
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  type RuntimeAssistantMemorySettings,
+  resolveAutoObservationalMemoryModelTarget,
+} from '@brainstrike/assistant-contract/memory-settings';
+export {
+  isSupportedProvider,
   PROVIDER_DEFAULT_MODELS,
   providerEnvKeys,
   type SupportedProvider,
@@ -33,9 +39,14 @@ export {
   readRequestBodyText,
 } from './assistant-request';
 export {
+  type AssistantUiMessageConversionResult,
   convertAssistantUiMessagesWithFinalInput,
   toAiSdkStyleStream,
 } from './message-utils';
+// Slim by construction: tool-categories has zero imports. Lets the shared
+// assistant-service preparation validate native-tool ids without dragging the
+// agent ROOT entry (and its Mastra/Node graph) into traced Vercel functions.
+export { DESKTOP_NATIVE_TOOL_IDS } from './registry/tool-categories';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantRequestBodyLimitConfigError,

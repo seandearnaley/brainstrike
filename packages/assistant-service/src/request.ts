@@ -1,4 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { SupportedProvider } from '@brainstrike/agent/client';
+// The hosted-web SUBPATH, not the agent root: Vercel traces every reachable
+// file into the function bundle, and the root entry drags the Mastra/Node
+// graph past the 250MB function limit (PR #2127 deploy failure). Everything
+// preparation needs is exported from the slim entry.
 import {
   type AgentMessage,
   AssistantAttachmentValidationError,
@@ -18,8 +23,7 @@ import {
   readToolApprovalRunConfigAction,
   readToolResumeRunConfigAction,
   resolveAutoObservationalMemoryModelTarget,
-} from '@brainstrike/agent';
-import type { SupportedProvider } from '@brainstrike/agent/client';
+} from '@brainstrike/agent/hosted-web';
 import type { ScopedLogger } from '@brainstrike/utils/logger';
 import { resolveRequestedProvider } from './memory-model-targets.js';
 import type { ProviderApiKeyReader } from './ports.js';

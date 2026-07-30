@@ -40,7 +40,7 @@ vi.mock('../../../../server/assistant-config', async () => {
 
 // The route builds normal turns through one stateless Web stream seam.
 vi.mock('../../../../server/web-assistant-stream', () => ({
-  buildWebAssistantStream: vi.fn(),
+  buildWebAssistantStreamFromPrepared: vi.fn(),
 }));
 
 import type { RuntimeData, StreamChunk } from '@brainstrike/agent';
@@ -55,11 +55,7 @@ import {
   HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
 } from '@brainstrike/agent/hosted-web';
 import { resolveAssistantProviderConfig } from '../../../../server/assistant-config';
-import {
-  InvalidWebAssistantRuntimeDataError,
-  resolveWebAssistantRuntime,
-} from '../../../../server/web-assistant-runtime';
-import { buildWebAssistantStream } from '../../../../server/web-assistant-stream';
+import { buildWebAssistantStreamFromPrepared } from '../../../../server/web-assistant-stream';
 import { POST } from '../route';
 
 function mockOpenAiProviderConfig(
@@ -94,7 +90,7 @@ describe('assistant route', () => {
         'Hosted Web stream replay requires durable storage and is unavailable for this deployment.',
     });
     expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
@@ -147,6 +143,33 @@ describe('assistant route', () => {
     expect(payload).toMatchObject({ error: 'assistant_disabled' });
   });
 
+  it('returns 400 missing_provider when the request names no provider', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
+
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+
+    // Convergence (BST-973-2): the web-only default-provider fallback is gone —
+    // like desktop, every turn must name its provider.
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'missing_provider',
+      message: 'No provider specified or provider is not supported.',
+    });
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
+  });
+
   it('accepts only a client-selected provider with a configured server credential', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockImplementation((provider = 'openai') => {
       if (provider === 'anthropic') {
@@ -159,7 +182,9 @@ describe('assistant route', () => {
       }
       return { disabledReason: 'missing_api_key', enabled: false, provider };
     });
-    vi.mocked(buildWebAssistantStream).mockResolvedValue((async function* stream() {})());
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(
+      (async function* stream() {})()
+    );
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
       new Response('ok', { status: 200 })
     );
@@ -175,14 +200,14 @@ describe('assistant route', () => {
       })
     );
     expect(enabledResponse.status).toBe(200);
-    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+    expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: 'anthropic-server-key',
-        provider: 'anthropic',
+        runtimeData: expect.objectContaining({ provider: 'anthropic' }),
       })
     );
 
-    vi.mocked(buildWebAssistantStream).mockClear();
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockClear();
     const disabledResponse = await POST(
       new Request('http://localhost/api/assistant', {
         body: JSON.stringify({
@@ -198,7 +223,7 @@ describe('assistant route', () => {
       error: 'invalid_runtime_data',
       message: 'Invalid web assistant runtime field: provider',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns 400 when request body is invalid JSON', async () => {
@@ -225,7 +250,7 @@ describe('assistant route', () => {
       error: 'invalid_json',
       message: 'Request body must be valid JSON.',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -254,6 +279,11 @@ describe('assistant route', () => {
       },
     ],
   ])('returns canonical typed 400 for %s', async (_name, body, expected) => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body,
       headers: { 'Content-Type': 'application/json' },
@@ -264,10 +294,15 @@ describe('assistant route', () => {
 
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual(expected);
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed tool resume action', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         messages: [],
@@ -292,8 +327,10 @@ describe('assistant route', () => {
       message:
         'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -333,6 +370,11 @@ describe('assistant route', () => {
       },
     ],
   ])('returns typed 400 for a resume action with %s', async (_case, action) => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         messages: [],
@@ -350,12 +392,19 @@ describe('assistant route', () => {
       message:
         'Tool resume action must contain only resumeData, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
   it('rejects conflicting approval and resume actions', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         messages: [],
@@ -385,11 +434,18 @@ describe('assistant route', () => {
       error: 'conflicting_tool_continuation_actions',
       message: 'Assistant request must contain at most one tool continuation action.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns typed 400 when the assistant message id is malformed', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         messages: [{ role: 'user', text: 'hello' }],
@@ -406,7 +462,7 @@ describe('assistant route', () => {
       error: 'invalid_messages',
       message: 'Assistant message id must be a non-empty bounded string.',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns typed 400 for a deeply nested message graph before normalization', async () => {
@@ -434,7 +490,7 @@ describe('assistant route', () => {
       error: 'invalid_messages',
       message: 'Assistant message payload exceeds the nesting depth limit.',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns typed 400 for an invalid attachment', async () => {
@@ -471,10 +527,15 @@ describe('assistant route', () => {
       message: 'Assistant attachment payload is invalid.',
       reason: 'unsupported-media-type',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns typed invalid_attachment for an empty image', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         messages: [
@@ -504,7 +565,7 @@ describe('assistant route', () => {
       message: 'Assistant attachment payload is invalid.',
       reason: 'invalid-base64',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns 400 when request body has no non-empty prompt', async () => {
@@ -519,6 +580,7 @@ describe('assistant route', () => {
 
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        data: { provider: 'openai' },
         messages: [{ id: '1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -529,7 +591,7 @@ describe('assistant route', () => {
     expect(res.status).toBe(400);
     const payload = await res.json();
     expect(payload).toEqual({ error: 'empty_prompt' });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -561,7 +623,7 @@ describe('assistant route', () => {
 
     const res = await POST(
       new Request('http://localhost/api/assistant', {
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ data: { provider: 'openai' }, messages }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       })
@@ -569,7 +631,7 @@ describe('assistant route', () => {
 
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: 'empty_prompt' });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
@@ -600,7 +662,7 @@ describe('assistant route', () => {
       error: 'request_body_too_large',
       message: `Assistant request body exceeds ${HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES} bytes.`,
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('returns 502 when stream initialization fails', async () => {
@@ -609,10 +671,11 @@ describe('assistant route', () => {
       enabled: true,
       provider: 'openai',
     });
-    vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockRejectedValue(new Error('boom'));
 
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        data: { provider: 'openai' },
         messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -633,10 +696,6 @@ describe('assistant route', () => {
       enabled: true,
       provider: 'openai',
     });
-    vi.mocked(buildWebAssistantStream).mockRejectedValue(
-      new InvalidWebAssistantRuntimeDataError('mcpConfig')
-    );
-
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         data: { mcpConfig: { servers: [] } },
@@ -659,10 +718,6 @@ describe('assistant route', () => {
       apiKey: 'test-key',
       enabled: true,
       provider: 'openai',
-    });
-    vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
-      resolveWebAssistantRuntime(params.data, params.apiKey);
-      return (async function* stream() {})();
     });
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
       new Response('unexpected', { status: 200 })
@@ -691,6 +746,11 @@ describe('assistant route', () => {
   });
 
   it('rejects malformed tool approval actions on the web assistant route', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         messages: [{ id: '1', parts: [], role: 'user' }],
@@ -714,7 +774,7 @@ describe('assistant route', () => {
       message:
         'Tool approval action must contain only action, runId, toolCallId, and optional toolName with bounded non-empty identifiers.',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -736,6 +796,11 @@ describe('assistant route', () => {
       },
     ],
   ])('returns typed 400 for approval actions with %s', async (_case, action) => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
         messages: [],
@@ -750,7 +815,7 @@ describe('assistant route', () => {
     await expect(res.json()).resolves.toMatchObject({
       error: 'invalid_tool_approval_action',
     });
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
   });
 
   it('creates a new session when provider is enabled', async () => {
@@ -766,13 +831,14 @@ describe('assistant route', () => {
       },
     };
 
-    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(stream);
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
       new Response('ok', { status: 200 })
     );
 
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        data: { provider: 'openai' },
         messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -783,19 +849,19 @@ describe('assistant route', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
     expect(createStatelessAssistantDataStreamResponse).toHaveBeenCalledWith(stream);
-    // A normal turn builds the stream with converted messages + the apiKey and
-    // raw `data`; continuation actions are rejected before this stateless seam.
-    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+    // A normal turn reaches the stream with the PREPARED messages/runtime and
+    // the separately-carried apiKey; continuation actions never reach it.
+    expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         agentMessages: expect.any(Array),
         apiKey: 'test-key',
         signal: req.signal,
       })
     );
-    expect(vi.mocked(buildWebAssistantStream).mock.calls[0]?.[0]).not.toHaveProperty(
+    expect(vi.mocked(buildWebAssistantStreamFromPrepared).mock.calls[0]?.[0]).not.toHaveProperty(
       'toolApprovalAction'
     );
-    expect(vi.mocked(buildWebAssistantStream).mock.calls[0]?.[0]).not.toHaveProperty(
+    expect(vi.mocked(buildWebAssistantStreamFromPrepared).mock.calls[0]?.[0]).not.toHaveProperty(
       'toolResumeAction'
     );
   });
@@ -811,7 +877,7 @@ describe('assistant route', () => {
         yield { type: 'text-delta', value: 'a tiny image' } as StreamChunk;
       },
     };
-    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockResolvedValue(stream);
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
       new Response('ok', { status: 200 })
     );
@@ -819,6 +885,7 @@ describe('assistant route', () => {
     const res = await POST(
       new Request('http://localhost/api/assistant', {
         body: JSON.stringify({
+          data: { provider: 'openai' },
           messages: [
             {
               id: 'image-only',
@@ -839,7 +906,7 @@ describe('assistant route', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+    expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         agentMessages: [
           {
@@ -869,9 +936,9 @@ describe('assistant route', () => {
         yield { type: 'text-delta', value: 'ok' } as StreamChunk;
       },
     };
-    let resolvedRuntime: RuntimeData | undefined;
-    vi.mocked(buildWebAssistantStream).mockImplementation(async (params) => {
-      resolvedRuntime = resolveWebAssistantRuntime(params.data, params.apiKey);
+    let receivedRuntime: RuntimeData | undefined;
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementation(async (params) => {
+      receivedRuntime = params.runtimeData;
       return stream;
     });
     vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
@@ -882,6 +949,7 @@ describe('assistant route', () => {
       new Request('http://localhost/api/assistant', {
         body: JSON.stringify({
           data: {
+            provider: 'openai',
             transportImageElision: {
               elidedImageBytes: 5_242_880,
               elidedImageCount: 1,
@@ -899,8 +967,53 @@ describe('assistant route', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(resolvedRuntime).toEqual({
+    expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: 'test-key' })
+    );
+    expect(receivedRuntime).toEqual({ provider: 'openai' });
+  });
+
+  it('forwards a valid client assistant message id into the prepared runtime', async () => {
+    mockOpenAiProviderConfig({
       apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'ok' } as StreamChunk;
+      },
+    };
+    let receivedRuntime: RuntimeData | undefined;
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementation(async (params) => {
+      receivedRuntime = params.runtimeData;
+      return stream;
+    });
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
+      new Response('ok', { status: 200 })
+    );
+
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [
+            { id: 'current-user', parts: [{ text: 'continue', type: 'text' }], role: 'user' },
+          ],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
+          unstable_assistantMessageId: 'assistant-client-id',
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+
+    // Convergence delta (desktop parity): the validated client id is stamped
+    // into the prepared runtime by the shared preparation — previously web's
+    // runtime never carried assistantMessageId.
+    expect(res.status).toBe(200);
+    expect(receivedRuntime).toEqual({
+      assistantMessageId: 'assistant-client-id',
       provider: 'openai',
     });
   });
@@ -920,6 +1033,7 @@ describe('assistant route', () => {
     };
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        data: { provider: 'openai' },
         messages: [{ id: '1', parts: [], role: 'user' }],
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
       }),
@@ -933,8 +1047,10 @@ describe('assistant route', () => {
       error: 'tool_approval_unavailable',
       message: 'Hosted Web tool approval requires durable workflow storage.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
@@ -953,6 +1069,7 @@ describe('assistant route', () => {
     };
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        data: { provider: 'openai' },
         messages: [],
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
       }),
@@ -966,14 +1083,22 @@ describe('assistant route', () => {
       error: 'tool_approval_unavailable',
       message: 'Hosted Web tool approval requires durable workflow storage.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 
   it('fails closed for a valid tool resume action in stateless production', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
     const req = new Request('http://localhost/api/assistant', {
       body: JSON.stringify({
+        data: { provider: 'openai' },
         messages: [],
         runConfig: {
           custom: {
@@ -997,8 +1122,10 @@ describe('assistant route', () => {
       error: 'tool_resume_unavailable',
       message: 'Hosted Web tool resume requires durable workflow storage.',
     });
-    expect(resolveAssistantProviderConfig).not.toHaveBeenCalled();
-    expect(buildWebAssistantStream).not.toHaveBeenCalled();
+    // Convergence (BST-973-2): the server-config 503 gate precedes request
+    // validation, so provider configs are resolved before any 400/409.
+    expect(resolveAssistantProviderConfig).toHaveBeenCalled();
+    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
     expect(createStatelessAssistantDataStreamResponse).not.toHaveBeenCalled();
   });
 });

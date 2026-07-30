@@ -13,10 +13,10 @@ import {
   resolveAssistantProviderConfigs,
   resolveHostedWebAssistantStatus,
 } from './server/assistant-config';
+import { runWebAssistantPost, type WebAssistantPostOutcome } from './server/web-assistant-post';
 import {
   describeWebAssistantInputError,
   resolveWebAssistantChatTurn,
-  resolveWebAssistantTurn,
   WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
   WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
 } from './server/web-assistant-request';
@@ -25,7 +25,6 @@ import {
   resolveWebAssistantProviderConfig,
   resolveWebAssistantRuntime,
 } from './server/web-assistant-runtime';
-import { buildWebAssistantStream } from './server/web-assistant-stream';
 
 export type { StreamChunk };
 
@@ -180,6 +179,15 @@ export async function handleChatEndpoint(
   res.end();
 }
 
+/**
+ * Node transport shell over the converged decision core in
+ * `server/web-assistant-post.ts` (BST-973-2). This function owns only what
+ * touches the raw req/res: the `last-event-id` -> 409 replay rejection and
+ * the cancellation/back-pressure pump. Everything else — 503 gate, allow-list
+ * pre-filter, the SHARED prepareAssistantPostRequest, tool-continuation 409s,
+ * stream construction — is the core, shared byte-for-byte with the deployed
+ * Vercel route so dev and prod cannot drift apart.
+ */
 export async function handleAssistantEndpoint(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -191,70 +199,23 @@ export async function handleAssistantEndpoint(
     return;
   }
 
-  let turn: ReturnType<typeof resolveWebAssistantTurn>;
-  try {
-    turn = resolveWebAssistantTurn(bodyText);
-  } catch (error) {
-    if (sendAssistantInputErrorResponse(res, error)) {
-      return;
-    }
-    throw error;
-  }
-  if (turn.toolApprovalAction) {
-    sendJsonResponse(res, 409, {
-      error: 'tool_approval_unavailable',
-      message: 'Hosted Web tool approval requires durable workflow storage.',
-    });
-    return;
-  }
-  if (turn.toolResumeAction) {
-    sendJsonResponse(res, 409, {
-      error: 'tool_resume_unavailable',
-      message: 'Hosted Web tool resume requires durable workflow storage.',
-    });
-    return;
-  }
-
-  const configuredProviders = resolveAssistantProviderConfigs(resolveAssistantProviderConfig);
-  if (configuredProviders.length === 0) {
-    sendAssistantDisabledResponse(res);
-    return;
-  }
-
   const abortController = new AbortController();
   const removeAbortListeners = listenForAssistantCancellation(req, res, abortController);
 
-  let agentStream: AsyncIterable<StreamChunk>;
+  let outcome: WebAssistantPostOutcome;
   try {
-    const provider = resolveWebAssistantProviderConfig(turn.payload.data, configuredProviders);
-    // The seam admits only explicit request metadata. Hosted Web has no tool
-    // registry; permission-policy and server-only runtime fields fail visibly.
-    agentStream = await buildWebAssistantStream({
-      agentMessages: turn.agentMessages,
-      apiKey: provider.apiKey,
-      data: turn.payload.data,
-      provider: provider.provider,
-      signal: abortController.signal,
-    });
+    outcome = await runWebAssistantPost({ bodyText, logger, signal: abortController.signal });
   } catch (error) {
     removeAbortListeners();
-    if (sendAssistantInputErrorResponse(res, error)) {
-      return;
-    }
-    if (error instanceof InvalidWebAssistantRuntimeDataError) {
-      sendJsonResponse(res, 400, { error: 'invalid_runtime_data', message: error.message });
-      return;
-    }
-    logger.error('Failed to initialize assistant stream', { error });
-    sendJsonResponse(
-      res,
-      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.status,
-      WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE.payload
-    );
+    throw error;
+  }
+  if (outcome.kind === 'rejection') {
+    removeAbortListeners();
+    sendJsonResponse(res, outcome.status, { ...outcome.payload });
     return;
   }
 
-  const response = createStatelessAssistantDataStreamResponse(agentStream);
+  const response = createStatelessAssistantDataStreamResponse(outcome.stream);
   try {
     await streamResponse(res, response, abortController.signal);
   } finally {
