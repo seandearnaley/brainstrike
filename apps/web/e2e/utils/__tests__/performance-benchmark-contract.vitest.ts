@@ -59,4 +59,28 @@ describe('performance benchmark measurement contracts', () => {
     expect(scrollBenchmark).not.toContain("performance.mark('scroll-test-start')");
     expect(scrollBenchmark).not.toContain('waitForTimeout(100)');
   });
+
+  it('measures the shallow-comparison validation at the browser interaction-to-paint boundary', async () => {
+    const source = await readFile(
+      path.join(process.cwd(), 'e2e/performance/validation.test.ts'),
+      'utf8'
+    );
+    const start = source.indexOf("test('validate shallow comparison fix works'");
+    const end = source.indexOf("test('validate file size limits work'");
+
+    expect(start, 'shallow-comparison validation anchor not found').toBeGreaterThanOrEqual(0);
+    expect(end, 'file-size validation anchor not found').toBeGreaterThan(start);
+    const validation = source.slice(start, end);
+
+    expect(validation).toContain('measureLocatorInteractionFrames');
+    expect(validation).toContain('name: /^Select (test1\\.js|test2\\.js)$/');
+    expect(validation).toContain('fileCheckboxes.first()).toBeVisible');
+    // BST-959: the 2,000ms gate is preserved from the wall-clock era until a
+    // controlled baseline proves a different budget — and the measured
+    // quantity must stay browser-side.
+    expect(validation).toContain('expect(selectionMetrics.totalDurationMs).toBeLessThan(2000)');
+    expect(validation).not.toContain('Date.now()');
+    expect(validation).not.toContain('waitForTimeout(');
+    expect(validation).not.toContain('__renderCounter');
+  });
 });
