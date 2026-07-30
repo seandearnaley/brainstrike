@@ -11,6 +11,11 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract';
+import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
+import {
+  registerSteerableRun,
+  unregisterSteerableRun,
+} from '@brainstrike/assistant-service/steering';
 import { initializeAgentStream } from './assistant-server/agent-stream-init';
 import {
   type AssistantServerAuth,
@@ -30,17 +35,12 @@ import {
   respondJson,
   respondNotFound,
 } from './assistant-server/http-responses';
-import type { AssistantLlmHostManager } from './assistant-server/local-llm-host-client';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import { resolveProviderApiKey } from './assistant-server/provider-credentials';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { prepareAssistantPostRequest } from './assistant-server/request-preparation';
 import { readLastEventId, resolveAssistantRoute } from './assistant-server/routing';
 import { recordDesktopAssistantThreadRunStatus } from './assistant-server/run-persistence';
-import {
-  registerSteerableRun,
-  unregisterSteerableRun,
-} from './assistant-server/run-steering-registry';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import {
   handleAssistantStatus,

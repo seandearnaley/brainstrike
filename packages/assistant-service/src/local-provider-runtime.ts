@@ -1,5 +1,5 @@
 import { PROVIDER_DEFAULT_MODELS, type RuntimeData } from '@brainstrike/agent';
-import { type AssistantLlmHostManager, createMainLlmHostClient } from './local-llm-host-client';
+import { type AssistantLlmHostManager, createMainLlmHostClient } from './ports';
 
 export function isLocalChatProvider(runtimeData: RuntimeData | undefined): boolean {
   const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';

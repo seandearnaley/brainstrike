@@ -1,0 +1,61 @@
+{
+  "name": "@brainstrike/assistant-service",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/agent": "workspace:*",
+    "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    "./local-provider-runtime": {
+      "types": "./dist/local-provider-runtime.d.ts",
+      "import": "./dist/local-provider-runtime.js",
+      "require": "./dist/local-provider-runtime.js"
+    },
+    "./memory-model-targets": {
+      "types": "./dist/memory-model-targets.d.ts",
+      "import": "./dist/memory-model-targets.js",
+      "require": "./dist/memory-model-targets.js"
+    },
+    "./ports": {
+      "types": "./dist/ports.d.ts",
+      "import": "./dist/ports.js",
+      "require": "./dist/ports.js"
+    },
+    "./steering": {
+      "types": "./dist/steering.d.ts",
+      "import": "./dist/steering.js",
+      "require": "./dist/steering.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "require": "./dist/types.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "lint": "pnpm -w lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "sideEffects": false,
+  "type": "module"
+}

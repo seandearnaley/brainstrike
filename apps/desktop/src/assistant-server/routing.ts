@@ -1,6 +1,6 @@
 import type http from 'node:http';
 import { ASSISTANT_STREAM_RESUME_PATH } from '@brainstrike/assistant-contract';
-import type { AssistantRoute } from './server-types';
+import type { AssistantRoute } from '@brainstrike/assistant-service/types';
 
 export function readLastEventId(req: http.IncomingMessage): string | undefined {
   const header = req.headers['last-event-id'];

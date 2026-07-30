@@ -22,6 +22,21 @@
       "vite/client"
     ],
     "paths": {
+      "@brainstrike/assistant-service/local-provider-runtime": [
+        "../../packages/assistant-service/src/local-provider-runtime.ts"
+      ],
+      "@brainstrike/assistant-service/memory-model-targets": [
+        "../../packages/assistant-service/src/memory-model-targets.ts"
+      ],
+      "@brainstrike/assistant-service/ports": [
+        "../../packages/assistant-service/src/ports.ts"
+      ],
+      "@brainstrike/assistant-service/steering": [
+        "../../packages/assistant-service/src/steering.ts"
+      ],
+      "@brainstrike/assistant-service/types": [
+        "../../packages/assistant-service/src/types.ts"
+      ],
       "@brainstrike/agent": [
         "../../packages/agent/dist/index.d.ts"
       ],

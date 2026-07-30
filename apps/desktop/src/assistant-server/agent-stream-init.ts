@@ -20,6 +20,18 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  collectLocalLlmWarmupModelIds,
+  isLocalChatProvider,
+  resolveLocalLlmHostClient,
+} from '@brainstrike/assistant-service/local-provider-runtime';
+import { resolveDesktopObserverUsageTarget } from '@brainstrike/assistant-service/memory-model-targets';
+import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
+import type {
+  AgentStreamFailure,
+  AgentStreamInitializationStage,
+  AgentStreamResult,
+} from '@brainstrike/assistant-service/types';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import type { DesktopDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
@@ -33,19 +45,12 @@ import {
   prepareRequestHooks,
   runUserPromptSubmitGate,
 } from './hooks/server-integration';
-import type { AssistantLlmHostManager } from './local-llm-host-client';
-import {
-  collectLocalLlmWarmupModelIds,
-  isLocalChatProvider,
-  resolveLocalLlmHostClient,
-} from './local-provider-runtime';
 import { desktopAssistantServerLogger as logger } from './logger';
 import {
   type DesktopMastraMemoryResult,
   DesktopMemoryCredentialMissingError,
   getDesktopMastraMemory,
 } from './mastra-memory';
-import { resolveDesktopObserverUsageTarget } from './memory-model-targets';
 import { createNodeFsScanDeps } from './node-fs-scan-deps';
 import { injectReferencedFilesContext } from './referenced-files-context';
 import { resolveRequestPersonas } from './request-personas';
@@ -56,11 +61,6 @@ import {
   recordDesktopAssistantHookRunOutcome,
 } from './run-persistence';
 import { getSecretReadErrorPayload } from './secret-error-responses';
-import type {
-  AgentStreamFailure,
-  AgentStreamInitializationStage,
-  AgentStreamResult,
-} from './server-types';
 import { injectActivatedSkillsContext } from './skills-activation-context';
 import { createSecureSkillsFs } from './skills-fs-deps';
 import { readThreadTaskList } from './task-list-repository';
