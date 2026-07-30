@@ -12,11 +12,9 @@ import {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
   normalizeOptionalText,
-  QueryEmbeddingSpaceInputSchema,
-  RetrievalContextInputSchema,
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
@@ -62,8 +60,6 @@ function redactErrorForLog(error: unknown): {
   };
 }
 
-const TOOL_ID = 'brainstrike.retrieveContext' as const;
-const QUERY_EMBEDDING_SPACE_TOOL_ID = NATIVE_TOOL_ID.queryEmbeddingSpace;
 const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -148,7 +144,6 @@ interface RetrievalSelectionState {
 
 type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 
-type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 type QueryEmbeddingHost = Pick<EmbeddingHostManager, 'queryEmbedding'>;
 
 interface SkippedSourceRangeChunk {
@@ -164,10 +159,6 @@ interface ContextChunkConversionResult {
 
 export interface RetrievalToolDependencies {
   embeddingHostManager?: QueryEmbeddingHost | null | undefined;
-}
-
-interface ToolContext<TInput> {
-  context: TInput;
 }
 
 interface RetrievalToolResult {
@@ -816,7 +807,10 @@ async function runRetrieval(
 }
 
 function handleRetrievalError(error: unknown): never {
-  if (error instanceof SecretReadError) {
+  if (error instanceof SecretReadError || error instanceof ToolInputError) {
+    // Both are deliberately safe surfaces: SecretReadError is user-actionable
+    // key repair guidance, and ToolInputError (e.g. workspace-root
+    // resolution) is model-actionable input prose. Never genericize them.
     throw error;
   }
   const message = error instanceof Error ? error.message : ERROR_MESSAGES.retrievalFailed;
@@ -827,36 +821,26 @@ function handleRetrievalError(error: unknown): never {
   throw new Error(ERROR_MESSAGES.retrievalFailed);
 }
 
-export function createRetrievalTool(
-  runtimeData: RuntimeData | undefined,
-  dependencies: RetrievalToolDependencies = {}
-): MastraTools[string] {
-  return {
-    description:
-      'Retrieve and pack relevant project context from the active embedding set. Use for codebase questions.',
-    execute: async (context: ToolContext<RetrievalContextInput>) => {
-      try {
-        return await runRetrieval(context.context, runtimeData, dependencies);
-      } catch (error) {
-        handleRetrievalError(error);
-      }
-    },
-    id: TOOL_ID,
-    inputSchema: RetrievalContextInputSchema,
-  };
-}
-
 export async function runQueryEmbeddingSpace(
   input: QueryEmbeddingSpaceInput,
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies = {}
 ): Promise<RetrievalToolExecutionResult> {
-  const hasExplicitEmbeddingSet = Boolean(normalizeOptionalText(input.embeddingSetId));
-  if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
-    throw new Error(ERROR_MESSAGES.missingQueryEmbeddingSpace);
+  try {
+    const hasExplicitEmbeddingSet = Boolean(normalizeOptionalText(input.embeddingSetId));
+    if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
+      throw new Error(ERROR_MESSAGES.missingQueryEmbeddingSpace);
+    }
+    const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
+    return await runRetrieval(input, explicitRuntimeData, dependencies);
+  } catch (error) {
+    // BST-1020: this normalization previously lived ONLY in the deleted
+    // tool factories, so the LIVE registry path surfaced raw unexpected
+    // errors (workspace paths included) toward the model. The live entry now
+    // owns it: safe messages and SecretReadError pass through; anything else
+    // is redact-logged and replaced with the generic retrieval failure.
+    handleRetrievalError(error);
   }
-  const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
-  return await runRetrieval(input, explicitRuntimeData, dependencies);
 }
 
 function omitImplicitContextRuntimeData(
@@ -873,35 +857,4 @@ function omitImplicitContextRuntimeData(
     ...explicitRuntimeData
   } = runtimeData;
   return explicitRuntimeData;
-}
-
-export function createQueryEmbeddingSpaceTool(
-  runtimeData: RuntimeData | undefined,
-  dependencies: RetrievalToolDependencies = {}
-): MastraTools[string] {
-  return {
-    description:
-      'Query semantic workspace context. Omit embeddingSetId for Workspace Index codebase searches; provide embeddingSetId only for a specific non-default embedding space. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
-    execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
-      const input = QueryEmbeddingSpaceInputSchema.parse(context.context);
-      try {
-        return await runQueryEmbeddingSpace(input, runtimeData, dependencies);
-      } catch (error) {
-        handleRetrievalError(error);
-      }
-    },
-    id: QUERY_EMBEDDING_SPACE_TOOL_ID,
-    inputSchema: QueryEmbeddingSpaceInputSchema,
-  };
-}
-
-export function buildAssistantTools(
-  runtimeData: RuntimeData | undefined,
-  base: MastraTools,
-  dependencies: RetrievalToolDependencies = {}
-): MastraTools {
-  return {
-    ...base,
-    [TOOL_ID]: createRetrievalTool(runtimeData, dependencies),
-  };
 }
