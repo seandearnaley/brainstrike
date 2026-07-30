@@ -12,6 +12,7 @@ import {
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract';
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
+import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import {
   registerSteerableRun,
   unregisterSteerableRun,
@@ -29,7 +30,11 @@ import {
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
-import { streamResponse } from './assistant-server/http';
+import {
+  assistantRequestBodyLimitBytes,
+  readRequestBody,
+  streamResponse,
+} from './assistant-server/http';
 import {
   respondAssistantRejection,
   respondJson,
@@ -38,7 +43,6 @@ import {
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import { resolveProviderApiKey } from './assistant-server/provider-credentials';
 import { registerRequestAbort } from './assistant-server/request-abort';
-import { prepareAssistantPostRequest } from './assistant-server/request-preparation';
 import { readLastEventId, resolveAssistantRoute } from './assistant-server/routing';
 import { recordDesktopAssistantThreadRunStatus } from './assistant-server/run-persistence';
 import type { AssistantServerOptions } from './assistant-server/server-options';
@@ -187,7 +191,11 @@ async function handleAssistantPost(
   res: http.ServerResponse,
   options: AssistantServerOptions
 ): Promise<void> {
-  const prepared = await prepareAssistantPostRequest({ req, resolveProviderApiKey });
+  const prepared = await prepareAssistantPostRequest({
+    logger,
+    readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
+    resolveProviderApiKey,
+  });
   if (!prepared.ok) {
     respondAssistantRejection(res, prepared.rejection);
     return;

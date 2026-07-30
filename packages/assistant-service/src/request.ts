@@ -1,8 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type http from 'node:http';
 import {
   type AgentMessage,
-  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantAttachmentValidationError,
   AssistantInvalidJsonError,
   AssistantMessageValidationError,
@@ -19,20 +17,18 @@ import {
   type RuntimeData,
   readToolApprovalRunConfigAction,
   readToolResumeRunConfigAction,
-  resolveAssistantRequestBodyLimitBytes,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { resolveRequestedProvider } from '@brainstrike/assistant-service/memory-model-targets';
+import type { ScopedLogger } from '@brainstrike/utils/logger';
+import { resolveRequestedProvider } from './memory-model-targets.js';
+import type { ProviderApiKeyReader } from './ports.js';
+import { getSecretReadErrorPayload } from './secret-errors.js';
 import type {
   AssistantPostRejection,
   AssistantRequestPayload,
   AssistantUiMessage,
-} from '@brainstrike/assistant-service/types';
-import { readRequestBody } from './http';
-import { desktopAssistantServerLogger as logger } from './logger';
-import { hydrateRuntimeDataWithLocalRuntimeToken } from './provider-credentials';
-import { getSecretReadErrorPayload } from './secret-error-responses';
+} from './types.js';
 
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
@@ -48,10 +44,6 @@ class InvalidEnabledNativeToolIdsError extends Error {
   }
 }
 
-const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
-  process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
-);
-
 interface PreparedAssistantPostRequest {
   apiKey: string;
   assistantMessageId?: string;
@@ -62,23 +54,36 @@ interface PreparedAssistantPostRequest {
 }
 
 /**
- * Injected provider-credential reader — the structural twin of
- * agent-stream-init's AgentStreamProviderApiKeyReader (BST-972 A3/A4). The two
- * declarations unify at the ports module when the package-extraction slice
- * lands; until then each module states the shape it consumes.
+ * Injected provider-credential reader, now owned by ./ports (BST-972 B2).
+ * Re-exported under the historical name; desktop's structurally identical
+ * AgentStreamProviderApiKeyReader unifies onto the ports type when
+ * agent-stream-init moves (B4a/B4b).
  */
-export type PreparationProviderApiKeyReader = (provider: string) => Promise<string | undefined>;
+export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
 
 export interface PrepareAssistantPostRequestParams {
-  readonly req: http.IncomingMessage;
-  readonly resolveProviderApiKey: PreparationProviderApiKeyReader;
+  /**
+   * Injected structured logger (BST-972 B2). NEVER a package-created scope:
+   * desktop passes desktopAssistantServerLogger so the scope-cached identity
+   * its integration-test spies rely on keeps observing every line.
+   */
+  readonly logger: ScopedLogger;
+  /**
+   * Bounded body read, supplied by the transport (BST-972 B2). The thunk
+   * throws the agent package's typed body errors (413 included), which
+   * rejectAssistantPayloadError maps — so the rejection contract stays in
+   * core while the read mechanics (and the byte limit's env read) live with
+   * the transport.
+   */
+  readonly readBody: () => Promise<string>;
+  readonly resolveProviderApiKey: ProviderApiKeyReader;
 }
 
 /**
  * De-transported result (BST-972 A4): preparation never writes the response —
  * every failure path returns a rejection the transport maps via
- * respondAssistantRejection. `req` remains only for the bounded body read;
- * it goes with the package-extraction slice.
+ * respondAssistantRejection. Since B2 the transport supplies a readBody thunk
+ * — no request object reaches this module at all.
  */
 export type PrepareAssistantPostRequestResult =
   | { readonly ok: true; readonly request: PreparedAssistantPostRequest }
@@ -95,7 +100,7 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
  */
 async function resolveApiKeyOrReject(
   provider: SupportedProvider,
-  resolveProviderApiKey: PreparationProviderApiKeyReader
+  resolveProviderApiKey: ProviderApiKeyReader
 ): Promise<
   | { readonly apiKey: string | undefined; readonly rejection?: undefined }
   | { readonly apiKey?: undefined; readonly rejection: AssistantPostRejection }
@@ -210,7 +215,7 @@ function rejectToolContinuationInputError(
 export async function prepareAssistantPostRequest(
   params: PrepareAssistantPostRequestParams
 ): Promise<PrepareAssistantPostRequestResult> {
-  const { req, resolveProviderApiKey } = params;
+  const { logger, readBody, resolveProviderApiKey } = params;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
@@ -219,7 +224,7 @@ export async function prepareAssistantPostRequest(
   let toolResumeAction: AssistantToolResumeAction | undefined;
   let toolResumeActionInvalid = false;
   try {
-    const payload = await parseAssistantRequestPayload(req);
+    const payload = await parseAssistantRequestPayload(readBody);
     assistantMessageId = payload.assistantMessageId;
     rawMessages = payload.rawMessages;
     data = payload.data;
@@ -228,7 +233,7 @@ export async function prepareAssistantPostRequest(
     toolResumeAction = payload.toolResumeAction;
     toolResumeActionInvalid = Boolean(payload.toolResumeActionInvalid);
   } catch (error) {
-    const rejection = rejectAssistantPayloadError(error);
+    const rejection = rejectAssistantPayloadError(error, logger);
     if (!rejection) {
       throw error;
     }
@@ -374,7 +379,8 @@ function validateEnabledNativeToolIds(runtimeData: RuntimeData | undefined): voi
 }
 
 function rejectInvalidEnabledNativeToolIds(
-  invalidValues: readonly unknown[]
+  invalidValues: readonly unknown[],
+  logger: ScopedLogger
 ): AssistantPostRejection {
   const correlationId = randomUUID();
   const identifiers = Array.from(
@@ -406,9 +412,12 @@ function rejectInvalidEnabledNativeToolIds(
   };
 }
 
-function rejectAssistantPayloadError(error: unknown): AssistantPostRejection | undefined {
+function rejectAssistantPayloadError(
+  error: unknown,
+  logger: ScopedLogger
+): AssistantPostRejection | undefined {
   if (error instanceof InvalidEnabledNativeToolIdsError) {
-    return rejectInvalidEnabledNativeToolIds(error.invalidValues);
+    return rejectInvalidEnabledNativeToolIds(error.invalidValues, logger);
   }
   if (
     error instanceof AssistantInvalidJsonError ||
@@ -437,11 +446,9 @@ function rejectAssistantPayloadError(error: unknown): AssistantPostRejection | u
 }
 
 async function parseAssistantRequestPayload(
-  req: http.IncomingMessage
+  readBody: () => Promise<string>
 ): Promise<AssistantRequestPayload> {
-  const body = await readRequestBody(req, {
-    maxBodyBytes: assistantRequestBodyLimitBytes,
-  });
+  const body = await readBody();
   const payload = parseAssistantRequestPayloadText(body);
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
   const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
@@ -465,4 +472,29 @@ async function parseAssistantRequestPayload(
   }
 
   return parsedPayload;
+}
+
+export function hydrateRuntimeDataWithLocalRuntimeToken(
+  runtimeData: RuntimeData,
+  provider: string,
+  fetchedApiKey: string | undefined
+): RuntimeData {
+  // Only local-runtime providers need their `apiToken` injected into
+  // providerOptions so the OpenAI-compat factory can forward it as a bearer
+  // header. Hosted providers receive the key through the top-level `apiKey`.
+  if (!((provider === 'ollama' || provider === 'lmstudio') && fetchedApiKey)) {
+    return runtimeData;
+  }
+
+  const providerOptions = { ...(runtimeData.providerOptions ?? {}) };
+  const existing = providerOptions[provider];
+  providerOptions[provider] = {
+    ...(existing ?? {}),
+    apiToken: fetchedApiKey,
+  };
+
+  return {
+    ...runtimeData,
+    providerOptions,
+  };
 }

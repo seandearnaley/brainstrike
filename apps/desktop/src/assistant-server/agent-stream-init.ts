@@ -27,6 +27,7 @@ import {
 } from '@brainstrike/assistant-service/local-provider-runtime';
 import { resolveDesktopObserverUsageTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
+import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
 import type {
   AgentStreamFailure,
   AgentStreamInitializationStage,
@@ -60,7 +61,6 @@ import {
   persistDesktopChildRunUsage,
   recordDesktopAssistantHookRunOutcome,
 } from './run-persistence';
-import { getSecretReadErrorPayload } from './secret-error-responses';
 import { injectActivatedSkillsContext } from './skills-activation-context';
 import { createSecureSkillsFs } from './skills-fs-deps';
 import { readThreadTaskList } from './task-list-repository';

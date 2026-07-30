@@ -31,6 +31,12 @@
       "@brainstrike/assistant-service/ports": [
         "../../packages/assistant-service/src/ports.ts"
       ],
+      "@brainstrike/assistant-service/request": [
+        "../../packages/assistant-service/src/request.ts"
+      ],
+      "@brainstrike/assistant-service/secret-errors": [
+        "../../packages/assistant-service/src/secret-errors.ts"
+      ],
       "@brainstrike/assistant-service/steering": [
         "../../packages/assistant-service/src/steering.ts"
       ],

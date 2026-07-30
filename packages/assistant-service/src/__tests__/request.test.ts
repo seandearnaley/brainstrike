@@ -1,33 +1,15 @@
 /**
- * Request-preparation rejection tests (BST-1028 slice 3). NOT a verbatim move:
- * these tests drove the full HTTP POST in the pre-split monolith; here they
- * drive BST-972 A4's direct result API — `prepareAssistantPostRequest({ req,
- * resolveProviderApiKey })` — and assert on the returned rejection instead of
- * response bytes. What that changes, exactly:
- * - "streamResponse was never called" assertions become `result.ok === false`
- *   (with a direct call there is no stream to construct);
- * - the credential path injects a stub reader instead of mocking the secrets
- *   service — and the unreadable-key case throws the REAL SecretReadError
- *   through A3's structural matcher, not a mock-identity double;
- * - the 413 body-limit test is NOT here: its `Connection: close` header is a
- *   transport concern, so it moved verbatim to the stream-serving suite.
- * PURE lane: no HTTP, no PGlite. electron/electron-store are stubbed only
- * because request-preparation's module graph reaches ../secrets through
- * provider-credentials (the same pattern as secrets.test.ts).
- * The narrowed @brainstrike/agent mock carries only the two message
- * converters, preserving the monolith's trailing-message override contract.
+ * Request-preparation rejection tests (migrated into the package, BST-972 B2;
+ * previously apps/desktop's request-preparation-rejections.test.ts from the
+ * BST-1028 split). Drives the direct result API with an injected readBody
+ * thunk — no HTTP, no electron stubs (the module graph no longer reaches
+ * ../secrets), no request double. The unreadable-key case throws a STRUCTURAL
+ * SecretReadError fake through the contract matcher (a package test cannot
+ * import the desktop class upward); the real-class conformance money test
+ * stays in apps/desktop's secrets.test.ts.
  */
-import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/agent';
+import { AssistantRequestBodyTooLargeError } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-
-vi.mock('electron', () => ({
-  app: { getPath: vi.fn(() => '/tmp'), isPackaged: false },
-  safeStorage: {
-    getSelectedStorageBackend: vi.fn(() => 'keychain'),
-    isEncryptionAvailable: vi.fn(() => true),
-  },
-}));
-vi.mock('electron-store', () => ({ default: class {} }));
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -52,31 +34,34 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-import {
-  type PrepareAssistantPostRequestResult,
-  prepareAssistantPostRequest,
-} from '../../assistant-server/request-preparation';
-import { SecretReadError } from '../../secrets';
-import { MockRequest } from './_harness';
+import type { ScopedLogger } from '@brainstrike/utils/logger';
+import { type PrepareAssistantPostRequestResult, prepareAssistantPostRequest } from '../request';
 
 const resolveProviderApiKey = vi.fn<(provider: string) => Promise<string | undefined>>();
 
 beforeEach(() => {
   resolveProviderApiKey.mockReset().mockResolvedValue('test-api-key');
+  logger.debug.mockReset();
+  logger.fatal.mockReset();
+  logger.trace.mockReset();
+  logger.error.mockReset();
+  logger.info.mockReset();
+  logger.warn.mockReset();
 });
 
-function postRequest(body: string): MockRequest {
-  return new MockRequest({
-    body,
-    headers: { 'content-type': 'application/json' },
-    method: 'POST',
-    url: '/assistant',
-  });
-}
+const logger = {
+  debug: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+  info: vi.fn(),
+  trace: vi.fn(),
+  warn: vi.fn(),
+} satisfies ScopedLogger;
 
 async function prepare(body: string): Promise<PrepareAssistantPostRequestResult> {
   return await prepareAssistantPostRequest({
-    req: postRequest(body) as unknown as Parameters<typeof prepareAssistantPostRequest>[0]['req'],
+    logger,
+    readBody: async () => body,
     resolveProviderApiKey,
   });
 }
@@ -250,11 +235,18 @@ describe('prepareAssistantPostRequest rejections', () => {
   });
 
   it('distinguishes an unreadable provider key from a missing key', async () => {
-    // The REAL error class through A3's structural matcher — the production
-    // path, not a mock-identity double.
-    resolveProviderApiKey.mockRejectedValueOnce(
-      new SecretReadError('encryption_unavailable', 'openrouter')
+    // Structural fake matching assistant-contract's matchSecretReadError shape
+    // (name + code + provider + message) — the production path is structural
+    // classification, not instanceof; the REAL-class conformance money test
+    // lives in apps/desktop's secrets.test.ts.
+    const secretReadError = Object.assign(
+      new Error(
+        'Secret for "openrouter" is unreadable: safeStorage encryption is unavailable or insecure on this system. Re-enter the key to repair it.'
+      ),
+      { code: 'encryption_unavailable', provider: 'openrouter' }
     );
+    secretReadError.name = 'SecretReadError';
+    resolveProviderApiKey.mockRejectedValueOnce(secretReadError);
 
     const result = await prepare(
       JSON.stringify({
@@ -340,7 +332,17 @@ describe('prepareAssistantPostRequest rejections', () => {
   });
 
   it('flags connection-close on the body-limit rejection', async () => {
-    const result = await prepare('x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1));
+    // The byte LIMIT lives in the transport's readBody thunk since B2; the
+    // core's contract is mapping the typed error the thunk throws. (The
+    // limit-enforcement itself is covered end-to-end by the 413 HTTP test in
+    // desktop's stream-serving suite.)
+    const result = await prepareAssistantPostRequest({
+      logger,
+      readBody: async () => {
+        throw new AssistantRequestBodyTooLargeError();
+      },
+      resolveProviderApiKey,
+    });
 
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -349,5 +351,35 @@ describe('prepareAssistantPostRequest rejections', () => {
     expect(result.rejection.status).toBe(413);
     expect(result.rejection.closeConnection).toBe(true);
     expect(result.rejection.payload.error).toBe('request_body_too_large');
+  });
+
+  it('redacts unsafe enabled-native-tool ids in the warn log and keeps safe ones raw', async () => {
+    // The sha256 truncation is a deliberate log-redaction guard for
+    // attacker-controlled identifiers (review finding: previously asserted
+    // nowhere) — the spy logger makes this suite the contract's owner.
+    const result = await prepare(
+      JSON.stringify({
+        data: {
+          enabledNativeToolIds: ['unknown.tool', 'evil id with spaces \u0000'],
+          provider: 'openai',
+        },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected rejection');
+    }
+    expect(result.rejection.payload.error).toBe('invalid_enabled_native_tool_ids');
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Rejected unknown enabled native tool ids',
+      expect.objectContaining({
+        correlationId: expect.any(String),
+        // A SAFE-pattern id that is merely unknown renders raw; the unsafe
+        // string is sha256-truncated. (A VALID id never reaches this list.)
+        toolIdentifiers: ['unknown.tool', expect.stringMatching(/^sha256:[0-9a-f]{12}$/)],
+      })
+    );
   });
 });

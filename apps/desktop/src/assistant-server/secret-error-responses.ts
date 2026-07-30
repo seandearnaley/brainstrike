@@ -6,28 +6,8 @@
 // helper. The conformance money test — the real SecretReadError through the
 // structural matcher — lives in __tests__/secrets.test.ts.
 import type http from 'node:http';
-import { matchSecretReadError } from '@brainstrike/assistant-contract';
+import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
 import { respondJson } from './http-responses';
-
-export function getSecretReadErrorPayload(error: unknown):
-  | {
-      code: string;
-      error: 'api_key_unreadable';
-      message: string;
-      provider: string;
-    }
-  | undefined {
-  const match = matchSecretReadError(error);
-  if (!match) {
-    return;
-  }
-  return {
-    code: match.code,
-    error: 'api_key_unreadable',
-    message: match.message,
-    provider: match.provider,
-  };
-}
 
 export function respondToSecretReadError(res: http.ServerResponse, error: unknown): boolean {
   const payload = getSecretReadErrorPayload(error);

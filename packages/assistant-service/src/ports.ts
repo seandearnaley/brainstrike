@@ -52,3 +52,13 @@ export function createMainLlmHostClient(manager: AssistantLlmHostManager): Local
     warmup: (modelId, options = {}) => manager.warmupForMain(modelId, options),
   };
 }
+
+/**
+ * CredentialPort reader (BST-972 B2): resolve a provider's API key, returning
+ * undefined for not-configured and THROWING the host's secret-read failure
+ * for unreadable (classified structurally via
+ * @brainstrike/assistant-contract's matchSecretReadError — see
+ * ./secret-errors). Desktop passes provider-credentials'
+ * resolveProviderApiKey verbatim.
+ */
+export type ProviderApiKeyReader = (provider: string) => Promise<string | undefined>;

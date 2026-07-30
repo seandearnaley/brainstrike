@@ -1,5 +1,9 @@
 import type http from 'node:http';
-import { AssistantRequestBodyTooLargeError } from '@brainstrike/agent';
+import {
+  ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
+  AssistantRequestBodyTooLargeError,
+  resolveAssistantRequestBodyLimitBytes,
+} from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('DesktopAssistantHttpStream');
@@ -10,12 +14,27 @@ type ServerResponseWithFlush = http.ServerResponse & {
 };
 
 export interface ReadRequestBodyOptions {
-  maxBodyBytes?: number;
+  /**
+   * REQUIRED byte ceiling (review finding on BST-972 B2): an optional limit
+   * treated `undefined` as unbounded, so omitting it silently reverted an
+   * assistant POST read to no limit at all. Mandatory turns that omission
+   * into a compile error.
+   */
+  maxBodyBytes: number;
 }
+
+/**
+ * Byte ceiling for assistant POST bodies (env-overridable). Owned by the
+ * transport since BST-972 B2: the service core takes a readBody thunk and
+ * maps the typed 413 it throws; the limit itself is read mechanics.
+ */
+export const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
+  process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
+);
 
 export async function readRequestBody(
   req: http.IncomingMessage,
-  options: ReadRequestBodyOptions = {}
+  options: ReadRequestBodyOptions
 ): Promise<string> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -46,7 +65,7 @@ export async function readRequestBody(
       const chunkBuffer =
         typeof chunk === 'string' ? Buffer.from(chunk, 'utf-8') : Buffer.from(chunk);
       totalBytes += chunkBuffer.byteLength;
-      if (options.maxBodyBytes !== undefined && totalBytes > options.maxBodyBytes) {
+      if (totalBytes > options.maxBodyBytes) {
         const error = new AssistantRequestBodyTooLargeError(options.maxBodyBytes);
         // Keep the socket alive long enough for the caller to write a JSON 413;
         // the handler marks that response Connection: close before ending it.
