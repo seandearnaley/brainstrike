@@ -40,7 +40,6 @@ vi.mock('../../../../server/assistant-config', async () => {
 
 // The route builds normal turns through one stateless Web stream seam.
 vi.mock('../../../../server/web-assistant-stream', () => ({
-  buildWebAssistantStream: vi.fn(),
   buildWebAssistantStreamFromPrepared: vi.fn(),
 }));
 
@@ -972,6 +971,51 @@ describe('assistant route', () => {
       expect.objectContaining({ apiKey: 'test-key' })
     );
     expect(receivedRuntime).toEqual({ provider: 'openai' });
+  });
+
+  it('forwards a valid client assistant message id into the prepared runtime', async () => {
+    mockOpenAiProviderConfig({
+      apiKey: 'test-key',
+      enabled: true,
+      provider: 'openai',
+    });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'ok' } as StreamChunk;
+      },
+    };
+    let receivedRuntime: RuntimeData | undefined;
+    vi.mocked(buildWebAssistantStreamFromPrepared).mockImplementation(async (params) => {
+      receivedRuntime = params.runtimeData;
+      return stream;
+    });
+    vi.mocked(createStatelessAssistantDataStreamResponse).mockReturnValue(
+      new Response('ok', { status: 200 })
+    );
+
+    const res = await POST(
+      new Request('http://localhost/api/assistant', {
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [
+            { id: 'current-user', parts: [{ text: 'continue', type: 'text' }], role: 'user' },
+          ],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
+          unstable_assistantMessageId: 'assistant-client-id',
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+    );
+
+    // Convergence delta (desktop parity): the validated client id is stamped
+    // into the prepared runtime by the shared preparation — previously web's
+    // runtime never carried assistantMessageId.
+    expect(res.status).toBe(200);
+    expect(receivedRuntime).toEqual({
+      assistantMessageId: 'assistant-client-id',
+      provider: 'openai',
+    });
   });
 
   it('fails closed for a valid tool approval action in stateless production', async () => {
