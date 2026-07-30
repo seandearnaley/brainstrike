@@ -103,14 +103,14 @@ interface DistinctDimensionRow {
 }
 
 function mapDimensionCountRow(value: unknown): DimensionCountRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Dimension index count row must be an object.');
   }
   return value as DimensionCountRow;
 }
 
 function mapDistinctDimensionRow(value: unknown): DistinctDimensionRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Dimension index row must be an object.');
   }
   return value as DistinctDimensionRow;

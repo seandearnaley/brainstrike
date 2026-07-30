@@ -39,7 +39,7 @@ function isMissingModelsTableError(error: unknown): boolean {
 }
 
 function mapModelRegistryRow(value: unknown): ModelRegistryRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Embedding model registry row must be an object.');
   }
   return value as ModelRegistryRow;

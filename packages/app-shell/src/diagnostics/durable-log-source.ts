@@ -28,7 +28,7 @@ interface DiagnosticCountRow {
 }
 
 function mapDiagnosticCountRow(value: unknown): DiagnosticCountRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Diagnostic count row must be an object.');
   }
   return value as DiagnosticCountRow;

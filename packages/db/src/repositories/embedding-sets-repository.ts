@@ -49,23 +49,23 @@ export interface EmbeddingSpaceListing {
 }
 
 interface EmbeddingSpaceListingRow {
-  readonly averageTokensPerChunk: unknown;
-  readonly createdAt: unknown;
-  readonly description: unknown;
-  readonly dimensions: unknown;
-  readonly distance: unknown;
-  readonly embeddedChunks: unknown;
-  readonly fileCount: unknown;
-  readonly id: unknown;
-  readonly modelId: unknown;
-  readonly modelKey: unknown;
-  readonly name: unknown;
-  readonly tokenizedChunkCount: unknown;
-  readonly totalChunks: unknown;
-  readonly totalTokens: unknown;
+  readonly averageTokensPerChunk?: number | string | null;
+  readonly createdAt: string;
+  readonly description: string | null;
+  readonly dimensions: number | string;
+  readonly distance: EmbeddingDistance | null;
+  readonly embeddedChunks?: number | string | null;
+  readonly fileCount?: number | string | null;
+  readonly id: string;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly name: string | null;
+  readonly tokenizedChunkCount?: number | string | null;
+  readonly totalChunks?: number | string | null;
+  readonly totalTokens?: number | string | null;
 }
 
-function readFiniteNumber(value: unknown, fieldName: string): number {
+function readFiniteNumber(value: number | string, fieldName: string): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) {
     throw new Error(`Invalid embedding space ${fieldName}: ${String(value)}`);
@@ -73,7 +73,10 @@ function readFiniteNumber(value: unknown, fieldName: string): number {
   return parsed;
 }
 
-function readOptionalFiniteNumber(value: unknown, fieldName: string): number {
+function readOptionalFiniteNumber(
+  value: number | string | null | undefined,
+  fieldName: string
+): number {
   if (value === null || value === undefined) {
     return 0;
   }
@@ -81,7 +84,7 @@ function readOptionalFiniteNumber(value: unknown, fieldName: string): number {
 }
 
 function mapEmbeddingSpaceListingRow(value: unknown): EmbeddingSpaceListingRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Embedding space listing row must be an object.');
   }
   return value as EmbeddingSpaceListingRow;
@@ -469,14 +472,14 @@ export class EmbeddingSetsRepository {
     options: ListEmbeddingSpacesOptions
   ): EmbeddingSpaceListing {
     const listing: EmbeddingSpaceListing = {
-      createdAt: row.createdAt as string,
-      description: row.description as string | null,
+      createdAt: row.createdAt,
+      description: row.description,
       dimensions: readFiniteNumber(row.dimensions, 'dimensions'),
       distance: row.distance as EmbeddingDistance | null,
-      id: row.id as string,
-      modelId: row.modelId as string,
-      modelKey: row.modelKey as string,
-      name: row.name as string | null,
+      id: row.id,
+      modelId: row.modelId,
+      modelKey: row.modelKey,
+      name: row.name,
     };
     if (options.includeStats !== true) {
       return listing;

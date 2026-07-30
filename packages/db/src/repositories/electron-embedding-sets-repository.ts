@@ -20,7 +20,7 @@ class ElectronEmbeddingSetsDbAdapter {
   }
 
   async query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
-    const paramsArray = Array.isArray(params) ? params : params ? [params] : [];
+    const paramsArray = params ?? [];
     const result =
       paramsArray.length > 0
         ? await this.electronDb.query(sql, paramsArray)

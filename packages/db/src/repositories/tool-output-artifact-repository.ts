@@ -71,8 +71,8 @@ export interface ToolOutputArtifactRepositoryOptions {
 }
 
 interface ArtifactReferenceRow {
-  byteLength: unknown;
-  expiresAt: unknown;
+  byteLength: number | string;
+  expiresAt: Date | string;
   format: unknown;
   id: unknown;
 }
@@ -129,8 +129,8 @@ function bytesToHex(bytes: Uint8Array): string {
   return hex;
 }
 
-function canonicalInstant(value: unknown, field: string): string {
-  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value as string);
+function canonicalInstant(value: Date | string, field: string): string {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (!Number.isFinite(date.getTime())) {
     throw new TypeError(`Tool output artifact ${field} is not a valid timestamp.`);
   }
@@ -146,14 +146,19 @@ function requireNow(now: () => Date): Date {
 }
 
 function mapArtifactReferenceRow(value: unknown): ArtifactReferenceRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Tool output artifact row must be an object.');
   }
   return value as ArtifactReferenceRow;
 }
 
 function mapArtifactRangeRow(value: unknown): ArtifactRangeRow {
-  return mapArtifactReferenceRow(value) as ArtifactRangeRow;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('Tool output artifact row must be an object.');
+  }
+  // Only "is an object" is proven here; `content` is guarded at its use site
+  // (the Uint8Array check), so no cast below pretends otherwise.
+  return value as ArtifactRangeRow;
 }
 
 function referenceFromRow(row: ArtifactReferenceRow): ToolOutputArtifactReference {

@@ -164,28 +164,28 @@ interface MessageRow {
 }
 
 function mapMessageRow(value: unknown): MessageRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Debug bundle message row must be an object.');
   }
   return value as MessageRow;
 }
 
 function mapRunEventRow(value: unknown): RunEventRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Debug bundle run event row must be an object.');
   }
   return value as RunEventRow;
 }
 
 function mapRunRow(value: unknown): RunRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Debug bundle run row must be an object.');
   }
   return value as RunRow;
 }
 
 function mapRunUsageRow(value: unknown): RunUsageRow {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Debug bundle run usage row must be an object.');
   }
   return value as RunUsageRow;

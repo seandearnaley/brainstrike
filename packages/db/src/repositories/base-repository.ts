@@ -21,11 +21,14 @@ type FileRecordDatabase = Omit<IDatabase, 'query'> & {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 };
 
-function mapFileRecordRow(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) {
-    throw new TypeError('File record row must be an object.');
-  }
-  return value as Record<string, unknown>;
+/**
+ * Filter-not-throw (BST-1027 review): file_records reads SKIP malformed rows,
+ * matching the pre-convergence behavior, the four sibling accessors in this
+ * class (findById/findByContentHash/count*), and the repo-wide convention
+ * pinned by 'ignores malformed rows instead of throwing' tests elsewhere.
+ */
+function isFileRecordRow(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -179,7 +182,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       return [];
     }
 
-    return result.rows.map((row) => this.fromRow(mapFileRecordRow(row)));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async findByContentHash(contentHash: string): Promise<FileRecord | null> {
@@ -202,7 +205,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       return [];
     }
 
-    return result.rows.map((row) => this.fromRow(mapFileRecordRow(row)));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async findAllWithContent(): Promise<FileRecord[]> {
@@ -213,7 +216,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       return [];
     }
 
-    return result.rows.map((row) => this.fromRow(mapFileRecordRow(row)));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async findByManagedCacheIdentity(
@@ -225,11 +228,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     const result = await this.db.query(sql, [embeddingSetId, rootId, relativePath]);
     const row = result.rows[0];
 
-    if (row === undefined) {
+    if (!isFileRecordRow(row)) {
       return null;
     }
 
-    return this.fromRow(mapFileRecordRow(row));
+    return this.fromRow(row);
   }
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
@@ -240,7 +243,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       return [];
     }
 
-    return result.rows.map((row) => this.fromRow(mapFileRecordRow(row)));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async listManagedCacheEntryMetadata(
@@ -255,7 +258,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       return [];
     }
 
-    return result.rows.map(mapFileRecordRow).flatMap((row) => {
+    return result.rows.filter(isFileRecordRow).flatMap((row) => {
       const fileRecordId = row['id'];
       const rowEmbeddingSetId = row['embedding_set_id'];
       const rootId = row['root_id'];
@@ -557,7 +560,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     const map = new Map<string, FileRecord>();
 
     for (const row of result.rows) {
-      const record = this.fromRow(mapFileRecordRow(row));
+      if (!isFileRecordRow(row)) {
+        continue;
+      }
+      const record = this.fromRow(row);
       if (record.contentHash) {
         const key = this.buildDedupKey(record.contentHash, record.embeddingSetId);
         map.set(key, record);
