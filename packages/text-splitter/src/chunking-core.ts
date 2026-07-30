@@ -21,7 +21,12 @@ export type SharedCodeLanguage =
   | 'kotlin';
 
 export interface ChunkAdjustmentConfig<TLanguage extends string> {
-  readonly codeLanguageDefaults: Record<TLanguage, { maxTokens: number; overlap: number }>;
+  /**
+   * Partial by design: a detection pattern may name a language this table does
+   * not size, in which case sizing falls back to `codeMaxTokens`/`codeOverlap`
+   * (see the `languageDefaults ?? …` fallback in `adjustChunkingForFileType`).
+   */
+  readonly codeLanguageDefaults: Partial<Record<TLanguage, { maxTokens: number; overlap: number }>>;
   readonly codeMaxTokens: number;
   readonly codeOverlap: number;
   readonly defaultMaxTokens: number;
