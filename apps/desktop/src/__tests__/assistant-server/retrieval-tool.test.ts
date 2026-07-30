@@ -27,6 +27,9 @@ vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<
     typeof import('../../../../../packages/agent/src/tools/workspace-index-retrieval')
   >('../../../../../packages/agent/src/tools/workspace-index-retrieval');
+  const schemas = await vi.importActual<
+    typeof import('../../../../../packages/agent/src/tools/schemas')
+  >('../../../../../packages/agent/src/tools/schemas');
   class MockContextPacker {
     private readonly budgetTokens: number;
 
@@ -73,12 +76,11 @@ vi.mock('@brainstrike/agent', async () => {
     hasWorkspaceIndexRuntimeStatus: actual.hasWorkspaceIndexRuntimeStatus,
     normalizeOptionalText: actual.normalizeOptionalText,
     normalizeWorkspaceIndexText: actual.normalizeWorkspaceIndexText,
-    QueryEmbeddingSpaceInputSchema: {
-      parse: (input: unknown) => input,
-    },
-    RetrievalContextInputSchema: {
-      parse: (input: unknown) => input,
-    },
+    // REAL schema (BST-1020 review): the registry parses input with it
+    // before the live entry, so the test adapter must too — an identity stub
+    // here let cases assert schema-unreachable branches.
+    QueryEmbeddingSpaceInputSchema: schemas.QueryEmbeddingSpaceInputSchema,
+    RetrievalContextInputSchema: schemas.RetrievalContextInputSchema,
     resolveWorkspaceIndexEmbeddingSetId: actual.resolveWorkspaceIndexEmbeddingSetId,
   };
 });
@@ -171,12 +173,33 @@ vi.mock('../../secrets', async () => {
   };
 });
 
-import {
-  createQueryEmbeddingSpaceTool,
-  createRetrievalTool,
-  runQueryEmbeddingSpace,
-} from '../../assistant-server/retrieval-tool';
+import { QueryEmbeddingSpaceInputSchema } from '@brainstrike/agent';
+import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 import { SecretReadError } from '../../secrets';
+
+/**
+ * BST-1020: the suite previously drove ~30 cases through the deleted
+ * test-only tool factories. This adapter routes the SAME execute shape
+ * through `runQueryEmbeddingSpace` — the entry the live registry actually
+ * calls — so every assertion below stays byte-identical while exercising
+ * the production path (including its error normalization, which moved from
+ * the factories into the live entry in the same change).
+ */
+function liveRetrievalTool(
+  runtimeData: Parameters<typeof runQueryEmbeddingSpace>[1],
+  dependencies?: Parameters<typeof runQueryEmbeddingSpace>[2]
+) {
+  return {
+    execute: async ({ context }: { context: Parameters<typeof runQueryEmbeddingSpace>[0] }) =>
+      // Mirror the registry (resolveQueryEmbeddingSpaceInput in
+      // assistant-tools.ts): strict schema parse BEFORE the live entry.
+      runQueryEmbeddingSpace(
+        QueryEmbeddingSpaceInputSchema.parse(context) as typeof context,
+        runtimeData,
+        dependencies
+      ),
+  };
+}
 
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
@@ -240,7 +263,7 @@ describe('retrieval-tool', () => {
   });
 
   it('retrieves and packs context with inline file paths', async () => {
-    const tool = createRetrievalTool({
+    const tool = liveRetrievalTool({
       embeddingSetId: 'set-1',
       selectionFilePaths: ['/repo/file.ts'],
       tokenBudget: 10,
@@ -266,6 +289,11 @@ describe('retrieval-tool', () => {
     expect(result.chunks[0]?.lineRange).toEqual({ end: 12, start: 10 });
     expect(result.chunks[0]?.offsets).toEqual({ end: 155, start: 120 });
     expect(result.selectionSnapshotId).toBeUndefined();
+    // The runtime's selectionFilePaths/tokenBudget above are INERT on the live
+    // path (omitImplicitContextRuntimeData strips them): the default budget —
+    // not the runtime's 10 — proves the strip is exercised, its first direct
+    // assertion anywhere in the suite.
+    expect(result.budget).toBe(4000);
 
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
       embeddingSetId: 'set-1',
@@ -281,7 +309,7 @@ describe('retrieval-tool', () => {
     getKeyMock.mockRejectedValueOnce(readError);
     resolveHostedProviderApiKeyMock.mockResolvedValueOnce(undefined);
 
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
@@ -293,7 +321,7 @@ describe('retrieval-tool', () => {
     getKeyMock.mockRejectedValueOnce(new Error('stored embedding key is unreadable'));
     resolveHostedProviderApiKeyMock.mockResolvedValueOnce('environment-key');
 
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
     const result = await tool.execute({
       context: { embeddingSetId: 'set-1', query: 'hello' },
     });
@@ -303,7 +331,7 @@ describe('retrieval-tool', () => {
   });
 
   it('uses the workspace index embedding set when no explicit or runtime set is provided', async () => {
-    const tool = createRetrievalTool({
+    const tool = liveRetrievalTool({
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
       workspaceIndexStatusState: 'idle',
@@ -326,8 +354,12 @@ describe('retrieval-tool', () => {
     });
   });
 
-  it('lets retrieveContext input override active runtime context', async () => {
-    const tool = createRetrievalTool({
+  it('ignores the runtime embeddingSetId even when the input names no set', async () => {
+    // BST-1020 (review): the live entry STRIPS the runtime's implicit
+    // embeddingSetId, so with no input set the workspace-index default wins —
+    // never 'active-set'. (The old case asserted input-beats-runtime, which is
+    // vacuous once the runtime side is stripped.)
+    const tool = liveRetrievalTool({
       embeddingSetId: 'active-set',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
@@ -336,24 +368,20 @@ describe('retrieval-tool', () => {
 
     const result = await tool.execute({
       context: {
-        embeddingSetId: 'model-supplied-set',
         query: 'Where is assistant retrieval wired?',
       },
     });
 
-    expect(result.embeddingSetId).toBe('model-supplied-set');
-    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
-      'model-supplied-set',
-    ]);
+    expect(result.embeddingSetId).toBe('workspace-index-set');
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
-      embeddingSetId: 'model-supplied-set',
+      embeddingSetId: 'workspace-index-set',
       limit: 20,
       threshold: 0.3,
     });
   });
 
   it('lets an explicit embedding set override the workspace index default', async () => {
-    const tool = createRetrievalTool({
+    const tool = liveRetrievalTool({
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
       workspaceIndexStatusState: 'idle',
@@ -403,7 +431,7 @@ describe('retrieval-tool', () => {
   });
 
   it('returns structured workspace index status when the default workspace index is blocked', async () => {
-    const tool = createRetrievalTool({
+    const tool = liveRetrievalTool({
       workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
@@ -468,7 +496,7 @@ describe('retrieval-tool', () => {
       return { rows: [] };
     });
 
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
     const result = await tool.execute({
       context: { embeddingSetId: 'set-1', query: 'hello' },
     });
@@ -496,7 +524,7 @@ describe('retrieval-tool', () => {
       return { rows: [] };
     });
 
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
     const result = await tool.execute({
       context: { embeddingSetId: 'set-1', query: 'hello' },
     });
@@ -523,7 +551,7 @@ describe('retrieval-tool', () => {
       return { rows: [] };
     });
 
-    const tool = createRetrievalTool(
+    const tool = liveRetrievalTool(
       { embeddingSetId: 'set-1' },
       { embeddingHostManager: { queryEmbedding: queryEmbeddingMock } }
     );
@@ -559,7 +587,7 @@ describe('retrieval-tool', () => {
       return { rows: [] };
     });
 
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({
@@ -572,7 +600,7 @@ describe('retrieval-tool', () => {
     getKeyMock.mockResolvedValue(undefined);
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
 
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
     const result = await tool.execute({
       context: {
         embeddingSetId: 'set-1',
@@ -593,7 +621,7 @@ describe('retrieval-tool', () => {
 
   it('rejects when embedding dimensions do not match active set', async () => {
     embedMock.mockResolvedValueOnce({ ok: true, value: { embedding: [0.25] } });
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({
@@ -609,7 +637,7 @@ describe('retrieval-tool', () => {
 
   it('returns empty context when no chunks are found', async () => {
     searchSimilarMock.mockResolvedValueOnce([]);
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     const result = await tool.execute({
       context: { embeddingSetId: 'set-1', query: 'hello' },
@@ -653,7 +681,7 @@ describe('retrieval-tool', () => {
         similarity: 0.9,
       },
     ]);
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     const result = await tool.execute({
       context: { embeddingSetId: 'set-1', query: 'hello' },
@@ -689,7 +717,7 @@ describe('retrieval-tool', () => {
         similarity: 0.91,
       },
     ]);
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
@@ -703,7 +731,7 @@ describe('retrieval-tool', () => {
 
   it('preserves the safe embedding-generation failure message', async () => {
     embedMock.mockResolvedValueOnce({ error: new Error('provider down'), ok: false });
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
@@ -734,7 +762,7 @@ describe('retrieval-tool', () => {
     });
 
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     const result = await tool.execute({
       context: {
@@ -748,7 +776,7 @@ describe('retrieval-tool', () => {
   });
 
   it('rejects invalid selection snapshot ids', async () => {
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({
@@ -761,8 +789,10 @@ describe('retrieval-tool', () => {
     ).rejects.toThrow('Selection snapshot reference is invalid.');
   });
 
-  it('rejects oversized selection file path lists', async () => {
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+  it('rejects oversized selection file path lists at the input schema', async () => {
+    // BST-1020: the registry's schema parse (filePaths max 5000) is the LIVE
+    // boundary; the core's selectionTooLarge throw behind it is defensive.
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
     const filePaths = Array.from({ length: 5001 }, (_, index) => `file-${index}.ts`);
 
     await expect(
@@ -773,12 +803,12 @@ describe('retrieval-tool', () => {
           query: 'hello',
         },
       })
-    ).rejects.toThrow('Selection exceeds retrieval limits.');
+    ).rejects.toThrow(/too big|at most 5000|5000/i);
   });
 
   it('surfaces safe errors when embedding set lookup fails', async () => {
     dbQueryMock.mockRejectedValueOnce(new Error('db exploded'));
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({
@@ -787,29 +817,15 @@ describe('retrieval-tool', () => {
     ).rejects.toThrow('Unable to load embedding set metadata.');
   });
 
-  it('surfaces safe errors for missing embedding set', async () => {
-    const tool = createRetrievalTool(undefined);
-
-    await expect(
-      tool.execute({
-        context: { query: 'hello' },
-      })
-    ).rejects.toThrow('Select an active embedding set to enable retrieval.');
-  });
-
-  it('surfaces safe query-embedding-space selection guidance from the tool factory', async () => {
-    const tool = createQueryEmbeddingSpaceTool(undefined);
-
-    await expect(
-      tool.execute({
-        context: { query: 'hello' },
-      })
-    ).rejects.toThrow('Select an embedding space before querying semantic context.');
+  it('surfaces safe selection guidance when no embedding space is resolvable', async () => {
+    await expect(runQueryEmbeddingSpace({ query: 'hello' }, undefined)).rejects.toThrow(
+      'Select an embedding space before querying semantic context.'
+    );
   });
 
   it('sanitizes unexpected retrieval errors', async () => {
     searchSimilarMock.mockRejectedValueOnce(new Error('bad'));
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({
@@ -822,7 +838,7 @@ describe('retrieval-tool', () => {
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
     searchSimilarMock.mockRejectedValue(new Error('db failed for /private/workspace'));
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     try {
       await expect(
@@ -842,7 +858,7 @@ describe('retrieval-tool', () => {
 
   it('redacts the logged error for unexpected top-level retrieval failures', async () => {
     searchSimilarMock.mockRejectedValue(new Error('db failed for /private/secret-workspace-path'));
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
@@ -862,7 +878,7 @@ describe('retrieval-tool', () => {
       }
       return { rows: [] };
     });
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
       tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
