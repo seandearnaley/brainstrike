@@ -1,4 +1,5 @@
 import type { AgentMessage, RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getWorkspaceRoots } from './workspace-roots';
 
@@ -35,10 +36,9 @@ export const WORKSPACE_INSTRUCTIONS_FILE_NAMES = ['AGENTS.md', 'AGENT.md', 'CLAU
  * real `readWorkspaceTextFile` from assistant-tools. Identical shape to the
  * referenced-files reader.
  */
-export type WorkspaceFileReader = (args: {
-  rootPath: string;
-  requestedPath: string;
-}) => Promise<{ content: string; path: string; size: number }>;
+// The canonical shape is the service's capability contract (BST-972 B4b);
+// re-exported so this module's existing consumers keep their import site.
+export type { WorkspaceFileReader };
 
 /**
  * Wrap file content in a code fence that CANNOT be broken by backticks inside

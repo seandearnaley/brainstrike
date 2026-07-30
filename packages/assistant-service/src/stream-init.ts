@@ -79,7 +79,7 @@ interface ToolOutputArtifactCapabilities {
 function buildToolOutputArtifactCapabilities<K extends AgentStreamCapabilityKinds>(
   runtimeData: RuntimeData | undefined,
   runId: string | undefined,
-  getDatabase: () => Promise<K['database']>,
+  getDatabase: AgentStreamDatabaseProvider<K['database']>,
   deps: AgentStreamHelperDeps<K>
 ): ToolOutputArtifactCapabilities {
   const resourceId = runtimeData?.memory?.resourceId;
@@ -298,7 +298,7 @@ async function resolvePersonaRuntimeFields<K extends AgentStreamCapabilityKinds>
  */
 function buildHookRunVerdictRecorder<K extends AgentStreamCapabilityKinds>(
   runId: string | undefined,
-  getDatabase: () => Promise<K['database']>,
+  getDatabase: AgentStreamDatabaseProvider<K['database']>,
   deps: AgentStreamHelperDeps<K>
 ): {
   onRunVerdict?: (verdict: K['hookVerdict']) => Promise<void>;
@@ -387,14 +387,11 @@ function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtim
 }
 
 /**
- * Injected main-process database provider (BST-972 A2). A provider, not a
- * resolved handle, for the same reason as run-persistence.ts: each use awaits
- * the current handle exactly where the previous direct `getDatabase()` calls
- * did. The desktop composition site (assistant-server.ts) passes db-main's
- * `getDatabase` verbatim; the type-only `DesktopDatabase` import is erased at
- * runtime, so this module no longer names db-main directly. (It still loads
- * db-main transitively via ./mastra-memory and ./assistant-tools — those edges
- * are later slices in the BST-972 sequence.)
+ * Injected host database provider (BST-972 A2 rule, unchanged by the move): a
+ * PROVIDER, not a resolved handle, so each use awaits the current handle
+ * exactly where the previous direct calls did — a mid-run handle swap is
+ * observed, never cached across awaits. `TDb` is the host's opaque
+ * `AgentStreamCapabilityKinds['database']`.
  */
 export type AgentStreamDatabaseProvider<TDb> = () => Promise<TDb>;
 
@@ -587,13 +584,13 @@ export interface AgentStreamCapabilities<
       stream: AsyncIterable<StreamChunk>,
       runId: string,
       queuedEvents: AssistantRunEvent[],
-      getDatabase: () => Promise<K['database']>
+      getDatabase: AgentStreamDatabaseProvider<K['database']>
     ) => AsyncIterable<StreamChunk>;
     readonly persistChildRunUsage: (
       stream: AsyncIterable<StreamChunk>,
       runId: string,
       observerTarget: { readonly model: string; readonly provider: string } | undefined,
-      getDatabase: () => Promise<K['database']>
+      getDatabase: AgentStreamDatabaseProvider<K['database']>
     ) => AsyncIterable<StreamChunk>;
     readonly recordHookRunOutcome: (
       database: K['database'],
@@ -653,7 +650,7 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
   readonly apiKey: string | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
-  readonly getDatabase: () => Promise<K['database']>;
+  readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
   readonly mcpConfig: McpConfig | undefined;
   // Deliberately the mutable array type: this exact array is handed through

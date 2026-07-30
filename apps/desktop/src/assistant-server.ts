@@ -91,8 +91,13 @@ const logger = desktopAssistantServerLogger;
 /**
  * Desktop's instantiation of the service's opaque capability kinds
  * (BST-972 B4b): the host-internal types the stream initializer routes
- * between capability calls without inspecting. Derived from the real
- * implementations so they cannot drift.
+ * between capability calls without inspecting. The ReturnType/Parameters
+ * derivations are PLUMBING, not a safety net — they are defined as whatever
+ * the implementation currently is. The real drift check is the contravariant
+ * assignability of each implementation at the capabilities literal below
+ * (a new required param on an adapter errors there); what nothing checks is
+ * host-side RETURN widening the service ought to thread — the service sees
+ * the restated signatures, not the real returns (review note on #2129).
  */
 interface DesktopAgentStreamKinds {
   database: DesktopDatabase;

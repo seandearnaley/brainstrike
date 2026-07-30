@@ -1,5 +1,6 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { parseFileMentionDirectives } from '@brainstrike/agent';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getWorkspaceRoots } from './workspace-roots';
 
@@ -29,10 +30,9 @@ export const MAX_REFERENCED_FILES_TOTAL_CHARS = 48_000;
  * the context builder is unit-testable without disk; the live wiring passes the
  * real `readWorkspaceTextFile` from assistant-tools.
  */
-export type WorkspaceFileReader = (args: {
-  rootPath: string;
-  requestedPath: string;
-}) => Promise<{ content: string; path: string; size: number }>;
+// The canonical shape is the service's capability contract (BST-972 B4b);
+// re-exported so this module's existing consumers keep their import site.
+export type { WorkspaceFileReader };
 
 function extractText(message: AgentMessage): string {
   return message.parts
