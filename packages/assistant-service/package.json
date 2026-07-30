@@ -71,7 +71,7 @@
   "scripts": {
     "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/http.ts src/local-provider-runtime.ts src/memory-model-targets.ts src/ports.ts src/request.ts src/run-turn.ts src/secret-errors.ts src/steering.ts src/types.ts --format esm,cjs --out-dir dist",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsup src/http.ts src/local-provider-runtime.ts src/memory-model-targets.ts src/ports.ts src/request.ts src/run-turn.ts src/secret-errors.ts src/steering.ts src/types.ts --format esm,cjs --out-dir dist --watch",
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest",
