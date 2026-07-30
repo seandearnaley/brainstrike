@@ -3,9 +3,9 @@
  * 413 transport half (moved verbatim from the pre-split
  * assistant-server.integration.test.ts, BST-1028 slice 3). Deltas, exactly:
  * - mock defaults prime in beforeEach (slice-1 lesson);
- * - the steering-registry reset moves into beforeEach/afterEach hooks IN
- *   ADDITION to the tests' own bracketing, so a mid-test failure cannot leak a
- *   registered run;
+ * - the steering-registry reset moves into beforeEach/afterEach hooks,
+ *   REPLACING the tests' own bracketing (hooks strictly dominate it for
+ *   leak-proofing: a mid-test failure cannot skip them);
  * - the `@brainstrike/agent` mock is carried VERBATIM from the monolith
  *   (unlike the narrowed status/rejection suites): these full-POST flows
  *   traverse runtime construction, session creation, and stream mapping, and
@@ -363,6 +363,43 @@ describe('assistant stream serving', () => {
     );
     expect(response.headers['connection']).toBe('close');
     expect(streamResponse).not.toHaveBeenCalled();
+  }, 10_000);
+
+  it('should accept an image-only user turn as a valid vision prompt', async () => {
+    // The transport half of the vision acceptance (moved verbatim from the
+    // monolith): the rejections suite keeps the fast unit signal
+    // (result.ok === true), but only this end-to-end form proves an
+    // attachment-only turn actually REACHES the stream.
+    const { streamResponse } = await import('../../assistant-server/http');
+    (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+      const response = res as { end?: () => void };
+      response.end?.();
+    });
+
+    const response = await runRequest({
+      body: JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [
+          {
+            id: 'image-only',
+            parts: [
+              {
+                data: 'data:image/png;base64,aGVsbG8=',
+                mediaType: 'image/png',
+                type: 'file',
+              },
+            ],
+            role: 'user',
+          },
+        ],
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/assistant',
+    });
+
+    expect(response.status).toBe(200);
+    expect(streamResponse).toHaveBeenCalledOnce();
   }, 10_000);
 
   it('a semantically rejected POST responds without ever constructing a stream', async () => {
