@@ -3,8 +3,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
-    "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/assistant-contract": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

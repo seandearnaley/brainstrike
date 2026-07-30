@@ -1,7 +1,8 @@
 // Deliberately separate from the service package's types floor
 // (@brainstrike/assistant-service/types): the options interface type-depends
 // on five siblings, and housing it here keeps the shared types floor a true
-// leaf — nobody importing server-types inherits these edges, and no silent
+// leaf — nobody importing @brainstrike/assistant-service/types inherits
+// these edges, and no silent
 // invariant ("everyone remembers import type") is required (#2111 review).
 
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
