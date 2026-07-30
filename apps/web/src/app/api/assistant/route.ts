@@ -2,11 +2,11 @@ import type { AgentMessage, StreamChunk } from '@brainstrike/agent/hosted-web';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   createStatelessAssistantDataStreamResponse,
+  readRequestBodyText,
 } from '@brainstrike/agent/hosted-web';
 import {
   createAssistantRejectionResponse,
   ASSISTANT_JSON_ERROR_HEADERS as JSON_ERROR_HEADERS,
-  readRequestBodyText,
 } from '@brainstrike/assistant-service/http';
 import { createLogger } from '@brainstrike/utils/logger';
 import {

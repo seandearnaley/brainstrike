@@ -1,7 +1,7 @@
 /**
  * Transport adapters for the run service (BST-973, "share down, not across"):
  * the pieces BOTH hosts can carry without wire change, split by target.
- * - WHATWG side (hosted web): readRequestBodyText + a rejection -> Response
+ * - WHATWG side (hosted web): a rejection -> Response
  *   mapper byte-identical to web's previous local builder (Cache-Control:
  *   no-store; closeConnection is a Node-transport instruction with no WHATWG
  *   counterpart — ignoring it matches web today).
@@ -22,8 +22,6 @@ import type {
   DesktopMemoryFeature,
 } from './types.js';
 
-export { readRequestBodyText } from '@brainstrike/agent/hosted-web';
-
 /** Shared JSON error headers for WHATWG hosts (web's exact bytes). */
 export const ASSISTANT_JSON_ERROR_HEADERS = {
   'Cache-Control': 'no-store',
@@ -31,10 +29,14 @@ export const ASSISTANT_JSON_ERROR_HEADERS = {
 } as const;
 
 /**
- * WHATWG mapper: a rejection becomes a JSON Response. `closeConnection` is
- * deliberately ignored — WHATWG hosts have no connection to instruct.
+ * WHATWG mapper: a rejection becomes a JSON Response. WHATWG hosts have no
+ * connection to instruct, so a rejection carrying `closeConnection: true` is
+ * REJECTED AT THE TYPE LEVEL rather than silently dropped (NO SILENT
+ * FALLBACKS): a caller holding a connection-close rejection must handle the
+ * instruction on its own transport before mapping.
  */
 export function createAssistantRejectionResponse(rejection: {
+  readonly closeConnection?: undefined;
   readonly payload: AssistantRejectionPayload;
   readonly status: number;
 }): Response {
