@@ -506,6 +506,34 @@ That test invokes Turbo's JavaScript entrypoint through `process.execPath`;
 do not execute the generated `turbo.cmd` shim directly, because Node 24 rejects
 batch files passed to `execFileSync` on Windows.
 
+### Stale-dist pruning before non-cleaning tsc builds (2026-07-30 cache poisoning)
+
+tsc's incremental builder never deletes outputs whose sources are gone, and the
+nested Turbo run by apps/web + apps/desktop `prebuild`/`predev`
+(`scripts/run-turbo-command.mjs`) snapshots each package's whole `dist/**` into
+the machine-global cache (`~/Library/Caches/BrainStrike/turbo`). A branch
+switch that deletes sources therefore leaves orphaned compiled files in `dist`,
+and the next cache save immortalizes them: cold runs restore the poisoned
+archive verbatim even after local deletion, tripping `turbo boundaries`
+(2026-07-30 incident: 16 boundary issues, 125 poisoned archives purged).
+
+The guard: every package whose `build` runs `tsc -b`/`tsc --build` must either
+clean `dist` first or prepend `node <depth>/scripts/prune-stale-dist.mjs`,
+which deletes only dist artifacts whose corresponding `src/` file no longer
+exists. Pruning — not cleaning — is deliberate for the wired packages: it
+preserves incremental builds, and it is safe under concurrent builds of the
+same package (the reason agent's tsup pins `clean: false`) because a concurrent
+build only emits files that do have a source counterpart, so the prune set is
+disjoint from its writes. The pruner assumes per-file emit from `src/` into
+`dist/` with no bundler code splitting; a package that breaks that assumption
+must clean instead. `ui`'s `pnpm run clean:generated` cleans stray compiled JS
+in `src`, not `dist` — it does not satisfy this contract (ui's
+`dist/prompt-management` was a proven poisoning vector behind exactly that
+prefix). The wiring contract, pruner behavior, entrypoint controls, and the
+`turbo.jsonc` `globalDependencies` hash entry for the pruner (editing it must
+invalidate cached builds) are guarded by
+`scripts/__tests__/prune-stale-dist.test.mjs`.
+
 ### Agent declaration build split
 
 `@brainstrike/agent` declarations are emitted by the package's composite

@@ -53,7 +53,8 @@
     "biome.json", // Formatting/linting configuration
     ".nvmrc", // Node version specification
     "scripts/enforce-coverage.mjs", // Coverage thresholds (invalidates test cache when thresholds change)
-    "scripts/verify-no-cross-chunk-cycles.mjs" // Cross-chunk cycle guard (BST-861); wired into apps/web `build` and apps/desktop `build:renderer` — must invalidate their build cache when edited
+    "scripts/verify-no-cross-chunk-cycles.mjs", // Cross-chunk cycle guard (BST-861); wired into apps/web `build` and apps/desktop `build:renderer` — must invalidate their build cache when edited
+    "scripts/prune-stale-dist.mjs" // Stale-dist pruner (2026-07-30 cache-poisoning class); wired into the `build` of every non-cleaning tsc package — must invalidate their build cache when edited
   ],
   // Defines the tasks that can be run via `turbo run <taskName>`
   "tasks": {
