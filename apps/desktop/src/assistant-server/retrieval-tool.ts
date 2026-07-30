@@ -87,7 +87,6 @@ const ERROR_MESSAGES = {
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
   localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
   missingApiKey: 'No API key configured for the embedding provider.',
-  missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
   missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
   missingSourceRange:
     'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
@@ -98,7 +97,6 @@ const ERROR_MESSAGES = {
 
 /** Exported for the hybrid search tool, which reuses the same embedding path. */
 export const RETRIEVAL_SAFE_ERROR_MESSAGES = new Set<string>([
-  ERROR_MESSAGES.missingEmbeddingSet,
   ERROR_MESSAGES.missingQueryEmbeddingSpace,
   ERROR_MESSAGES.invalidEmbeddingSet,
   ERROR_MESSAGES.embeddingSetLookupFailed,
@@ -758,7 +756,14 @@ async function runRetrieval(
     if (unavailable) {
       return unavailable;
     }
-    throw new Error(ERROR_MESSAGES.missingEmbeddingSet);
+    // Invariant, not a user surface (BST-1020 review): runQueryEmbeddingSpace
+    // — the sole caller — admits a request only with an explicit set or
+    // workspace-index runtime status, and createWorkspaceIndexUnavailableResult
+    // returns non-null for exactly that status. Reaching here means the two
+    // predicates diverged; the sanitizer genericizes this loudly.
+    throw new Error(
+      'Retrieval invariant violated: no embedding set and no workspace-index status.'
+    );
   }
 
   const db = await getDatabase();

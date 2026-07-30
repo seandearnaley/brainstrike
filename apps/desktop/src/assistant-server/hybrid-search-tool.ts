@@ -19,7 +19,7 @@ import {
   normalizeOptionalText,
   type RuntimeData,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import {
   DEFAULT_HYBRID_SOURCE_LIMIT,
   FileChunkRepository,
@@ -136,6 +136,14 @@ function resolveHybridEmbeddingSetId(
 }
 
 function handleHybridSearchError(error: unknown): never {
+  if (error instanceof ToolInputError) {
+    // Same invariant as retrieval-tool's handleRetrievalError (BST-1020):
+    // ToolInputError is deliberately model-actionable input prose (already
+    // path-redacted at its source). Today root resolution runs OUTSIDE this
+    // try, so this is structural insurance rather than a behavior change — a
+    // refactor moving it inside must not silently genericize the prose.
+    throw error;
+  }
   const message =
     error instanceof Error ? error.message : HYBRID_SEARCH_ERROR_MESSAGES.searchFailed;
   if (SAFE_HYBRID_ERROR_MESSAGES.has(message) || RETRIEVAL_SAFE_ERROR_MESSAGES.has(message)) {

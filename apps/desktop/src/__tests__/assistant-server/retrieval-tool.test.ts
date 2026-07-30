@@ -27,6 +27,9 @@ vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<
     typeof import('../../../../../packages/agent/src/tools/workspace-index-retrieval')
   >('../../../../../packages/agent/src/tools/workspace-index-retrieval');
+  const schemas = await vi.importActual<
+    typeof import('../../../../../packages/agent/src/tools/schemas')
+  >('../../../../../packages/agent/src/tools/schemas');
   class MockContextPacker {
     private readonly budgetTokens: number;
 
@@ -73,12 +76,11 @@ vi.mock('@brainstrike/agent', async () => {
     hasWorkspaceIndexRuntimeStatus: actual.hasWorkspaceIndexRuntimeStatus,
     normalizeOptionalText: actual.normalizeOptionalText,
     normalizeWorkspaceIndexText: actual.normalizeWorkspaceIndexText,
-    QueryEmbeddingSpaceInputSchema: {
-      parse: (input: unknown) => input,
-    },
-    RetrievalContextInputSchema: {
-      parse: (input: unknown) => input,
-    },
+    // REAL schema (BST-1020 review): the registry parses input with it
+    // before the live entry, so the test adapter must too — an identity stub
+    // here let cases assert schema-unreachable branches.
+    QueryEmbeddingSpaceInputSchema: schemas.QueryEmbeddingSpaceInputSchema,
+    RetrievalContextInputSchema: schemas.RetrievalContextInputSchema,
     resolveWorkspaceIndexEmbeddingSetId: actual.resolveWorkspaceIndexEmbeddingSetId,
   };
 });
@@ -171,6 +173,7 @@ vi.mock('../../secrets', async () => {
   };
 });
 
+import { QueryEmbeddingSpaceInputSchema } from '@brainstrike/agent';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 import { SecretReadError } from '../../secrets';
 
@@ -187,8 +190,14 @@ function liveRetrievalTool(
   dependencies?: Parameters<typeof runQueryEmbeddingSpace>[2]
 ) {
   return {
-    execute: ({ context }: { context: Parameters<typeof runQueryEmbeddingSpace>[0] }) =>
-      runQueryEmbeddingSpace(context, runtimeData, dependencies),
+    execute: async ({ context }: { context: Parameters<typeof runQueryEmbeddingSpace>[0] }) =>
+      // Mirror the registry (resolveQueryEmbeddingSpaceInput in
+      // assistant-tools.ts): strict schema parse BEFORE the live entry.
+      runQueryEmbeddingSpace(
+        QueryEmbeddingSpaceInputSchema.parse(context) as typeof context,
+        runtimeData,
+        dependencies
+      ),
   };
 }
 
@@ -280,6 +289,11 @@ describe('retrieval-tool', () => {
     expect(result.chunks[0]?.lineRange).toEqual({ end: 12, start: 10 });
     expect(result.chunks[0]?.offsets).toEqual({ end: 155, start: 120 });
     expect(result.selectionSnapshotId).toBeUndefined();
+    // The runtime's selectionFilePaths/tokenBudget above are INERT on the live
+    // path (omitImplicitContextRuntimeData strips them): the default budget —
+    // not the runtime's 10 — proves the strip is exercised, its first direct
+    // assertion anywhere in the suite.
+    expect(result.budget).toBe(4000);
 
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
       embeddingSetId: 'set-1',
@@ -340,7 +354,11 @@ describe('retrieval-tool', () => {
     });
   });
 
-  it('lets retrieveContext input override active runtime context', async () => {
+  it('ignores the runtime embeddingSetId even when the input names no set', async () => {
+    // BST-1020 (review): the live entry STRIPS the runtime's implicit
+    // embeddingSetId, so with no input set the workspace-index default wins —
+    // never 'active-set'. (The old case asserted input-beats-runtime, which is
+    // vacuous once the runtime side is stripped.)
     const tool = liveRetrievalTool({
       embeddingSetId: 'active-set',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
@@ -350,17 +368,13 @@ describe('retrieval-tool', () => {
 
     const result = await tool.execute({
       context: {
-        embeddingSetId: 'model-supplied-set',
         query: 'Where is assistant retrieval wired?',
       },
     });
 
-    expect(result.embeddingSetId).toBe('model-supplied-set');
-    expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
-      'model-supplied-set',
-    ]);
+    expect(result.embeddingSetId).toBe('workspace-index-set');
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
-      embeddingSetId: 'model-supplied-set',
+      embeddingSetId: 'workspace-index-set',
       limit: 20,
       threshold: 0.3,
     });
@@ -775,7 +789,9 @@ describe('retrieval-tool', () => {
     ).rejects.toThrow('Selection snapshot reference is invalid.');
   });
 
-  it('rejects oversized selection file path lists', async () => {
+  it('rejects oversized selection file path lists at the input schema', async () => {
+    // BST-1020: the registry's schema parse (filePaths max 5000) is the LIVE
+    // boundary; the core's selectionTooLarge throw behind it is defensive.
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
     const filePaths = Array.from({ length: 5001 }, (_, index) => `file-${index}.ts`);
 
@@ -787,7 +803,7 @@ describe('retrieval-tool', () => {
           query: 'hello',
         },
       })
-    ).rejects.toThrow('Selection exceeds retrieval limits.');
+    ).rejects.toThrow(/too big|at most 5000|5000/i);
   });
 
   it('surfaces safe errors when embedding set lookup fails', async () => {
