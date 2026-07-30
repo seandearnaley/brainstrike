@@ -1,8 +1,4 @@
-import {
-  type DiagnosticEventRow,
-  type DiagnosticEventsDatabase,
-  mapDiagnosticEventRow,
-} from '@brainstrike/db';
+import { type DiagnosticEventsDatabase, mapDiagnosticEventRow } from '@brainstrike/db';
 import type { LogSourceAdapter } from '@brainstrike/preferences';
 import {
   type DiagnosticEvent,
@@ -26,6 +22,17 @@ const LOG_LEVEL_BY_SEVERITY: Record<DiagnosticEvent['severity'], LogLevel> = {
   fatal: LogLevel.FATAL,
   warn: LogLevel.WARN,
 };
+
+interface DiagnosticCountRow {
+  count: number | string;
+}
+
+function mapDiagnosticCountRow(value: unknown): DiagnosticCountRow {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('Diagnostic count row must be an object.');
+  }
+  return value as DiagnosticCountRow;
+}
 
 function buildBindings(event: DiagnosticEvent): Record<string, unknown> {
   const bindings: Record<string, unknown> = {
@@ -156,7 +163,7 @@ export function createDurableLogSource(options: CreateDurableLogSourceOptions): 
   // `loadRecordsAscending` (viewer) and `exportNdjson` (download) derive
   // from it rather than issuing a second, potentially divergent query.
   async function loadEventsAscending(): Promise<DiagnosticEvent[]> {
-    const result = await db.query<DiagnosticEventRow>(
+    const result = await db.query(
       `SELECT * FROM ${TABLE} WHERE severity IN ('warn', 'error', 'fatal') ORDER BY occurred_at DESC, id DESC LIMIT $1`,
       [limit]
     );
@@ -173,10 +180,11 @@ export function createDurableLogSource(options: CreateDurableLogSourceOptions): 
   // recent N of M" toast message, not just a yes/no truncation flag, and a
   // COUNT scan is no more expensive than the row query it runs alongside.
   async function countEligibleEvents(): Promise<number> {
-    const result = await db.query<{ count: number | string }>(
+    const result = await db.query(
       `SELECT COUNT(*)::int AS count FROM ${TABLE} WHERE severity IN ('warn', 'error', 'fatal')`
     );
-    return Number(result.rows[0]?.count ?? 0);
+    const value = result.rows[0];
+    return Number(value === undefined ? 0 : (mapDiagnosticCountRow(value).count ?? 0));
   }
 
   // Deliberately no try/catch here, unlike `loadRecordsAscending` (which

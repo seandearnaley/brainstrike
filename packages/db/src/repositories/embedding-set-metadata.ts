@@ -7,7 +7,7 @@ interface ModelRegistryRow {
 }
 
 interface QueryableDb {
-  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
 }
 
 export interface PersistedEmbeddingSetMetadata {
@@ -38,6 +38,13 @@ function isMissingModelsTableError(error: unknown): boolean {
   return error.code === '42P01';
 }
 
+function mapModelRegistryRow(value: unknown): ModelRegistryRow {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('Embedding model registry row must be an object.');
+  }
+  return value as ModelRegistryRow;
+}
+
 async function findRegistryCandidatesById(
   db: QueryableDb,
   values: readonly string[]
@@ -47,7 +54,7 @@ async function findRegistryCandidatesById(
   }
   const placeholderList = buildPlaceholderList(values);
   try {
-    const result = await db.query<ModelRegistryRow>(
+    const result = await db.query(
       `SELECT id,
               provider_id AS "providerId",
               name
@@ -55,7 +62,7 @@ async function findRegistryCandidatesById(
         WHERE id IN (${placeholderList})`,
       [...values]
     );
-    return result.rows;
+    return result.rows.map(mapModelRegistryRow);
   } catch (error) {
     if (isMissingModelsTableError(error)) {
       return [];
@@ -73,7 +80,7 @@ async function findRegistryCandidatesByName(
   }
   const placeholderList = buildPlaceholderList(values);
   try {
-    const result = await db.query<ModelRegistryRow>(
+    const result = await db.query(
       `SELECT id,
               provider_id AS "providerId",
               name
@@ -81,7 +88,7 @@ async function findRegistryCandidatesByName(
         WHERE LOWER(name) IN (${placeholderList})`,
       values.map((value) => value.toLowerCase())
     );
-    return result.rows;
+    return result.rows.map(mapModelRegistryRow);
   } catch (error) {
     if (isMissingModelsTableError(error)) {
       return [];

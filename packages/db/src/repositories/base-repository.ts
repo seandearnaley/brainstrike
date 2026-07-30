@@ -17,6 +17,20 @@ const BULK_IMPORT_INFO_LOG_THRESHOLD = 100;
 // 3 parameters per row; stays far below the 65,535 Postgres parameter limit.
 const STAT_METADATA_UPDATE_BATCH_SIZE = 5000;
 
+type FileRecordDatabase = Omit<IDatabase, 'query'> & {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+};
+
+/**
+ * Filter-not-throw (BST-1027 review): file_records reads SKIP malformed rows,
+ * matching the pre-convergence behavior, the four sibling accessors in this
+ * class (findById/findByContentHash/count*), and the repo-wide convention
+ * pinned by 'ignores malformed rows instead of throwing' tests elsewhere.
+ */
+function isFileRecordRow(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Coerce a stat column (size INTEGER, mtime_ms BIGINT) from a raw row to a finite
  * number, or null when absent/invalid. PGlite can surface a BIGINT column as a
@@ -62,7 +76,7 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
 export abstract class BaseFileRecordRepository implements IFileRecordRepository {
   protected readonly tableName = 'file_records';
 
-  constructor(protected db: IDatabase) {}
+  constructor(protected db: FileRecordDatabase) {}
 
   async create(record: FileRecord): Promise<void> {
     const fields = ['id', 'name', 'path', 'size', 'created_at', 'updated_at'];
@@ -162,15 +176,13 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     // file_records.id is persisted as TEXT in existing migrations; cast both sides to text
     // to keep lookup behavior stable across legacy/electron databases.
     const sql = `SELECT * FROM ${this.tableName} WHERE id::text = ANY($1::text[])`;
-    const result = await this.db.query<Record<string, unknown>>(sql, [uniqueIds]);
+    const result = await this.db.query(sql, [uniqueIds]);
 
     if (!Array.isArray(result.rows)) {
       return [];
     }
 
-    return result.rows
-      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-      .map((row) => this.fromRow(row));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async findByContentHash(contentHash: string): Promise<FileRecord | null> {
@@ -187,28 +199,24 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
   async findAll(): Promise<FileRecord[]> {
     const sql = `SELECT * FROM ${this.tableName} ORDER BY updated_at DESC`;
-    const result = await this.db.query<Record<string, unknown>>(sql);
+    const result = await this.db.query(sql);
 
     if (!Array.isArray(result.rows)) {
       return [];
     }
 
-    return result.rows
-      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-      .map((row) => this.fromRow(row));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async findAllWithContent(): Promise<FileRecord[]> {
     const sql = `SELECT * FROM ${this.tableName} WHERE content IS NOT NULL ORDER BY processed_at DESC, updated_at DESC`;
-    const result = await this.db.query<Record<string, unknown>>(sql);
+    const result = await this.db.query(sql);
 
     if (!Array.isArray(result.rows)) {
       return [];
     }
 
-    return result.rows
-      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-      .map((row) => this.fromRow(row));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async findByManagedCacheIdentity(
@@ -217,14 +225,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     relativePath: string
   ): Promise<FileRecord | null> {
     const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`;
-    const result = await this.db.query<Record<string, unknown>>(sql, [
-      embeddingSetId,
-      rootId,
-      relativePath,
-    ]);
+    const result = await this.db.query(sql, [embeddingSetId, rootId, relativePath]);
     const row = result.rows[0];
 
-    if (!row || typeof row !== 'object' || row === null) {
+    if (!isFileRecordRow(row)) {
       return null;
     }
 
@@ -233,15 +237,13 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
     const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
-    const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
+    const result = await this.db.query(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
       return [];
     }
 
-    return result.rows
-      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-      .map((row) => this.fromRow(row));
+    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
   }
 
   async listManagedCacheEntryMetadata(
@@ -250,52 +252,50 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     // Managed-cache dedup identity is root_id since the source_root_path
     // retirement; rows without a root_id are not part of the managed cache.
     const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, chunks_count, chunks_processed_at, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
-    const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
+    const result = await this.db.query(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
       return [];
     }
 
-    return result.rows
-      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-      .flatMap((row) => {
-        const fileRecordId = row['id'];
-        const rowEmbeddingSetId = row['embedding_set_id'];
-        const rootId = row['root_id'];
-        const relativePath = row['path'];
-        const contentHash = row['content_hash'];
-        const updatedAt = row['updated_at'];
-        if (
-          typeof fileRecordId !== 'string' ||
-          typeof rowEmbeddingSetId !== 'string' ||
-          typeof rootId !== 'string' ||
-          typeof relativePath !== 'string' ||
-          !(typeof contentHash === 'string' || contentHash === null) ||
-          !(updatedAt instanceof Date || typeof updatedAt === 'string')
-        ) {
-          return [];
-        }
-        const parsedSize = parseOptionalStatNumber(row['size']);
-        return [
-          {
-            contentHash: contentHash ?? '',
-            embeddingSetId: rowEmbeddingSetId,
-            fileRecordId,
-            relativePath,
-            rootId,
-            ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
-            chunksCount: parseOptionalStatNumber(row['chunks_count']),
-            chunksProcessedAt:
-              row['chunks_processed_at'] instanceof Date
-                ? row['chunks_processed_at'].toISOString()
-                : typeof row['chunks_processed_at'] === 'string'
-                  ? row['chunks_processed_at']
-                  : null,
-            mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
-            updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
-          } satisfies ManagedCacheEntryMetadata,
-        ];
-      });
+    return result.rows.filter(isFileRecordRow).flatMap((row) => {
+      const fileRecordId = row['id'];
+      const rowEmbeddingSetId = row['embedding_set_id'];
+      const rootId = row['root_id'];
+      const relativePath = row['path'];
+      const contentHash = row['content_hash'];
+      const updatedAt = row['updated_at'];
+      if (
+        typeof fileRecordId !== 'string' ||
+        typeof rowEmbeddingSetId !== 'string' ||
+        typeof rootId !== 'string' ||
+        typeof relativePath !== 'string' ||
+        !(typeof contentHash === 'string' || contentHash === null) ||
+        !(updatedAt instanceof Date || typeof updatedAt === 'string')
+      ) {
+        return [];
+      }
+      const parsedSize = parseOptionalStatNumber(row['size']);
+      return [
+        {
+          contentHash: contentHash ?? '',
+          embeddingSetId: rowEmbeddingSetId,
+          fileRecordId,
+          relativePath,
+          rootId,
+          ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
+          chunksCount: parseOptionalStatNumber(row['chunks_count']),
+          chunksProcessedAt:
+            row['chunks_processed_at'] instanceof Date
+              ? row['chunks_processed_at'].toISOString()
+              : typeof row['chunks_processed_at'] === 'string'
+                ? row['chunks_processed_at']
+                : null,
+          mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
+          updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
+        } satisfies ManagedCacheEntryMetadata,
+      ];
+    });
   }
 
   async update(id: string, updates: FileRecordUpdate): Promise<void> {
@@ -460,7 +460,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
   private async processBatch(
     batch: FileImportRequest[],
-    tx: IDatabase,
+    tx: FileRecordDatabase,
     onProgress?: (completed: number, total: number, current?: string) => void,
     offset = 0,
     total = 0
@@ -547,7 +547,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
   private async findByContentHashBatch(
     hashes: string[],
-    tx: IDatabase
+    tx: FileRecordDatabase
   ): Promise<Map<string, FileRecord>> {
     if (hashes.length === 0) {
       return new Map();
@@ -556,11 +556,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     const placeholders = hashes.map((_, i) => `$${i + 1}`).join(', ');
     const sql = `SELECT * FROM ${this.tableName} WHERE content_hash IN (${placeholders})`;
 
-    const result = await tx.query<Record<string, unknown>>(sql, hashes);
+    const result = await tx.query(sql, hashes);
     const map = new Map<string, FileRecord>();
 
     for (const row of result.rows) {
-      if (!row || typeof row !== 'object') {
+      if (!isFileRecordRow(row)) {
         continue;
       }
       const record = this.fromRow(row);
@@ -579,7 +579,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     return `${normalizedHash}::${normalizedSet}`;
   }
 
-  private async batchInsert(records: FileRecord[], tx: IDatabase): Promise<void> {
+  private async batchInsert(records: FileRecord[], tx: FileRecordDatabase): Promise<void> {
     if (records.length === 0) {
       return;
     }

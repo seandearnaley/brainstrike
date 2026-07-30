@@ -91,7 +91,29 @@ function validateHnswParamsForSql(params: HnswParams, context: string): void {
 
 interface DimensionIndexDb {
   exec(sql: string, params?: unknown): Promise<unknown>;
-  query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
+interface DimensionCountRow {
+  count: unknown;
+}
+
+interface DistinctDimensionRow {
+  dimensions: number;
+}
+
+function mapDimensionCountRow(value: unknown): DimensionCountRow {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('Dimension index count row must be an object.');
+  }
+  return value as DimensionCountRow;
+}
+
+function mapDistinctDimensionRow(value: unknown): DistinctDimensionRow {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('Dimension index row must be an object.');
+  }
+  return value as DistinctDimensionRow;
 }
 
 /**
@@ -165,10 +187,11 @@ export async function estimateEmbeddedRowCount(
   db: Pick<DimensionIndexDb, 'query'>
 ): Promise<number> {
   try {
-    const result = await db.query<{ count: string }>(
+    const result = await db.query(
       'SELECT COUNT(*)::text AS count FROM file_chunks WHERE embedding IS NOT NULL'
     );
-    const count = Number(result.rows[0]?.count ?? 0);
+    const value = result.rows[0];
+    const count = Number(value === undefined ? 0 : (mapDimensionCountRow(value).count ?? 0));
     return Number.isFinite(count) && count > 0 ? count : 0;
   } catch (error) {
     logger.warn(
@@ -390,10 +413,10 @@ export async function dropDimensionIndex(
 export async function getDistinctDimensions(
   db: Pick<DimensionIndexDb, 'query'>
 ): Promise<number[]> {
-  const result = await db.query<{ dimensions: number }>(
+  const result = await db.query(
     'SELECT DISTINCT dimensions FROM embedding_sets WHERE dimensions IS NOT NULL ORDER BY dimensions'
   );
-  return result.rows.map((row) => row.dimensions);
+  return result.rows.map((row) => mapDistinctDimensionRow(row).dimensions);
 }
 
 /**
@@ -450,13 +473,14 @@ export async function isDimensionIndexBuildSuspended(
 ): Promise<boolean> {
   validateDimensionForSql(dimension, 'isDimensionIndexBuildSuspended');
   try {
-    const result = await db.query<{ count: number | string | null }>(
+    const result = await db.query(
       `SELECT COUNT(*)::int AS count
          FROM ${DIMENSION_INDEX_SUSPENSIONS_TABLE}
         WHERE dimension = $1`,
       [dimension]
     );
-    return Number(result.rows[0]?.count ?? 0) > 0;
+    const value = result.rows[0];
+    return Number(value === undefined ? 0 : (mapDimensionCountRow(value).count ?? 0)) > 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes(DIMENSION_INDEX_SUSPENSIONS_TABLE)) {
@@ -594,11 +618,12 @@ export async function dimensionIndexExists(
   dimension: number
 ): Promise<boolean> {
   const name = indexName(dimension);
-  const result = await db.query<{ count: string }>(
+  const result = await db.query(
     'SELECT COUNT(*)::text as count FROM pg_indexes WHERE indexname = $1',
     [name]
   );
-  return Number(result.rows[0]?.count ?? 0) > 0;
+  const value = result.rows[0];
+  return Number(value === undefined ? 0 : (mapDimensionCountRow(value).count ?? 0)) > 0;
 }
 
 /**

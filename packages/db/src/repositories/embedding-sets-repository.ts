@@ -17,7 +17,7 @@ import {
 
 interface EmbeddingSetsDb {
   exec(sql: string, params?: unknown): Promise<unknown>;
-  query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 
 export interface ListEmbeddingSpacesOptions {
@@ -81,6 +81,13 @@ function readOptionalFiniteNumber(
     return 0;
   }
   return readFiniteNumber(value, fieldName);
+}
+
+function mapEmbeddingSpaceListingRow(value: unknown): EmbeddingSpaceListingRow {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('Embedding space listing row must be an object.');
+  }
+  return value as EmbeddingSpaceListingRow;
 }
 
 export class EmbeddingSetsRepository {
@@ -362,7 +369,7 @@ export class EmbeddingSetsRepository {
   ): Promise<EmbeddingSpaceListing[]> {
     const result =
       options.includeStats === true
-        ? await this.db.query<EmbeddingSpaceListingRow>(
+        ? await this.db.query(
             `WITH file_stats AS (
                SELECT
                  embedding_set_id,
@@ -403,7 +410,7 @@ export class EmbeddingSetsRepository {
              LEFT JOIN chunk_stats cs ON cs.embedding_set_id = es.id
              ORDER BY es.created_at DESC`
           )
-        : await this.db.query<EmbeddingSpaceListingRow>(
+        : await this.db.query(
             `SELECT
                id,
                name,
@@ -417,7 +424,9 @@ export class EmbeddingSetsRepository {
              ORDER BY created_at DESC`
           );
 
-    return result.rows.map((row) => this.readEmbeddingSpaceListing(row, options));
+    return result.rows.map((row) =>
+      this.readEmbeddingSpaceListing(mapEmbeddingSpaceListingRow(row), options)
+    );
   }
 
   async delete(id: string): Promise<boolean> {
@@ -466,7 +475,7 @@ export class EmbeddingSetsRepository {
       createdAt: row.createdAt,
       description: row.description,
       dimensions: readFiniteNumber(row.dimensions, 'dimensions'),
-      distance: row.distance,
+      distance: row.distance as EmbeddingDistance | null,
       id: row.id,
       modelId: row.modelId,
       modelKey: row.modelKey,
