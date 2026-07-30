@@ -496,6 +496,52 @@ test('control: the classifier flags an unguarded tsc build (this contract can go
   );
   // `tsc --noEmit` cannot poison dist and must not be flagged.
   assert.equal(classifyBuildScript('tsc --noEmit', path.join('packages', 'db')).protected, true);
+  // The splitting pin can go red too.
+  assert.equal(tsupPinsNoSplitting('export default { splitting: true }'), false);
+  assert.equal(tsupPinsNoSplitting('export default { entry: ["src/index.ts"] }'), false);
+  assert.equal(tsupPinsNoSplitting('export default { splitting: false }'), true);
+});
+
+/**
+ * The pruner's concurrent-build safety argument ("the prune set is disjoint
+ * from a sibling build's writes") silently depends on tsup NOT code-splitting:
+ * hashed split chunks have no source counterpart and would be deleted out from
+ * under a sibling build. Every tsup config sharing a dist with the pruner must
+ * pin `splitting: false` explicitly (tsup defaults esm output to splitting on).
+ */
+function tsupPinsNoSplitting(configText) {
+  return /splitting:\s*false/.test(configText);
+}
+
+test('every pruned package with a tsup config pins splitting: false', () => {
+  const violations = [];
+  let checkedConfigs = 0;
+  for (const dir of workspacePackageDirs()) {
+    const manifest = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    const relDir = path.relative(REPO_ROOT, dir);
+    const build = manifest.scripts?.build;
+    if (build === undefined || !classifyBuildScript(build, relDir).reason?.startsWith('prunes')) {
+      continue;
+    }
+    const tsupConfigPath = path.join(dir, 'tsup.config.ts');
+    if (!existsSync(tsupConfigPath)) {
+      continue;
+    }
+    checkedConfigs += 1;
+    if (!tsupPinsNoSplitting(readFileSync(tsupConfigPath, 'utf8'))) {
+      violations.push(
+        `${relDir} (${manifest.name}) prunes stale dist artifacts but its tsup.config.ts does not pin ` +
+          '`splitting: false`. Hashed split chunks have no source counterpart, so the pruner would delete ' +
+          "them out from under a concurrent sibling build — breaking the disjointness guarantee the wiring's " +
+          'prune-not-clean choice rests on. Pin splitting: false, or switch the package to a dist clean.'
+      );
+    }
+  }
+  assert.deepEqual(violations, [], `Unpinned tsup splitting:\n${violations.join('\n')}`);
+  assert.ok(
+    checkedConfigs >= 6,
+    `Only ${checkedConfigs} pruned tsup config(s) checked (expected >= 6) — discovery broke.`
+  );
 });
 
 test('every build-chain script with an emitting tsc cleans or prunes dist first', () => {

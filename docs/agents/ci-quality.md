@@ -539,9 +539,12 @@ Pruning — not cleaning — is deliberate for the wired packages: it preserves
 incremental builds, and it is safe under concurrent builds of the same package
 (the reason agent's tsup pins `clean: false`) because a concurrent build only
 emits files whose sources are in the current program, so the prune set is
-disjoint from its writes. The pruner requires `tsconfig.json` with rootDir
-`src` and outDir `dist`, per-file emit, no bundler code splitting — anything
-else throws, and such a package must clean instead. `ui`'s
+disjoint from its writes. That disjointness silently depends on tsup NOT
+code-splitting (hashed split chunks have no source counterpart and would be
+pruned out from under a sibling build), so the wiring contract statically
+requires `splitting: false` in every pruned package's tsup config. The pruner
+itself requires `tsconfig.json` with rootDir `src` and outDir `dist` and
+per-file emit — anything else throws, and such a package must clean instead. `ui`'s
 `pnpm run clean:generated` cleans stray compiled JS in `src`, not `dist` — it
 does not satisfy this contract (ui's `dist/prompt-management` was a proven
 poisoning vector behind exactly that prefix). The contract scans build-chain
