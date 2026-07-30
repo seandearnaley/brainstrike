@@ -23,9 +23,6 @@
       "electron"
     ],
     "paths": {
-      "@brainstrike/assistant-service/request": [
-        "../../packages/assistant-service/dist/request.d.ts"
-      ],
       "@brainstrike/assistant-service/local-provider-runtime": [
         "../../packages/assistant-service/dist/local-provider-runtime.d.ts"
       ],
@@ -34,6 +31,12 @@
       ],
       "@brainstrike/assistant-service/ports": [
         "../../packages/assistant-service/dist/ports.d.ts"
+      ],
+      "@brainstrike/assistant-service/request": [
+        "../../packages/assistant-service/dist/request.d.ts"
+      ],
+      "@brainstrike/assistant-service/secret-errors": [
+        "../../packages/assistant-service/dist/secret-errors.d.ts"
       ],
       "@brainstrike/assistant-service/steering": [
         "../../packages/assistant-service/dist/steering.d.ts"

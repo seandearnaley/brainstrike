@@ -27,7 +27,7 @@ import {
 } from '@brainstrike/assistant-service/local-provider-runtime';
 import { resolveDesktopObserverUsageTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
-import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/request';
+import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
 import type {
   AgentStreamFailure,
   AgentStreamInitializationStage,

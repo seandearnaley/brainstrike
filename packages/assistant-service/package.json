@@ -36,6 +36,11 @@
       "import": "./dist/request.js",
       "require": "./dist/request.js"
     },
+    "./secret-errors": {
+      "types": "./dist/secret-errors.d.ts",
+      "import": "./dist/secret-errors.js",
+      "require": "./dist/secret-errors.js"
+    },
     "./steering": {
       "types": "./dist/steering.d.ts",
       "import": "./dist/steering.js",

@@ -34,16 +34,29 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-import { createLogger } from '@brainstrike/utils/logger';
+import type { ScopedLogger } from '@brainstrike/utils/logger';
 import { type PrepareAssistantPostRequestResult, prepareAssistantPostRequest } from '../request';
 
 const resolveProviderApiKey = vi.fn<(provider: string) => Promise<string | undefined>>();
 
 beforeEach(() => {
   resolveProviderApiKey.mockReset().mockResolvedValue('test-api-key');
+  logger.debug.mockReset();
+  logger.fatal.mockReset();
+  logger.trace.mockReset();
+  logger.error.mockReset();
+  logger.info.mockReset();
+  logger.warn.mockReset();
 });
 
-const logger = createLogger('AssistantServiceRequestTest');
+const logger = {
+  debug: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+  info: vi.fn(),
+  trace: vi.fn(),
+  warn: vi.fn(),
+} satisfies ScopedLogger;
 
 async function prepare(body: string): Promise<PrepareAssistantPostRequestResult> {
   return await prepareAssistantPostRequest({
@@ -222,8 +235,6 @@ describe('prepareAssistantPostRequest rejections', () => {
   });
 
   it('distinguishes an unreadable provider key from a missing key', async () => {
-    // The REAL error class through A3's structural matcher — the production
-    // path, not a mock-identity double.
     // Structural fake matching assistant-contract's matchSecretReadError shape
     // (name + code + provider + message) — the production path is structural
     // classification, not instanceof; the REAL-class conformance money test
@@ -340,5 +351,35 @@ describe('prepareAssistantPostRequest rejections', () => {
     expect(result.rejection.status).toBe(413);
     expect(result.rejection.closeConnection).toBe(true);
     expect(result.rejection.payload.error).toBe('request_body_too_large');
+  });
+
+  it('redacts unsafe enabled-native-tool ids in the warn log and keeps safe ones raw', async () => {
+    // The sha256 truncation is a deliberate log-redaction guard for
+    // attacker-controlled identifiers (review finding: previously asserted
+    // nowhere) — the spy logger makes this suite the contract's owner.
+    const result = await prepare(
+      JSON.stringify({
+        data: {
+          enabledNativeToolIds: ['unknown.tool', 'evil id with spaces \u0000'],
+          provider: 'openai',
+        },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected rejection');
+    }
+    expect(result.rejection.payload.error).toBe('invalid_enabled_native_tool_ids');
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Rejected unknown enabled native tool ids',
+      expect.objectContaining({
+        correlationId: expect.any(String),
+        // A SAFE-pattern id that is merely unknown renders raw; the unsafe
+        // string is sha256-truncated. (A VALID id never reaches this list.)
+        toolIdentifiers: ['unknown.tool', expect.stringMatching(/^sha256:[0-9a-f]{12}$/)],
+      })
+    );
   });
 });

@@ -20,9 +20,10 @@ import {
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { matchSecretReadError } from '@brainstrike/assistant-contract';
 import type { ScopedLogger } from '@brainstrike/utils/logger';
 import { resolveRequestedProvider } from './memory-model-targets.js';
+import type { ProviderApiKeyReader } from './ports.js';
+import { getSecretReadErrorPayload } from './secret-errors.js';
 import type {
   AssistantPostRejection,
   AssistantRequestPayload,
@@ -53,12 +54,12 @@ interface PreparedAssistantPostRequest {
 }
 
 /**
- * Injected provider-credential reader — the structural twin of
- * agent-stream-init's AgentStreamProviderApiKeyReader (BST-972 A3/A4). The two
- * declarations unify at the ports module when the package-extraction slice
- * lands; until then each module states the shape it consumes.
+ * Injected provider-credential reader, now owned by ./ports (BST-972 B2).
+ * Re-exported under the historical name; desktop's structurally identical
+ * AgentStreamProviderApiKeyReader unifies onto the ports type when
+ * agent-stream-init moves (B4a/B4b).
  */
-export type PreparationProviderApiKeyReader = (provider: string) => Promise<string | undefined>;
+export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
 
 export interface PrepareAssistantPostRequestParams {
   /**
@@ -75,14 +76,14 @@ export interface PrepareAssistantPostRequestParams {
    * the transport.
    */
   readonly readBody: () => Promise<string>;
-  readonly resolveProviderApiKey: PreparationProviderApiKeyReader;
+  readonly resolveProviderApiKey: ProviderApiKeyReader;
 }
 
 /**
  * De-transported result (BST-972 A4): preparation never writes the response —
  * every failure path returns a rejection the transport maps via
- * respondAssistantRejection. `req` remains only for the bounded body read;
- * it goes with the package-extraction slice.
+ * respondAssistantRejection. Since B2 the transport supplies a readBody thunk
+ * — no request object reaches this module at all.
  */
 export type PrepareAssistantPostRequestResult =
   | { readonly ok: true; readonly request: PreparedAssistantPostRequest }
@@ -99,7 +100,7 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
  */
 async function resolveApiKeyOrReject(
   provider: SupportedProvider,
-  resolveProviderApiKey: PreparationProviderApiKeyReader
+  resolveProviderApiKey: ProviderApiKeyReader
 ): Promise<
   | { readonly apiKey: string | undefined; readonly rejection?: undefined }
   | { readonly apiKey?: undefined; readonly rejection: AssistantPostRejection }
@@ -495,25 +496,5 @@ export function hydrateRuntimeDataWithLocalRuntimeToken(
   return {
     ...runtimeData,
     providerOptions,
-  };
-}
-
-export function getSecretReadErrorPayload(error: unknown):
-  | {
-      code: string;
-      error: 'api_key_unreadable';
-      message: string;
-      provider: string;
-    }
-  | undefined {
-  const match = matchSecretReadError(error);
-  if (!match) {
-    return;
-  }
-  return {
-    code: match.code,
-    error: 'api_key_unreadable',
-    message: match.message,
-    provider: match.provider,
   };
 }

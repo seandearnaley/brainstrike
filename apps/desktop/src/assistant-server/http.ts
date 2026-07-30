@@ -14,7 +14,13 @@ type ServerResponseWithFlush = http.ServerResponse & {
 };
 
 export interface ReadRequestBodyOptions {
-  maxBodyBytes?: number;
+  /**
+   * REQUIRED byte ceiling (review finding on BST-972 B2): an optional limit
+   * treated `undefined` as unbounded, so omitting it silently reverted an
+   * assistant POST read to no limit at all. Mandatory turns that omission
+   * into a compile error.
+   */
+  maxBodyBytes: number;
 }
 
 /**
@@ -28,7 +34,7 @@ export const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBy
 
 export async function readRequestBody(
   req: http.IncomingMessage,
-  options: ReadRequestBodyOptions = {}
+  options: ReadRequestBodyOptions
 ): Promise<string> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -59,7 +65,7 @@ export async function readRequestBody(
       const chunkBuffer =
         typeof chunk === 'string' ? Buffer.from(chunk, 'utf-8') : Buffer.from(chunk);
       totalBytes += chunkBuffer.byteLength;
-      if (options.maxBodyBytes !== undefined && totalBytes > options.maxBodyBytes) {
+      if (totalBytes > options.maxBodyBytes) {
         const error = new AssistantRequestBodyTooLargeError(options.maxBodyBytes);
         // Keep the socket alive long enough for the caller to write a JSON 413;
         // the handler marks that response Connection: close before ending it.

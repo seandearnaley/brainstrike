@@ -23,7 +23,7 @@ describe('assistant-server/http utilities', () => {
         }),
       } as unknown as http.IncomingMessage;
 
-      const body = await readRequestBody(mockReq);
+      const body = await readRequestBody(mockReq, { maxBodyBytes: 1024 });
       expect(body).toBe('hello world');
     });
 
@@ -37,7 +37,7 @@ describe('assistant-server/http utilities', () => {
         }),
       } as unknown as http.IncomingMessage;
 
-      const body = await readRequestBody(mockReq);
+      const body = await readRequestBody(mockReq, { maxBodyBytes: 1024 });
       expect(body).toBe('');
     });
 
