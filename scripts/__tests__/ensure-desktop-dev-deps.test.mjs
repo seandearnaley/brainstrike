@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,11 +9,12 @@ import {
   runDesktopDevDependencyBuild,
 } from '../ensure-desktop-dev-deps.mjs';
 
-test('derives the complete desktop development dependency graph through Turbo', () => {
+test('derives the desktop development dependency graph through the bounded turbo wrapper', () => {
   const args = getDesktopDevDependencyBuildArgs();
 
   assert.deepEqual(args, [
-    'turbo',
+    'scripts/run-turbo-command.mjs',
+    '--',
     'run',
     'desktop-dev-dependencies',
     '--filter=@brainstrike/desktop',
@@ -21,6 +23,13 @@ test('derives the complete desktop development dependency graph through Turbo', 
     args.some((argument) => argument.includes('^')),
     false
   );
+});
+
+test('spawns the wrapper entrypoint that exists at the repository root', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '../..');
+  const [wrapperPath] = getDesktopDevDependencyBuildArgs();
+
+  assert.ok(existsSync(path.resolve(repoRoot, wrapperPath)));
 });
 
 test('invokes the Turbo graph build even when a dependency output exists', async () => {
@@ -44,10 +53,9 @@ test('invokes the Turbo graph build even when a dependency output exists', async
     assert.deepEqual(invocations, [
       {
         args: getDesktopDevDependencyBuildArgs(),
-        command: 'pnpm',
+        command: process.execPath,
         options: {
           cwd: repoRoot,
-          shell: process.platform === 'win32',
           stdio: 'inherit',
         },
       },
