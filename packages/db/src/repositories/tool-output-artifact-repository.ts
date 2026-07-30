@@ -28,7 +28,7 @@ export class ToolOutputArtifactStorageError extends Error {
 }
 
 export interface ToolOutputArtifactDatabase {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 
 export interface StoreToolOutputArtifactInput {
@@ -71,8 +71,8 @@ export interface ToolOutputArtifactRepositoryOptions {
 }
 
 interface ArtifactReferenceRow {
-  byteLength: number | string;
-  expiresAt: Date | string;
+  byteLength: unknown;
+  expiresAt: unknown;
   format: unknown;
   id: unknown;
 }
@@ -129,8 +129,8 @@ function bytesToHex(bytes: Uint8Array): string {
   return hex;
 }
 
-function canonicalInstant(value: Date | string, field: string): string {
-  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+function canonicalInstant(value: unknown, field: string): string {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value as string);
   if (!Number.isFinite(date.getTime())) {
     throw new TypeError(`Tool output artifact ${field} is not a valid timestamp.`);
   }
@@ -143,6 +143,17 @@ function requireNow(now: () => Date): Date {
     throw new TypeError('Tool output artifact clock returned an invalid Date.');
   }
   return new Date(value.getTime());
+}
+
+function mapArtifactReferenceRow(value: unknown): ArtifactReferenceRow {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Tool output artifact row must be an object.');
+  }
+  return value as ArtifactReferenceRow;
+}
+
+function mapArtifactRangeRow(value: unknown): ArtifactRangeRow {
+  return mapArtifactReferenceRow(value) as ArtifactRangeRow;
 }
 
 function referenceFromRow(row: ArtifactReferenceRow): ToolOutputArtifactReference {
@@ -195,7 +206,7 @@ export class ToolOutputArtifactRepository {
     }
 
     try {
-      const result = await this.db.query<ArtifactReferenceRow>(
+      const result = await this.db.query(
         `INSERT INTO ${TABLE} (
            resource_id, thread_id, run_id, tool_call_id, format,
            content, byte_length, created_at, expires_at
@@ -225,7 +236,7 @@ export class ToolOutputArtifactRepository {
       if (!row) {
         throw new TypeError('Tool output artifact insert returned no reference.');
       }
-      return referenceFromRow(row);
+      return referenceFromRow(mapArtifactReferenceRow(row));
     } catch (cause) {
       throw new ToolOutputArtifactStorageError('store', cause);
     }
@@ -240,7 +251,7 @@ export class ToolOutputArtifactRepository {
     const now = requireNow(this.now);
 
     try {
-      const result = await this.db.query<ArtifactRangeRow>(
+      const result = await this.db.query(
         `SELECT
            id,
            format,
@@ -269,24 +280,25 @@ export class ToolOutputArtifactRepository {
         return { status: 'not_found' };
       }
 
-      const reference = referenceFromRow(row);
+      const artifactRow = mapArtifactRangeRow(row);
+      const reference = referenceFromRow(artifactRow);
       if (now.getTime() >= Date.parse(reference.expiresAt)) {
         return { reference, status: 'expired' };
       }
       if (input.offsetByte > reference.byteLength) {
         throw new RangeError('Tool output artifact offsetByte exceeds the artifact byte length.');
       }
-      if (!(row.content instanceof Uint8Array)) {
+      if (!(artifactRow.content instanceof Uint8Array)) {
         throw new TypeError('Tool output artifact storage returned invalid byte content.');
       }
 
       const expectedBytes = Math.min(input.limitBytes, reference.byteLength - input.offsetByte);
-      if (row.content.byteLength !== expectedBytes) {
+      if (artifactRow.content.byteLength !== expectedBytes) {
         throw new TypeError('Tool output artifact storage returned an incoherent byte range.');
       }
       return {
-        bytes: row.content,
-        endByte: input.offsetByte + row.content.byteLength,
+        bytes: artifactRow.content,
+        endByte: input.offsetByte + artifactRow.content.byteLength,
         offsetByte: input.offsetByte,
         reference,
         status: 'found',
@@ -305,7 +317,7 @@ export class ToolOutputArtifactRepository {
     const now = requireNow(this.now);
 
     try {
-      const result = await this.db.query<{ id: string }>(
+      const result = await this.db.query(
         `DELETE FROM ${TABLE}
          WHERE id IN (
            SELECT id

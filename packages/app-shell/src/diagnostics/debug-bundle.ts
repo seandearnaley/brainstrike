@@ -163,6 +163,34 @@ interface MessageRow {
   role: string;
 }
 
+function mapMessageRow(value: unknown): MessageRow {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Debug bundle message row must be an object.');
+  }
+  return value as MessageRow;
+}
+
+function mapRunEventRow(value: unknown): RunEventRow {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Debug bundle run event row must be an object.');
+  }
+  return value as RunEventRow;
+}
+
+function mapRunRow(value: unknown): RunRow {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Debug bundle run row must be an object.');
+  }
+  return value as RunRow;
+}
+
+function mapRunUsageRow(value: unknown): RunUsageRow {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Debug bundle run usage row must be an object.');
+  }
+  return value as RunUsageRow;
+}
+
 function toIsoOrNull(value: string | Date | null | undefined): string | null {
   if (value === null || value === undefined) {
     return null;
@@ -194,10 +222,11 @@ function dedupeById(events: readonly DiagnosticEvent[]): DiagnosticEvent[] {
   return deduped;
 }
 
-function mapRun(row: RunRow | undefined): ThreadDebugBundleData['run'] {
-  if (!row) {
+function mapRun(value: unknown): ThreadDebugBundleData['run'] {
+  if (value === undefined) {
     return null;
   }
+  const row = mapRunRow(value);
   return {
     completedAt: toIsoOrNull(row.completed_at),
     error: row.error,
@@ -225,7 +254,7 @@ export async function collectThreadDebugBundleData(
   const { threadId } = input;
   const runId = input.runId ?? null;
 
-  const runResult = await db.query<RunRow>(
+  const runResult = await db.query(
     `SELECT id, provider, model, model_settings, provider_options, runtime_kind,
             status, error, started_at, completed_at
      FROM brainstrike_assistant_thread_runs
@@ -239,38 +268,44 @@ export async function collectThreadDebugBundleData(
   const runErrorRepository = new AssistantRunErrorRepository(db);
   const [eventsResult, usageResult, runErrorRecord] = run
     ? await Promise.all([
-        db.query<RunEventRow>(
+        db.query(
           `SELECT sequence, kind, status, label, detail, duration_ms, metadata, occurred_at
            FROM brainstrike_assistant_run_events WHERE run_id = $1 ORDER BY sequence ASC LIMIT 500`,
           [run.id]
         ),
-        db.query<RunUsageRow>(
+        db.query(
           `SELECT provider, model, input_tokens, output_tokens, billed_cost_usd
            FROM brainstrike_assistant_run_usage WHERE run_id = $1 ORDER BY created_at ASC`,
           [run.id]
         ),
         runErrorRepository.getByRunId(run.id),
       ])
-    : [{ rows: [] as RunEventRow[] }, { rows: [] as RunUsageRow[] }, null];
+    : [{ rows: [] }, { rows: [] }, null];
 
-  const runEvents: BundleRunEvent[] = eventsResult.rows.map((row) => ({
-    detail: row.detail,
-    durationMs: row.duration_ms,
-    kind: row.kind,
-    label: row.label,
-    metadata: row.metadata,
-    occurredAt: toIsoOrNull(row.occurred_at) as string,
-    sequence: row.sequence,
-    status: row.status,
-  }));
+  const runEvents: BundleRunEvent[] = eventsResult.rows.map((value) => {
+    const row = mapRunEventRow(value);
+    return {
+      detail: row.detail,
+      durationMs: row.duration_ms,
+      kind: row.kind,
+      label: row.label,
+      metadata: row.metadata,
+      occurredAt: toIsoOrNull(row.occurred_at) as string,
+      sequence: row.sequence,
+      status: row.status,
+    };
+  });
 
-  const usage: ThreadDebugBundleData['usage'] = usageResult.rows.map((row) => ({
-    billedCostUsd: row.billed_cost_usd,
-    inputTokens: row.input_tokens,
-    model: row.model,
-    outputTokens: row.output_tokens,
-    provider: row.provider,
-  }));
+  const usage: ThreadDebugBundleData['usage'] = usageResult.rows.map((value) => {
+    const row = mapRunUsageRow(value);
+    return {
+      billedCostUsd: row.billed_cost_usd,
+      inputTokens: row.input_tokens,
+      model: row.model,
+      outputTokens: row.output_tokens,
+      provider: row.provider,
+    };
+  });
   const runError: ThreadDebugBundleData['runError'] = runErrorRecord
     ? {
         causeChain: runErrorRecord.causeChain,
@@ -283,18 +318,21 @@ export async function collectThreadDebugBundleData(
       }
     : null;
 
-  const transcriptResult = await db.query<MessageRow>(
+  const transcriptResult = await db.query(
     `SELECT id, role, content, "createdAt" FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" DESC LIMIT 40`,
     [threadId]
   );
   // Query returns newest-first (bounded window); the transcript section
   // reads oldest-first, and stage-1 elision removes the oldest turns first.
-  const messages: BundleMessage[] = [...transcriptResult.rows].reverse().map((row) => ({
-    content: row.content,
-    createdAt: toIsoOrNull(row.createdAt) as string,
-    id: row.id,
-    role: row.role,
-  }));
+  const messages: BundleMessage[] = [...transcriptResult.rows].reverse().map((value) => {
+    const row = mapMessageRow(value);
+    return {
+      content: row.content,
+      createdAt: toIsoOrNull(row.createdAt) as string,
+      id: row.id,
+      role: row.role,
+    };
+  });
 
   const repository = new DiagnosticEventsRepository(db);
   const runIdCorrelated = run ? await repository.queryEvents({ runId: run.id }) : [];

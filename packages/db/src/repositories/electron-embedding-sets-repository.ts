@@ -19,13 +19,13 @@ class ElectronEmbeddingSetsDbAdapter {
     return this.electronDb.exec(sql);
   }
 
-  async query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }> {
+  async query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
     const paramsArray = Array.isArray(params) ? params : params ? [params] : [];
     const result =
       paramsArray.length > 0
         ? await this.electronDb.query(sql, paramsArray)
         : await this.electronDb.query(sql);
-    return { rows: result.rows as T[] };
+    return { rows: result.rows };
   }
 }
 

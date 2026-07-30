@@ -1,6 +1,5 @@
 import type { TransactionStatement } from '../atomic-transaction.js';
 import { BaseFileRecordRepository } from './base-repository.js';
-import type { IDatabase } from './interfaces.js';
 
 /**
  * Electron IPC API
@@ -28,18 +27,18 @@ export interface ElectronDbAPI {
 }
 
 /**
- * Adapter to make ElectronDbAPI compatible with IDatabase interface
+ * Adapter to make ElectronDbAPI compatible with the file-record database seam.
  */
-class ElectronDbAdapter implements IDatabase {
+class ElectronDbAdapter {
   constructor(private readonly electronDb: ElectronDbAPI) {}
 
-  async query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
+  async query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
     // Only pass params if they are provided
     const result =
       params && params.length > 0
         ? await this.electronDb.query(sql, params)
         : await this.electronDb.query(sql);
-    return { rows: result.rows as T[] };
+    return { rows: result.rows };
   }
 }
 

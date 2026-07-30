@@ -17,7 +17,7 @@ import {
 
 interface EmbeddingSetsDb {
   exec(sql: string, params?: unknown): Promise<unknown>;
-  query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 
 export interface ListEmbeddingSpacesOptions {
@@ -49,23 +49,23 @@ export interface EmbeddingSpaceListing {
 }
 
 interface EmbeddingSpaceListingRow {
-  readonly averageTokensPerChunk?: number | string | null;
-  readonly createdAt: string;
-  readonly description: string | null;
-  readonly dimensions: number | string;
-  readonly distance: EmbeddingDistance | null;
-  readonly embeddedChunks?: number | string | null;
-  readonly fileCount?: number | string | null;
-  readonly id: string;
-  readonly modelId: string;
-  readonly modelKey: string;
-  readonly name: string | null;
-  readonly tokenizedChunkCount?: number | string | null;
-  readonly totalChunks?: number | string | null;
-  readonly totalTokens?: number | string | null;
+  readonly averageTokensPerChunk: unknown;
+  readonly createdAt: unknown;
+  readonly description: unknown;
+  readonly dimensions: unknown;
+  readonly distance: unknown;
+  readonly embeddedChunks: unknown;
+  readonly fileCount: unknown;
+  readonly id: unknown;
+  readonly modelId: unknown;
+  readonly modelKey: unknown;
+  readonly name: unknown;
+  readonly tokenizedChunkCount: unknown;
+  readonly totalChunks: unknown;
+  readonly totalTokens: unknown;
 }
 
-function readFiniteNumber(value: number | string, fieldName: string): number {
+function readFiniteNumber(value: unknown, fieldName: string): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) {
     throw new Error(`Invalid embedding space ${fieldName}: ${String(value)}`);
@@ -73,14 +73,18 @@ function readFiniteNumber(value: number | string, fieldName: string): number {
   return parsed;
 }
 
-function readOptionalFiniteNumber(
-  value: number | string | null | undefined,
-  fieldName: string
-): number {
+function readOptionalFiniteNumber(value: unknown, fieldName: string): number {
   if (value === null || value === undefined) {
     return 0;
   }
   return readFiniteNumber(value, fieldName);
+}
+
+function mapEmbeddingSpaceListingRow(value: unknown): EmbeddingSpaceListingRow {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Embedding space listing row must be an object.');
+  }
+  return value as EmbeddingSpaceListingRow;
 }
 
 export class EmbeddingSetsRepository {
@@ -362,7 +366,7 @@ export class EmbeddingSetsRepository {
   ): Promise<EmbeddingSpaceListing[]> {
     const result =
       options.includeStats === true
-        ? await this.db.query<EmbeddingSpaceListingRow>(
+        ? await this.db.query(
             `WITH file_stats AS (
                SELECT
                  embedding_set_id,
@@ -403,7 +407,7 @@ export class EmbeddingSetsRepository {
              LEFT JOIN chunk_stats cs ON cs.embedding_set_id = es.id
              ORDER BY es.created_at DESC`
           )
-        : await this.db.query<EmbeddingSpaceListingRow>(
+        : await this.db.query(
             `SELECT
                id,
                name,
@@ -417,7 +421,9 @@ export class EmbeddingSetsRepository {
              ORDER BY created_at DESC`
           );
 
-    return result.rows.map((row) => this.readEmbeddingSpaceListing(row, options));
+    return result.rows.map((row) =>
+      this.readEmbeddingSpaceListing(mapEmbeddingSpaceListingRow(row), options)
+    );
   }
 
   async delete(id: string): Promise<boolean> {
@@ -463,14 +469,14 @@ export class EmbeddingSetsRepository {
     options: ListEmbeddingSpacesOptions
   ): EmbeddingSpaceListing {
     const listing: EmbeddingSpaceListing = {
-      createdAt: row.createdAt,
-      description: row.description,
+      createdAt: row.createdAt as string,
+      description: row.description as string | null,
       dimensions: readFiniteNumber(row.dimensions, 'dimensions'),
-      distance: row.distance,
-      id: row.id,
-      modelId: row.modelId,
-      modelKey: row.modelKey,
-      name: row.name,
+      distance: row.distance as EmbeddingDistance | null,
+      id: row.id as string,
+      modelId: row.modelId as string,
+      modelKey: row.modelKey as string,
+      name: row.name as string | null,
     };
     if (options.includeStats !== true) {
       return listing;

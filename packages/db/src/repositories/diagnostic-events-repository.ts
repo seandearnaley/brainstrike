@@ -31,7 +31,7 @@ export class DiagnosticEventsStorageError extends Error {
 }
 
 export interface DiagnosticEventsDatabase {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 
 export interface DiagnosticEventsQueryFilter {
@@ -45,24 +45,24 @@ export interface DiagnosticEventsQueryFilter {
 }
 
 export interface DiagnosticEventRow {
-  app_version: string;
+  app_version: unknown;
   cause_chain: unknown;
-  code: string | null;
+  code: unknown;
   context: unknown;
-  fingerprint: string;
-  id: string;
-  message: string;
-  occurred_at: string | Date;
-  platform: string;
-  resource_id: string | null;
-  root_id: string | null;
-  run_id: string | null;
-  scope: string | null;
-  session_id: string;
-  severity: DiagnosticSeverity;
-  source: string;
-  stack: string | null;
-  thread_id: string | null;
+  fingerprint: unknown;
+  id: unknown;
+  message: unknown;
+  occurred_at: unknown;
+  platform: unknown;
+  resource_id: unknown;
+  root_id: unknown;
+  run_id: unknown;
+  scope: unknown;
+  session_id: unknown;
+  severity: unknown;
+  source: unknown;
+  stack: unknown;
+  thread_id: unknown;
 }
 
 export interface DiagnosticFingerprintGroup {
@@ -77,14 +77,20 @@ export interface DiagnosticFingerprintGroup {
 }
 
 interface DiagnosticFingerprintGroupRow {
-  code: string | null;
-  count: number | string;
-  fingerprint: string;
-  first_seen: string | Date;
-  last_seen: string | Date;
-  latest_message: string;
-  severity: DiagnosticSeverity;
-  source: string;
+  code: unknown;
+  count: unknown;
+  fingerprint: unknown;
+  first_seen: unknown;
+  last_seen: unknown;
+  latest_message: unknown;
+  severity: unknown;
+  source: unknown;
+}
+
+interface DiagnosticFingerprintCountRow {
+  count: unknown;
+  first_seen: unknown;
+  last_seen: unknown;
 }
 
 function toMs(value: string | Date): number {
@@ -95,31 +101,59 @@ function toMs(value: string | Date): number {
  * limit/equality-severity filter (e.g. the app-shell durable log source,
  * which needs a `severity IN (...)` scan up to 2000 rows) can still reuse
  * this row->event mapping instead of duplicating it. */
-export function mapDiagnosticEventRow(row: DiagnosticEventRow): DiagnosticEvent {
+export function mapDiagnosticEventRow(value: unknown): DiagnosticEvent {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Diagnostic event row must be an object.');
+  }
+  const row = value as DiagnosticEventRow;
   return {
-    appVersion: row.app_version,
+    appVersion: row.app_version as string,
     causeChain: Array.isArray(row.cause_chain)
       ? (row.cause_chain as DiagnosticEvent['causeChain'])
       : null,
-    code: row.code,
+    code: row.code as string | null,
     context:
       row.context && typeof row.context === 'object' && !Array.isArray(row.context)
         ? (row.context as Record<string, unknown>)
         : null,
-    fingerprint: row.fingerprint,
-    id: row.id,
-    message: row.message,
-    occurredAt: toMs(row.occurred_at),
-    platform: row.platform,
-    resourceId: row.resource_id,
-    rootId: row.root_id,
-    runId: row.run_id,
-    scope: row.scope,
-    sessionId: row.session_id,
-    severity: row.severity,
-    source: row.source,
-    stack: row.stack,
-    threadId: row.thread_id,
+    fingerprint: row.fingerprint as string,
+    id: row.id as string,
+    message: row.message as string,
+    occurredAt: toMs(row.occurred_at as string | Date),
+    platform: row.platform as string,
+    resourceId: row.resource_id as string | null,
+    rootId: row.root_id as string | null,
+    runId: row.run_id as string | null,
+    scope: row.scope as string | null,
+    sessionId: row.session_id as string,
+    severity: row.severity as DiagnosticSeverity,
+    source: row.source as string,
+    stack: row.stack as string | null,
+    threadId: row.thread_id as string | null,
+  };
+}
+
+function mapDiagnosticFingerprintCountRow(value: unknown): DiagnosticFingerprintCountRow {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Diagnostic fingerprint count row must be an object.');
+  }
+  return value as DiagnosticFingerprintCountRow;
+}
+
+function mapDiagnosticFingerprintGroupRow(value: unknown): DiagnosticFingerprintGroup {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Diagnostic fingerprint group row must be an object.');
+  }
+  const row = value as DiagnosticFingerprintGroupRow;
+  return {
+    code: row.code as string | null,
+    count: Number(row.count),
+    fingerprint: row.fingerprint as string,
+    firstSeenMs: toMs(row.first_seen as string | Date),
+    lastSeenMs: toMs(row.last_seen as string | Date),
+    latestMessage: row.latest_message as string,
+    severity: row.severity as DiagnosticSeverity,
+    source: row.source as string,
   };
 }
 
@@ -202,7 +236,7 @@ export class DiagnosticEventsRepository {
     const limit = Math.min(Math.max(filter.limit ?? DEFAULT_QUERY_LIMIT, 1), DEFAULT_QUERY_LIMIT);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     try {
-      const result = await this.db.query<DiagnosticEventRow>(
+      const result = await this.db.query(
         `SELECT * FROM ${TABLE} ${where} ORDER BY occurred_at DESC, id DESC LIMIT ${limit}`,
         params
       );
@@ -217,20 +251,17 @@ export class DiagnosticEventsRepository {
     sinceMs: number
   ): Promise<{ count: number; firstSeenMs: number | null; lastSeenMs: number | null }> {
     try {
-      const result = await this.db.query<{
-        count: number | string;
-        first_seen: string | Date | null;
-        last_seen: string | Date | null;
-      }>(
+      const result = await this.db.query(
         `SELECT COUNT(*)::int AS count, MIN(occurred_at) AS first_seen, MAX(occurred_at) AS last_seen
          FROM ${TABLE} WHERE fingerprint = $1 AND occurred_at >= $2`,
         [fingerprint, new Date(sinceMs).toISOString()]
       );
-      const row = result.rows[0];
+      const value = result.rows[0];
+      const row = value === undefined ? undefined : mapDiagnosticFingerprintCountRow(value);
       return {
         count: Number(row?.count ?? 0),
-        firstSeenMs: row?.first_seen ? toMs(row.first_seen) : null,
-        lastSeenMs: row?.last_seen ? toMs(row.last_seen) : null,
+        firstSeenMs: row?.first_seen ? toMs(row.first_seen as string | Date) : null,
+        lastSeenMs: row?.last_seen ? toMs(row.last_seen as string | Date) : null,
       };
     } catch (error) {
       throw new DiagnosticEventsStorageError('query', error);
@@ -271,7 +302,7 @@ export class DiagnosticEventsRepository {
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const latestWhere = latestClauses.length > 0 ? `AND ${latestClauses.join(' AND ')}` : '';
     try {
-      const result = await this.db.query<DiagnosticFingerprintGroupRow>(
+      const result = await this.db.query(
         `WITH grouped AS (
            SELECT
              fingerprint,
@@ -305,16 +336,7 @@ export class DiagnosticEventsRepository {
          ORDER BY grouped.count DESC, grouped.last_seen DESC, grouped.fingerprint ASC`,
         params
       );
-      return result.rows.map((row) => ({
-        code: row.code,
-        count: Number(row.count),
-        fingerprint: row.fingerprint,
-        firstSeenMs: toMs(row.first_seen),
-        lastSeenMs: toMs(row.last_seen),
-        latestMessage: row.latest_message,
-        severity: row.severity,
-        source: row.source,
-      }));
+      return result.rows.map(mapDiagnosticFingerprintGroupRow);
     } catch (error) {
       throw new DiagnosticEventsStorageError('query', error);
     }
@@ -328,13 +350,13 @@ export class DiagnosticEventsRepository {
     const cutoffMs = Math.max(0, this.now().getTime() - maxAgeMs);
     const cutoff = new Date(cutoffMs).toISOString();
     try {
-      const aged = await this.db.query<{ id: string }>(
+      const aged = await this.db.query(
         `DELETE FROM ${TABLE} WHERE id IN (
            SELECT id FROM ${TABLE} WHERE occurred_at < $1 ORDER BY occurred_at ASC LIMIT ${limit}
          ) RETURNING id`,
         [cutoff]
       );
-      const overCap = await this.db.query<{ id: string }>(
+      const overCap = await this.db.query(
         `DELETE FROM ${TABLE} WHERE id IN (
            SELECT id FROM ${TABLE} ORDER BY occurred_at DESC, id DESC OFFSET $1 LIMIT ${limit}
          ) RETURNING id`,

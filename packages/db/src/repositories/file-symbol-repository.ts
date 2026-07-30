@@ -53,10 +53,12 @@ export interface FileSymbolRefInsert {
  * handle (the wrapper in workspace-collection-sync-provider) exposes no
  * `transaction`, so atomicity comes from issuing BOTH inserts as one statement
  * via a data-modifying CTE: one statement is one implicit transaction on any
- * conforming handle.
+ * conforming handle. Rows stay `unknown[]`: this repository never reads them,
+ * and a typed-rows generic would reject otherwise-compatible non-generic
+ * handles without adding safety.
  */
 interface SymbolDatabase {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 
 const SYMBOL_COLUMNS = 9;
