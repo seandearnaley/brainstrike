@@ -698,7 +698,7 @@ through injected handles rather than a module-level import —
 `recordDesktopAssistantRunEvent` and `completeDesktopAssistantThreadRun` take a
 database PROVIDER, `recordDesktopAssistantHookRunOutcome` takes an
 already-resolved handle; the sole composition site is the `assistant-server.ts`
-root, which supplies `db-main`'s `getDatabase` — `agent-stream-init.ts` takes
+root, which supplies `db-main`'s `getDatabase` — the service's `stream-init.ts` takes
 that provider on `InitializeAgentStreamParams` and forwards it (or its awaited
 result) to the writers — so every write still resolves the same main-process
 handle (BST-972 A1/A2) — and all gated on `if (runId)`):

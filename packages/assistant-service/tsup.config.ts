@@ -19,6 +19,7 @@ export default defineConfig({
     'src/run-turn.ts',
     'src/secret-errors.ts',
     'src/steering.ts',
+    'src/stream-init.ts',
     'src/types.ts',
   ],
   format: ['esm', 'cjs'],

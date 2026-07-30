@@ -142,7 +142,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.
-- **Desktop wiring:** `apps/desktop/src/assistant-server/agent-stream-init.ts` sets
+- **Desktop wiring:** `packages/assistant-service/src/stream-init.ts` (desktop capabilities composed in `apps/desktop/src/assistant-server.ts`) sets
   `runtime.personas` to the per-request RESOLVED set (built-ins + user personas,
   availability applied — `resolvePersonaRuntimeFields`) on the shared runtime
   (covers initial + both resume paths). Personas are skipped agent-side for

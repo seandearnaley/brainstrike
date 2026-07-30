@@ -46,6 +46,9 @@
       "@brainstrike/assistant-service/steering": [
         "../../packages/assistant-service/src/steering.ts"
       ],
+      "@brainstrike/assistant-service/stream-init": [
+        "../../packages/assistant-service/src/stream-init.ts"
+      ],
       "@brainstrike/assistant-service/types": [
         "../../packages/assistant-service/src/types.ts"
       ],
