@@ -6,16 +6,21 @@ import { vi } from 'vitest';
  * run-persistence-http, hooks-run-lifecycle.
  *
  * Only the `vi.mock(<literal path>)` CALL SITES must stay per-file (hoisting
- * is per-importing-module), and — verified empirically — the hoisted call
- * evaluates its ARGUMENTS before imports initialize, so a bare imported
- * factory reference throws "Cannot access __vi_import before initialization".
- * Call sites therefore use a lazy arrow — `vi.mock('<path>', () =>
- * makeXMock())` — which defers the import-binding read to first mock
- * resolution, after this module is initialized. Each factory resolves its own
- * actuals via vi.importActual (specifiers resolve from THIS directory, which
- * is the suites' directory). Vitest gives every test FILE its own module
- * registry, so the module-scope fixtures below are per-suite instances, never
- * cross-file shared state; each suite's beforeEach still owns resetting them.
+ * is per-importing-module), and — verified empirically — neither a bare
+ * imported factory reference nor a lazy arrow over the STATIC import works:
+ * the first throws "Cannot access __vi_import before initialization" at hoist
+ * time, and the second still breaks because '../../assistant-server'
+ * initializes first in import order and triggers the factories before this
+ * module's bindings exist. Call sites therefore reach these factories through
+ * a `vi.hoisted` dynamic-import accessor — `const mocks = vi.hoisted(() => ()
+ * => import('./_assistant-server-mocks'))`, then `vi.mock('<path>', async ()
+ * => (await mocks()).makeXMock())` — which exists before the mocks fire,
+ * resolves lazily, and shares the same per-file module instance as the static
+ * fixture imports. Each factory resolves its own actuals via vi.importActual
+ * (specifiers resolve from THIS directory, which is the suites' directory).
+ * Vitest gives every test FILE its own module registry, so the module-scope
+ * fixtures below are per-suite instances, never cross-file shared state; each
+ * suite's beforeEach still owns resetting them.
  */
 
 export const mockSecretsService = {
