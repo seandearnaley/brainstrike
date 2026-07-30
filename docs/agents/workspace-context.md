@@ -876,8 +876,8 @@ preservation),
 `packages/agent/src/__tests__/workspace-root-manifest.spec.ts` (bounds,
 zero/unavailable state, exact ids, Main/Focused priority) +
 `mastra-tool-execution.integration.spec.ts` (turn-one qualified read),
-`apps/desktop/src/__tests__/assistant-server.integration.test.ts` (client root
-inventory replacement),
+`apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts`
+(client root inventory replacement),
 `packages/ui/src/assistant-ui-panel/__tests__/operating-root-chip.test.tsx`,
 `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
 (orderWorkspaceRoots + enrichment reorder), and the
