@@ -53,17 +53,16 @@ import type { DesktopMastraMemoryResult } from './mastra-memory';
 async function readThreadTaskListForTurn(
   runtimeData: RuntimeData | undefined,
   database: Parameters<AgentStreamCapabilities['taskList']['read']>[0] | null,
-  capabilities: AgentStreamCapabilities,
-  logger: ScopedLogger
+  deps: AgentStreamHelperDeps
 ): Promise<readonly AssistantTaskItem[]> {
   const threadId = runtimeData?.memory?.threadId;
   if (!(threadId && database) || isLocalChatProvider(runtimeData)) {
     return [];
   }
   try {
-    return await capabilities.taskList.read(database, threadId);
+    return await deps.capabilities.taskList.read(database, threadId);
   } catch (error) {
-    logger.warn('Failed to read thread task list; no task-list block this turn.', { error });
+    deps.logger.warn('Failed to read thread task list; no task-list block this turn.', { error });
     return [];
   }
 }
@@ -84,7 +83,7 @@ function buildToolOutputArtifactCapabilities(
   runtimeData: RuntimeData | undefined,
   runId: string | undefined,
   getDatabase: AgentStreamDatabaseProvider,
-  capabilities: AgentStreamCapabilities
+  deps: AgentStreamHelperDeps
 ): ToolOutputArtifactCapabilities {
   const resourceId = runtimeData?.memory?.resourceId;
   const threadId = runtimeData?.memory?.threadId;
@@ -94,7 +93,7 @@ function buildToolOutputArtifactCapabilities(
   const toolOutputArtifactReader: ScopedToolOutputArtifactReader = {
     readRange: async (input) => {
       const database = await getDatabase();
-      return capabilities.artifacts.createRepository(database).readRange({
+      return deps.capabilities.artifacts.createRepository(database).readRange({
         ...input,
         resourceId,
         threadId,
@@ -109,7 +108,7 @@ function buildToolOutputArtifactCapabilities(
     toolOutputArtifactStore: {
       store: async (input) => {
         const database = await getDatabase();
-        return capabilities.artifacts.createRepository(database).store({
+        return deps.capabilities.artifacts.createRepository(database).store({
           ...input,
           resourceId,
           runId,
@@ -165,15 +164,21 @@ function buildInitialStreamMemoryOptions(
  * the approval path's contract.
  */
 async function resolveInitialAgentStream(args: {
-  capabilities: AgentStreamCapabilities;
+  deps: AgentStreamHelperDeps;
   messages: AgentMessage[];
   runtime: RuntimeData;
   memoryOptions: InitialStreamMemoryOptions;
   toolApprovalAction: AssistantToolApprovalAction | undefined;
   toolResumeAction: AssistantToolResumeAction | undefined;
 }): Promise<AsyncIterable<StreamChunk>> {
-  const { capabilities, messages, runtime, memoryOptions, toolApprovalAction, toolResumeAction } =
-    args;
+  const {
+    deps: { capabilities },
+    messages,
+    runtime,
+    memoryOptions,
+    toolApprovalAction,
+    toolResumeAction,
+  } = args;
   if (toolApprovalAction) {
     return streamMastraToolApprovalAction(toolApprovalAction, {
       ...memoryOptions,
@@ -218,12 +223,12 @@ async function resolveInitialAgentStream(args: {
  */
 function prepareRequestSkillsFromDisk(
   runtimeData: RuntimeData | undefined,
-  capabilities: AgentStreamCapabilities
+  deps: AgentStreamHelperDeps
 ): {
   workspaceSkills?: ScannedWorkspaceSkills;
 } {
-  const { workspaceSkills } = capabilities.skills.prepare({
-    fs: capabilities.skills.createFs([
+  const { workspaceSkills } = deps.capabilities.skills.prepare({
+    fs: deps.capabilities.skills.createFs([
       ...(runtimeData?.workspaceRoots ?? [])
         .map((root) => root.path)
         .filter((rootPath): rootPath is string => Boolean(rootPath)),
@@ -244,9 +249,9 @@ function prepareRequestSkillsFromDisk(
  */
 function scanUserPersonasFromDisk(
   workspaceRoots: RuntimeData['workspaceRoots'],
-  capabilities: AgentStreamCapabilities
+  deps: AgentStreamHelperDeps
 ): ReturnType<AgentStreamCapabilities['personas']['scan']> {
-  const filesystem = capabilities.personas.createScanDeps();
+  const filesystem = deps.capabilities.personas.createScanDeps();
   try {
     const scanRoots = (workspaceRoots ?? [])
       .filter((root) => Boolean(root.path))
@@ -255,7 +260,7 @@ function scanUserPersonasFromDisk(
         displayName: root.displayName,
         id: root.rootId,
       }));
-    return capabilities.personas.scan({ homeDir: homedir(), roots: scanRoots }, filesystem);
+    return deps.capabilities.personas.scan({ homeDir: homedir(), roots: scanRoots }, filesystem);
   } finally {
     filesystem.dispose();
   }
@@ -271,15 +276,14 @@ async function resolvePersonaRuntimeFields(
   runtimeData: RuntimeData | undefined,
   subagentPersonasRequest: RuntimeData['subagentPersonasRequest'],
   resolveProviderApiKey: AgentStreamProviderApiKeyReader,
-  capabilities: AgentStreamCapabilities,
-  logger: ScopedLogger
+  deps: AgentStreamHelperDeps
 ): Promise<Pick<RuntimeData, 'personas' | 'personaProviderApiKeys'>> {
-  const resolved = await capabilities.personas.resolve({
-    logger,
+  const resolved = await deps.capabilities.personas.resolve({
+    logger: deps.logger,
     parentProvider: runtimeData?.provider ?? '',
     request: subagentPersonasRequest,
     resolveApiKey: resolveProviderApiKey,
-    scanUserPersonas: () => scanUserPersonasFromDisk(runtimeData?.workspaceRoots, capabilities),
+    scanUserPersonas: () => scanUserPersonasFromDisk(runtimeData?.workspaceRoots, deps),
   });
   return {
     personas: resolved.personas,
@@ -298,7 +302,7 @@ async function resolvePersonaRuntimeFields(
 function buildHookRunVerdictRecorder(
   runId: string | undefined,
   getDatabase: AgentStreamDatabaseProvider,
-  capabilities: AgentStreamCapabilities
+  deps: AgentStreamHelperDeps
 ): {
   onRunVerdict?: (verdict: HookRunVerdict) => Promise<void>;
 } {
@@ -308,7 +312,7 @@ function buildHookRunVerdictRecorder(
   return {
     onRunVerdict: async (verdict: HookRunVerdict): Promise<void> => {
       const database = await getDatabase();
-      await capabilities.runPersistence.recordHookRunOutcome(database, runId, verdict);
+      await deps.capabilities.runPersistence.recordHookRunOutcome(database, runId, verdict);
     },
   };
 }
@@ -316,8 +320,7 @@ function buildHookRunVerdictRecorder(
 function buildAgentStreamInitializationFailure(
   error: unknown,
   stage: AgentStreamInitializationStage,
-  capabilities: AgentStreamCapabilities,
-  logger: ScopedLogger
+  deps: AgentStreamHelperDeps
 ): AgentStreamFailure {
   const secretReadErrorPayload = getSecretReadErrorPayload(error);
   if (secretReadErrorPayload) {
@@ -327,7 +330,7 @@ function buildAgentStreamInitializationFailure(
       status: 400,
     };
   }
-  const memoryCredentialMissing = capabilities.memory.matchCredentialMissingError(error);
+  const memoryCredentialMissing = deps.capabilities.memory.matchCredentialMissingError(error);
   if (memoryCredentialMissing) {
     return {
       ok: false,
@@ -341,7 +344,7 @@ function buildAgentStreamInitializationFailure(
     };
   }
   const correlationId = randomUUID();
-  logger.error('Failed to initialize assistant stream', { correlationId, error, stage });
+  deps.logger.error('Failed to initialize assistant stream', { correlationId, error, stage });
   return {
     ok: false,
     payload: {
@@ -356,10 +359,10 @@ function buildAgentStreamInitializationFailure(
 
 function buildWorkspaceRootResolutionFailure(
   error: unknown,
-  capabilities: AgentStreamCapabilities,
-  logger: ScopedLogger
+  deps: AgentStreamHelperDeps
 ): AgentStreamFailure {
-  const boundRootUnavailable = capabilities.workspaceRoots.matchBoundRootUnavailableError(error);
+  const boundRootUnavailable =
+    deps.capabilities.workspaceRoots.matchBoundRootUnavailableError(error);
   if (boundRootUnavailable) {
     return {
       ok: false,
@@ -371,12 +374,7 @@ function buildWorkspaceRootResolutionFailure(
       status: 409,
     };
   }
-  return buildAgentStreamInitializationFailure(
-    error,
-    'workspace_root_resolution',
-    capabilities,
-    logger
-  );
+  return buildAgentStreamInitializationFailure(error, 'workspace_root_resolution', deps);
 }
 
 function stripClientWorkspaceRoots(runtimeData: RuntimeData | undefined): RuntimeData | undefined {
@@ -494,6 +492,17 @@ export interface AgentStreamCapabilities {
 }
 
 /**
+ * The request-invariant ambient dependencies threaded to this module's private
+ * helpers as ONE object (review finding on #2128): the same silent-swap
+ * hazard the params-object ruling names would otherwise re-accumulate on
+ * every helper tail, two positionals at a time.
+ */
+interface AgentStreamHelperDeps {
+  readonly capabilities: AgentStreamCapabilities;
+  readonly logger: ScopedLogger;
+}
+
+/**
  * Params object rather than positional arguments (ruling from the #2115
  * review): dependencies accumulate here slice by slice, and adjacent
  * positional parameters stay mistake-proof only while their types happen to
@@ -542,6 +551,7 @@ export async function initializeAgentStream(
     getDatabase,
     resolveProviderApiKey,
   } = params;
+  const deps: AgentStreamHelperDeps = { capabilities, logger };
   // Multi-root: resolve the active workspace roots from the DB `roots` table so
   // the assistant's file/search tools can disambiguate paths across roots. The
   // helper falls back to the single focused root on an empty/failed lookup.
@@ -556,17 +566,12 @@ export async function initializeAgentStream(
       rootsDatabase
     );
   } catch (error) {
-    return buildWorkspaceRootResolutionFailure(error, capabilities, logger);
+    return buildWorkspaceRootResolutionFailure(error, deps);
   }
 
   // Re-inject the current per-thread task list into the instructions this
   // turn (see readThreadTaskListForTurn for the local-provider skip).
-  const taskList = await readThreadTaskListForTurn(
-    runtimeData,
-    rootsDatabase,
-    capabilities,
-    logger
-  );
+  const taskList = await readThreadTaskListForTurn(runtimeData, rootsDatabase, deps);
 
   // Build runtime context with abort signal for cancellation support
   // The signal is embedded in RuntimeData and flows through to:
@@ -618,8 +623,7 @@ export async function initializeAgentStream(
     runtimeData,
     subagentPersonasRequest,
     resolveProviderApiKey,
-    capabilities,
-    logger
+    deps
   );
 
   let initializationStage: AgentStreamInitializationStage = 'provider_model_bootstrap';
@@ -644,12 +648,12 @@ export async function initializeAgentStream(
     // four skills tiers (mounted roots + home dir), with the renderer's
     // preference applied (master toggle / per-skill disables — reduce-only).
     // Undefined when skills are off or the provider is the built-in local model.
-    const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData, capabilities);
+    const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData, deps);
     const artifactCapabilities = buildToolOutputArtifactCapabilities(
       runtimeData,
       runId,
       getDatabase,
-      capabilities
+      deps
     );
     initializationStage = 'native_tool_preferences';
     const mastraTools = capabilities.tools.build(
@@ -778,7 +782,7 @@ export async function initializeAgentStream(
 
     initializationStage = 'stream_construction';
     const stream = await resolveInitialAgentStream({
-      capabilities,
+      deps,
       memoryOptions,
       messages: upsGate.messages,
       runtime,
@@ -799,12 +803,12 @@ export async function initializeAgentStream(
         logger,
         manager: hookManager,
         observe,
-        ...buildHookRunVerdictRecorder(runId, getDatabase, capabilities),
+        ...buildHookRunVerdictRecorder(runId, getDatabase, deps),
         runner: hookRunner,
         signal,
       }),
     };
   } catch (error) {
-    return buildAgentStreamInitializationFailure(error, initializationStage, capabilities, logger);
+    return buildAgentStreamInitializationFailure(error, initializationStage, deps);
   }
 }

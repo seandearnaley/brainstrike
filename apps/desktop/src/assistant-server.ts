@@ -94,7 +94,7 @@ const logger = desktopAssistantServerLogger;
  * mocked today; the census is on the BST-972 plan comment). The two matchers
  * use the REAL error classes, so identity semantics are unchanged.
  */
-const desktopAgentStreamCapabilities: AgentStreamCapabilities = {
+export const desktopAgentStreamCapabilities: AgentStreamCapabilities = {
   artifacts: {
     createRepository: (database) => new ToolOutputArtifactRepository(database),
   },
