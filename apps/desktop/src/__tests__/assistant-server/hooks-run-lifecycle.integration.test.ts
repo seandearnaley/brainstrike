@@ -19,7 +19,7 @@ import {
   type StreamChunk,
 } from '@brainstrike/agent';
 import { app } from 'electron';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { desktopAssistantServerLogger, handleAssistantRequest } from '../../assistant-server';
 import { createDesktopHookRunner } from '../../assistant-server/hooks/hook-runner-impl';
 import {

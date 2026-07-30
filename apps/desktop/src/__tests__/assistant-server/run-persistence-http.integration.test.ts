@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { desktopAssistantServerLogger, handleAssistantRequest } from '../../assistant-server';
 import { resetDesktopMastraMemoryCacheForTests } from '../../assistant-server/mastra-memory';
 import { createRunRequest } from './_harness';
@@ -161,6 +161,10 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  // Restores vi.spyOn spies only (never the vi.mock factory mocks): the four
+  // logger.error spies in this file would otherwise stack no-ops file-wide,
+  // since clearAllMocks clears calls but leaves installed stubs in place.
+  vi.restoreAllMocks();
   resetDesktopMastraMemoryCacheForTests();
 }, 15_000);
 describe('run persistence through the HTTP path', () => {

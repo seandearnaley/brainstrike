@@ -1,6 +1,6 @@
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS, type RuntimeData } from '@brainstrike/agent';
 import { app } from 'electron';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
 import { resetDesktopMastraMemoryCacheForTests } from '../../assistant-server/mastra-memory';
 import { createRunRequest } from './_harness';

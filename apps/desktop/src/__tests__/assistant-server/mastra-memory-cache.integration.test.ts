@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
 import {
   getDesktopMastraMemoryForTests,
@@ -366,6 +366,8 @@ describe('desktop Mastra memory cache', () => {
       },
     });
 
+    // 17 distinct keys against DESKTOP_MEMORY_CACHE_LIMIT = 16 evicts the
+    // first; re-requesting it reconstructs -> 17 + 1 = 18.
     expect(createPgliteMastraMemory).toHaveBeenCalledTimes(18);
   });
 });
