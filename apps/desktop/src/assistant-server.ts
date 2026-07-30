@@ -12,7 +12,12 @@ import {
   registerSteerableRun,
   unregisterSteerableRun,
 } from '@brainstrike/assistant-service/steering';
-import { initializeAgentStream } from './assistant-server/agent-stream-init';
+import { ToolOutputArtifactRepository } from '@brainstrike/db';
+import {
+  type AgentStreamCapabilities,
+  initializeAgentStream,
+} from './assistant-server/agent-stream-init';
+import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import {
   type AssistantServerAuth,
   isAuthorizedAssistantToken,
@@ -26,16 +31,38 @@ import {
   respondForbiddenOrigin,
 } from './assistant-server/cors';
 import {
+  finalizeHookedStream,
+  hookRunEventToAssistant,
+  makeHookBlockedStream,
+  prepareRequestHooks,
+  runUserPromptSubmitGate,
+} from './assistant-server/hooks/server-integration';
+import {
   assistantRequestBodyLimitBytes,
   readRequestBody,
   streamResponse,
 } from './assistant-server/http';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
+import {
+  DesktopMemoryCredentialMissingError,
+  getDesktopMastraMemory,
+} from './assistant-server/mastra-memory';
+import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
 import { resolveProviderApiKey } from './assistant-server/provider-credentials';
+import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { registerRequestAbort } from './assistant-server/request-abort';
+import { resolveRequestPersonas } from './assistant-server/request-personas';
+import { prepareRequestSkills } from './assistant-server/request-skills';
 import { readLastEventId, resolveAssistantRoute } from './assistant-server/routing';
-import { recordDesktopAssistantThreadRunStatus } from './assistant-server/run-persistence';
+import {
+  observeDesktopAssistantRunEvents,
+  persistDesktopChildRunUsage,
+  recordDesktopAssistantHookRunOutcome,
+  recordDesktopAssistantThreadRunStatus,
+} from './assistant-server/run-persistence';
 import type { AssistantServerOptions } from './assistant-server/server-options';
+import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
+import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import {
   handleAssistantStatus,
   handleOpenRouterModelMetadata,
@@ -45,10 +72,79 @@ import {
   handleAssistantResumeRequest,
   resumeStreamIfAvailable,
 } from './assistant-server/stream-resume';
+import { readThreadTaskList } from './assistant-server/task-list-repository';
+import { scanUserPersonas } from './assistant-server/user-personas-loader';
+import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
+import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
+import {
+  BoundWorkspaceRootUnavailableError,
+  enrichRuntimeDataWithWorkspaceRoots,
+} from './assistant-server/workspace-roots';
+import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
 import { loadMcpConfig } from './mcp-loader';
 
 const logger = desktopAssistantServerLogger;
+
+/**
+ * The desktop AgentStreamCapabilities composition (BST-972 B4a): every value
+ * agent-stream-init previously imported from desktop modules, passed verbatim.
+ * Kept at the ROOT so suites that vi.mock these specifiers keep intercepting
+ * (only assistant-tools, mastra-memory, and workspace-text-file-reader are
+ * mocked today; the census is on the BST-972 plan comment). The two matchers
+ * use the REAL error classes, so identity semantics are unchanged.
+ */
+export const desktopAgentStreamCapabilities: AgentStreamCapabilities = {
+  artifacts: {
+    createRepository: (database) => new ToolOutputArtifactRepository(database),
+  },
+  contextInjectors: {
+    activatedSkills: injectActivatedSkillsContext,
+    referencedFiles: injectReferencedFilesContext,
+    workspaceInstructions: injectWorkspaceInstructionsContext,
+  },
+  hooks: {
+    eventToAssistant: hookRunEventToAssistant,
+    finalize: finalizeHookedStream,
+    makeBlockedStream: makeHookBlockedStream,
+    prepare: prepareRequestHooks,
+    runUserPromptSubmitGate,
+  },
+  memory: {
+    create: getDesktopMastraMemory,
+    matchCredentialMissingError: (error) =>
+      error instanceof DesktopMemoryCredentialMissingError
+        ? { feature: error.feature, message: error.message, provider: error.provider }
+        : undefined,
+  },
+  personas: {
+    createScanDeps: createNodeFsScanDeps,
+    resolve: resolveRequestPersonas,
+    scan: scanUserPersonas,
+  },
+  readWorkspaceTextFile,
+  runPersistence: {
+    observeRunEvents: observeDesktopAssistantRunEvents,
+    persistChildRunUsage: persistDesktopChildRunUsage,
+    recordHookRunOutcome: recordDesktopAssistantHookRunOutcome,
+  },
+  skills: {
+    createFs: createSecureSkillsFs,
+    prepare: prepareRequestSkills,
+  },
+  taskList: {
+    read: readThreadTaskList,
+  },
+  tools: {
+    build: buildDesktopAssistantTools,
+  },
+  webExtractInlineMaxSerializedChars: WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS,
+  workspaceRoots: {
+    enrich: enrichRuntimeDataWithWorkspaceRoots,
+    matchBoundRootUnavailableError: (error) =>
+      error instanceof BoundWorkspaceRootUnavailableError ? { message: error.message } : undefined,
+  },
+};
 
 /** RunPersistencePort adapter: the desktop status writer with db-main closed over. */
 const desktopRunPersistencePort = {
@@ -240,7 +336,9 @@ async function handleAssistantPost(
       initializeStream: async (core) =>
         initializeAgentStream({
           apiKey: core.apiKey,
+          capabilities: desktopAgentStreamCapabilities,
           getDatabase,
+          logger,
           mcpConfig: (await loadMcpConfig()).config,
           messages: core.messages,
           resolveProviderApiKey,

@@ -486,6 +486,101 @@ describe('agent-stream-init runtime composition and memory', () => {
     ).toBe(true);
   });
 
+  it('pins the capability composition: same-signature members cannot be transposed', async () => {
+    // The REAL transposition guard (review finding on #2128): `referencedFiles`
+    // and `workspaceInstructions` are structurally interchangeable, and the
+    // end-to-end directive case below cannot distinguish a swap (the swapped
+    // impl still resolves the directive, just in the other pipeline slot —
+    // verified by control-swapping the wiring). Identity is the only honest
+    // instrument.
+    const { desktopAgentStreamCapabilities } = await import('../../assistant-server');
+    const { injectReferencedFilesContext } = await import(
+      '../../assistant-server/referenced-files-context'
+    );
+    const { injectWorkspaceInstructionsContext } = await import(
+      '../../assistant-server/workspace-instructions-context'
+    );
+    const { injectActivatedSkillsContext } = await import(
+      '../../assistant-server/skills-activation-context'
+    );
+
+    expect(desktopAgentStreamCapabilities.contextInjectors.referencedFiles).toBe(
+      injectReferencedFilesContext
+    );
+    expect(desktopAgentStreamCapabilities.contextInjectors.workspaceInstructions).toBe(
+      injectWorkspaceInstructionsContext
+    );
+    expect(desktopAgentStreamCapabilities.contextInjectors.activatedSkills).toBe(
+      injectActivatedSkillsContext
+    );
+  });
+
+  it('resolves a :file directive through the composed referenced-files injector', async () => {
+    // Composition guard (review finding on #2128): the capability members
+    // `contextInjectors.referencedFiles` and `contextInjectors.workspaceInstructions`
+    // are structurally interchangeable, so a transposed wiring in
+    // assistant-server.ts would type-check. This end-to-end case fails on a
+    // swap: the directive would never be resolved and the reader never called.
+    const { encodeFileMentionId, serializeFileMentionDirective } = await import(
+      '@brainstrike/assistant-contract'
+    );
+    const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+    const { readWorkspaceTextFile } = await import(
+      '../../assistant-server/workspace-text-file-reader'
+    );
+    const { streamResponse } = await import('../../assistant-server/http');
+
+    mockDesktopDatabase.query.mockResolvedValueOnce({
+      rows: [{ displayName: 'Server Root', id: 'db-root-id', path: '/work/server-root' }],
+    });
+    (readWorkspaceTextFile as Mock).mockResolvedValueOnce({
+      content: 'export const answer = 42;',
+      path: 'src/answer.ts',
+      size: 25,
+    });
+    const directiveText = `Explain ${serializeFileMentionDirective({
+      id: encodeFileMentionId('db-root-id', 'src/answer.ts'),
+      label: 'answer.ts',
+    })}`;
+    (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+      { parts: [{ text: directiveText, type: 'text' }], role: 'user' },
+    ]);
+    (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+      async *[Symbol.asyncIterator]() {
+        yield { content: 'Response', type: 'text' };
+      },
+    });
+    (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+      const response = res as { end?: () => void };
+      response.end?.();
+    });
+
+    await runRequest({
+      body: JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [{ parts: [{ text: directiveText, type: 'text' }], role: 'user' }],
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/',
+    });
+
+    expect(readWorkspaceTextFile).toHaveBeenCalledWith({
+      requestedPath: 'src/answer.ts',
+      rootPath: '/work/server-root',
+    });
+    const [messages] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+      Array<{ role: string; parts: Array<{ text?: string }> }>,
+    ];
+    const contextMessage = messages.find(
+      (message) =>
+        message.role === 'system' && message.parts[0]?.text?.includes('export const answer = 42;')
+    );
+    expect(contextMessage).toBeDefined();
+    const userIndex = messages.findIndex((message) => message.role === 'user');
+    expect(messages.indexOf(contextMessage as (typeof messages)[number])).toBeLessThan(userIndex);
+  });
+
   it('replaces client-supplied workspace roots with server-resolved DB identities', async () => {
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
     const { streamResponse } = await import('../../assistant-server/http');
