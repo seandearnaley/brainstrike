@@ -242,6 +242,23 @@ test('never touches non-artifact files, even without a source counterpart', () =
   assert.deepEqual(listFiles(path.join(dir, 'dist')), ['.tsbuildinfo', 'notes.txt', 'styles.css']);
 });
 
+test('removes only directories the prune itself emptied', () => {
+  // The dir sweep must be scoped to ancestors of deleted files: a directory a
+  // concurrent sibling build has just created (mkdir and first write are
+  // separate syscalls) is momentarily empty, and an unscoped rmdir walk over
+  // all of dist would delete it out from under the sibling's write.
+  const dir = makeFixture({
+    'dist/sub/gone.js': '',
+    'src/index.ts': '',
+  });
+  mkdirSync(path.join(dir, 'dist', 'fresh-sibling-dir'));
+
+  main({ log: () => {}, packageDir: dir });
+
+  assert.equal(existsSync(path.join(dir, 'dist', 'sub')), false);
+  assert.equal(existsSync(path.join(dir, 'dist', 'fresh-sibling-dir')), true);
+});
+
 test('keeps the dist root even when every artifact is pruned', () => {
   const dir = makeFixture({
     'dist/gone.js': '',

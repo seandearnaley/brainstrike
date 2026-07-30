@@ -159,21 +159,19 @@ function isLiveArtifact(artifact, program, srcDir) {
 
 function walkFiles(root) {
   const files = [];
-  const dirs = [];
   const stack = [root];
   while (stack.length > 0) {
     const current = stack.pop();
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const abs = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        dirs.push(abs);
         stack.push(abs);
       } else if (entry.isFile()) {
         files.push(abs);
       }
     }
   }
-  return { dirs, files };
+  return files;
 }
 
 export function main({ packageDir = process.cwd(), log = console.log } = {}) {
@@ -194,7 +192,7 @@ export function main({ packageDir = process.cwd(), log = console.log } = {}) {
   }
 
   const program = resolveProgram(packageDir, srcDir, distDir);
-  const { dirs, files } = walkFiles(distDir);
+  const files = walkFiles(distDir);
 
   const deleted = [];
   for (const abs of files) {
@@ -209,12 +207,23 @@ export function main({ packageDir = process.cwd(), log = console.log } = {}) {
     log(`prune-stale-dist: deleted orphaned artifact ${path.relative(packageDir, abs)}`);
   }
 
-  // Remove directories the prune emptied (deepest first) so empty husks are not
-  // snapshotted either. rmdir only succeeds on empty dirs, which makes this
-  // safe under concurrent builds: a dir a sibling build is writing into is
-  // non-empty and is deliberately left alone. The dist root itself is kept.
+  // Remove directories the prune emptied (deepest first) so empty husks are
+  // not snapshotted either. The sweep is scoped to ANCESTORS OF DELETED FILES,
+  // not all of dist: a directory a concurrent sibling build has just created
+  // is momentarily empty (mkdir and first write are separate syscalls), and an
+  // unscoped rmdir walk would delete it out from under the sibling's write.
+  // Within that scope, rmdir-only-succeeds-on-empty keeps still-populated
+  // ancestors alive. The dist root itself is kept.
+  const pruneScopedDirs = new Set();
+  for (const abs of deleted) {
+    let dir = path.dirname(abs);
+    while (dir !== distDir && dir.startsWith(distDir + path.sep)) {
+      pruneScopedDirs.add(dir);
+      dir = path.dirname(dir);
+    }
+  }
   const removedDirs = [];
-  for (const dir of [...dirs].sort((a, b) => b.length - a.length)) {
+  for (const dir of [...pruneScopedDirs].sort((a, b) => b.length - a.length)) {
     try {
       fs.rmdirSync(dir);
       removedDirs.push(dir);
