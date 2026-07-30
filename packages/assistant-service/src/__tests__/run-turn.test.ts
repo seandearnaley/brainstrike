@@ -1,0 +1,193 @@
+/**
+ * Package-level contract tests for runAssistantTurn (BST-972 B3 review
+ * finding: the centerpiece landed with only the desktop http-partial-mock
+ * suites as proof — the transport-coupled tests this extraction exists to
+ * stop being the only guard). Both ports plus the session registry are
+ * injected, so every case here is pure: no HTTP, no PGlite, no module mocks.
+ */
+import type { StreamChunk } from '@brainstrike/agent';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { runAssistantTurn } from '../run-turn';
+import type { AgentStreamResult } from '../types';
+
+const recordThreadRunStatus =
+  vi.fn<
+    (
+      runId: string,
+      status: 'cancelled' | 'completed' | 'failed',
+      error: string | null
+    ) => Promise<void>
+  >();
+
+async function* emptyStream(): AsyncIterable<StreamChunk> {
+  // No chunks — the fake session ignores the stream entirely.
+}
+
+interface FakeSessionOptions {
+  terminal?: { status: 'cancelled' | 'completed' | 'failed'; error: string | null };
+}
+
+function makeSessions(options: FakeSessionOptions = {}) {
+  const createResponse = vi.fn(
+    (init: { headers: Record<string, string> }) =>
+      new Response(null, { headers: init.headers, status: 200 })
+  );
+  const session = {
+    createResponse,
+    getTerminalOutcome: vi.fn(
+      () => options.terminal ?? { error: null, status: 'completed' as const }
+    ),
+    id: 'session-1',
+    messageId: 'assistant-msg-1',
+    whenClosed: vi.fn(() => Promise.resolve()),
+  };
+  const create = vi.fn(() => session);
+  return { create, session } as const;
+}
+
+function baseParams(overrides: Record<string, unknown> = {}) {
+  const sessions = makeSessions();
+  return {
+    params: {
+      apiKey: 'k',
+      assistantMessageId: undefined,
+      executionSignal: new AbortController().signal,
+      initializeStream: vi.fn(
+        async (): Promise<AgentStreamResult> => ({ ok: true, stream: emptyStream() })
+      ),
+      messages: [],
+      persistence: { recordThreadRunStatus },
+      runId: 'run-1',
+      runtimeData: { provider: 'openai' },
+      sessions: sessions as never,
+      ...overrides,
+    },
+    sessions,
+  };
+}
+
+beforeEach(() => {
+  recordThreadRunStatus.mockReset().mockResolvedValue();
+});
+
+describe('runAssistantTurn', () => {
+  it('records a failed run row and passes the failure through verbatim when init fails with a runId', async () => {
+    const failure: AgentStreamResult = {
+      ok: false,
+      payload: { error: 'x_failed', message: 'nope', stage: 'stream_construction' },
+      status: 502,
+    };
+    const { params } = baseParams({ initializeStream: vi.fn(async () => failure) });
+
+    const result = await runAssistantTurn(params as never);
+
+    expect(recordThreadRunStatus).toHaveBeenCalledWith('run-1', 'failed', 'nope');
+    expect(result).toEqual({ ok: false, payload: failure.payload, status: 502 });
+  });
+
+  it('writes NOTHING on an init failure without a runId (the provenance gate)', async () => {
+    const { params } = baseParams({
+      initializeStream: vi.fn(
+        async (): Promise<AgentStreamResult> => ({
+          ok: false,
+          payload: { error: 'x_failed', message: 'nope' },
+          status: 502,
+        })
+      ),
+      runId: undefined,
+    });
+
+    const result = await runAssistantTurn(params as never);
+
+    expect(result.ok).toBe(false);
+    expect(recordThreadRunStatus).not.toHaveBeenCalled();
+  });
+
+  it('cancelled wins over everything in the completion precedence', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { params } = baseParams({ executionSignal: controller.signal });
+
+    const result = await runAssistantTurn(params as never);
+    if (!result.ok) {
+      throw new Error('expected turn');
+    }
+    await result.completion();
+
+    expect(recordThreadRunStatus).toHaveBeenCalledWith(
+      'run-1',
+      'cancelled',
+      'Assistant run canceled by user.'
+    );
+  });
+
+  it('terminalStatus/terminalError from the stream result beat the session outcome', async () => {
+    // The UserPromptSubmit-block path assistant-runtime.md documents: a
+    // visibly failed turn that never invoked the model.
+    const { params } = baseParams({
+      initializeStream: vi.fn(
+        async (): Promise<AgentStreamResult> => ({
+          ok: true,
+          stream: emptyStream(),
+          terminalError: 'blocked by a hook',
+          terminalStatus: 'failed',
+        })
+      ),
+    });
+
+    const result = await runAssistantTurn(params as never);
+    if (!result.ok) {
+      throw new Error('expected turn');
+    }
+    await result.completion();
+
+    expect(recordThreadRunStatus).toHaveBeenCalledWith('run-1', 'failed', 'blocked by a hook');
+  });
+
+  it('falls through to the session outcome when neither abort nor terminalStatus apply', async () => {
+    const sessions = makeSessions({ terminal: { error: 'stream broke', status: 'failed' } });
+    const { params } = baseParams({ sessions: sessions as never });
+
+    const result = await runAssistantTurn(params as never);
+    if (!result.ok) {
+      throw new Error('expected turn');
+    }
+    await result.completion();
+
+    expect(recordThreadRunStatus).toHaveBeenCalledWith('run-1', 'failed', 'stream broke');
+  });
+
+  it('threads assistantMessageId into session creation only when present, and stamps both headers', async () => {
+    const withId = baseParams({ assistantMessageId: 'msg-42' });
+    const withoutId = baseParams();
+
+    const turnWith = await runAssistantTurn(withId.params as never);
+    const turnWithout = await runAssistantTurn(withoutId.params as never);
+    if (!(turnWith.ok && turnWithout.ok)) {
+      throw new Error('expected turns');
+    }
+
+    expect(withId.sessions.create).toHaveBeenCalledWith(expect.anything(), {
+      messageId: 'msg-42',
+    });
+    expect(withoutId.sessions.create).toHaveBeenCalledWith(expect.anything(), {});
+    expect(withId.sessions.session.createResponse).toHaveBeenCalledWith({
+      headers: {
+        'X-Brainstrike-Assistant-Event-Id': 'session-1:-1',
+        'X-Brainstrike-Assistant-Message-Id': 'assistant-msg-1',
+      },
+    });
+  });
+
+  it('the completion write only happens for turns carrying a runId', async () => {
+    const { params } = baseParams({ runId: undefined });
+
+    const result = await runAssistantTurn(params as never);
+    if (!result.ok) {
+      throw new Error('expected turn');
+    }
+    await result.completion();
+
+    expect(recordThreadRunStatus).not.toHaveBeenCalled();
+  });
+});

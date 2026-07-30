@@ -11,6 +11,12 @@
  *   3. the transport awaits `completion()` — whenClosed, then the terminal
  *      status write with the cancelled/terminalStatus/session-outcome
  *      precedence unchanged.
+ *   4. THE CALLER OWNS TERMINAL BOOKKEEPING ON THROWS: if initializeStream
+ *      REJECTS (vs returning ok:false), or the pump throws so completion()
+ *      never runs, this module has written nothing — the caller MUST record a
+ *      terminal failed/cancelled row itself (desktop: handleAssistantPost's
+ *      catch -> handleAssistantPostStreamError). A caller that skips step 4
+ *      accumulates silently-orphaned running rows.
  * Steering registration stays with the caller: its unregister-in-finally is
  * coupled to pump lifetime, which remains transport-owned until BST-973's
  * shared HTTP adapter takes it over.
@@ -19,9 +25,9 @@ import type {
   AgentMessage,
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
+  assistantDataStreamSessions,
   RuntimeData,
 } from '@brainstrike/agent';
-import { assistantDataStreamSessions } from '@brainstrike/agent';
 import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
@@ -38,6 +44,15 @@ export interface RunAssistantTurnParams {
   readonly persistence: RunPersistencePort;
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData;
+  /**
+   * The data-stream session REGISTRY, injected (review P1 on this PR): the
+   * agent package ships dual entrypoints (require -> dist/index.js, import ->
+   * dist/index.mjs), so a packaged desktop would otherwise hold TWO
+   * assistantDataStreamSessions singletons — sessions created by this ESM
+   * module invisible to the CJS resume path's resolveDataStreamSession. The
+   * host passes ITS instance; creation and lookup stay in one registry.
+   */
+  readonly sessions: typeof assistantDataStreamSessions;
   readonly toolApprovalAction?: AssistantToolApprovalAction | undefined;
   readonly toolResumeAction?: AssistantToolResumeAction | undefined;
 }
@@ -64,6 +79,7 @@ export async function runAssistantTurn(
     messages,
     persistence,
     initializeStream,
+    sessions,
     runId,
     runtimeData,
     toolApprovalAction,
@@ -86,7 +102,7 @@ export async function runAssistantTurn(
     return { ok: false, payload: streamResult.payload, status: streamResult.status };
   }
 
-  const session = assistantDataStreamSessions.create(streamResult.stream, {
+  const session = sessions.create(streamResult.stream, {
     ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
   });
   const response = session.createResponse({

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { assistantDataStreamSessions } from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
@@ -257,6 +258,7 @@ async function handleAssistantPost(
       persistence: desktopRunPersistencePort,
       runId,
       runtimeData,
+      sessions: assistantDataStreamSessions,
       toolApprovalAction,
       toolResumeAction,
     });
