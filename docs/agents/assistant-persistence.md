@@ -1048,8 +1048,10 @@ Paired tests:
 `tool-output-artifact-repository.test.ts`,
 `tool-output-artifact-settlement.spec.ts`,
 `mastra-tool-execution.integration.spec.ts`,
-`assistant-server.integration.test.ts`, `factory-reset.test.tsx`, and the
-desktop `ipc-handlers-db.test.ts`.
+the desktop `assistant-server/run-persistence-http.integration.test.ts` and
+`assistant-server/agent-stream-init-and-memory.integration.test.ts` (the
+pre-BST-1028 `assistant-server.integration.test.ts` split),
+`factory-reset.test.tsx`, and the desktop `ipc-handlers-db.test.ts`.
 
 ## THREADS PANEL HYBRID SEARCH
 
