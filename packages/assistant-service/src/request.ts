@@ -18,6 +18,7 @@ import {
   DESKTOP_NATIVE_TOOL_IDS,
   hasAssistantPromptContent,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  type AssistantRequestPayload as ParsedAssistantRequestEnvelope,
   parseAssistantRequestPayloadText,
   type RuntimeData,
   readToolApprovalRunConfigAction,
@@ -37,6 +38,24 @@ import type {
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
 const SAFE_NATIVE_TOOL_ID_PATTERN = /^[a-zA-Z0-9_.:-]{1,128}$/;
+
+/**
+ * Wrapper for ANY error thrown by the filterPayload hook (BST-1030 review):
+ * without it, a hook throwing one of preparation's own payload-error classes
+ * would be silently mapped by rejectAssistantPayloadError — the package
+ * claiming an error it doesn't own. Preparation tags hook throws with this
+ * class and rethrows them past its mapping; the transport unwraps `cause`
+ * and owns the wire shape.
+ */
+export class AssistantFilterPayloadError extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Assistant request filterPayload hook threw.');
+    this.name = 'AssistantFilterPayloadError';
+    this.cause = cause;
+  }
+}
 
 class InvalidEnabledNativeToolIdsError extends Error {
   readonly invalidValues: readonly unknown[];
@@ -66,6 +85,22 @@ interface PreparedAssistantPostRequest {
 export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
 
 export interface PrepareAssistantPostRequestParams {
+  /**
+   * Optional trust-boundary hook (BST-1030): runs on the parsed envelope
+   * AFTER parseAssistantRequestPayloadText and BEFORE tool-action extraction
+   * and native-tool-id validation — the exact point Hosted Web's allow-list
+   * previously reached by parsing, re-serializing, and letting preparation
+   * parse again (2 parses + 1 stringify per turn; now 1 parse). The hook
+   * returns the payload preparation proceeds with; a throw is NEVER mapped
+   * here — every hook throw (including one that happens to be a class this
+   * module maps for its own parse phase) is rethrown to the caller wrapped in
+   * AssistantFilterPayloadError, and the transport unwraps `cause` and owns
+   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop passes
+   * no hook and is byte-for-byte unchanged.
+   */
+  readonly filterPayload?: (
+    payload: ParsedAssistantRequestEnvelope
+  ) => ParsedAssistantRequestEnvelope;
   /**
    * Injected structured logger (BST-972 B2). NEVER a package-created scope:
    * desktop passes desktopAssistantServerLogger so the scope-cached identity
@@ -219,7 +254,7 @@ function rejectToolContinuationInputError(
 export async function prepareAssistantPostRequest(
   params: PrepareAssistantPostRequestParams
 ): Promise<PrepareAssistantPostRequestResult> {
-  const { logger, readBody, resolveProviderApiKey } = params;
+  const { filterPayload, logger, readBody, resolveProviderApiKey } = params;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
@@ -228,7 +263,7 @@ export async function prepareAssistantPostRequest(
   let toolResumeAction: AssistantToolResumeAction | undefined;
   let toolResumeActionInvalid = false;
   try {
-    const payload = await parseAssistantRequestPayload(readBody);
+    const payload = await parseAssistantRequestPayload(readBody, filterPayload);
     assistantMessageId = payload.assistantMessageId;
     rawMessages = payload.rawMessages;
     data = payload.data;
@@ -420,6 +455,10 @@ function rejectAssistantPayloadError(
   error: unknown,
   logger: ScopedLogger
 ): AssistantPostRejection | undefined {
+  if (error instanceof AssistantFilterPayloadError) {
+    // Hook throws are the transport's to map — never this module's.
+    return;
+  }
   if (error instanceof InvalidEnabledNativeToolIdsError) {
     return rejectInvalidEnabledNativeToolIds(error.invalidValues, logger);
   }
@@ -450,10 +489,19 @@ function rejectAssistantPayloadError(
 }
 
 async function parseAssistantRequestPayload(
-  readBody: () => Promise<string>
+  readBody: () => Promise<string>,
+  filterPayload?: (payload: ParsedAssistantRequestEnvelope) => ParsedAssistantRequestEnvelope
 ): Promise<AssistantRequestPayload> {
   const body = await readBody();
-  const payload = parseAssistantRequestPayloadText(body);
+  const parsed = parseAssistantRequestPayloadText(body);
+  let payload = parsed;
+  if (filterPayload) {
+    try {
+      payload = filterPayload(parsed);
+    } catch (error) {
+      throw new AssistantFilterPayloadError(error);
+    }
+  }
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
   const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
   const parsedPayload: AssistantRequestPayload = { ...payload };

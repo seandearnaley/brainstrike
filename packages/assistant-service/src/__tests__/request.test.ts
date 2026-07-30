@@ -34,8 +34,13 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
+import { AssistantInvalidJsonError } from '@brainstrike/agent/hosted-web';
 import type { ScopedLogger } from '@brainstrike/utils/logger';
-import { type PrepareAssistantPostRequestResult, prepareAssistantPostRequest } from '../request';
+import {
+  AssistantFilterPayloadError,
+  type PrepareAssistantPostRequestResult,
+  prepareAssistantPostRequest,
+} from '../request';
 
 const resolveProviderApiKey = vi.fn<(provider: string) => Promise<string | undefined>>();
 
@@ -65,6 +70,113 @@ async function prepare(body: string): Promise<PrepareAssistantPostRequestResult>
     resolveProviderApiKey,
   });
 }
+
+describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
+  it('runs AFTER envelope parsing: the hook receives the parsed payload', async () => {
+    const seen: unknown[] = [];
+    await prepareAssistantPostRequest({
+      filterPayload: (payload) => {
+        seen.push(payload);
+        return payload;
+      },
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+        }),
+      resolveProviderApiKey,
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ data: { provider: 'openai' } });
+  });
+
+  it('does NOT run when parsing rejects (nothing trusted reaches the hook)', async () => {
+    const filterPayload = vi.fn(
+      (
+        payload: Parameters<
+          NonNullable<Parameters<typeof prepareAssistantPostRequest>[0]['filterPayload']>
+        >[0]
+      ) => payload
+    );
+    const result = await prepareAssistantPostRequest({
+      filterPayload,
+      logger,
+      readBody: async () => '{"messages":[',
+      resolveProviderApiKey,
+    });
+    expect(result.ok).toBe(false);
+    expect(filterPayload).not.toHaveBeenCalled();
+  });
+
+  it('runs BEFORE native-tool-id validation: injected bad ids are rejected', async () => {
+    // Proves the ordering contract in the failing direction: values the hook
+    // ADDS are validated, so values it STRIPS can never reach validation.
+    const result = await prepareAssistantPostRequest({
+      filterPayload: (payload) => ({
+        ...payload,
+        data: { ...(payload.data ?? {}), enabledNativeToolIds: ['not-a-real-tool'] },
+      }),
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+        }),
+      resolveProviderApiKey,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected rejection');
+    }
+    expect(result.rejection.payload).toMatchObject({
+      error: 'invalid_enabled_native_tool_ids',
+    });
+  });
+
+  it('runs BEFORE tool-continuation extraction: a stripped runConfig yields no action', async () => {
+    const result = await prepareAssistantPostRequest({
+      filterPayload: (payload) => ({ ...payload, runConfig: undefined }),
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+          runConfig: { custom: { 'not-a-valid-shape': { bogus: true } } },
+        }),
+      resolveProviderApiKey,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.toolApprovalAction).toBeUndefined();
+    expect(result.request.toolResumeAction).toBeUndefined();
+  });
+
+  it('rethrows EVERY hook throw wrapped, never mapped — even preparation-owned classes', async () => {
+    // The inverse direction of the propagation contract (review finding):
+    // a hook throwing a class preparation maps for its own parse phase must
+    // NOT be silently absorbed into preparation's rejection mapping.
+    const parseShapedError = new AssistantInvalidJsonError();
+    const promise = prepareAssistantPostRequest({
+      filterPayload: () => {
+        throw parseShapedError;
+      },
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+        }),
+      resolveProviderApiKey,
+    });
+    await expect(promise).rejects.toBeInstanceOf(AssistantFilterPayloadError);
+    await promise.catch((error: unknown) => {
+      expect((error as AssistantFilterPayloadError).cause).toBe(parseShapedError);
+    });
+  });
+});
 
 describe('prepareAssistantPostRequest rejections', () => {
   it('rejects an empty prompt with the message-less payload', async () => {

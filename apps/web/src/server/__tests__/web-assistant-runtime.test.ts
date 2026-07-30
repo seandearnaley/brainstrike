@@ -11,7 +11,11 @@ vi.mock('@brainstrike/agent', async () => {
 });
 
 import { type RuntimeData, resolveRequestPermissionPolicy } from '@brainstrike/agent';
-import { resolveWebAssistantProvider, resolveWebAssistantRuntime } from '../web-assistant-runtime';
+import {
+  filterWebAssistantPayload,
+  resolveWebAssistantProvider,
+  resolveWebAssistantRuntime,
+} from '../web-assistant-runtime';
 
 const asRuntimeData = (value: Record<string, unknown>): RuntimeData => value as RuntimeData;
 const validPolicies = {
@@ -379,5 +383,85 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
       'google'
     );
     expect(runtime).toEqual({ apiKey: 'google-key', provider: 'google' });
+  });
+});
+
+describe('filterWebAssistantPayload (the preparation filterPayload hook)', () => {
+  // Direct contract tests (review finding on the BST-1030 hook change): the
+  // old body-text filter's output was re-parsed by preparation, which
+  // re-checked the envelope; the payload-level filter's output goes straight
+  // into preparation, so its own shape IS the contract now.
+  const baseMessages = [
+    { id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' },
+  ] as unknown as Parameters<typeof filterWebAssistantPayload>[0]['rawMessages'];
+
+  function payloadWith(data: unknown): Parameters<typeof filterWebAssistantPayload>[0] {
+    return {
+      data: data as RuntimeData | undefined,
+      rawMessages: baseMessages,
+      runConfig: undefined,
+    };
+  }
+
+  it('rejects a provider outside the hosted set', () => {
+    expect(() =>
+      filterWebAssistantPayload(payloadWith({ provider: 'anthropic' }), ['openai'])
+    ).toThrow('Invalid web assistant runtime field: provider');
+  });
+
+  it.each([
+    'local',
+    'ollama',
+    'lmstudio',
+  ])('rejects the keyless local-server provider %s (the reason this boundary exists)', (provider) => {
+    expect(() =>
+      filterWebAssistantPayload(payloadWith({ provider }), ['openai', 'anthropic'])
+    ).toThrow('Invalid web assistant runtime field: provider');
+  });
+
+  it('rejects an unsupported data field', () => {
+    expect(() =>
+      filterWebAssistantPayload(payloadWith({ mcpConfig: { servers: [] } }), ['openai'])
+    ).toThrow('Unsupported web assistant runtime field: mcpConfig');
+  });
+
+  it('yields an empty data object for an absent data field', () => {
+    const result = filterWebAssistantPayload(payloadWith(undefined), ['openai']);
+    expect(result.data).toEqual({});
+  });
+
+  it('passes assistantMessageId, rawMessages, and runConfig through unchanged', () => {
+    const runConfig = { custom: {} };
+    const result = filterWebAssistantPayload(
+      {
+        assistantMessageId: 'assistant-client-id',
+        data: { provider: 'openai' } as RuntimeData,
+        rawMessages: baseMessages,
+        runConfig,
+      },
+      ['openai']
+    );
+    expect(result.assistantMessageId).toBe('assistant-client-id');
+    expect(result.rawMessages).toBe(baseMessages);
+    expect(result.runConfig).toBe(runConfig);
+  });
+
+  it('emits ONLY the envelope fields — the direct replacement for the lost re-parse', () => {
+    const result = filterWebAssistantPayload(
+      {
+        assistantMessageId: 'assistant-client-id',
+        data: { provider: 'openai' } as RuntimeData,
+        rawMessages: baseMessages,
+        runConfig: { custom: {} },
+      },
+      ['openai']
+    );
+    expect(Object.keys(result).sort()).toEqual([
+      'assistantMessageId',
+      'data',
+      'rawMessages',
+      'runConfig',
+    ]);
+    expect(result.data).toEqual({ provider: 'openai' });
   });
 });

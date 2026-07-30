@@ -1,5 +1,8 @@
 import type { StreamChunk } from '@brainstrike/agent/hosted-web';
-import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
+import {
+  AssistantFilterPayloadError,
+  prepareAssistantPostRequest,
+} from '@brainstrike/assistant-service/request';
 import type { AssistantRejectionPayload } from '@brainstrike/assistant-service/types';
 import type { ScopedLogger } from '@brainstrike/utils/logger';
 import {
@@ -11,7 +14,7 @@ import {
   WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
 } from './web-assistant-request';
 import {
-  filterWebAssistantBodyText,
+  filterWebAssistantPayload,
   InvalidWebAssistantRuntimeDataError,
 } from './web-assistant-runtime';
 import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream';
@@ -36,18 +39,19 @@ export type WebAssistantPostOutcome =
  * Flow, with what stays web-specific named:
  *   1. no keys configured at all -> 503 assistant_disabled — server state,
  *      ahead of request semantics;
- *   2. the allow-list PRE-FILTER — web's trust boundary, kept: unsupported
- *      data fields still 400 invalid_runtime_data, and non-hosted or
- *      unconfigured providers are rejected here because the shared
- *      preparation waves keyless local-server providers through;
- *   3. the SHARED prepareAssistantPostRequest with the env-key reader — this
- *      is the convergence: absent provider now 400 missing_provider (the old
- *      web-only default-provider fallback is gone), and rejection shapes and
- *      ordering match desktop;
- *   4. tool approval/resume -> 409 — ARCHITECTURAL (no durable workflow
+ *   2. the SHARED prepareAssistantPostRequest with the env-key reader AND
+ *      web's allow-list filter as its `filterPayload` hook (BST-1030 — the
+ *      filter runs INSIDE preparation, post-parse/pre-validation, not as a
+ *      separate step): unsupported data fields still 400
+ *      invalid_runtime_data, non-hosted or unconfigured providers are
+ *      rejected by the hook because the shared preparation waves keyless
+ *      local-server providers through, absent provider is 400
+ *      missing_provider (the old web-only default-provider fallback is
+ *      gone), and rejection shapes and ordering match desktop;
+ *   3. tool approval/resume -> 409 — ARCHITECTURAL (no durable workflow
  *      storage on stateless hosting), checked after preparation like desktop
  *      checks them;
- *   5. the stateless stream (no sessions, no persistence — the run-turn half
+ *   4. the stateless stream (no sessions, no persistence — the run-turn half
  *      stays desktop-only until durable storage exists).
  *
  * Transport-owned and NOT here: the bounded body read (413) and the
@@ -69,26 +73,29 @@ export async function runWebAssistantPost(params: {
     };
   }
 
-  let filteredBodyText: string;
+  const hostedProviders = configuredProviders.map((config) => config.provider);
+  let prepared: Awaited<ReturnType<typeof prepareAssistantPostRequest>>;
   try {
-    filteredBodyText = filterWebAssistantBodyText(
-      params.bodyText,
-      configuredProviders.map((config) => config.provider)
-    );
+    prepared = await prepareAssistantPostRequest({
+      // The allow-list runs INSIDE preparation via the hook (BST-1030): one
+      // parse total instead of web's previous parse -> stringify -> re-parse.
+      filterPayload: (payload) => filterWebAssistantPayload(payload, hostedProviders),
+      logger: params.logger,
+      readBody: async () => params.bodyText,
+      resolveProviderApiKey: async (provider) =>
+        configuredProviders.find((config) => config.provider === provider)?.apiKey,
+    });
   } catch (error) {
-    const rejection = describeWebAssistantRejection(error);
+    // Preparation tags EVERY hook throw as AssistantFilterPayloadError and
+    // rethrows it unmapped; this transport unwraps the cause and owns its
+    // wire shape (allow-list / provider-membership rejections).
+    const hookCause = error instanceof AssistantFilterPayloadError ? error.cause : error;
+    const rejection = describeWebAssistantRejection(hookCause);
     if (!rejection) {
-      throw error;
+      throw hookCause instanceof Error ? hookCause : error;
     }
     return rejection;
   }
-
-  const prepared = await prepareAssistantPostRequest({
-    logger: params.logger,
-    readBody: async () => filteredBodyText,
-    resolveProviderApiKey: async (provider) =>
-      configuredProviders.find((config) => config.provider === provider)?.apiKey,
-  });
   if (!prepared.ok) {
     // Destructuring drops closeConnection EXPLICITLY: the 413 path is
     // unreachable here (each transport bounds the body before this runs), and

@@ -178,9 +178,17 @@
     BST-973-2 convergence it is REQUIRED on assistant turns. Both Hosted Web
     transports (the Vercel function and the Vite dev/preview middleware) run one
     converged decision core (`runWebAssistantPost` in
-    `apps/web/src/server/web-assistant-post.ts`, which applies the allow-list
-    pre-filter `filterWebAssistantBodyText` and then the SHARED
-    `prepareAssistantPostRequest` from `@brainstrike/assistant-service`), so a
+    `apps/web/src/server/web-assistant-post.ts`, which passes the allow-list
+    `filterWebAssistantPayload` as the SHARED `prepareAssistantPostRequest`'s
+    `filterPayload` hook — BST-1030). The hook's ORDERING is a contract, pinned
+    by tests in `packages/assistant-service/src/__tests__/request.test.ts`: it
+    runs on the parsed envelope AFTER `parseAssistantRequestPayloadText` and
+    BEFORE tool-continuation extraction and native-tool-id validation, so what
+    the filter strips can never reach validation, and the hook's own typed
+    errors propagate OUT of preparation to the transport-owned mapping (they
+    are never mapped inside the package). A refactor that moves or bypasses
+    this hook moves web's trust boundary — update the tests and this section
+    together. With the hook in place, a
     request that names no `data.provider` is rejected `missing_provider` /
     HTTP 400 exactly like desktop — the old web-only default-provider fallback
     is gone, and the 503 server-config gate precedes request validation. Do not
