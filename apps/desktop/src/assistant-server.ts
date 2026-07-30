@@ -1,6 +1,11 @@
 import http from 'node:http';
 import { assistantDataStreamSessions } from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import {
+  respondAssistantRejection,
+  respondJson,
+  respondNotFound,
+} from '@brainstrike/assistant-service/http';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
 import {
@@ -25,11 +30,6 @@ import {
   readRequestBody,
   streamResponse,
 } from './assistant-server/http';
-import {
-  respondAssistantRejection,
-  respondJson,
-  respondNotFound,
-} from './assistant-server/http-responses';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import { resolveProviderApiKey } from './assistant-server/provider-credentials';
 import { registerRequestAbort } from './assistant-server/request-abort';

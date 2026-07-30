@@ -23,6 +23,9 @@
       "electron"
     ],
     "paths": {
+      "@brainstrike/assistant-service/http": [
+        "../../packages/assistant-service/dist/http.d.ts"
+      ],
       "@brainstrike/assistant-service/local-provider-runtime": [
         "../../packages/assistant-service/dist/local-provider-runtime.d.ts"
       ],
