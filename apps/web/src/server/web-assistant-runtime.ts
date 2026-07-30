@@ -112,14 +112,17 @@ export function filterWebAssistantPayload(
   hostedProviders: readonly HostedWebAssistantProvider[]
 ): AssistantRequestPayload {
   const data = payload.data as Record<string, unknown> | undefined;
-  const requestedProvider = data?.['provider'];
-  if (
-    requestedProvider !== undefined &&
-    (typeof requestedProvider !== 'string' ||
-      !isHostedWebAssistantProvider(requestedProvider) ||
-      !hostedProviders.includes(requestedProvider))
-  ) {
-    throw new InvalidWebAssistantRuntimeDataError('provider', 'invalid');
+  const rawProvider = data?.['provider'];
+  let requestedProvider: HostedWebAssistantProvider | undefined;
+  if (rawProvider !== undefined) {
+    if (
+      typeof rawProvider !== 'string' ||
+      !isHostedWebAssistantProvider(rawProvider) ||
+      !hostedProviders.includes(rawProvider)
+    ) {
+      throw new InvalidWebAssistantRuntimeDataError('provider', 'invalid');
+    }
+    requestedProvider = rawProvider;
   }
   const filtered = readClientRuntime(payload.data);
   return {
@@ -127,7 +130,7 @@ export function filterWebAssistantPayload(
     data: {
       ...filtered,
       ...(requestedProvider === undefined ? {} : { provider: requestedProvider }),
-    } as RuntimeData,
+    },
     rawMessages: payload.rawMessages,
     runConfig: payload.runConfig,
   };

@@ -39,6 +39,24 @@ const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
 const SAFE_NATIVE_TOOL_ID_PATTERN = /^[a-zA-Z0-9_.:-]{1,128}$/;
 
+/**
+ * Wrapper for ANY error thrown by the filterPayload hook (BST-1030 review):
+ * without it, a hook throwing one of preparation's own payload-error classes
+ * would be silently mapped by rejectAssistantPayloadError — the package
+ * claiming an error it doesn't own. Preparation tags hook throws with this
+ * class and rethrows them past its mapping; the transport unwraps `cause`
+ * and owns the wire shape.
+ */
+export class AssistantFilterPayloadError extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Assistant request filterPayload hook threw.');
+    this.name = 'AssistantFilterPayloadError';
+    this.cause = cause;
+  }
+}
+
 class InvalidEnabledNativeToolIdsError extends Error {
   readonly invalidValues: readonly unknown[];
 
@@ -73,10 +91,12 @@ export interface PrepareAssistantPostRequestParams {
    * and native-tool-id validation — the exact point Hosted Web's allow-list
    * previously reached by parsing, re-serializing, and letting preparation
    * parse again (2 parses + 1 stringify per turn; now 1 parse). The hook
-   * returns the payload preparation proceeds with; a throw is NOT mapped
-   * here — errors outside preparation's own payload-error classes propagate
-   * to the transport, which owns their wire shape (NO SILENT FALLBACKS).
-   * Desktop passes no hook and is byte-for-byte unchanged.
+   * returns the payload preparation proceeds with; a throw is NEVER mapped
+   * here — every hook throw (including one that happens to be a class this
+   * module maps for its own parse phase) is rethrown to the caller wrapped in
+   * AssistantFilterPayloadError, and the transport unwraps `cause` and owns
+   * the wire shape (NO SILENT FALLBACKS, in both directions). Desktop passes
+   * no hook and is byte-for-byte unchanged.
    */
   readonly filterPayload?: (
     payload: ParsedAssistantRequestEnvelope
@@ -435,6 +455,10 @@ function rejectAssistantPayloadError(
   error: unknown,
   logger: ScopedLogger
 ): AssistantPostRejection | undefined {
+  if (error instanceof AssistantFilterPayloadError) {
+    // Hook throws are the transport's to map — never this module's.
+    return;
+  }
   if (error instanceof InvalidEnabledNativeToolIdsError) {
     return rejectInvalidEnabledNativeToolIds(error.invalidValues, logger);
   }
@@ -470,7 +494,14 @@ async function parseAssistantRequestPayload(
 ): Promise<AssistantRequestPayload> {
   const body = await readBody();
   const parsed = parseAssistantRequestPayloadText(body);
-  const payload = filterPayload ? filterPayload(parsed) : parsed;
+  let payload = parsed;
+  if (filterPayload) {
+    try {
+      payload = filterPayload(parsed);
+    } catch (error) {
+      throw new AssistantFilterPayloadError(error);
+    }
+  }
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
   const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
   const parsedPayload: AssistantRequestPayload = { ...payload };
