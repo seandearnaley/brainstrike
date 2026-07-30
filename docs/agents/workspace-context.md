@@ -703,7 +703,7 @@ without revisiting the test surface that legitimately writes unread files.
   refusal worst-case.
 - **Paired tests:** `packages/agent/src/__tests__/file-read-state.spec.ts`
   (state semantics) + the `read-before-write staleness guard` describe block in
-  `apps/desktop/src/__tests__/assistant-server/assistant-tools.integration.test.ts`
+  `apps/desktop/src/__tests__/assistant-server/assistant-tools-write.integration.test.ts`
   (real-fs refuse/recover behavior, `utimes`-forced external edits).
 
 When changing this flow, update this section and the paired tests.
