@@ -1,33 +1,32 @@
+import {
+  ACCURATE_TOKEN_ENCODING as UTILS_ACCURATE_TOKEN_ENCODING,
+  ACCURATE_TOKEN_MODEL_HINT as UTILS_ACCURATE_TOKEN_MODEL_HINT,
+} from '@brainstrike/utils/token-constants';
+import {
+  countTokensHeuristic as utilsCountTokensHeuristic,
+  formatTokenCount as utilsFormatTokenCount,
+} from '@brainstrike/utils/token-counting-heuristics';
 import { describe, expect, it } from 'vitest';
 import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from '../token-constants.js';
 import { countTokensHeuristic, formatTokenCount } from '../token-counting-heuristics.js';
 
 /**
  * The token subpath modules are pure re-exports of `@brainstrike/utils`; these
- * tests pin the re-exported SURFACE (consumers import them via the package's
- * `./token-*` entrypoints), exercising behavior through this package's own
- * modules. `token-utils-accurate-lite` is deliberately not imported here: it
- * lazily wires the tiktoken wasm runtime, which does not belong in this unit
- * lane.
+ * tests pin the re-exported SURFACE against the source bindings (a broken or
+ * renamed re-export fails here) without duplicating the behavioral suites that
+ * live next to the implementations in `packages/utils`. `token-utils-accurate-
+ * lite` is deliberately not imported: it lazily wires the tiktoken wasm
+ * runtime, which does not belong in this unit lane.
  */
 
-describe('token-constants re-exports', () => {
-  it('exposes the accurate-token encoding and model hint', () => {
-    expect(ACCURATE_TOKEN_ENCODING).toBe('o200k_base');
-    expect(ACCURATE_TOKEN_MODEL_HINT).toBe('gpt-5.2');
-  });
-});
-
-describe('token-counting-heuristics re-exports', () => {
-  it('estimates a floor of one token per four characters, zero for empty text', () => {
-    expect(countTokensHeuristic('')).toBe(0);
-    expect(countTokensHeuristic('ab')).toBe(1);
-    expect(countTokensHeuristic('a'.repeat(9))).toBe(3);
+describe('token subpath re-exports', () => {
+  it('re-exports the accurate-token constants unchanged', () => {
+    expect(ACCURATE_TOKEN_ENCODING).toBe(UTILS_ACCURATE_TOKEN_ENCODING);
+    expect(ACCURATE_TOKEN_MODEL_HINT).toBe(UTILS_ACCURATE_TOKEN_MODEL_HINT);
   });
 
-  it('formats counts with K/M magnitude suffixes', () => {
-    expect(formatTokenCount(999)).toBe('999 tokens');
-    expect(formatTokenCount(1500)).toBe('1.5K tokens');
-    expect(formatTokenCount(2_500_000)).toBe('2.5M tokens');
+  it('re-exports the heuristic counting functions by identity', () => {
+    expect(countTokensHeuristic).toBe(utilsCountTokensHeuristic);
+    expect(formatTokenCount).toBe(utilsFormatTokenCount);
   });
 });

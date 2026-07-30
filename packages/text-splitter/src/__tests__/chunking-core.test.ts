@@ -153,13 +153,10 @@ describe('resolveMaxTokensCap', () => {
 
 describe('adjustChunkingForFileType', () => {
   const config: ChunkAdjustmentConfig<'typescript' | 'python'> = {
-    // Deliberately omits `python` (cast keeps the Record type): exercises the
-    // `languageDefaults ?? codeMaxTokens` fallback for languages a pattern can
-    // detect but the defaults table does not size.
-    codeLanguageDefaults: { typescript: { maxTokens: 512, overlap: 64 } } as Record<
-      'typescript' | 'python',
-      { maxTokens: number; overlap: number }
-    >,
+    // Deliberately omits `python`: exercises the `languageDefaults ??
+    // codeMaxTokens` fallback for languages a pattern can detect but the
+    // defaults table does not size.
+    codeLanguageDefaults: { typescript: { maxTokens: 512, overlap: 64 } },
     codeMaxTokens: 400,
     codeOverlap: 40,
     defaultMaxTokens: 800,
@@ -264,8 +261,16 @@ describe('adjustChunkingForFileType', () => {
   });
 
   it('treats non-finite explicit values as the config defaults', () => {
+    // Pins the CURRENT coercion semantics (normalize's Number.isFinite
+    // fallback, minimum 1 for maxTokens vs 0 for overlap). Whether malformed
+    // explicit sizing should reject instead is a behavior-policy question for
+    // its own change — chunking-worker's local duplicate shares these
+    // semantics, so a flip must land in both.
     expect(
       adjustChunkingForFileType('code', { maxTokens: Number.NaN }, config, detectLanguage)
+    ).toEqual({ maxTokens: 800, overlap: 80 });
+    expect(
+      adjustChunkingForFileType('code', { overlap: Number.NaN }, config, detectLanguage)
     ).toEqual({ maxTokens: 800, overlap: 80 });
   });
 });
@@ -345,11 +350,12 @@ describe('AST helpers', () => {
 });
 
 describe('getCodeSeparators', () => {
-  it('returns a defensive copy of custom separators', () => {
+  it('returns a faithful defensive copy of custom separators', () => {
     const custom = ['\nA'];
     const result = getCodeSeparators(custom);
     result.push('X');
 
+    expect(result).toEqual(['\nA', 'X']);
     expect(custom).toEqual(['\nA']);
   });
 
@@ -403,7 +409,10 @@ describe('splitCodeByFunctionRanges', () => {
       separators: getCodeSeparators(),
     });
 
-    expect(pieces?.some((piece) => piece.includes(fnA) && piece.length > fnA.length)).toBe(true);
+    // Fully deterministic: the range is padded by exactly overlapChars on
+    // each side, the leading gap stays unpadded, and the trailing remainder
+    // is emitted from the unpadded cursor.
+    expect(pieces).toEqual(['head', content.slice(2, 36).trim(), content.slice(32).trim()]);
   });
 
   it('keeps segments within the oversize tolerance intact and re-splits beyond it', async () => {
