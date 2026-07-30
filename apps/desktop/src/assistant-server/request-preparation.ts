@@ -23,16 +23,16 @@ import {
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { readRequestBody } from './http';
-import { desktopAssistantServerLogger as logger } from './logger';
-import { resolveRequestedProvider } from './memory-model-targets';
-import { hydrateRuntimeDataWithLocalRuntimeToken } from './provider-credentials';
-import { getSecretReadErrorPayload } from './secret-error-responses';
+import { resolveRequestedProvider } from '@brainstrike/assistant-service/memory-model-targets';
 import type {
   AssistantPostRejection,
   AssistantRequestPayload,
   AssistantUiMessage,
-} from './server-types';
+} from '@brainstrike/assistant-service/types';
+import { readRequestBody } from './http';
+import { desktopAssistantServerLogger as logger } from './logger';
+import { hydrateRuntimeDataWithLocalRuntimeToken } from './provider-credentials';
+import { getSecretReadErrorPayload } from './secret-error-responses';
 
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 

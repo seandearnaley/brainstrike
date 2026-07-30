@@ -188,7 +188,8 @@ Flow:
      reports keep the monotonic floor instead.
    - Server side: `LlmHostManager.generateForMain/warmupForMain` (main-process
      client API with progress callbacks + AbortSignal cancel) →
-     `createMainLlmHostClient` (apps/desktop/src/assistant-server/local-llm-host-client.ts)
+     `createMainLlmHostClient` (packages/assistant-service/src/ports.ts — the
+     service package's InferenceHostPort, moved from the desktop in BST-972 B1)
      is injected as `RuntimeData.localLlmHostClient`; provider-factory's
      'local' case resolves it to `LlmHostChatModel`
      (packages/agent/src/providers/local/llm-host-chat-model.ts) — a real

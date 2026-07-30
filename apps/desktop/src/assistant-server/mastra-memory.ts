@@ -18,8 +18,6 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { getDatabase } from '../db-main';
-import type { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   type DesktopMemoryModelTargetDescriptor,
   type DesktopMemoryModelTargetResolution,
@@ -29,9 +27,11 @@ import {
   parseSemanticRecallEmbeddingModelTarget,
   type RuntimeMemoryOptions,
   resolveRequestedProvider,
-} from './memory-model-targets';
+} from '@brainstrike/assistant-service/memory-model-targets';
+import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types';
+import { getDatabase } from '../db-main';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveProviderApiKey } from './provider-credentials';
-import type { DesktopMemoryFeature } from './server-types';
 
 export type DesktopMastraMemoryResult =
   import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;

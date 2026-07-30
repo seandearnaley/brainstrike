@@ -387,6 +387,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../../packages/assistant-contract
+      '@brainstrike/assistant-service':
+        specifier: workspace:*
+        version: link:../../packages/assistant-service
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../../packages/chunking-worker
@@ -1217,6 +1220,28 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
+  packages/assistant-service:
+    dependencies:
+      '@brainstrike/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

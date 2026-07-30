@@ -140,7 +140,7 @@ function resolveQueryEmbeddingSpaceInput(
 
 /**
  * True when the request targets the built-in on-device provider. Mirrors
- * `isLocalChatProvider` in assistant-server/local-provider-runtime.ts (kept separate: that module
+ * `isLocalChatProvider` in @brainstrike/assistant-service/local-provider-runtime (kept separate: that module
  * pulls in Electron IPC imports this file must stay free of for its own
  * unit-test surface).
  */

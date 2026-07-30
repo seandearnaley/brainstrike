@@ -1,7 +1,7 @@
 import type http from 'node:http';
+import { requestRunCancel, requestRunSteer } from '@brainstrike/assistant-service/steering';
 import { readRequestBody } from './http';
 import { respondJson } from './http-responses';
-import { requestRunCancel, requestRunSteer } from './run-steering-registry';
 
 /** Transport ceiling shared with approval/resume action identifiers. */
 const STEER_RUN_ID_MAX_CHARS = 512;

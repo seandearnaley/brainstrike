@@ -18,9 +18,9 @@
  */
 import type http from 'node:http';
 import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/agent';
+import { resetRunSteeringRegistry } from '@brainstrike/assistant-service/steering';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { desktopAssistantServerLogger, handleAssistantRequest } from '../../assistant-server';
-import { resetRunSteeringRegistry } from '../../assistant-server/run-steering-registry';
 import { createRunRequest, MockRequest, MockResponse } from './_harness';
 
 const mockSecretsService = vi.hoisted(() => ({
@@ -483,7 +483,7 @@ describe('stream resume', () => {
 
 describe('run control endpoints', () => {
   it('POST /assistant/cancel explicitly aborts an active server-owned run', async () => {
-    const { registerSteerableRun } = await import('../../assistant-server/run-steering-registry');
+    const { registerSteerableRun } = await import('@brainstrike/assistant-service/steering');
     const controller = new AbortController();
     registerSteerableRun('run-cancel-1', controller);
 
@@ -500,7 +500,7 @@ describe('run control endpoints', () => {
   });
 
   it('POST /assistant/steer flips a registered run control and 404s unknown runs (BST-588)', async () => {
-    const { registerSteerableRun } = await import('../../assistant-server/run-steering-registry');
+    const { registerSteerableRun } = await import('@brainstrike/assistant-service/steering');
     const control = registerSteerableRun('run-steer-1');
 
     const accepted = await runRequest({

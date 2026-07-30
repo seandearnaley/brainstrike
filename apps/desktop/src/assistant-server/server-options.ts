@@ -1,11 +1,14 @@
-// Deliberately separate from server-types.ts: the options interface type-depends
+// Deliberately separate from the service package's types floor
+// (@brainstrike/assistant-service/types): the options interface type-depends
 // on five siblings, and housing it here keeps the shared types floor a true
-// leaf — nobody importing server-types inherits these edges, and no silent
+// leaf — nobody importing @brainstrike/assistant-service/types inherits
+// these edges, and no silent
 // invariant ("everyone remembers import type") is required (#2111 review).
+
+import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
 import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { AssistantServerAuth } from './auth';
-import type { AssistantLlmHostManager } from './local-llm-host-client';
 import type { OpenRouterModelMetadataService } from './openrouter-model-metadata';
 
 export interface AssistantServerOptions {

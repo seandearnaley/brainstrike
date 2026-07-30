@@ -76,7 +76,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { AssistantDataStreamSession, streamMastraAgent } = await import('@brainstrike/agent');
 
-import { createMainLlmHostClient } from '../assistant-server/local-llm-host-client';
+import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { LlmHostManager } from '../llm-host-manager';
 import { assertLlmHostRequest } from '../llm-host-shared';
 

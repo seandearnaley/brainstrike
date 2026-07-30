@@ -5,7 +5,7 @@ import {
   requestRunSteer,
   resetRunSteeringRegistry,
   unregisterSteerableRun,
-} from '../../assistant-server/run-steering-registry';
+} from '../steering';
 
 afterEach(() => {
   resetRunSteeringRegistry();

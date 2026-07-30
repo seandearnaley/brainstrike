@@ -9,7 +9,7 @@ import type {
   AssistantPostRejection,
   AssistantRejectionPayload,
   DesktopMemoryFeature,
-} from './server-types';
+} from '@brainstrike/assistant-service/types';
 
 /**
  * Write a request-preparation rejection to the response (BST-972 A4). Not
