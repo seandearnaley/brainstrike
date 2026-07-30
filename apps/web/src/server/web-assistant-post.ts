@@ -11,7 +11,7 @@ import {
   WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
 } from './web-assistant-request';
 import {
-  filterWebAssistantBodyText,
+  filterWebAssistantPayload,
   InvalidWebAssistantRuntimeDataError,
 } from './web-assistant-runtime';
 import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream';
@@ -69,26 +69,28 @@ export async function runWebAssistantPost(params: {
     };
   }
 
-  let filteredBodyText: string;
+  const hostedProviders = configuredProviders.map((config) => config.provider);
+  let prepared: Awaited<ReturnType<typeof prepareAssistantPostRequest>>;
   try {
-    filteredBodyText = filterWebAssistantBodyText(
-      params.bodyText,
-      configuredProviders.map((config) => config.provider)
-    );
+    prepared = await prepareAssistantPostRequest({
+      // The allow-list runs INSIDE preparation via the hook (BST-1030): one
+      // parse total instead of web's previous parse -> stringify -> re-parse.
+      filterPayload: (payload) => filterWebAssistantPayload(payload, hostedProviders),
+      logger: params.logger,
+      readBody: async () => params.bodyText,
+      resolveProviderApiKey: async (provider) =>
+        configuredProviders.find((config) => config.provider === provider)?.apiKey,
+    });
   } catch (error) {
+    // The hook's typed rejections (allow-list / provider membership) are not
+    // preparation's own payload-error classes, so they propagate here and the
+    // transport-owned mapping keeps their wire shapes.
     const rejection = describeWebAssistantRejection(error);
     if (!rejection) {
       throw error;
     }
     return rejection;
   }
-
-  const prepared = await prepareAssistantPostRequest({
-    logger: params.logger,
-    readBody: async () => filteredBodyText,
-    resolveProviderApiKey: async (provider) =>
-      configuredProviders.find((config) => config.provider === provider)?.apiKey,
-  });
   if (!prepared.ok) {
     // Destructuring drops closeConnection EXPLICITLY: the 413 path is
     // unreachable here (each transport bounds the body before this runs), and

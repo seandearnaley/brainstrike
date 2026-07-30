@@ -18,6 +18,7 @@ import {
   DESKTOP_NATIVE_TOOL_IDS,
   hasAssistantPromptContent,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  type AssistantRequestPayload as ParsedAssistantRequestEnvelope,
   parseAssistantRequestPayloadText,
   type RuntimeData,
   readToolApprovalRunConfigAction,
@@ -66,6 +67,20 @@ interface PreparedAssistantPostRequest {
 export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
 
 export interface PrepareAssistantPostRequestParams {
+  /**
+   * Optional trust-boundary hook (BST-1030): runs on the parsed envelope
+   * AFTER parseAssistantRequestPayloadText and BEFORE tool-action extraction
+   * and native-tool-id validation — the exact point Hosted Web's allow-list
+   * previously reached by parsing, re-serializing, and letting preparation
+   * parse again (2 parses + 1 stringify per turn; now 1 parse). The hook
+   * returns the payload preparation proceeds with; a throw is NOT mapped
+   * here — errors outside preparation's own payload-error classes propagate
+   * to the transport, which owns their wire shape (NO SILENT FALLBACKS).
+   * Desktop passes no hook and is byte-for-byte unchanged.
+   */
+  readonly filterPayload?: (
+    payload: ParsedAssistantRequestEnvelope
+  ) => ParsedAssistantRequestEnvelope;
   /**
    * Injected structured logger (BST-972 B2). NEVER a package-created scope:
    * desktop passes desktopAssistantServerLogger so the scope-cached identity
@@ -219,7 +234,7 @@ function rejectToolContinuationInputError(
 export async function prepareAssistantPostRequest(
   params: PrepareAssistantPostRequestParams
 ): Promise<PrepareAssistantPostRequestResult> {
-  const { logger, readBody, resolveProviderApiKey } = params;
+  const { filterPayload, logger, readBody, resolveProviderApiKey } = params;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
@@ -228,7 +243,7 @@ export async function prepareAssistantPostRequest(
   let toolResumeAction: AssistantToolResumeAction | undefined;
   let toolResumeActionInvalid = false;
   try {
-    const payload = await parseAssistantRequestPayload(readBody);
+    const payload = await parseAssistantRequestPayload(readBody, filterPayload);
     assistantMessageId = payload.assistantMessageId;
     rawMessages = payload.rawMessages;
     data = payload.data;
@@ -450,10 +465,12 @@ function rejectAssistantPayloadError(
 }
 
 async function parseAssistantRequestPayload(
-  readBody: () => Promise<string>
+  readBody: () => Promise<string>,
+  filterPayload?: (payload: ParsedAssistantRequestEnvelope) => ParsedAssistantRequestEnvelope
 ): Promise<AssistantRequestPayload> {
   const body = await readBody();
-  const payload = parseAssistantRequestPayloadText(body);
+  const parsed = parseAssistantRequestPayloadText(body);
+  const payload = filterPayload ? filterPayload(parsed) : parsed;
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
   const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
   const parsedPayload: AssistantRequestPayload = { ...payload };

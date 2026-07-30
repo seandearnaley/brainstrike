@@ -1,5 +1,4 @@
-import type { RuntimeData } from '@brainstrike/agent/hosted-web';
-import { parseAssistantRequestPayloadText } from '@brainstrike/agent/hosted-web';
+import type { AssistantRequestPayload, RuntimeData } from '@brainstrike/agent/hosted-web';
 import {
   type ConfiguredAssistantProviderConfig,
   type HostedWebAssistantProvider,
@@ -95,21 +94,23 @@ function readClientRuntime(data: unknown): Partial<RuntimeData> {
 }
 
 /**
- * BST-973-2 convergence pre-filter: the allow-list stays web's trust boundary,
- * applied BEFORE the shared prepareAssistantPostRequest (which spreads client
- * data wholesale by design — desktop trusts its renderer; web must not trust
- * the internet). Parses the body, validates data through the allow-list
- * schema, requires any requested provider to be in the hosted set (this is
- * where local/ollama/lmstudio are rejected — the shared preparation would
- * otherwise wave the keyless local-server providers through), and
- * re-serializes with ONLY the forwarded fields plus the validated provider.
- * Throws the same typed errors the route's existing mappers already handle.
+ * BST-973-2 convergence pre-filter, payload-level since BST-1030: the
+ * allow-list stays web's trust boundary, now applied INSIDE the shared
+ * preparation via its `filterPayload` hook (which spreads client data
+ * wholesale by design — desktop trusts its renderer; web must not trust the
+ * internet). Validates data through the allow-list schema, requires any
+ * requested provider to be in the hosted set (this is where
+ * local/ollama/lmstudio are rejected — the shared preparation would otherwise
+ * wave the keyless local-server providers through), and returns a payload
+ * carrying ONLY the forwarded fields plus the validated provider. The text
+ * round-trip is gone: preparation parses ONCE and hands the envelope here
+ * (previously: web parsed, re-serialized, and preparation parsed again).
+ * Throws the same typed errors the transports' existing mappers handle.
  */
-export function filterWebAssistantBodyText(
-  bodyText: string,
+export function filterWebAssistantPayload(
+  payload: AssistantRequestPayload,
   hostedProviders: readonly HostedWebAssistantProvider[]
-): string {
-  const payload = parseAssistantRequestPayloadText(bodyText);
+): AssistantRequestPayload {
   const data = payload.data as Record<string, unknown> | undefined;
   const requestedProvider = data?.['provider'];
   if (
@@ -121,16 +122,13 @@ export function filterWebAssistantBodyText(
     throw new InvalidWebAssistantRuntimeDataError('provider', 'invalid');
   }
   const filtered = readClientRuntime(payload.data);
-  return JSON.stringify({
-    ...(payload.assistantMessageId
-      ? // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
-        { unstable_assistantMessageId: payload.assistantMessageId }
-      : {}),
+  return {
+    ...(payload.assistantMessageId ? { assistantMessageId: payload.assistantMessageId } : {}),
     data: {
       ...filtered,
       ...(requestedProvider === undefined ? {} : { provider: requestedProvider }),
-    },
-    messages: payload.rawMessages,
-    ...(payload.runConfig ? { runConfig: payload.runConfig } : {}),
-  });
+    } as RuntimeData,
+    rawMessages: payload.rawMessages,
+    runConfig: payload.runConfig,
+  };
 }
