@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import * as turboCommand from '../run-turbo-command.mjs';
+
+const require = createRequire(import.meta.url);
+
+function makeFakeHome() {
+  return mkdtempSync(join(tmpdir(), 'run-turbo-command-home-'));
+}
 
 describe('run turbo command helper', () => {
   it('uses an explicit cache directory outside the repo when no cache is configured', () => {
@@ -91,20 +100,24 @@ describe('run turbo command helper', () => {
   it('skips the nested turbo invocation when --skip-under-turbo runs inside an outer turbo task', () => {
     const logs = [];
     const errors = [];
+    const spawnCalls = [];
 
-    // env deliberately lacks HOME: if the skip did NOT short-circuit, cache-dir
-    // resolution would fail and return 1 — so return 0 proves no turbo spawn.
     const status = turboCommand.runTurboCommand(
       ['node', 'run-turbo-command.mjs', '--skip-under-turbo', '--', 'run', 'build'],
       'darwin',
       {
-        env: { TURBO_HASH: '649b8853e23bc395' },
+        env: { HOME: makeFakeHome(), TURBO_HASH: '649b8853e23bc395' },
         log: (message) => logs.push(message),
         logError: (message) => errors.push(message),
+        spawnSyncImpl: (command, args) => {
+          spawnCalls.push({ args, command });
+          return { status: 0 };
+        },
       }
     );
 
     assert.equal(status, 0);
+    assert.deepEqual(spawnCalls, []);
     assert.deepEqual(errors, []);
     assert.equal(logs.length, 1);
     assert.match(logs[0], /TURBO_HASH/u);
@@ -113,50 +126,55 @@ describe('run turbo command helper', () => {
 
   it('proceeds normally when --skip-under-turbo is passed outside a turbo task', () => {
     const logs = [];
-    const errors = [];
+    const spawnCalls = [];
 
-    // TURBO_HASH is unset, so the wrapper must NOT skip. The env also lacks
-    // HOME, so proceeding fails at cache-dir resolution (status 1) — proving
-    // the normal path was taken without spawning turbo.
+    // TURBO_HASH is unset, so the wrapper must NOT skip: turbo is spawned
+    // exactly once with the original run arguments.
     const status = turboCommand.runTurboCommand(
       ['node', 'run-turbo-command.mjs', '--skip-under-turbo', '--', 'run', 'build'],
       'darwin',
       {
-        env: {},
+        env: { HOME: makeFakeHome() },
         log: (message) => logs.push(message),
-        logError: (message) => errors.push(message),
+        logError: () => {},
+        spawnSyncImpl: (command, args) => {
+          spawnCalls.push({ args, command });
+          return { status: 0 };
+        },
       }
     );
 
-    assert.equal(status, 1);
+    assert.equal(status, 0);
     assert.deepEqual(logs, []);
-    assert.deepEqual(errors, [
-      'HOME is required to resolve the default Turborepo cache directory.',
-    ]);
+    assert.equal(spawnCalls.length, 1);
+    assert.deepEqual(spawnCalls[0].args.slice(0, 2), ['run', 'build']);
   });
 
   it('does not skip when TURBO_HASH is set but --skip-under-turbo is absent', () => {
     const logs = [];
-    const errors = [];
+    const spawnCalls = [];
 
     // Without the opt-in flag the wrapper must run turbo even under an outer
     // turbo task (predev under `turbo run dev` has no ^build edge and NEEDS the
-    // nested build). Missing HOME again proves which path was taken.
+    // nested build).
     const status = turboCommand.runTurboCommand(
       ['node', 'run-turbo-command.mjs', '--', 'run', 'build'],
       'darwin',
       {
-        env: { TURBO_HASH: '649b8853e23bc395' },
+        env: { HOME: makeFakeHome(), TURBO_HASH: '649b8853e23bc395' },
         log: (message) => logs.push(message),
-        logError: (message) => errors.push(message),
+        logError: () => {},
+        spawnSyncImpl: (command, args) => {
+          spawnCalls.push({ args, command });
+          return { status: 0 };
+        },
       }
     );
 
-    assert.equal(status, 1);
+    assert.equal(status, 0);
     assert.deepEqual(logs, []);
-    assert.deepEqual(errors, [
-      'HOME is required to resolve the default Turborepo cache directory.',
-    ]);
+    assert.equal(spawnCalls.length, 1);
+    assert.deepEqual(spawnCalls[0].args.slice(0, 2), ['run', 'build']);
   });
 
   it('treats cache pruning errors as non-fatal housekeeping warnings', () => {
@@ -230,10 +248,67 @@ describe('nested prebuild turbo contract', () => {
     )) {
       const appManifest = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
       const closure = workspaceDependencyClosure(appManifest, manifests);
-      for (const filter of parseFilterList(command)) {
+      const filters = parseFilterList(command);
+      // Non-vacuity guard: parseFilterList only matches the `--filter=<pkg>`
+      // form. A prebuild written in the space-separated form would parse to []
+      // and slip past this test unchecked.
+      assert.ok(
+        filters.length > 0,
+        `${packageJsonPath} prebuild: no --filter=<pkg> parsed — use the '=' form so this contract stays enforced`
+      );
+      for (const filter of filters) {
         assert.ok(
           closure.has(filter),
           `${packageJsonPath} prebuild filters ${filter}, which is outside ${appManifest.name}'s workspace dependency closure — the outer turbo graph would never build it once prebuild skips under turbo`
+        );
+      }
+    }
+  });
+
+  it("turbo's resolved build graph covers every skip-flagged prebuild filter", () => {
+    // The other half of the skip's soundness, pinned at the RESOLVED level:
+    // the outer `<app>#build` task graph must actually schedule a build for
+    // every package the (now-skipped) nested prebuild would have built. Asking
+    // turbo itself via --dry=json covers everything the package.json closure
+    // test cannot: root turbo.jsonc `build.dependsOn` losing "^build", an
+    // app-level turbo.json override dropping the edge, or any future extends
+    // semantics change. If any of those happen, the filtered package vanishes
+    // from the dry-run task list and this fails loudly.
+    for (const { command, packageJsonPath } of wrapperScripts.filter(
+      ({ scriptName }) => scriptName === 'prebuild'
+    )) {
+      if (!command.includes('--skip-under-turbo')) {
+        continue;
+      }
+      const appName = JSON.parse(readFileSync(packageJsonPath, 'utf8')).name;
+      const dryRun = JSON.parse(
+        execFileSync(
+          process.execPath,
+          // Node 24 rejects Windows batch shims passed to execFileSync, so
+          // execute Turbo's package-resolved JavaScript entrypoint through
+          // Node itself (same pattern as the canonical-form contract test).
+          [require.resolve('turbo/bin/turbo'), 'run', 'build', `--filter=${appName}`, '--dry=json'],
+          {
+            cwd: process.cwd(),
+            encoding: 'utf8',
+            env: {
+              ...process.env,
+              NO_UPDATE_NOTIFIER: '1',
+              TURBO_TELEMETRY_DISABLED: '1',
+            },
+            maxBuffer: 64 * 1024 * 1024,
+          }
+        )
+      );
+      const scheduledBuilds = new Set(
+        dryRun.tasks
+          .filter((task) => task.task === 'build' && task.command !== '<NONEXISTENT>')
+          .map((task) => task.package)
+      );
+      for (const filter of parseFilterList(command)) {
+        assert.ok(
+          scheduledBuilds.has(filter),
+          `${appName}'s resolved build graph no longer schedules ${filter}#build — the --skip-under-turbo prebuild would leave it unbuilt (check turbo.jsonc build.dependsOn / app turbo.json overrides)`
         );
       }
     }

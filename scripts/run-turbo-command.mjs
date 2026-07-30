@@ -162,7 +162,12 @@ export function getCacheDirFromArgs(args, rootDir = REPO_ROOT) {
 }
 
 export function runTurboCommand(argv = process.argv, platform = process.platform, options = {}) {
-  const { env = process.env, log = console.log, logError = console.error } = options;
+  const {
+    env = process.env,
+    log = console.log,
+    logError = console.error,
+    spawnSyncImpl = spawnSync,
+  } = options;
   const separatorIndex = argv.indexOf('--');
 
   if (separatorIndex === -1 || separatorIndex === argv.length - 1) {
@@ -202,6 +207,16 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   // TURBO_HASH is injected by turbo into every task's environment and is the
   // documented way to detect running under turbo. Scripts without the ^build
   // guarantee (e.g. predev under `turbo run dev`) must NOT pass this flag.
+  // Known caveats (accepted, not silently ignorable — both degrade LOUDLY or
+  // by explicit operator choice):
+  // - `turbo run build --filter=<app> --only` still sets TURBO_HASH but runs
+  //   no dependency tasks. There is no env signal for --only, so the skip
+  //   cannot detect it; --only is an explicit operator opt-out of dependency
+  //   tasks (no repo script uses it), and a missing dist then fails loudly at
+  //   config load rather than building silently.
+  // - If a turbo upgrade ever stops exporting TURBO_HASH, prebuild reverts to
+  //   re-entering turbo — the pre-#2132 racy-but-building behavior, visible as
+  //   nested "cache miss, executing" lines in build logs, not a silent no-op.
   if (skipUnderTurbo && env['TURBO_HASH']) {
     log(
       'Skipping nested turbo invocation (--skip-under-turbo): TURBO_HASH is set, so an outer turbo task is running this script and its ^build graph already builds these packages.'
@@ -236,7 +251,7 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   fs.mkdirSync(cacheDir, { recursive: true });
 
   const invocation = createSpawnInvocation('turbo', args, platform);
-  const result = spawnSync(invocation.command, invocation.args, {
+  const result = spawnSyncImpl(invocation.command, invocation.args, {
     env,
     shell: invocation.shell,
     stdio: 'inherit',
