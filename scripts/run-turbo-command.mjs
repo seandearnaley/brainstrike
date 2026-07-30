@@ -161,26 +161,67 @@ export function getCacheDirFromArgs(args, rootDir = REPO_ROOT) {
   return path.resolve(rootDir, cacheDirArg.slice('--cache-dir='.length));
 }
 
-export function runTurboCommand(argv = process.argv, platform = process.platform) {
+export function runTurboCommand(argv = process.argv, platform = process.platform, options = {}) {
+  const {
+    env = process.env,
+    log = console.log,
+    logError = console.error,
+    spawnSyncImpl = spawnSync,
+  } = options;
   const separatorIndex = argv.indexOf('--');
 
   if (separatorIndex === -1 || separatorIndex === argv.length - 1) {
-    console.error(
-      'Usage: node scripts/run-turbo-command.mjs [--windows-concurrency=N] -- <turbo args...>'
+    logError(
+      'Usage: node scripts/run-turbo-command.mjs [--windows-concurrency=N] [--skip-under-turbo] -- <turbo args...>'
     );
     return 1;
   }
 
   let windowsConcurrency;
+  let skipUnderTurbo = false;
 
   for (const option of argv.slice(2, separatorIndex)) {
+    if (option === '--skip-under-turbo') {
+      skipUnderTurbo = true;
+      continue;
+    }
+
     if (option.startsWith('--windows-concurrency=')) {
       windowsConcurrency = option.slice('--windows-concurrency='.length);
       continue;
     }
 
-    console.error(`Unknown option: ${option}`);
+    logError(`Unknown option: ${option}`);
     return 1;
+  }
+
+  // Opt-in for app `prebuild` scripts ONLY (contract-tested in
+  // scripts/__tests__/run-turbo-command.test.mjs): when an outer turbo task is
+  // running this script, that task's `dependsOn: ["^build"]` has already built
+  // every package this invocation would filter, so re-entering turbo is pure
+  // duplication — and a data race: this nested run resolves the GLOBAL cache
+  // (see resolveTurboCacheDir) while the outer run may use a different cache
+  // dir, so the same task hash can miss here after hitting outside, and the
+  // re-executed build's `rimraf dist` deletes outputs that concurrently
+  // running sibling tasks (e.g. web's vite config-load) are importing.
+  // TURBO_HASH is injected by turbo into every task's environment and is the
+  // documented way to detect running under turbo. Scripts without the ^build
+  // guarantee (e.g. predev under `turbo run dev`) must NOT pass this flag.
+  // Known caveats (accepted, not silently ignorable — both degrade LOUDLY or
+  // by explicit operator choice):
+  // - `turbo run build --filter=<app> --only` still sets TURBO_HASH but runs
+  //   no dependency tasks. There is no env signal for --only, so the skip
+  //   cannot detect it; --only is an explicit operator opt-out of dependency
+  //   tasks (no repo script uses it), and a missing dist then fails loudly at
+  //   config load rather than building silently.
+  // - If a turbo upgrade ever stops exporting TURBO_HASH, prebuild reverts to
+  //   re-entering turbo — the pre-#2132 racy-but-building behavior, visible as
+  //   nested "cache miss, executing" lines in build logs, not a silent no-op.
+  if (skipUnderTurbo && env['TURBO_HASH']) {
+    log(
+      'Skipping nested turbo invocation (--skip-under-turbo): TURBO_HASH is set, so an outer turbo task is running this script and its ^build graph already builds these packages.'
+    );
+    return 0;
   }
 
   let args = argv.slice(separatorIndex + 1);
@@ -200,9 +241,9 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   }
 
   try {
-    args = buildTurboArgs(args, { cwd: process.cwd(), env: process.env, platform });
+    args = buildTurboArgs(args, { cwd: process.cwd(), env, platform });
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    logError(error instanceof Error ? error.message : String(error));
     return 1;
   }
 
@@ -210,14 +251,14 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   fs.mkdirSync(cacheDir, { recursive: true });
 
   const invocation = createSpawnInvocation('turbo', args, platform);
-  const result = spawnSync(invocation.command, invocation.args, {
-    env: process.env,
+  const result = spawnSyncImpl(invocation.command, invocation.args, {
+    env,
     shell: invocation.shell,
     stdio: 'inherit',
   });
 
   if (result.error) {
-    console.error(result.error.message);
+    logError(result.error.message);
     return 1;
   }
 
@@ -226,7 +267,7 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
     return status;
   }
 
-  pruneTurboCache(cacheDir, process.env);
+  pruneTurboCache(cacheDir, env);
 
   return 0;
 }
