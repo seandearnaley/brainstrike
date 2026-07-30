@@ -2,8 +2,12 @@ import type { AgentMessage, StreamChunk } from '@brainstrike/agent/hosted-web';
 import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   createStatelessAssistantDataStreamResponse,
-  readRequestBodyText,
 } from '@brainstrike/agent/hosted-web';
+import {
+  createAssistantRejectionResponse,
+  ASSISTANT_JSON_ERROR_HEADERS as JSON_ERROR_HEADERS,
+  readRequestBodyText,
+} from '@brainstrike/assistant-service/http';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   resolveAssistantProviderConfig,
@@ -24,10 +28,6 @@ import {
 import { buildWebAssistantStream } from '../../../server/web-assistant-stream';
 
 const logger = createLogger('WebAssistantRoute');
-const JSON_ERROR_HEADERS = {
-  'Cache-Control': 'no-store',
-  'Content-Type': 'application/json; charset=utf-8',
-} as const;
 const assistantRequestBodyLimitBytes = resolveWebAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
@@ -125,10 +125,10 @@ function createAssistantRequestReadErrorResponse(error: unknown): Response {
 }
 
 function createAssistantInputErrorResponse(error: WebAssistantInputError): Response {
-  return new Response(JSON.stringify(error.payload), {
-    headers: JSON_ERROR_HEADERS,
-    status: error.status,
-  });
+  // Shared WHATWG mapper (BST-973): WebAssistantInputError is a strict
+  // subtype of the service's rejection shape, and the mapper's headers are
+  // this route's previous literal — wire bytes unchanged.
+  return createAssistantRejectionResponse(error);
 }
 
 async function initializeAssistantStream(options: {

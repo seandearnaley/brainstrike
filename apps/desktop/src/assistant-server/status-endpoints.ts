@@ -8,7 +8,7 @@ import {
   resolveApprovalStaleMs,
   type SuspendedApprovalsResponse,
 } from '@brainstrike/agent';
-import { respondJson } from './http-responses';
+import { respondJson } from '@brainstrike/assistant-service/http';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {

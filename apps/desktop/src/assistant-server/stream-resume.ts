@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import { resolveDataStreamSession } from '@brainstrike/agent';
+import { respondJson } from '@brainstrike/assistant-service/http';
 import { streamResponse } from './http';
-import { respondJson } from './http-responses';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { readLastEventId } from './routing';
 

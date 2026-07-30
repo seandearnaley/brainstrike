@@ -22,6 +22,9 @@
       "vite/client"
     ],
     "paths": {
+      "@brainstrike/assistant-service/http": [
+        "../../packages/assistant-service/src/http.ts"
+      ],
       "@brainstrike/assistant-service/local-provider-runtime": [
         "../../packages/assistant-service/src/local-provider-runtime.ts"
       ],

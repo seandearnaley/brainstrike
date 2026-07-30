@@ -9,6 +9,7 @@
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
+    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -16,44 +17,49 @@
     "node": ">=22"
   },
   "exports": {
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.mjs",
+      "require": "./dist/http.js"
+    },
     "./local-provider-runtime": {
       "types": "./dist/local-provider-runtime.d.ts",
-      "import": "./dist/local-provider-runtime.js",
+      "import": "./dist/local-provider-runtime.mjs",
       "require": "./dist/local-provider-runtime.js"
     },
     "./memory-model-targets": {
       "types": "./dist/memory-model-targets.d.ts",
-      "import": "./dist/memory-model-targets.js",
+      "import": "./dist/memory-model-targets.mjs",
       "require": "./dist/memory-model-targets.js"
     },
     "./ports": {
       "types": "./dist/ports.d.ts",
-      "import": "./dist/ports.js",
+      "import": "./dist/ports.mjs",
       "require": "./dist/ports.js"
     },
     "./request": {
       "types": "./dist/request.d.ts",
-      "import": "./dist/request.js",
+      "import": "./dist/request.mjs",
       "require": "./dist/request.js"
     },
     "./run-turn": {
       "types": "./dist/run-turn.d.ts",
-      "import": "./dist/run-turn.js",
+      "import": "./dist/run-turn.mjs",
       "require": "./dist/run-turn.js"
     },
     "./secret-errors": {
       "types": "./dist/secret-errors.d.ts",
-      "import": "./dist/secret-errors.js",
+      "import": "./dist/secret-errors.mjs",
       "require": "./dist/secret-errors.js"
     },
     "./steering": {
       "types": "./dist/steering.d.ts",
-      "import": "./dist/steering.js",
+      "import": "./dist/steering.mjs",
       "require": "./dist/steering.js"
     },
     "./types": {
       "types": "./dist/types.d.ts",
-      "import": "./dist/types.js",
+      "import": "./dist/types.mjs",
       "require": "./dist/types.js"
     }
   },
@@ -63,7 +69,7 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/http.ts src/local-provider-runtime.ts src/memory-model-targets.ts src/ports.ts src/request.ts src/run-turn.ts src/secret-errors.ts src/steering.ts src/types.ts --format esm,cjs --out-dir dist",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",
@@ -71,6 +77,5 @@
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "sideEffects": false,
-  "type": "module"
+  "sideEffects": false
 }

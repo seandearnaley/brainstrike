@@ -3,9 +3,9 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract';
+import { respondJson } from '@brainstrike/assistant-service/http';
 import { app } from 'electron';
 import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
-import { respondJson } from './http-responses';
 
 const ASSISTANT_CORS_ALLOWED_HEADERS =
   'Accept, Content-Type, Last-Event-ID, X-Brainstrike-Assistant-Token';

@@ -1,15 +1,48 @@
-// Pure http responders only. The SecretReadError responders live in
-// secret-error-responses.ts because payload-shaping for one failure family is
-// not a generic http helper — since BST-972 A3 made that classification
-// structural, the split is organizational, no longer an Electron-coupling
-// firewall (secret-error-responses no longer imports ../secrets).
+/**
+ * Transport adapters for the run service (BST-973, "share down, not across"):
+ * the pieces BOTH hosts can carry without wire change, split by target.
+ * - WHATWG side (hosted web): readRequestBodyText + a rejection -> Response
+ *   mapper byte-identical to web's previous local builder (Cache-Control:
+ *   no-store; closeConnection is a Node-transport instruction with no WHATWG
+ *   counterpart — ignoring it matches web today).
+ * - node:http side (desktop): the JSON responders moved verbatim from
+ *   apps/desktop/src/assistant-server/http-responses.ts (which was already
+ *   service-typed and mocked by NO suite). streamResponse/writeHeaders stay
+ *   on the desktop specifier: six suites stub exactly those two, and web can
+ *   never use a WHATWG->ServerResponse pump.
+ * Everything web deliberately removed (sessions, persistence, the desktop
+ * provider policy) stays out — see the BST-973 premise correction on the
+ * ticket.
+ */
 import type http from 'node:http';
 import type {
   AgentStreamInitializationStage,
   AssistantPostRejection,
   AssistantRejectionPayload,
   DesktopMemoryFeature,
-} from '@brainstrike/assistant-service/types';
+} from './types.js';
+
+export { readRequestBodyText } from '@brainstrike/agent/hosted-web';
+
+/** Shared JSON error headers for WHATWG hosts (web's exact bytes). */
+export const ASSISTANT_JSON_ERROR_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Type': 'application/json; charset=utf-8',
+} as const;
+
+/**
+ * WHATWG mapper: a rejection becomes a JSON Response. `closeConnection` is
+ * deliberately ignored — WHATWG hosts have no connection to instruct.
+ */
+export function createAssistantRejectionResponse(rejection: {
+  readonly payload: AssistantRejectionPayload;
+  readonly status: number;
+}): Response {
+  return new Response(JSON.stringify(rejection.payload), {
+    headers: ASSISTANT_JSON_ERROR_HEADERS,
+    status: rejection.status,
+  });
+}
 
 /**
  * Write a request-preparation rejection to the response (BST-972 A4). Not
