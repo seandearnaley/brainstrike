@@ -10,6 +10,7 @@ enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-packa
 forbid-no-memo.mjs → wired/paired/armed → React compiler escape directives
 mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks
 model-catalog-migration-contract.mjs → wired/paired/armed → dual migration registration and model remaps
+prune-stale-dist.mjs → wired/paired/armed → stale dist artifacts pruned before non-cleaning tsc builds (global-turbo-cache poisoning class); wired into 10 package `build` scripts; contract: scripts/__tests__/prune-stale-dist.test.mjs
 secret-scan.mjs → wired/paired/armed → committed credential patterns
 unit-shard-partition.mjs → wired/paired/armed → exact Unit shard partition
 verify-catalog-references.mjs → wired/paired/armed → pnpm catalog consistency

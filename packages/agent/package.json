@@ -119,7 +119,7 @@
   "module": "./dist/index.mjs",
   "private": true,
   "scripts": {
-    "build": "tsc -b . && tsup && node scripts/verify-hosted-web-bundle.mjs",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && tsup && node scripts/verify-hosted-web-bundle.mjs",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "concurrently --kill-others --names types,bundle \"tsc --project tsconfig.json --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",

@@ -61,7 +61,7 @@
   },
   "private": true,
   "scripts": {
-    "build": "tsc --build",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc --build",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "db:export": "tsx scripts/export-migrations.ts",
     "db:generate": "node scripts/forbid-db-generate.mjs",

@@ -10,9 +10,12 @@ const agentManifest = JSON.parse(readFileSync(path.join(agentRoot, 'package.json
 const agentTsupConfig = readFileSync(path.join(agentRoot, 'tsup.config.ts'), 'utf8');
 
 test('agent declarations are emitted by tsc before the JavaScript bundle', () => {
+  // prune-stale-dist runs first (stale-dist cache-poisoning guard — see
+  // scripts/__tests__/prune-stale-dist.test.mjs); the ordering this contract
+  // exists for is tsc BEFORE tsup, which the prune step does not disturb.
   assert.equal(
     agentManifest.scripts.build,
-    'tsc -b . && tsup && node scripts/verify-hosted-web-bundle.mjs'
+    'node ../../scripts/prune-stale-dist.mjs && tsc -b . && tsup && node scripts/verify-hosted-web-bundle.mjs'
   );
   assert.match(
     agentTsupConfig,

@@ -114,7 +114,7 @@
     "react-router-dom": "^7.14.1"
   },
   "scripts": {
-    "build": "pnpm run clean:generated && tsc -b . && node ../../scripts/copy-files.mjs src/globals.css dist/globals.css styles.css dist/styles.css src/assistant-ui-panel/overrides.css dist/assistant-ui-panel/overrides.css",
+    "build": "pnpm run clean:generated && node ../../scripts/prune-stale-dist.mjs && tsc -b . && node ../../scripts/copy-files.mjs src/globals.css dist/globals.css styles.css dist/styles.css src/assistant-ui-panel/overrides.css dist/assistant-ui-panel/overrides.css",
     "clean": "pnpm run clean:generated && node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "clean:generated": "node ../../scripts/clean-generated-js.mjs src",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
