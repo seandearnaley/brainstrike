@@ -44,9 +44,37 @@ vi.mock('../../secrets', async (importOriginal) => {
   };
 });
 
+const { convertAssistantUiMessages } = vi.hoisted(() => ({
+  convertAssistantUiMessages: vi.fn((messages) => messages),
+}));
+
+// Prep (BST-973-2) imports conversion from the slim hosted-web subpath, so the
+// fixture-stabilizing override lives on THAT specifier; the hoisted spy is also
+// exported from the root-specifier factory so existing assertions keep
+// observing every call.
+vi.mock('@brainstrike/agent/hosted-web', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent/hosted-web')>();
+  return {
+    ...actual,
+    convertAssistantUiMessagesWithFinalInput: vi.fn(
+      (
+        messages: Parameters<typeof actual.convertAssistantUiMessagesWithFinalInput>[0]
+      ): ReturnType<typeof actual.convertAssistantUiMessagesWithFinalInput> => {
+        const finalRawMessage = messages.at(-1);
+        const { finalInputMessage } = actual.convertAssistantUiMessagesWithFinalInput(
+          finalRawMessage ? [finalRawMessage] : []
+        );
+        return {
+          finalInputMessage,
+          messages: convertAssistantUiMessages(messages),
+        };
+      }
+    ),
+  };
+});
+
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
-  const convertAssistantUiMessages = vi.fn((messages) => messages);
   return {
     ...actual,
     assistantDataStreamSessions: {
@@ -63,20 +91,6 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
       })),
     },
     convertAssistantUiMessages,
-    convertAssistantUiMessagesWithFinalInput: vi.fn(
-      (
-        messages: Parameters<typeof actual.convertAssistantUiMessagesWithFinalInput>[0]
-      ): ReturnType<typeof actual.convertAssistantUiMessagesWithFinalInput> => {
-        const finalRawMessage = messages.at(-1);
-        const { finalInputMessage } = actual.convertAssistantUiMessagesWithFinalInput(
-          finalRawMessage ? [finalRawMessage] : []
-        );
-        return {
-          finalInputMessage,
-          messages: convertAssistantUiMessages(messages),
-        };
-      }
-    ),
     createEmbeddingProvider: vi.fn((provider: string, apiKey: string, model: string) => ({
       apiKey,
       model,
