@@ -36,7 +36,7 @@ test.describe('Assistant hover toolbar (desktop)', () => {
     await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
     await input.fill('hi');
 
-    const sendBtn = window.getByRole('button', { name: 'Send' });
+    const sendBtn = window.getByRole('button', { exact: true, name: 'Send' });
     await expect(sendBtn).toBeVisible();
     await sendBtn.click();
 

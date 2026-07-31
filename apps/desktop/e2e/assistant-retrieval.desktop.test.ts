@@ -29,7 +29,7 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   await input.fill(prompt);
 
-  const sendBtn = window.getByRole('button', { name: 'Send' });
+  const sendBtn = window.getByRole('button', { exact: true, name: 'Send' });
   await expect(sendBtn).toBeVisible();
   await sendBtn.click();
 

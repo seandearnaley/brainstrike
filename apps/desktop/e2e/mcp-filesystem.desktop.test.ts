@@ -32,7 +32,7 @@ test.describe('Assistant chat (desktop)', () => {
     await expect(input).toBeEnabled({ timeout: 15_000 });
     await input.fill('list files');
 
-    const sendBtn = window.getByRole('button', { name: 'Send' });
+    const sendBtn = window.getByRole('button', { exact: true, name: 'Send' });
     await expect(sendBtn).toBeVisible();
     await sendBtn.click();
 

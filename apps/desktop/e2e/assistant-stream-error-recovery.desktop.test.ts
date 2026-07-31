@@ -31,7 +31,7 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   await input.fill(prompt);
 
-  const sendBtn = window.getByRole('button', { name: 'Send' });
+  const sendBtn = window.getByRole('button', { exact: true, name: 'Send' });
   await expect(sendBtn).toBeVisible();
   await expect(sendBtn).toBeEnabled();
   await sendBtn.click();
@@ -66,9 +66,13 @@ test.describe('Assistant stream error recovery (desktop)', () => {
     // `ThreadPrimitive.If running={false}`). A hung thread would keep running
     // and only ever show the "Stop" button. The library keeps Send disabled
     // while the input is empty, so emptiness is asserted via the absent "Stop".
-    const sendBtn = window.getByRole('button', { name: 'Send' });
+    // `exact: true` is load-bearing: getByRole's name match is a
+    // case-insensitive SUBSTRING by default, and the running branch renders the
+    // follow-up queue button (aria-label "Queue message to send after this
+    // run"), so a non-exact 'Send' would resolve to it mid-run and false-green.
+    const sendBtn = window.getByRole('button', { exact: true, name: 'Send' });
     await expect(sendBtn).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
-    await expect(window.getByRole('button', { name: 'Stop' })).toHaveCount(0);
+    await expect(window.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
 
     // Strongest proof of recovery: a second prompt can be sent and appears in
     // the thread. `sendPrompt` fills the input (re-enabling Send), clicks it,

@@ -99,7 +99,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     await expect(input).toBeVisible({ timeout: 5000 });
     await input.fill('hello desktop');
 
-    const sendBtn = window.getByRole('button', { name: 'Send' });
+    const sendBtn = window.getByRole('button', { exact: true, name: 'Send' });
     await expect(sendBtn).toBeVisible();
     await sendBtn.click();
 
