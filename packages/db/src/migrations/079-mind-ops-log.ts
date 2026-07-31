@@ -14,7 +14,11 @@ import type { Migration } from './migration-runner';
  * engine is actually chosen, not a silent drift channel.
  *
  * `seq` (BIGSERIAL) is the lamport-ish local order; device identity is a
- * future engine's concern and is intentionally absent.
+ * future engine's concern and is intentionally absent. `resource_id` is NOT:
+ * threads are workspace-scoped and the scope is unrecoverable once the
+ * thread row is physically gone, so every thread tombstone captures it at
+ * delete time (from the same DELETE ... RETURNING). Nullable because
+ * prompt items are global (review #2167).
  */
 export const migration079MindOpsLog: Migration = {
   down: `
@@ -27,6 +31,7 @@ export const migration079MindOpsLog: Migration = {
       entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
       entity_id TEXT NOT NULL,
       op TEXT NOT NULL CHECK (op = 'delete'),
+      resource_id TEXT,
       occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     --> statement-breakpoint

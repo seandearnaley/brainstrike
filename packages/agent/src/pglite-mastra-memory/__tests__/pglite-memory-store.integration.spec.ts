@@ -1106,7 +1106,6 @@ describe('PgliteMemoryStore', () => {
         group_id    text,
         rank        text NOT NULL,
         updated_at  timestamptz NOT NULL DEFAULT NOW(),
-        color       text,
         flat_rank   text
       );
       CREATE TABLE IF NOT EXISTS brainstrike_mind_ops (
@@ -1114,6 +1113,7 @@ describe('PgliteMemoryStore', () => {
         entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
         entity_id TEXT NOT NULL,
         op TEXT NOT NULL CHECK (op = 'delete'),
+        resource_id TEXT,
         occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
@@ -1139,12 +1139,18 @@ describe('PgliteMemoryStore', () => {
        WHERE thread_id = 'thread-sidecar-delete'`
     );
     expect(placements.rows[0]?.count).toBe('0');
-    const ops = await db.query<{ entity_kind: string; op: string }>(
-      `SELECT entity_kind, op FROM brainstrike_mind_ops
+    const ops = await db.query<{ entity_kind: string; op: string; resource_id: string | null }>(
+      `SELECT entity_kind, op, resource_id FROM brainstrike_mind_ops
        WHERE entity_id = 'thread-sidecar-delete'`
     );
     expect(ops.rows).toHaveLength(1);
-    expect(ops.rows[0]).toMatchObject({ entity_kind: 'thread', op: 'delete' });
+    // The workspace scope is unrecoverable once the thread row is gone, so
+    // the tombstone captures it at delete time (review #2167).
+    expect(ops.rows[0]).toMatchObject({
+      entity_kind: 'thread',
+      op: 'delete',
+      resource_id: 'workspace-a',
+    });
 
     // Idempotent second delete: no thread row deleted, no tombstone added.
     await store.deleteThread({ threadId: 'thread-sidecar-delete' });

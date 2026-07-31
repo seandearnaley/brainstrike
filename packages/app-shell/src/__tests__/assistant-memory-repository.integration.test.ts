@@ -3236,13 +3236,19 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(
       countRows(db, 'brainstrike_assistant_thread_placements', 'thread_id', thread.id)
     ).resolves.toBe(0);
-    const ops = await db.query<{ entity_kind: string; op: string; seq: string | number }>(
-      'SELECT entity_kind, op, seq FROM brainstrike_mind_ops WHERE entity_id = $1',
-      [thread.id]
-    );
+    const ops = await db.query<{
+      entity_kind: string;
+      op: string;
+      resource_id: string | null;
+      seq: string | number;
+    }>('SELECT entity_kind, op, resource_id, seq FROM brainstrike_mind_ops WHERE entity_id = $1', [
+      thread.id,
+    ]);
     expect(ops.rows).toHaveLength(1);
     expect(ops.rows[0]?.entity_kind).toBe('thread');
     expect(ops.rows[0]?.op).toBe('delete');
+    // Workspace scope is captured at delete time — unrecoverable afterwards.
+    expect(ops.rows[0]?.resource_id).toBe('workspace-a');
 
     // Deleting an already-gone thread is a no-op for the log: a tombstone
     // must record an actual deletion, not an attempt.

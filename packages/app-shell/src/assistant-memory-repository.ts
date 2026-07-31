@@ -898,14 +898,14 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
 -- Bootstrapped here because the thread-delete cascade now owns the placements
 -- stage on EVERY path (BST-993) and this repository runs against a bare
 -- PGlite in the migration-less harness — keep the shape byte-identical to
--- 054 with 056's color/flat_rank additions.
+-- 054 with 056's flat_rank addition (056's color column is on GROUPS, not
+-- placements — review #2167 caught the phantom column).
 CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_placements (
   thread_id   text PRIMARY KEY,
   resource_id text NOT NULL,
   group_id    text,
   rank        text NOT NULL,
   updated_at  timestamptz NOT NULL DEFAULT NOW(),
-  color       text CHECK (color IS NULL OR color IN ('blue', 'emerald', 'amber', 'rose', 'violet', 'slate')),
   flat_rank   text
 );
 
@@ -920,6 +920,7 @@ CREATE TABLE IF NOT EXISTS ${MIND_OPS_TABLE} (
   entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
   entity_id TEXT NOT NULL,
   op TEXT NOT NULL CHECK (op = 'delete'),
+  resource_id TEXT,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -2794,11 +2795,11 @@ export function createPgliteAssistantThreadRepository(
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE id = $1
-            RETURNING id
+            RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
-            INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op)
-            SELECT 'thread', id, 'delete' FROM deleted_thread
+            INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op, resource_id)
+            SELECT 'thread', id, 'delete', "resourceId" FROM deleted_thread
             RETURNING seq
           )
          SELECT
@@ -2849,11 +2850,11 @@ export function createPgliteAssistantThreadRepository(
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE (SELECT all_found FROM validation)
               AND id IN (SELECT id FROM requested)
-            RETURNING id
+            RETURNING id, "resourceId"
           ),
           inserted_mind_ops AS (
-            INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op)
-            SELECT 'thread', id, 'delete' FROM deleted_threads
+            INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op, resource_id)
+            SELECT 'thread', id, 'delete', "resourceId" FROM deleted_threads
             RETURNING seq
           )
          SELECT

@@ -47,15 +47,22 @@ describe('migration 079: mind ops log (BST-993)', () => {
     await runner.runMigration(getMigration079());
 
     await db.query(
-      `INSERT INTO brainstrike_mind_ops (entity_kind, entity_id, op)
-       VALUES ('thread', 'thread-a', 'delete'), ('prompt_item', 'prompt-b', 'delete')`
+      `INSERT INTO brainstrike_mind_ops (entity_kind, entity_id, op, resource_id)
+       VALUES ('thread', 'thread-a', 'delete', 'workspace-a'),
+              ('prompt_item', 'prompt-b', 'delete', NULL)`
     );
-    const rows = await db.query<{ seq: string | number; occurred_at: unknown }>(
-      'SELECT seq, occurred_at FROM brainstrike_mind_ops ORDER BY seq'
-    );
+    const rows = await db.query<{
+      seq: string | number;
+      occurred_at: unknown;
+      resource_id: string | null;
+    }>('SELECT seq, occurred_at, resource_id FROM brainstrike_mind_ops ORDER BY seq');
     expect(rows.rows).toHaveLength(2);
     expect(Number(rows.rows[1]?.seq)).toBeGreaterThan(Number(rows.rows[0]?.seq));
     expect(rows.rows[0]?.occurred_at).toBeTruthy();
+    // Thread tombstones carry workspace scope (unrecoverable post-delete);
+    // prompt items are global, so resource_id is nullable.
+    expect(rows.rows[0]?.resource_id).toBe('workspace-a');
+    expect(rows.rows[1]?.resource_id).toBeNull();
   });
 
   it('rejects vocabulary outside the seam contract (deliberate CHECKs)', async () => {

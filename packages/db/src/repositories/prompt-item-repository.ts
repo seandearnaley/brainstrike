@@ -1,3 +1,4 @@
+import { MIND_OPS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type CreatePromptItemInput,
   derivePromptItemTitle,
@@ -595,7 +596,7 @@ export class PromptItemRepository {
          DELETE FROM prompt_items WHERE id = $1 RETURNING id
        ),
        inserted_mind_ops AS (
-         INSERT INTO brainstrike_mind_ops (entity_kind, entity_id, op)
+         INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op)
          SELECT 'prompt_item', id, 'delete' FROM deleted
          RETURNING seq
        )

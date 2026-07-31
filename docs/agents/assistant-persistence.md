@@ -809,8 +809,12 @@ emission — that is engine territory):
   `seq BIGSERIAL` is the lamport-ish local order; `entity_kind` ∈
   {`thread`, `prompt_item`} and `op` = `delete` are CHECK-constrained on
   purpose — widening the vocabulary is a conscious migration, never a drift
-  channel. Sidecar-not-ALTER: Mastra owns the `mastra_*` schema and its lazy
-  tables have no evolution mechanism.
+  channel. Thread tombstones capture `resource_id` from the delete's own
+  RETURNING — the workspace scope is unrecoverable once the thread row is
+  gone, and a per-resource sync engine could never partition the log after
+  the fact (nullable: prompt items are global). Sidecar-not-ALTER: Mastra
+  owns the `mastra_*` schema and its lazy tables have no evolution
+  mechanism.
 - **Tombstones derive FROM the log.** No `deleted_at` columns anywhere: rows
   still physically disappear, so the thread-search orphan GC's anti-join and
   the readonly sandbox role's visibility rules are untouched.

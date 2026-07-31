@@ -1016,13 +1016,13 @@ export class PgliteMemoryStore extends MemoryStorage {
     // emit nothing) and only where the seam table exists (a standalone
     // store has no sync seam to feed).
     await runTransaction(this.database, async (tx) => {
-      const tableExists = async (table: string): Promise<boolean> => {
-        const probe = await tx.query<{ oid: string | null }>(
-          'SELECT to_regclass($1)::text AS oid',
-          [table]
-        );
-        return Boolean(probe.rows[0]?.oid);
-      };
+      // ONE set-based probe answers for all app-owned tables (review #2167:
+      // five sequential to_regclass round trips collapsed into one).
+      const probed = await tx.query<{ table: string }>(
+        'SELECT t AS table FROM unnest($1::text[]) AS t WHERE to_regclass(t) IS NOT NULL',
+        [[...THREAD_DELETE_SIDECAR_TABLES.map((entry) => entry.table), MIND_OPS_TABLE]]
+      );
+      const present = new Set(probed.rows.map((row) => row.table));
       await tx.query(
         `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
          WHERE "threadId" = $1 OR "lookupKey" = $2`,
@@ -1032,18 +1032,19 @@ export class PgliteMemoryStore extends MemoryStorage {
         threadId,
       ]);
       for (const { table, threadColumn } of THREAD_DELETE_SIDECAR_TABLES) {
-        if (await tableExists(table)) {
+        if (present.has(table)) {
           await tx.query(`DELETE FROM ${table} WHERE ${threadColumn} = $1`, [threadId]);
         }
       }
-      const deleted = await tx.query(
-        `DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1 RETURNING id`,
+      const deleted = await tx.query<{ id: string; resourceId: string | null }>(
+        `DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1 RETURNING id, "resourceId"`,
         [threadId]
       );
-      if (deleted.rows.length > 0 && (await tableExists(MIND_OPS_TABLE))) {
+      if (deleted.rows.length > 0 && present.has(MIND_OPS_TABLE)) {
         await tx.query(
-          `INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op) VALUES ('thread', $1, 'delete')`,
-          [threadId]
+          `INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op, resource_id)
+           VALUES ('thread', $1, 'delete', $2)`,
+          [threadId, deleted.rows[0]?.resourceId ?? null]
         );
       }
     });
