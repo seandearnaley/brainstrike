@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import {
   createWorkspaceSearchRunners,
-  resolveGrepRepository,
   useWorkspaceSearchController,
 } from '../use-workspace-search-controller';
 
@@ -350,38 +349,6 @@ describe('createWorkspaceSearchRunners', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(useWorkspaceSearchStore.getState().status).toBe('idle');
     expect(useWorkspaceSearchStore.getState().results).toBeNull();
-  });
-});
-
-describe('resolveGrepRepository', () => {
-  it('uses the platform repo directly when it exposes findGrepCandidates (desktop)', async () => {
-    const findGrepCandidates = vi.fn(async () => []);
-    const platformRepo = { findGrepCandidates } as unknown as Parameters<
-      typeof resolveGrepRepository
-    >[0];
-    const dbQuery = vi.fn(async () => ({ rows: [] }));
-    const db = { query: dbQuery } as unknown as Parameters<typeof resolveGrepRepository>[1];
-
-    const repo = resolveGrepRepository(platformRepo, db);
-    await repo.findGrepCandidates({ caseSensitive: false, likePattern: 'x', limit: 10 });
-
-    expect(findGrepCandidates).toHaveBeenCalledTimes(1);
-    // The platform repo is used verbatim, so the raw db.query seam is untouched.
-    expect(dbQuery).not.toHaveBeenCalled();
-  });
-
-  it('falls back to a query-only PGlite repo when the platform repo has no grep method (web)', async () => {
-    const platformRepo = { fullTextSearch: vi.fn() } as unknown as Parameters<
-      typeof resolveGrepRepository
-    >[0];
-    const dbQuery = vi.fn(async () => ({ rows: [] }));
-    const db = { query: dbQuery } as unknown as Parameters<typeof resolveGrepRepository>[1];
-
-    const repo = resolveGrepRepository(platformRepo, db);
-    await repo.findGrepCandidates({ caseSensitive: false, likePattern: 'x', limit: 10 });
-
-    // The fallback FileChunkRepository reads candidates through db.query.
-    expect(dbQuery).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -96,6 +96,127 @@ describe('DrizzleFileChunkRepository', () => {
     });
   });
 
+  describe('findGrepCandidates (BST-989 slice 2 parity)', () => {
+    const seed = async () => {
+      const now = new Date().toISOString();
+      await repository.insertMany([
+        {
+          chunkIndex: 0,
+          content: 'function alphaBeta() {}',
+          createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000210',
+          startLine: 1,
+          updatedAt: now,
+        },
+        {
+          chunkIndex: 1,
+          content: 'const unrelated = true;',
+          createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000211',
+          startLine: 10,
+          updatedAt: now,
+        },
+      ]);
+    };
+
+    it('matches case-insensitively by default and case-sensitively on request', async () => {
+      await seed();
+      const insensitive = await repository.findGrepCandidates({
+        caseSensitive: false,
+        likePattern: 'ALPHABETA',
+        limit: 10,
+      });
+      expect(insensitive.map((candidate) => candidate.chunkId)).toEqual([
+        '00000000-0000-0000-0000-000000000210',
+      ]);
+      expect(insensitive[0]?.filePath).toBeDefined();
+
+      const sensitive = await repository.findGrepCandidates({
+        caseSensitive: true,
+        likePattern: 'ALPHABETA',
+        limit: 10,
+      });
+      expect(sensitive).toEqual([]);
+    });
+
+    it('treats an empty allowlist as nothing allowed', async () => {
+      await seed();
+      await expect(
+        repository.findGrepCandidates({
+          caseSensitive: false,
+          filePaths: [],
+          likePattern: 'alpha',
+          limit: 10,
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        repository.findGrepCandidates({
+          caseSensitive: false,
+          likePattern: 'alpha',
+          limit: 10,
+          rootIds: [],
+        })
+      ).resolves.toEqual([]);
+    });
+  });
+
+  describe('insertManyWithTx (BST-989 slice 2 parity)', () => {
+    it('upserts within a caller transaction and returns mapped chunks', async () => {
+      const now = new Date().toISOString();
+      const chunk = {
+        chunkIndex: 0,
+        content: 'transactional chunk',
+        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000220',
+        tokenCount: 3,
+        updatedAt: now,
+      };
+
+      const results = await client.transaction(async (tx) =>
+        repository.insertManyWithTx(
+          { query: (sqlText: string, params?: unknown[]) => tx.query(sqlText, params) },
+          [chunk]
+        )
+      );
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.id).toBe(chunk.id);
+      expect(results[0]?.content).toBe('transactional chunk');
+
+      const found = await repository.findById(chunk.id);
+      expect(found?.content).toBe('transactional chunk');
+    });
+
+    it('participates in the caller transaction: a rollback discards the writes', async () => {
+      const now = new Date().toISOString();
+      const chunk = {
+        chunkIndex: 0,
+        content: 'rolled back chunk',
+        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000221',
+        updatedAt: now,
+      };
+
+      await expect(
+        client.transaction(async (tx) => {
+          await repository.insertManyWithTx(
+            { query: (sqlText: string, params?: unknown[]) => tx.query(sqlText, params) },
+            [chunk]
+          );
+          throw new Error('force rollback');
+        })
+      ).rejects.toThrow('force rollback');
+
+      // If the implementation had opened its own connection, the row would
+      // have committed independently and survived the caller's rollback.
+      await expect(repository.findById(chunk.id)).resolves.toBeNull();
+    });
+  });
+
   describe('findByFileRecordId', () => {
     it('should find all chunks for a file record ordered by index', async () => {
       const now = new Date().toISOString();
@@ -630,6 +751,87 @@ describe('DrizzleFileChunkRepository', () => {
       const sqls = querySpy.mock.calls.map((c) => String(c[0]));
       expect(sqls.some((s) => s.includes('COUNT(*)'))).toBe(false);
       expect(txSpy).toHaveBeenCalledTimes(1); // tuned ANN transaction as before
+    });
+  });
+
+  describe('fullTextSearch (BST-989 slice 2 coverage)', () => {
+    it('finds chunks via the BM25/tsvector arm and respects the limit', async () => {
+      const now = new Date().toISOString();
+      await repository.insertMany([
+        {
+          chunkIndex: 0,
+          content: 'the quick brown fox jumps over the lazy dog',
+          createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000230',
+          updatedAt: now,
+        },
+        {
+          chunkIndex: 1,
+          content: 'entirely different subject matter here',
+          createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000231',
+          updatedAt: now,
+        },
+      ]);
+
+      const results = await repository.fullTextSearch('quick fox', { limit: 5 });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.chunk.id).toBe('00000000-0000-0000-0000-000000000230');
+      expect(results[0]?.rank).toBeGreaterThan(0);
+    });
+  });
+
+  describe('clearEmbeddingsForSet (BST-989 slice 2 coverage)', () => {
+    it('nulls embeddings for the target set only and reports the cleared count', async () => {
+      await client.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES ('clear-set-1', 'test::clear', 'clear', 2, 'cosine', '2026-01-01T00:00:00.000Z'),
+                ('keep-set-1', 'test::keep', 'keep', 2, 'cosine', '2026-01-01T00:00:00.000Z')`
+      );
+      const now = new Date().toISOString();
+      await repository.insertMany([
+        {
+          chunkIndex: 0,
+          content: 'clear me',
+          createdAt: now,
+          embedding: [0.1, 0.2],
+          embeddingSetId: 'clear-set-1',
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000240',
+          updatedAt: now,
+        },
+        {
+          chunkIndex: 1,
+          content: 'keep me',
+          createdAt: now,
+          embedding: [0.3, 0.4],
+          embeddingSetId: 'keep-set-1',
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000241',
+          updatedAt: now,
+        },
+      ]);
+
+      const cleared = await repository.clearEmbeddingsForSet('clear-set-1');
+
+      expect(cleared).toBe(1);
+      const clearedRow = await client.query(
+        "SELECT embedding FROM file_chunks WHERE id = '00000000-0000-0000-0000-000000000240'"
+      );
+      const keptRow = await client.query(
+        "SELECT embedding FROM file_chunks WHERE id = '00000000-0000-0000-0000-000000000241'"
+      );
+      expect((clearedRow.rows[0] as { embedding: unknown }).embedding).toBeNull();
+      expect((keptRow.rows[0] as { embedding: unknown }).embedding).not.toBeNull();
+    });
+
+    it('rejects an empty embeddingSetId', async () => {
+      await expect(repository.clearEmbeddingsForSet('')).rejects.toThrow(
+        'embeddingSetId is required'
+      );
     });
   });
 

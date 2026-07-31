@@ -2,10 +2,6 @@ import {
   createGrepSearchService,
   createHybridSearchService,
   type DbHandle,
-  type DrizzleFileChunkRepository,
-  type ElectronFileChunkRepository,
-  FileChunkRepository,
-  type GrepSearchRepository,
   useFileChunkRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
@@ -104,31 +100,6 @@ async function resolveFilesFromDb(
     });
   }
   return resolved;
-}
-
-type PlatformChunkRepository = DrizzleFileChunkRepository | ElectronFileChunkRepository;
-
-/**
- * Resolve the repository the grep service reads candidates from. The dependency
- * is structural (`GrepSearchRepository = { findGrepCandidates }`), so:
- *  - Desktop's ElectronFileChunkRepository implements `findGrepCandidates` against
- *    the real IPC db — prefer it so the platform repo's method is LIVE (not dead).
- *  - Web's DrizzleFileChunkRepository has no grep method, so fall back to the
- *    PGlite-direct FileChunkRepository. Its grep path (findGrepCandidates) touches
- *    ONLY `db.query`, which the DbHandle provides with a PGlite-compatible
- *    signature — so we pass a query-only view of the handle rather than asserting
- *    the handle is a whole PGlite client (the smallest honest seam).
- */
-export function resolveGrepRepository(
-  chunkRepository: PlatformChunkRepository,
-  db: DbHandle
-): GrepSearchRepository {
-  if (typeof (chunkRepository as Partial<GrepSearchRepository>).findGrepCandidates === 'function') {
-    return chunkRepository as GrepSearchRepository;
-  }
-  type FileChunkRepositoryCtorDb = ConstructorParameters<typeof FileChunkRepository>[0];
-  const grepDb = { query: db.query.bind(db) } as unknown as FileChunkRepositoryCtorDb;
-  return new FileChunkRepository(grepDb);
 }
 
 interface WorkspaceSearchRunnerDeps {
@@ -261,13 +232,12 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     if (!(db && chunkRepository)) {
       return null;
     }
-    // Prefer the platform chunk repo when it exposes findGrepCandidates (desktop's
-    // ElectronFileChunkRepository — makes that method LIVE); web's Drizzle repo has
-    // no grep method, so fall back to a query-only PGlite FileChunkRepository.
-    const grepRepository = resolveGrepRepository(chunkRepository, db);
+    // Both platform repos grep natively since BST-989 slice 2 (Electron over
+    // the IPC db, Drizzle through its $client), so the repo passes straight
+    // through — the old raw-repository web fallback is gone.
     return new WorkspaceSearchExecutor({
       embedQuery,
-      grepService: createGrepSearchService(grepRepository),
+      grepService: createGrepSearchService(chunkRepository),
       hybridService: createHybridSearchService(chunkRepository),
       resolveFiles: (ids) => resolveFilesFromDb(db, ids),
     });
