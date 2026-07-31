@@ -4,7 +4,10 @@ import type {
   AssistantRunEventKind,
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import {
+  readAssistantRunEvent,
+  readAssistantRunEventDataPart,
+} from '@brainstrike/assistant-contract';
 import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import {
   AlertCircle,
@@ -56,29 +59,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function isAssistantRunEventStatus(value: unknown): value is AssistantRunEventStatus {
-  return (
-    value === 'cancelled' ||
-    value === 'completed' ||
-    value === 'failed' ||
-    value === 'info' ||
-    value === 'running'
-  );
-}
-
-function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return (
-    typeof value['id'] === 'string' &&
-    typeof value['kind'] === 'string' &&
-    typeof value['label'] === 'string' &&
-    isAssistantRunEventStatus(value['status']) &&
-    typeof value['timestamp'] === 'string'
-  );
-}
-
 /**
  * Run-event rows that must surface even when background activity is hidden
  * (non-Developer detail). A failed or cancelled TURN would otherwise be silently
@@ -108,13 +88,14 @@ function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
  * exemption: they carry no `toolCallId` and are not `tool.*`.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
-  if (!isAssistantRunEvent(data)) {
+  const event = readAssistantRunEvent(data);
+  if (!event) {
     return false;
   }
   return (
-    data.kind === 'run.failed' ||
-    data.kind === 'run.cancelled' ||
-    data.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
+    event.kind === 'run.failed' ||
+    event.kind === 'run.cancelled' ||
+    event.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
   );
 }
 
@@ -131,13 +112,7 @@ export function getMessageParts(message: unknown): readonly unknown[] {
 }
 
 function getRunEventFromPart(part: unknown): AssistantRunEvent | null {
-  if (!isRecord(part)) {
-    return null;
-  }
-  if (part['name'] !== ASSISTANT_RUN_EVENT_DATA_NAME) {
-    return null;
-  }
-  return isAssistantRunEvent(part['data']) ? part['data'] : null;
+  return readAssistantRunEventDataPart(part) ?? null;
 }
 
 function getRunEventsFromMessages(messages: readonly unknown[]): AssistantRunEvent[] {
@@ -553,7 +528,7 @@ export function resolveAssistantRunEventRenderPlan(
   messages: readonly unknown[],
   data: unknown
 ): AssistantRunEventRenderPlan {
-  const event = isAssistantRunEvent(data) ? data : null;
+  const event = readAssistantRunEvent(data) ?? null;
   if (!event) {
     return VISIBLE_ONCE;
   }
@@ -701,7 +676,7 @@ export function AssistantRunTimeline({
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
 
-  const event = isAssistantRunEvent(data) ? data : null;
+  const event = readAssistantRunEvent(data) ?? null;
   const metadataEntries = useMemo(
     () => (event?.metadata ? Object.entries(event.metadata) : []),
     [event]

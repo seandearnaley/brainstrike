@@ -234,3 +234,122 @@ function isPlainRecord(value: unknown): value is Record<string, AssistantRunEven
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
+
+const ASSISTANT_RUN_EVENT_KIND_SET: ReadonlySet<string> = new Set(ASSISTANT_RUN_EVENT_KINDS);
+const ASSISTANT_RUN_EVENT_STATUS_SET: ReadonlySet<string> = new Set(ASSISTANT_RUN_EVENT_STATUSES);
+
+/**
+ * Exact mirror of `sanitizeRunEventJsonValue`'s shape rules (same start depth,
+ * same `> MAX` boundary): every tree the sanitizer can emit passes, including
+ * the `null` leaves it writes one level past the cap. Pinned by the
+ * round-trip test in run-events-inbound-guard.test.ts.
+ */
+function isAssistantRunEventJson(value: unknown, depth: number): value is AssistantRunEventJson {
+  if (depth > MAX_RUN_EVENT_METADATA_DEPTH) {
+    return value === null;
+  }
+  if (value === null) {
+    return true;
+  }
+  const kind = typeof value;
+  if (kind === 'boolean' || kind === 'string') {
+    return true;
+  }
+  if (kind === 'number') {
+    return Number.isFinite(value);
+  }
+  if (Array.isArray(value)) {
+    return value.every((entry) => isAssistantRunEventJson(entry, depth + 1));
+  }
+  if (kind === 'object') {
+    return Object.values(value as Record<string, unknown>).every((entry) =>
+      isAssistantRunEventJson(entry, depth + 1)
+    );
+  }
+  return false;
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalFiniteNumber(value: unknown): value is number | undefined {
+  return value === undefined || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isAssistantRunEventCore(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record['id'] === 'string' &&
+    typeof record['label'] === 'string' &&
+    typeof record['timestamp'] === 'string' &&
+    typeof record['kind'] === 'string' &&
+    ASSISTANT_RUN_EVENT_KIND_SET.has(record['kind']) &&
+    typeof record['status'] === 'string' &&
+    ASSISTANT_RUN_EVENT_STATUS_SET.has(record['status']) &&
+    isOptionalString(record['detail']) &&
+    isOptionalString(record['runId']) &&
+    isOptionalFiniteNumber(record['durationMs']) &&
+    isOptionalFiniteNumber(record['sequence'])
+  );
+}
+
+function isValidRunEventMetadata(metadata: unknown): metadata is AssistantRunEventMetadata {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+    return false;
+  }
+  return isAssistantRunEventJson(metadata, 0);
+}
+
+/**
+ * STRICT inbound wire validity (BST-978 slice 2): required fields present and
+ * typed, `kind`/`status` members of the closed unions, metadata (when
+ * present) a JSON record within the sanitizer's exact depth rules. Use
+ * `readAssistantRunEvent` for consumer narrowing — this predicate rejects an
+ * event outright over a metadata defect, which inbound consumers should not.
+ */
+export function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
+  if (!isAssistantRunEventCore(value)) {
+    return false;
+  }
+  const metadata = value['metadata'];
+  return metadata === undefined || isValidRunEventMetadata(metadata);
+}
+
+/**
+ * Consumer-side inbound narrow, mirroring the OUTBOUND degrade-don't-drop
+ * policy: a core-field defect returns undefined (skip the part, never throw),
+ * but a metadata-only defect keeps the event and drops just the metadata —
+ * the sanitizer never discards an event over its metadata either.
+ */
+export function readAssistantRunEvent(value: unknown): AssistantRunEvent | undefined {
+  if (!isAssistantRunEventCore(value)) {
+    return;
+  }
+  const metadata = value['metadata'];
+  if (metadata === undefined || isValidRunEventMetadata(metadata)) {
+    return value as unknown as AssistantRunEvent;
+  }
+  const { metadata: _dropped, ...withoutMetadata } = value;
+  return withoutMetadata as unknown as AssistantRunEvent;
+}
+
+/**
+ * Narrow an assistant-ui data part to its run event: a record named
+ * `ASSISTANT_RUN_EVENT_DATA_NAME` whose `data` passes `readAssistantRunEvent`
+ * (metadata-degrading, never throwing — a notification trigger must never
+ * crash the panel over a shape mismatch).
+ */
+export function readAssistantRunEventDataPart(part: unknown): AssistantRunEvent | undefined {
+  if (typeof part !== 'object' || part === null || Array.isArray(part)) {
+    return;
+  }
+  const record = part as Record<string, unknown>;
+  if (record['name'] !== ASSISTANT_RUN_EVENT_DATA_NAME) {
+    return;
+  }
+  return readAssistantRunEvent(record['data']);
+}

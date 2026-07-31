@@ -1,14 +1,10 @@
 import { useAuiState } from '@assistant-ui/react';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import { type RunVerdictValue, useRunVerdictContext } from './run-verdict-context';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 /**
  * The runId of THIS message's `run.finished` event, or null. The terminal
@@ -22,12 +18,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function selectFinishedRunId(parts: readonly unknown[]): string | null {
   for (const part of parts) {
-    if (!isRecord(part) || part['name'] !== ASSISTANT_RUN_EVENT_DATA_NAME) {
-      continue;
-    }
-    const data = part['data'];
-    if (isRecord(data) && data['kind'] === 'run.finished' && typeof data['runId'] === 'string') {
-      return data['runId'];
+    const data = readAssistantRunEventDataPart(part);
+    if (data?.kind === 'run.finished' && data.runId !== undefined) {
+      return data.runId;
     }
   }
   return null;

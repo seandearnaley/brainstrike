@@ -1,4 +1,4 @@
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { extractPrimaryArg } from './tool-summaries';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -82,15 +82,11 @@ export function runEventsSpanMs(parts: readonly unknown[]): number | undefined {
   let count = 0;
 
   for (const part of parts) {
-    if (!(isRecord(part) && part['name'] === ASSISTANT_RUN_EVENT_DATA_NAME)) {
+    const data = readAssistantRunEventDataPart(part);
+    if (!data) {
       continue;
     }
-    const data = part['data'];
-    if (!isRecord(data)) {
-      continue;
-    }
-    const timestamp =
-      typeof data['timestamp'] === 'string' ? Date.parse(data['timestamp']) : Number.NaN;
+    const timestamp = Date.parse(data.timestamp);
     if (Number.isNaN(timestamp)) {
       continue;
     }

@@ -1,4 +1,4 @@
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { extractPrimaryArg } from './tool-summaries';
 
 export type SubAgentToolRowStatus = 'error' | 'running' | 'success';
@@ -57,20 +57,16 @@ export function readLiveSubagentToolRows(
 ): SubAgentToolRow[] {
   const byChild = new Map<string, SubAgentToolRow>();
   for (const part of parts) {
-    if (!(isRecord(part) && part['name'] === ASSISTANT_RUN_EVENT_DATA_NAME)) {
+    const data = readAssistantRunEventDataPart(part);
+    if (!data) {
       continue;
     }
-    const data = part['data'];
-    if (!isRecord(data)) {
-      continue;
-    }
-    const status =
-      typeof data['kind'] === 'string' ? SUBAGENT_TOOL_KIND_STATUS[data['kind']] : undefined;
+    const status = SUBAGENT_TOOL_KIND_STATUS[data.kind];
     if (!status) {
       continue;
     }
-    const metadata = data['metadata'];
-    if (!(isRecord(metadata) && metadata['parentToolCallId'] === parentToolCallId)) {
+    const metadata = data.metadata;
+    if (!metadata || metadata['parentToolCallId'] !== parentToolCallId) {
       continue;
     }
     const toolCallId =

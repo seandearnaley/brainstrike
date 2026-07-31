@@ -1,18 +1,15 @@
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import {
+  type AssistantRunEvent,
+  readAssistantRunEventDataPart,
+} from '@brainstrike/assistant-contract';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function runEventTimestamp(data: Record<string, unknown>): number | undefined {
-  const timestamp =
-    typeof data['timestamp'] === 'string' ? Date.parse(data['timestamp']) : Number.NaN;
+function runEventTimestamp(data: AssistantRunEvent): number | undefined {
+  const timestamp = Date.parse(data.timestamp);
   return Number.isNaN(timestamp) ? undefined : timestamp;
 }
 
-function runEventToolCallId(data: Record<string, unknown>): string | undefined {
-  const metadata = data['metadata'];
-  const toolCallId = isRecord(metadata) ? metadata['toolCallId'] : undefined;
+function runEventToolCallId(data: AssistantRunEvent): string | undefined {
+  const toolCallId = data.metadata?.['toolCallId'];
   return typeof toolCallId === 'string' ? toolCallId : undefined;
 }
 
@@ -30,14 +27,11 @@ export function collectToolDurations(parts: readonly unknown[]): Record<string, 
   const durations: Record<string, number> = {};
 
   for (const part of parts) {
-    if (!(isRecord(part) && part['name'] === ASSISTANT_RUN_EVENT_DATA_NAME)) {
+    const data = readAssistantRunEventDataPart(part);
+    if (!data) {
       continue;
     }
-    const data = part['data'];
-    if (!isRecord(data)) {
-      continue;
-    }
-    const kind = data['kind'];
+    const kind = data.kind;
     if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') {
       continue;
     }

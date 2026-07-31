@@ -1,5 +1,5 @@
 import { useAuiState } from '@assistant-ui/react';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { ClipboardCopy, Download } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
@@ -23,12 +23,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 function selectFailedRunId(parts: readonly unknown[]): string | null {
   for (const part of parts) {
-    if (!isRecord(part) || part['name'] !== ASSISTANT_RUN_EVENT_DATA_NAME) {
-      continue;
-    }
-    const data = part['data'];
-    if (isRecord(data) && data['kind'] === 'run.failed' && typeof data['runId'] === 'string') {
-      return data['runId'];
+    const data = readAssistantRunEventDataPart(part);
+    if (data?.kind === 'run.failed' && data.runId !== undefined) {
+      return data.runId;
     }
   }
   return null;

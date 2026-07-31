@@ -58,20 +58,22 @@ describe('AssistantRunTimeline', () => {
   });
 
   it('renders running, failed, cancelled, and informational status labels', () => {
+    // Real kinds from the closed union (BST-978: the inbound guard rejects
+    // fabricated `run.${status}` kinds the old partial check waved through).
     const cases = [
-      ['running', 'Semantic recall'],
-      ['failed', 'Tool failed'],
-      ['cancelled', 'Run cancelled'],
-      ['info', 'Context budget'],
+      ['memory.semantic.started', 'running', 'Semantic recall'],
+      ['tool.failed', 'failed', 'Tool failed'],
+      ['run.cancelled', 'cancelled', 'Run cancelled'],
+      ['context.budget', 'info', 'Context budget'],
     ] as const;
 
     wrap(
-      cases.map(([status, label], index) => (
+      cases.map(([kind, status, label], index) => (
         <AssistantRunTimeline
           data={{
             ...baseEvent,
             id: `event-${status}`,
-            kind: `run.${status}`,
+            kind,
             label,
             sequence: index + 2,
             status,
