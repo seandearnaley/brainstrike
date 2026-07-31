@@ -74,11 +74,14 @@ describe('performance benchmark measurement contracts', () => {
 
     expect(validation).toContain('measureLocatorInteractionFrames');
     expect(validation).toContain('name: /^Select (test1\\.js|test2\\.js)$/');
-    expect(validation).toContain('fileCheckboxes.first()).toBeVisible');
-    // BST-959: the 2,000ms gate is preserved from the wall-clock era until a
-    // controlled baseline proves a different budget — and the measured
-    // quantity must stay browser-side.
-    expect(validation).toContain('expect(selectionMetrics.totalDurationMs).toBeLessThan(2000)');
+    // BST-959: the fixture is fully known, so the checkbox count is asserted
+    // (a partially rendered tree fails instead of shrinking the measured
+    // set), the quantity is browser-side, and the budget is the sibling
+    // benchmark's CI-proven CHECKBOX_FRAME threshold — not the legacy
+    // wall-clock 2,000ms constant, which is vacuous over this quantity.
+    expect(validation).toContain('expect(fileCheckboxes).toHaveCount(2)');
+    expect(validation).toContain('PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS');
+    expect(validation).not.toContain('toBeLessThan(2000)');
     expect(validation).not.toContain('Date.now()');
     expect(validation).not.toContain('waitForTimeout(');
     expect(validation).not.toContain('__renderCounter');

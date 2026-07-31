@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 import { measureLocatorInteractionFrames } from '../utils/performance-helpers';
 
 test.describe('Performance Validation - Simple Tests', () => {
@@ -34,10 +35,12 @@ test.describe('Performance Validation - Simple Tests', () => {
     const fileCheckboxes = explorer.fileTree.getByRole('checkbox', {
       name: /^Select (test1\.js|test2\.js)$/,
     });
-    await expect(fileCheckboxes.first()).toBeVisible();
-    const checkboxCount = await fileCheckboxes.count();
+    // The fixture is fully known (2 files at root), so assert the count
+    // instead of deriving it — a partially rendered tree must fail, not
+    // silently shrink the measured set.
+    await expect(fileCheckboxes).toHaveCount(2);
     const selectionMetrics = await measureLocatorInteractionFrames(fileCheckboxes, {
-      count: checkboxCount,
+      count: 2,
       kind: 'click-each',
     });
 
@@ -48,9 +51,14 @@ test.describe('Performance Validation - Simple Tests', () => {
     // The shallow comparison fix should make this much faster
     // Before fix: Every selection caused all components to re-render
     // After fix: Only relevant components re-render
-    // Gate preserved from the wall-clock era (BST-959 disposition): keep
-    // 2,000ms until a controlled baseline proves a different budget.
-    expect(selectionMetrics.totalDurationMs).toBeLessThan(2000);
+    // Budget: the sibling benchmark's CI-proven threshold for this exact
+    // quantity (same helper, same click-each interaction) — the controlled
+    // baseline BST-959's disposition required before retiring the legacy
+    // 2,000ms wall-clock constant, which would be vacuous over a
+    // browser-side total that measures ~62ms.
+    expect(selectionMetrics.totalDurationMs).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS
+    );
 
     // Test memory usage doesn't grow excessively
     const memoryUsage = await page.evaluate(() => {
