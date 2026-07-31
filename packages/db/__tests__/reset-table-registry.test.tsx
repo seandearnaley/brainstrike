@@ -79,15 +79,19 @@ describe('reset-table registry', () => {
     expect(auditResetTableCoverage([...tables]).doubleRegistered).toEqual([]);
   });
 
-  // Control tests: an instrument that cannot fail is not evidence. Prove the
-  // audit flags fabricated drift before trusting its green in the integration
-  // sweep.
+  // Control tests: an instrument that cannot fail is not evidence. Prove BOTH
+  // halves of the audit flag fabricated drift before trusting its green in the
+  // integration sweep — `doubleRegistered` needs injected ledgers, because
+  // against the real (disjoint) constants no input could ever trip it.
   it('audit flags an unregistered table and a double-registered name', () => {
     expect(auditResetTableCoverage(['brand_new_unregistered_table']).unregistered).toEqual([
       'brand_new_unregistered_table',
     ]);
     expect(auditResetTableCoverage([...getResetTables()]).unregistered).toEqual([]);
     expect(auditResetTableCoverage(Object.keys(RESET_EXCLUDED_TABLES)).unregistered).toEqual([]);
+    expect(
+      auditResetTableCoverage([], { excluded: ['roots'], reset: ['roots'] }).doubleRegistered
+    ).toEqual(['roots']);
   });
 
   describe('renderer call-site parity', () => {

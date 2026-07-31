@@ -89,8 +89,14 @@ interface PGliteLiveQuerySurface {
  * legitimately absent), so they never go through the probe helper. A closed
  * literal union on purpose — with `to_regclass` a stale name is a permanent
  * silent skip, so `string` is forbidden here (platform-contracts).
+ *
+ * `RegisteredBareDeleted` closes the fail-open edge of `Exclude`: if either
+ * name ever left the registry, a bare `Exclude` would silently stop removing
+ * it, whereas this constrained alias makes it a compile error.
  */
-type OptionalRelationTable = Exclude<ResetTable, 'file_chunks' | 'file_records'>;
+type RegisteredBareDeleted<T extends ResetTable> = T;
+type BareDeletedTable = RegisteredBareDeleted<'file_chunks' | 'file_records'>;
+type OptionalRelationTable = Exclude<ResetTable, BareDeletedTable>;
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();

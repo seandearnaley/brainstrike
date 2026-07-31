@@ -173,16 +173,21 @@ export interface ResetTableCoverageAudit {
 }
 
 /**
- * Pure audit over a swept table list, so the integration test can control-test
- * the instrument with fabricated inputs (an audit that cannot fail is not
- * evidence). `existingTables` should be every BASE TABLE in the `public`
- * schema of a fully migrated database.
+ * Pure audit over a swept table list, so tests can control-test the instrument
+ * with fabricated inputs (an audit that cannot fail is not evidence). The
+ * `ledgers` parameter exists for exactly that reason: `doubleRegistered` is a
+ * function of the two module constants, so without injection no fabricated
+ * input could ever make it non-empty while the real ledgers are disjoint —
+ * that half of the instrument would be unevidenced (review #2155). Production
+ * call sites omit `ledgers`. `existingTables` should be every BASE TABLE in
+ * the `public` schema of a fully migrated database.
  */
 export function auditResetTableCoverage(
-  existingTables: readonly string[]
+  existingTables: readonly string[],
+  ledgers: { excluded?: readonly string[]; reset?: readonly string[] } = {}
 ): ResetTableCoverageAudit {
-  const resetSet = new Set<string>(getResetTables());
-  const excluded = new Set<string>(Object.keys(RESET_EXCLUDED_TABLES));
+  const resetSet = new Set<string>(ledgers.reset ?? getResetTables());
+  const excluded = new Set<string>(ledgers.excluded ?? Object.keys(RESET_EXCLUDED_TABLES));
   const unregistered = existingTables.filter((name) => !(resetSet.has(name) || excluded.has(name)));
   const doubleRegistered = [...resetSet].filter((name) => excluded.has(name));
   return { doubleRegistered, unregistered };

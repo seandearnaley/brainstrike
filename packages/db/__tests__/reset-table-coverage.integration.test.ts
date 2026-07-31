@@ -17,6 +17,7 @@ import {
   auditResetTableCoverage,
   getMastraResetTables,
   getResetTables,
+  RESET_EXCLUDED_TABLES,
 } from '../src/reset-table-registry';
 import { createMigratedTestDb } from './helpers/migrated-test-db';
 
@@ -65,6 +66,47 @@ describe('reset-table coverage (real migrated database)', () => {
         continue;
       }
       expect(existing.has(table), `${table} missing from the migrated database`).toBe(true);
+    }
+  });
+
+  // The exclusion ledger's symmetric rot hazard (review #2155): several
+  // entries survive reset ONLY because of a claimed `ON DELETE CASCADE`, and
+  // prose cannot notice a migration dropping or re-creating that FK without
+  // cascade — the table would stay excluded-with-reason, the sweep would stay
+  // green, and the rows would survive reset (BST-862's shape, one indirection
+  // over). So the claim is verified against the live catalog: every
+  // cascade-justified exclusion that exists in a migrated database must have
+  // at least one CASCADE foreign key. Bootstrap-only DDL
+  // (`brainstrike_assistant_thread_runs`/`run_events`) is absent here and
+  // stays covered by the contract doc's move-into-registry instruction.
+  it('every cascade-justified exclusion still has its cascading FK', async () => {
+    const result = await db.query<{ child: string }>(
+      `SELECT DISTINCT tc.table_name AS child
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.referential_constraints rc
+           ON rc.constraint_name = tc.constraint_name
+          AND rc.constraint_schema = tc.constraint_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY' AND rc.delete_rule = 'CASCADE'`
+    );
+    const cascading = new Set(result.rows.map((row) => row.child));
+    // Control: the query shape must actually see CASCADE FKs, or every
+    // assertion below is vacuously green.
+    expect(cascading.size).toBeGreaterThan(0);
+
+    const existing = new Set(await sweepPublicBaseTables());
+    const cascadeJustified = Object.entries(RESET_EXCLUDED_TABLES)
+      .filter(([, reason]) => reason.includes('ON DELETE CASCADE'))
+      .map(([table]) => table);
+    expect(cascadeJustified.length).toBeGreaterThan(0);
+    for (const table of cascadeJustified) {
+      if (!existing.has(table)) {
+        continue;
+      }
+      expect(
+        cascading.has(table),
+        `${table} is excluded as cascade-covered but has no ON DELETE CASCADE foreign key — ` +
+          'either restore the FK or move the table into the reset set.'
+      ).toBe(true);
     }
   });
 });
