@@ -47,7 +47,7 @@ const {
   }),
 }));
 
-vi.mock('@brainstrike/agent', () => {
+vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
   class StubLocalRuntimeDiscoveryService {
     probeRuntime = probeRuntimeMock;
   }

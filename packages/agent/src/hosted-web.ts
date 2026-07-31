@@ -6,7 +6,7 @@
  * Vercel traces every reachable package dependency into each function.
  */
 
-export { AssistantAttachmentValidationError } from '@brainstrike/assistant-contract';
+export { AssistantAttachmentValidationError } from '@brainstrike/assistant-contract/assistant-attachments';
 export {
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
   type RuntimeAssistantMemorySettings,

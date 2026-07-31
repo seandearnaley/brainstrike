@@ -2,6 +2,12 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import {
+  assertSafeBearerToken,
+  buildRuntimeEndpoint,
+  type LocalRuntimeEndpointConfig,
+  resolveRuntimeBaseUrl,
+} from '@brainstrike/assistant-contract/local-runtime';
+import {
   type MastraModelConfig,
   ModelRouterLanguageModel,
   type OpenAICompatibleConfig,
@@ -12,12 +18,6 @@ import type { RuntimeData } from '../types';
 import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
-import { resolveRuntimeBaseUrl } from './local-runtime-discovery';
-import {
-  assertSafeBearerToken,
-  buildRuntimeEndpoint,
-  type LocalRuntimeEndpointConfig,
-} from './local-runtime-utils';
 import {
   isSupportedProvider,
   listProviders,

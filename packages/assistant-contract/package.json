@@ -69,6 +69,11 @@
       "import": "./dist/context-packer.js",
       "require": "./dist/context-packer.js"
     },
+    "./assistant-attachments": {
+      "types": "./dist/assistant-attachments.d.ts",
+      "import": "./dist/assistant-attachments.js",
+      "require": "./dist/assistant-attachments.js"
+    },
     "./local-runtime": {
       "types": "./dist/local-runtime.d.ts",
       "import": "./dist/local-runtime.js",
