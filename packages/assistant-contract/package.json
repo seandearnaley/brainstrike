@@ -89,6 +89,11 @@
       "import": "./dist/personas.js",
       "require": "./dist/personas.js"
     },
+    "./provider-key-resolution": {
+      "types": "./dist/provider-key-resolution.d.ts",
+      "import": "./dist/provider-key-resolution.js",
+      "require": "./dist/provider-key-resolution.js"
+    },
     "./provider-metadata": {
       "types": "./dist/provider-metadata.d.ts",
       "import": "./dist/provider-metadata.js",

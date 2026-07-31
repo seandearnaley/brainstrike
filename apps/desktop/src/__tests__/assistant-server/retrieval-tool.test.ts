@@ -317,8 +317,13 @@ describe('retrieval-tool', () => {
     expect(embedMock).not.toHaveBeenCalled();
   });
 
-  it('uses an environment embedding key when the stored key is unreadable', async () => {
-    getKeyMock.mockRejectedValueOnce(new Error('stored embedding key is unreadable'));
+  it('uses the environment embedding key without consulting the secret store', async () => {
+    // BST-979 env-authoritative order: when an environment key exists the
+    // keychain is never read, so an unreadable stored key cannot even matter.
+    // (The old keychain-first version of this test primed a RejectedValueOnce
+    // on getKey that the env-first order leaves unconsumed — a leak that
+    // poisoned later tests.)
+    getKeyMock.mockClear();
     resolveHostedProviderApiKeyMock.mockResolvedValueOnce('environment-key');
 
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
@@ -328,6 +333,7 @@ describe('retrieval-tool', () => {
 
     expect(result.embeddingSetId).toBe('set-1');
     expect(embedMock).toHaveBeenCalledOnce();
+    expect(getKeyMock).not.toHaveBeenCalled();
   });
 
   it('uses the workspace index embedding set when no explicit or runtime set is provided', async () => {

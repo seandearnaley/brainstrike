@@ -110,7 +110,7 @@ describe('api-key-resolver', () => {
       expect(result).toBe('secret-api-key');
     });
 
-    it('falls back to process.env when secrets API returns null', async () => {
+    it('uses process.env without consulting secrets when an env key exists (BST-979)', async () => {
       const mockGetKey = vi.fn().mockResolvedValue(null);
 
       globalThis.window = {
@@ -123,25 +123,23 @@ describe('api-key-resolver', () => {
 
       const result = await resolveHostedProviderApiKey('openai');
 
-      expect(mockGetKey).toHaveBeenCalledWith('openai');
       expect(result).toBe('process-env-key');
+      expect(mockGetKey).not.toHaveBeenCalled();
     });
 
-    it('falls back to process.env when secrets API throws', async () => {
+    it('falls back to secrets when no env key exists, tolerating a throwing bridge', async () => {
       const mockGetKey = vi.fn().mockRejectedValue(new Error('Secrets API error'));
 
       globalThis.window = {
         secrets: { getKey: mockGetKey },
       } as unknown as Window & typeof globalThis;
 
-      globalThis.process = {
-        env: { OPENAI_API_KEY: 'process-env-key' },
-      } as unknown as NodeJS.Process;
+      globalThis.process = { env: {} } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
       expect(mockGetKey).toHaveBeenCalledWith('openai');
-      expect(result).toBe('process-env-key');
+      expect(result).toBeUndefined();
     });
 
     it('returns undefined when both secrets and process.env are unavailable', async () => {
@@ -380,7 +378,7 @@ describe('api-key-resolver', () => {
   });
 
   describe('priority order across sources', () => {
-    it('prefers secrets API over process.env', async () => {
+    it('prefers process.env over the secrets API (BST-979 env-authoritative order)', async () => {
       const mockGetKey = vi.fn().mockResolvedValue('secrets-key');
 
       globalThis.window = {
@@ -393,7 +391,8 @@ describe('api-key-resolver', () => {
 
       const result = await resolveHostedProviderApiKey('openai');
 
-      expect(result).toBe('secrets-key');
+      expect(result).toBe('process-key');
+      expect(mockGetKey).not.toHaveBeenCalled();
     });
 
     it('prefers process.env when available', async () => {

@@ -1,3 +1,4 @@
+import { SECRETS_CHANGED_EVENT_NAME } from '@brainstrike/assistant-contract/provider-key-resolution';
 import { create } from 'zustand';
 
 /**
@@ -18,10 +19,17 @@ interface SecretsState {
 }
 
 export const useSecretsStore = create<SecretsState>()((set) => ({
-  notifySecretsChanged: () =>
+  notifySecretsChanged: () => {
     set((state) => ({
       secretsVersion: state.secretsVersion + 1,
-    })),
+    }));
+    // Cross-domain cache invalidation (BST-979): key caches (e.g. the
+    // embeddings resolver, indexing domain) listen for this DOM event —
+    // neither package may import the other, both may import the contract.
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new Event(SECRETS_CHANGED_EVENT_NAME));
+    }
+  },
   secretsVersion: 0,
 }));
 
