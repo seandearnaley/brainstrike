@@ -472,12 +472,15 @@ export function createEmbeddingCacheRepository(
   // ElectronDatabaseAPI's optional `transaction` member invites a future
   // preload to add one, which would otherwise flip desktop into
   // drizzle-over-IPC far from the change that caused it (review #2166).
+  // The bridge returns EARLY, before any Drizzle branch: createDbHandle
+  // unconditionally installs `.raw` (the executor — i.e. the bridge itself),
+  // so a mere `!isIpcBridge` guard on the first branch would let
+  // extractPGlite unwrap the same bridge below (review #2166 round 3).
   const isIpcBridge = typeof surface.runTransaction === 'function';
-  if (
-    !isIpcBridge &&
-    typeof surface.query === 'function' &&
-    typeof surface.transaction === 'function'
-  ) {
+  if (isIpcBridge && typeof surface.query === 'function') {
+    return new EmbeddingCacheRepository(db, options);
+  }
+  if (typeof surface.query === 'function' && typeof surface.transaction === 'function') {
     return new DrizzleEmbeddingCacheRepository(
       drizzle(db as unknown as Parameters<typeof drizzle>[0]),
       options

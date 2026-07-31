@@ -407,6 +407,42 @@ describe('DrizzleEmbeddingCacheRepository promotion parity (BST-989)', () => {
     }
   });
 
+  it('evicts oldest entries in a single atomic statement', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const queries: string[] = [];
+      const real = db as unknown as {
+        exec: (...a: unknown[]) => unknown;
+        query: (...a: unknown[]) => unknown;
+        transaction: (...a: unknown[]) => unknown;
+      };
+      const countingHandle = {
+        exec: (...args: unknown[]) => real.exec(...args),
+        query: (...args: unknown[]) => {
+          queries.push(String(args[0]));
+          return real.query(...args);
+        },
+        transaction: (...args: unknown[]) => real.transaction(...args),
+      };
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(countingHandle as never) as never);
+      await repo.setBatch([
+        { contentHash: 'old', dimensions: 3, embedding: [1, 2, 3], modelKey: 'model-a' },
+        { contentHash: 'new', dimensions: 3, embedding: [4, 5, 6], modelKey: 'model-a' },
+      ]);
+      queries.length = 0;
+      const evicted = await repo.evictOldest(1);
+      expect(evicted).toBe(1);
+      // Selection AND deletion in ONE statement (raw-repo parity, review
+      // #2166 round 3): two awaits opened a window where a concurrent lookup
+      // could bump a selected victim's accessed_at and still lose it.
+      expect(queries).toHaveLength(1);
+      expect(queries[0]).toContain('WITH oldest AS');
+      expect(queries[0]).toContain('DELETE FROM');
+    } finally {
+      await db.close();
+    }
+  });
+
   it('rejects invalid dimensions and non-finite values with named errors', async () => {
     const db = await createMigratedTestDb();
     try {
@@ -621,13 +657,20 @@ describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
       // bridge), not the absence of `transaction`: ElectronDatabaseAPI's
       // optional callback-transaction member invites a future preload to add
       // one, and that must still not flip desktop into drizzle-over-IPC
-      // (review #2166).
-      const futureBridge = {
-        query: (sql: string, params?: unknown[]) => real.query(sql, params),
+      // (review #2166). Driven through the REAL createDbHandle because it
+      // unconditionally installs `.raw` (= the bridge executor) — a marker
+      // guard on the direct branch alone would be bypassed by extractPGlite
+      // unwrapping that `.raw` (review #2166 round 3).
+      const { createDbHandle } = await import('../src/db-provider.js');
+      const futureBridgeExecutor = {
+        exec: async (sql: string) => (db as unknown as { exec: (s: string) => unknown }).exec(sql),
+        query: async (sql: string, params?: unknown[]) => real.query(sql, params),
         runTransaction: async () => ({ rows: [] }),
-        transaction: async <T>(fn: (tx: unknown) => Promise<T>) => fn(futureBridge),
+        transaction: async <T>(fn: (tx: unknown) => Promise<T>) => fn(futureBridgeExecutor),
       };
-      const futureRepo = createEmbeddingCacheRepository(futureBridge as never);
+      const futureHandle = createDbHandle(futureBridgeExecutor as never);
+      expect((futureHandle as { raw?: unknown }).raw).toBe(futureBridgeExecutor);
+      const futureRepo = createEmbeddingCacheRepository(futureHandle as never);
       expect(futureRepo).toBeInstanceOf(EmbeddingCacheRepository);
       expect(futureRepo).not.toBeInstanceOf(DrizzleEmbeddingCacheRepository);
     } finally {

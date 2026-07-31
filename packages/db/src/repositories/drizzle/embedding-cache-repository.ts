@@ -452,31 +452,29 @@ export class DrizzleEmbeddingCacheRepository {
       return 0;
     }
 
-    // Find oldest entries by accessedAt
-    const oldestIds = await this.db
-      .select({ id: embeddingCache.id })
-      .from(embeddingCache)
-      .orderBy(asc(embeddingCache.accessedAt))
-      .limit(count);
-
-    if (oldestIds.length === 0) {
-      return 0;
-    }
-
-    const ids = oldestIds.map((row) => row.id);
-
-    // Delete the oldest entries using Drizzle's inArray for type-safe queries
-    const deleted = await this.db
-      .delete(embeddingCache)
-      .where(inArray(embeddingCache.id, ids))
-      .returning({ id: embeddingCache.id });
+    // One CTE statement selects AND deletes the victims (raw-repo parity,
+    // review #2166 round 3): separate select/delete awaits opened a window
+    // where a concurrent lookup could bump accessed_at on a selected victim
+    // and still lose it. A single statement also keeps eviction one round
+    // trip on scheduled handles.
+    const deleted = await this.db.execute<{ id: string }>(sql`
+      WITH oldest AS (
+        SELECT ${embeddingCache.id} AS id
+        FROM ${embeddingCache}
+        ORDER BY ${embeddingCache.accessedAt} ASC
+        LIMIT ${count}
+      )
+      DELETE FROM ${embeddingCache}
+      WHERE ${embeddingCache.id} IN (SELECT id FROM oldest)
+      RETURNING ${embeddingCache.id} AS id
+    `);
 
     this.logger.info('Evicted oldest cache entries', {
-      evicted: deleted.length,
+      evicted: deleted.rows.length,
       requested: count,
     });
 
-    return deleted.length;
+    return deleted.rows.length;
   }
 
   /**
