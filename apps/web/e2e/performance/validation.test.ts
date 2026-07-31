@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
+import { measureLocatorInteractionFrames } from '../utils/performance-helpers';
 
 test.describe('Performance Validation - Simple Tests', () => {
   test('validate shallow comparison fix works', async ({ page }) => {
@@ -21,52 +23,42 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     await home.goto();
 
-    // Track render count to validate shallow comparison fix
-    await page.evaluate(() => {
-      // Simple render tracking
-      (window as any).__renderCounter = {
-        count: 0,
-        getCount: () => (window as any).__renderCounter.count,
-        increment: () => (window as any).__renderCounter.count++,
-        reset: () => ((window as any).__renderCounter.count = 0),
-      };
-    });
-
     // Load the file tree
     await explorer.selectRoot();
 
-    // Wait for tree to load with initial UI state
-    await page.waitForTimeout(1000);
+    // Measure at the browser interaction-to-paint boundary (BST-661/BST-959):
+    // Playwright's own click wall-clock includes driver transport and
+    // actionability polling, which is CI-host noise, not renderer work.
+    // FILE checkboxes only, like the baseline benchmark: the folder checkbox
+    // re-renders the row on click and detaches its element, which the
+    // helper's detach guard rejects by design.
+    const fileCheckboxes = explorer.fileTree.getByRole('checkbox', {
+      name: /^Select (test1\.js|test2\.js)$/,
+    });
+    // The fixture is fully known (2 files at root), so assert the count
+    // instead of deriving it — a partially rendered tree must fail, not
+    // silently shrink the measured set.
+    await expect(fileCheckboxes).toHaveCount(2);
+    const selectionMetrics = await measureLocatorInteractionFrames(fileCheckboxes, {
+      count: 2,
+      kind: 'click-each',
+    });
 
-    // Reset render counter
-    await page.evaluate(() => (window as any).__renderCounter?.reset());
-
-    // Perform actions that should NOT cause excessive re-renders due to shallow comparison fix
-    const startTime = Date.now();
-
-    // Get file checkboxes and select them
-    const fileCheckboxes = explorer.fileTree.getByRole('checkbox');
-    const checkboxCount = Math.min(3, await fileCheckboxes.count());
-
-    console.log(`Found ${checkboxCount} file checkboxes`);
-
-    if (checkboxCount > 0) {
-      // Select files one by one
-      for (let i = 0; i < checkboxCount; i++) {
-        await fileCheckboxes.nth(i).click();
-        await page.waitForTimeout(100); // Small delay to see effect
-      }
-    }
-
-    const endTime = Date.now();
-    const totalTime = endTime - startTime;
-
-    console.log(`File selection took: ${totalTime}ms`);
+    console.log(
+      `File selection interaction-to-paint total: ${selectionMetrics.totalDurationMs.toFixed(2)}ms`
+    );
 
     // The shallow comparison fix should make this much faster
     // Before fix: Every selection caused all components to re-render
     // After fix: Only relevant components re-render
-    expect(totalTime).toBeLessThan(2000); // Should be under 2 seconds for 3 files
+    // Budget: the sibling benchmark's CI-proven threshold for this exact
+    // quantity (same helper, same click-each interaction) — the controlled
+    // baseline BST-959's disposition required before retiring the legacy
+    // 2,000ms wall-clock constant, which would be vacuous over a
+    // browser-side total that measures ~62ms.
+    expect(selectionMetrics.totalDurationMs).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS
+    );
 
     // Test memory usage doesn't grow excessively
     const memoryUsage = await page.evaluate(() => {
