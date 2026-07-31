@@ -24,10 +24,10 @@ test.describe('Assistant panel interactions (assistant-ui) @stateful @web-assist
     await expect(viewport).toBeVisible();
 
     // Start a prompt and then stop mid-stream
-    const sendBtn = page.getByRole('button', { name: 'Send' });
+    const sendBtn = page.getByRole('button', { exact: true, name: 'Send' });
     await page.locator('#assistant-input').fill('This is a web prompt to test stop and retry.');
     await sendBtn.click();
-    const stopBtn = page.getByRole('button', { name: 'Stop' });
+    const stopBtn = page.getByRole('button', { exact: true, name: 'Stop' });
     await expect(stopBtn).toBeVisible();
     let stopWasEnabled = false;
     // Try to observe Stop becoming enabled during stream
@@ -53,7 +53,7 @@ test.describe('Assistant panel interactions (assistant-ui) @stateful @web-assist
     await sendBtn.click();
     // Wait briefly and then stop; only smoke-check that Stop becomes clickable and returns to Send
     await page.waitForTimeout(600);
-    const stopBtn2 = page.getByRole('button', { name: 'Stop' });
+    const stopBtn2 = page.getByRole('button', { exact: true, name: 'Stop' });
     if (await stopBtn2.isEnabled()) {
       await stopBtn2.click();
       await expect(sendBtn).toBeVisible({ timeout: 15_000 });

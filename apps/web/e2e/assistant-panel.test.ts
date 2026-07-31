@@ -21,7 +21,7 @@ test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-s
     await expect(viewport).toBeVisible();
 
     await page.locator('#assistant-input').fill('hello world');
-    await page.getByRole('button', { name: 'Send' }).click();
+    await page.getByRole('button', { exact: true, name: 'Send' }).click();
 
     await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
       timeout: 10_000,
