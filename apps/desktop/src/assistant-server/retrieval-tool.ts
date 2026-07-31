@@ -15,6 +15,7 @@ import {
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
+import { resolveHostedProviderKey } from '@brainstrike/assistant-contract/provider-key-resolution';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
@@ -263,15 +264,19 @@ async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<str
     return fromEnvironment;
   }
   const secrets = getSecretsService();
-  try {
-    return normalizeOptionalText((await secrets.getKey(provider)) ?? undefined);
-  } catch (error) {
+  const stored = await resolveHostedProviderKey({
+    envKeyNames: [],
+    envSources: [],
+    readSecret: () => secrets.getKey(provider),
+  });
+  if (stored.secretReadError) {
     logger.warn('Stored embedding API key is unreadable and no env key exists', {
-      error,
+      error: stored.secretReadError,
       provider,
     });
-    throw error;
+    throw stored.secretReadError;
   }
+  return stored.key;
 }
 
 function createHostedProvider(

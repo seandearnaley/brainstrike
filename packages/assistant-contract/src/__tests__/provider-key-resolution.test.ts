@@ -39,7 +39,7 @@ describe('resolveHostedProviderKey', () => {
       envSources: [{}, undefined],
       readSecret: () => Promise.resolve(' stored-key '),
     });
-    expect(result).toEqual({ key: 'stored-key', source: 'secrets' });
+    expect(result).toEqual({ key: 'stored-key', source: 'stored' });
   });
 
   it('captures a secret-store failure instead of throwing (BST-574 escape hatch)', async () => {
@@ -64,7 +64,11 @@ describe('resolveHostedProviderKey', () => {
     expect(readSecret).not.toHaveBeenCalled();
   });
 
-  it('treats a throwing env source as absent and continues to the next source', async () => {
+  it('surfaces a throwing env source instead of silently falling back', async () => {
+    // NO SILENT FALLBACK: an authoritative source that throws must not be
+    // treated as absent — that could authenticate with a stale lower-priority
+    // credential. Capability absence is the CALLER's concern when obtaining
+    // sources.
     const hostile = new Proxy(
       {},
       {
@@ -73,11 +77,12 @@ describe('resolveHostedProviderKey', () => {
         },
       }
     ) as Record<string, string | undefined>;
-    const result = await resolveHostedProviderKey({
-      envKeyNames: names,
-      envSources: [hostile, { A_KEY: 'good-key' }],
-    });
-    expect(result).toEqual({ key: 'good-key', source: 'env' });
+    await expect(
+      resolveHostedProviderKey({
+        envKeyNames: names,
+        envSources: [hostile, { A_KEY: 'good-key' }],
+      })
+    ).rejects.toThrow('hostile env getter');
   });
 
   it('resolves empty when nothing matches and no secret store exists', async () => {

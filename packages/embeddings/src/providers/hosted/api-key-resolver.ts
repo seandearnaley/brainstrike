@@ -36,6 +36,32 @@ function envKeyNamesWithViteVariants(provider: HostedProvider): readonly string[
   return [...names, ...names.map((name) => `VITE_${name}`)];
 }
 
+/**
+ * Snapshot the requested names out of a live env map. Capability handling
+ * lives HERE, at source acquisition (per the core's contract): renderer env
+ * maps can be delegating proxies (vitest's import.meta.env reads through to
+ * process.env and throws when process is absent), and a name that cannot be
+ * read from such a proxy is a capability absence for that name — the core
+ * itself never swallows a read.
+ */
+function snapshotEnvSource(
+  source: Record<string, string | undefined> | undefined,
+  names: readonly string[]
+): Record<string, string | undefined> | undefined {
+  if (!source) {
+    return;
+  }
+  const snapshot: Record<string, string | undefined> = {};
+  for (const name of names) {
+    try {
+      snapshot[name] = source[name];
+    } catch {
+      // Unreadable name on a proxy source: absent for this name.
+    }
+  }
+  return snapshot;
+}
+
 function readProcessEnv(): Record<string, string | undefined> | undefined {
   try {
     return typeof process === 'undefined' ? undefined : process?.env;
@@ -83,16 +109,24 @@ async function readWindowSecret(provider: HostedProvider): Promise<string | null
  */
 const apiKeyCache = new Map<HostedProvider, string>();
 
-let cacheInvalidationWired = false;
+// Latch by window IDENTITY, not a boolean: this module's own suite swaps
+// `globalThis.window` per test, and a boolean latch would silently disable
+// invalidation for every window after the first.
+let wiredWindow: unknown = null;
 function wireCacheInvalidation(): void {
-  if (cacheInvalidationWired || typeof window === 'undefined') {
+  if (typeof window === 'undefined' || wiredWindow === window) {
     return;
   }
-  // Capability guard: test doubles stub `window` as a bare object.
+  // Capability guard: test doubles stub `window` as a bare object. NOTE the
+  // windowless case is load-bearing in Electron MAIN (desktop retrieval's
+  // env leg): there the cache can only ever hold process-env reads, which
+  // are stable after main-bootstrap's env-file load — if this resolver ever
+  // gains a non-env source reachable from main, that invariant breaks and
+  // main needs its own invalidation path.
   if (typeof window.addEventListener !== 'function') {
     return;
   }
-  cacheInvalidationWired = true;
+  wiredWindow = window;
   window.addEventListener(SECRETS_CHANGED_EVENT_NAME, () => {
     apiKeyCache.clear();
   });
@@ -107,9 +141,13 @@ export async function resolveHostedProviderApiKey(
     return cached;
   }
 
+  const envKeyNames = envKeyNamesWithViteVariants(provider);
   const resolution = await resolveHostedProviderKey({
-    envKeyNames: envKeyNamesWithViteVariants(provider),
-    envSources: [readProcessEnv(), readImportMetaEnv()],
+    envKeyNames,
+    envSources: [
+      snapshotEnvSource(readProcessEnv(), envKeyNames),
+      snapshotEnvSource(readImportMetaEnv(), envKeyNames),
+    ],
     readSecret: () => readWindowSecret(provider),
   });
   if (resolution.key) {

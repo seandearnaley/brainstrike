@@ -30,7 +30,7 @@ export interface HostedKeyResolution {
    */
   readonly secretReadError?: unknown;
   /** Where the winning key came from; absent when no key was found. */
-  readonly source?: 'env' | 'secrets';
+  readonly source?: 'env' | 'stored';
 }
 
 export interface ResolveHostedProviderKeyOptions {
@@ -60,16 +60,12 @@ export async function resolveHostedProviderKey(
       continue;
     }
     for (const name of options.envKeyNames) {
-      // Env maps are capability surfaces (import.meta.env proxies, test
-      // doubles); a throwing read means "this source is absent", matching
-      // every prior resolver's behavior — never a resolution failure.
-      let raw: unknown;
-      try {
-        raw = source[name];
-      } catch {
-        break;
-      }
-      const key = normalizeKey(raw);
+      // NO SILENT FALLBACK: a throwing read on an obtained env map surfaces
+      // to the caller rather than silently authenticating with a
+      // lower-priority credential. Capability handling (a source that cannot
+      // be OBTAINED at all) belongs to the caller's source acquisition, not
+      // here.
+      const key = normalizeKey(source[name]);
       if (key) {
         return { key, source: 'env' };
       }
@@ -81,7 +77,7 @@ export async function resolveHostedProviderKey(
   }
   try {
     const key = normalizeKey(await options.readSecret());
-    return key ? { key, source: 'secrets' } : {};
+    return key ? { key, source: 'stored' } : {};
   } catch (error) {
     return { secretReadError: error };
   }

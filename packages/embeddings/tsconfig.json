@@ -15,6 +15,12 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@brainstrike/assistant-contract": [
+        "../assistant-contract/dist/index.d.ts"
+      ],
+      "@brainstrike/assistant-contract/*": [
+        "../assistant-contract/dist/*.d.ts"
       ]
     },
     "skipLibCheck": true,
@@ -47,6 +53,9 @@
     },
     {
       "path": "../embedding-worker"
+    },
+    {
+      "path": "../assistant-contract"
     }
   ]
 }
