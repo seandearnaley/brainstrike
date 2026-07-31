@@ -442,7 +442,7 @@ export const jobQueue = pgTable(
     queue: text('queue').notNull(),
     runAt: textTimestamp('run_at').default(textTimestampNow).notNull(),
     state: text('state')
-      .$type<'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired'>()
+      .$type<'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'>()
       .default('queued')
       .notNull(),
     updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),

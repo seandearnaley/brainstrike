@@ -112,7 +112,7 @@ function sanitizeStates(states?: string[]): JobState[] | undefined {
   if (!states || states.length === 0) {
     return;
   }
-  const allowed: JobState[] = ['queued', 'running', 'succeeded', 'failed', 'canceled', 'expired'];
+  const allowed: JobState[] = ['queued', 'running', 'succeeded', 'failed', 'canceled'];
   return states.filter((s): s is JobState => (allowed as string[]).includes(s));
 }
 
