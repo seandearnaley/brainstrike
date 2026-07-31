@@ -1,4 +1,5 @@
 import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import { getResetTables } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   applyManagedCacheBatchMock,
@@ -1054,6 +1055,26 @@ describe('database IPC handlers', () => {
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
+    });
+
+    // BST-992: the registry↔call-site parity leg for desktop. The production
+    // registry is imported ON PURPOSE (unlike the test-owned literals in
+    // ipc-handlers-db-clear-all.integration.test.ts, which exist so production
+    // and fixture cannot drift together): a table added to the registry
+    // without a `clearOptionalRelation` call here — or a call site the
+    // registry does not know — fails this set equality.
+    it('clears exactly the reset-table registry set', async () => {
+      const handler = handlers.get('db:clearAll');
+      const cleared = new Set<string>();
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const query = createClearTxQuery({ onDelete: (table) => cleared.add(table) });
+        return await callback({ query });
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toMatchObject({ success: true });
+      expect([...cleared].sort()).toEqual([...getResetTables()].sort());
     });
 
     // BST-558: `mastra_workflow_snapshot` is the only assistant-owned durable

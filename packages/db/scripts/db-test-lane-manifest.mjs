@@ -103,6 +103,7 @@ export const dbUnitLaneDefinitions = [
       /^index\.test\.ts$/,
       /^json-import-attributes\.test\.ts$/,
       /^pglite-browser\.browser\.test\.ts$/,
+      /^reset-table-/,
       /^scheduled-database-maintenance\.test\.ts$/,
       /^shared-helpers\.test\.ts$/,
       /^use-/,

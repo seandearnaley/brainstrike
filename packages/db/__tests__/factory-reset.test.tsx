@@ -345,6 +345,47 @@ describe('DbProvider factoryReset', () => {
     expect(query).toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
   });
 
+  // BST-992: these four FK-less assistant stores were cleared by desktop
+  // `db:clearAll` but silently missed by BOTH web paths, so token/cost history,
+  // task lists, edit-checkpoint before-content, and branch topology survived a
+  // web factory reset. Test-owned literals on purpose — importing the registry
+  // here would let production and test drift together.
+  it('purges the desktop-parity assistant stores during direct factory reset', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    const query: QueryMock = vi.fn(async (sql: string) => {
+      if (sql.startsWith('SELECT to_regclass(')) {
+        return { rows: [{ present: true }] };
+      }
+      return { rows: [] };
+    });
+    initialDb.transaction.mockImplementation(
+      async (callback: TransactionCallback) => await callback({ query })
+    );
+
+    await act(async () => {
+      await expect(result.current.reset?.()).resolves.toBeUndefined();
+    });
+    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
+    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_task_lists');
+    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_edit_checkpoints');
+    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
+  });
+
   it('skips the workflow snapshot delete when the relation was never created', async () => {
     const { result } = renderHook(
       () => ({

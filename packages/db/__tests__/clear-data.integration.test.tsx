@@ -79,6 +79,22 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_run_errors
      (run_id, thread_id, resource_id, code, occurred_at)
      VALUES ('sentinel-run', 'sentinel-thread', 'sentinel-resource', 'provider_error', NOW())`,
+  // BST-992: the four FK-less stores desktop `db:clearAll` cleared but both
+  // web paths silently missed — none may survive a web clear or factory reset.
+  `INSERT INTO brainstrike_assistant_run_usage
+     (id, thread_id, run_id, resource_id, model, provider)
+     VALUES ('sentinel-usage', 'sentinel-thread', 'sentinel-run', 'sentinel-resource', 'm', 'p')`,
+  `INSERT INTO brainstrike_assistant_task_lists (thread_id, resource_id)
+     VALUES ('sentinel-thread', 'sentinel-resource')`,
+  `INSERT INTO brainstrike_assistant_edit_checkpoints
+     (id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
+      before_existed, after_existed, capture_status, occurred_at, created_at, updated_at)
+     VALUES ('sentinel-checkpoint', 'sentinel-run', 'sentinel-resource', 'sentinel-thread',
+      'write_file', 'write', 'sentinel-root', '/sentinel.txt',
+      false, true, 'created', NOW(), NOW(), NOW())`,
+  `INSERT INTO brainstrike_assistant_message_parents
+     (message_id, thread_id, resource_id)
+     VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-resource')`,
 ];
 
 /**
@@ -127,6 +143,10 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_assistant_run_errors')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
+    expect(await countRows('brainstrike_assistant_run_usage')).toBe(0);
+    expect(await countRows('brainstrike_assistant_task_lists')).toBe(0);
+    expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
+    expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
   }
 
   async function assertMastraResetTablesAbsent(): Promise<void> {
