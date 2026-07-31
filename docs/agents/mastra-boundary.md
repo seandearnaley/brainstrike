@@ -227,8 +227,15 @@ Mastra output is adapted into it. Mastra's AI SDK v5 stream output is not adopte
 
 Two stages, and both are Brainstrike-owned:
 
-1. Mastra chunk → `StreamChunk`: `processMastraStreamPart`,
-   `packages/agent/src/mastra/agent-streaming.ts:866` (dispatch `:877-1105`).
+1. Mastra chunk → `StreamChunk`: `processMastraStreamPart` in
+   `packages/agent/src/mastra/agent-streaming.ts`. Its PURE decoders (part-shape
+   readers, tripwire resolution/bounding, provider-error resolution, tool-event
+   metadata, OM readers) live in `packages/agent/src/mastra/mastra-chunk-decoding.ts`
+   and are unit-tested directly (BST-985); the dispatch itself, run-event minting,
+   lifecycle-state bookkeeping, and the coded diagnostics stay in `agent-streaming.ts`
+   — that file is pinned by name in `scripts/mastra-stream-chunk-contract.mjs`, so
+   the disposition inventory, `processMastraStreamPart`, and
+   `warnForUnrecognizedMastraStreamPart` must not move out of it.
 2. `StreamChunk` → encoded frames: `DataStreamMapper`,
    `packages/agent/src/stream/data-stream-mapper.ts:255` (dispatch `:289-321`).
 
@@ -260,9 +267,10 @@ must emit a coded warning plus a diagnostic event while keeping the stream alive
 Deliberately **not** a throw: a Mastra minor release adding a chunk type must fail
 in CI, not in a user's live run.
 
-`asMastraStreamPart()` (`agent-streaming.ts:118`) currently casts to a *local*
-`MastraStreamPart` interface (`:94-116`) rather than importing Mastra's union, so
-the compiler cannot see drift at all. Fixing that is the substance of this policy.
+`asMastraStreamPart()` (now `packages/agent/src/mastra/mastra-chunk-decoding.ts`)
+still casts to a *local* `MastraStreamPart` interface rather than importing
+Mastra's union, so the compiler cannot see drift at all. Fixing that is the
+substance of this policy.
 
 Scale of the current gap, measured against `dist/stream/types.d.ts:994`:
 
