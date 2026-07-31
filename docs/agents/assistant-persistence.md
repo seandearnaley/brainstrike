@@ -330,7 +330,7 @@ Image attachments (composer → model → persistence → reload):
   provider error, never a silently blocked composer.
 Paired tests: assistant-attachments.test.ts (contract),
 provider-registry-vision.test.ts (static vision declarations),
-packages/assistant-contract/src/__tests__/local-runtime-model-catalog.test.ts
+packages/local-runtime/src/__tests__/local-runtime-model-catalog.test.ts (BST-977 extraction)
 (runtime vision discovery),
 frontier-models-migration.test.ts (DB catalog vision backfill),
 assistant-messages.spec.ts + mastra-image-input.spec.ts (agent, incl. the

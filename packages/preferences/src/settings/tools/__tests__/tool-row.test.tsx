@@ -62,37 +62,6 @@ vi.mock('@brainstrike/ui', () => ({
   ),
 }));
 
-// Mock @brainstrike/local-runtime
-vi.mock('@brainstrike/local-runtime', () => ({
-  TOOL_CATEGORIES: {
-    action: { description: 'Action tools', id: 'action', label: 'Actions', loadPriority: 3 },
-    analysis: { description: 'Analysis tools', id: 'analysis', label: 'Analysis', loadPriority: 2 },
-    configuration: {
-      description: 'Config tools',
-      id: 'configuration',
-      label: 'Configuration',
-      loadPriority: 4,
-    },
-    retrieval: {
-      description: 'Search tools',
-      id: 'retrieval',
-      label: 'Retrieval',
-      loadPriority: 1,
-    },
-    validation: {
-      description: 'Validation tools',
-      id: 'validation',
-      label: 'Validation',
-      loadPriority: 5,
-    },
-  },
-  TOOL_LOADING_TIERS: {
-    conditional: { description: 'Budget-based loading', id: 'conditional', label: 'Conditional' },
-    critical: { description: 'Always loaded', id: 'critical', label: 'Critical' },
-    deferred: { description: 'On-demand loading', id: 'deferred', label: 'Deferred' },
-  },
-}));
-
 // Mock lucide-react icons
 vi.mock('lucide-react', () => ({
   AlertTriangle: ({ className }: { className?: string }) => (
