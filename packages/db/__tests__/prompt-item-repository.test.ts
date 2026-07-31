@@ -239,4 +239,24 @@ describe('PromptItemRepository', () => {
       /prompt item "missing" was not found/i
     );
   });
+
+  it('delete emits a prompt_item tombstone op in the same statement (BST-993)', async () => {
+    await repository.create({ content: 'Tombstone me.', id: 'fragment-tombstone' });
+
+    await repository.delete('fragment-tombstone');
+
+    const ops = await db.query<{ entity_kind: string; op: string }>(
+      `SELECT entity_kind, op FROM brainstrike_mind_ops WHERE entity_id = 'fragment-tombstone'`
+    );
+    expect(ops.rows).toHaveLength(1);
+    expect(ops.rows[0]).toMatchObject({ entity_kind: 'prompt_item', op: 'delete' });
+
+    // The not-found path emits nothing: a tombstone records an actual delete.
+    await expect(repository.delete('fragment-tombstone')).rejects.toThrow(/was not found/i);
+    const opsAfter = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brainstrike_mind_ops
+       WHERE entity_id = 'fragment-tombstone'`
+    );
+    expect(opsAfter.rows[0]?.count).toBe('1');
+  });
 });

@@ -68,6 +68,7 @@ import { migration075FileSymbols } from '../migrations/075-file-symbols.js';
 import { migration076AssistantRunErrors } from '../migrations/076-assistant-run-errors.js';
 import { migration077RunUsageKind } from '../migrations/077-run-usage-kind.js';
 import { migration078JobQueueDedupeActiveIndex } from '../migrations/078-job-queue-dedupe-active-index.js';
+import { migration079MindOpsLog } from '../migrations/079-mind-ops-log.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -250,6 +251,7 @@ const customMigrations: Migration[] = [
     'custom-078-job-queue-dedupe-active-index',
     migration078JobQueueDedupeActiveIndex
   ),
+  customMigration('custom-079-mind-ops-log', migration079MindOpsLog),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

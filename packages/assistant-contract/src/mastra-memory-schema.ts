@@ -133,3 +133,44 @@ CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_resource_createdat_idx
 CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_status_createdat_idx
   ON ${TABLE_WORKFLOW_SNAPSHOT} ((snapshot ->> 'status'), "createdAt" DESC);
 `;
+
+/**
+ * Sync-the-mind op-log seam (BST-993, ruling 2026-07-28: sync covers the
+ * "mind" — threads/memory/prompts — never vectors/HNSW).
+ *
+ * `brainstrike_mind_ops` is a Brainstrike-owned, append-only sidecar
+ * (migration 079 in BOTH runners — sidecar-not-ALTER per the thread-groups /
+ * thread-search precedent: Mastra owns the mastra_* schema and its lazy
+ * tables have no evolution mechanism). Tombstone semantics derive FROM this
+ * log; there are no `deleted_at` columns on Mastra-owned tables, which keeps
+ * the thread-search orphan GC's physical-delete contract and the readonly
+ * sandbox role's visibility rules intact.
+ *
+ * Scope is DELIBERATELY delete-ops only: a tombstone seam. Emitting upsert
+ * ops from write paths is sync-engine territory and is NOT laid here (the
+ * ticket's own boundary: no engine choice). `seq` (BIGSERIAL) is the
+ * lamport-ish local order; a future engine adds device identity around it.
+ */
+export const MIND_OPS_TABLE = 'brainstrike_mind_ops';
+
+export const MIND_OP_ENTITY_KINDS = ['thread', 'prompt_item'] as const;
+export type MindOpEntityKind = (typeof MIND_OP_ENTITY_KINDS)[number];
+
+export const MIND_OPS = ['delete'] as const;
+export type MindOp = (typeof MIND_OPS)[number];
+
+/**
+ * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
+ * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
+ * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
+ * this ONE list so the cascades can never drift again (BST-993 review: the
+ * single/bulk CTEs had diverged in both stage-set and ordering).
+ * `mastra_observational_memory` is not listed: its predicate is composite
+ * ("threadId" OR "lookupKey") and stays inline at each site.
+ */
+export const THREAD_DELETE_SIDECAR_TABLES = [
+  { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
+  { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },
+  { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },
+  { table: 'brainstrike_assistant_thread_placements', threadColumn: 'thread_id' },
+] as const;

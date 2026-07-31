@@ -42,6 +42,8 @@ import {
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
+  MIND_OPS_TABLE,
+  THREAD_DELETE_SIDECAR_TABLES,
   THREAD_TITLE_SOURCE_METADATA_KEY,
   THREAD_TITLE_SOURCE_OM,
 } from './sql';
@@ -1002,7 +1004,25 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async deleteThread({ threadId }: { threadId: string }): Promise<void> {
+    // Full cascade from the ONE shared spec (BST-993): this override is
+    // reachable from @mastra/core's facade and previously deleted only the
+    // three Mastra tables, leaking every Brainstrike sidecar row. The
+    // sidecar tables are app-owned: a STANDALONE store (this class's own
+    // initialize creates only the Mastra schema) legitimately lacks them, so
+    // each is probed with to_regclass — the sanctioned in-transaction
+    // absence check; catching 42P01 inside a tx would abort it (#1978). On a
+    // migrated application database every probe passes. The mind-op INSERT
+    // fires only when the thread row actually existed (idempotent deletes
+    // emit nothing) and only where the seam table exists (a standalone
+    // store has no sync seam to feed).
     await runTransaction(this.database, async (tx) => {
+      const tableExists = async (table: string): Promise<boolean> => {
+        const probe = await tx.query<{ oid: string | null }>(
+          'SELECT to_regclass($1)::text AS oid',
+          [table]
+        );
+        return Boolean(probe.rows[0]?.oid);
+      };
       await tx.query(
         `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
          WHERE "threadId" = $1 OR "lookupKey" = $2`,
@@ -1011,7 +1031,21 @@ export class PgliteMemoryStore extends MemoryStorage {
       await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
         threadId,
       ]);
-      await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [threadId]);
+      for (const { table, threadColumn } of THREAD_DELETE_SIDECAR_TABLES) {
+        if (await tableExists(table)) {
+          await tx.query(`DELETE FROM ${table} WHERE ${threadColumn} = $1`, [threadId]);
+        }
+      }
+      const deleted = await tx.query(
+        `DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1 RETURNING id`,
+        [threadId]
+      );
+      if (deleted.rows.length > 0 && (await tableExists(MIND_OPS_TABLE))) {
+        await tx.query(
+          `INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op) VALUES ('thread', $1, 'delete')`,
+          [threadId]
+        );
+      }
     });
   }
 

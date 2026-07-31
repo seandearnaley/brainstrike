@@ -60,6 +60,11 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_assistant_thread_placements',
   'brainstrike_assistant_tool_output_artifacts',
   'brainstrike_diagnostic_events',
+  // Sync-the-mind op-log seam (migration 079, BST-993). Clearing the mind
+  // clears its op-log: pre-sync there is no peer the ops could replay to,
+  // and a reset that kept tombstones for data it just destroyed would carry
+  // "deletes" of rows that never existed on the fresh database.
+  'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
 ] as const;

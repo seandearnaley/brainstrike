@@ -796,6 +796,46 @@ and the desktop/renderer clear integration suites.
 
 ---
 
+## SYNC-THE-MIND OP-LOG SEAM (BST-993)
+
+Per the 2026-07-28 BST-911 ruling, future sync covers the "mind" —
+threads/memory/prompts — never vectors/HNSW. The groundwork laid here is a
+tombstone seam, deliberately nothing more (no engine choice, no write-path op
+emission — that is engine territory):
+
+- **Where state lives:** `brainstrike_mind_ops` (migration 079 in BOTH
+  runners; also bootstrapped by the assistant memory repository for the
+  bare-PGlite harness — keep the shapes byte-identical). Append-only:
+  `seq BIGSERIAL` is the lamport-ish local order; `entity_kind` ∈
+  {`thread`, `prompt_item`} and `op` = `delete` are CHECK-constrained on
+  purpose — widening the vocabulary is a conscious migration, never a drift
+  channel. Sidecar-not-ALTER: Mastra owns the `mastra_*` schema and its lazy
+  tables have no evolution mechanism.
+- **Tombstones derive FROM the log.** No `deleted_at` columns anywhere: rows
+  still physically disappear, so the thread-search orphan GC's anti-join and
+  the readonly sandbox role's visibility rules are untouched.
+- **One cascade spec.** `THREAD_DELETE_SIDECAR_TABLES` (assistant contract,
+  `mastra-memory-schema`) is the ordered thread-delete cascade over the
+  Brainstrike sidecars. All THREE delete implementations derive from it: the
+  single-thread CTE, the bulk CTE (previously drifted in both stage-set and
+  order), and the Mastra `MemoryStorage.deleteThread` override (previously
+  deleted only the three Mastra tables). The single-thread CTE now owns the
+  placements stage itself instead of relying on the panel's separate
+  `clearThreadPlacement` round trip.
+- **Ops record actual deletions.** Each path inserts one `thread` op per
+  thread row it actually deleted (idempotent deletes emit nothing; a rejected
+  bulk delete emits nothing). `PromptItemRepository.delete` emits
+  `prompt_item` ops the same way. The standalone Mastra store probes the
+  app-owned sidecars with `to_regclass` (a bare store legitimately lacks
+  them and has no seam to feed); on a migrated database every probe passes.
+- **Reset:** registered in the reset registry — the op-log is cleared with
+  the mind it describes on all three clear paths.
+
+Paired tests: `migration-079-mind-ops-log.test.ts`, the tombstone cases in
+`assistant-memory-repository.integration.test.ts`,
+`pglite-memory-store.integration.spec.ts`, and
+`prompt-item-repository.test.ts`.
+
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
 Per-run cost/outcome analytics over tables the assistant already writes.

@@ -10,6 +10,8 @@ import {
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
+  MIND_OPS_TABLE,
+  THREAD_DELETE_SIDECAR_TABLES,
   THREAD_TITLE_SOURCE_METADATA_KEY,
   THREAD_TITLE_SOURCE_OM,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
@@ -891,6 +893,38 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
   ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (resource_id, labeled_at DESC);
+
+-- Thread placements are Brainstrike presentation state (migrations 054+056).
+-- Bootstrapped here because the thread-delete cascade now owns the placements
+-- stage on EVERY path (BST-993) and this repository runs against a bare
+-- PGlite in the migration-less harness — keep the shape byte-identical to
+-- 054 with 056's color/flat_rank additions.
+CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_placements (
+  thread_id   text PRIMARY KEY,
+  resource_id text NOT NULL,
+  group_id    text,
+  rank        text NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT NOW(),
+  color       text CHECK (color IS NULL OR color IN ('blue', 'emerald', 'amber', 'rose', 'violet', 'slate')),
+  flat_rank   text
+);
+
+CREATE INDEX IF NOT EXISTS idx_assistant_thread_placements_resource_group
+  ON brainstrike_assistant_thread_placements (resource_id, group_id);
+
+-- Sync-the-mind op-log seam (BST-993). Bootstrapped here AND created by
+-- migration 079 — keep the shape byte-identical to 079. Delete ops only;
+-- widening the vocabulary is a conscious migration, never a drift channel.
+CREATE TABLE IF NOT EXISTS ${MIND_OPS_TABLE} (
+  seq BIGSERIAL PRIMARY KEY,
+  entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
+  entity_id TEXT NOT NULL,
+  op TEXT NOT NULL CHECK (op = 'delete'),
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_mind_ops_entity_idx
+  ON ${MIND_OPS_TABLE} (entity_kind, entity_id);
 `;
 }
 
@@ -2729,6 +2763,22 @@ export function createPgliteAssistantThreadRepository(
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();
+      // Sidecar stages derive from the ONE shared cascade spec so the
+      // single/bulk CTEs (and the Mastra store override) can never drift in
+      // stage-set or ordering again (BST-993). This path previously omitted
+      // thread placements and relied on the panel's separate
+      // clearThreadPlacement round trip; the CTE now owns the full cascade
+      // (placements without a live thread were already inert by contract).
+      const sidecarStages = THREAD_DELETE_SIDECAR_TABLES.map(
+        ({ table, threadColumn }) => `deleted_${table} AS (
+            DELETE FROM ${table}
+            WHERE ${threadColumn} = $1
+            RETURNING ${threadColumn}
+          )`
+      ).join(',\n          ');
+      const sidecarCounts = THREAD_DELETE_SIDECAR_TABLES.map(
+        ({ table }) => `(SELECT count(*) FROM deleted_${table}) AS "deleted_${table}_count"`
+      ).join(',\n          ');
       await database.query(
         `WITH deleted_observational_memory AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
@@ -2740,33 +2790,23 @@ export function createPgliteAssistantThreadRepository(
             WHERE thread_id = $1
             RETURNING id
           ),
-          deleted_message_parents AS (
-            DELETE FROM ${ASSISTANT_MESSAGE_PARENTS_TABLE}
-            WHERE thread_id = $1
-            RETURNING message_id
-          ),
-          deleted_edit_checkpoints AS (
-            DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
-            WHERE thread_id = $1
-            RETURNING id
-          ),
-          deleted_run_errors AS (
-            DELETE FROM ${ASSISTANT_RUN_ERRORS_TABLE}
-            WHERE thread_id = $1
-            RETURNING run_id
-          ),
+          ${sidecarStages},
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE id = $1
             RETURNING id
+          ),
+          inserted_mind_ops AS (
+            INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op)
+            SELECT 'thread', id, 'delete' FROM deleted_thread
+            RETURNING seq
           )
          SELECT
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
-          (SELECT count(*) FROM deleted_message_parents) AS deleted_message_parent_count,
-          (SELECT count(*) FROM deleted_edit_checkpoints) AS deleted_edit_checkpoint_count,
-          (SELECT count(*) FROM deleted_run_errors) AS deleted_run_error_count,
-          (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
+          ${sidecarCounts},
+          (SELECT count(*) FROM deleted_thread) AS deleted_thread_count,
+          (SELECT count(*) FROM inserted_mind_ops) AS inserted_mind_op_count`,
         [threadId, `thread:${threadId}`]
       );
     },
@@ -2797,45 +2837,34 @@ export function createPgliteAssistantThreadRepository(
               AND thread_id IN (SELECT id FROM requested)
             RETURNING id
           ),
-          deleted_edit_checkpoints AS (
-            DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+          ${THREAD_DELETE_SIDECAR_TABLES.map(
+            ({ table, threadColumn }) => `deleted_${table} AS (
+            DELETE FROM ${table}
             WHERE (SELECT all_found FROM validation)
-              AND thread_id IN (SELECT id FROM requested)
-            RETURNING id
-          ),
-          deleted_run_errors AS (
-            DELETE FROM ${ASSISTANT_RUN_ERRORS_TABLE}
-            WHERE (SELECT all_found FROM validation)
-              AND thread_id IN (SELECT id FROM requested)
-            RETURNING run_id
-          ),
-          deleted_message_parents AS (
-            DELETE FROM ${ASSISTANT_MESSAGE_PARENTS_TABLE}
-            WHERE (SELECT all_found FROM validation)
-              AND thread_id IN (SELECT id FROM requested)
-            RETURNING message_id
-          ),
-          deleted_thread_placements AS (
-            DELETE FROM brainstrike_assistant_thread_placements
-            WHERE (SELECT all_found FROM validation)
-              AND thread_id IN (SELECT id FROM requested)
-            RETURNING thread_id
-          ),
+              AND ${threadColumn} IN (SELECT id FROM requested)
+            RETURNING ${threadColumn}
+          )`
+          ).join(',\n          ')},
           deleted_threads AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE (SELECT all_found FROM validation)
               AND id IN (SELECT id FROM requested)
             RETURNING id
+          ),
+          inserted_mind_ops AS (
+            INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op)
+            SELECT 'thread', id, 'delete' FROM deleted_threads
+            RETURNING seq
           )
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
           (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
-          (SELECT count(*) FROM deleted_edit_checkpoints) AS "deletedEditCheckpointCount",
-          (SELECT count(*) FROM deleted_run_errors) AS "deletedRunErrorCount",
-          (SELECT count(*) FROM deleted_message_parents) AS "deletedMessageParentCount",
-          (SELECT count(*) FROM deleted_thread_placements) AS "deletedThreadPlacementCount",
-          (SELECT count(*) FROM deleted_threads) AS "deletedThreadCount"`,
+          ${THREAD_DELETE_SIDECAR_TABLES.map(
+            ({ table }) => `(SELECT count(*) FROM deleted_${table}) AS "deleted_${table}_count"`
+          ).join(',\n          ')},
+          (SELECT count(*) FROM deleted_threads) AS "deletedThreadCount",
+          (SELECT count(*) FROM inserted_mind_ops) AS "insertedMindOpCount"`,
         [...threadIds]
       );
       assertAllBulkThreadsFound(result.rows[0]);

@@ -1094,6 +1094,67 @@ describe('PgliteMemoryStore', () => {
     expect(orphanedObservations.rows[0]?.count).toBe('0');
   });
 
+  it('deleteThread cascades app sidecars and emits a tombstone op when the seam exists (BST-993)', async () => {
+    // A STANDALONE store legitimately lacks the app-owned sidecar tables
+    // (the bare-delete test above proves the probes tolerate absence). On a
+    // migrated application database they all exist — model that here with
+    // the two tables this test asserts on.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_placements (
+        thread_id   text PRIMARY KEY,
+        resource_id text NOT NULL,
+        group_id    text,
+        rank        text NOT NULL,
+        updated_at  timestamptz NOT NULL DEFAULT NOW(),
+        color       text,
+        flat_rank   text
+      );
+      CREATE TABLE IF NOT EXISTS brainstrike_mind_ops (
+        seq BIGSERIAL PRIMARY KEY,
+        entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
+        entity_id TEXT NOT NULL,
+        op TEXT NOT NULL CHECK (op = 'delete'),
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T11:00:00Z'),
+        id: 'thread-sidecar-delete',
+        resourceId: 'workspace-a',
+        title: 'Delete me with sidecars',
+        updatedAt: new Date('2026-04-22T11:00:00Z'),
+      },
+    });
+    await db.query(
+      `INSERT INTO brainstrike_assistant_thread_placements
+        (thread_id, resource_id, group_id, rank)
+       VALUES ('thread-sidecar-delete', 'workspace-a', null, 'a0')`
+    );
+
+    await store.deleteThread({ threadId: 'thread-sidecar-delete' });
+
+    const placements = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brainstrike_assistant_thread_placements
+       WHERE thread_id = 'thread-sidecar-delete'`
+    );
+    expect(placements.rows[0]?.count).toBe('0');
+    const ops = await db.query<{ entity_kind: string; op: string }>(
+      `SELECT entity_kind, op FROM brainstrike_mind_ops
+       WHERE entity_id = 'thread-sidecar-delete'`
+    );
+    expect(ops.rows).toHaveLength(1);
+    expect(ops.rows[0]).toMatchObject({ entity_kind: 'thread', op: 'delete' });
+
+    // Idempotent second delete: no thread row deleted, no tombstone added.
+    await store.deleteThread({ threadId: 'thread-sidecar-delete' });
+    const opsAfter = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brainstrike_mind_ops
+       WHERE entity_id = 'thread-sidecar-delete'`
+    );
+    expect(opsAfter.rows[0]?.count).toBe('1');
+  });
+
   it('updates observational memory flags with targeted update statements', async () => {
     const created = await store.initializeObservationalMemory({
       config: {},
