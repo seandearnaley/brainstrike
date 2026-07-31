@@ -176,11 +176,14 @@ there is no separate diff step. Its contract, written after the lane spent
 three months permanently red (zero green runs in 1,000 retained; budgets
 were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
 
-- **Every CI budget must be a calibrated `GITHUB_ACTIONS_MINIMUMS` floor**
-  in `apps/web/e2e/utils/performance-config.ts`, with provenance (run ids,
-  date, runner class, observed range) in the adjacent comment. Never tighten
-  or introduce a budget from a local measurement — local is an order of
-  magnitude faster than the shared runner (the "~62ms" incident).
+- **Every CI budget that has breached under controlled measurement carries a
+  calibrated `GITHUB_ACTIONS_MINIMUMS` floor** in
+  `apps/web/e2e/utils/performance-config.ts`, with provenance (run ids, date,
+  runner class, observed range) in the adjacent comment. Metrics that have
+  never breached stay on the multiplier budgets and are calibrated from
+  observed data on their FIRST breach — never floor-bumped reactively, and
+  never tightened or introduced from a local measurement (local is an order
+  of magnitude faster than the shared runner — the "~62ms" incident).
 - **Recalibrate by controlled dispatch**: N `workflow_dispatch` runs of
   `performance.yml` on ONE SHA (sequentially — the concurrency group cancels
   parallel dispatches), floor = observed worst x ~1.5 headroom.

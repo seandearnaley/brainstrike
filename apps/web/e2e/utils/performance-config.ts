@@ -39,22 +39,31 @@ const GITHUB_ACTIONS_MINIMUMS = {
   // --max-failures truncation always hid it).
   CHECKBOX_FRAME_MAX_MS: 1000,
   // 2026-07-31 calibration (BST-1038): 3 controlled dispatches on fa9570316,
-  // runs 30644845155 / 30644855849 / 30646944772, ubuntu-24.04 +
-  // mcr.microsoft.com/playwright:v1.61.1-noble. Before this calibration the
-  // four browser-boundary metrics below had NO CI floor at all (the lane had
-  // never been green in 1,000 retained runs; the 2025 floors cover only
-  // retired metrics).
+  // runs 30644845155 / 30644855849 / 30646944772 (+ validation run
+  // 30649718641 for CHECKBOX_FRAME_MAX), ubuntu-24.04 +
+  // mcr.microsoft.com/playwright:v1.61.1-noble. The calibrated entries are
+  // named explicitly — CHECKBOX_FRAME_TOTAL/AVERAGE/MAX, SCROLL_FRAME_TOTAL,
+  // SCROLL_FRAME_MAX — because Biome sorts keys and positional phrasing rots.
+  // Before this calibration none of them had a CI floor (the lane had never
+  // been green in 1,000 retained runs; the 2025 floors cover only retired
+  // metrics). Metrics NOT listed here have never breached under controlled
+  // measurement and stay on the multiplier budgets: calibrate them from
+  // observed data on their first breach; never floor-bump reactively.
   // Observed totals: 1073–1656ms (baseline benchmark) / 783–1101ms
   // (validation spec) against the uncalibrated 600ms.
   CHECKBOX_FRAME_TOTAL_MAX_MS: 2500,
   // 2025-era floors for the legacy metrics (kept as-is).
   FILE_SELECTION_MAX_MS: 2300, // was 2000 after multiplier; rare flake ~2150ms
   RENDER_TIME_MAX_MS: 420, // was 300 after multiplier; CI observed ~335–402ms
+  // DERIVED, not directly observed (per-frame maxima are not logged on
+  // pass): totals of 631–640ms over 5 steps imply ~126–128ms mean, and the
+  // checkbox family's observed max/mean ratio (~1.4x) bounds the slowest
+  // frame near the old 200ms budget — within noise of a red night. Floor =
+  // implied worst x2; RECALIBRATE from a real observation on first breach.
+  SCROLL_FRAME_MAX_MS: 400,
   // Observed: 631–640ms against the uncalibrated 600ms.
   SCROLL_FRAME_TOTAL_MAX_MS: 1000,
   SCROLL_PERFORMANCE_MAX_MS: 2000, // was 1600 after multiplier; CI observed ~1650–1900ms
-  // Observed 6993ms once (run 30594431306) against 6000ms; headroom applied.
-  TREE_EXPANSION_MAX_MS: 10_500,
 } as const;
 
 function isLocalFirstDbEnabled(): boolean {
@@ -139,6 +148,10 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
         thresholds.RENDER_TIME_MAX_MS,
         GITHUB_ACTIONS_MINIMUMS.RENDER_TIME_MAX_MS
       ),
+      SCROLL_FRAME_MAX_MS: Math.max(
+        thresholds.SCROLL_FRAME_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.SCROLL_FRAME_MAX_MS
+      ),
       SCROLL_FRAME_TOTAL_MAX_MS: Math.max(
         thresholds.SCROLL_FRAME_TOTAL_MAX_MS,
         GITHUB_ACTIONS_MINIMUMS.SCROLL_FRAME_TOTAL_MAX_MS
@@ -146,10 +159,6 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
       SCROLL_PERFORMANCE_MAX_MS: Math.max(
         thresholds.SCROLL_PERFORMANCE_MAX_MS,
         GITHUB_ACTIONS_MINIMUMS.SCROLL_PERFORMANCE_MAX_MS
-      ),
-      TREE_EXPANSION_MAX_MS: Math.max(
-        thresholds.TREE_EXPANSION_MAX_MS,
-        GITHUB_ACTIONS_MINIMUMS.TREE_EXPANSION_MAX_MS
       ),
     } as typeof thresholds;
   }
