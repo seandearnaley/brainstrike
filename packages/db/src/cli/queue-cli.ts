@@ -113,7 +113,16 @@ function sanitizeStates(states?: string[]): JobState[] | undefined {
     return;
   }
   const allowed: JobState[] = ['queued', 'running', 'succeeded', 'failed', 'canceled'];
-  return states.filter((s): s is JobState => (allowed as string[]).includes(s));
+  const unknown = states.filter((state) => !(allowed as string[]).includes(state));
+  if (unknown.length > 0) {
+    // NO SILENT FALLBACKS: filtering unknown tokens used to yield [] — and
+    // JobQueue.clear treats an empty array as "no state predicate at all",
+    // so `clear --states expired` would have become a FULL queue wipe once
+    // 'expired' left the union (review #2161). Reject visibly instead.
+    writeError(`Unknown job state(s): ${unknown.join(', ')}. Allowed: ${allowed.join(', ')}.`);
+    process.exit(2);
+  }
+  return states as JobState[];
 }
 
 async function executeClear(jq: JobQueue, queue?: string, states?: string[]) {

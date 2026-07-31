@@ -219,7 +219,9 @@ export interface EmbedJobPayload {
 /**
  * Job states in the queue.
  */
-export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired';
+// Mirrors @brainstrike/db's JobState (pipeline deliberately cannot depend on
+// db). 'expired' retired in lockstep (BST-991): nothing ever wrote it.
+export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 // =============================================================================
 // PROGRESS TYPES
