@@ -919,6 +919,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
       await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
       await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');
+      // Mind op-log (migration 079): tombstones for data this reset just
+      // destroyed must not survive onto the fresh database (BST-993).
+      await clearRelationIfPresent(tx, 'brainstrike_mind_ops');
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -981,6 +984,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
     await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
     await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');
+    // Mind op-log (migration 079): cleared with the mind it describes (BST-993).
+    await clearRelationIfPresent(tx, 'brainstrike_mind_ops');
     await clearRelationIfPresent(tx, 'job_queue');
     await clearRelationIfPresent(tx, 'collection_indexing_stats');
     await clearRelationIfPresent(tx, 'embedding_sets');

@@ -806,6 +806,9 @@ export function registerDatabaseIpcHandlers(
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.
             await clearOptionalRelation(tx, 'brainstrike_diagnostic_events');
+            // Mind op-log (migration 079, BST-993): tombstones for data this
+            // clear just destroyed must not survive onto the fresh database.
+            await clearOptionalRelation(tx, 'brainstrike_mind_ops');
             // Thread search index rows are derived from mastra messages, but a
             // factory reset must wipe extracted text + the sync watermark so
             // conversation content cannot survive a "true fresh start" (FACTORY
