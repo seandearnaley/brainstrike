@@ -386,6 +386,53 @@ describe('DbProvider factoryReset', () => {
     expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
   });
 
+  // BST-992 convergence: the six seed-free factory-reset-only relations are
+  // wiped by the purge (desktop's directory wipe already destroyed them);
+  // view_filter_presets is deliberately absent — its migration seeds would be
+  // lost forever on web. Test-owned literals on purpose.
+  it('purges the factory-reset-only caches during direct factory reset', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    const query: QueryMock = vi.fn(async (sql: string) => {
+      if (sql.startsWith('SELECT to_regclass(')) {
+        return { rows: [{ present: true }] };
+      }
+      return { rows: [] };
+    });
+    initialDb.transaction.mockImplementation(
+      async (callback: TransactionCallback) => await callback({ query })
+    );
+
+    await act(async () => {
+      await expect(result.current.reset?.()).resolves.toBeUndefined();
+    });
+    for (const table of [
+      'token_cache',
+      'file_token_cache',
+      'embedding_cache',
+      'job_queue_metrics',
+      'embedding_dimension_index_suspensions',
+      'embedding_dimension_index_maintenance',
+    ]) {
+      expect(query).toHaveBeenCalledWith(`DELETE FROM ${table}`);
+    }
+    expect(query).not.toHaveBeenCalledWith('DELETE FROM view_filter_presets');
+  });
+
   it('skips the workflow snapshot delete when the relation was never created', async () => {
     const { result } = renderHook(
       () => ({

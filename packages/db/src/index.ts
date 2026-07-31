@@ -149,6 +149,9 @@ export { JobQueue } from './queue/index.js';
 export * from './repositories/index.js';
 export {
   auditResetTableCoverage,
+  type FactoryResetOnlyTable,
+  getFactoryResetOnlyTables,
+  getFactoryResetTables,
   getMastraResetTables,
   getResetTables,
   type MastraResetTable,

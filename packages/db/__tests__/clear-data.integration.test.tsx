@@ -95,6 +95,10 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_message_parents
      (message_id, thread_id, resource_id)
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-resource')`,
+  // BST-992 convergence: factory-reset-only sentinel (representative of the
+  // six seed-free caches) — wiped by the purge, kept by Clear Database.
+  `INSERT INTO job_queue_metrics (queue, succeeded_total)
+     VALUES ('sentinel-queue', 7)`,
 ];
 
 /**
@@ -190,6 +194,38 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
       expect(await countRows(table), table).toBe(0);
     }
   }
+
+  // BST-992 convergence boundary, proven on real PGlite: Clear Database keeps
+  // the factory-reset-only caches; the factory-reset purge wipes them but
+  // preserves view_filter_presets' migration seeds (the purge never re-runs
+  // migrations, so wiped seeds would be gone forever on web).
+  it('clear keeps factory-reset-only caches; factory reset wipes them and keeps preset seeds', async () => {
+    const presetSeeds = await countRows('view_filter_presets');
+    expect(presetSeeds).toBeGreaterThan(0);
+
+    const { result } = renderHook(
+      () => ({
+        clearData: useClearAllData(),
+        factoryReset: useFactoryReset(),
+        repo: useFileRecordRepository(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.clearData).not.toBeNull();
+      expect(result.current.factoryReset).not.toBeNull();
+    });
+
+    await expect(result.current.clearData?.()).resolves.toBeDefined();
+    expect(await countRows('job_queue_metrics')).toBe(1);
+
+    await act(async () => {
+      await result.current.factoryReset?.();
+    });
+    expect(await countRows('job_queue_metrics')).toBe(0);
+    expect(await countRows('view_filter_presets')).toBe(presetSeeds);
+  });
 
   it('commits the direct clear when all lazy Mastra relations are absent', async () => {
     await assertMastraResetTablesAbsent();

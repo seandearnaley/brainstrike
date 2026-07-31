@@ -26,6 +26,8 @@ import {
 import * as migrations from '../src/migrations/bootstrap';
 import {
   auditResetTableCoverage,
+  getFactoryResetOnlyTables,
+  getFactoryResetTables,
   getMastraResetTables,
   getResetTables,
   RESET_EXCLUDED_TABLES,
@@ -77,6 +79,12 @@ describe('reset-table registry', () => {
     // A name in BOTH ledgers would make "clear it" and "it survives" true at
     // once; the audit reports that as doubleRegistered.
     expect(auditResetTableCoverage([...tables]).doubleRegistered).toEqual([]);
+    // The factory-reset-only family (BST-992 convergence): six seed-free
+    // relations, disjoint from both other ledgers, wiped by purgeTablesTx
+    // on top of the clear set.
+    expect(getFactoryResetOnlyTables()).toHaveLength(6);
+    expect(getFactoryResetTables()).toHaveLength(33);
+    expect(new Set(getFactoryResetTables()).size).toBe(33);
   });
 
   // Control tests: an instrument that cannot fail is not evidence. Prove BOTH
@@ -92,6 +100,13 @@ describe('reset-table registry', () => {
     expect(
       auditResetTableCoverage([], { excluded: ['roots'], reset: ['roots'] }).doubleRegistered
     ).toEqual(['roots']);
+    expect(
+      auditResetTableCoverage([], {
+        excluded: ['token_cache'],
+        factoryResetOnly: ['token_cache'],
+        reset: [],
+      }).doubleRegistered
+    ).toEqual(['token_cache']);
   });
 
   describe('renderer call-site parity', () => {
@@ -146,7 +161,9 @@ describe('reset-table registry', () => {
       await act(async () => {
         await result.current.reset?.();
       });
-      expect([...cleared].sort()).toEqual([...getResetTables()].sort());
+      // Factory reset wipes the clear set PLUS the six factory-reset-only
+      // relations (BST-992 convergence).
+      expect([...cleared].sort()).toEqual([...getFactoryResetTables()].sort());
     });
   });
 });

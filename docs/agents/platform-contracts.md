@@ -107,7 +107,15 @@ Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
-27-relation set (12 `brainstrike_*` + 9 core/indexing + the Mastra six); only
+27-relation set (12 `brainstrike_*` + 9 core/indexing + the Mastra six), and
+the web factory reset (`purgeTablesTx`) additionally wipes the six seed-free
+FACTORY-RESET-ONLY relations (`getFactoryResetOnlyTables()`: the three
+caches, `job_queue_metrics`, and the two dimension-index bookkeeping tables)
+— desktop factory reset already destroys them with the profile directory, so
+this is the web↔desktop convergence. `view_filter_presets` is deliberately
+NOT wiped: it is migration-SEEDED configuration and the web purge never
+re-runs migrations, so its seeds would be lost forever (desktop's rebuild
+restores them). Only
 per-path ORDER and mechanics differ (children before logical parents varies by
 path, and desktop counts + bare-DELETEs `file_chunks`/`file_records`). The
 registry exists because the union CANNOT be derived from the Drizzle schema —
