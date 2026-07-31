@@ -47,7 +47,7 @@ const {
   }),
 }));
 
-vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
+vi.mock('@brainstrike/assistant-contract/local-runtime', async (importOriginal) => {
   class StubLocalRuntimeDiscoveryService {
     probeRuntime = probeRuntimeMock;
   }
@@ -56,7 +56,11 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
     resolveOllamaCapabilities = resolveOllamaCapabilitiesMock;
     verifyEmbeddingDimensions = verifyEmbeddingDimensionsMock;
   }
+  // Spread the real module so only the two services are stubbed: this is a
+  // shared contract subpath, and a neighbour reaching any other export must
+  // get the real value, not a confusing undefined.
   return {
+    ...(await importOriginal<object>()),
     LocalRuntimeDiscoveryService: StubLocalRuntimeDiscoveryService,
     LocalRuntimeModelCatalogService: StubLocalRuntimeModelCatalogService,
   };
