@@ -96,9 +96,13 @@ describe('job_queue dedupe uniqueness across migration runners', () => {
     // directly — drop the index, insert duplicates, re-run the migration SQL.
     const db = await drizzleMigratedDb();
     await db.query('DROP INDEX idx_job_queue_dedupe_active');
-    await insertActiveJob(db, 'old-dupe', 'queued');
+    await insertActiveJob(db, 'old-dupe', 'running');
     await db.query(
-      `UPDATE job_queue SET created_at = '2020-01-01T00:00:00Z' WHERE id = 'old-dupe'`
+      `UPDATE job_queue
+          SET created_at = '2020-01-01T00:00:00Z',
+              lease_token = 'stale-lease',
+              leased_until = '2020-01-01T00:01:00Z'
+        WHERE id = 'old-dupe'`
     );
     await insertActiveJob(db, 'new-dupe', 'running');
 
@@ -113,13 +117,38 @@ describe('job_queue dedupe uniqueness across migration runners', () => {
       await db.exec(statement);
     }
 
-    const rows = await db.query<{ id: string; state: string }>(
-      `SELECT id, state FROM job_queue WHERE dedupe_key = 'dupe-key' ORDER BY id`
+    const rows = await db.query<{
+      error: string | null;
+      id: string;
+      leased_until: string | null;
+      state: string;
+      updated_at: string;
+    }>(
+      `SELECT id, state, error, leased_until, updated_at
+         FROM job_queue WHERE dedupe_key = 'dupe-key' ORDER BY id`
     );
-    expect(rows.rows).toEqual([
-      { id: 'new-dupe', state: 'running' },
-      { id: 'old-dupe', state: 'canceled' },
+    expect(rows.rows).toMatchObject([
+      { error: null, id: 'new-dupe', state: 'running' },
+      {
+        // The error annotation IS the forensics that justifies cancel-over-
+        // delete; the lease shape matches JobQueue.cancel (leased_until
+        // nulled).
+        error: 'canceled by migration 078: duplicate active dedupe_key',
+        id: 'old-dupe',
+        leased_until: null,
+        state: 'canceled',
+      },
     ]);
+    // updated_at is a TEXT column compared lexicographically everywhere
+    // (prune, ORDER BY): the migration must write the contractual ISO shape,
+    // not CURRENT_TIMESTAMP's space-separated rendering.
+    expect(rows.rows[1]?.updated_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u);
+    // canceled_total is a monotonic lifetime counter (064): the migration's
+    // cancellations must be counted before pruning deletes the rows.
+    const metrics = await db.query<{ canceled_total: string | number }>(
+      `SELECT canceled_total FROM job_queue_metrics WHERE queue = 'embeddings'`
+    );
+    expect(Number(metrics.rows[0]?.canceled_total)).toBe(1);
     // And the index now exists and enforces.
     await expect(insertActiveJob(db, 'post-078', 'queued')).rejects.toThrow(
       /idx_job_queue_dedupe_active/u

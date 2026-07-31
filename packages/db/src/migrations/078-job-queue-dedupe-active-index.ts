@@ -19,7 +19,11 @@ import type { Migration } from './migration-runner';
  */
 export const migration078JobQueueDedupeActiveIndex: Migration = {
   down: `
-    DROP INDEX IF EXISTS idx_job_queue_dedupe_active;
+    -- No-op: 007 owns idx_job_queue_dedupe_active on the numbered path, and
+    -- dropping it here would revoke that migration's invariant on any partial
+    -- rollback that stops between 7 and 77. 078 only creates the index where
+    -- it was missing; it is not the owner.
+    SELECT 1;
   `,
   name: 'job_queue_dedupe_active_index',
   up: `
@@ -28,22 +32,37 @@ export const migration078JobQueueDedupeActiveIndex: Migration = {
     -- raw rows), and CREATE UNIQUE INDEX fails on existing violations. Cancel
     -- all but the newest active row per key first — cancel rather than
     -- delete, so the resolution stays visible in the queue's own forensics.
-    UPDATE job_queue
-       SET state = 'canceled',
-           error = COALESCE(error, 'canceled by migration 078: duplicate active dedupe_key'),
-           updated_at = CURRENT_TIMESTAMP
-     WHERE id IN (
-       SELECT id FROM (
-         SELECT id,
-                ROW_NUMBER() OVER (
-                  PARTITION BY dedupe_key
-                  ORDER BY created_at DESC, id DESC
-                ) AS rn
-           FROM job_queue
-          WHERE dedupe_key IS NOT NULL AND state IN ('queued','running')
-       ) ranked
-       WHERE rn > 1
-     );
+    -- Shape matches JobQueue.cancel: leased_until nulled, error annotated,
+    -- updated_at written in the contractual TEXT-ISO format (the column is
+    -- TEXT and every reader compares it lexicographically — a bare
+    -- CURRENT_TIMESTAMP cast renders a space-separated non-ISO string).
+    -- job_queue_metrics.canceled_total is a monotonic lifetime counter
+    -- (migration 064); scheduled pruning later deletes the rows, so the
+    -- outcome must be counted here or it is lost forever.
+    WITH canceled AS (
+      UPDATE job_queue
+         SET state = 'canceled',
+             leased_until = NULL,
+             error = COALESCE(error, 'canceled by migration 078: duplicate active dedupe_key'),
+             updated_at = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       WHERE id IN (
+         SELECT id FROM (
+           SELECT id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY dedupe_key
+                    ORDER BY created_at DESC, id DESC
+                  ) AS rn
+             FROM job_queue
+            WHERE dedupe_key IS NOT NULL AND state IN ('queued','running')
+         ) ranked
+         WHERE rn > 1
+       )
+       RETURNING queue
+    )
+    INSERT INTO job_queue_metrics (queue, canceled_total)
+    SELECT queue, COUNT(*) FROM canceled GROUP BY queue
+    ON CONFLICT (queue) DO UPDATE
+      SET canceled_total = job_queue_metrics.canceled_total + EXCLUDED.canceled_total;
     --> statement-breakpoint
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_dedupe_active
