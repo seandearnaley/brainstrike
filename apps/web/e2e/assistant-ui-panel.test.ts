@@ -407,7 +407,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(viewport).toBeVisible();
 
     await page.locator('#assistant-input').fill('tell me a joke');
-    const sendBtn = page.getByRole('button', { name: 'Send' });
+    const sendBtn = page.getByRole('button', { exact: true, name: 'Send' });
     await sendBtn.click();
 
     const stopBtn = page.getByRole('button', { name: 'Stop' });
@@ -422,7 +422,9 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     });
 
     await expect(stopBtn).toBeHidden({ timeout: 15_000 });
-    await expect(page.getByRole('button', { name: 'Send' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { exact: true, name: 'Send' })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(page.getByTestId('local-model-status')).toBeHidden({ timeout: 5000 });
   });
 
@@ -437,7 +439,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(viewport).toBeVisible();
 
     await page.locator('#assistant-input').fill('echo hidden tool details');
-    await page.getByRole('button', { name: 'Send' }).click();
+    await page.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // Since #1237/#1240 a turn's tool cards live inside a per-turn Activity
     // group that auto-collapses when the turn finishes (the card stays in the
@@ -477,7 +479,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(viewport).toBeVisible();
     await expect(composerShell).toBeVisible();
     await expect(composerShell.getByTestId('assistant-composer-controls')).toBeVisible();
-    await expect(composerShell.getByRole('button', { name: 'Send' })).toBeVisible();
+    await expect(composerShell.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
     await expect(composerShell.getByText('Send', { exact: true })).toHaveCount(0);
 
     const modelBox = await composerShell
@@ -524,7 +526,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     const input = page.locator('#assistant-input');
     await input.fill(longPrompt);
-    await composerShell.getByRole('button', { name: 'Send' }).click();
+    await composerShell.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(viewport.getByText(/Mock response from tests/i)).toHaveCount(1, {
       timeout: 15_000,
     });
@@ -626,9 +628,16 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     });
     expect(recollapsedGeometry.bodyHeight).toBeLessThan(recollapsedGeometry.contentHeight);
 
+    // `exact: true` on every Send locator in this file: getByRole's name
+    // match is a case-insensitive SUBSTRING by default, and while a run is
+    // active the composer's running branch offers "Queue message to send
+    // after this run" — a substring hit that silently queued the next turn as
+    // a follow-up chip instead of waiting for Send to remount. The queue
+    // flush then shrank the composer and unpinned stick-to-bottom, failing
+    // the toBeDisabled below only on fast (warm-worker) runs (BST-1036).
     for (let turn = 2; turn <= 5; turn += 1) {
       await input.fill(`thread scroll turn ${turn}`);
-      await composerShell.getByRole('button', { name: 'Send' }).click();
+      await composerShell.getByRole('button', { exact: true, name: 'Send' }).click();
       await expect(viewport.getByText(/Mock response from tests/i)).toHaveCount(turn, {
         timeout: 15_000,
       });
