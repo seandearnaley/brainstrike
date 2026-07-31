@@ -63,6 +63,55 @@ describe('queue-cli smoke tests', () => {
     ).toBe(true);
   });
 
+  // Review #2161: with 'expired' retired from JobState, silently filtering
+  // unknown tokens to [] would have turned `clear --states expired` into a
+  // FULL queue wipe (JobQueue.clear treats an empty array as "no state
+  // predicate"). Unknown states must reject loudly and never reach clear.
+  it('rejects unknown --states tokens instead of silently widening a clear', async () => {
+    const exitCalls: number[] = [];
+    // Throw only on the FIRST exit: the sanitizeStates exit(2) must abort the
+    // command, but the CLI's top-level catch then calls exit(1) — throwing
+    // from inside that catch handler would surface as an unhandled rejection
+    // and fail the whole run.
+    let exited = false;
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exitCalls.push(code ?? 0);
+      if (!exited) {
+        exited = true;
+        throw new Error(`exit ${code ?? 0}`);
+      }
+      return undefined as never;
+    }) as never);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const errMock = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    process.argv = ['node', 'queue-cli', 'clear', '--queue', 'embeddings', '--states', 'expired'];
+
+    const clear = vi.fn();
+    const createPGlite = vi.fn().mockResolvedValue({ database: 'memory://' });
+    vi.doMock('../src/wasm-loader.js', () => ({ wasmLoader: { createPGlite } }));
+    vi.doMock('../src/queue/job-queue.js', () => ({
+      JobQueue: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+        this.getQueueStats = vi.fn();
+        this.requeueFailed = vi.fn();
+        this.clear = clear;
+        this.prune = vi.fn();
+      }),
+    }));
+
+    await import('../src/cli/queue-cli.ts');
+
+    await vi.waitFor(() => {
+      expect(exitCalls).toContain(2);
+    });
+    expect(clear).not.toHaveBeenCalled();
+    expect(
+      errMock.mock.calls.some(
+        ([chunk]) => typeof chunk === 'string' && chunk.includes('Unknown job state(s): expired')
+      )
+    ).toBe(true);
+  });
+
   it('executes stats command against the job queue', async () => {
     const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`unexpected exit ${code ?? 0}`);

@@ -2,7 +2,11 @@ import { emitQueueTelemetry, type QueueTelemetryAdapter } from '@brainstrike/que
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { IDatabase } from '../repositories/interfaces.js';
 
-export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired';
+// 'expired' was in this union (and remains in migration 007's CHECK, which is
+// append-only history) but NOTHING ever wrote it — expireLeases set 'queued'
+// and claimMany steals expired leases inline. Retired from the type so the
+// phantom state cannot spread to new switch arms (BST-991 census).
+export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 export type JobType = 'embed_chunk';
 
@@ -273,10 +277,6 @@ export class JobQueue {
     private readonly db: IDatabase,
     private readonly defaults: { maxAttempts?: number } = {}
   ) {}
-
-  withDb(db: IDatabase): JobQueue {
-    return new JobQueue(db, this.defaults);
-  }
 
   private normalizeIdType(value: unknown): 'uuid' | 'text' | null {
     if (typeof value !== 'string') {
@@ -1345,30 +1345,6 @@ export class JobQueue {
     }
 
     return count;
-  }
-
-  async expireLeases(nowIso?: string): Promise<number> {
-    const now = nowIso ?? new Date().toISOString();
-    const res = await this.db.query<{ count: string }>(
-      `WITH cte AS (
-        SELECT id FROM job_queue
-        WHERE state = 'running' AND leased_until IS NOT NULL AND leased_until <= $1
-      ), upd AS (
-        UPDATE job_queue SET
-          state = 'queued',
-          lease_token = NULL,
-          leased_until = NULL,
-          updated_at = $1
-        WHERE id IN (SELECT id FROM cte)
-        RETURNING 1
-      ) SELECT COUNT(*)::text as count FROM upd`,
-      [now]
-    );
-    const released = Number(res.rows[0]?.count ?? 0);
-    if (released > 0) {
-      logger.warn('Expired job leases', { count: released });
-    }
-    return released;
   }
 
   async prune(states: JobState[], olderThanIso: string): Promise<number> {
