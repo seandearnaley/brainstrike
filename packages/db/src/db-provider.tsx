@@ -42,6 +42,7 @@ import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
+import type { ResetTable } from './reset-table-registry.js';
 import {
   type PGliteRuntimeClient,
   runFirstRunBootstrapInWorker,
@@ -55,43 +56,20 @@ function logDatabaseError(message: string, error: unknown): void {
 }
 
 /**
-/**
  * Every relation the clear/reset paths empty. A closed union rather than a
  * `string` parameter ON PURPOSE: because the helper below PROBES with
  * `to_regclass`, a stale or misspelled name is indistinguishable from an absent
  * table and becomes a PERMANENT SILENT SKIP — no error, no warn, only a
  * `logger.debug`, with every test still green.
  *
- * The `typeof` expressions over the imported Mastra schema constants are
- * TYPE-position reads, erased at compile time, so they cannot participate in
- * the module-scope chunk-init hazard that
- * `scripts/verify-mastra-schema-init-order.mjs` guards. Their VALUES are still
- * read only inside the functions below.
+ * Derived from the reset-table registry (BST-992) rather than hand-enumerated:
+ * the registry owns the SET all three table-enumerating reset paths clear;
+ * this file owns the renderer paths' order and mechanics.
+ * `reset-table-registry.test.ts` asserts each renderer path clears exactly the
+ * registry set, so a table added to the registry without a call site here (or
+ * vice versa) fails fast.
  */
-type ClearableRelation =
-  | typeof MASTRA_WORKFLOW_TABLE
-  | 'brainstrike_assistant_run_errors'
-  | 'brainstrike_assistant_run_outcomes'
-  | 'brainstrike_assistant_thread_groups'
-  | 'brainstrike_assistant_thread_placements'
-  | 'brainstrike_assistant_tool_output_artifacts'
-  | 'brainstrike_diagnostic_events'
-  | 'brainstrike_thread_message_index'
-  | 'brainstrike_thread_search_state'
-  | 'collection_indexing_stats'
-  | 'embedding_sets'
-  | 'file_chunks'
-  | 'file_records'
-  | 'job_queue'
-  | 'mastra_messages'
-  | 'mastra_observational_memory'
-  | 'mastra_resources'
-  | 'mastra_threads'
-  | 'mastra_vectors'
-  | 'prompt_items'
-  | 'roots'
-  | 'selection_snapshot_files'
-  | 'selection_snapshots';
+type ClearableRelation = ResetTable;
 
 /**
  * Deletes every row of a relation that may legitimately be ABSENT, PROBING for
@@ -883,6 +861,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Revisions cascade from prompt_items. The system embedding profile is
       // configuration seeded by migration 051 and intentionally survives.
       await clearRelationIfPresent(tx, 'prompt_items');
+      // Durable per-thread token/cost usage (migration 046): FK-less, so
+      // nothing cascades it — cost history must not survive a fresh start.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_run_usage');
       // FK-less terminal provider forensics can contain response metadata and
       // error text. Clear them before the lazy parent run/thread stores.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_run_errors');
@@ -890,6 +871,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // renderer repository (user verdicts), no FK cascades them — clear
       // explicitly per the FACTORY RESET CONTRACT (review #1693).
       await clearRelationIfPresent(tx, 'brainstrike_assistant_run_outcomes');
+      // BST-992 drift fix: desktop `db:clearAll` cleared these three FK-less
+      // stores but web missed them, so the assistant task list, edit-checkpoint
+      // before-content, and assistant-ui branch topology survived a web clear.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
@@ -970,6 +957,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // Task Ledger outcome labels: web-writable (user verdicts), no FK —
     // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
     await clearRelationIfPresent(tx, 'brainstrike_assistant_run_outcomes');
+    // BST-992 drift fix: FK-less desktop-parity stores web previously missed —
+    // token/cost history, task lists, edit-checkpoint before-content, and
+    // branch topology must not survive a web factory reset.
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_run_usage');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
     await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
     await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');

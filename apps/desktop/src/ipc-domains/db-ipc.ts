@@ -7,6 +7,7 @@ import {
   type DatabaseWorkOptions,
   escapePGliteLiveQueryFormatPercents,
   parseManagedCacheBatchArgs,
+  type ResetTable,
   runStatementsInTransaction,
   type TransactionStatement,
 } from '@brainstrike/db';
@@ -80,32 +81,22 @@ interface PGliteLiveQuerySurface {
   };
 }
 
-type OptionalRelationTable =
-  | typeof MASTRA_WORKFLOW_TABLE
-  | 'brainstrike_assistant_edit_checkpoints'
-  | 'brainstrike_assistant_message_parents'
-  | 'brainstrike_assistant_run_errors'
-  | 'brainstrike_assistant_run_outcomes'
-  | 'brainstrike_assistant_run_usage'
-  | 'brainstrike_assistant_task_lists'
-  | 'brainstrike_assistant_thread_groups'
-  | 'brainstrike_assistant_thread_placements'
-  | 'brainstrike_assistant_tool_output_artifacts'
-  | 'brainstrike_diagnostic_events'
-  | 'brainstrike_thread_message_index'
-  | 'brainstrike_thread_search_state'
-  | 'collection_indexing_stats'
-  | 'embedding_sets'
-  | 'job_queue'
-  | 'mastra_messages'
-  | 'mastra_observational_memory'
-  | 'mastra_resources'
-  | 'mastra_threads'
-  | 'mastra_vectors'
-  | 'prompt_items'
-  | 'roots'
-  | 'selection_snapshot_files'
-  | 'selection_snapshots';
+/**
+ * Derived from the reset-table registry (BST-992): the registry owns the SET
+ * every table-enumerating reset path clears; this file owns desktop's order
+ * and mechanics. `file_chunks`/`file_records` are excluded because `clearAll`
+ * counts and bare-DELETEs them (they are guaranteed by migrations, never
+ * legitimately absent), so they never go through the probe helper. A closed
+ * literal union on purpose — with `to_regclass` a stale name is a permanent
+ * silent skip, so `string` is forbidden here (platform-contracts).
+ *
+ * `RegisteredBareDeleted` closes the fail-open edge of `Exclude`: if either
+ * name ever left the registry, a bare `Exclude` would silently stop removing
+ * it, whereas this constrained alias makes it a compile error.
+ */
+type RegisteredBareDeleted<T extends ResetTable> = T;
+type BareDeletedTable = RegisteredBareDeleted<'file_chunks' | 'file_records'>;
+type OptionalRelationTable = Exclude<ResetTable, BareDeletedTable>;
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();

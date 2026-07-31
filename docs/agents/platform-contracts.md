@@ -103,12 +103,48 @@ ALL SIX:
 
 Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 `db-ipc.ts`, direct-PGlite `clearViaPGlite`, and direct-PGlite factory reset's
-`purgeTablesTx` in `db-provider.tsx`. Keep the Mastra six in parity across those
-three lists; the rest intentionally differs. Desktop factory reset is
-deliberately different: `resetLocalDatabase` closes the database and recursively
-deletes the active profile directory, so it removes the relations with the whole
-database rather than issuing table-by-table `DELETE`s. Do not add a redundant
-SQL purge to that directory-delete path.
+`purgeTablesTx` in `db-provider.tsx`.
+
+**The SET those three lists clear is owned by the reset-table registry**
+(`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
+27-relation set (12 `brainstrike_*` + 9 core/indexing + the Mastra six); only
+per-path ORDER and mechanics differ (children before logical parents varies by
+path, and desktop counts + bare-DELETEs `file_chunks`/`file_records`). The
+registry exists because the union CANNOT be derived from the Drizzle schema —
+the `brainstrike_*` assistant tables are migration-only raw DDL and the Mastra
+six live in the assistant contract — and because the lists had already drifted
+once: web's two paths silently omitted `brainstrike_assistant_run_usage`,
+`_task_lists`, `_edit_checkpoints`, and `_message_parents` (BST-862's class),
+so cost history, task lists, edit-checkpoint before-content, and branch
+topology survived a web factory reset. Three instruments keep it closed:
+
+- `reset-table-coverage.integration.test.ts` sweeps `information_schema` on a
+  fully migrated database — every existing table must be in the registry or in
+  `RESET_EXCLUDED_TABLES` with a written reason, so a new migration forces an
+  explicit clear-or-exclude decision.
+- Registry↔call-site parity: `reset-table-registry.test.tsx` (both renderer
+  paths) and the `db:clearAll` set-equality test in `ipc-handlers-db.test.ts`
+  (desktop) assert each path clears exactly the registry set.
+- The test-owned literal fixtures (below) stay deliberately independent of the
+  registry so production and tests cannot drift together.
+
+Both probe-helper unions derive from the registry's `ResetTable`
+(`ClearableRelation` is `ResetTable`; desktop's `OptionalRelationTable` is
+`Exclude<ResetTable, 'file_chunks' | 'file_records'>`) — keep them derived,
+and keep them closed unions.
+
+`brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events`
+(renderer-lazy bootstrap DDL in `assistant-memory-repository.ts`, created by no
+migration) are in NO list on purpose: both cascade from `mastra_threads`
+(`ON DELETE CASCADE`), which every list clears. If that FK is ever dropped —
+migration 052 dropped its FKs for exactly this kind of reason — they start
+silently surviving reset; move them into the registry in the same change.
+
+Desktop factory reset is deliberately different: `resetLocalDatabase` closes
+the database and recursively deletes the active profile directory, so it
+removes the relations with the whole database rather than issuing
+table-by-table `DELETE`s. Do not add a redundant SQL purge to that
+directory-delete path.
 
 These relations are application-created lazily rather than guaranteed by the
 numbered migration runner: the memory store creates threads, messages,

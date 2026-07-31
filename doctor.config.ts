@@ -66,8 +66,9 @@ export default {
     // exactly the one suppressed finding.
     overrides: [
       {
-        // `clearViaPGlite` / `purgeTablesTx` issue 15 statements on ONE PGlite
-        // connection inside ONE transaction. `Promise.all` would race statements
+        // `clearViaPGlite` / `purgeTablesTx` issue their full reset-table-
+        // registry sweep (27 relations, BST-992) on ONE PGlite connection
+        // inside ONE transaction. `Promise.all` would race statements
         // on a single connection, and once any statement fails the transaction
         // is aborted, so the "parallel" remainder would only pile up `25P02
         // current transaction is aborted` errors. Sequential is required for

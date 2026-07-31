@@ -164,6 +164,15 @@ export {
   ToolOutputArtifactStorageError,
   type ToolOutputArtifactStorageOperation,
 } from './repositories/tool-output-artifact-repository.js';
+export {
+  auditResetTableCoverage,
+  getMastraResetTables,
+  getResetTables,
+  type MastraResetTable,
+  RESET_EXCLUDED_TABLES,
+  type ResetTable,
+  type ResetTableCoverageAudit,
+} from './reset-table-registry.js';
 // Schema types for embedding cache (BST-170)
 // Schema types for view filter presets
 export type {
