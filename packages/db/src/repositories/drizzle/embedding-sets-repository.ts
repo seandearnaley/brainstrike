@@ -24,6 +24,11 @@ import {
   repairPersistedEmbeddingSetMetadata,
   tryResolveEmbeddingSetMetadata,
 } from '../embedding-set-metadata.js';
+import {
+  type EmbeddingSpaceListing,
+  type ListEmbeddingSpacesOptions,
+  runListEmbeddingSpacesQuery,
+} from '../embedding-space-listing.js';
 
 type DrizzleDb = PgliteDatabase;
 
@@ -322,6 +327,18 @@ export class DrizzleEmbeddingSetsRepository {
         return { rows: result.rows as T[] };
       },
     };
+  }
+
+  /**
+   * Parity with the raw variant (BST-989 slice 1): the shared pairing
+   * function owns both the SQL choice and the reader, so the two variants
+   * return byte-identical listings and cannot drift on the stats surface.
+   */
+  async listEmbeddingSpaces(
+    options: ListEmbeddingSpacesOptions = {}
+  ): Promise<EmbeddingSpaceListing[]> {
+    const adapter = this.createQueryAdapter();
+    return runListEmbeddingSpacesQuery((sql) => adapter.query(sql), options);
   }
 
   private async readEmbeddingSet(row: typeof embeddingSets.$inferSelect): Promise<EmbeddingSet> {
