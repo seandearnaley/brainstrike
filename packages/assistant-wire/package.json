@@ -4,9 +4,9 @@
   "dependencies": {},
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "tsup": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "tsup": "catalog:"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

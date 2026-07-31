@@ -1,5 +1,5 @@
-import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 // @vitest-environment jsdom
+import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import '@testing-library/jest-dom/vitest';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
