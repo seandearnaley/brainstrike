@@ -51,11 +51,11 @@ test.describe('Performance Validation - Simple Tests', () => {
     // The shallow comparison fix should make this much faster
     // Before fix: Every selection caused all components to re-render
     // After fix: Only relevant components re-render
-    // Budget: the sibling benchmark's CI-proven threshold for this exact
-    // quantity (same helper, same click-each interaction) — the controlled
-    // baseline BST-959's disposition required before retiring the legacy
-    // 2,000ms wall-clock constant, which would be vacuous over a
-    // browser-side total that measures ~62ms.
+    // Budget: CHECKBOX_FRAME_TOTAL_MAX_MS with its CALIBRATED GitHub Actions
+    // floor (BST-1038, 2026-07-31: three controlled dispatches on one SHA
+    // measured this spec at 783–1101ms in CI — the "~62ms" figure previously
+    // cited here was unsourced and contradicted by every CI run; local runs
+    // are an order of magnitude faster than the shared runner).
     expect(selectionMetrics.totalDurationMs).toBeLessThan(
       PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS
     );

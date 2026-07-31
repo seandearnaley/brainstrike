@@ -26,12 +26,31 @@ export const BASE_THRESHOLDS = {
 const CI_MULTIPLIER = 1.5; // 50% more lenient thresholds for CI
 const GITHUB_ACTIONS_MULTIPLIER = 2.0; // Even more lenient for GitHub Actions
 
-// Additional CI-specific minimums based on observed GitHub Actions variance in 2025
-// Keep these tight and targeted, only for known noisy metrics.
+// CI-specific minimums, each calibrated from OBSERVED GitHub Actions runs.
+// Keep these tight and targeted, only for known noisy metrics, and NEVER
+// change one without a fresh calibration (BST-1038 contract in
+// docs/agents/ci-quality.md: N workflow_dispatch runs of performance.yml on
+// ONE SHA, floor = observed worst x ~1.5 headroom, provenance recorded).
 const GITHUB_ACTIONS_MINIMUMS = {
+  // Observed averages: 454–590ms against the uncalibrated 200ms.
+  CHECKBOX_FRAME_AVERAGE_MAX_MS: 900,
+  // 2026-07-31 calibration (BST-1038): 3 controlled dispatches on fa9570316,
+  // runs 30644845155 / 30644855849 / 30646944772, ubuntu-24.04 +
+  // mcr.microsoft.com/playwright:v1.61.1-noble. Before this calibration the
+  // four browser-boundary metrics below had NO CI floor at all (the lane had
+  // never been green in 1,000 retained runs; the 2025 floors cover only
+  // retired metrics).
+  // Observed totals: 1073–1656ms (baseline benchmark) / 783–1101ms
+  // (validation spec) against the uncalibrated 600ms.
+  CHECKBOX_FRAME_TOTAL_MAX_MS: 2500,
+  // 2025-era floors for the legacy metrics (kept as-is).
   FILE_SELECTION_MAX_MS: 2300, // was 2000 after multiplier; rare flake ~2150ms
   RENDER_TIME_MAX_MS: 420, // was 300 after multiplier; CI observed ~335–402ms
+  // Observed: 631–640ms against the uncalibrated 600ms.
+  SCROLL_FRAME_TOTAL_MAX_MS: 1000,
   SCROLL_PERFORMANCE_MAX_MS: 2000, // was 1600 after multiplier; CI observed ~1650–1900ms
+  // Observed 6993ms once (run 30594431306) against 6000ms; headroom applied.
+  TREE_EXPANSION_MAX_MS: 10_500,
 } as const;
 
 function isLocalFirstDbEnabled(): boolean {
@@ -96,6 +115,14 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
   if (environment === 'github-actions') {
     thresholds = {
       ...thresholds,
+      CHECKBOX_FRAME_AVERAGE_MAX_MS: Math.max(
+        thresholds.CHECKBOX_FRAME_AVERAGE_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.CHECKBOX_FRAME_AVERAGE_MAX_MS
+      ),
+      CHECKBOX_FRAME_TOTAL_MAX_MS: Math.max(
+        thresholds.CHECKBOX_FRAME_TOTAL_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.CHECKBOX_FRAME_TOTAL_MAX_MS
+      ),
       FILE_SELECTION_MAX_MS: Math.max(
         thresholds.FILE_SELECTION_MAX_MS,
         GITHUB_ACTIONS_MINIMUMS.FILE_SELECTION_MAX_MS
@@ -104,9 +131,17 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
         thresholds.RENDER_TIME_MAX_MS,
         GITHUB_ACTIONS_MINIMUMS.RENDER_TIME_MAX_MS
       ),
+      SCROLL_FRAME_TOTAL_MAX_MS: Math.max(
+        thresholds.SCROLL_FRAME_TOTAL_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.SCROLL_FRAME_TOTAL_MAX_MS
+      ),
       SCROLL_PERFORMANCE_MAX_MS: Math.max(
         thresholds.SCROLL_PERFORMANCE_MAX_MS,
         GITHUB_ACTIONS_MINIMUMS.SCROLL_PERFORMANCE_MAX_MS
+      ),
+      TREE_EXPANSION_MAX_MS: Math.max(
+        thresholds.TREE_EXPANSION_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.TREE_EXPANSION_MAX_MS
       ),
     } as typeof thresholds;
   }
