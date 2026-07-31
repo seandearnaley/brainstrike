@@ -307,9 +307,15 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(threadRow).toBeVisible();
     await expect(threadRow).not.toContainText(/thread-[0-9a-f-]+/i);
 
-    await threadRow.getByRole('button', { name: /Customize thread/ }).click();
-    await threadRow.getByRole('button', { name: 'Use Bug icon' }).click();
-    await threadRow.getByRole('button', { name: 'Use Rose color' }).click();
+    // Customization moved into the row's "Thread actions" popover (#1661). The
+    // popover renders in a portal, so its controls are page-scoped, not
+    // row-scoped; Escape closes it (and exits customize mode) before the flow
+    // interacts with the row again (BST-1033).
+    await threadRow.getByRole('button', { name: /Thread actions/ }).click();
+    await page.getByRole('button', { name: 'Customize' }).click();
+    await page.getByRole('button', { name: 'Use Bug icon' }).click();
+    await page.getByRole('button', { name: 'Use Rose color' }).click();
+    await page.keyboard.press('Escape');
 
     await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible();
     await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible();
@@ -650,7 +656,11 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByTestId('thread-row')).toHaveCount(2);
 
     const newestThread = page.getByTestId('thread-row').first();
-    await newestThread.getByRole('button', { name: /Delete thread/i }).click();
+    // Deletion moved into the row's "Thread actions" popover (#1661); the
+    // "Delete…" item closes the popover and opens the inline row confirm
+    // (aria-label "Confirm delete thread …") — BST-1035.
+    await newestThread.getByRole('button', { name: /Thread actions/i }).click();
+    await page.getByRole('button', { name: 'Delete…' }).click();
     await page.getByRole('button', { name: /Confirm delete thread/i }).click();
 
     await expect(page.getByTestId('thread-row')).toHaveCount(1);
