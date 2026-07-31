@@ -18,7 +18,10 @@
 
 import { useAuiState } from '@assistant-ui/react';
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  isAssistantRunEvent,
+} from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
 import { useEffect, useRef, useState } from 'react';
@@ -34,15 +37,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-/** Minimal validator — only the fields this module reads, not the full shape. */
 function isTerminalRunEvent(value: unknown): value is AssistantRunEvent {
+  // Full-shape contract guard (BST-978 slice 2) + this module's kind filter.
   return (
-    isRecord(value) &&
-    typeof value['id'] === 'string' &&
-    (value['kind'] === 'run.finished' || value['kind'] === 'run.failed') &&
-    typeof value['label'] === 'string' &&
-    typeof value['status'] === 'string' &&
-    typeof value['timestamp'] === 'string'
+    isAssistantRunEvent(value) && (value.kind === 'run.finished' || value.kind === 'run.failed')
   );
 }
 

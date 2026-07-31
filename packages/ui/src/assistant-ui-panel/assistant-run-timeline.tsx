@@ -4,7 +4,10 @@ import type {
   AssistantRunEventKind,
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  isAssistantRunEvent,
+} from '@brainstrike/assistant-contract';
 import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import {
   AlertCircle,
@@ -54,29 +57,6 @@ function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus })
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function isAssistantRunEventStatus(value: unknown): value is AssistantRunEventStatus {
-  return (
-    value === 'cancelled' ||
-    value === 'completed' ||
-    value === 'failed' ||
-    value === 'info' ||
-    value === 'running'
-  );
-}
-
-function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return (
-    typeof value['id'] === 'string' &&
-    typeof value['kind'] === 'string' &&
-    typeof value['label'] === 'string' &&
-    isAssistantRunEventStatus(value['status']) &&
-    typeof value['timestamp'] === 'string'
-  );
 }
 
 /**

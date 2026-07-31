@@ -23,7 +23,13 @@ vi.mock('@assistant-ui/react', () => ({
 }));
 
 function runEventPart(data: Record<string, unknown>): Record<string, unknown> {
-  return { data, name: 'brainstrike.run-event', type: 'data' };
+  // Full wire shape (BST-978): the inbound guard requires label/timestamp,
+  // which production events always carry via createAssistantRunEvent.
+  return {
+    data: { label: 'Run failed', timestamp: '2026-07-31T00:00:00.000Z', ...data },
+    name: 'brainstrike.run-event',
+    type: 'data',
+  };
 }
 
 function wrap(binding: DebugBundleBinding | null, ui: ReactNode) {
