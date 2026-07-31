@@ -669,7 +669,7 @@ function ThreadRenameForm({
 }): ReactElement {
   return (
     <form
-      className="flex min-h-10 items-center gap-2"
+      className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} items-center gap-2`}
       onSubmit={(event) => {
         event.preventDefault();
         onSavingThreadIdChange(thread.id);
@@ -703,21 +703,23 @@ function ThreadRenameForm({
       {renameError ? <span className="text-[11px] text-destructive">{renameError}</span> : null}
       <Button
         aria-label="Save thread title"
+        className={THREAD_CONTROL_ACTION_CLASS_NAME}
         disabled={savingThreadId === thread.id}
-        size="icon"
+        size="icon-xs"
         type="submit"
         variant="ghost"
       >
-        <Check className="h-3.5 w-3.5" />
+        <Check className="size-3" />
       </Button>
       <Button
         aria-label="Cancel rename"
+        className={THREAD_CONTROL_ACTION_CLASS_NAME}
         onClick={onCancelRename}
-        size="icon"
+        size="icon-xs"
         type="button"
         variant="ghost"
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="size-3" />
       </Button>
     </form>
   );

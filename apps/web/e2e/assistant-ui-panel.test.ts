@@ -372,13 +372,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByTestId('threads-panel')).toBeVisible();
     const threadRow = page.getByTestId('thread-row').first();
     await expect(threadRow).toBeVisible();
-    const renderedIdentity = threadRow.getByTestId('thread-color-blue');
+    // Color-agnostic identity-mark locator: threads without explicit color
+    // metadata render `thread-color-unassigned` since #1643 (was blue before);
+    // this test pins the mark's ALIGNMENT across modes, not its color
+    // (BST-1034).
+    const renderedIdentity = threadRow.locator('[data-testid^="thread-color-"]');
     await expect(renderedIdentity).toBeVisible();
     const renderedBox = await renderedIdentity.boundingBox();
     expect(renderedBox).not.toBeNull();
 
-    await threadRow.getByRole('button', { name: /Rename thread/ }).click();
-    const editIdentity = threadRow.getByTestId('thread-color-blue');
+    // Rename moved into the row's "Thread actions" popover (#1661), scoped to
+    // the open popover like the customize/delete flows.
+    await threadRow.getByRole('button', { name: /Thread actions/i }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Rename' }).click();
+    const editIdentity = threadRow.locator('[data-testid^="thread-color-"]');
     await expect(editIdentity).toBeVisible();
     const editBox = await editIdentity.boundingBox();
     expect(editBox).not.toBeNull();
