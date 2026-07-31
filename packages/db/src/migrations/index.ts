@@ -169,6 +169,18 @@ export const baseMigrations: Migration[] = [
   migration003AddIndexes,
 ];
 
+// Public route for the dimension-index helpers (BST-990 root-API drift —
+// the root index previously bypassed this barrel for them).
+export {
+  createDimensionIndex,
+  dropDimensionIndex,
+  estimateEmbeddedRowCount,
+  hnswParams,
+  resolveIndexBuildMaintenanceWorkMemMb,
+  resumeDimensionIndexBuilds,
+  suspendDimensionIndexBuilds,
+  withIndexBuildMaintenanceWorkMem,
+} from './dimension-index-helpers.js';
 export type { Migration } from './migration-runner';
 // Re-export types and runner
 export { MigrationRunner } from './migration-runner.js';

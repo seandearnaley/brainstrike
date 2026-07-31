@@ -9,8 +9,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
 import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
-export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
-
 const logger = createLogger('UsePGliteLiveQuery');
 
 interface BaseLiveQueryOptions {

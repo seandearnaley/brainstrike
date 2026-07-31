@@ -46,19 +46,20 @@ export {
 } from './managed-cache/index.js';
 // Legacy migration export
 export * from './migrations/bootstrap.js';
+export type { Migration } from './migrations/index.js';
+// New migration system
 export {
   createDimensionIndex,
   dropDimensionIndex,
   estimateEmbeddedRowCount,
   hnswParams,
+  MigrationRunner,
+  migrations,
   resolveIndexBuildMaintenanceWorkMemMb,
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
   withIndexBuildMaintenanceWorkMem,
-} from './migrations/dimension-index-helpers.js';
-export type { Migration } from './migrations/index.js';
-// New migration system
-export { MigrationRunner, migrations } from './migrations/index.js';
+} from './migrations/index.js';
 export {
   ASSISTANT_RUN_ERRORS_TABLE,
   type AssistantRunErrorRecord,
@@ -144,26 +145,8 @@ export type {
 } from './queue/index.js';
 // Queue
 export { JobQueue } from './queue/index.js';
-export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './repositories/_shared.js';
-export {
-  type FileChunkDatabase,
-  type FileChunkQueryTx,
-  FileChunkRepository,
-} from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';
-export {
-  type PurgeExpiredToolOutputArtifactsOptions,
-  type ReadToolOutputArtifactRangeInput,
-  type StoreToolOutputArtifactInput,
-  TOOL_OUTPUT_ARTIFACT_RETENTION_MS,
-  type ToolOutputArtifactDatabase,
-  type ToolOutputArtifactRangeResult,
-  ToolOutputArtifactRepository,
-  type ToolOutputArtifactRepositoryOptions,
-  ToolOutputArtifactStorageError,
-  type ToolOutputArtifactStorageOperation,
-} from './repositories/tool-output-artifact-repository.js';
 export {
   auditResetTableCoverage,
   getMastraResetTables,
