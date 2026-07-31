@@ -29,6 +29,7 @@ export const dbUnitLaneDefinitions = [
       /^mastra-om-schema-projection\.test\.ts$/,
       /^migration-068-tool-output-artifacts\.test\.ts$/,
       /^migration-076-assistant-run-errors\.test\.ts$/,
+      /^migration-079-mind-ops-log\.test\.ts$/,
       /^migration-/,
       /^migration-integration\.test\.ts$/,
       /^pglite-engine-major\.integration\.test\.ts$/,
