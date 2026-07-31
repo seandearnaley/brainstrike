@@ -451,6 +451,13 @@ export const jobQueue = pgTable(
   (table) => [
     index('idx_job_queue_state_run_at').on(table.state, table.runAt),
     index('idx_job_queue_dedupe_key').on(table.dedupeKey),
+    // The hard uniqueness backstop behind JobQueue.enqueue's idempotent CTE
+    // (INSERT … WHERE NOT EXISTS, not ON CONFLICT). Created on existing
+    // databases by migration 078; numbered migration 007 has carried it since
+    // the queue's birth (BST-991).
+    uniqueIndex('idx_job_queue_dedupe_active')
+      .on(table.dedupeKey)
+      .where(sql`${table.dedupeKey} IS NOT NULL AND ${table.state} IN ('queued','running')`),
     index('idx_job_queue_leased_until').on(table.leasedUntil),
     index('idx_job_queue_active_embed_chunk_id')
       .on(table.chunkId)
