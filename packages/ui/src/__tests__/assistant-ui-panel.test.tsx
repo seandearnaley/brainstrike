@@ -1,9 +1,9 @@
+import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
-  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';

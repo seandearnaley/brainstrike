@@ -19,8 +19,8 @@ import type {
   AgentStreamInitializationStage,
   AssistantPostRejection,
   AssistantRejectionPayload,
-  DesktopMemoryFeature,
-} from './types.js';
+} from '@brainstrike/assistant-wire';
+import type { DesktopMemoryFeature } from './types.js';
 
 /** Shared JSON error headers for WHATWG hosts (web's exact bytes). */
 export const ASSISTANT_JSON_ERROR_HEADERS = {

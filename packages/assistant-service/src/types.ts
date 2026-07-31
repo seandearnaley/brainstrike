@@ -5,6 +5,7 @@ import type {
   RuntimeData,
   StreamChunk,
 } from '@brainstrike/agent';
+import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 
 export type AssistantUiMessage = AssistantUiMessageStrict;
 
@@ -53,37 +54,4 @@ export interface AgentStreamFailure {
   status: number;
 }
 export type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
-export type AgentStreamInitializationStage =
-  | 'native_tool_preferences'
-  | 'provider_model_bootstrap'
-  | 'stream_construction'
-  | 'workspace_root_resolution';
-
 export type DesktopMemoryFeature = 'observational_memory' | 'semantic_recall';
-
-/**
- * Payload shape for a rejected assistant POST (BST-972 A4). `message` is
- * OPTIONAL — unlike `respondJson`'s payload — because the `empty_prompt`
- * rejection is deliberately message-less on the wire and must stay
- * byte-identical.
- */
-export interface AssistantRejectionPayload {
-  readonly code?: string;
-  readonly correlationId?: string;
-  readonly error: string;
-  readonly message?: string;
-  readonly provider?: string;
-  readonly reason?: string;
-  readonly stage?: AgentStreamInitializationStage;
-}
-
-/**
- * A rejected assistant POST, returned by request preparation instead of being
- * written to the response there — the transport maps it (BST-972 A4).
- */
-export interface AssistantPostRejection {
-  /** Close the connection after responding (the 413 body-limit case). */
-  readonly closeConnection?: true;
-  readonly payload: AssistantRejectionPayload;
-  readonly status: number;
-}

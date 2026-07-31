@@ -1,5 +1,5 @@
-import { ASSISTANT_REQUEST_ENVELOPE_KEYS } from '@brainstrike/assistant-contract';
 import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import { ASSISTANT_REQUEST_ENVELOPE_KEYS } from '@brainstrike/assistant-wire';
 import {
   AssistantMessageValidationError,
   assertAssistantMessageGraphWithinLimits,
@@ -16,7 +16,7 @@ export {
 
 const ASSISTANT_REQUEST_ENVELOPE_KEY_SET = new Set<string>(ASSISTANT_REQUEST_ENVELOPE_KEYS);
 
-export interface AssistantRequestPayload {
+export interface ParsedAssistantRequestEnvelope {
   assistantMessageId?: string;
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessageStrict[];
@@ -118,7 +118,7 @@ export async function readRequestBodyText(
   return new TextDecoder().decode(bodyBytes);
 }
 
-export function parseAssistantRequestPayloadText(body: string): AssistantRequestPayload {
+export function parseAssistantRequestPayloadText(body: string): ParsedAssistantRequestEnvelope {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);

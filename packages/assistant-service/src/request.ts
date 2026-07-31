@@ -18,22 +18,19 @@ import {
   DESKTOP_NATIVE_TOOL_IDS,
   hasAssistantPromptContent,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  type AssistantRequestPayload as ParsedAssistantRequestEnvelope,
+  type ParsedAssistantRequestEnvelope,
   parseAssistantRequestPayloadText,
   type RuntimeData,
   readToolApprovalRunConfigAction,
   readToolResumeRunConfigAction,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent/hosted-web';
+import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/utils/logger';
 import { resolveRequestedProvider } from './memory-model-targets.js';
 import type { ProviderApiKeyReader } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
-import type {
-  AssistantPostRejection,
-  AssistantRequestPayload,
-  AssistantUiMessage,
-} from './types.js';
+import type { AssistantRequestPayload, AssistantUiMessage } from './types.js';
 
 const DESKTOP_NATIVE_TOOL_ID_SET = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 

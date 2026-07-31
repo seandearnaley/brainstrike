@@ -1,4 +1,4 @@
-import type { AgentMessage, AssistantRequestPayload } from '@brainstrike/agent/hosted-web';
+import type { AgentMessage, ParsedAssistantRequestEnvelope } from '@brainstrike/agent/hosted-web';
 import {
   AssistantAttachmentValidationError,
   AssistantInvalidJsonError,
@@ -34,7 +34,7 @@ export const WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE = {
 
 export interface WebAssistantNormalTurn {
   agentMessages: AgentMessage[];
-  payload: AssistantRequestPayload;
+  payload: ParsedAssistantRequestEnvelope;
 }
 
 export class EmptyAssistantPromptError extends Error {
@@ -46,7 +46,7 @@ export class EmptyAssistantPromptError extends Error {
   }
 }
 
-function resolveNormalTurn(payload: AssistantRequestPayload): WebAssistantNormalTurn {
+function resolveNormalTurn(payload: ParsedAssistantRequestEnvelope): WebAssistantNormalTurn {
   const { finalInputMessage, messages: agentMessages } = convertAssistantUiMessagesWithFinalInput(
     payload.rawMessages
   );

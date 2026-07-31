@@ -22,6 +22,7 @@ import {
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/utils/logger';
 import {
   collectLocalLlmWarmupModelIds,
@@ -31,12 +32,7 @@ import {
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
 import type { AssistantLlmHostManager } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
-import type {
-  AgentStreamFailure,
-  AgentStreamInitializationStage,
-  AgentStreamResult,
-  DesktopMemoryFeature,
-} from './types.js';
+import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
 
 /**
  * Read the current thread's task list for re-injection this turn. Returns `[]`
