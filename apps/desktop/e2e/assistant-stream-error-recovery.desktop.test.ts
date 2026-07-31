@@ -66,6 +66,10 @@ test.describe('Assistant stream error recovery (desktop)', () => {
     // `ThreadPrimitive.If running={false}`). A hung thread would keep running
     // and only ever show the "Stop" button. The library keeps Send disabled
     // while the input is empty, so emptiness is asserted via the absent "Stop".
+    // `exact: true` is load-bearing: getByRole's name match is a
+    // case-insensitive SUBSTRING by default, and the running branch renders the
+    // follow-up queue button (aria-label "Queue message to send after this
+    // run"), so a non-exact 'Send' would resolve to it mid-run and false-green.
     const sendBtn = window.getByRole('button', { exact: true, name: 'Send' });
     await expect(sendBtn).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
     await expect(window.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
