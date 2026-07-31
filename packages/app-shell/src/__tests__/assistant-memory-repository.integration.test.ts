@@ -3169,6 +3169,14 @@ describe('createPgliteAssistantThreadRepository integration', () => {
          VALUES ($1, $2, 'workspace-a', 'provider_error', NOW())`,
         [`run-error-${thread.id}`, thread.id]
       );
+      // BST-993 census: bulk delete leaked branch topology — the single-thread
+      // CTE deleted message_parents but the bulk CTE did not.
+      await db.query(
+        `INSERT INTO brainstrike_assistant_message_parents
+          (message_id, thread_id, resource_id)
+         VALUES ($1, $2, 'workspace-a')`,
+        [`message-${thread.id}`, thread.id]
+      );
     }
 
     await repository.deleteThreads([first.id, second.id]);
@@ -3201,6 +3209,15 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_run_errors', 'thread_id', survivor.id)
+    ).resolves.toBe(1);
+    await expect(
+      countRows(db, 'brainstrike_assistant_message_parents', 'thread_id', first.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_message_parents', 'thread_id', second.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_message_parents', 'thread_id', survivor.id)
     ).resolves.toBe(1);
   });
 
