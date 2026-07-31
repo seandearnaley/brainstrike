@@ -34,6 +34,10 @@ const GITHUB_ACTIONS_MULTIPLIER = 2.0; // Even more lenient for GitHub Actions
 const GITHUB_ACTIONS_MINIMUMS = {
   // Observed averages: 454–590ms against the uncalibrated 200ms.
   CHECKBOX_FRAME_AVERAGE_MAX_MS: 900,
+  // Observed slowest-frame: 387–669ms against the uncalibrated 200ms
+  // (validation run 30648271719 — this metric had NEVER reported before:
+  // --max-failures truncation always hid it).
+  CHECKBOX_FRAME_MAX_MS: 1000,
   // 2026-07-31 calibration (BST-1038): 3 controlled dispatches on fa9570316,
   // runs 30644845155 / 30644855849 / 30646944772, ubuntu-24.04 +
   // mcr.microsoft.com/playwright:v1.61.1-noble. Before this calibration the
@@ -118,6 +122,10 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
       CHECKBOX_FRAME_AVERAGE_MAX_MS: Math.max(
         thresholds.CHECKBOX_FRAME_AVERAGE_MAX_MS,
         GITHUB_ACTIONS_MINIMUMS.CHECKBOX_FRAME_AVERAGE_MAX_MS
+      ),
+      CHECKBOX_FRAME_MAX_MS: Math.max(
+        thresholds.CHECKBOX_FRAME_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.CHECKBOX_FRAME_MAX_MS
       ),
       CHECKBOX_FRAME_TOTAL_MAX_MS: Math.max(
         thresholds.CHECKBOX_FRAME_TOTAL_MAX_MS,
