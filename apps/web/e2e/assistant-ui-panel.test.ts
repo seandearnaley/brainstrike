@@ -307,9 +307,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(threadRow).toBeVisible();
     await expect(threadRow).not.toContainText(/thread-[0-9a-f-]+/i);
 
-    await threadRow.getByRole('button', { name: /Customize thread/ }).click();
-    await threadRow.getByRole('button', { name: 'Use Bug icon' }).click();
-    await threadRow.getByRole('button', { name: 'Use Rose color' }).click();
+    // Customization moved into the row's "Thread actions" popover (#1661). The
+    // popover renders in a portal, so its controls are scoped to the open
+    // popover (role=dialog) rather than the row — page-wide getByRole would
+    // collide with the group popover's identically-named items. Escape closes
+    // it (and exits customize mode) before the flow interacts with the row
+    // again; the toHaveCount(0) barrier pins that both `actionsOpen` and
+    // `customizing` actually cleared (BST-1033).
+    await threadRow.getByRole('button', { name: /Thread actions/i }).click();
+    const threadActions = page.getByRole('dialog');
+    await threadActions.getByRole('button', { name: 'Customize' }).click();
+    await threadActions.getByRole('button', { name: 'Use Bug icon' }).click();
+    await threadActions.getByRole('button', { name: 'Use Rose color' }).click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('thread-customization-panel')).toHaveCount(0);
 
     await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible();
     await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible();
@@ -650,7 +661,15 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByTestId('thread-row')).toHaveCount(2);
 
     const newestThread = page.getByTestId('thread-row').first();
-    await newestThread.getByRole('button', { name: /Delete thread/i }).click();
+    // Deletion moved into the row's "Thread actions" popover (#1661); the
+    // Delete item (scoped to the open popover to avoid the group popover's
+    // identically-named item) closes the popover and opens the inline row
+    // confirm (aria-label "Confirm delete thread …") — BST-1035.
+    await newestThread.getByRole('button', { name: /Thread actions/i }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /^Delete/ })
+      .click();
     await page.getByRole('button', { name: /Confirm delete thread/i }).click();
 
     await expect(page.getByTestId('thread-row')).toHaveCount(1);
