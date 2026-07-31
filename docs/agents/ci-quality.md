@@ -113,9 +113,13 @@ during its cheap sleep; the API comparison closes the remaining ordering race.
 This is an admission delay, not CI routing. It uses no labels and never selects
 a reduced test plan. The latest quiet PR head always runs the full graph,
 including all five stable required contexts (`Static`, `Unit`, `Build`,
-`Web E2E`, `Desktop E2E`) plus both native jobs. Web and desktop E2E retain
-their `build` dependency. Push and `workflow_dispatch` events are admitted
-immediately, so their behavior is unchanged apart from the dependency edge.
+`Web E2E`, `Desktop E2E`) plus both native jobs and the non-required
+`Browser tests` lane (BST-994 — Vitest browser-mode suites for db/ui/storage
+in the pinned Playwright container; expensive enough that it keeps the same
+quiet-head gate, and `quiet-head-admission-contract.test.mjs` verifies it).
+Web and desktop E2E retain their `build` dependency. Push and
+`workflow_dispatch` events are admitted immediately, so their behavior is
+unchanged apart from the dependency edge.
 
 The gate is deliberately fail-closed: `pull-requests: read` is its only added
 permission, and a missing event SHA, missing API SHA, or API error fails the

@@ -589,6 +589,10 @@ jobs:
     timeout-minutes: 20
     env:
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      # Three Chromium-driving suites on a 4-core hosted runner: cap turbo the
+      # same way the static job does, so the in-job builds and the browser
+      # suites don't oversubscribe the runner.
+      TURBO_CONCURRENCY: "4"
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -608,6 +612,20 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
+      # `test:browser` dependsOn build, so the (pure-TS) db/ui/storage closure
+      # builds in-job. The remote Turbo cache carries most of it; this local
+      # .turbo layer is the same outage hedge the setup-workspace composite
+      # provides (same key scheme — the composite itself can't be used here
+      # because its fixed full `pnpm install` would hit node-gyp in this
+      # toolchain-less container).
+      - name: Restore turbo cache
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-turbo-
+
       - name: Install dependencies
         # Same exclusions as Web E2E: this pwuser container has no C toolchain
         # or sudo; the browser-test packages (db, ui, storage) and their
@@ -616,9 +634,16 @@ jobs:
         run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
 
       - name: Run browser tests
-        # Root task = turbo `test:browser` across every package that defines
-        # it; turbo builds the (pure-TS) dependency closure in-job.
-        run: pnpm test:browser
+        # Explicit --filter per browser-test package: an UNFILTERED root
+        # `pnpm test:browser` puts all 47 workspace packages in turbo scope and
+        # builds both desktop native addons, which this toolchain-less pwuser
+        # container cannot compile (proven by this lane's first run). The
+        # filtered scope is the three packages + their pure-TS closure.
+        # KEEP IN SYNC with packages defining a test:browser script —
+        # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
+        # `pnpm test:scripts` (Static job) if a package gains test:browser
+        # without being added here.
+        run: pnpm test:browser --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui
 
       - name: Upload browser test artifacts
         if: failure()
@@ -629,6 +654,9 @@ jobs:
             packages/db/test-results/
             packages/ui/test-results/
             packages/storage/test-results/
+            packages/db/**/__screenshots__/
+            packages/ui/**/__screenshots__/
+            packages/storage/**/__screenshots__/
           retention-days: 1
           if-no-files-found: ignore
 

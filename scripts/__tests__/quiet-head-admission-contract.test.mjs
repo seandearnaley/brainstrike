@@ -12,7 +12,14 @@ const REQUIRED_JOBS = new Map([
   ['desktop-e2e', 'Desktop E2E'],
 ]);
 
-const ADMITTED_JOBS = [...REQUIRED_JOBS.keys(), 'native-windows', 'native-electron'];
+const ADMITTED_JOBS = [
+  ...REQUIRED_JOBS.keys(),
+  'native-windows',
+  'native-electron',
+  // Non-required like the native jobs, but expensive (three Chromium
+  // suites) — it must keep its quiet-head gate (BST-994 review).
+  'browser-tests',
+];
 
 function jobBlock(jobId) {
   const startPattern = new RegExp(`^  ${jobId}:\\s*$`, 'm');

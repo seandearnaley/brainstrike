@@ -151,8 +151,8 @@ describe('PGlite Browser Mode POC', () => {
     });
   });
 
-  describe('WASM performance baseline', () => {
-    it('should complete 100 inserts in reasonable time', async () => {
+  describe('WASM insert-loop sanity', () => {
+    it('should complete 100 inserts (timing logged, not asserted)', async () => {
       db = new PGlite();
       await db.waitReady;
 
@@ -164,10 +164,12 @@ describe('PGlite Browser Mode POC', () => {
       }
       const elapsed = performance.now() - start;
 
+      // Informational only. No wall-clock assertion: this suite runs on a
+      // shared CI runner where turbo may drive three Chromium suites
+      // concurrently, and per AGENTS.md wall-clock-sensitive assertions
+      // belong in the *.integration.test.* lane. The COUNT below is the real
+      // WASM-works signal.
       console.log(`100 inserts completed in ${elapsed.toFixed(2)}ms`);
-
-      // Should complete within 10 seconds (generous for CI)
-      expect(elapsed).toBeLessThan(10_000);
 
       const count = await db.query<{ count: string }>('SELECT COUNT(*) as count FROM perf_test');
       expect(Number.parseInt(count.rows[0].count, 10)).toBe(100);
