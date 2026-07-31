@@ -54,7 +54,24 @@ export default defineConfig({
           browser: {
             enabled: true,
             instances: [{ browser: 'chromium' }],
-            provider: playwright(),
+            // CI launch args match the db browser project / the shared
+            // createPlaywrightOptions helper: job containers get Docker's
+            // default 64 MB /dev/shm, so Chromium needs
+            // --disable-dev-shm-usage (et al.) or it can crash mid-suite
+            // (review #2158 — this project previously passed no args and had
+            // simply never run in a container).
+            provider: playwright({
+              launchOptions: {
+                args: process.env['CI']
+                  ? [
+                      '--no-sandbox',
+                      '--disable-dev-shm-usage',
+                      '--disable-setuid-sandbox',
+                      '--disable-features=VizDisplayCompositor',
+                    ]
+                  : [],
+              },
+            }),
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
             // Playwright trace: capture only for failing tests in CI

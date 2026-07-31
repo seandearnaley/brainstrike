@@ -335,10 +335,11 @@
       "dependsOn": [
         "build"
       ],
-      // Turborepo runs tasks with a constrained environment. Required browser
-      // CI lanes run in the official Playwright Docker image with browsers
-      // preinstalled, and the workflow sets PLAYWRIGHT_BROWSERS_PATH directly.
-      // Declare it here so Turborepo passes it through to package-level tasks.
+      // Turborepo runs tasks with a constrained environment. The Browser tests
+      // CI job (test.yml, non-required lane) runs in the official Playwright
+      // Docker image with browsers preinstalled and sets
+      // PLAYWRIGHT_BROWSERS_PATH directly; declare it here so Turborepo passes
+      // it through to package-level tasks.
       "env": [
         "CI",
         "PLAYWRIGHT_BROWSERS_PATH"
