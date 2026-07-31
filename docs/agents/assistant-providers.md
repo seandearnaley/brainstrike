@@ -1345,9 +1345,15 @@ skills engine enabled. That means both guards include `skill`, `skill_read`,
 and `skill_search`, the conditional skills guidance, and a representative
 first-turn `SkillsProcessor` metadata block. The canonical authored
 representation converts the real Zod inputs through the Standard Schema input
-protocol and must remain at or below 7,900 `o200k_base` tokens. The live actual
-Mastra/OpenRouter core surface and resolved instructions must stay at or below
-5,000 tokens, materially below the retired 11,500-token eager boundary. A real
+protocol and must stay INSIDE the 8,650-8,950 `o200k_base` band (BST-927/
+BST-980): the ceiling is the bloat gate with real headroom (an unrelated
+one-word description edit no longer trips the required Unit check), and the
+floor fails just as loudly when a tool or schema silently falls out of the
+registry. When the ceiling fires, trim before raising; move both bounds
+together (the ~300-token width is the contract) and record the trade in the
+test's comment ledger. The live actual Mastra/OpenRouter core surface and
+resolved instructions must stay between 2,000 and 5,000 tokens, materially
+below the retired 11,500-token eager boundary. A real
 Mastra-loop capture separately proves the first provider request contains that
 core plus `search_tools`, and that a later request appends the discovered
 definition. Dynamically loaded definitions are append-only within the active
@@ -1362,9 +1368,11 @@ upstream contract plus captured-request tests proving omitted optionals and
 invalid/null inputs retain their authored semantics.
 
 The same fixture also pins the authored definition-only comparison for this
-contract: the eager baseline is 29 tools / 7,131 `o200k_base` tokens, while the
-live critical definition surface is 8 tools / 2,157 tokens before the compact
-`search_tools` control is added. System instructions, provider conversion,
+contract: the eager baseline is 32 tools with its aggregate recorded at 8,121
+`o200k_base` tokens (banded +/-150 like the surface gates; the tool COUNT
+stays exact — it is the precise dropped-tool catcher), while the live critical
+definition surface is 8 tools recorded at 2,166 tokens (same band treatment)
+before the compact `search_tools` control is added. System instructions, provider conversion,
 skills metadata, and each dynamically loaded definition remain part of the
 captured-request and last-position limiter budgets.
 

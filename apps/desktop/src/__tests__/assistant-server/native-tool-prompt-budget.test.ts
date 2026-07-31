@@ -79,8 +79,11 @@ vi.mock('../../db-main', () => ({
 // floor catches the other direction: a suspicious DROP (a tool or schema
 // silently falling out of the registry) fails just as loudly as growth.
 // The trim-first practice is unchanged: when the ceiling fires, trim before
-// raising, and record the trade here as every prior raise did. Move BOTH
-// bounds together — the band's width (~300) is the contract, not the numbers.
+// raising, and record the trade here as every prior raise did. For THIS
+// authored pair, move both bounds together — the ~300 width is the contract,
+// not the numbers. (The initial-core pair below has its own, wider band:
+// its ceiling is a hard cap from the retired 11,500 boundary, not a
+// measurement envelope.)
 const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8950;
 const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8650;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
@@ -368,8 +371,15 @@ function expectProviderSurfaceWithinBudget(args: {
   ).toBeLessThanOrEqual(args.budget);
   expect(
     total,
-    `${args.label}: surface measured ${total} tokens, below the ${args.floor} floor — ` +
-      'a tool or schema likely fell out of the registry silently (BST-927 band)'
+    formatBudgetFailure({
+      budget: args.floor,
+      descriptions,
+      instructions,
+      label: `${args.label} BELOW FLOOR — a tool or schema likely fell out of the registry silently (BST-927 band)`,
+      schemas,
+      toolBreakdown,
+      total,
+    })
   ).toBeGreaterThanOrEqual(args.floor);
 }
 
@@ -407,10 +417,31 @@ describe('desktop native tool provider prompt budget', () => {
       ).toEqual(expect.any(Array));
     }
 
+    // BST-927/BST-980: the two AGGREGATE token figures get the same +/-150
+    // band as the surface gates — an exact aggregate here made the band's
+    // headroom unreachable (any description edit still failed this suite at
+    // this line). COUNTS stay exact: eagerToolCount is the precise
+    // dropped-tool catcher, and the per-tool pins below are targeted (they
+    // only move when THAT tool's authored text moves — record the trade).
+    const eagerDefinitionTokens = countO200kTokens(JSON.stringify(eagerProviderTools));
+    const criticalDefinitionTokens = countO200kTokens(JSON.stringify(criticalProviderTools));
+    expect(
+      eagerDefinitionTokens,
+      'eager aggregate outside its recorded band'
+    ).toBeGreaterThanOrEqual(7971);
+    expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
+      8271
+    );
+    expect(
+      criticalDefinitionTokens,
+      'critical aggregate outside its recorded band'
+    ).toBeGreaterThanOrEqual(2016);
+    expect(
+      criticalDefinitionTokens,
+      'critical aggregate outside its recorded band'
+    ).toBeLessThanOrEqual(2316);
     expect({
-      criticalDefinitionTokens: countO200kTokens(JSON.stringify(criticalProviderTools)),
       criticalToolCount: criticalProviderTools.length,
-      eagerDefinitionTokens: countO200kTokens(JSON.stringify(eagerProviderTools)),
       eagerToolCount: eagerProviderTools.length,
       queryDiagnosticsDefinitionTokens: countO200kTokens(
         JSON.stringify(queryDiagnosticsProviderTool)
@@ -422,7 +453,6 @@ describe('desktop native tool provider prompt budget', () => {
         ])
       ),
     }).toEqual({
-      criticalDefinitionTokens: 2166,
       criticalToolCount: 8,
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
@@ -445,7 +475,9 @@ describe('desktop native tool provider prompt budget', () => {
       // a clean zero-match. The wording is terse on purpose — the first draft
       // spent 38 tokens and overran the authored budget by 25 (BST-927 called
       // this: ~13 tokens of headroom left).
-      eagerDefinitionTokens: 8121,
+      // Recorded aggregates when the bands were set: eager 8121, critical
+      // 2166 (the banded assertions above; move the recorded figures WITH any
+      // deliberate raise, per the trade-record practice).
       eagerToolCount: 32,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
