@@ -1,0 +1,16 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <rect fill="#080a09" height="48" width="48" />
+  <path
+    d="m29 4-15 23h11L20 44l16-25H25L34 5"
+    fill="none"
+    stroke="#fffdf2"
+    stroke-linejoin="miter"
+    stroke-width="3.4"
+  />
+  <path
+    d="M35 6c-3-2-7-3-11-3C13 3 4 12 4 23c0 6 2 11 6 14l1 7h10"
+    fill="none"
+    stroke="#ff5533"
+    stroke-width="2.6"
+  />
+</svg>

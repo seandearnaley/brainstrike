@@ -53,6 +53,7 @@
       "owner": "platform",
       "packages": [
         "@brainstrike/desktop",
+        "@brainstrike/site",
         "@brainstrike/web"
       ],
       "mayDependOn": [
