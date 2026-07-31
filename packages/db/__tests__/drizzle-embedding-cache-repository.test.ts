@@ -398,7 +398,32 @@ describe('DrizzleEmbeddingCacheRepository promotion parity (BST-989)', () => {
       // worker shutdown cannot lose the LRU bump (raw-repo semantics).
       await repo.flushPendingAccessTimeUpdates();
       const stats = await repo.getStats();
-      expect(stats.totalHits).toBeGreaterThanOrEqual(1);
+      // 1 from the insert default + 1 from the flushed access-time bump — the
+      // exact value is what proves the flush landed (review #2166: >=1 was
+      // satisfied by the insert default alone).
+      expect(stats.totalHits).toBe(2);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('tracks and flushes the getBatch access-time update path too', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(db as never));
+      await repo.setBatch([
+        { contentHash: 'batch-1', dimensions: 3, embedding: [1, 2, 3], modelKey: 'model-a' },
+        { contentHash: 'batch-2', dimensions: 3, embedding: [4, 5, 6], modelKey: 'model-a' },
+      ]);
+      const hits = await repo.getBatch([
+        { contentHash: 'batch-1', modelKey: 'model-a' },
+        { contentHash: 'batch-2', modelKey: 'model-a' },
+      ]);
+      expect(hits.size).toBe(2);
+      await repo.flushPendingAccessTimeUpdates();
+      const stats = await repo.getStats();
+      // 2 insert defaults + 2 flushed batch access-time bumps.
+      expect(stats.totalHits).toBe(4);
     } finally {
       await db.close();
     }
@@ -476,10 +501,11 @@ describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
     const db = await createMigratedTestDb();
     try {
       let proxiedQueries = 0;
-      // A plain pass-through client — the same shape createPriorityDbHandle
-      // produces (own query/exec/transaction wrappers delegating to the real
-      // client). A JS Proxy over PGlite wedges its WASM internals, so the
-      // scheduled-handle contract is modeled with an explicit object.
+      // A plain pass-through client with its own query/exec/transaction
+      // wrappers delegating to the real client. This pins that the factory
+      // never reaches around a wrapping surface for `.raw`; the full
+      // production proxy stack (real scheduler + priority handle) is
+      // exercised by the QoS test below.
       const real = db as unknown as {
         query: (...a: unknown[]) => unknown;
         exec: (...a: unknown[]) => unknown;
@@ -510,6 +536,41 @@ describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
     }
   });
 
+  it('keeps background QoS through the real scheduler + priority-handle stack', async () => {
+    const { createEmbeddingCacheRepository } = await import(
+      '../src/repositories/embedding-cache-repository.js'
+    );
+    const { createDatabaseWorkScheduler, createScheduledDbHandle, createPriorityDbHandle } =
+      await import('../src/database-work-scheduler.js');
+    const { createDbHandle } = await import('../src/db-provider.js');
+    const db = await createMigratedTestDb();
+    try {
+      // The exact production web stack (embedding-runtime-controller):
+      // PGlite → scheduled handle → DbProvider's exposed DbHandle →
+      // createPriorityDbHandle(…, 'background') → this factory. Drizzle's
+      // native per-query config occupies the 3rd query argument, pushing the
+      // scheduler work options into a 4th — which the DbHandle wrapper's
+      // fixed arity used to DROP, silently running background embedding-cache
+      // traffic at foreground priority (review #2166 P1).
+      const scheduler = createDatabaseWorkScheduler();
+      const scheduled = createScheduledDbHandle(db as never, scheduler, 'foreground');
+      const exposed = createDbHandle(scheduled as never);
+      const background = createPriorityDbHandle(exposed as never, 'background');
+      const repo = createEmbeddingCacheRepository(background as never);
+      await repo.set('hash-qos', 'model-a', [1, 2, 3], 3);
+      const hit = await repo.get('hash-qos', 'model-a');
+      expect(hit.hit).toBe(true);
+      await repo.flushPendingAccessTimeUpdates();
+      const stats = scheduler.getSnapshot().priorityStats;
+      expect(stats.background.started).toBeGreaterThan(0);
+      // Every repo query must have carried the background tag — foreground
+      // work on this scheduler would mean the priority was dropped en route.
+      expect(stats.foreground.started).toBe(0);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('dispatches a query-only IPC-style handle to the boundary-hardened raw class', async () => {
     const { createEmbeddingCacheRepository, EmbeddingCacheRepository } = await import(
       '../src/repositories/embedding-cache-repository.js'
@@ -529,6 +590,20 @@ describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
       const repo = createEmbeddingCacheRepository(ipcHandle as never);
       expect(repo).toBeInstanceOf(EmbeddingCacheRepository);
       expect(repo).not.toBeInstanceOf(DrizzleEmbeddingCacheRepository);
+
+      // The marker is POSITIVE (statement-list runTransaction identifies the
+      // bridge), not the absence of `transaction`: ElectronDatabaseAPI's
+      // optional callback-transaction member invites a future preload to add
+      // one, and that must still not flip desktop into drizzle-over-IPC
+      // (review #2166).
+      const futureBridge = {
+        query: (sql: string, params?: unknown[]) => real.query(sql, params),
+        runTransaction: async () => ({ rows: [] }),
+        transaction: async <T>(fn: (tx: unknown) => Promise<T>) => fn(futureBridge),
+      };
+      const futureRepo = createEmbeddingCacheRepository(futureBridge as never);
+      expect(futureRepo).toBeInstanceOf(EmbeddingCacheRepository);
+      expect(futureRepo).not.toBeInstanceOf(DrizzleEmbeddingCacheRepository);
     } finally {
       await db.close();
     }

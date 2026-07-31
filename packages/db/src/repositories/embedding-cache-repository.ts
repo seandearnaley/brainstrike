@@ -1,6 +1,7 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { drizzle, extractPGlite } from '../drizzle/database.js';
 import type { EmbeddingCacheEntry } from '../schema/index.js';
+import type { CreateEmbeddingCacheRepositoryOptions } from './_shared.js';
 import { dedupeByContentAndModel, parseEmbeddingLoose } from './_shared.js';
 import type {
   BatchLookupRequest,
@@ -27,9 +28,10 @@ interface EmbeddingCacheRow {
   model_key: string;
 }
 
-export interface CreateEmbeddingCacheRepositoryOptions {
-  readonly maxEntries?: number;
-}
+// Definition lives in _shared.ts so the Drizzle module can import it without
+// depending on this factory module (review #2166: the type-only import here
+// inverted the layering even though it erased at runtime).
+export type { CreateEmbeddingCacheRepositoryOptions } from './_shared.js';
 
 function assertDimensions(embedding: readonly number[], dimensions: number, label: string): void {
   if (!Number.isInteger(dimensions) || dimensions <= 0) {
@@ -470,8 +472,18 @@ export function createEmbeddingCacheRepository(
   db: IDatabase,
   options?: CreateEmbeddingCacheRepositoryOptions
 ): DrizzleEmbeddingCacheRepository | EmbeddingCacheRepository {
-  const surface = db as { query?: unknown; transaction?: unknown };
-  if (typeof surface.query === 'function' && typeof surface.transaction === 'function') {
+  const surface = db as { query?: unknown; transaction?: unknown; runTransaction?: unknown };
+  // Statement-list runTransaction (#1141/#1145) positively identifies the IPC
+  // bridge — do not infer it from the ABSENCE of callback `transaction`:
+  // ElectronDatabaseAPI's optional `transaction` member invites a future
+  // preload to add one, which would otherwise flip desktop into
+  // drizzle-over-IPC far from the change that caused it (review #2166).
+  const isIpcBridge = typeof surface.runTransaction === 'function';
+  if (
+    !isIpcBridge &&
+    typeof surface.query === 'function' &&
+    typeof surface.transaction === 'function'
+  ) {
     return new DrizzleEmbeddingCacheRepository(
       drizzle(db as unknown as Parameters<typeof drizzle>[0]),
       options

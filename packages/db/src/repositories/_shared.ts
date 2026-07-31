@@ -10,6 +10,11 @@ export interface Queryable {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
+/** Options accepted by both embedding-cache repositories (BST-989 Pair C). */
+export interface CreateEmbeddingCacheRepositoryOptions {
+  readonly maxEntries?: number;
+}
+
 // De-duplicate entries on their (contentHash, modelKey) conflict key, keeping the first
 // occurrence. A multi-row `INSERT ... ON CONFLICT (content_hash, model_key) DO UPDATE`
 // fails with SQLSTATE 21000 ("ON CONFLICT DO UPDATE command cannot affect row a second

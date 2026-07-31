@@ -23,8 +23,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { type EmbeddingCacheEntry, embeddingCache } from '../../schema/index.js';
-import { dedupeByContentAndModel } from '../_shared.js';
-import type { CreateEmbeddingCacheRepositoryOptions } from '../embedding-cache-repository.js';
+import { type CreateEmbeddingCacheRepositoryOptions, dedupeByContentAndModel } from '../_shared.js';
 
 /**
  * Maximum batch size for getBatch/setBatch operations.
