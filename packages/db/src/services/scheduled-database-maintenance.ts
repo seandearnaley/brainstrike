@@ -1,4 +1,4 @@
-import type { JobState } from '../queue/job-queue.js';
+import { buildPruneJobsStatement, type JobState } from '../queue/job-queue.js';
 
 export const DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 1000;
@@ -149,17 +149,10 @@ async function pruneTerminalJobs(
   db: ScheduledDatabaseMaintenanceDb,
   olderThanIso: string
 ): Promise<number> {
-  const placeholders = TERMINAL_JOB_STATES.map((_, index) => `$${index + 2}`).join(',');
-  const result = await db.query<CountRow>(
-    `WITH del AS (
-       DELETE FROM job_queue
-        WHERE updated_at < $1
-          AND state IN (${placeholders})
-       RETURNING 1
-     )
-     SELECT COUNT(*)::text AS count FROM del`,
-    [olderThanIso, ...TERMINAL_JOB_STATES]
-  );
+  // Shared statement builder (BST-991 slice 2): this DELETE was hand-written
+  // here AND in JobQueue.prune — one source now.
+  const { params, sql } = buildPruneJobsStatement(TERMINAL_JOB_STATES, olderThanIso);
+  const result = await db.query<CountRow>(sql, params);
   return normalizeCount(result.rows[0]?.count);
 }
 
@@ -168,22 +161,8 @@ async function pruneFinishedJobsBounded(
   olderThanIso: string,
   limit: number
 ): Promise<number> {
-  const placeholders = ACTIVE_PRUNE_JOB_STATES.map((_, index) => `$${index + 3}`).join(',');
-  const result = await db.query<CountRow>(
-    `WITH del AS (
-       DELETE FROM job_queue
-        WHERE id IN (
-          SELECT id
-            FROM job_queue
-           WHERE updated_at < $1
-             AND state IN (${placeholders})
-           LIMIT $2
-        )
-       RETURNING 1
-     )
-     SELECT COUNT(*)::text AS count FROM del`,
-    [olderThanIso, limit, ...ACTIVE_PRUNE_JOB_STATES]
-  );
+  const { params, sql } = buildPruneJobsStatement(ACTIVE_PRUNE_JOB_STATES, olderThanIso, limit);
+  const result = await db.query<CountRow>(sql, params);
   return normalizeCount(result.rows[0]?.count);
 }
 

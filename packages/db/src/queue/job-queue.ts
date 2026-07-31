@@ -147,6 +147,56 @@ export function incrementOutcomeMetricsCte(
      )`;
 }
 
+/**
+ * The ONE prune statement (BST-991 slice 2). Before this builder,
+ * `JobQueue.prune` and `scheduled-database-maintenance`'s two prune variants
+ * hand-wrote the same `DELETE FROM job_queue WHERE updated_at < … AND state
+ * IN (…)` three times — the exact same-SQL-drifting-apart channel the rest of
+ * this ticket closes. `limit` selects the bounded shape (id IN a LIMITed
+ * subselect) the maintenance path uses while the queue is active, so a huge
+ * terminal backlog cannot block the engine. `updated_at` is a TEXT-ISO
+ * column compared lexicographically — callers pass an ISO cutoff.
+ */
+export function buildPruneJobsStatement(
+  states: readonly JobState[],
+  olderThanIso: string,
+  limit?: number
+): { params: unknown[]; sql: string } {
+  if (!olderThanIso) {
+    throw new Error('olderThanIso is required');
+  }
+  if (states.length === 0) {
+    throw new Error('At least one job state is required to prune');
+  }
+  const firstStateParam = limit === undefined ? 2 : 3;
+  const placeholders = states.map((_, i) => `$${i + firstStateParam}`).join(',');
+  if (limit === undefined) {
+    return {
+      params: [olderThanIso, ...states],
+      sql: `WITH del AS (
+        DELETE FROM job_queue
+         WHERE updated_at < $1
+           AND state IN (${placeholders})
+        RETURNING 1
+      ) SELECT COUNT(*)::text as count FROM del`,
+    };
+  }
+  return {
+    params: [olderThanIso, limit, ...states],
+    sql: `WITH del AS (
+        DELETE FROM job_queue
+         WHERE id IN (
+           SELECT id
+             FROM job_queue
+            WHERE updated_at < $1
+              AND state IN (${placeholders})
+            LIMIT $2
+         )
+        RETURNING 1
+      ) SELECT COUNT(*)::text as count FROM del`,
+  };
+}
+
 export interface EnqueueParams {
   dedupeKey?: string;
   jobType: JobType;
@@ -1317,19 +1367,8 @@ export class JobQueue {
   }
 
   async prune(states: JobState[], olderThanIso: string): Promise<number> {
-    if (!olderThanIso) {
-      throw new Error('olderThanIso is required');
-    }
-    const placeholders = states.map((_, i) => `$${i + 2}`).join(',');
-    const res = await this.db.query<{ count: string }>(
-      `WITH del AS (
-        DELETE FROM job_queue
-         WHERE updated_at < $1
-           AND state IN (${placeholders})
-        RETURNING 1
-      ) SELECT COUNT(*)::text as count FROM del`,
-      [olderThanIso, ...states]
-    );
+    const { params, sql } = buildPruneJobsStatement(states, olderThanIso);
+    const res = await this.db.query<{ count: string }>(sql, params);
     const removed = Number(res.rows[0]?.count ?? 0);
     if (removed > 0) {
       logger.info('Pruned historical jobs', { count: removed, olderThanIso, states });
