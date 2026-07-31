@@ -6,6 +6,7 @@
     "embed-code": "./bin/embed-code.js"
   },
   "dependencies": {
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",

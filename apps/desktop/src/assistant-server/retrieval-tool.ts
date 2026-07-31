@@ -252,33 +252,26 @@ export async function resolveEmbeddingSet(
 }
 
 async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
-  const secrets = getSecretsService();
-  let fromSecrets: string | null = null;
-  let secretReadError: unknown;
-  try {
-    fromSecrets = await secrets.getKey(provider);
-  } catch (error) {
-    // Preserve the failure while checking the authoritative environment-key
-    // escape hatch (BST-574). If no env key exists, this is not equivalent to
-    // an absent credential and must remain visible to the caller.
-    logger.warn('Stored embedding API key is unreadable; falling back to env', {
-      error,
-      provider,
-    });
-    secretReadError = error;
-  }
-  const normalized = normalizeOptionalText(fromSecrets ?? undefined);
-  if (normalized) {
-    return normalized;
-  }
+  // Shared resolution order (BST-979): the environment is authoritative, the
+  // keychain is the fallback — previously this path was keychain-first, so a
+  // key rotated via env could stay shadowed by a stale stored key. The
+  // env leg reuses the embeddings resolver (same table + core order); the
+  // secret leg preserves the BST-574 escape hatch: a keychain read failure
+  // is NOT an absent credential and stays visible unless env supplied a key.
   const fromEnvironment = await resolveHostedProviderApiKey(provider);
   if (fromEnvironment) {
     return fromEnvironment;
   }
-  if (secretReadError) {
-    throw secretReadError;
+  const secrets = getSecretsService();
+  try {
+    return normalizeOptionalText((await secrets.getKey(provider)) ?? undefined);
+  } catch (error) {
+    logger.warn('Stored embedding API key is unreadable and no env key exists', {
+      error,
+      provider,
+    });
+    throw error;
   }
-  return;
 }
 
 function createHostedProvider(

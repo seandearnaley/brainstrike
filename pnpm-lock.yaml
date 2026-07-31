@@ -1679,6 +1679,9 @@ importers:
 
   packages/embeddings:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
