@@ -186,11 +186,14 @@ export const RESET_EXCLUDED_TABLES = {
   prompt_item_revisions: 'FK ON DELETE CASCADE from prompt_items (migration 051)',
   providers: 'migration-seeded provider catalog — configuration, re-seeding is migration work',
   view_filter_presets:
-    'migration-SEEDED configuration (custom-027 default presets): the web purge preserves schema without re-running migrations, so wiping would lose the seeds forever — desktop factory reset restores them by rebuilding (BST-992 convergence)',
+    'MIXED table: migration-SEEDED defaults (is_default TRUE, custom-027) plus user-authored presets. Web factory reset issues a TARGETED DELETE of the user rows only (purgeTablesTx) — the purge cannot re-run migrations, so a full clear would lose the seeds forever, while desktop rebuild-from-scratch restores them. Excluded here because it is never FULLY cleared by any SQL path (BST-992 convergence, review #2162)',
 } as const satisfies Record<string, string>;
 
 export interface ResetTableCoverageAudit {
-  /** Names in BOTH ledgers — a contradiction that must be resolved. */
+  /**
+   * Names in more than one of the three ledgers (reset / factory-reset-only
+   * / excluded) — the ledgers must stay pairwise disjoint. Deduplicated.
+   */
   readonly doubleRegistered: readonly string[];
   /** Existing tables in NEITHER ledger — the BST-862/BST-844 drift signal. */
   readonly unregistered: readonly string[];
@@ -221,8 +224,10 @@ export function auditResetTableCoverage(
     (name) => !(resetSet.has(name) || factoryOnly.has(name) || excluded.has(name))
   );
   const doubleRegistered = [
-    ...[...resetSet].filter((name) => excluded.has(name) || factoryOnly.has(name)),
-    ...[...factoryOnly].filter((name) => excluded.has(name)),
+    ...new Set([
+      ...[...resetSet].filter((name) => excluded.has(name) || factoryOnly.has(name)),
+      ...[...factoryOnly].filter((name) => excluded.has(name)),
+    ]),
   ];
   return { doubleRegistered, unregistered };
 }

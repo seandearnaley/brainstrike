@@ -989,6 +989,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'job_queue_metrics');
     await clearRelationIfPresent(tx, 'embedding_dimension_index_suspensions');
     await clearRelationIfPresent(tx, 'embedding_dimension_index_maintenance');
+    // view_filter_presets mixes migration-SEEDED defaults (is_default TRUE,
+    // custom-027) with USER-authored presets (is_default FALSE). Desktop
+    // factory reset destroys both and re-seeds; the web purge cannot re-run
+    // migrations, so it deletes ONLY the user rows — seeds survive, user
+    // presets converge with desktop (review #2162). Targeted delete, not the
+    // probe helper: the predicate makes it a partial clear, and the table is
+    // migration-guaranteed so a probe adds nothing.
+    await tx.query('DELETE FROM view_filter_presets WHERE is_default = FALSE');
   }, []);
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {

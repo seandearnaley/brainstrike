@@ -202,6 +202,12 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
   it('clear keeps factory-reset-only caches; factory reset wipes them and keeps preset seeds', async () => {
     const presetSeeds = await countRows('view_filter_presets');
     expect(presetSeeds).toBeGreaterThan(0);
+    // A USER-authored preset (is_default FALSE): must survive Clear Database
+    // but die in the factory reset's targeted delete (review #2162 — desktop
+    // convergence; the seeds themselves survive).
+    await db.exec(
+      `INSERT INTO view_filter_presets (name, is_default) VALUES ('sentinel-user-preset', FALSE)`
+    );
 
     const { result } = renderHook(
       () => ({
@@ -219,11 +225,13 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
 
     await expect(result.current.clearData?.()).resolves.toBeDefined();
     expect(await countRows('job_queue_metrics')).toBe(1);
+    expect(await countRows('view_filter_presets')).toBe(presetSeeds + 1);
 
     await act(async () => {
       await result.current.factoryReset?.();
     });
     expect(await countRows('job_queue_metrics')).toBe(0);
+    // Seeds intact, user preset gone: the targeted delete's exact boundary.
     expect(await countRows('view_filter_presets')).toBe(presetSeeds);
   });
 

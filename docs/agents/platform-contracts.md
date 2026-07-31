@@ -112,10 +112,11 @@ the web factory reset (`purgeTablesTx`) additionally wipes the six seed-free
 FACTORY-RESET-ONLY relations (`getFactoryResetOnlyTables()`: the three
 caches, `job_queue_metrics`, and the two dimension-index bookkeeping tables)
 — desktop factory reset already destroys them with the profile directory, so
-this is the web↔desktop convergence. `view_filter_presets` is deliberately
-NOT wiped: it is migration-SEEDED configuration and the web purge never
-re-runs migrations, so its seeds would be lost forever (desktop's rebuild
-restores them). Only
+this is the web↔desktop convergence. `view_filter_presets` is a MIXED
+table — migration-SEEDED defaults plus user-authored presets — so the purge
+issues a TARGETED `DELETE … WHERE is_default = FALSE`: user presets converge
+with desktop (whose rebuild destroys and re-seeds), while the seeds survive
+because the web purge never re-runs migrations. Only
 per-path ORDER and mechanics differ (children before logical parents varies by
 path, and desktop counts + bare-DELETEs `file_chunks`/`file_records`). The
 registry exists because the union CANNOT be derived from the Drizzle schema —
@@ -132,14 +133,16 @@ topology survived a web factory reset. Three instruments keep it closed:
   explicit clear-or-exclude decision.
 - Registry↔call-site parity: `reset-table-registry.test.tsx` (both renderer
   paths) and the `db:clearAll` set-equality test in `ipc-handlers-db.test.ts`
-  (desktop) assert each path clears exactly the registry set.
+  (desktop) assert each path clears exactly its registry set —
+  `getResetTables()` for the clear paths, `getFactoryResetTables()` for
+  `purgeTablesTx`.
 - The test-owned literal fixtures (below) stay deliberately independent of the
   registry so production and tests cannot drift together.
 
-Both probe-helper unions derive from the registry's `ResetTable`
-(`ClearableRelation` is `ResetTable`; desktop's `OptionalRelationTable` is
-`Exclude<ResetTable, 'file_chunks' | 'file_records'>`) — keep them derived,
-and keep them closed unions.
+Both probe-helper unions derive from the registry
+(`ClearableRelation` is `FactoryResetOnlyTable | ResetTable`; desktop's
+`OptionalRelationTable` is `Exclude<ResetTable, 'file_chunks' |
+'file_records'>`) — keep them derived, and keep them closed unions.
 
 `brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events`
 (renderer-lazy bootstrap DDL in `assistant-memory-repository.ts`, created by no
