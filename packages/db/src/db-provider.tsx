@@ -42,7 +42,7 @@ import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
-import type { ResetTable } from './reset-table-registry.js';
+import type { FactoryResetOnlyTable, ResetTable } from './reset-table-registry.js';
 import {
   type PGliteRuntimeClient,
   runFirstRunBootstrapInWorker,
@@ -69,7 +69,7 @@ function logDatabaseError(message: string, error: unknown): void {
  * registry set, so a table added to the registry without a call site here (or
  * vice versa) fails fast.
  */
-type ClearableRelation = ResetTable;
+type ClearableRelation = FactoryResetOnlyTable | ResetTable;
 
 /**
  * Deletes every row of a relation that may legitimately be ABSENT, PROBING for
@@ -977,6 +977,26 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // After file_records (the FK child): stale roots would otherwise survive a
     // reset and resurface as ghost workspaces once consumers read the table.
     await clearRelationIfPresent(tx, 'roots');
+    // FACTORY-RESET-ONLY convergence (BST-992): desktop factory reset
+    // destroys the profile directory, so these six seed-free caches and
+    // bookkeeping tables previously survived only on web. Clear Database
+    // intentionally keeps them on both surfaces; view_filter_presets stays
+    // out (migration-seeded — the purge preserves schema without re-running
+    // migrations, so its seeds would be lost forever).
+    await clearRelationIfPresent(tx, 'token_cache');
+    await clearRelationIfPresent(tx, 'file_token_cache');
+    await clearRelationIfPresent(tx, 'embedding_cache');
+    await clearRelationIfPresent(tx, 'job_queue_metrics');
+    await clearRelationIfPresent(tx, 'embedding_dimension_index_suspensions');
+    await clearRelationIfPresent(tx, 'embedding_dimension_index_maintenance');
+    // view_filter_presets mixes migration-SEEDED defaults (is_default TRUE,
+    // custom-027) with USER-authored presets (is_default FALSE). Desktop
+    // factory reset destroys both and re-seeds; the web purge cannot re-run
+    // migrations, so it deletes ONLY the user rows — seeds survive, user
+    // presets converge with desktop (review #2162). Targeted delete, not the
+    // probe helper: the predicate makes it a partial clear, and the table is
+    // migration-guaranteed so a probe adds nothing.
+    await tx.query('DELETE FROM view_filter_presets WHERE is_default = FALSE');
   }, []);
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {

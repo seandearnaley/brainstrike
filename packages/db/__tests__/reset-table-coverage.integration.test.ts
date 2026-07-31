@@ -15,6 +15,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   auditResetTableCoverage,
+  getFactoryResetOnlyTables,
   getMastraResetTables,
   getResetTables,
   RESET_EXCLUDED_TABLES,
@@ -65,6 +66,11 @@ describe('reset-table coverage (real migrated database)', () => {
         expect(existing.has(table), `${table} should be lazy-absent`).toBe(false);
         continue;
       }
+      expect(existing.has(table), `${table} missing from the migrated database`).toBe(true);
+    }
+    // The factory-reset-only six are all migration-backed — a stale name here
+    // would be the same silent-skip rot the reset-set check closes.
+    for (const table of getFactoryResetOnlyTables()) {
       expect(existing.has(table), `${table} missing from the migrated database`).toBe(true);
     }
   });

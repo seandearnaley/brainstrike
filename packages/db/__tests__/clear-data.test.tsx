@@ -223,6 +223,11 @@ describe('Database clearing functionality', () => {
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_task_lists');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_edit_checkpoints');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
+      // BST-992 convergence boundary: the factory-reset-only caches are NOT
+      // cleared by Clear Database on any surface (desktop db:clearAll never
+      // cleared them either — the 27-relation clear-set parity holds).
+      expect(queryMock).not.toHaveBeenCalledWith('DELETE FROM token_cache');
+      expect(queryMock).not.toHaveBeenCalledWith('DELETE FROM embedding_cache');
     });
 
     it('propagates a real prompt_items delete failure from direct clear', async () => {

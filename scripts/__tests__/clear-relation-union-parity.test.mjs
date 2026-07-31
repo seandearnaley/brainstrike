@@ -59,7 +59,7 @@ function readDeclaration(sourcePath, typeName) {
 test('the renderer union is the registry union, not a hand-enumerated list', () => {
   assert.equal(
     readDeclaration(RENDERER_SOURCE, 'ClearableRelation'),
-    'ResetTable',
+    'FactoryResetOnlyTable | ResetTable',
     'ClearableRelation must stay derived from the reset-table registry (BST-992). ' +
       'Re-inlining a literal union recreates the two-drifting-lists failure class ' +
       'this guard exists for — add tables to the REGISTRY instead.'
@@ -90,7 +90,7 @@ test('the desktop union is the registry union minus the two bare-DELETE tables',
 test('both sides import ResetTable from the registry', () => {
   assert.match(
     readSource(RENDERER_SOURCE),
-    /import type \{ ResetTable \} from '\.\/reset-table-registry\.js'/u,
+    /import type \{ FactoryResetOnlyTable, ResetTable \} from '\.\/reset-table-registry\.js'/u,
     'db-provider.tsx must import ResetTable from ./reset-table-registry.js (relative — ' +
       'a package must never import its own barrel).'
   );

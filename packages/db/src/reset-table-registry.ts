@@ -78,6 +78,32 @@ const CORE_RESET_TABLES = [
 ] as const;
 
 /**
+ * Wiped ONLY by the web factory reset (`purgeTablesTx`), never by Clear
+ * Database (BST-992 convergence, executed 2026-07-31 under standing
+ * approval): desktop factory reset destroys the whole profile directory, so
+ * these previously survived a web factory reset while dying on desktop. All
+ * six are seed-free caches/bookkeeping that rebuild on demand. Clear
+ * Database keeps them on BOTH surfaces (desktop `db:clearAll` never cleared
+ * them either — the 27-relation clear-set parity is untouched).
+ *
+ * `view_filter_presets` is deliberately NOT here despite being in the
+ * original status-quo family: it is migration-SEEDED configuration
+ * (custom-027 seeds the default presets), and the web purge preserves the
+ * migrated schema without re-running migrations — wiping it would lose the
+ * seeds forever on web, while desktop's rebuild-from-scratch restores them.
+ */
+const FACTORY_RESET_ONLY_TABLES = [
+  'embedding_cache',
+  'embedding_dimension_index_maintenance',
+  'embedding_dimension_index_suspensions',
+  'file_token_cache',
+  'job_queue_metrics',
+  'token_cache',
+] as const;
+
+export type FactoryResetOnlyTable = (typeof FACTORY_RESET_ONLY_TABLES)[number];
+
+/**
  * Every relation a table-enumerating clear/reset path must empty. All three
  * paths clear this exact SET; only order and mechanics differ per path. The
  * probe helpers take this closed literal union — NEVER `string` — because with
@@ -111,6 +137,16 @@ export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }
 
+/** The six web-factory-reset-only relations (seed-free caches/bookkeeping). */
+export function getFactoryResetOnlyTables(): readonly FactoryResetOnlyTable[] {
+  return FACTORY_RESET_ONLY_TABLES;
+}
+
+/** Everything the web factory reset empties: the clear set plus the six. */
+export function getFactoryResetTables(): readonly (FactoryResetOnlyTable | ResetTable)[] {
+  return [...getResetTables(), ...FACTORY_RESET_ONLY_TABLES];
+}
+
 /**
  * Tables that EXIST in a migrated database but are deliberately NOT in the
  * reset set, each with the reason it survives. The coverage integration test
@@ -140,33 +176,24 @@ export const RESET_EXCLUDED_TABLES = {
     'bootstrap-only DDL (assistant-memory-repository); FK ON DELETE CASCADE from mastra_threads',
   brainstrike_thread_search_profiles:
     'singleton search profile — configuration, intentionally survives (platform-contracts)',
-  embedding_cache:
-    'status quo: content-hash-keyed cache, not cleared by any SQL path; web-reset convergence pending ruling (BST-992)',
-  embedding_dimension_index_maintenance:
-    'status quo: HNSW maintenance bookkeeping, not cleared by any SQL path (BST-992)',
-  embedding_dimension_index_suspensions:
-    'status quo: HNSW suspension bookkeeping, not cleared by any SQL path (BST-992)',
   file_relationships: 'FK ON DELETE CASCADE from file_records (migration 003)',
   file_symbol_refs: 'FK ON DELETE CASCADE via file_symbols/file_records (migration 075)',
   file_symbols: 'FK ON DELETE CASCADE from file_records (migration 075)',
   file_tags: 'FK ON DELETE CASCADE from file_records (migration 003)',
-  file_token_cache:
-    'status quo: token-count cache, rebuilt on demand, not cleared by any SQL path (BST-992)',
-  job_queue_metrics:
-    'status quo: queue outcome metrics (migration 049), not cleared by any SQL path (BST-992)',
   models: 'migration-seeded model catalog — configuration, re-seeding is migration work',
   prompt_embedding_profiles:
     'system embedding profile seeded by migration 051 — configuration, intentionally survives',
   prompt_item_revisions: 'FK ON DELETE CASCADE from prompt_items (migration 051)',
   providers: 'migration-seeded provider catalog — configuration, re-seeding is migration work',
-  token_cache:
-    'status quo: token-count cache, rebuilt on demand, not cleared by any SQL path (BST-992)',
   view_filter_presets:
-    'status quo: user view presets, not cleared by any SQL path; web-reset convergence pending ruling (BST-992)',
+    'MIXED table: migration-SEEDED defaults (is_default TRUE, custom-027) plus user-authored presets. Web factory reset issues a TARGETED DELETE of the user rows only (purgeTablesTx) — the purge cannot re-run migrations, so a full clear would lose the seeds forever, while desktop rebuild-from-scratch restores them. Excluded here because it is never FULLY cleared by any SQL path (BST-992 convergence, review #2162)',
 } as const satisfies Record<string, string>;
 
 export interface ResetTableCoverageAudit {
-  /** Names in BOTH ledgers — a contradiction that must be resolved. */
+  /**
+   * Names in more than one of the three ledgers (reset / factory-reset-only
+   * / excluded) — the ledgers must stay pairwise disjoint. Deduplicated.
+   */
   readonly doubleRegistered: readonly string[];
   /** Existing tables in NEITHER ledger — the BST-862/BST-844 drift signal. */
   readonly unregistered: readonly string[];
@@ -184,11 +211,23 @@ export interface ResetTableCoverageAudit {
  */
 export function auditResetTableCoverage(
   existingTables: readonly string[],
-  ledgers: { excluded?: readonly string[]; reset?: readonly string[] } = {}
+  ledgers: {
+    excluded?: readonly string[];
+    factoryResetOnly?: readonly string[];
+    reset?: readonly string[];
+  } = {}
 ): ResetTableCoverageAudit {
   const resetSet = new Set<string>(ledgers.reset ?? getResetTables());
+  const factoryOnly = new Set<string>(ledgers.factoryResetOnly ?? getFactoryResetOnlyTables());
   const excluded = new Set<string>(ledgers.excluded ?? Object.keys(RESET_EXCLUDED_TABLES));
-  const unregistered = existingTables.filter((name) => !(resetSet.has(name) || excluded.has(name)));
-  const doubleRegistered = [...resetSet].filter((name) => excluded.has(name));
+  const unregistered = existingTables.filter(
+    (name) => !(resetSet.has(name) || factoryOnly.has(name) || excluded.has(name))
+  );
+  const doubleRegistered = [
+    ...new Set([
+      ...[...resetSet].filter((name) => excluded.has(name) || factoryOnly.has(name)),
+      ...[...factoryOnly].filter((name) => excluded.has(name)),
+    ]),
+  ];
   return { doubleRegistered, unregistered };
 }
