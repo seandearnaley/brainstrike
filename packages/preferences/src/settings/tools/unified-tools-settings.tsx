@@ -7,7 +7,7 @@
  */
 
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
-import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db';
+import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   Accordion,
   Button,

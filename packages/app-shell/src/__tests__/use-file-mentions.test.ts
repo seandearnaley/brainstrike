@@ -10,6 +10,12 @@ vi.mock('@brainstrike/db', () => ({
   QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
+  QUICK_OPEN_MAX_LIMIT: 50,
+  QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+}));
 
 const storeState = {
   activeRootIds: [] as string[],

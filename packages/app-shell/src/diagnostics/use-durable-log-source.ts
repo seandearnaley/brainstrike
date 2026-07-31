@@ -1,4 +1,4 @@
-import { useOptionalPGliteDatabase } from '@brainstrike/db';
+import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useMemo } from 'react';
 import { createDurableLogSource, type DurableLogSource } from './durable-log-source';
 

@@ -48,6 +48,15 @@ vi.mock('@brainstrike/db', async () => {
     usePGliteDatabase: vi.fn(() => mockDb),
   };
 });
+vi.mock('@brainstrike/db/react', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/db/react')>('@brainstrike/db/react');
+  return {
+    ...actual,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    usePGliteDatabase: vi.fn(() => mockDb),
+  };
+});
 
 vi.mock('@brainstrike/embeddings/factory', () => ({
   EmbeddingProviderFactory: {

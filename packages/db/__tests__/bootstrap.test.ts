@@ -44,6 +44,7 @@ describe('PGlite bootstrap', () => {
 
   it('index exports expected members', () => {
     expect(dbIndex.wasmLoader).toBeDefined();
-    expect(dbIndex.DbProvider).toBeDefined();
+    // BST-990 seam: the provider lives at ./react; the root is React-free.
+    expect((dbIndex as typeof dbIndex & { DbProvider?: unknown }).DbProvider).toBeUndefined();
   });
 });

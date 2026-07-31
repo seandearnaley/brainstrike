@@ -1,10 +1,7 @@
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
-import {
-  DbProvider,
-  EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX,
-  getDefaultBrowserPGliteDataDir,
-} from '@brainstrike/db';
+import { EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX, getDefaultBrowserPGliteDataDir } from '@brainstrike/db';
+import { DbProvider } from '@brainstrike/db/react';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';

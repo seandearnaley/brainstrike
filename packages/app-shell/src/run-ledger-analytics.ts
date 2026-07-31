@@ -1,4 +1,4 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 
 /**
  * Task Ledger analytics: pure SQL aggregations over the run tables the

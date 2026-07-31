@@ -30,6 +30,11 @@ vi.mock('@brainstrike/db', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  createDatabasePressureController: createDatabasePressureControllerMock,
+  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
+  getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
+}));
 
 vi.mock('@brainstrike/embeddings/worker', () => ({
   startEmbeddingWorker: vi.fn(async (_opts) => ({ stop: async () => {} })),

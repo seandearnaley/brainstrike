@@ -42,6 +42,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
+}));
 
 // Mock preferences store for useEmbeddingSetSelection tests
 const mockStoreState = {
@@ -157,7 +161,7 @@ vi.mock('@brainstrike/ui', async () => {
   };
 });
 
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   EmbeddingSetSelector,
   useEmbeddingSetSelection,

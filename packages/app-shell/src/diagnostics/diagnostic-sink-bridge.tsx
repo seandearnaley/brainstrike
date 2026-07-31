@@ -1,4 +1,5 @@
-import { DiagnosticEventsRepository, useOptionalPGliteDatabase } from '@brainstrike/db';
+import { DiagnosticEventsRepository } from '@brainstrike/db';
+import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useDiagnosticsRetentionStore } from '@brainstrike/preferences/stores/diagnostics-retention-store';
 import {
   boundWithMarker,

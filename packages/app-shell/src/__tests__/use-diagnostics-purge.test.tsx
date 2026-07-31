@@ -13,6 +13,10 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useOptionalPGliteDatabase: useOptionalPGliteDatabaseMock,
 }));
+vi.mock('@brainstrike/db/react', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useOptionalPGliteDatabase: useOptionalPGliteDatabaseMock,
+}));
 
 import { useDiagnosticsRetentionStore } from '@brainstrike/preferences/stores/diagnostics-retention-store';
 import { useDiagnosticsPurge } from '../diagnostics/use-diagnostics-purge';

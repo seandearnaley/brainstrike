@@ -29,7 +29,8 @@ import type {
 // implementation. Interim placement — R04 (BST-984) moves this module into the
 // data layer and the export moves with it.
 import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
-import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with

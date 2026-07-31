@@ -17,7 +17,7 @@
  * ```
  */
 
-import { usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import type React from 'react';
 import { useEffect } from 'react';
 import { useVectorStatusUIStore } from '../stores/vector-status-ui-store';

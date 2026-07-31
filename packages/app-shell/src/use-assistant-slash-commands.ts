@@ -1,5 +1,5 @@
 import type { Command, CommandContext } from '@brainstrike/commands';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';

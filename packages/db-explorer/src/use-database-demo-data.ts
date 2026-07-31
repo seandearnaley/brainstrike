@@ -6,10 +6,12 @@ import {
   type ElectronFileRecordRepository,
   type FileChunk,
   type FileRecord,
+} from '@brainstrike/db';
+import {
   makeLiveQueryKey,
   type usePGliteDatabase,
   usePGliteLiveQuery,
-} from '@brainstrike/db';
+} from '@brainstrike/db/react';
 import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { useToast } from '@brainstrike/ui';

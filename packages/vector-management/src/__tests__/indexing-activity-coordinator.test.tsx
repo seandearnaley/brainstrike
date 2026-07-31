@@ -148,6 +148,14 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  createPriorityDbHandle: createPriorityDbHandleMock,
+  getCollectionIndexingStats: getCollectionIndexingStatsMock,
+  getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
+  makeLiveQueryKey: makeLiveQueryKeyMock,
+  usePGliteDatabase: usePGliteDatabaseMock,
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
 
 function createManagedCollectionStats(
   embeddingSetId: string,

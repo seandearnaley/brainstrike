@@ -20,6 +20,19 @@ vi.mock('@brainstrike/db', () => ({
     modelKey: 'local::Xenova/all-MiniLM-L6-v2',
   },
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  JobQueue: vi.fn(function MockJobQueue(db: unknown) {
+    jobQueueConstructorMock(db);
+    return {
+      completeEmbeddingChunkBatch: completeEmbeddingChunkBatchMock,
+    };
+  }),
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
+    dimensions: 384,
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+  },
+}));
 
 describe('runWorkspaceIndexStageBenchmark', () => {
   beforeEach(() => {

@@ -31,7 +31,7 @@ import {
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 import type { SuspendedApprovalDiscovery } from './assistant-suspended-approvals';
 

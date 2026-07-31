@@ -52,6 +52,15 @@ vi.mock('@brainstrike/db', () => ({
     isLoading: false,
   }),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  DbProvider: ({ children }: { children: React.ReactNode }) => children,
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useDatabase: () => ({
+    db: null,
+    error: null,
+    isLoading: false,
+  }),
+}));
 
 // Mock the file system module
 vi.mock('@brainstrike/file-system', () => ({

@@ -18,7 +18,11 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
-        find: '@brainstrike/db',
+        // Anchored exact-match: a bare-string find PREFIX-matches every
+        // subpath ('@brainstrike/db/react' would resolve inside index.ts —
+        // review #2164). Subpaths fall through to workspaceSrcAliases, which
+        // derives them from the exports map.
+        find: /^@brainstrike\/db$/,
         replacement: resolve(import.meta.dirname, '../db/src/index.ts'),
       },
       {

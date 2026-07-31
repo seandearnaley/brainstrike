@@ -1,4 +1,4 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { usePGliteDatabase } from '@brainstrike/db/react';
 import {
   CollectionPicker,
   type CollectionPickerCollection,

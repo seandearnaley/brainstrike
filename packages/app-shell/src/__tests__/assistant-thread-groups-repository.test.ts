@@ -1,4 +1,4 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createPgliteAssistantThreadGroupsRepository } from '../assistant-thread-groups-repository';
 

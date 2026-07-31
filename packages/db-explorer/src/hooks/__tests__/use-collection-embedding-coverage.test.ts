@@ -27,6 +27,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+}));
 
 describe('collection embedding coverage status', () => {
   beforeEach(() => {

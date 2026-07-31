@@ -1,13 +1,12 @@
+import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
 import {
-  type EmbeddingSet,
-  refreshCollectionIndexingStats,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
-} from '@brainstrike/db';
+} from '@brainstrike/db/react';
 import {
   getRegisteredEmbeddingQueueFactory,
   registerEmbeddingQueueFactory,

@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { CommandPalette, useCommandPaletteHotkey } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useMemo } from 'react';
 import {

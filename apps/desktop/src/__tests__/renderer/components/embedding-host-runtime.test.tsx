@@ -74,6 +74,10 @@ vi.mock('@brainstrike/db', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
   usePGliteDatabase: () => currentDbRef.current,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
+  usePGliteDatabase: () => currentDbRef.current,
+}));
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,

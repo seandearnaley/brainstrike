@@ -17,6 +17,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => ({})),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteDatabase: vi.fn(() => ({})),
+}));
 
 vi.mock('../../hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),

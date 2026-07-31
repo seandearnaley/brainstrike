@@ -21,7 +21,8 @@
 // narrow `./assistant-memory-repository` subpath, same convention as
 // run-usage-live-loop.integration.test.ts; placement is interim per R04 (BST-984).
 import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
-import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { recordDesktopAssistantHookRunOutcome } from '../../assistant-server/run-persistence';
 

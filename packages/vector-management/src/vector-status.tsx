@@ -1,4 +1,4 @@
-import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
+import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db/react';
 import { TransformersBackend } from '@brainstrike/embeddings/backend';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';

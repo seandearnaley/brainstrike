@@ -62,6 +62,13 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
   };
 });
+vi.mock('@brainstrike/db/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
+  return {
+    ...actual,
+    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
+  };
+});
 
 vi.mock('electron', () => ({
   BrowserWindow: {

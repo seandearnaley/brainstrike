@@ -7,6 +7,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+}));
 
 import {
   buildObservationalMemoryLookupKey,

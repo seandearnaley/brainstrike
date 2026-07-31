@@ -1,12 +1,7 @@
 import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  type PromptItem,
-  PromptItemRepository,
-  type PromptItemUsageAction,
-  useDbInitializationStatus,
-  usePGliteDatabase,
-} from '@brainstrike/db';
+import { type PromptItem, PromptItemRepository, type PromptItemUsageAction } from '@brainstrike/db';
+import { useDbInitializationStatus, usePGliteDatabase } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';

@@ -51,6 +51,12 @@ vi.mock('@brainstrike/db', () => ({
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  useDbInitializationStatus: () => dbMocks.initializationStatus,
+  useDbInitializing: () => dbMocks.initializing,
+  useDbProviderError: () => dbMocks.providerError,
+  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+}));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>

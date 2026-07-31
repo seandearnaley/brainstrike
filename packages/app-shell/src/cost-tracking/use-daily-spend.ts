@@ -1,4 +1,4 @@
-import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useEffect, useMemo } from 'react';
 import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
 import { resolveAssistantMemoryResourceId } from '../assistant-memory-resource';

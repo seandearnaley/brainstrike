@@ -110,6 +110,25 @@ vi.mock('@brainstrike/db', async () => {
     usePGliteDatabase: () => mocks.db,
   };
 });
+vi.mock('@brainstrike/db/react', async () => {
+  const actual = await vi.importActual<object>('@brainstrike/db/react');
+  return {
+    ...actual,
+    PromptItemRepository: class {
+      create = repository.create;
+      getEmbeddingProfile = repository.getEmbeddingProfile;
+      list = repository.list;
+      listNeedingEmbedding = repository.listNeedingEmbedding;
+      markEmbeddingError = repository.markEmbeddingError;
+      recordUsage = repository.recordUsage;
+      searchSimilar = repository.searchSimilar;
+      storeEmbedding = repository.storeEmbedding;
+      update = repository.update;
+    },
+    useDbInitializationStatus: () => mocks.dbInitializationStatus,
+    usePGliteDatabase: () => mocks.db,
+  };
+});
 
 vi.mock('@brainstrike/db-explorer/embedding-models', () => ({
   buildLocalEmbeddingModelConfigMap: () =>

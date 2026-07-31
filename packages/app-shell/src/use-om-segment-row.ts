@@ -25,7 +25,7 @@
  */
 
 import type { RuntimeAssistantMemoryScope } from '@brainstrike/assistant-contract/memory-settings';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 
 /**
  * Build the OM lookup key the store writes under. Mirrors the memory store's

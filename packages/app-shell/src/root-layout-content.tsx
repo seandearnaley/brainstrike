@@ -1,5 +1,5 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
-import { type DbHandle, usePGliteDatabase } from '@brainstrike/db';
+import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';

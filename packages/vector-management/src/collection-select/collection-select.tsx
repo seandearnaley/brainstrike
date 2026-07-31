@@ -1,5 +1,6 @@
-import type { EmbeddingSetSystemRole, usePGliteDatabase } from '@brainstrike/db';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import type { EmbeddingSetSystemRole } from '@brainstrike/db';
+import type { usePGliteDatabase } from '@brainstrike/db/react';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   compareCollectionsDesc,
   useVectorStatusUIStore,

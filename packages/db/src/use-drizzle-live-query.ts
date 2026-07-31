@@ -43,7 +43,7 @@ function extractQueryDetails(query: DrizzleQueryLike): { sql: string; params: re
  * @example
  * ```typescript
  * import { eq } from 'drizzle-orm';
- * import { useDrizzleLiveQuery } from '@brainstrike/db';
+ * import { useDrizzleLiveQuery } from '@brainstrike/db/react';
  * import { fileRecords } from './schema';
  *
  * function MyComponent() {

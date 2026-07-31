@@ -1,7 +1,7 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { usePGliteDatabase } from '@brainstrike/db/react';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useCallback } from 'react';
-import { CollectionSelect } from '../collection-select/index.js';
+import { CollectionSelect } from '../collection-select/collection-select.js';
 
 /**
  * Hook to manage embedding set selection state via Zustand store.

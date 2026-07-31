@@ -63,6 +63,15 @@ vi.mock('@brainstrike/db', async () => {
     useVectorEnabled: () => false,
   };
 });
+vi.mock('@brainstrike/db/react', async () => {
+  const actual = await vi.importActual<object>('@brainstrike/db/react');
+  return {
+    ...(actual as object),
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    usePGliteDatabase: () => null,
+    useVectorEnabled: () => false,
+  };
+});
 
 vi.mock('../embedding-runtime-provider', () => ({
   useSharedEmbeddingRuntime: () => ({

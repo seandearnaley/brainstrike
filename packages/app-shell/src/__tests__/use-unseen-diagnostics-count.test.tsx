@@ -11,6 +11,11 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...args: unknown[]) => args.join(':'),
+  usePGliteDatabase: usePGliteDatabaseMock,
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
 
 import {
   resetDiagnosticsSeenStore,

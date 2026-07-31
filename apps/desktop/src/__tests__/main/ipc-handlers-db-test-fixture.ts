@@ -231,6 +231,16 @@ vi.mock('@brainstrike/db', async () => {
     parseManagedCacheBatchArgs: parseManagedCacheBatchArgsMock,
   };
 });
+vi.mock('@brainstrike/db/react', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/db/react')>('@brainstrike/db/react');
+  return {
+    ...actual,
+    applyManagedCacheBatch: applyManagedCacheBatchMock,
+    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityMock,
+    parseManagedCacheBatchArgs: parseManagedCacheBatchArgsMock,
+  };
+});
 
 vi.mock('../../db-shared', async () => {
   const actual = await vi.importActual<typeof import('../../db-shared')>('../../db-shared');

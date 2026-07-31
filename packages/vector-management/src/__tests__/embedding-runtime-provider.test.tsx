@@ -26,6 +26,11 @@ vi.mock('@brainstrike/db', () => ({
   useFileChunkRepository: useFileChunkRepositoryMock,
   usePGliteDatabase: usePGliteDatabaseMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  JobQueue: JobQueueMock,
+  useFileChunkRepository: useFileChunkRepositoryMock,
+  usePGliteDatabase: usePGliteDatabaseMock,
+}));
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: useVectorPreferencesStoreMock,

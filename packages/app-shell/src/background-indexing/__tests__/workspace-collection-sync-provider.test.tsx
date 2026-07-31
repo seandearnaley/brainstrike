@@ -361,6 +361,64 @@ vi.mock('@brainstrike/db', () => ({
   },
   WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
+  createDatabasePressureController: vi.fn(() => ({
+    waitForBackgroundPermit: vi.fn(async () => undefined),
+  })),
+  createPriorityDbHandle: createPriorityDbHandleMock,
+  ElectronEmbeddingSetsRepository: vi.fn(function MockElectronEmbeddingSetsRepository() {
+    return {
+      getById: getByIdMock,
+      getOrCreateWorkspaceIndexSet: getOrCreateWorkspaceIndexSetMock,
+    };
+  }),
+  ElectronFileChunkRepository: vi.fn(function MockElectronFileChunkRepository() {
+    return {
+      deleteByFileRecordId: deleteByFileRecordIdMock,
+      getCoverageForSet: vi.fn(async () => ({
+        embeddedChunks: 0,
+        totalChunks: 0,
+      })),
+      update: vi.fn(),
+    };
+  }),
+  ElectronFileRecordRepository: vi.fn(function MockElectronFileRecordRepository() {
+    return {
+      listManagedCacheEntryMetadata: listManagedCacheEntryMetadataMock,
+      update: updateMock,
+    };
+  }),
+  FileSymbolRepository: vi.fn(function MockFileSymbolRepository() {
+    return {
+      deleteForFileRecords: vi.fn(async () => undefined),
+      insertMany: vi.fn(async () => undefined),
+    };
+  }),
+  getDatabasePressureWaitingReason: vi.fn(() => null),
+  getDatabaseWorkScheduler: vi.fn(() => ({
+    getSnapshot: vi.fn(() => idleSchedulerSnapshot),
+    run: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+  })),
+  invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
+  JobQueue: vi.fn(function MockJobQueue() {
+    return {
+      clear: vi.fn(),
+      completeEmbeddingChunkBatch: completeEmbeddingChunkBatchMock,
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => []),
+      requeueFailed: vi.fn(),
+    };
+  }),
+  usePGliteDatabase: () => dbState.current,
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
+    dimensions: 384,
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+  },
+  WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
+}));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   createFileContentProcessor: () => ({

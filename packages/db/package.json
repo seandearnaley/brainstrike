@@ -48,6 +48,11 @@
       "types": "./dist/browser-pglite-storage.d.ts",
       "import": "./dist/browser-pglite-storage.js",
       "require": "./dist/browser-pglite-storage.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.js"
     }
   },
   "files": [

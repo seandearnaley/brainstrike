@@ -1,4 +1,5 @@
-import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive } from '@brainstrike/hooks';
 import type { QueueStatsSnapshot } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';

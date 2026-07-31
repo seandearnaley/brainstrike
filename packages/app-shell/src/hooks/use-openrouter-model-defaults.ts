@@ -2,7 +2,7 @@ import {
   OPENROUTER_RECOMMENDED_CODING_MODEL_IDS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';

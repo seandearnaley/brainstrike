@@ -1,4 +1,5 @@
-import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createPgliteAssistantThreadGroupsRepository } from '../assistant-thread-groups-repository';
 

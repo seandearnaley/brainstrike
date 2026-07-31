@@ -1,5 +1,5 @@
 import type { FileImportResult, ImportProgress } from '@brainstrike/db';
-import { useFileRecordRepository } from '@brainstrike/db';
+import { useFileRecordRepository } from '@brainstrike/db/react';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';

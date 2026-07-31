@@ -1,7 +1,6 @@
 import type {
   ApplyManagedCacheBatchArgs,
   ChunkingStrategy,
-  DbHandle,
   EmbeddingSet,
   FileImportResult,
   IDatabase,
@@ -10,6 +9,7 @@ import type {
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import {
   createFileContentProcessor,
   type FileContentProcessor,

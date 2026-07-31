@@ -1,5 +1,5 @@
-import type { DbHandle } from '@brainstrike/db';
 import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createPgliteAssistantThreadRepository } from '../assistant-memory-repository';
 import { getLedgerCostTrend, getModelComparison } from '../run-ledger-analytics';

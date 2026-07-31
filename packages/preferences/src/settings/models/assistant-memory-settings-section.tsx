@@ -5,7 +5,7 @@ import type {
 } from '@brainstrike/assistant-contract/memory-settings';
 import { OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET } from '@brainstrike/assistant-contract/memory-settings';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';

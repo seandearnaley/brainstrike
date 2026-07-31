@@ -1,4 +1,4 @@
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useMemo } from 'react';
 
 export type CollectionEmbeddingCoverageStatus =

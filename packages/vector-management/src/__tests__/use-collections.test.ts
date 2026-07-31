@@ -85,6 +85,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
+}));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
   const actual =
@@ -97,7 +101,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importO
   };
 });
 
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useCollections } from '../collection-select/collection-select';
 
 describe('useCollections', () => {

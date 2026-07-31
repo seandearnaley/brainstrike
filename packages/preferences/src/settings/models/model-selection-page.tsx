@@ -1,6 +1,7 @@
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { DEFAULT_EMBEDDING_DIMENSION, usePGliteDatabase } from '@brainstrike/db';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';

@@ -1,4 +1,4 @@
-import { useFactoryReset } from '@brainstrike/db';
+import { useFactoryReset } from '@brainstrike/db/react';
 import { Button, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo, useState } from 'react';

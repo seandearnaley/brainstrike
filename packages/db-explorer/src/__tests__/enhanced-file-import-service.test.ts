@@ -78,6 +78,39 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: mockUsePGliteDatabase,
   usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  CHUNKING_CONFIG: {
+    chunkPreviewLength: 50,
+    defaultMaxTokens: 1000,
+    defaultOverlap: 200,
+    embeddingInitializationDelay: 100,
+    embeddingProcessingDelay: 10,
+  },
+  getChunkingPreset: vi.fn(() => ({
+    chunkOverlap: 50,
+    chunkSize: 256,
+    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
+    id: 'balanced',
+    isDefault: true,
+    label: 'Balanced',
+    strategy: 'auto',
+    tokenLimit: 4096,
+  })),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useClearAllData: () => null,
+  useDbProviderError: () => null,
+  useFactoryReset: () => null,
+  useFileChunkRepository: () => ({
+    insertMany: vi.fn(),
+    update: vi.fn(),
+  }),
+  useFileRecordRepository: () => ({
+    findById: vi.fn(),
+    update: vi.fn(),
+  }),
+  usePGliteDatabase: mockUsePGliteDatabase,
+  usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
+}));
 
 vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');

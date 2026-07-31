@@ -8,6 +8,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: (...parts: unknown[]) => parts.map(String).join(':'),
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...parts: unknown[]) => parts.map(String).join(':'),
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+}));
 
 import { useAssistantThreadTitleSync } from '../use-assistant-thread-title-sync';
 

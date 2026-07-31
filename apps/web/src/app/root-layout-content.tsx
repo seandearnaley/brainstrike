@@ -5,7 +5,7 @@ import {
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in

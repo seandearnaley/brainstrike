@@ -1,4 +1,4 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { useCallback } from 'react';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import {

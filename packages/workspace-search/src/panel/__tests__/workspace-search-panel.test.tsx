@@ -17,6 +17,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(({ count }: { count: number }) => ({

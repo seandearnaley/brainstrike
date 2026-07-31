@@ -1,4 +1,5 @@
-import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
@@ -10,6 +11,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueHud } from '../queue-hud';
 
 vi.mock('@brainstrike/db', () => ({
+  JobQueue: vi.fn(),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteDatabase: vi.fn(),
+}));
+vi.mock('@brainstrike/db/react', () => ({
   JobQueue: vi.fn(),
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(),

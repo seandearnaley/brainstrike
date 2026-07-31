@@ -1,4 +1,5 @@
-import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/db';
+import { createEmbeddingCacheRepository } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import {
   type DeviceCapabilities,
   detectDeviceCapabilities,

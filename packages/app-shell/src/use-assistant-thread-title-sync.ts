@@ -1,5 +1,5 @@
 import { MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract/mastra-memory-schema';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo } from 'react';
 import type { AssistantThreadRepository } from './assistant-memory-repository';

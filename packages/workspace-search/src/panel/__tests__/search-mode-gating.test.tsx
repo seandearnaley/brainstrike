@@ -16,6 +16,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
 
 function makeRow(overrides: Partial<CollectionStatsRow> = {}): CollectionStatsRow {
   return {

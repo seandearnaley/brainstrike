@@ -29,7 +29,8 @@ via `useFileRecordRepository`. Both the web (`apps/web`) and desktop
 
 ```tsx
 import React from 'react';
-import { DbProvider, migrate, useFileRecordRepository } from '@brainstrike/db';
+import { migrate } from '@brainstrike/db';
+import { DbProvider, useFileRecordRepository } from '@brainstrike/db/react';
 import { PGlite } from '@electric-sql/pglite';
 
 // Run migrations before rendering the app

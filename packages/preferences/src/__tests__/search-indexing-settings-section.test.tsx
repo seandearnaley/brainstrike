@@ -27,6 +27,9 @@ const mockRepository = {
 vi.mock('@brainstrike/db', () => ({
   useEmbeddingSetsRepository: () => mockRepository,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  useEmbeddingSetsRepository: () => mockRepository,
+}));
 
 describe('SearchIndexingSettingsSection', () => {
   beforeEach(() => {
