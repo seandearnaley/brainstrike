@@ -29,7 +29,7 @@ export {
   AssistantMessageValidationError,
   assertAssistantMessageGraphWithinLimits,
 } from './assistant-message-boundary';
-export type { AssistantRequestPayload } from './assistant-request';
+export type { ParsedAssistantRequestEnvelope } from './assistant-request';
 export {
   AssistantInvalidJsonError,
   AssistantRequestBodyTooLargeError,

@@ -1,0 +1,40 @@
+{
+  "name": "@brainstrike/assistant-wire",
+  "version": "0.1.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "private": true,
+  "scripts": {
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "dev": "tsup --watch",
+    "lint": "pnpm -w lint",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "sideEffects": false,
+  "types": "./dist/index.d.ts"
+}

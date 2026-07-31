@@ -98,7 +98,7 @@ export {
   MAX_ASSISTANT_MESSAGE_STRING_CHARS,
   MAX_ASSISTANT_MESSAGES,
 } from './assistant-message-boundary';
-export type { AssistantRequestPayload } from './assistant-request';
+export type { ParsedAssistantRequestEnvelope } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantInvalidJsonError,

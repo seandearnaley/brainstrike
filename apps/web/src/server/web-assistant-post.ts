@@ -3,7 +3,7 @@ import {
   AssistantFilterPayloadError,
   prepareAssistantPostRequest,
 } from '@brainstrike/assistant-service/request';
-import type { AssistantRejectionPayload } from '@brainstrike/assistant-service/types';
+import type { AssistantRejectionPayload } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/utils/logger';
 import {
   resolveAssistantProviderConfig,

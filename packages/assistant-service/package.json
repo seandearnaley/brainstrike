@@ -4,6 +4,7 @@
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {

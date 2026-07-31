@@ -1,4 +1,4 @@
-import type { AssistantRequestPayload, RuntimeData } from '@brainstrike/agent/hosted-web';
+import type { ParsedAssistantRequestEnvelope, RuntimeData } from '@brainstrike/agent/hosted-web';
 import {
   type ConfiguredAssistantProviderConfig,
   type HostedWebAssistantProvider,
@@ -108,9 +108,9 @@ function readClientRuntime(data: unknown): Partial<RuntimeData> {
  * Throws the same typed errors the transports' existing mappers handle.
  */
 export function filterWebAssistantPayload(
-  payload: AssistantRequestPayload,
+  payload: ParsedAssistantRequestEnvelope,
   hostedProviders: readonly HostedWebAssistantProvider[]
-): AssistantRequestPayload {
+): ParsedAssistantRequestEnvelope {
   const data = payload.data as Record<string, unknown> | undefined;
   const rawProvider = data?.['provider'];
   let requestedProvider: HostedWebAssistantProvider | undefined;

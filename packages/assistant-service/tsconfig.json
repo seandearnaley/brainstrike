@@ -17,6 +17,7 @@
   "references": [
     { "path": "../agent" },
     { "path": "../assistant-contract" },
+    { "path": "../assistant-wire" },
     { "path": "../utils" }
   ]
 }

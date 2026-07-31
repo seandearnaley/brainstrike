@@ -1,9 +1,6 @@
 import './assistant-ui-panel-wrapper-test-support';
-import {
-  HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
-  type SupportedProvider,
-  WEB_NATIVE_TOOL_IDS,
-} from '@brainstrike/assistant-contract';
+import { type SupportedProvider, WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
+import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import {
   useAssistantMemoryPreferencesStore,
   useAssistantPreferencesStore,
