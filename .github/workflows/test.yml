@@ -562,6 +562,76 @@ jobs:
       - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
         run: pnpm --filter @brainstrike/file-system test:packaged
 
+  browser-tests:
+    name: Browser tests
+    # Vitest 4 browser-mode suites (real Chromium): packages/db PGlite WASM
+    # semantics (BST-64/BST-994 — unskipped after eight months), packages/ui
+    # assistant browser suites, packages/storage web adapter. Before this job
+    # existed, `test:browser` ran NOWHERE in CI — only in the local `pnpm
+    # check` gate — while turbo.jsonc's task comment claimed otherwise.
+    # Not (yet) a required check: branch protection is Sean's call; this lane
+    # must first prove itself deterministic.
+    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    needs: [admission]
+    # GitHub-hosted on purpose: the Ubicloud pool is contractually limited to
+    # the five measured jobs (scripts/__tests__/ubicloud-runner-contract.
+    # test.mjs) and a new unproven lane should not expand the paid-runner
+    # contract. Move only with a wall-clock measurement and a contract update.
+    runs-on: ubuntu-latest
+    # Same official Playwright image + pin as Web E2E — browsers baked in, no
+    # cdn.playwright.dev download at job time. KEEP IN SYNC: the image tag MUST
+    # equal @playwright/test's version (scripts/verify-playwright-pin-sync.mjs
+    # is the drift check; bump together with the pins in test.yml/web-e2e.yml/
+    # performance.yml).
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --user 1001
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to run Browser tests on an unadmitted head."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        # Same exclusions as Web E2E: this pwuser container has no C toolchain
+        # or sudo; the browser-test packages (db, ui, storage) and their
+        # dependency closures are pure TS, so the two desktop-only native
+        # projects are excluded from install.
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
+
+      - name: Run browser tests
+        # Root task = turbo `test:browser` across every package that defines
+        # it; turbo builds the (pure-TS) dependency closure in-job.
+        run: pnpm test:browser
+
+      - name: Upload browser test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-test-results
+          path: |
+            packages/db/test-results/
+            packages/ui/test-results/
+            packages/storage/test-results/
+          retention-days: 1
+          if-no-files-found: ignore
+
   web-e2e:
     name: Web E2E
     if: >-
