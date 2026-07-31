@@ -20,7 +20,7 @@ import { useAuiState } from '@assistant-ui/react';
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
-  isAssistantRunEvent,
+  readAssistantRunEvent,
 } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
@@ -37,11 +37,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function isTerminalRunEvent(value: unknown): value is AssistantRunEvent {
-  // Full-shape contract guard (BST-978 slice 2) + this module's kind filter.
-  return (
-    isAssistantRunEvent(value) && (value.kind === 'run.finished' || value.kind === 'run.failed')
-  );
+function readTerminalRunEvent(value: unknown): AssistantRunEvent | undefined {
+  // Contract narrow (BST-978 slice 2: metadata degrades, never drops) + this
+  // module's kind filter.
+  const event = readAssistantRunEvent(value);
+  return event && (event.kind === 'run.finished' || event.kind === 'run.failed')
+    ? event
+    : undefined;
 }
 
 function isToolApprovalRequest(value: unknown): value is AssistantToolApprovalRequest {
@@ -71,9 +73,9 @@ export function selectTerminalRunEvents(
   const events: AssistantRunEvent[] = [];
   for (const message of messages) {
     for (const part of getMessageParts(message)) {
-      const data = getPartData(part, ASSISTANT_RUN_EVENT_DATA_NAME);
-      if (isTerminalRunEvent(data)) {
-        events.push(data);
+      const event = readTerminalRunEvent(getPartData(part, ASSISTANT_RUN_EVENT_DATA_NAME));
+      if (event) {
+        events.push(event);
       }
     }
   }
@@ -239,10 +241,7 @@ function createIncrementalSerializedSelector<T>({
 
 export function createTerminalRunEventsSelector(): (messages: readonly unknown[]) => string {
   return createIncrementalSerializedSelector({
-    getData: (part) => {
-      const data = getPartData(part, ASSISTANT_RUN_EVENT_DATA_NAME);
-      return isTerminalRunEvent(data) ? data : undefined;
-    },
+    getData: (part) => readTerminalRunEvent(getPartData(part, ASSISTANT_RUN_EVENT_DATA_NAME)),
   });
 }
 

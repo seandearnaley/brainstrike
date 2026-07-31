@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   isAssistantRunEvent,
+  readAssistantRunEvent,
   readAssistantRunEventDataPart,
+  sanitizeAssistantRunEventMetadata,
 } from '../run-events.js';
 
 const validEvent = {
@@ -55,18 +57,49 @@ describe('isAssistantRunEvent', () => {
     expect(isAssistantRunEvent({ ...validEvent, metadata: { ok: 'fine' } })).toBe(true);
   });
 
-  it('rejects metadata nested beyond the sanitizer depth cap', () => {
-    let nested: unknown = 'leaf';
-    for (let level = 0; level < 8; level++) {
-      nested = { nested };
-    }
-    expect(isAssistantRunEvent({ ...validEvent, metadata: { nested } })).toBe(false);
+  it('shares the sanitizer depth boundary exactly: past-cap slots may only hold null', () => {
+    const wrap = (leaf: unknown, levels: number): unknown => {
+      let nested = leaf;
+      for (let level = 0; level < levels; level++) {
+        nested = { nested };
+      }
+      return nested;
+    };
+    // metadata sits at depth 0 and `deep` at depth 1, so 8 wrappers put the
+    // leaf one level PAST the cap (depth 9): only the sanitizer's null
+    // replacement is valid there.
+    expect(isAssistantRunEvent({ ...validEvent, metadata: { deep: wrap('leaf', 8) } })).toBe(false);
+    expect(isAssistantRunEvent({ ...validEvent, metadata: { deep: wrap(null, 8) } })).toBe(true);
+    // 7 wrappers keep the leaf AT the cap (depth 8): any scalar is valid.
+    expect(isAssistantRunEvent({ ...validEvent, metadata: { deep: wrap('leaf', 7) } })).toBe(true);
+  });
 
-    let shallow: unknown = 'leaf';
-    for (let level = 0; level < 6; level++) {
-      shallow = { shallow };
-    }
-    expect(isAssistantRunEvent({ ...validEvent, metadata: { shallow } })).toBe(true);
+  it('round-trip: whatever the outbound sanitizer emits passes the inbound guard', () => {
+    const pathological: Record<string, unknown> = {
+      deep: { a: { b: { c: { d: { e: { f: { g: { h: { i: 'way past the cap' } } } } } } } } },
+      fn: () => 'stripped',
+      nan: Number.NaN,
+      ok: ['fine', { nested: true }],
+    };
+    const sanitized = sanitizeAssistantRunEventMetadata(pathological);
+    expect(isAssistantRunEvent({ ...validEvent, metadata: sanitized })).toBe(true);
+  });
+});
+
+describe('readAssistantRunEvent', () => {
+  it('mirrors the outbound degrade-not-drop policy for metadata-only defects', () => {
+    const degraded = readAssistantRunEvent({ ...validEvent, metadata: ['not-a-record'] });
+    expect(degraded).toBeDefined();
+    expect(degraded?.id).toBe(validEvent.id);
+    expect(degraded && 'metadata' in degraded).toBe(false);
+
+    const intact = readAssistantRunEvent({ ...validEvent, metadata: { ok: true } });
+    expect(intact?.metadata).toEqual({ ok: true });
+  });
+
+  it('still drops events with core-field defects', () => {
+    expect(readAssistantRunEvent({ ...validEvent, kind: 'run.imaginary' })).toBeUndefined();
+    expect(readAssistantRunEvent(null)).toBeUndefined();
   });
 });
 
@@ -87,5 +120,14 @@ describe('readAssistantRunEventDataPart', () => {
         name: ASSISTANT_RUN_EVENT_DATA_NAME,
       })
     ).toBeUndefined();
+  });
+
+  it('degrades metadata-only defects instead of dropping the part', () => {
+    const event = readAssistantRunEventDataPart({
+      data: { ...validEvent, metadata: { bad: () => 'nope' } },
+      name: ASSISTANT_RUN_EVENT_DATA_NAME,
+    });
+    expect(event?.id).toBe(validEvent.id);
+    expect(event && 'metadata' in event).toBe(false);
   });
 });

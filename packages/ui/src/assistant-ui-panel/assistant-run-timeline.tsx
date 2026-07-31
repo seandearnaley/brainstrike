@@ -5,8 +5,8 @@ import type {
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
 import {
-  ASSISTANT_RUN_EVENT_DATA_NAME,
-  isAssistantRunEvent,
+  readAssistantRunEvent,
+  readAssistantRunEventDataPart,
 } from '@brainstrike/assistant-contract';
 import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import {
@@ -88,13 +88,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * exemption: they carry no `toolCallId` and are not `tool.*`.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
-  if (!isAssistantRunEvent(data)) {
+  const event = readAssistantRunEvent(data);
+  if (!event) {
     return false;
   }
   return (
-    data.kind === 'run.failed' ||
-    data.kind === 'run.cancelled' ||
-    data.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
+    event.kind === 'run.failed' ||
+    event.kind === 'run.cancelled' ||
+    event.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
   );
 }
 
@@ -111,13 +112,7 @@ export function getMessageParts(message: unknown): readonly unknown[] {
 }
 
 function getRunEventFromPart(part: unknown): AssistantRunEvent | null {
-  if (!isRecord(part)) {
-    return null;
-  }
-  if (part['name'] !== ASSISTANT_RUN_EVENT_DATA_NAME) {
-    return null;
-  }
-  return isAssistantRunEvent(part['data']) ? part['data'] : null;
+  return readAssistantRunEventDataPart(part) ?? null;
 }
 
 function getRunEventsFromMessages(messages: readonly unknown[]): AssistantRunEvent[] {
@@ -533,7 +528,7 @@ export function resolveAssistantRunEventRenderPlan(
   messages: readonly unknown[],
   data: unknown
 ): AssistantRunEventRenderPlan {
-  const event = isAssistantRunEvent(data) ? data : null;
+  const event = readAssistantRunEvent(data) ?? null;
   if (!event) {
     return VISIBLE_ONCE;
   }
@@ -681,7 +676,7 @@ export function AssistantRunTimeline({
   const [isExpanded, setIsExpanded] = useState(false);
   const detailsId = useId();
 
-  const event = isAssistantRunEvent(data) ? data : null;
+  const event = readAssistantRunEvent(data) ?? null;
   const metadataEntries = useMemo(
     () => (event?.metadata ? Object.entries(event.metadata) : []),
     [event]

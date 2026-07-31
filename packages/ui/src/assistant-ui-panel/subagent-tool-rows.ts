@@ -65,8 +65,8 @@ export function readLiveSubagentToolRows(
     if (!status) {
       continue;
     }
-    const metadata = data['metadata'];
-    if (!(isRecord(metadata) && metadata['parentToolCallId'] === parentToolCallId)) {
+    const metadata = data.metadata;
+    if (!metadata || metadata['parentToolCallId'] !== parentToolCallId) {
       continue;
     }
     const toolCallId =
