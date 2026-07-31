@@ -30,13 +30,17 @@ describe('db package ownership', () => {
 
   it('keeps the owned barrels carrying their implementation modules', () => {
     // The other half of the routing contract: the symbols the root dropped
-    // must stay reachable THROUGH the barrels.
+    // must stay reachable THROUGH the barrels. Match the EXPORT form
+    // explicitly — a bare `toContain("from './x.js'")` would be satisfied by
+    // a plain import line just as happily (review #2159).
     const repositoriesBarrel = readDbSource('src/repositories/index.ts');
-    expect(repositoriesBarrel).toContain("from './_shared.js'");
-    expect(repositoriesBarrel).toContain("from './tool-output-artifact-repository.js'");
+    expect(repositoriesBarrel).toMatch(/export \{[^}]*\} from '\.\/_shared\.js'/u);
+    expect(repositoriesBarrel).toMatch(
+      /export \{[^}]*\} from '\.\/tool-output-artifact-repository\.js'/u
+    );
 
     const migrationsBarrel = readDbSource('src/migrations/index.ts');
-    expect(migrationsBarrel).toContain("from './dimension-index-helpers.js'");
+    expect(migrationsBarrel).toMatch(/export \{[^}]*\} from '\.\/dimension-index-helpers\.js'/u);
   });
 
   it('keeps engine helpers out of the React module export chain', () => {
@@ -48,6 +52,8 @@ describe('db package ownership', () => {
     expect(useLiveQuery).not.toMatch(
       /export \{[^}]*escapePGliteLiveQueryFormatPercents[^}]*\} from/u
     );
+    // The realistic bypass of the named-export check (review #2159).
+    expect(useLiveQuery).not.toContain("export * from './pglite-live-query-format.js'");
   });
 
   it('documents the owned db surfaces and focused local verification commands', () => {
