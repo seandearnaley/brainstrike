@@ -137,6 +137,7 @@ const ComposerInputRow = ({
           <ComposerPrimitive.Send
             aria-label="Send"
             className="aui-button aui-button-primary aui-composer-send"
+            data-testid="assistant-composer-send"
             disabled={sendDisabled}
             title="Send"
           >

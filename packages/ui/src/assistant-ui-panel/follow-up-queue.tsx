@@ -24,7 +24,7 @@
  * failed/cancelled runs (a transition-based seam cannot distinguish them);
  * the chip's remove control is the user's veto while the run is active.
  */
-import { useAui, useAuiState } from '@assistant-ui/react';
+import { useAui, useAuiState, useThreadViewportStore } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
@@ -34,6 +34,7 @@ const logger = createLogger('FollowUpQueue');
 
 export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
   const aui = useAui();
+  const viewportStore = useThreadViewportStore();
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const queueKey = followUpQueueKey(threadKey);
@@ -80,16 +81,28 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     // the guard covers a synchronous throw from the runtime binding. A run
     // that STARTS and then fails is a normal run.failed, not a dispatch
     // failure — it is not requeued.
+    const wasPinned = viewportStore.getState().isAtBottom;
     try {
       aui.thread().append({
         content: [{ text: item.text, type: 'text' }],
         role: 'user',
       });
+      if (wasPinned) {
+        // Dispatch IS a send, and sending pins the thread. Beyond intent,
+        // this closes a real race (BST-1039): the dequeue above unmounts the
+        // chip row, the composer shrinks, and the browser's scrollTop clamp
+        // can be misread as a user scroll by the library's auto-scroll
+        // bookkeeping — silently unpinning follow with no user act. The
+        // explicit request re-arms that bookkeeping through the clamp
+        // window. Readers who scrolled up are never yanked: wasPinned is
+        // captured before the flush.
+        viewportStore.getState().scrollToBottom({ behavior: 'instant' });
+      }
     } catch (error) {
       useFollowUpQueueStore.getState().requeueFront(queueKey, item);
       logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
     }
-  }, [aui, isHistoryLoading, isRunning, queueKey, queueLength]);
+  }, [aui, isHistoryLoading, isRunning, queueKey, queueLength, viewportStore]);
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */

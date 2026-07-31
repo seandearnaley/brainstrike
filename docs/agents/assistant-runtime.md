@@ -732,12 +732,22 @@ it the message components.
 - There is deliberately NO collapsed-history affordance (removed in BST-896):
   every message renders. Which messages MOUNT is the render tier's business —
   see below.
+- **Follow-up queue dispatch re-pins explicitly when the thread was pinned**
+  (BST-1039). The flush unmounts the composer's chip row, and the browser's
+  resulting `scrollTop` clamp can be misread as a user scroll by the library's
+  auto-scroll bookkeeping — silently unpinning follow with no user act. The
+  dispatch in `follow-up-queue.tsx` captures `isAtBottom` BEFORE the flush and
+  fires the outer store's `scrollToBottom` after appending; a reader who
+  scrolled up is never yanked. Do not "simplify" this away as redundant with
+  the library's own resize re-stick — that path loses the clamp-ordering race.
 
 Paired tests: `packages/ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
 (real Chromium: pinned/unpinned button states, click-to-bottom, growth below vs
-ABOVE the reading position, anchor scoping) and the BST-896 case in
+ABOVE the reading position, anchor scoping), the BST-896 case in
 `assistant-ui-panel-architecture.test.ts`, which pins the mount site, the
-absent `behavior`, and the scoped CSS rule.
+absent `behavior`, and the scoped CSS rule, and
+`follow-up-queue-repin.browser.test.tsx` (BST-1039: real chips + real bridge —
+pinned dispatch requests the explicit re-pin, scrolled-up dispatch never does).
 
 ### Render tiers (BST-897)
 
