@@ -10,6 +10,61 @@ export interface Queryable {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
+/** Options accepted by both embedding-cache repositories (BST-989 Pair C). */
+export interface CreateEmbeddingCacheRepositoryOptions {
+  readonly maxEntries?: number;
+}
+
+// Write-side validation shared by both embedding-cache repositories (BST-989
+// Pair C review): malformed inputs fail with a NAMED repository error rather
+// than surfacing as a driver-level pgvector error.
+export function assertEmbeddingDimensions(
+  embedding: readonly number[],
+  dimensions: number,
+  label: string
+): void {
+  if (!Number.isInteger(dimensions) || dimensions <= 0) {
+    throw new Error(`Embedding cache ${label} has invalid dimensions (${dimensions}).`);
+  }
+  if (embedding.length !== dimensions) {
+    throw new Error(
+      `Embedding dimension mismatch for ${label}: expected ${dimensions}, got ${embedding.length}`
+    );
+  }
+}
+
+export function assertFiniteEmbedding(embedding: readonly number[], label: string): void {
+  for (const value of embedding) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`Embedding cache ${label} contains a non-finite value.`);
+    }
+  }
+}
+
+// De-duplicate entries on their (contentHash, modelKey) conflict key, keeping the first
+// occurrence. A multi-row `INSERT ... ON CONFLICT (content_hash, model_key) DO UPDATE`
+// fails with SQLSTATE 21000 ("ON CONFLICT DO UPDATE command cannot affect row a second
+// time") if the VALUES list carries the same conflict-target key twice. Under multi-root
+// workspaces, identical content (empty __init__.py, vendored files, lockfiles) lives under
+// two roots as distinct file_records that share one content_hash, so a mixed-root embedding
+// batch routinely carries the duplicate key. NUL separates the two fields because modelKey
+// itself contains ':' (e.g. `local:Xenova/bge-m3`). Shared by both embedding-cache
+// repositories (BST-989 Pair C: the Drizzle variant needs the identical write-side de-dup).
+export function dedupeByContentAndModel<T extends { contentHash: string; modelKey: string }>(
+  entries: readonly T[]
+): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const entry of entries) {
+    const key = `${entry.contentHash}\u0000${entry.modelKey}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(entry);
+    }
+  }
+  return result;
+}
+
 /**
  * Maximum number of file path filters allowed inline for similarity search.
  * Larger selections should use a snapshot table to avoid huge IN clauses.
