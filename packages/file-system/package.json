@@ -15,6 +15,7 @@
     "@stryker-mutator/typescript-checker": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "electron": "catalog:",
     "fake-indexeddb": "catalog:",
     "happy-dom": "catalog:",

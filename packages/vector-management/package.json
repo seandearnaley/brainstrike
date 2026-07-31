@@ -22,6 +22,7 @@
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "happy-dom": "catalog:",
     "jsdom": "catalog:",
     "vitest": "catalog:",

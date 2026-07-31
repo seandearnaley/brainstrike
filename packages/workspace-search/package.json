@@ -19,6 +19,7 @@
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "happy-dom": "catalog:",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

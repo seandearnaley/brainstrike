@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "devDependencies": {
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "happy-dom": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",

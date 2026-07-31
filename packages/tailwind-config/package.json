@@ -3,6 +3,7 @@
   "description": "Shared Tailwind CSS configuration for Brainstrike apps and packages",
   "version": "0.1.0",
   "devDependencies": {
+    "@vitest/coverage-v8": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {

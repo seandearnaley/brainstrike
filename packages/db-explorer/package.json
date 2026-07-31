@@ -36,6 +36,7 @@
     "@types/file-saver": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
     "vitest": "catalog:",
     "zustand": "catalog:"
