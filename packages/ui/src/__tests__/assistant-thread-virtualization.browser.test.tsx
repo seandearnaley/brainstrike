@@ -342,7 +342,14 @@ describe('virtualized tier (BST-897)', () => {
       expect(viewport.scrollHeight).toBeGreaterThan(scrollHeightBefore + 100);
     });
     await waitForPinnedToEnd(viewport);
-    expect(getButton()).toBeDisabled();
+    // waitFor, not a raw expect: the button's disabled state trails the
+    // viewport's pinned position by a frame (scroll listener → state), and on
+    // a contended CI runner that frame loses the race (BST-1042 — the
+    // Browser-tests lane's first flake). The sibling jump-button test above
+    // already wraps this same assertion.
+    await waitFor(() => {
+      expect(getButton()).toBeDisabled();
+    });
   });
 });
 
