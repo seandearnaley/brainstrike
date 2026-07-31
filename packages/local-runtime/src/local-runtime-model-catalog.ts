@@ -1,3 +1,4 @@
+import type { ModelVisionSupport } from '@brainstrike/assistant-contract/provider-registry';
 import {
   type LocalRuntimeAvailabilityState,
   LocalRuntimeDiscoveryService,
@@ -38,7 +39,6 @@ import {
   noopLocalRuntimeLogger,
   sanitizeDuration,
 } from './local-runtime-utils.js';
-import type { ModelVisionSupport } from './provider-registry.js';
 
 export {
   isLoadedRuntimeModelCatalogState,

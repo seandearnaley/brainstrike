@@ -5,6 +5,7 @@
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",

@@ -1,10 +1,4 @@
 import {
-  isLoadedRuntimeModelCatalogState,
-  type LoadedRuntimeModelCatalogState,
-  type LocalRuntimeId,
-  type LocalRuntimeModelCatalogState,
-} from '@brainstrike/assistant-contract/local-runtime';
-import {
   listProviders,
   type ProviderDefinition,
   type ProviderModelDefinition,
@@ -16,6 +10,12 @@ import {
   isLocalProviderType,
   STANDARD_EMBEDDING_DIMENSION,
 } from '@brainstrike/indexing-contract';
+import {
+  isLoadedRuntimeModelCatalogState,
+  type LoadedRuntimeModelCatalogState,
+  type LocalRuntimeId,
+  type LocalRuntimeModelCatalogState,
+} from '@brainstrike/local-runtime';
 import {
   Badge,
   Button,

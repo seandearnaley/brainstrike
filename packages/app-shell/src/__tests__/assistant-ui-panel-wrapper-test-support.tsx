@@ -3,7 +3,7 @@ import {
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
-import type { LocalRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
+import type { LocalRuntimeModelCatalogState } from '@brainstrike/local-runtime';
 import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
 import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
@@ -544,7 +544,7 @@ vi.mock('@brainstrike/file-explorer-ui/preview', () => {
 });
 
 // Mock the assistant local-runtime contract exports used by the wrapper.
-vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
+vi.mock('@brainstrike/local-runtime', () => {
   const PROVIDER_DEFINITIONS = {
     anthropic: {
       capabilities: { embeddings: false, llm: true, streaming: true },

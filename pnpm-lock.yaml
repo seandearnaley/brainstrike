@@ -414,6 +414,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../../packages/local-runtime
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
@@ -1022,6 +1025,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../local-runtime
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
@@ -1125,6 +1131,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../local-runtime
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../notes-vault
@@ -1521,6 +1530,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../local-runtime
       '@brainstrike/pipeline':
         specifier: workspace:*
         version: link:../pipeline
@@ -2151,6 +2163,22 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
 
+  packages/local-runtime:
+    dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
   packages/notes-vault:
     dependencies:
       '@brainstrike/context-actions':
@@ -2257,6 +2285,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../local-runtime
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage

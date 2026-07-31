@@ -62,8 +62,8 @@ vi.mock('@brainstrike/ui', () => ({
   ),
 }));
 
-// Mock @brainstrike/assistant-contract/local-runtime
-vi.mock('@brainstrike/assistant-contract/local-runtime', () => ({
+// Mock @brainstrike/local-runtime
+vi.mock('@brainstrike/local-runtime', () => ({
   TOOL_CATEGORIES: {
     action: { description: 'Action tools', id: 'action', label: 'Actions', loadPriority: 3 },
     analysis: { description: 'Analysis tools', id: 'analysis', label: 'Analysis', loadPriority: 2 },

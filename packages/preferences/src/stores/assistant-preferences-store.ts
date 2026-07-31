@@ -1,12 +1,4 @@
 import {
-  type LocalRuntimeAvailabilityState,
-  LocalRuntimeDiscoveryService,
-  type LocalRuntimeId,
-  LocalRuntimeModelCatalogService,
-  type LocalRuntimeModelCatalogState,
-  type RuntimeDiagnosticLogLevel,
-} from '@brainstrike/assistant-contract/local-runtime';
-import {
   getProviderDefaultModel,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
@@ -15,6 +7,14 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  type LocalRuntimeAvailabilityState,
+  LocalRuntimeDiscoveryService,
+  type LocalRuntimeId,
+  LocalRuntimeModelCatalogService,
+  type LocalRuntimeModelCatalogState,
+  type RuntimeDiagnosticLogLevel,
+} from '@brainstrike/local-runtime';
 import type {
   AnthropicEffort,
   AssistantProviderSettings,

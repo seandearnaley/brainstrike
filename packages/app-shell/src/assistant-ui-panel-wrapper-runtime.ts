@@ -23,12 +23,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
-  isLoadedRuntimeModelCatalogState,
-  type LocalRuntimeAvailabilityState,
-  type LocalRuntimeId,
-  type LocalRuntimeModelCatalogState,
-} from '@brainstrike/assistant-contract/local-runtime';
-import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
   listAutoObservationalMemoryCandidates,
@@ -53,6 +47,12 @@ import {
   toolLineRangeToTapestryRange,
   type useWorkspaceContextCurationStore,
 } from '@brainstrike/file-explorer-ui/preview';
+import {
+  isLoadedRuntimeModelCatalogState,
+  type LocalRuntimeAvailabilityState,
+  type LocalRuntimeId,
+  type LocalRuntimeModelCatalogState,
+} from '@brainstrike/local-runtime';
 import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import {
   getGoogleThinkingLevels,

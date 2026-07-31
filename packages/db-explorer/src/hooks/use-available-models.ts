@@ -2,8 +2,8 @@ import type {
   LoadedRuntimeModelCatalogState,
   LocalRuntimeId,
   LocalRuntimeModelCatalogState,
-} from '@brainstrike/assistant-contract/local-runtime';
-import { isLoadedRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
+} from '@brainstrike/local-runtime';
+import { isLoadedRuntimeModelCatalogState } from '@brainstrike/local-runtime';
 import type { DbModel, DbProvider } from '@brainstrike/preferences/stores/model-registry-store';
 import { formatProviderModelKey } from '@brainstrike/utils';
 import { useMemo } from 'react';

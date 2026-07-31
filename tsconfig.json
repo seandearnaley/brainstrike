@@ -11,6 +11,12 @@
       "@brainstrike/assistant-contract/*": [
         "./packages/assistant-contract/src/*"
       ],
+      "@brainstrike/local-runtime": [
+        "./packages/local-runtime/src"
+      ],
+      "@brainstrike/local-runtime/*": [
+        "./packages/local-runtime/src/*"
+      ],
       "@brainstrike/indexing-contract": [
         "./packages/indexing-contract/src"
       ],
@@ -181,6 +187,9 @@
   "references": [
     {
       "path": "./packages/assistant-contract"
+    },
+    {
+      "path": "./packages/local-runtime"
     },
     {
       "path": "./packages/indexing-contract"

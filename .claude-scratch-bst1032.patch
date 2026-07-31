@@ -1,0 +1,22 @@
+diff --git a/apps/web/e2e/utils/assistant-workspace.ts b/apps/web/e2e/utils/assistant-workspace.ts
+index 8999b394c..2034ce2d8 100644
+--- a/apps/web/e2e/utils/assistant-workspace.ts
++++ b/apps/web/e2e/utils/assistant-workspace.ts
+@@ -132,9 +132,15 @@ export async function openAssistantWorkspace(
+       window.localStorage.setItem('assistant-preferences.v1', JSON.stringify(assistantPreferences));
+ 
+       // Desktop bridge stubs: satisfy assistant setup without hosted provider keys.
++      // The bridge URL MUST resolve to the same-origin `/api` root:
++      // resolveAssistantBaseUrl() prefers the bridge over the `/api` fallback,
++      // so an unreachable URL (the previous `http://127.0.0.1:0`) sends the
++      // availability probe past the mocked `/api/assistant/status` into a
++      // network error, which the local-model override deliberately does NOT
++      // mask since BST-900 (BST-1032).
+       browserWindow.assistant = {
+-        getUrl: async () => 'http://127.0.0.1:0',
+-        url: 'http://127.0.0.1:0',
++        getUrl: async () => '/api',
++        url: '/api',
+       };
+       browserWindow.secrets = {
+         getKey: async () => null,
