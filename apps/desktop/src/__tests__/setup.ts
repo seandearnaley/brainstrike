@@ -311,7 +311,6 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
   return {
     ...actual,
     compareByLoadPriority: actual.compareByLoadPriority,
-    generateExampleInput: actual.generateExampleInput,
     getCategoryInfo: actual.getCategoryInfo,
     getNativeToolDefaults: actual.getNativeToolDefaults,
     getProviderDefaultModel: (provider: string) => mockProviderDefaults[provider as MockProviderId],
@@ -321,7 +320,6 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     getProviderModelDefinitions: (provider: string) => ensureDefinition(provider).models,
     getProviderModels: (provider: string) => mockProviderModels[provider as MockProviderId] ?? [],
     getTierInfo: actual.getTierInfo,
-    getToolSchemaDisplay: actual.getToolSchemaDisplay,
     isNativeTool: actual.isNativeTool,
     isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
     listEmbeddingModels: (provider: string) =>
@@ -330,8 +328,6 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
     // Tool-related exports (pass through from actual module)
     NATIVE_TOOL_DEFAULTS: actual.NATIVE_TOOL_DEFAULTS,
-    // Schema display exports
-    NATIVE_TOOL_SCHEMAS: actual.NATIVE_TOOL_SCHEMAS,
     PROVIDER_DEFAULT_ENABLED_MODELS: mockProviderDefaultEnabledModels,
     PROVIDER_DEFAULT_MODELS: mockProviderDefaults,
     PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,

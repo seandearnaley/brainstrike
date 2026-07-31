@@ -12,7 +12,6 @@ const broadEntries = [
   'src/browser-safe.ts',
   'src/tool-metadata.ts',
   'src/provider-metadata.ts',
-  'src/local-runtime.ts',
   'src/context-packer.ts',
   'src/memory-settings.ts',
   'src/run-events.ts',

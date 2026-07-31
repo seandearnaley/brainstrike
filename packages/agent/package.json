@@ -80,11 +80,6 @@
       "import": "./dist/provider-metadata.mjs",
       "require": "./dist/provider-metadata.js"
     },
-    "./local-runtime": {
-      "types": "./dist/local-runtime.d.ts",
-      "import": "./dist/local-runtime.mjs",
-      "require": "./dist/local-runtime.js"
-    },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",
       "import": "./dist/context-packer.mjs",

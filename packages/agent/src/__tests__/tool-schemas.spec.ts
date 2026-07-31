@@ -1,5 +1,5 @@
+import { getToolSchemaDisplay } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
-import { getToolSchemaDisplay } from '../registry/tool-schemas-display';
 import {
   GlobWorkspaceInputSchema,
   GrepSearchInputSchema,
