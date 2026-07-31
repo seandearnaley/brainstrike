@@ -148,6 +148,7 @@
         "@brainstrike/file-system",
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",
+        "@brainstrike/local-runtime",
         "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/types",

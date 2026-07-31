@@ -15,7 +15,6 @@ export * from './local-llm.js';
 export * from './local-llm-artifacts.js';
 export * from './local-llm-device.js';
 export * from './local-llm-model-specs.js';
-export * from './local-runtime.js';
 export * from './mastra-memory-schema.js';
 export * from './memory-settings.js';
 export * from './model-reasoning.js';

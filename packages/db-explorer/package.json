@@ -12,6 +12,7 @@
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/pipeline": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",

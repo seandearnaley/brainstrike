@@ -6,7 +6,7 @@ import {
   buildRuntimeEndpoint,
   type LocalRuntimeEndpointConfig,
   resolveRuntimeBaseUrl,
-} from '@brainstrike/assistant-contract/local-runtime';
+} from '@brainstrike/local-runtime';
 import {
   type MastraModelConfig,
   ModelRouterLanguageModel,

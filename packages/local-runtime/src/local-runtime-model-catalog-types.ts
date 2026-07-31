@@ -1,3 +1,4 @@
+import type { ModelVisionSupport } from '@brainstrike/assistant-contract/provider-registry';
 import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeDiscoveryService,
@@ -7,7 +8,6 @@ import type {
   RuntimeDiagnosticLogLevel,
 } from './local-runtime-discovery.js';
 import type { LocalRuntimeEndpointConfig } from './local-runtime-utils.js';
-import type { ModelVisionSupport } from './provider-registry.js';
 
 export type LocalRuntimeModelSource =
   | 'openai_v1_models'

@@ -162,3 +162,6 @@ packages/ui/src/**/__screenshots__/
 
 .claude
 .impeccable/
+
+# Per-session scratch artifacts (other Claude sessions may hold these)
+.claude-scratch-*

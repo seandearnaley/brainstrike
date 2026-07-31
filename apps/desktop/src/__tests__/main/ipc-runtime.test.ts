@@ -47,7 +47,7 @@ const {
   }),
 }));
 
-vi.mock('@brainstrike/assistant-contract/local-runtime', async (importOriginal) => {
+vi.mock('@brainstrike/local-runtime', async (importOriginal) => {
   class StubLocalRuntimeDiscoveryService {
     probeRuntime = probeRuntimeMock;
   }

@@ -1,9 +1,9 @@
-import { LocalRuntimeDiscoveryService } from '@brainstrike/assistant-contract/local-runtime';
 import {
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { LocalRuntimeDiscoveryService } from '@brainstrike/local-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import {
