@@ -26,11 +26,8 @@ import {
 } from '../embedding-set-metadata.js';
 import {
   type EmbeddingSpaceListing,
-  LIST_EMBEDDING_SPACES_SQL,
-  LIST_EMBEDDING_SPACES_WITH_STATS_SQL,
   type ListEmbeddingSpacesOptions,
-  mapEmbeddingSpaceListingRow,
-  readEmbeddingSpaceListing,
+  runListEmbeddingSpacesQuery,
 } from '../embedding-space-listing.js';
 
 type DrizzleDb = PgliteDatabase;
@@ -333,23 +330,15 @@ export class DrizzleEmbeddingSetsRepository {
   }
 
   /**
-   * Parity with the raw variant (BST-989 slice 1): identical SQL and reader
-   * from the shared embedding-space-listing module, so both variants return
-   * byte-identical listings. The stats CTE stays hand-written SQL — the
-   * aggregation surface gains nothing from the query builder.
+   * Parity with the raw variant (BST-989 slice 1): the shared pairing
+   * function owns both the SQL choice and the reader, so the two variants
+   * return byte-identical listings and cannot drift on the stats surface.
    */
   async listEmbeddingSpaces(
     options: ListEmbeddingSpacesOptions = {}
   ): Promise<EmbeddingSpaceListing[]> {
     const adapter = this.createQueryAdapter();
-    const result = await adapter.query(
-      options.includeStats === true
-        ? LIST_EMBEDDING_SPACES_WITH_STATS_SQL
-        : LIST_EMBEDDING_SPACES_SQL
-    );
-    return result.rows.map((row) =>
-      readEmbeddingSpaceListing(mapEmbeddingSpaceListingRow(row), options)
-    );
+    return runListEmbeddingSpacesQuery((sql) => adapter.query(sql), options);
   }
 
   private async readEmbeddingSet(row: typeof embeddingSets.$inferSelect): Promise<EmbeddingSet> {

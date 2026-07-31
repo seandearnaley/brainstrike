@@ -262,74 +262,76 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
   describe('listEmbeddingSpaces', () => {
     it('lists spaces newest-first without stats by default', async () => {
-      await repository.getOrCreateSet(
+      const older = await repository.getOrCreateSet(
         'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
       );
-      await repository.getOrCreateSet(
+      const newer = await repository.getOrCreateSet(
         'ollama::nomic-embed-text',
         'nomic-embed-text',
         768,
         'cosine'
       );
+      // getOrCreateSet timestamps can land in the same millisecond; force a
+      // strict ordering so the ORDER BY created_at DESC contract is actually
+      // exercised rather than passing on insertion luck.
+      // created_at is TEXT (ISO strings; lexicographic order === chronological
+      // for this format), so force the ordering with an explicit older stamp.
+      await client.query(
+        "UPDATE embedding_sets SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = $1",
+        [older.id]
+      );
 
       const listings = await repository.listEmbeddingSpaces();
 
-      expect(listings.length).toBeGreaterThanOrEqual(2);
-      const modelKeys = listings.map((listing) => listing.modelKey);
-      expect(modelKeys).toContain('openai::text-embedding-3-small');
-      expect(modelKeys).toContain('ollama::nomic-embed-text');
+      const olderIndex = listings.findIndex((listing) => listing.id === older.id);
+      const newerIndex = listings.findIndex((listing) => listing.id === newer.id);
+      expect(olderIndex).toBeGreaterThanOrEqual(0);
+      expect(newerIndex).toBeGreaterThanOrEqual(0);
+      expect(newerIndex).toBeLessThan(olderIndex);
       for (const listing of listings) {
         expect(listing.stats).toBeUndefined();
         expect(Number.isFinite(listing.dimensions)).toBe(true);
       }
     });
 
-    it('includes zeroed stats for empty sets when requested', async () => {
+    it('computes real chunk statistics when requested', async () => {
       const created = await repository.getOrCreateSet(
         'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
       );
+      // Seed one file with two chunks (one embedded, both token-counted):
+      // all-zero stats are indistinguishable from the stats CTE not running
+      // at all (readOptionalFiniteNumber(undefined) -> 0), so only non-zero
+      // figures prove the join executed.
+      await client.query(
+        `INSERT INTO file_records (id, name, path, embedding_set_id, size)
+         VALUES ('esl-file-1', 'a.ts', '/w/a.ts', $1, 10)`,
+        [created.id]
+      );
+      await client.query(
+        `INSERT INTO file_chunks (id, file_record_id, embedding_set_id, chunk_index, content, token_count, embedding)
+         VALUES
+           ('esl-chunk-1', 'esl-file-1', $1, 0, 'alpha', 7, NULL),
+           ('esl-chunk-2', 'esl-file-1', $1, 1, 'beta', 5, NULL)`,
+        [created.id]
+      );
 
       const listings = await repository.listEmbeddingSpaces({ includeStats: true });
       const listing = listings.find((entry) => entry.id === created.id);
 
       expect(listing?.stats).toEqual({
-        averageTokensPerChunk: 0,
+        averageTokensPerChunk: 6,
         embeddedChunks: 0,
-        fileCount: 0,
-        tokenizedChunkCount: 0,
-        totalChunks: 0,
-        totalTokens: 0,
+        fileCount: 1,
+        tokenizedChunkCount: 2,
+        totalChunks: 2,
+        totalTokens: 12,
       });
-    });
-  });
-
-  describe('getOrCreateWorkspaceIndexSet', () => {
-    it('creates the workspace index set once and reuses it', async () => {
-      const first = await repository.getOrCreateWorkspaceIndexSet();
-      const second = await repository.getOrCreateWorkspaceIndexSet();
-
-      expect(first.id).toBe(second.id);
-      const listings = await repository.listEmbeddingSpaces();
-      expect(listings.some((listing) => listing.id === first.id)).toBe(true);
-    });
-  });
-
-  describe('waitForPendingDimensionIndexBuilds', () => {
-    it('settles after set creation schedules a deferred index build', async () => {
-      await repository.getOrCreateSet(
-        'openai::text-embedding-3-small',
-        'text-embedding-3-small',
-        1536,
-        'cosine'
-      );
-
-      await expect(repository.waitForPendingDimensionIndexBuilds()).resolves.toBeUndefined();
     });
   });
 

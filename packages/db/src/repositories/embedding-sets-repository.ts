@@ -16,11 +16,8 @@ import {
 } from './embedding-set-metadata.js';
 import {
   type EmbeddingSpaceListing,
-  LIST_EMBEDDING_SPACES_SQL,
-  LIST_EMBEDDING_SPACES_WITH_STATS_SQL,
   type ListEmbeddingSpacesOptions,
-  mapEmbeddingSpaceListingRow,
-  readEmbeddingSpaceListing,
+  runListEmbeddingSpacesQuery,
 } from './embedding-space-listing.js';
 
 interface EmbeddingSetsDb {
@@ -305,14 +302,7 @@ export class EmbeddingSetsRepository {
   async listEmbeddingSpaces(
     options: ListEmbeddingSpacesOptions = {}
   ): Promise<EmbeddingSpaceListing[]> {
-    const result = await this.db.query(
-      options.includeStats === true
-        ? LIST_EMBEDDING_SPACES_WITH_STATS_SQL
-        : LIST_EMBEDDING_SPACES_SQL
-    );
-    return result.rows.map((row) =>
-      readEmbeddingSpaceListing(mapEmbeddingSpaceListingRow(row), options)
-    );
+    return runListEmbeddingSpacesQuery((sql) => this.db.query(sql), options);
   }
 
   async delete(id: string): Promise<boolean> {

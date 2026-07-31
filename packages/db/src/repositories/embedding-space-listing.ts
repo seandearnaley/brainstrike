@@ -34,7 +34,7 @@ export interface EmbeddingSpaceListing {
   readonly stats?: EmbeddingSpaceStats;
 }
 
-export interface EmbeddingSpaceListingRow {
+interface EmbeddingSpaceListingRow {
   readonly averageTokensPerChunk?: number | string | null;
   readonly createdAt: string;
   readonly description: string | null;
@@ -69,14 +69,14 @@ function readOptionalFiniteNumber(
   return readFiniteNumber(value, fieldName);
 }
 
-export function mapEmbeddingSpaceListingRow(value: unknown): EmbeddingSpaceListingRow {
+function mapEmbeddingSpaceListingRow(value: unknown): EmbeddingSpaceListingRow {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Embedding space listing row must be an object.');
   }
   return value as EmbeddingSpaceListingRow;
 }
 
-export function readEmbeddingSpaceListing(
+function readEmbeddingSpaceListing(
   row: EmbeddingSpaceListingRow,
   options: ListEmbeddingSpacesOptions
 ): EmbeddingSpaceListing {
@@ -109,7 +109,7 @@ export function readEmbeddingSpaceListing(
   };
 }
 
-export const LIST_EMBEDDING_SPACES_SQL = `SELECT
+const LIST_EMBEDDING_SPACES_SQL = `SELECT
    id,
    name,
    description,
@@ -121,7 +121,7 @@ export const LIST_EMBEDDING_SPACES_SQL = `SELECT
  FROM embedding_sets
  ORDER BY created_at DESC`;
 
-export const LIST_EMBEDDING_SPACES_WITH_STATS_SQL = `WITH file_stats AS (
+const LIST_EMBEDDING_SPACES_WITH_STATS_SQL = `WITH file_stats AS (
    SELECT
      embedding_set_id,
      COUNT(*)::text AS file_count
@@ -160,3 +160,20 @@ export const LIST_EMBEDDING_SPACES_WITH_STATS_SQL = `WITH file_stats AS (
  LEFT JOIN file_stats fs ON fs.embedding_set_id = es.id
  LEFT JOIN chunk_stats cs ON cs.embedding_set_id = es.id
  ORDER BY es.created_at DESC`;
+
+/**
+ * The ONE pairing of SQL choice and reader options (review finding on
+ * BST-989 slice 1): callers hand over their query seam and the module owns
+ * both halves, so the stats SQL and the stats reader cannot drift apart.
+ */
+export async function runListEmbeddingSpacesQuery(
+  query: (sql: string) => Promise<{ rows: unknown[] }>,
+  options: ListEmbeddingSpacesOptions = {}
+): Promise<EmbeddingSpaceListing[]> {
+  const result = await query(
+    options.includeStats === true ? LIST_EMBEDDING_SPACES_WITH_STATS_SQL : LIST_EMBEDDING_SPACES_SQL
+  );
+  return result.rows.map((row) =>
+    readEmbeddingSpaceListing(mapEmbeddingSpaceListingRow(row), options)
+  );
+}
