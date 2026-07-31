@@ -72,12 +72,25 @@ vi.mock('../../db-main', () => ({
 // well below the originally proposed 9155 ceiling. The tool remains deferred,
 // leaving the 2157-token critical initial surface unchanged.
 //
-// HEADROOM IS ~13 TOKENS (the complete authored surface measures 8797 with
-// instructions against this 8810 ceiling). If a future change fails this gate,
-// trim something first; raise the ceiling only as a considered decision and
-// record the trade.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8810;
+// BST-927 RESOLUTION — an explicit headroom BAND replaces the hair-trigger
+// ceiling. The surface measured 8797 when the band was set; the ceiling gives
+// ~150 tokens of headroom so an unrelated one-word description edit no longer
+// fails the required Unit check, while genuine bloat still trips it. The NEW
+// floor catches the other direction: a suspicious DROP (a tool or schema
+// silently falling out of the registry) fails just as loudly as growth.
+// The trim-first practice is unchanged: when the ceiling fires, trim before
+// raising, and record the trade here as every prior raise did. For THIS
+// authored pair, move both bounds together — the ~300 width is the contract,
+// not the numbers. (The initial-core pair below has its own, wider band:
+// its ceiling is a hard cap from the retired 11,500 boundary, not a
+// measurement envelope.)
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8950;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8650;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
+// Floor for the critical initial surface (measured 2157 per the
+// queryDiagnostics note above): a silent drop of a critical-tier tool fails
+// as loudly as bloat (BST-927 band doctrine).
+const MIN_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 2000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
 const PROMPT_BUDGET_SKILL = {
@@ -318,6 +331,7 @@ function formatBudgetFailure(args: {
 
 function expectProviderSurfaceWithinBudget(args: {
   budget: number;
+  floor: number;
   instructions: string;
   label: string;
   tools: readonly ProviderFunctionTool[];
@@ -355,6 +369,18 @@ function expectProviderSurfaceWithinBudget(args: {
       total,
     })
   ).toBeLessThanOrEqual(args.budget);
+  expect(
+    total,
+    formatBudgetFailure({
+      budget: args.floor,
+      descriptions,
+      instructions,
+      label: `${args.label} BELOW FLOOR — a tool or schema likely fell out of the registry silently (BST-927 band)`,
+      schemas,
+      toolBreakdown,
+      total,
+    })
+  ).toBeGreaterThanOrEqual(args.floor);
 }
 
 describe('desktop native tool provider prompt budget', () => {
@@ -391,10 +417,31 @@ describe('desktop native tool provider prompt budget', () => {
       ).toEqual(expect.any(Array));
     }
 
+    // BST-927/BST-980: the two AGGREGATE token figures get the same +/-150
+    // band as the surface gates — an exact aggregate here made the band's
+    // headroom unreachable (any description edit still failed this suite at
+    // this line). COUNTS stay exact: eagerToolCount is the precise
+    // dropped-tool catcher, and the per-tool pins below are targeted (they
+    // only move when THAT tool's authored text moves — record the trade).
+    const eagerDefinitionTokens = countO200kTokens(JSON.stringify(eagerProviderTools));
+    const criticalDefinitionTokens = countO200kTokens(JSON.stringify(criticalProviderTools));
+    expect(
+      eagerDefinitionTokens,
+      'eager aggregate outside its recorded band'
+    ).toBeGreaterThanOrEqual(7971);
+    expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
+      8271
+    );
+    expect(
+      criticalDefinitionTokens,
+      'critical aggregate outside its recorded band'
+    ).toBeGreaterThanOrEqual(2016);
+    expect(
+      criticalDefinitionTokens,
+      'critical aggregate outside its recorded band'
+    ).toBeLessThanOrEqual(2316);
     expect({
-      criticalDefinitionTokens: countO200kTokens(JSON.stringify(criticalProviderTools)),
       criticalToolCount: criticalProviderTools.length,
-      eagerDefinitionTokens: countO200kTokens(JSON.stringify(eagerProviderTools)),
       eagerToolCount: eagerProviderTools.length,
       queryDiagnosticsDefinitionTokens: countO200kTokens(
         JSON.stringify(queryDiagnosticsProviderTool)
@@ -406,7 +453,6 @@ describe('desktop native tool provider prompt budget', () => {
         ])
       ),
     }).toEqual({
-      criticalDefinitionTokens: 2166,
       criticalToolCount: 8,
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
@@ -429,7 +475,9 @@ describe('desktop native tool provider prompt budget', () => {
       // a clean zero-match. The wording is terse on purpose — the first draft
       // spent 38 tokens and overran the authored budget by 25 (BST-927 called
       // this: ~13 tokens of headroom left).
-      eagerDefinitionTokens: 8121,
+      // Recorded aggregates when the bands were set: eager 8121, critical
+      // 2166 (the banded assertions above; move the recorded figures WITH any
+      // deliberate raise, per the trade-record practice).
       eagerToolCount: 32,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
@@ -439,7 +487,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within 8,810 o200k tokens', async () => {
+  it('keeps the authored full hosted registry and instructions within the 8,650-8,950 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
@@ -466,6 +514,7 @@ describe('desktop native tool provider prompt budget', () => {
       const providerTools = buildProviderFunctionTools(providerSurface, runtime.toolNameMap);
       expectProviderSurfaceWithinBudget({
         budget: MAX_AUTHORED_NATIVE_TOOL_TOKENS,
+        floor: MIN_AUTHORED_NATIVE_TOOL_TOKENS,
         instructions: withSkillsProcessorContext(resolvedInstructions),
         label: 'Authored native tool surface',
         tools: providerTools,
@@ -537,6 +586,7 @@ describe('desktop native tool provider prompt budget', () => {
 
       expectProviderSurfaceWithinBudget({
         budget: MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS,
+        floor: MIN_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS,
         instructions: withSkillsProcessorContext(resolvedInstructions),
         label: 'Actual Mastra/OpenRouter initial core surface',
         tools: providerTools,
