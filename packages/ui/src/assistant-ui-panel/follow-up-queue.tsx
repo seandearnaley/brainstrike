@@ -87,20 +87,25 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
         content: [{ text: item.text, type: 'text' }],
         role: 'user',
       });
-      if (wasPinned) {
-        // Dispatch IS a send, and sending pins the thread. Beyond intent,
-        // this closes a real race (BST-1039): the dequeue above unmounts the
-        // chip row, the composer shrinks, and the browser's scrollTop clamp
-        // can be misread as a user scroll by the library's auto-scroll
-        // bookkeeping — silently unpinning follow with no user act. The
-        // explicit request re-arms that bookkeeping through the clamp
-        // window. Readers who scrolled up are never yanked: wasPinned is
-        // captured before the flush.
-        viewportStore.getState().scrollToBottom({ behavior: 'instant' });
-      }
     } catch (error) {
       useFollowUpQueueStore.getState().requeueFront(queueKey, item);
       logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
+      return;
+    }
+    if (wasPinned) {
+      // Dispatch IS a send, and sending pins the thread. Beyond intent,
+      // this closes a real race (BST-1039): the dequeue above unmounts the
+      // chip row, the composer shrinks, and the browser's scrollTop clamp
+      // can be misread as a user scroll by the library's auto-scroll
+      // bookkeeping — silently unpinning follow with no user act. The
+      // explicit request re-arms that bookkeeping through the clamp window.
+      // Readers who scrolled up are never yanked: wasPinned is captured
+      // before the flush. OUTSIDE the try: a scroll failure must never
+      // requeue an already-sent message (duplicate send). No behavior
+      // option — the outer→inner forwarding drops it, and the default
+      // routes through CSS scroll-behavior (see THREAD SCROLLING in
+      // docs/agents/assistant-runtime.md).
+      viewportStore.getState().scrollToBottom();
     }
   }, [aui, isHistoryLoading, isRunning, queueKey, queueLength, viewportStore]);
 }

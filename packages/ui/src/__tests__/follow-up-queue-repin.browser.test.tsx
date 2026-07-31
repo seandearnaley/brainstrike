@@ -286,10 +286,14 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
       expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
     });
     expect(scrollToBottomRequests.length).toBeGreaterThan(0);
-    // The dispatched follow-up starts its own run; stream and finish it.
+    // The dispatched follow-up starts its own run — wait for its user row
+    // (12 initial + "go" + reply + the dispatched message) so the adapter has
+    // registered the run, then stream and finish it. No side effects inside
+    // waitFor: the callback may run any number of times.
     await waitFor(() => {
-      pushChunk();
+      expect(screen.getAllByTestId('thread-message').length).toBeGreaterThan(MESSAGE_COUNT + 2);
     });
+    pushChunk();
     endNewestRun();
 
     // The thread was pinned before the flush and the user never scrolled:
@@ -333,9 +337,14 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     await waitFor(() => {
       expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
     });
+    // The dispatched follow-up starts its own run — wait for its user row
+    // (12 initial + "go" + reply + the dispatched message) so the adapter has
+    // registered the run, then stream and finish it. No side effects inside
+    // waitFor: the callback may run any number of times.
     await waitFor(() => {
-      pushChunk();
+      expect(screen.getAllByTestId('thread-message').length).toBeGreaterThan(MESSAGE_COUNT + 2);
     });
+    pushChunk();
     endNewestRun();
 
     // No explicit scroll request, reading position untouched, affordance kept.
