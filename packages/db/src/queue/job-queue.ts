@@ -168,6 +168,11 @@ export function buildPruneJobsStatement(
   if (states.length === 0) {
     throw new Error('At least one job state is required to prune');
   }
+  // NO SILENT FALLBACKS: LIMIT 0 would be a prune that deletes nothing and
+  // reports the table clean; a malformed limit must fail here, not in PGlite.
+  if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+    throw new Error(`Prune limit must be a positive integer: ${String(limit)}`);
+  }
   const firstStateParam = limit === undefined ? 2 : 3;
   const placeholders = states.map((_, i) => `$${i + firstStateParam}`).join(',');
   if (limit === undefined) {
