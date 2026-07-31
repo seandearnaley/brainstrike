@@ -2809,6 +2809,12 @@ export function createPgliteAssistantThreadRepository(
               AND thread_id IN (SELECT id FROM requested)
             RETURNING run_id
           ),
+          deleted_message_parents AS (
+            DELETE FROM ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING message_id
+          ),
           deleted_thread_placements AS (
             DELETE FROM brainstrike_assistant_thread_placements
             WHERE (SELECT all_found FROM validation)
@@ -2827,6 +2833,7 @@ export function createPgliteAssistantThreadRepository(
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
           (SELECT count(*) FROM deleted_edit_checkpoints) AS "deletedEditCheckpointCount",
           (SELECT count(*) FROM deleted_run_errors) AS "deletedRunErrorCount",
+          (SELECT count(*) FROM deleted_message_parents) AS "deletedMessageParentCount",
           (SELECT count(*) FROM deleted_thread_placements) AS "deletedThreadPlacementCount",
           (SELECT count(*) FROM deleted_threads) AS "deletedThreadCount"`,
         [...threadIds]
