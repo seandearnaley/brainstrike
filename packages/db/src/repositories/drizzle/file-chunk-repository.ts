@@ -9,7 +9,7 @@
  */
 
 import { count, eq, inArray, type SQL, sql } from 'drizzle-orm';
-import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import type { DrizzleDb } from '../../drizzle/database.js';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -17,6 +17,7 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../../models/file-chunk.js';
+import type { GrepCandidate, GrepCandidateOptions } from '../../models/grep';
 import {
   embeddingSets,
   fileChunks,
@@ -38,8 +39,8 @@ import {
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
 } from '../_shared.js';
-
-type DrizzleDb = PgliteDatabase;
+import type { FileChunkQueryTx } from '../file-chunk-repository.js';
+import { runFindGrepCandidatesQuery, runInsertManyWithTx } from '../file-chunk-shared-queries.js';
 
 /**
  * Maximum supported embedding dimension for pgvector.
@@ -968,6 +969,27 @@ export class DrizzleFileChunkRepository {
       orderExpr: `${embeddingCast} <=> ${paramCast}`,
       similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
     };
+  }
+
+  /**
+   * Parity with the raw/Electron variants (BST-989 slice 2): both bodies are
+   * the shared query functions, run through drizzle's $client — the real
+   * underlying PGlite — so parameterized SQL and row handling are identical
+   * across all three variants.
+   */
+  async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
+    return runFindGrepCandidatesQuery(
+      (sqlText, params) => this.db.$client.query(sqlText, params),
+      options
+    );
+  }
+
+  async insertManyWithTx(tx: FileChunkQueryTx, chunks: FileChunkInsert[]): Promise<FileChunk[]> {
+    return runInsertManyWithTx(
+      (sqlText, params) => tx.query(sqlText, params),
+      chunks,
+      (row) => this.fromRawRow(row as Record<string, unknown>)
+    );
   }
 
   private fromRow(row: typeof fileChunks.$inferSelect): FileChunk {

@@ -8,7 +8,12 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { drizzle as createDrizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 
-export type DrizzleDb = PgliteDatabase;
+/**
+ * Drizzle handle INCLUDING the underlying PGlite client drizzle attaches at
+ * construction ($client, drizzle-orm >= 0.30): repositories use it to run
+ * shared parameterized raw SQL through the real client (BST-989 slice 2).
+ */
+export type DrizzleDb = PgliteDatabase & { readonly $client: PGliteCompatibleClient };
 type PGliteCompatibleClient = Pick<PGlite, 'exec' | 'query' | 'transaction'>;
 
 /**
