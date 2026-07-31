@@ -189,6 +189,32 @@ describe('DrizzleFileChunkRepository', () => {
       const found = await repository.findById(chunk.id);
       expect(found?.content).toBe('transactional chunk');
     });
+
+    it('participates in the caller transaction: a rollback discards the writes', async () => {
+      const now = new Date().toISOString();
+      const chunk = {
+        chunkIndex: 0,
+        content: 'rolled back chunk',
+        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000221',
+        updatedAt: now,
+      };
+
+      await expect(
+        client.transaction(async (tx) => {
+          await repository.insertManyWithTx(
+            { query: (sqlText: string, params?: unknown[]) => tx.query(sqlText, params) },
+            [chunk]
+          );
+          throw new Error('force rollback');
+        })
+      ).rejects.toThrow('force rollback');
+
+      // If the implementation had opened its own connection, the row would
+      // have committed independently and survived the caller's rollback.
+      await expect(repository.findById(chunk.id)).resolves.toBeNull();
+    });
   });
 
   describe('findByFileRecordId', () => {

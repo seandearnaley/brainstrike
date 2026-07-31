@@ -16,7 +16,6 @@ import {
 import {
   appendColumn,
   appendColumnIfDefined,
-  batchArray,
   bm25RankExpression,
   computeOverfetchLimit,
   createUpdateBuilder,
@@ -172,81 +171,25 @@ export class FileChunkRepository {
     if (chunks.length === 0) {
       return [];
     }
+    // Pinned contract: reject invalid content BEFORE opening the transaction
+    // (the shared body re-asserts harmlessly inside).
     assertTextContentsHaveNoNullBytes(chunks, (chunk) => chunk.content, 'File chunk content');
-
-    // Validate all embeddings before processing in batch
-    await validateEmbeddingDimensions(this.db as unknown as Queryable, chunks);
-
-    // Batch inserts to avoid parameter limit issues (250 rows per batch)
-    const BatchSize = 250;
-    const batches = batchArray(chunks, BatchSize);
-    const allResults: FileChunk[] = [];
-
-    // Process each batch in a transaction
+    // Same shared body as insertManyWithTx, wrapped in this connection's own
+    // transaction (the shared function's read-only dimension validation now
+    // runs inside BEGIN — semantically equivalent).
     await this.db.query('BEGIN');
     try {
-      for (const batch of batches) {
-        const values = batch
-          .map((_, index) => {
-            const baseIndex = index * 18;
-            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18})`;
-          })
-          .join(', ');
-
-        const params = batch.flatMap((chunk) => [
-          chunk.id,
-          chunk.fileRecordId,
-          chunk.chunkIndex,
-          chunk.content,
-          chunk.contentHash,
-          chunk.tokenCount,
-          chunk.chunkType,
-          chunk.chunkSize,
-          chunk.startLine ?? null,
-          chunk.endLine ?? null,
-          chunk.startOffset ?? null,
-          chunk.endOffset ?? null,
-          chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
-          chunk.embeddingSetId ?? null,
-          chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
-          chunk.embeddingHash ?? null,
-          chunk.createdAt,
-          chunk.updatedAt,
-        ]);
-
-        const result = await this.db.query(
-          `INSERT INTO file_chunks (
-              id, file_record_id, chunk_index, content, content_hash, 
-              token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
-            ) VALUES ${values} 
-            ON CONFLICT (id) DO UPDATE SET
-              content = EXCLUDED.content,
-              content_hash = EXCLUDED.content_hash,
-              token_count = EXCLUDED.token_count,
-              chunk_type = EXCLUDED.chunk_type,
-              chunk_size = EXCLUDED.chunk_size,
-              start_line = EXCLUDED.start_line,
-              end_line = EXCLUDED.end_line,
-              start_offset = EXCLUDED.start_offset,
-              end_offset = EXCLUDED.end_offset,
-              embedding = EXCLUDED.embedding,
-              embedding_set_id = EXCLUDED.embedding_set_id,
-              embedding_updated_at = EXCLUDED.embedding_updated_at,
-              embedding_hash = EXCLUDED.embedding_hash,
-              updated_at = EXCLUDED.updated_at
-            RETURNING *`,
-          params
-        );
-
-        allResults.push(...result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow)));
-      }
+      const results = await runInsertManyWithTx(
+        (sql, params) => this.db.query(sql, params),
+        chunks,
+        (row) => this.mapRowToChunk(row as FileChunkRow)
+      );
       await this.db.query('COMMIT');
+      return results;
     } catch (error) {
       await this.db.query('ROLLBACK');
       throw error;
     }
-
-    return allResults;
   }
 
   async insertManyWithTx(tx: FileChunkQueryTx, chunks: FileChunkInsert[]): Promise<FileChunk[]> {

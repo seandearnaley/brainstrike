@@ -2,9 +2,6 @@ import {
   createGrepSearchService,
   createHybridSearchService,
   type DbHandle,
-  type DrizzleFileChunkRepository,
-  type ElectronFileChunkRepository,
-  type GrepSearchRepository,
   useFileChunkRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
@@ -103,22 +100,6 @@ async function resolveFilesFromDb(
     });
   }
   return resolved;
-}
-
-type PlatformChunkRepository = DrizzleFileChunkRepository | ElectronFileChunkRepository;
-
-/**
- * Resolve the repository the grep service reads candidates from. The dependency
- * is structural (`GrepSearchRepository = { findGrepCandidates }`), and since
- * BST-989 slice 2 BOTH platform repositories implement `findGrepCandidates`
- * against the shared query body — Electron over the IPC db, Drizzle through
- * its $client (the real PGlite) — so the raw-repository fallback this
- * function used to construct for the web path is gone.
- */
-export function resolveGrepRepository(
-  chunkRepository: PlatformChunkRepository
-): GrepSearchRepository {
-  return chunkRepository;
 }
 
 interface WorkspaceSearchRunnerDeps {
@@ -251,13 +232,12 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     if (!(db && chunkRepository)) {
       return null;
     }
-    // Prefer the platform chunk repo when it exposes findGrepCandidates (desktop's
-    // ElectronFileChunkRepository — makes that method LIVE); web's Drizzle repo has
-    // no grep method, so fall back to a query-only PGlite FileChunkRepository.
-    const grepRepository = resolveGrepRepository(chunkRepository);
+    // Both platform repos grep natively since BST-989 slice 2 (Electron over
+    // the IPC db, Drizzle through its $client), so the repo passes straight
+    // through — the old raw-repository web fallback is gone.
     return new WorkspaceSearchExecutor({
       embedQuery,
-      grepService: createGrepSearchService(grepRepository),
+      grepService: createGrepSearchService(chunkRepository),
       hybridService: createHybridSearchService(chunkRepository),
       resolveFiles: (ids) => resolveFilesFromDb(db, ids),
     });

@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import {
   createWorkspaceSearchRunners,
-  resolveGrepRepository,
   useWorkspaceSearchController,
 } from '../use-workspace-search-controller';
 
@@ -350,21 +349,6 @@ describe('createWorkspaceSearchRunners', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(useWorkspaceSearchStore.getState().status).toBe('idle');
     expect(useWorkspaceSearchStore.getState().results).toBeNull();
-  });
-});
-
-describe('resolveGrepRepository', () => {
-  it('uses the platform repo verbatim — both platforms grep natively (BST-989 slice 2)', async () => {
-    const findGrepCandidates = vi.fn(async () => []);
-    const platformRepo = { findGrepCandidates } as unknown as Parameters<
-      typeof resolveGrepRepository
-    >[0];
-
-    const repo = resolveGrepRepository(platformRepo);
-    await repo.findGrepCandidates({ caseSensitive: false, likePattern: 'x', limit: 10 });
-
-    expect(repo).toBe(platformRepo);
-    expect(findGrepCandidates).toHaveBeenCalledTimes(1);
   });
 });
 

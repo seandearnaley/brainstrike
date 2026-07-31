@@ -1,5 +1,5 @@
-import type { FileChunk, FileChunkInsert } from '../models/file-chunk';
-import type { GrepCandidate, GrepCandidateOptions } from '../models/grep';
+import type { FileChunk, FileChunkInsert } from '../models/file-chunk.js';
+import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 import { assertTextContentsHaveNoNullBytes } from '../text-content-invariants.js';
 import {
   batchArray,

@@ -975,7 +975,10 @@ export class DrizzleFileChunkRepository {
    * Parity with the raw/Electron variants (BST-989 slice 2): both bodies are
    * the shared query functions, run through drizzle's $client — the real
    * underlying PGlite — so parameterized SQL and row handling are identical
-   * across all three variants.
+   * across all three variants. NOTE: $client exists only on the handle
+   * drizzle() constructs, NOT on a drizzle transaction handle — inside
+   * db.transaction(...) these methods must not be called through the tx
+   * (insertManyWithTx takes the caller's tx query explicitly for that case).
    */
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
     return runFindGrepCandidatesQuery(
