@@ -28,6 +28,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useFactoryReset: mockUseFactoryReset,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useFactoryReset: mockUseFactoryReset,
+}));
 
 vi.mock('@brainstrike/ui', () => ({
   Button: ({ children, onClick, disabled, ...props }: React.ComponentProps<'button'>) => (

@@ -3,13 +3,13 @@ import {
   defineContextAction,
   type TargetOf,
 } from '@brainstrike/context-actions';
+import { ThreadSearchRepository } from '@brainstrike/db';
 import {
-  ThreadSearchRepository,
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
   usePGliteDatabase,
-} from '@brainstrike/db';
+} from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';

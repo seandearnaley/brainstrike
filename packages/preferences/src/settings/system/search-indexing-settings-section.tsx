@@ -1,4 +1,4 @@
-import { useEmbeddingSetsRepository } from '@brainstrike/db';
+import { useEmbeddingSetsRepository } from '@brainstrike/db/react';
 import {
   Badge,
   Button,

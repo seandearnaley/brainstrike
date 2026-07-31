@@ -1,5 +1,6 @@
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
-import type { DbHandle, IDatabase } from '@brainstrike/db';
+import type { IDatabase } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createLogger } from '@brainstrike/utils/logger';
 import { create } from 'zustand';

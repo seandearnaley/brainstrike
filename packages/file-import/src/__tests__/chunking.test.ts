@@ -81,6 +81,21 @@ vi.mock('@brainstrike/db', async () => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   };
 });
+vi.mock('@brainstrike/db/react', async () => {
+  const actual = await vi.importActual('@brainstrike/db');
+  return {
+    ...actual,
+    CHUNKING_CONFIG: {
+      chunkPreviewLength: 50,
+      defaultMaxTokens: 1000,
+      defaultOverlap: 100,
+      embeddingInitializationDelay: 100,
+      embeddingProcessingDelay: 10,
+      veryLargeContentThreshold: 50,
+    },
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  };
+});
 
 describe('getChunkingStrategy', () => {
   it('returns provided default strategy when specified', () => {

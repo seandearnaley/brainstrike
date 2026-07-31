@@ -1,6 +1,6 @@
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
-import { DbProvider } from '@brainstrike/db';
+import { DbProvider } from '@brainstrike/db/react';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';

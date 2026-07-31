@@ -160,6 +160,17 @@ vi.mock('@brainstrike/db', async () => {
     useVectorEnabled: () => mockVectorEnabled,
   };
 });
+vi.mock('@brainstrike/db/react', async () => {
+  const actual = await vi.importActual<object>('@brainstrike/db');
+  return {
+    ...(actual as object),
+    JobQueue: class MockJobQueue {},
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    useFileChunkRepository: () => mockChunkRepository,
+    usePGliteDatabase: () => mockDb,
+    useVectorEnabled: () => mockVectorEnabled,
+  };
+});
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: (selector: (state: object) => unknown) =>

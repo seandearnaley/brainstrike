@@ -47,6 +47,10 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useOptionalPGliteDatabase: () => databaseIdentity,
 }));
+vi.mock('@brainstrike/db/react', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useOptionalPGliteDatabase: () => databaseIdentity,
+}));
 
 function insertAttempts(): number {
   return queries.filter((entry) => entry.sql.includes('INSERT INTO brainstrike_diagnostic_events'))

@@ -46,6 +46,25 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     },
   };
 });
+vi.mock('@brainstrike/db/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...actual,
+    FileChunkRepository: class {
+      fullTextSearch(query: string, options: unknown) {
+        return fullTextSearchMock(query, options);
+      }
+      searchSimilar(embedding: number[], options: unknown) {
+        return searchSimilarMock(embedding, options);
+      }
+    },
+    FileRecordRepository: class {
+      findByIds(ids: readonly string[]) {
+        return findByIdsMock(ids);
+      }
+    },
+  };
+});
 
 vi.mock('@brainstrike/embeddings/provider-core', () => ({
   CohereEmbeddingProvider: class {

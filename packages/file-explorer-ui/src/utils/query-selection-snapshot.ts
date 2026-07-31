@@ -1,4 +1,4 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/utils/logger';
 
 import { defaultCollator } from './file-node-collator';

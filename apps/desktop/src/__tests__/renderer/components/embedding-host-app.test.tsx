@@ -7,6 +7,11 @@ vi.mock('@brainstrike/db', () => ({
     <div data-testid="db-provider">{children}</div>
   ),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  DbProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="db-provider">{children}</div>
+  ),
+}));
 
 vi.mock('../../../renderer/components/background-host-error-boundary', () => ({
   BackgroundHostErrorBoundary: ({

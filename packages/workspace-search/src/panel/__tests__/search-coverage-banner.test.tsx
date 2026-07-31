@@ -18,6 +18,11 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteLiveQuery: ({ query }: { query: string }) =>
     query.includes('collection_indexing_stats') ? liveResults.stats : liveResults.totals,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...parts: unknown[]) => parts.join(':'),
+  usePGliteLiveQuery: ({ query }: { query: string }) =>
+    query.includes('collection_indexing_stats') ? liveResults.stats : liveResults.totals,
+}));
 
 const syncStore = { managedCollectionId: null as string | null, state: 'idle' as string };
 vi.mock('@brainstrike/preferences/stores/workspace-collection-sync-status-store', () => ({

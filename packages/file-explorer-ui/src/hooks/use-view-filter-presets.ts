@@ -5,14 +5,14 @@
  * Supports both web (Drizzle live queries) and Electron (repository polling).
  */
 
+import { viewFilterPresets } from '@brainstrike/db';
 import {
   useDbInitializing,
   useDbProviderError,
   useDrizzleDb,
   useDrizzleLiveQuery,
   useViewFilterPresetsRepository,
-  viewFilterPresets,
-} from '@brainstrike/db';
+} from '@brainstrike/db/react';
 import type {
   CreateViewFilterPresetInput,
   UpdateViewFilterPresetInput,

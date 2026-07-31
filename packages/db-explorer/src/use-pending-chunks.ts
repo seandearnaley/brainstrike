@@ -1,4 +1,4 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';

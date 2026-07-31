@@ -213,6 +213,47 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     useVectorEnabled: () => true,
   };
 });
+vi.mock('@brainstrike/db/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...actual,
+    MigrationRunner: class MockMigrationRunner {
+      async initialize() {
+        return Promise.resolve();
+      }
+      async up() {
+        return Promise.resolve();
+      }
+    },
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    migrations: [],
+    useClearAllData: () => clearAllDataMock,
+    useDbProviderError: () => dbProviderErrorMock.current,
+    useFactoryReset: () => null,
+    useFileChunkRepository: () => mockChunkRepository,
+    useFileRecordRepository: useFileRecordRepositoryMock,
+    usePGliteDatabase: () => mockDatabase,
+    usePGliteLiveQuery: (options: { query: string }) => {
+      // Return stable object references based on query type. The active-collection
+      // counts query is a live aggregate over file_records/file_chunks, so match it
+      // by its distinctive projection before the generic file_records branch.
+      if (options.query.includes('AS "recordsCount"')) {
+        return mockCollectionCountLiveQueryResult;
+      }
+      if (options.query.includes('FROM embedding_sets s')) {
+        return mockCollectionLiveQueryResult;
+      }
+      if (options.query.includes('FROM file_records')) {
+        return mockRecordLiveQueryResult;
+      }
+      if (options.query.includes('FROM file_chunks')) {
+        return mockChunkLiveQueryResult;
+      }
+      return mockRecordLiveQueryResult;
+    },
+    useVectorEnabled: () => true,
+  };
+});
 
 vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual('@brainstrike/ui');

@@ -1,12 +1,12 @@
 import type {
   ApplyManagedCacheBatchArgs,
   ApplyManagedCacheInvalidationsArgs,
-  DbHandle,
   EmbeddingSet,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
   ManagedCacheInvalidationResult,
 } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import type { FileContentProcessor } from '@brainstrike/file-explorer-hooks';
 import type {
   ChunkingWorkerPort,

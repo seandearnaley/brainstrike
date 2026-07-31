@@ -111,6 +111,16 @@ vi.mock('@brainstrike/db', () => {
     useVectorEnabled: vi.fn(() => true),
   };
 });
+vi.mock('@brainstrike/db/react', () => {
+  // Define MockJobQueue inside the factory to avoid hoisting issues
+  class MockJobQueue {}
+  return {
+    JobQueue: MockJobQueue,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    usePGliteDatabase: vi.fn(() => ({})),
+    useVectorEnabled: vi.fn(() => true),
+  };
+});
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: vi.fn((selector) => {
@@ -170,7 +180,7 @@ vi.mock('../embedding-runtime-provider', () => ({
 }));
 
 // Import mocked modules for manipulation
-import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
+import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db/react';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';

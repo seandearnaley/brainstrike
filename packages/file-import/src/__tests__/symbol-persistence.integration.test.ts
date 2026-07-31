@@ -137,10 +137,10 @@ describe('symbol persistence seam', () => {
   function chunkingDeps() {
     return {
       chunkRepository: chunkRepo as unknown as ReturnType<
-        typeof import('@brainstrike/db').useFileChunkRepository
+        typeof import('@brainstrike/db/react').useFileChunkRepository
       >,
       repository: fileRepo as unknown as ReturnType<
-        typeof import('@brainstrike/db').useFileRecordRepository
+        typeof import('@brainstrike/db/react').useFileRecordRepository
       >,
     };
   }

@@ -3,9 +3,9 @@ import type {
   DrizzleFileRecordRepository,
   FileChunk,
   FileRecord,
-  UsePGliteLiveQueryOptions,
 } from '@brainstrike/db';
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import type { UsePGliteLiveQueryOptions } from '@brainstrike/db/react';
+import { usePGliteLiveQuery } from '@brainstrike/db/react';
 import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -55,6 +55,24 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
 }));
 
 vi.mock('@brainstrike/db', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
+  class MockMigrationRunner {
+    async initialize() {
+      return Promise.resolve();
+    }
+    async up() {
+      return Promise.resolve();
+    }
+  }
+  return {
+    ...actual,
+    MigrationRunner: MockMigrationRunner,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    migrations: [],
+    usePGliteLiveQuery: vi.fn(),
+  };
+});
+vi.mock('@brainstrike/db/react', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
   class MockMigrationRunner {
     async initialize() {

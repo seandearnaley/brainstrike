@@ -29,6 +29,15 @@ vi.mock('@brainstrike/db', () => ({
   useViewFilterPresetsRepository: vi.fn(() => mockViewFilterPresetsRepository),
   viewFilterPresets: {},
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useDbInitializing: vi.fn(() => mockDbInitializing),
+  useDbProviderError: vi.fn(() => mockDbProviderError),
+  useDrizzleDb: vi.fn(() => null),
+  useDrizzleLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
+  useViewFilterPresetsRepository: vi.fn(() => mockViewFilterPresetsRepository),
+  viewFilterPresets: {},
+}));
 
 vi.mock('@brainstrike/utils', () => ({
   createLogger: vi.fn(() => ({
@@ -264,7 +273,7 @@ describe('useViewFilterPresets', () => {
 
   describe('with Drizzle database (web path)', () => {
     it('returns presets from Drizzle live query', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db');
+      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
       vi.mocked(useDrizzleDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
           from: vi.fn().mockReturnValue({
@@ -291,7 +300,7 @@ describe('useViewFilterPresets', () => {
     });
 
     it('returns empty presets when rows is null', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db');
+      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
       vi.mocked(useDrizzleDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
           from: vi.fn().mockReturnValue({
@@ -313,7 +322,7 @@ describe('useViewFilterPresets', () => {
     });
 
     it('returns loading state from Drizzle', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db');
+      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
       vi.mocked(useDrizzleDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
           from: vi.fn().mockReturnValue({
@@ -335,7 +344,7 @@ describe('useViewFilterPresets', () => {
     });
 
     it('returns error state from Drizzle', async () => {
-      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db');
+      const { useDrizzleDb, useDrizzleLiveQuery } = await import('@brainstrike/db/react');
       const testError = new Error('Query failed');
 
       vi.mocked(useDrizzleDb).mockReturnValue({

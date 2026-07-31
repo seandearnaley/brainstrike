@@ -24,7 +24,6 @@ export {
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './database-pressure-controller.js';
 export * from './database-work-scheduler.js';
-export * from './db-provider.js';
 // Drizzle ORM utilities and database wrapper
 export {
   type DrizzleDb,
@@ -210,6 +209,4 @@ export {
   type ScheduledDatabaseMaintenanceSkipReason,
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
-export * from './use-drizzle-live-query.js';
-export * from './use-live-query.js';
 export * from './wasm-loader.js';

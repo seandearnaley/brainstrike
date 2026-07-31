@@ -1,4 +1,4 @@
-import { useOptionalPGliteDatabase } from '@brainstrike/db';
+import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import {
   buildQuerySelectionManifest,
   createErroredQuerySelectionManifest,

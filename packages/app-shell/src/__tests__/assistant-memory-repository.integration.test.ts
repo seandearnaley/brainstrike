@@ -4,7 +4,8 @@ import {
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
-import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,

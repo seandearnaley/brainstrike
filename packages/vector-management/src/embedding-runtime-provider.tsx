@@ -1,4 +1,5 @@
-import { JobQueue, useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db/react';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
 import {

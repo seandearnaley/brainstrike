@@ -12,6 +12,10 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useOptionalPGliteDatabase: useOptionalPGliteDatabaseMock,
 }));
+vi.mock('@brainstrike/db/react', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useOptionalPGliteDatabase: useOptionalPGliteDatabaseMock,
+}));
 
 import { useDurableLogSource } from '../diagnostics/use-durable-log-source';
 

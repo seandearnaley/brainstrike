@@ -3,7 +3,6 @@ import {
   createDatabasePressureController,
   createPriorityDbHandle,
   type DatabaseWorkSchedulerSnapshot,
-  type DbHandle,
   ElectronEmbeddingSetsRepository,
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
@@ -11,8 +10,8 @@ import {
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
-  usePGliteDatabase,
 } from '@brainstrike/db';
+import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import {
   FILE_EXPLORER_REFRESH_EVENT,

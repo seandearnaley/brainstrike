@@ -9,6 +9,9 @@ const loadQuerySelectionSnapshotMock = vi.fn();
 vi.mock('@brainstrike/db', () => ({
   useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
+}));
 
 vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => useFileExplorerStoreContextMock(),

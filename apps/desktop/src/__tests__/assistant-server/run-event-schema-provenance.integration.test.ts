@@ -37,7 +37,8 @@ import type { StreamChunk } from '@brainstrike/agent';
 // is interim per R04 (BST-984).
 import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
-import { type DbHandle, wasmLoader } from '@brainstrike/db';
+import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
 

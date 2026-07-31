@@ -1,4 +1,4 @@
-import type { DbInitializationStatus } from '@brainstrike/db';
+import type { DbInitializationStatus } from '@brainstrike/db/react';
 
 export function shouldRenderAssistantThreadDatabaseStartupLoading({
   databaseError,

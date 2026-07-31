@@ -78,6 +78,13 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src'),
       },
       {
+        // Subpath BEFORE the bare-name alias (first-match-wins): the string
+        // find prefix-matches '@brainstrike/db/react' and would mangle it
+        // (BST-990 seam).
+        find: '@brainstrike/db/react',
+        replacement: resolve(import.meta.dirname, '../db/src/react.ts'),
+      },
+      {
         find: '@brainstrike/db',
         replacement: resolve(import.meta.dirname, '../db/src/index.ts'),
       },

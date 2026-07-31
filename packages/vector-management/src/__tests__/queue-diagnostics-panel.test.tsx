@@ -16,6 +16,11 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => null),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  JobQueue: vi.fn(),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteDatabase: vi.fn(() => null),
+}));
 
 vi.mock('../embedding-queue-provider', () => ({
   useEmbeddingQueueSafe: vi.fn(() => null),

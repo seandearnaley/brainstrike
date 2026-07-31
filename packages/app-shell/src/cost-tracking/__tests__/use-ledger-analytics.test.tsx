@@ -8,6 +8,9 @@ const { usePGliteDatabaseMock } = vi.hoisted(() => ({
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  usePGliteDatabase: usePGliteDatabaseMock,
+}));
 
 import { useLedgerAnalytics } from '../use-ledger-analytics';
 

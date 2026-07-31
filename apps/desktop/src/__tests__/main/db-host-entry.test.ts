@@ -26,6 +26,13 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     insertChunksAndEnqueueEmbeddingJobs: dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs,
   };
 });
+vi.mock('@brainstrike/db/react', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...original,
+    insertChunksAndEnqueueEmbeddingJobs: dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs,
+  };
+});
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 

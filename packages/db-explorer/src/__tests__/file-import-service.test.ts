@@ -46,6 +46,18 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: () => null,
   usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useClearAllData: () => null,
+  useDbProviderError: () => null,
+  useFactoryReset: () => null,
+  useFileChunkRepository: () => null,
+  useFileRecordRepository: () => ({
+    bulkImport: mockBulkImport,
+  }),
+  usePGliteDatabase: () => null,
+  usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
+}));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({

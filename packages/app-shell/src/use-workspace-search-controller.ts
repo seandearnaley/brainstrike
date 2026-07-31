@@ -1,10 +1,5 @@
-import {
-  createGrepSearchService,
-  createHybridSearchService,
-  type DbHandle,
-  useFileChunkRepository,
-  usePGliteDatabase,
-} from '@brainstrike/db';
+import { createGrepSearchService, createHybridSearchService } from '@brainstrike/db';
+import { type DbHandle, useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db/react';
 import {
   buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,

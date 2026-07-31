@@ -20,6 +20,13 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => null),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  DbProvider: dbProviderMock,
+  EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX: 'idb://web-e2e-',
+  getDefaultBrowserPGliteDataDir: vi.fn((dbName = 'app') => `idb://${dbName}-pg18`),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteDatabase: vi.fn(() => null),
+}));
 
 // The diagnostic sink bridge is exercised by its own dedicated test suite
 // (packages/app-shell/src/__tests__/diagnostic-sink-bridge.test.tsx); here it

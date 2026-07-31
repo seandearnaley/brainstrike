@@ -8,6 +8,9 @@ const getEmbeddingQueueMock = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  usePGliteDatabase: usePGliteDatabaseMock,
+}));
 
 vi.mock('../create-embedding-queue', () => ({
   getEmbeddingQueue: getEmbeddingQueueMock,

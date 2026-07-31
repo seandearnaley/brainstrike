@@ -107,6 +107,28 @@ vi.mock('@brainstrike/db', () => ({
   },
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  FileChunkRepository: class {
+    searchSimilar(
+      embedding: number[],
+      options: {
+        limit: number;
+        threshold: number;
+        embeddingSetId: string;
+        filePaths?: string[];
+        selectionSnapshotId?: string;
+      }
+    ) {
+      return searchSimilarMock(embedding, options);
+    }
+  },
+  FileRecordRepository: class {
+    findByIds(ids: readonly string[]) {
+      return findByIdsMock(ids);
+    }
+  },
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+}));
 
 vi.mock('@brainstrike/embeddings/provider-core', () => ({
   CohereEmbeddingProvider: class {

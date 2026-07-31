@@ -2,8 +2,8 @@ import {
   createPriorityDbHandle,
   getCollectionIndexingStats,
   getDatabaseWorkScheduler,
-  usePGliteDatabase,
 } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive, useAppActive } from '@brainstrike/hooks';
 import {
   type IndexingBackfillSnapshot,

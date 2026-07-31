@@ -26,6 +26,24 @@ describe('db package ownership', () => {
     expect(rootIndex).not.toContain('./repositories/file-chunk-repository.js');
     expect(rootIndex).not.toContain('./repositories/tool-output-artifact-repository.js');
     expect(rootIndex).not.toContain('./migrations/dimension-index-helpers.js');
+    // BST-990 seam: the root barrel is React-FREE. Its export-star of the
+    // provider previously loaded React at module init in Electron main and
+    // the embedding workers (Node ESM does not tree-shake export *). React
+    // consumers import '@brainstrike/db/react'.
+    expect(rootIndex).not.toContain('./db-provider.js');
+    expect(rootIndex).not.toContain('./use-live-query.js');
+    expect(rootIndex).not.toContain('./use-drizzle-live-query.js');
+  });
+
+  it('keeps the React entry carrying the provider and live-query layer', () => {
+    const reactEntry = readDbSource('src/react.ts');
+    expect(reactEntry).toMatch(/export \{[^}]*DbProvider[^}]*\} from '\.\/db-provider\.js'/su);
+    expect(reactEntry).toMatch(
+      /export \{[^}]*usePGliteLiveQuery[^}]*\} from '\.\/use-live-query\.js'/su
+    );
+    expect(reactEntry).toMatch(
+      /export \{[^}]*useDrizzleLiveQuery[^}]*\} from '\.\/use-drizzle-live-query\.js'/su
+    );
   });
 
   it('keeps the owned barrels carrying their implementation modules', () => {

@@ -8,7 +8,7 @@ import {
   useDbInitializing,
   useDbProviderError,
   usePGliteDatabase,
-} from '@brainstrike/db';
+} from '@brainstrike/db/react';
 import { ActionContextMenu, Button, useContextMenuTarget } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import {

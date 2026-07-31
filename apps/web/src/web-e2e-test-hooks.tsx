@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useEffect } from 'react';
 import { qualifyLocalEmbedding } from './qualify-local-embedding';
 

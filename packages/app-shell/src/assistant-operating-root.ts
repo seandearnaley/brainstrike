@@ -1,4 +1,4 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 
 export interface AssistantOperatingRootCandidate {
   readonly displayName: string;

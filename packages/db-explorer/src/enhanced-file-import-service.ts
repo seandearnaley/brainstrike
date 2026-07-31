@@ -4,12 +4,12 @@ import type {
   IDatabase,
   ImportProgress,
 } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
 import {
-  JobQueue,
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
-} from '@brainstrike/db';
+} from '@brainstrike/db/react';
 import type {
   BaseImportRunner,
   EmbeddingJobQueuePort,

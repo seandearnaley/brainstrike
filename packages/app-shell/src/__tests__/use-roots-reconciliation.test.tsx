@@ -1,4 +1,4 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import { renderHook, waitFor } from '@testing-library/react';

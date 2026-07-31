@@ -1,11 +1,10 @@
 import { encodeFileMentionId } from '@brainstrike/assistant-contract';
 import {
-  makeLiveQueryKey,
   QUICK_OPEN_MAX_LIMIT,
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
-  usePGliteLiveQuery,
 } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';

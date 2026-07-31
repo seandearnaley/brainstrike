@@ -16,6 +16,10 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
 
 // The Radix-backed Select renders its content into a portal only while open,
 // which makes it brittle to drive headlessly. Every other consumer in this

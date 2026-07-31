@@ -480,6 +480,21 @@ vi.mock('@brainstrike/db', () => ({
   // loading) so neither runs a real subscription.
   usePGliteLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  // Quick-open / file-mention shared query constants (useFileMentions).
+  QUICK_OPEN_MAX_LIMIT: 50,
+  QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
+  useDbInitializing: vi.fn(() => false),
+  useDbProviderError: vi.fn(() => null),
+  // Copy-debug-bundle binding (useDebugBundleBinding) reads this directly.
+  useOptionalPGliteDatabase: vi.fn(() => mockDb),
+  usePGliteDatabase: vi.fn(() => mockDb),
+  // The OM segment live query (useObservationalMemoryRow) and the "@" file
+  // mention query (useFileMentions) — inert in these tests (no rows, not
+  // loading) so neither runs a real subscription.
+  usePGliteLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
+}));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => {
   // Stable references for the "@" file-mention selectors (useFileMentions reads

@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
-import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
+import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   useFileExplorerStoreSelector,

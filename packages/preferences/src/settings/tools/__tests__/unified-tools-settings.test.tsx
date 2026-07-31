@@ -25,6 +25,9 @@ const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
 vi.mock('@brainstrike/db', () => ({
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
 
 // Mock child components
 vi.mock('../token-budget-summary', () => ({

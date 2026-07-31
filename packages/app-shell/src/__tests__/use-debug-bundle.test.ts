@@ -9,6 +9,10 @@ vi.mock('@brainstrike/db', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useOptionalPGliteDatabase: useOptionalPGliteDatabaseMock,
 }));
+vi.mock('@brainstrike/db/react', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useOptionalPGliteDatabase: useOptionalPGliteDatabaseMock,
+}));
 
 // Minimal stub covering exactly the SQL branches `collectThreadDebugBundleData`
 // issues for a thread with no matching run (empty rows throughout) — the

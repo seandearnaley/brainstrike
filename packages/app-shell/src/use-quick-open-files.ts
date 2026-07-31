@@ -1,10 +1,9 @@
 import {
-  makeLiveQueryKey,
   QUICK_OPEN_MAX_LIMIT,
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
-  usePGliteLiveQuery,
 } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { QuickOpenFileItem } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';

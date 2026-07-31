@@ -18,8 +18,8 @@ import {
   createHybridSearchService,
   DEFAULT_HYBRID_SOURCE_LIMIT,
   normalizeRRFScores,
-  usePGliteDatabase,
 } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { clampResultLimit, type SearchConfig, type SemanticSearchResult } from '@brainstrike/ui';

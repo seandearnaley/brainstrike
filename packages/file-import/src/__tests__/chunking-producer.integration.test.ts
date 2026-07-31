@@ -88,10 +88,10 @@ describe('Chunking producer enqueues jobs', () => {
       importResults,
       {
         chunkRepository: chunkRepo as unknown as ReturnType<
-          typeof import('@brainstrike/db').useFileChunkRepository
+          typeof import('@brainstrike/db/react').useFileChunkRepository
         >,
         repository: fileRepo as unknown as ReturnType<
-          typeof import('@brainstrike/db').useFileRecordRepository
+          typeof import('@brainstrike/db/react').useFileRecordRepository
         >,
       },
       {

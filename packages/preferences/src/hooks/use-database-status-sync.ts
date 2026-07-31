@@ -1,8 +1,5 @@
-import {
-  type DrizzleFileRecordRepository,
-  ElectronFileRecordRepository,
-  useFileRecordRepository,
-} from '@brainstrike/db';
+import { type DrizzleFileRecordRepository, ElectronFileRecordRepository } from '@brainstrike/db';
+import { useFileRecordRepository } from '@brainstrike/db/react';
 import { useEffect } from 'react';
 import { useDatabaseStatusStore } from '../stores/database-status-store';
 

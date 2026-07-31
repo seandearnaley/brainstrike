@@ -69,6 +69,10 @@ vi.mock('@brainstrike/db', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
   createPriorityDbHandle: createPriorityDbHandleMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
+  createPriorityDbHandle: createPriorityDbHandleMock,
+}));
 
 describe('useEmbeddingRuntimeController', () => {
   beforeEach(() => {

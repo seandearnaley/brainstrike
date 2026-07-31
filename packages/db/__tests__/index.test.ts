@@ -3,6 +3,9 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import * as exports from '../src/index';
+// BST-990 seam: React surface moved to the ./react entry; the root barrel is
+// deliberately React-free (its export-star loaded React in Electron main).
+import * as reactExports from '../src/react';
 import * as testDataDir from './test-data-dir';
 
 describe('db package exports', () => {
@@ -17,17 +20,16 @@ describe('db package exports', () => {
     expect(exports).toHaveProperty('FileRecordRepository');
     expect(typeof exports.FileRecordRepository).toBe('function');
 
-    expect(exports).toHaveProperty('DbProvider');
-    expect(typeof exports.DbProvider).toBe('function');
-
-    expect(exports).toHaveProperty('useFileRecordRepository');
-    expect(typeof exports.useFileRecordRepository).toBe('function');
-
-    expect(exports).toHaveProperty('getDefaultDbPath');
-    expect(typeof exports.getDefaultDbPath).toBe('function');
-
     expect(exports).toHaveProperty('wasmLoader');
     expect(exports.wasmLoader).toBeDefined();
+
+    // The root barrel must NOT carry the React surface…
+    expect(exports).not.toHaveProperty('DbProvider');
+    expect(exports).not.toHaveProperty('useFileRecordRepository');
+    // …the ./react entry must.
+    expect(typeof reactExports.DbProvider).toBe('function');
+    expect(typeof reactExports.useFileRecordRepository).toBe('function');
+    expect(typeof reactExports.getDefaultDbPath).toBe('function');
   });
 });
 

@@ -11,6 +11,11 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
+vi.mock('@brainstrike/db/react', () => ({
+  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
+  usePGliteDatabase: usePGliteDatabaseMock,
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
 
 import { RUN_LEDGER_AGGREGATION_SQL } from '../../assistant-memory-repository';
 import { TASK_LEDGER_RUN_LIMIT, useRunLedger } from '../use-run-ledger';
