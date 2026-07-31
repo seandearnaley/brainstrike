@@ -410,7 +410,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const sendBtn = page.getByRole('button', { exact: true, name: 'Send' });
     await sendBtn.click();
 
-    const stopBtn = page.getByRole('button', { name: 'Stop' });
+    const stopBtn = page.getByRole('button', { exact: true, name: 'Stop' });
     await expect(stopBtn).toBeVisible({ timeout: 5000 });
 
     await expect(page.getByTestId('local-model-status')).toContainText(/generating answer/i, {
