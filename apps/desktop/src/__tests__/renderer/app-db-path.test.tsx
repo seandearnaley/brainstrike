@@ -54,7 +54,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   };
 });
 vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
   return {
     ...actual,
     DbProvider: mockDbProvider,

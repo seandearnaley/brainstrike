@@ -27,7 +27,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   };
 });
 vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/db')>();
+  const original = await importOriginal<typeof import('@brainstrike/db/react')>();
   return {
     ...original,
     insertChunksAndEnqueueEmbeddingJobs: dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs,

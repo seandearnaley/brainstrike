@@ -82,7 +82,7 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 vi.mock('@brainstrike/db/react', async () => {
-  const actual = await vi.importActual('@brainstrike/db');
+  const actual = await vi.importActual('@brainstrike/db/react');
   return {
     ...actual,
     CHUNKING_CONFIG: {

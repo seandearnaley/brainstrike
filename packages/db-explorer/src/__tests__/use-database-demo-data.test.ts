@@ -73,7 +73,8 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 vi.mock('@brainstrike/db/react', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/db/react')>('@brainstrike/db/react');
   class MockMigrationRunner {
     async initialize() {
       return Promise.resolve();

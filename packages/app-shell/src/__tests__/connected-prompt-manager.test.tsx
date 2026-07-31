@@ -111,7 +111,7 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 vi.mock('@brainstrike/db/react', async () => {
-  const actual = await vi.importActual<object>('@brainstrike/db');
+  const actual = await vi.importActual<object>('@brainstrike/db/react');
   return {
     ...actual,
     PromptItemRepository: class {
