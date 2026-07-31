@@ -1493,10 +1493,32 @@ export class JobQueue {
       params.push(options.embeddingSetId);
       conditions.push(`embedding_set_id = $${params.length}`);
     }
+    // Dedupe-aware selection (BST-991): idx_job_queue_dedupe_active makes a
+    // second ACTIVE row per dedupe_key a hard constraint violation, and this
+    // is one bulk UPDATE — one collision would abort the WHOLE retry batch.
+    // Two ordinary-operation collisions are reachable: a failed row whose key
+    // was re-enqueued as a new active row (deterministic backfill keys), and
+    // two failed generations of the same key inside one batch. Skip the
+    // former, keep only the newest of the latter; NULL-keyed rows partition
+    // by their own id so they all remain eligible.
     const res = await this.db.query<{ count: string }>(
       `WITH cte AS (
-        SELECT id FROM job_queue
-        WHERE ${conditions.join(' AND ')}
+        SELECT id FROM (
+          SELECT f.id,
+                 f.updated_at,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY COALESCE(f.dedupe_key, f.id::text)
+                   ORDER BY f.updated_at DESC, f.id DESC
+                 ) AS rn
+            FROM job_queue f
+           WHERE ${conditions.join(' AND ')}
+             AND (f.dedupe_key IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM job_queue a
+                    WHERE a.dedupe_key = f.dedupe_key
+                      AND a.state IN ('queued','running')
+                 ))
+        ) ranked
+        WHERE rn = 1
         ORDER BY updated_at DESC
         LIMIT $2
       ), upd AS (
