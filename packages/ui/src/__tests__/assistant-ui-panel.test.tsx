@@ -30,6 +30,9 @@ const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 const messagePartsComponentsMock = vi.fn((_components: unknown) => undefined);
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 const setCollapsedMock = vi.fn();
+const mockThreadViewportStore = {
+  getState: () => ({ isAtBottom: true, scrollToBottom: () => undefined }),
+};
 interface MockAuiState {
   chainOfThought: {
     collapsed: boolean;
@@ -335,6 +338,12 @@ vi.mock('@assistant-ui/react', () => {
     // `data-pinned`; a freshly rendered thread is pinned (BST-896).
     useThreadViewport: <T,>(selector: (state: { isAtBottom: boolean }) => T) =>
       selector({ isAtBottom: true }),
+    // The follow-up queue dispatch reads the store imperatively for the
+    // pinned-at-dispatch re-pin (BST-1039); pinned + inert scroll suffices.
+    // Stable singleton: the real hook returns a context-stable store, and
+    // `viewportStore` sits in the dispatch effect's dep array — a fresh
+    // object per call would re-run that effect every render.
+    useThreadViewportStore: () => mockThreadViewportStore,
   };
 });
 
