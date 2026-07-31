@@ -260,6 +260,79 @@ describe('DrizzleEmbeddingSetsRepository', () => {
     });
   });
 
+  describe('listEmbeddingSpaces', () => {
+    it('lists spaces newest-first without stats by default', async () => {
+      await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+      await repository.getOrCreateSet(
+        'ollama::nomic-embed-text',
+        'nomic-embed-text',
+        768,
+        'cosine'
+      );
+
+      const listings = await repository.listEmbeddingSpaces();
+
+      expect(listings.length).toBeGreaterThanOrEqual(2);
+      const modelKeys = listings.map((listing) => listing.modelKey);
+      expect(modelKeys).toContain('openai::text-embedding-3-small');
+      expect(modelKeys).toContain('ollama::nomic-embed-text');
+      for (const listing of listings) {
+        expect(listing.stats).toBeUndefined();
+        expect(Number.isFinite(listing.dimensions)).toBe(true);
+      }
+    });
+
+    it('includes zeroed stats for empty sets when requested', async () => {
+      const created = await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+
+      const listings = await repository.listEmbeddingSpaces({ includeStats: true });
+      const listing = listings.find((entry) => entry.id === created.id);
+
+      expect(listing?.stats).toEqual({
+        averageTokensPerChunk: 0,
+        embeddedChunks: 0,
+        fileCount: 0,
+        tokenizedChunkCount: 0,
+        totalChunks: 0,
+        totalTokens: 0,
+      });
+    });
+  });
+
+  describe('getOrCreateWorkspaceIndexSet', () => {
+    it('creates the workspace index set once and reuses it', async () => {
+      const first = await repository.getOrCreateWorkspaceIndexSet();
+      const second = await repository.getOrCreateWorkspaceIndexSet();
+
+      expect(first.id).toBe(second.id);
+      const listings = await repository.listEmbeddingSpaces();
+      expect(listings.some((listing) => listing.id === first.id)).toBe(true);
+    });
+  });
+
+  describe('waitForPendingDimensionIndexBuilds', () => {
+    it('settles after set creation schedules a deferred index build', async () => {
+      await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+
+      await expect(repository.waitForPendingDimensionIndexBuilds()).resolves.toBeUndefined();
+    });
+  });
+
   describe('getById', () => {
     it('should find set by id', async () => {
       const created = await repository.getOrCreateSet(

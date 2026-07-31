@@ -57,12 +57,12 @@ export {
   createEmbeddingCacheRepository,
   EmbeddingCacheRepository,
 } from './embedding-cache-repository.js';
-export {
-  EmbeddingSetsRepository,
-  type EmbeddingSpaceListing,
-  type EmbeddingSpaceStats,
-  type ListEmbeddingSpacesOptions,
-} from './embedding-sets-repository.js';
+export { EmbeddingSetsRepository } from './embedding-sets-repository.js';
+export type {
+  EmbeddingSpaceListing,
+  EmbeddingSpaceStats,
+  ListEmbeddingSpacesOptions,
+} from './embedding-space-listing.js';
 export {
   type FileChunkDatabase,
   type FileChunkQueryTx,
