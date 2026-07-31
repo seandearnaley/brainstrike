@@ -23,6 +23,8 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { type EmbeddingCacheEntry, embeddingCache } from '../../schema/index.js';
+import { dedupeByContentAndModel } from '../_shared.js';
+import type { CreateEmbeddingCacheRepositoryOptions } from '../embedding-cache-repository.js';
 
 /**
  * Maximum batch size for getBatch/setBatch operations.
@@ -104,7 +106,37 @@ export class DrizzleEmbeddingCacheRepository {
     failedBatchAccessTimeUpdates: 0,
   };
 
-  constructor(private readonly db: DrizzleDb) {}
+  /** Configurable LRU cap (raw-repo parity, BST-989 Pair C). */
+  private readonly maxEntries: number;
+  /**
+   * In-flight fire-and-forget access-time updates. flushPendingAccessTimeUpdates
+   * awaits them so a worker shutdown cannot lose LRU bumps (ported from the
+   * raw repository, which evolved this AFTER the Drizzle variant was written).
+   */
+  private readonly pendingAccessTimeUpdates = new Set<Promise<void>>();
+
+  constructor(
+    private readonly db: DrizzleDb,
+    options: CreateEmbeddingCacheRepositoryOptions = {}
+  ) {
+    this.maxEntries = options.maxEntries ?? RECOMMENDED_MAX_CACHE_ENTRIES;
+  }
+
+  /** Await every in-flight access-time update (raw-repo parity). */
+  async flushPendingAccessTimeUpdates(): Promise<void> {
+    if (this.pendingAccessTimeUpdates.size === 0) {
+      return;
+    }
+    await Promise.allSettled([...this.pendingAccessTimeUpdates]);
+  }
+
+  /** Track a fire-and-forget promise so flush can await it. */
+  private trackPendingAccessTimeUpdate(update: Promise<void>): void {
+    const tracked = update.finally(() => {
+      this.pendingAccessTimeUpdates.delete(tracked);
+    });
+    this.pendingAccessTimeUpdates.add(tracked);
+  }
 
   /**
    * Get metrics for monitoring fire-and-forget operations.
@@ -144,25 +176,27 @@ export class DrizzleEmbeddingCacheRepository {
 
     // Update access time and increment access count (fire-and-forget)
     // This is done asynchronously to not slow down cache lookups
-    this.updateAccessTime(row.id).catch((error) => {
-      this.metrics.failedAccessTimeUpdates++;
-      const errorMsg = error instanceof Error ? error.message : String(error);
+    this.trackPendingAccessTimeUpdate(
+      this.updateAccessTime(row.id).catch((error) => {
+        this.metrics.failedAccessTimeUpdates++;
+        const errorMsg = error instanceof Error ? error.message : String(error);
 
-      // Alert if failure rate exceeds threshold (triggers error-level logging)
-      if (this.metrics.failedAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
-        this.logger.error('Cache access time update failures exceeded threshold', {
-          lastError: errorMsg,
-          threshold: FAILURE_ALERT_THRESHOLD,
-          totalFailures: this.metrics.failedAccessTimeUpdates,
-        });
-      } else {
-        this.logger.warn('Failed to update cache access time', {
-          error: errorMsg,
-          id: row.id,
-          totalFailures: this.metrics.failedAccessTimeUpdates,
-        });
-      }
-    });
+        // Alert if failure rate exceeds threshold (triggers error-level logging)
+        if (this.metrics.failedAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
+          this.logger.error('Cache access time update failures exceeded threshold', {
+            lastError: errorMsg,
+            threshold: FAILURE_ALERT_THRESHOLD,
+            totalFailures: this.metrics.failedAccessTimeUpdates,
+          });
+        } else {
+          this.logger.warn('Failed to update cache access time', {
+            error: errorMsg,
+            id: row.id,
+            totalFailures: this.metrics.failedAccessTimeUpdates,
+          });
+        }
+      })
+    );
 
     return { entry: row, hit: true };
   }
@@ -176,7 +210,7 @@ export class DrizzleEmbeddingCacheRepository {
    * @param requests - Array of (contentHash, modelKey) pairs to look up
    * @returns Map of "contentHash:modelKey" -> entry for hits only
    */
-  async getBatch(requests: BatchLookupRequest[]): Promise<BatchLookupResult> {
+  async getBatch(requests: readonly BatchLookupRequest[]): Promise<BatchLookupResult> {
     if (requests.length === 0) {
       return new Map();
     }
@@ -206,7 +240,9 @@ export class DrizzleEmbeddingCacheRepository {
   /**
    * Internal batch lookup implementation (assumes batch is within size limits).
    */
-  private async getBatchInternal(requests: BatchLookupRequest[]): Promise<BatchLookupResult> {
+  private async getBatchInternal(
+    requests: readonly BatchLookupRequest[]
+  ): Promise<BatchLookupResult> {
     // Group by model key for more efficient queries
     const byModelKey = new Map<string, string[]>();
     for (const req of requests) {
@@ -240,26 +276,28 @@ export class DrizzleEmbeddingCacheRepository {
 
     // Batch update access times (fire-and-forget)
     if (idsToUpdate.length > 0) {
-      this.batchUpdateAccessTime(idsToUpdate).catch((error) => {
-        this.metrics.failedBatchAccessTimeUpdates++;
-        const errorMsg = error instanceof Error ? error.message : String(error);
+      this.trackPendingAccessTimeUpdate(
+        this.batchUpdateAccessTime(idsToUpdate).catch((error) => {
+          this.metrics.failedBatchAccessTimeUpdates++;
+          const errorMsg = error instanceof Error ? error.message : String(error);
 
-        // Alert if failure rate exceeds threshold (triggers error-level logging)
-        if (this.metrics.failedBatchAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
-          this.logger.error('Batch cache access time update failures exceeded threshold', {
-            lastBatchSize: idsToUpdate.length,
-            lastError: errorMsg,
-            threshold: FAILURE_ALERT_THRESHOLD,
-            totalFailures: this.metrics.failedBatchAccessTimeUpdates,
-          });
-        } else {
-          this.logger.warn('Failed to batch update cache access times', {
-            count: idsToUpdate.length,
-            error: errorMsg,
-            totalFailures: this.metrics.failedBatchAccessTimeUpdates,
-          });
-        }
-      });
+          // Alert if failure rate exceeds threshold (triggers error-level logging)
+          if (this.metrics.failedBatchAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
+            this.logger.error('Batch cache access time update failures exceeded threshold', {
+              lastBatchSize: idsToUpdate.length,
+              lastError: errorMsg,
+              threshold: FAILURE_ALERT_THRESHOLD,
+              totalFailures: this.metrics.failedBatchAccessTimeUpdates,
+            });
+          } else {
+            this.logger.warn('Failed to batch update cache access times', {
+              count: idsToUpdate.length,
+              error: errorMsg,
+              totalFailures: this.metrics.failedBatchAccessTimeUpdates,
+            });
+          }
+        })
+      );
     }
 
     this.logger.debug('Batch cache lookup completed', {
@@ -337,7 +375,7 @@ export class DrizzleEmbeddingCacheRepository {
    * @returns Number of entries stored/updated
    */
   async setBatch(
-    entries: Array<{
+    entries: ReadonlyArray<{
       contentHash: string;
       modelKey: string;
       embedding: number[];
@@ -348,12 +386,16 @@ export class DrizzleEmbeddingCacheRepository {
       return 0;
     }
 
+    // First value wins for a duplicate (contentHash, modelKey) — without this,
+    // a multi-row INSERT carrying the same conflict key twice fails with
+    // SQLSTATE 21000 (raw-repo parity, BST-989 Pair C; see _shared.ts).
+    const deduped = dedupeByContentAndModel(entries);
     const now = new Date();
     let stored = 0;
 
     // Process in chunks to avoid query size limits
-    for (let i = 0; i < entries.length; i += MAX_BATCH_SIZE) {
-      const chunk = entries.slice(i, i + MAX_BATCH_SIZE);
+    for (let i = 0; i < deduped.length; i += MAX_BATCH_SIZE) {
+      const chunk = deduped.slice(i, i + MAX_BATCH_SIZE);
 
       const values = chunk.map((entry) => {
         // Validate dimensions
@@ -495,18 +537,18 @@ export class DrizzleEmbeddingCacheRepository {
     const [countResult] = await this.db.select({ count: count() }).from(embeddingCache);
     const totalEntries = countResult?.count ?? 0;
 
-    if (totalEntries <= RECOMMENDED_MAX_CACHE_ENTRIES) {
+    if (totalEntries <= this.maxEntries) {
       return { evicted: 0, needed: false, totalEntries };
     }
 
     // Calculate how many entries to evict to reach target utilization
-    const targetCount = Math.floor(RECOMMENDED_MAX_CACHE_ENTRIES * targetUtilization);
+    const targetCount = Math.floor(this.maxEntries * targetUtilization);
     const toEvict = totalEntries - targetCount;
 
     if (dryRun) {
       this.logger.info('Cache eviction dry run', {
         targetCount,
-        threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
+        threshold: this.maxEntries,
         totalEntries,
         wouldEvict: toEvict,
       });
@@ -517,7 +559,7 @@ export class DrizzleEmbeddingCacheRepository {
     this.logger.info('Cache eviction completed', {
       evicted,
       newTotal: totalEntries - evicted,
-      threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
+      threshold: this.maxEntries,
       totalEntries,
     });
 

@@ -10,6 +10,30 @@ export interface Queryable {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
+// De-duplicate entries on their (contentHash, modelKey) conflict key, keeping the first
+// occurrence. A multi-row `INSERT ... ON CONFLICT (content_hash, model_key) DO UPDATE`
+// fails with SQLSTATE 21000 ("ON CONFLICT DO UPDATE command cannot affect row a second
+// time") if the VALUES list carries the same conflict-target key twice. Under multi-root
+// workspaces, identical content (empty __init__.py, vendored files, lockfiles) lives under
+// two roots as distinct file_records that share one content_hash, so a mixed-root embedding
+// batch routinely carries the duplicate key. NUL separates the two fields because modelKey
+// itself contains ':' (e.g. `local:Xenova/bge-m3`). Shared by both embedding-cache
+// repositories (BST-989 Pair C: the Drizzle variant needs the identical write-side de-dup).
+export function dedupeByContentAndModel<T extends { contentHash: string; modelKey: string }>(
+  entries: readonly T[]
+): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const entry of entries) {
+    const key = `${entry.contentHash}\u0000${entry.modelKey}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(entry);
+    }
+  }
+  return result;
+}
+
 /**
  * Maximum number of file path filters allowed inline for similarity search.
  * Larger selections should use a snapshot table to avoid huge IN clauses.
