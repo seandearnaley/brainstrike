@@ -6,6 +6,10 @@ export type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
+// The shared dimension constants live in the underscore-private _shared
+// module; this barrel is their ONLY public route (BST-990 root-API drift —
+// the root index previously exported the private module directly).
+export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './_shared.js';
 export {
   type AssistantRunErrorDatabase,
   AssistantRunErrorRepository,
@@ -89,3 +93,15 @@ export {
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
 export { ThreadSearchRepository } from './thread-search-repository.js';
+export {
+  type PurgeExpiredToolOutputArtifactsOptions,
+  type ReadToolOutputArtifactRangeInput,
+  type StoreToolOutputArtifactInput,
+  TOOL_OUTPUT_ARTIFACT_RETENTION_MS,
+  type ToolOutputArtifactDatabase,
+  type ToolOutputArtifactRangeResult,
+  ToolOutputArtifactRepository,
+  type ToolOutputArtifactRepositoryOptions,
+  ToolOutputArtifactStorageError,
+  type ToolOutputArtifactStorageOperation,
+} from './tool-output-artifact-repository.js';

@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  deepEqual,
-  escapePGliteLiveQueryFormatPercents,
-  makeLiveQueryKey,
-  usePGliteLiveQuery,
-} from '../src/use-live-query.js';
+// The escape helper is imported from its OWNING module: use-live-query no
+// longer re-exports it (BST-990 — engine helpers stay out of the React
+// module's export chain).
+import { escapePGliteLiveQueryFormatPercents } from '../src/pglite-live-query-format.js';
+import { deepEqual, makeLiveQueryKey, usePGliteLiveQuery } from '../src/use-live-query.js';
 
 // Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
