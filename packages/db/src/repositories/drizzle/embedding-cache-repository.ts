@@ -23,7 +23,12 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { type EmbeddingCacheEntry, embeddingCache } from '../../schema/index.js';
-import { type CreateEmbeddingCacheRepositoryOptions, dedupeByContentAndModel } from '../_shared.js';
+import {
+  assertEmbeddingDimensions,
+  assertFiniteEmbedding,
+  type CreateEmbeddingCacheRepositoryOptions,
+  dedupeByContentAndModel,
+} from '../_shared.js';
 
 /**
  * Maximum batch size for getBatch/setBatch operations.
@@ -327,12 +332,11 @@ export class DrizzleEmbeddingCacheRepository {
     const id = generateUUID();
     const now = new Date();
 
-    // Validate embedding dimensions match
-    if (embedding.length !== dimensions) {
-      throw new Error(
-        `Embedding dimension mismatch: expected ${dimensions}, got ${embedding.length}`
-      );
-    }
+    // Named-error validation shared with the raw repository (Pair C parity):
+    // rejects non-integer/non-positive dimensions, length mismatches, and
+    // non-finite values before they reach pgvector as driver errors.
+    assertEmbeddingDimensions(embedding, dimensions, contentHash);
+    assertFiniteEmbedding(embedding, contentHash);
 
     // Use INSERT ... ON CONFLICT for upsert
     const [row] = await this.db
@@ -397,13 +401,9 @@ export class DrizzleEmbeddingCacheRepository {
       const chunk = deduped.slice(i, i + MAX_BATCH_SIZE);
 
       const values = chunk.map((entry) => {
-        // Validate dimensions
-        if (entry.embedding.length !== entry.dimensions) {
-          throw new Error(
-            `Embedding dimension mismatch for ${entry.contentHash}: ` +
-              `expected ${entry.dimensions}, got ${entry.embedding.length}`
-          );
-        }
+        // Named-error validation shared with the raw repository (Pair C parity).
+        assertEmbeddingDimensions(entry.embedding, entry.dimensions, entry.contentHash);
+        assertFiniteEmbedding(entry.embedding, entry.contentHash);
 
         return {
           accessCount: 1,

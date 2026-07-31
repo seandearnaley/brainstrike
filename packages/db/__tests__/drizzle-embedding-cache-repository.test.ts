@@ -407,6 +407,32 @@ describe('DrizzleEmbeddingCacheRepository promotion parity (BST-989)', () => {
     }
   });
 
+  it('rejects invalid dimensions and non-finite values with named errors', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(db as never));
+      // Raw-repo parity: these previously reached pgvector and surfaced as
+      // driver-level errors instead of named repository errors.
+      await expect(repo.set('h', 'model-a', [], 0)).rejects.toThrow('has invalid dimensions');
+      await expect(repo.set('h', 'model-a', [1, 2], 2.5)).rejects.toThrow('has invalid dimensions');
+      await expect(repo.set('h', 'model-a', [1, Number.NaN, 3], 3)).rejects.toThrow(
+        'contains a non-finite value'
+      );
+      await expect(
+        repo.setBatch([
+          {
+            contentHash: 'h2',
+            dimensions: 3,
+            embedding: [1, Number.POSITIVE_INFINITY, 3],
+            modelKey: 'model-a',
+          },
+        ])
+      ).rejects.toThrow('contains a non-finite value');
+    } finally {
+      await db.close();
+    }
+  });
+
   it('tracks and flushes the getBatch access-time update path too', async () => {
     const db = await createMigratedTestDb();
     try {

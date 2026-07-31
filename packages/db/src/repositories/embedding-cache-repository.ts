@@ -2,7 +2,12 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { drizzle, extractPGlite } from '../drizzle/database.js';
 import type { EmbeddingCacheEntry } from '../schema/index.js';
 import type { CreateEmbeddingCacheRepositoryOptions } from './_shared.js';
-import { dedupeByContentAndModel, parseEmbeddingLoose } from './_shared.js';
+import {
+  assertEmbeddingDimensions,
+  assertFiniteEmbedding,
+  dedupeByContentAndModel,
+  parseEmbeddingLoose,
+} from './_shared.js';
 import type {
   BatchLookupRequest,
   BatchLookupResult,
@@ -33,23 +38,12 @@ interface EmbeddingCacheRow {
 // inverted the layering even though it erased at runtime).
 export type { CreateEmbeddingCacheRepositoryOptions } from './_shared.js';
 
-function assertDimensions(embedding: readonly number[], dimensions: number, label: string): void {
-  if (!Number.isInteger(dimensions) || dimensions <= 0) {
-    throw new Error(`Embedding cache ${label} has invalid dimensions (${dimensions}).`);
-  }
-  if (embedding.length !== dimensions) {
-    throw new Error(
-      `Embedding dimension mismatch for ${label}: expected ${dimensions}, got ${embedding.length}`
-    );
-  }
-}
+// Write-side validation now lives in _shared.ts so the Drizzle variant
+// enforces the identical named-error contract (BST-989 Pair C review).
+const assertDimensions = assertEmbeddingDimensions;
 
 function toVectorLiteral(embedding: readonly number[], label: string): string {
-  for (const value of embedding) {
-    if (!Number.isFinite(value)) {
-      throw new Error(`Embedding cache ${label} contains a non-finite value.`);
-    }
-  }
+  assertFiniteEmbedding(embedding, label);
   return `[${embedding.join(',')}]`;
 }
 

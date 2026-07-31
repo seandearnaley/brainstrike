@@ -15,6 +15,32 @@ export interface CreateEmbeddingCacheRepositoryOptions {
   readonly maxEntries?: number;
 }
 
+// Write-side validation shared by both embedding-cache repositories (BST-989
+// Pair C review): malformed inputs fail with a NAMED repository error rather
+// than surfacing as a driver-level pgvector error.
+export function assertEmbeddingDimensions(
+  embedding: readonly number[],
+  dimensions: number,
+  label: string
+): void {
+  if (!Number.isInteger(dimensions) || dimensions <= 0) {
+    throw new Error(`Embedding cache ${label} has invalid dimensions (${dimensions}).`);
+  }
+  if (embedding.length !== dimensions) {
+    throw new Error(
+      `Embedding dimension mismatch for ${label}: expected ${dimensions}, got ${embedding.length}`
+    );
+  }
+}
+
+export function assertFiniteEmbedding(embedding: readonly number[], label: string): void {
+  for (const value of embedding) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`Embedding cache ${label} contains a non-finite value.`);
+    }
+  }
+}
+
 // De-duplicate entries on their (contentHash, modelKey) conflict key, keeping the first
 // occurrence. A multi-row `INSERT ... ON CONFLICT (content_hash, model_key) DO UPDATE`
 // fails with SQLSTATE 21000 ("ON CONFLICT DO UPDATE command cannot affect row a second
