@@ -29,7 +29,11 @@ test('parses the package list out of a turbo --dry=json payload', () => {
     packages: ['//', '@brainstrike/web', '@brainstrike/db'],
     tasks: [],
   });
-  assert.deepEqual(parseTurboDryRunPackages(payload), ['//', '@brainstrike/web', '@brainstrike/db']);
+  assert.deepEqual(parseTurboDryRunPackages(payload), [
+    '//',
+    '@brainstrike/web',
+    '@brainstrike/db',
+  ]);
 });
 
 test('an empty affected set parses to an empty selection rather than throwing', () => {

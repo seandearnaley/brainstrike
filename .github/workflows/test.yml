@@ -537,18 +537,29 @@ jobs:
       # `--continue=dependencies-successful` reports every independent failure
       # in one run instead of cancelling siblings at the first error — the
       # whole point of a build gate is to show all of what is broken.
+      # Invoked as `pnpm turbo` DIRECTLY, not through the root `pnpm run build`
+      # script, and that is load-bearing: `pnpm run build -- <flags>` preserves
+      # the `--`, so turbo reads the flags as PASS-THROUGH args and appends them
+      # to every package's own build script — where pnpm in turn tacks them onto
+      # the last command of the `&&` chain. Measured on the first run of this PR:
+      # `tsup ... --continue=dependencies-successful` and a node-gyp build both
+      # died that way, and `--filter` would leak identically on any normal PR.
+      # The Unit shards already call `pnpm turbo run test` directly for the same
+      # reason. Mirrors the root script's own turbo flags.
+      #
       # BUILD_FILTERS comes from the selection step FULLY RESOLVED (an empty
       # value means "build everything"), so the build and the E2E gates can
       # never disagree about what was selected — one step decides, everything
-      # downstream consumes. It is intentionally unquoted here so the empty
-      # case contributes no argument; the value never contains spaces.
+      # downstream consumes. Intentionally unquoted so the empty case
+      # contributes no argument; the value never contains spaces.
       #
       # `--continue=dependencies-successful` reports every independent failure
       # in one run instead of cancelling siblings at the first error.
       - name: Build
         env:
           BUILD_FILTERS: ${{ steps.selection.outputs.filters }}
-        run: TAILWIND_DEBUG=1 pnpm run build -- --continue=dependencies-successful $BUILD_FILTERS
+          TAILWIND_DEBUG: '1'
+        run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful $BUILD_FILTERS
 
       # Only meaningful when web was actually built; on a PR that touches
       # neither web nor its dependency closure there is no bundle to validate.
