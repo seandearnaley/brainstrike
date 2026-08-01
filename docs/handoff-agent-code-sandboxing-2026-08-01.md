@@ -319,11 +319,24 @@ landed in PR #1492 (2026-07-07) *with* a breaking-changes review, then a patch
 bump in #1803. There is nothing to bump; the real gap was always the unmeasured
 evaluation. Three weeks of clean Electron-43 CI history back that up.
 
-Captured on the current build (n=10 each): spawn→app-ready **867.7 ms**,
-spawn→assistant-listening **886.5 ms**. **There is no before/after delta** — the
-41.10.0 baseline build failed in the sandbox and was not retried. The numbers are
-labelled *indicative, not conclusive* because other agents were active during the
-run; treat them that way.
+**The harness was fixed after review and re-measured.** The original numbers had
+`stdev ≈ 295 ms` on a median of 868 ms — which review correctly diagnosed as the
+harness's own design, not host noise: one `mkdtemp` profile was shared across all
+runs, so run 1 paid for profile creation, PGlite bootstrap and migrations while
+runs 2..N were warm. Adding a discarded warm-up run dropped stdev to **~18 ms**,
+which confirms the diagnosis empirically rather than by argument.
+
+It also now measures the **production** boot path — `ELECTRON_IS_E2E_TEST` was
+dropped (it is a first-class mode switch flipping renderer launch mode, macOS
+activation policy, test-mode secret handling and preference overrides), leaving
+only `--user-data-dir` for isolation.
+
+Corrected numbers (n=10, Electron 43.1.1, warm-up discarded): spawn→app-ready
+**863.1 ms**, spawn→assistant-listening **880.4 ms**, stdev **~18 ms**.
+
+**There is still no before/after delta** — the 41.10.0 baseline never built. Do
+**not** diff a fresh baseline against these; capture both fresh in one sitting on
+an idle machine. That instruction is in the PR body too.
 
 Native/WASM deps all check out (`secure-fs-native` 7/7, `windows-job-native`
 builds, `node-pty` spawns, PGlite inits and queries) — all Node-API/WASM rather
