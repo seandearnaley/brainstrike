@@ -94,8 +94,31 @@ established (they are in the ticket, repeated here because they are easy to miss
   its own for supply-chain reasons; match that posture).
 - Wire the unpacked dir into **factory reset**.
 
-Prior lane had verified CPython 3.13.14 / release `20260728` with SHA256s for both
-macOS targets — re-verify rather than trusting that line.
+**Salvaged before the lane was lost — PR #2205 (draft), branch
+`seandearnaley/bst-1061-bundle-a-pinned-cpython-...`.** It contains only
+`apps/desktop/resources/python-runtime/manifest.json` plus a `.gitignore` rule,
+but it carries the expensive part: the pinned release, **independently verified
+by downloading both tarballs and hashing them**.
+
+| Field | Value |
+| --- | --- |
+| Release tag | `20260728` |
+| CPython | `3.13.14`, `install_only` |
+| `aarch64-apple-darwin` | `a48399e6ddbb9ccf215eb5afea8f40eca289c808f99faa5d38f35f575a6f1784` |
+| `x86_64-apple-darwin` | `1cae8109be20b827cf39abe76f0ef6fdb5cfc621ab1791beda77abf8ea7bb75e` |
+
+Re-verify if you want, but these were hashed from the real downloads, not copied.
+
+Two further notes from that lane: `app.getPath('userData')` is a **sibling of, not
+a descendant of**, the fence's always-deny credential paths — reasoned-safe, but
+verify it against the now-merged `ALWAYS_DENY_READ_PATHS` rather than trusting the
+reasoning. And the planned error family (`python_unsupported_platform`,
+`python_checksum_mismatch`, `python_unpack_failed`) was chosen to stay clear of
+the seam's four typed errors; keep that separation.
+
+The remaining checklist — fetch script, `resolvePythonBinary()`, call-site wiring,
+factory-reset, `code-execution.md` note, third-party notices — is itemised in
+#2205's body.
 
 ### BST-1067 — Ship `run_python` · **URGENT · the milestone**
 
@@ -239,8 +262,16 @@ AGENTS.md requires it and reviewers enforce it.
 
 ### Operational gotchas
 
+- **`codex exec` cannot commit inside a git worktree** under `-s workspace-write`.
+  A worktree's git metadata (`.git/worktrees/<name>/index.lock`) lives *outside*
+  the `--cd` tree, so the sandbox denies it with `Operation not permitted`. This
+  is structural, not a fluke, and it silently shaped several lanes today. Either
+  **have the orchestrating session run the commits**, or don't put codex in a
+  worktree. A codex agent that "can't commit" will otherwise sit on uncommitted
+  work until its worktree is pruned — combining both traps in this list.
 - **Commit within your first few tool calls.** An unchanged agent worktree gets
-  auto-pruned mid-run; this destroyed one lane's work today.
+  auto-pruned mid-run; this destroyed one lane's work today, and nearly took the
+  bundled-CPython checksums with it.
 - **Never end a turn idle waiting on background work.** Attach a Monitor or an
   until-loop, or the lane stalls silently.
 - **This machine is heavily contended.** Do not write wall-clock-tight
