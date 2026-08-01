@@ -8,6 +8,7 @@ import {
   type ScannedSkill,
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
+import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -382,6 +383,16 @@ function expectProviderSurfaceWithinBudget(args: {
     })
   ).toBeGreaterThanOrEqual(args.floor);
 }
+
+// This suite loads the o200k tokenizer and constructs the full desktop native
+// tool registry. It is computationally heavy, not a UI-component test, and its
+// measured wall time is contention-sensitive (BST-1050). The 30s heavy base is
+// honest for isolated iteration (measured p50 ~10.5s); official root batteries
+// apply the explicit 2x policy. A direct package/editor run under deliberate
+// host contention should set TEST_TIMEOUT_MULTIPLIER=2: a historical loaded
+// tail reached ~33s, which does not justify silently moving the base to the 120s
+// performance band.
+vi.setConfig({ testTimeout: getAdjustedTimeout('heavy') });
 
 describe('desktop native tool provider prompt budget', () => {
   it('records the eager baseline and proposed critical-only definition footprint', () => {

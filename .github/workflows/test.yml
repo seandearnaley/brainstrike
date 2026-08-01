@@ -340,12 +340,12 @@ jobs:
       # few leaf config packages pnpm did not; that is safe over-selection
       # (marginal CI time, usually a cache hit — never missed coverage).
       #
-      # TURBO_TEST_MODE=unit is set EXPLICITLY here so the `test` task cache key
-      # (turbo.jsonc `test.env` = [NODE_ENV, TURBO_TEST_MODE]) matches the push
-      # path below AND the local `pnpm test` script (scripts/run-env.mjs sets the
-      # same value) — otherwise PR and push runs would compute different hashes
-      # and never share cache entries. --concurrency=4 preserves the prior
-      # `--workspace-concurrency=4` parallelism cap.
+      # TURBO_TEST_MODE=unit and TEST_TIMEOUT_MULTIPLIER=2 are set EXPLICITLY
+      # here so the `test` task cache key (both are in turbo.jsonc `test.env`)
+      # matches the push path below AND the local `pnpm test` / `pnpm check`
+      # scripts. The dedicated multiplier gives local tests CI's timeout policy
+      # without setting CI and changing unrelated workload (BST-1050).
+      # --concurrency=4 preserves the prior `--workspace-concurrency=4` cap.
       #
       # PHASE SPLIT (two sequential turbo invocations, one named step each).
       # `test` and `test:integration` previously ran in a SINGLE
@@ -384,6 +384,7 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           COVERAGE: "false"
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
 
@@ -392,6 +393,7 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           COVERAGE: "false"
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --concurrency=2
 
@@ -417,6 +419,7 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
@@ -424,6 +427,7 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
