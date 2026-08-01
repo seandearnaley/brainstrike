@@ -92,6 +92,22 @@ function isAbsolutePath(value: string): boolean {
 }
 
 /**
+ * Leading segments naming the VOLUME rather than a directory, across both
+ * operands. `C:\dir` contributes 1 (the drive letter); `\\server\share\dir`
+ * contributes 2 (host and share — SMB treats both case-insensitively). A
+ * POSIX path contributes 0, so nothing folds.
+ */
+function windowsVolumeSegmentCount(target: string, root: string): number {
+  const count = (value: string): number => {
+    if (WINDOWS_UNC_PATH.test(value)) {
+      return 2;
+    }
+    return WINDOWS_ABSOLUTE_PATH.test(value) ? 1 : 0;
+  };
+  return Math.max(count(target), count(root));
+}
+
+/**
  * Absolute, traversal-free, length-bounded paths only. A leading `~` is
  * REJECTED rather than expanded: sandbox-runtime resolves paths against its
  * own process context, so a `denyRead: ['~/.ssh']` that reaches it unexpanded
@@ -162,10 +178,15 @@ export type ExecPolicy = z.infer<typeof execPolicySchema>;
  * passed through `policyPathSchema`. It never claims coverage it cannot
  * prove; resolve paths before asking.
  *
- * Comparison is case-sensitive for POSIX paths and case-INSENSITIVE when
- * either operand is Windows-shaped: drive-letter case is not stable across
- * Node APIs, so two spellings of the same directory would otherwise be
- * reported as uncovered with an error the caller cannot act on.
+ * Comparison is case-sensitive everywhere EXCEPT the Windows drive letter
+ * (BST-1074). Drive-letter case is what Node APIs spell inconsistently, so
+ * folding it prevents an error the caller cannot act on. Directory segments
+ * are NOT folded: NTFS supports per-directory case sensitivity (WSL enables
+ * it), so folding them could report coverage the filesystem does not grant —
+ * a false PERMIT, which is the unsafe direction, and the same platform-shaped
+ * guess this module rejects for darwin. A case-insensitive volume is served
+ * correctly by resolving first: `realpath` returns the canonical on-disk
+ * spelling.
  */
 export function isPathCoveredBy(target: string, roots: readonly string[]): boolean {
   const targetSegments = pathSegments(target);
@@ -177,10 +198,14 @@ export function isPathCoveredBy(target: string, roots: readonly string[]): boole
     if (rootSegments.includes('..') || rootSegments.length > targetSegments.length) {
       return false;
     }
-    const foldCase = isWindowsShapedPath(target) || isWindowsShapedPath(root);
+    // How many leading segments name the VOLUME rather than a directory:
+    // `C:\dir` → 1 (the drive), `\\server\share\dir` → 2 (host + share, both
+    // case-insensitive at the SMB protocol level). Everything after that is a
+    // directory, which never folds.
+    const volumeSegments = windowsVolumeSegmentCount(target, root);
     return rootSegments.every((segment, index) => {
       const targetSegment = targetSegments[index] ?? '';
-      return foldCase
+      return index < volumeSegments
         ? segment.toLowerCase() === targetSegment.toLowerCase()
         : segment === targetSegment;
     });
@@ -357,6 +382,56 @@ export function resolveCodeExecutor(
     throw new ExecutorTierMismatchError(requested, requiredTier, reportedTier);
   }
   return executor;
+}
+
+/**
+ * The run was cancelled via `ExecInput.signal`.
+ *
+ * Thrown for BOTH positions — aborted while queued behind another execution,
+ * and aborted mid-run — because `ExecResult` describes a run that COMPLETED,
+ * normally or by timeout. Encoding an abort as a result would make it
+ * distinguishable from a timeout only by the ABSENCE of a flag
+ * (`exitCode: null, timedOut: false`), forcing every consumer to
+ * reverse-engineer the intent. Backends throw this instead, so callers write
+ * one `catch`.
+ *
+ * Whatever the process managed to produce before it was killed rides on the
+ * error rather than being discarded — a debug bundle can still show it —
+ * without pretending the run finished. `processStarted` distinguishes "nothing
+ * ever spawned" from "killed mid-run", which is the difference between no side
+ * effects and possible partial ones.
+ */
+export class ExecAbortedError extends Error {
+  readonly code = 'exec_aborted' as const;
+  readonly partialStderr: string;
+  readonly partialStdout: string;
+  readonly processStarted: boolean;
+  readonly stderrOmittedBytes: number;
+  readonly stdoutOmittedBytes: number;
+
+  constructor(options: {
+    readonly partialStderr?: string;
+    readonly partialStdout?: string;
+    readonly processStarted: boolean;
+    readonly stderrOmittedBytes?: number;
+    readonly stdoutOmittedBytes?: number;
+  }) {
+    super(
+      options.processStarted
+        ? 'The execution was aborted and its process tree was terminated; any output it had already produced is on this error.'
+        : 'The execution was aborted before any process started, so no code ran.'
+    );
+    this.name = 'ExecAbortedError';
+    this.partialStderr = options.partialStderr ?? '';
+    this.partialStdout = options.partialStdout ?? '';
+    this.processStarted = options.processStarted;
+    this.stderrOmittedBytes = options.stderrOmittedBytes ?? 0;
+    this.stdoutOmittedBytes = options.stdoutOmittedBytes ?? 0;
+  }
+}
+
+export function isExecAbortedError(value: unknown): value is ExecAbortedError {
+  return value instanceof ExecAbortedError;
 }
 
 export type ExecCapabilityMismatchReason = 'language_unsupported' | 'network_unsupported';

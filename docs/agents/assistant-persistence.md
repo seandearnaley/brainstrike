@@ -105,7 +105,9 @@ contracts keep reloaded threads identical to live ones:
    OpenAI models running native web search emit citation bookkeeping inline in
    the text stream, wrapped in private-use codepoints
    (`U+E200 <type> U+E202 <payload> U+E201`, plus `U+E203..U+E204` hidden spans).
-   `projectMessageContentForTranscript` strips them from BOTH `parts[].text` and
+   `projectMessageContentForTranscript` in
+   `packages/agent/src/pglite-mastra-memory/transcript-projection.ts` strips them
+   from BOTH `parts[].text` and
    the flattened `content` string — the latter is the search extractor's
    fallback for rows with no text parts (see the `CONTENT_TEXT_SQL` contract in
    `packages/db/src/repositories/thread-search-repository.ts`). The rule itself

@@ -1,4 +1,7 @@
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  buildNativeToolRiskMap,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import {
   hasRegisteredSuspendResumeUi,
   REGISTERED_SUSPEND_RESUME_TOOL_IDS,
@@ -7,9 +10,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAskUserTool } from '../../tools/ask-user-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import {
+  ASK_USER_TOOL_ID,
   filterToolsForPlanMode,
   hasSuspendSchema,
   resolveSuspendToolsForRun,
+  SUBMIT_PLAN_TOOL_ID,
   SUSPENDING_NATIVE_TOOL_IDS,
 } from '../plan-mode-tool-gate';
 
@@ -102,6 +107,67 @@ describe('filterToolsForPlanMode', () => {
     const tools = { brainstrike_submitPlan: { id: 'brainstrike.submitPlan', suspendSchema: {} } };
     const result = filterToolsForPlanMode(tools, new Map(), {}, makeLogger());
     expect(result).toHaveProperty('brainstrike_submitPlan');
+  });
+
+  // A suspend schema is NOT a plan-mode admission ticket. Both tools that carry
+  // one today (submitPlan/askUser) are riskCategory 'read', so this was latent
+  // — but run_python needs a suspend schema for its per-call network
+  // escalation, and admitting an execute-risk arbitrary-code tool into plan
+  // mode would defeat the entire point of plan mode.
+  it('omits an execute-risk suspending tool', () => {
+    const logger = makeLogger();
+    const tools = {
+      brainstrike_runPython: { id: 'brainstrike.runPython', suspendSchema: {} },
+    };
+    const result = filterToolsForPlanMode(
+      tools,
+      new Map([['brainstrike_runPython', 'brainstrike.runPython']]),
+      { 'brainstrike.runPython': 'execute' },
+      logger
+    );
+    expect(result).not.toHaveProperty('brainstrike_runPython');
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'plan_mode_tool_omitted', riskCategory: 'execute' })
+    );
+  });
+
+  // The OTHER side of the coupling this change introduces: submitPlan/askUser
+  // now stay in plan mode ONLY because the real catalog classifies them 'read'.
+  // Reclassify either (say someone decides submitPlan should be approval-gated
+  // and flips it to 'edit') and plan mode silently loses its only exit path —
+  // the model could investigate forever but never submit a plan. Uses the REAL
+  // buildNativeToolRiskMap rather than the hand-written fixture, so the
+  // classification itself is what is pinned.
+  it('keeps submitPlan/askUser under the REAL risk catalog (kept as read, not as suspenders)', () => {
+    const tools = {
+      brainstrike_askUser: { id: ASK_USER_TOOL_ID, suspendSchema: {} },
+      brainstrike_submitPlan: { id: SUBMIT_PLAN_TOOL_ID, suspendSchema: {} },
+    };
+    const result = filterToolsForPlanMode(
+      tools,
+      new Map([
+        ['brainstrike_askUser', ASK_USER_TOOL_ID],
+        ['brainstrike_submitPlan', SUBMIT_PLAN_TOOL_ID],
+      ]),
+      buildNativeToolRiskMap(),
+      makeLogger()
+    );
+    expect(result).toHaveProperty('brainstrike_askUser');
+    expect(result).toHaveProperty('brainstrike_submitPlan');
+  });
+
+  it('omits an edit-risk suspending tool', () => {
+    const tools = {
+      brainstrike_editThing: { id: 'brainstrike.editThing', suspendSchema: {} },
+    };
+    const result = filterToolsForPlanMode(
+      tools,
+      new Map([['brainstrike_editThing', 'brainstrike.editThing']]),
+      { 'brainstrike.editThing': 'edit' },
+      makeLogger()
+    );
+    expect(result).not.toHaveProperty('brainstrike_editThing');
   });
 });
 

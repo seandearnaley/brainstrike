@@ -101,8 +101,22 @@ const LANE_WORKFLOW_FILES = ['desktop-e2e.yml', 'test.yml', 'web-e2e.yml'];
 // enough: a parser regression that returned zero titles per file would keep the
 // file count healthy while every reachability question became vacuous.
 const MINIMUMS = {
-  desktop: { lanes: 3, laneTags: 12, specs: 35, titles: 100 },
-  web: { lanes: 8, laneTags: 8, specs: 30, titles: 120 },
+  desktop: {
+    e2eScripts: 8,
+    lanes: 3,
+    laneTags: 12,
+    specs: 35,
+    targetedE2eScripts: 1,
+    titles: 100,
+  },
+  web: {
+    e2eScripts: 15,
+    lanes: 8,
+    laneTags: 8,
+    specs: 30,
+    targetedE2eScripts: 0,
+    titles: 120,
+  },
 };
 
 /**
@@ -110,18 +124,11 @@ const MINIMUMS = {
  * SELF-CLEANING: a listed spec that is actually reachable, or that no longer
  * exists, fails the guard. An exemption cannot rot into a permanent hole.
  */
-const KNOWN_UNREACHABLE_SPECS = {
-  'apps/desktop/e2e/embedding-worker-renderer.crash-b.desktop.test.ts':
-    'Pre-existing orphan found by this guard (BST-1010). The desktop embedding ' +
-    'lane is written inline in .github/workflows/desktop-e2e.yml and its file list ' +
-    'names crash-a but not crash-b, while test:e2e:lane:full-regression ' +
-    'grep-inverts @desktop-embedding-. The fix is a one-line workflow edit, ' +
-    'deliberately out of scope for the PR that introduced this guard. Delete this ' +
-    'entry together with that fix.',
-};
+const KNOWN_UNREACHABLE_SPECS = {};
 
 const APP_DIRECTORIES = { desktop: 'apps/desktop', web: 'apps/web' };
 const APP_TAG_PREFIXES = { desktop: '@desktop-', web: '@web-' };
+const E2E_SCRIPT_PREFIX = 'test:e2e';
 const LANE_SCRIPT_PREFIX = 'test:e2e:lane:';
 
 function toPosix(value) {
@@ -246,7 +253,7 @@ function matchesFlag(token, flag) {
  * segment is not a playwright run (a `pnpm run test:e2e:lane:x` link in a chain,
  * an `unset NO_COLOR` line, an install step).
  */
-function parsePlaywrightInvocation(segment, origin) {
+function parsePlaywrightInvocation(segment, origin, { requireProject = true } = {}) {
   const tokens = tokenize(segment, origin);
   const playwrightIndex = tokens.findIndex(
     (token, index) =>
@@ -301,7 +308,7 @@ function parsePlaywrightInvocation(segment, origin) {
     invocation.files.push(token);
   }
 
-  if (invocation.project === null) {
+  if (requireProject && invocation.project === null) {
     throw new Error(
       `${origin}: playwright invocation has no --project, so which project filters apply is ` +
         'undecidable. Add --project or teach this guard the config default.'
@@ -335,22 +342,41 @@ function findLaneScriptReferences(command) {
   return references;
 }
 
-function collectPackageScriptLanes(app, packageJson) {
+function collectPackageE2eScripts(app, packageJson) {
+  let e2eScriptCount = 0;
   const lanes = [];
   const laneScripts = new Map();
+  const targetedE2eInvocations = [];
   for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
-    if (!name.startsWith(LANE_SCRIPT_PREFIX)) {
+    if (!name.startsWith(E2E_SCRIPT_PREFIX)) {
       continue;
     }
-    laneScripts.set(name, command);
+    e2eScriptCount += 1;
+    const isLane = name.startsWith(LANE_SCRIPT_PREFIX);
+    if (isLane) {
+      laneScripts.set(name, command);
+    }
     for (const segment of splitCommandSegments(command)) {
-      const invocation = parsePlaywrightInvocation(segment, `${APP_DIRECTORIES[app]}#${name}`);
+      const origin = `${APP_DIRECTORIES[app]}#${name}`;
+      const invocation = parsePlaywrightInvocation(segment, origin, { requireProject: isLane });
       if (invocation) {
-        lanes.push({ ...invocation, app, name, scriptName: name });
+        const packageInvocation = { ...invocation, app, name, scriptName: name };
+        if (isLane) {
+          lanes.push(packageInvocation);
+        } else if (invocation.files.length > 0) {
+          if (invocation.project === null) {
+            throw new Error(
+              `${origin}: explicitly targets spec files without --project, so this guard cannot ` +
+                'decide which project filters apply. Add --project rather than leaving the ' +
+                'selector ambiguous.'
+            );
+          }
+          targetedE2eInvocations.push(packageInvocation);
+        }
       }
     }
   }
-  return { laneScripts, lanes };
+  return { e2eScriptCount, laneScripts, lanes, targetedE2eInvocations };
 }
 
 function stepWorkingDirectory(workflow, job, step) {
@@ -553,6 +579,8 @@ export async function analyzeE2eLaneCoverage({
 }) {
   const lanesByApp = { desktop: [], web: [] };
   const laneScriptsByApp = { desktop: new Map(), web: new Map() };
+  const e2eScriptCountByApp = { desktop: 0, web: 0 };
+  const targetedE2eInvocationsByApp = { desktop: [], web: [] };
   const appPackageNames = new Map();
 
   for (const [app, directory] of Object.entries(APP_DIRECTORIES)) {
@@ -564,9 +592,14 @@ export async function analyzeE2eLaneCoverage({
     if (typeof packageJson.name === 'string') {
       appPackageNames.set(packageJson.name, app);
     }
-    const { laneScripts, lanes } = collectPackageScriptLanes(app, packageJson);
+    const { e2eScriptCount, laneScripts, lanes, targetedE2eInvocations } = collectPackageE2eScripts(
+      app,
+      packageJson
+    );
+    e2eScriptCountByApp[app] = e2eScriptCount;
     laneScriptsByApp[app] = laneScripts;
     lanesByApp[app].push(...lanes);
+    targetedE2eInvocationsByApp[app].push(...targetedE2eInvocations);
   }
 
   const directlyInvokedByApp = { desktop: new Set(), web: new Set() };
@@ -610,6 +643,17 @@ export async function analyzeE2eLaneCoverage({
     const lanes = allLanes.filter((lane) => lane.ciInvoked);
 
     const minimums = minimumsByApp[app];
+    assertFloor(
+      e2eScriptCountByApp[app],
+      minimums.e2eScripts,
+      `${app} package script(s) named ${E2E_SCRIPT_PREFIX}*`
+    );
+    const targetedE2eInvocations = targetedE2eInvocationsByApp[app];
+    assertFloor(
+      targetedE2eInvocations.length,
+      minimums.targetedE2eScripts,
+      `${app} explicitly targeted non-lane ${E2E_SCRIPT_PREFIX}* package invocation(s)`
+    );
     assertFloor(lanes.length, minimums.lanes, `${app} CI-invoked E2E lane invocation(s)`);
     assertFloor(allSpecs.length, minimums.specs, `${app} E2E spec file(s)`);
 
@@ -728,36 +772,46 @@ export async function analyzeE2eLaneCoverage({
       }
     }
 
-    // Assertion 3: every lane's explicit file list names files that exist, and
-    // no lane selects zero tests. Checked over ALL lanes, invoked or not — a
-    // dangling path in a dev lane is the same rename bug.
-    for (const lane of allLanes) {
-      for (const file of lane.files) {
+    // Assertion 3: every explicitly targeted `test:e2e*` package script and
+    // inline workflow lane names files that exist and selects a non-empty set.
+    // Broad package scripts with no file list remain outside this assertion:
+    // their default-project selection can include deliberately excluded suites
+    // such as web performance tests, so pretending this lane-only model can
+    // answer for them would be a silent fallback. Any targeted script must name
+    // --project above, making its selector exact. Web's performance specs are
+    // excluded from `allSpecs`; modelling a future `web:performance` project
+    // here therefore also requires lifting that exclusion, or the selection
+    // would be answered against an incomplete universe.
+    const selectorChecks = [...allLanes, ...targetedE2eInvocations];
+    for (const invocation of selectorChecks) {
+      for (const file of invocation.files) {
         if (!existsSync(path.join(appRoot, file))) {
           violations.push({
             app,
-            detail: `${lane.name} names "${file}", which does not exist under ${directory}/. Renamed or deleted?`,
-            kind: 'missing-lane-file',
+            detail: `${invocation.name} names "${file}", which does not exist under ${directory}/. Renamed or deleted?`,
+            kind: 'missing-e2e-file',
           });
         }
       }
       const selectsAnything = allSpecs.some((spec) =>
-        spec.titles.some(({ titlePath }) => selectsTitle(lane, spec.relativeToApp, titlePath))
+        spec.titles.some(({ titlePath }) => selectsTitle(invocation, spec.relativeToApp, titlePath))
       );
       if (!selectsAnything) {
         violations.push({
           app,
-          detail: `${lane.name} selects zero tests — its file list, project filter and grep no longer intersect any spec.`,
-          kind: 'empty-lane',
+          detail: `${invocation.name} selects zero tests — its file list, project filter and grep no longer intersect any spec.`,
+          kind: 'empty-e2e-selection',
         });
       }
     }
 
     apps.push({
       app,
+      e2eScriptCount: e2eScriptCountByApp[app],
       laneNames: lanes.map((lane) => lane.name).sort(),
       laneTagCount: titlePathsByTag.size,
       specCount: allSpecs.length,
+      targetedE2eScriptCount: targetedE2eInvocations.length,
       titleCount,
       uninvokedLaneNames: allLanes
         .filter((lane) => !lane.ciInvoked)
@@ -773,7 +827,7 @@ export function formatReport(report) {
   const lines = [];
   for (const app of report.apps) {
     lines.push(
-      `${app.app}: examined ${app.titleCount} test title(s) across ${app.specCount} spec file(s), ${app.laneNames.length} CI-invoked lane invocation(s), ${app.laneTagCount} lane tag(s)`
+      `${app.app}: examined ${app.titleCount} test title(s) across ${app.specCount} spec file(s), ${app.e2eScriptCount} test:e2e* package script(s), ${app.targetedE2eScriptCount} explicitly targeted non-lane package invocation(s), ${app.laneNames.length} CI-invoked lane invocation(s), ${app.laneTagCount} lane tag(s)`
     );
     for (const laneName of app.laneNames) {
       lines.push(`    lane: ${laneName}`);

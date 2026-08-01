@@ -16,6 +16,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { ExtensionBadge } from '../extension-badge';
+import { useStableSet } from '../hooks/use-stable-set';
 import type { GroupedData, GroupKey, TableRowData } from '../utils/grouping-configs';
 import {
   formatFilePathSubtitle,
@@ -140,21 +141,6 @@ interface BuildGroupedTreeNodesResult {
   expandedGroupNodeIds: Set<string>;
   groupKeyByNodeId: Map<string, GroupKey>;
   nodes: TreeNode<PreviewTreeNodeData>[];
-}
-
-function areStringSetsEqual(left: Set<string>, right: Set<string>): boolean {
-  if (left === right) {
-    return true;
-  }
-  if (left.size !== right.size) {
-    return false;
-  }
-  for (const value of left) {
-    if (!right.has(value)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function resolveGroupNodeId(groupKey: string): string {
@@ -972,7 +958,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   });
   const handleGroupSelectAllStable = useEventCallback(handleGroupSelectAll);
   const handleGroupDeselectAllStable = useEventCallback(handleGroupDeselectAll);
-  const previousExpandedGroupNodeIdsRef = useRef<Set<string> | null>(null);
 
   // Keep refs for values read inside groupedColumns cell closures at call time.
   // This removes previewSelections, isGroupFullySelected, and isGroupPartiallySelected
@@ -1009,20 +994,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     [groupedData, collapsedGroups, pagination, previewSelections]
   );
 
-  const stableExpandedGroupNodeIds = useMemo(() => {
-    const previousExpandedGroupNodeIds = previousExpandedGroupNodeIdsRef.current;
-    if (
-      previousExpandedGroupNodeIds &&
-      areStringSetsEqual(previousExpandedGroupNodeIds, groupedTree.expandedGroupNodeIds)
-    ) {
-      return previousExpandedGroupNodeIds;
-    }
-    return groupedTree.expandedGroupNodeIds;
-  }, [groupedTree.expandedGroupNodeIds]);
-
-  useEffect(() => {
-    previousExpandedGroupNodeIdsRef.current = stableExpandedGroupNodeIds;
-  }, [stableExpandedGroupNodeIds]);
+  const stableExpandedGroupNodeIds = useStableSet(groupedTree.expandedGroupNodeIds);
 
   const primaryGroupColumn = useMemo(
     () => resolvePrimaryGroupColumn(columnVisibility, groupingConfig),

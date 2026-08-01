@@ -541,15 +541,6 @@ export function useSelectedDirectoryCounts(
     selectedDirectoryCountSnapshotRef.current = nextSnapshot;
   }, [nextSnapshot]);
 
-  useEffect(
-    () => () => {
-      selectedDirectoryCountSnapshotRef.current = createSelectedDirectoryCountSnapshot(
-        selectedDirectoryCountSnapshotRef.current.folderId
-      );
-    },
-    []
-  );
-
   return selectionModel.mode === 'query'
     ? queryDirectoryCounts
     : nextSnapshot.selectedDirectoryCounts;

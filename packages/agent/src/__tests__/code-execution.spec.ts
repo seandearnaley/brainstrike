@@ -4,6 +4,7 @@ import {
   assertExecRequestSatisfiable,
   type CodeExecutor,
   createNullCodeExecutor,
+  ExecAbortedError,
   ExecCapabilityMismatchError,
   type ExecInput,
   type ExecutorCapabilities,
@@ -11,6 +12,7 @@ import {
   ExecutorTierMismatchError,
   execInputSchema,
   execPolicySchema,
+  isExecAbortedError,
   isExecCapabilityMismatchError,
   isExecResultTruncated,
   isExecutorKindUnavailableError,
@@ -252,10 +254,25 @@ describe('isPathCoveredBy', () => {
     expect(isPathCoveredBy('/tmp/scratch\\run', ['/tmp'])).toBe(true);
   });
 
-  it('folds case for Windows-shaped paths only', () => {
+  it('folds case for the Windows DRIVE LETTER only, not whole segments', () => {
+    // The drive letter is what Node APIs spell inconsistently, so it folds.
     expect(isPathCoveredBy('c:\\work\\scratch', ['C:\\work'])).toBe(true);
-    expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(true);
+    expect(isPathCoveredBy('C:\\work\\scratch', ['c:\\work'])).toBe(true);
+    // Directory segments do NOT fold: NTFS supports per-directory case
+    // sensitivity (WSL sets it), so folding them could report coverage the
+    // filesystem does not grant — a false PERMIT, the unsafe direction.
+    // Callers realpath first, which yields the canonical on-disk spelling.
+    expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(false);
     expect(isPathCoveredBy('/tmp/Scratch', ['/tmp/scratch'])).toBe(false);
+  });
+
+  it('folds both UNC volume segments (host AND share), but not directories', () => {
+    // SMB treats the host and the share name case-insensitively, so both fold;
+    // a share name is not a directory on a per-directory-case-sensitive volume.
+    expect(isPathCoveredBy('\\\\Server\\Share\\dir', ['\\\\server\\share'])).toBe(true);
+    expect(isPathCoveredBy('\\\\server\\share\\dir', ['\\\\SERVER\\SHARE'])).toBe(true);
+    // The directory after the share does not fold.
+    expect(isPathCoveredBy('\\\\server\\share\\Dir', ['\\\\server\\share\\dir'])).toBe(false);
   });
 });
 
@@ -448,5 +465,45 @@ describe('createNullCodeExecutor', () => {
     const executor = createNullCodeExecutor({ platform: 'win32' });
     await expect(executor.dispose()).resolves.toBeUndefined();
     await expect(executor.dispose()).resolves.toBeUndefined();
+  });
+});
+
+describe('ExecAbortedError', () => {
+  // Cancellation is an error, not a result: `exitCode: null, timedOut: false`
+  // would differ from a timeout only by the ABSENCE of a flag, forcing every
+  // consumer to reverse-engineer the intent.
+  it('reports the queued position as nothing having run', () => {
+    const error = new ExecAbortedError({ processStarted: false });
+    expect(isExecAbortedError(error)).toBe(true);
+    expect(error.code).toBe('exec_aborted');
+    expect(error.name).toBe('ExecAbortedError');
+    expect(error.processStarted).toBe(false);
+    expect(error.message).toMatch(/before any process started/i);
+    expect(error.partialStdout).toBe('');
+    expect(error.partialStderr).toBe('');
+    expect(error.stdoutOmittedBytes).toBe(0);
+    expect(error.stderrOmittedBytes).toBe(0);
+  });
+
+  it('carries the partial output when the process had already started', () => {
+    const error = new ExecAbortedError({
+      partialStderr: 'warn',
+      partialStdout: 'half a line',
+      processStarted: true,
+      stderrOmittedBytes: 3,
+      stdoutOmittedBytes: 12,
+    });
+    expect(error.processStarted).toBe(true);
+    expect(error.partialStdout).toBe('half a line');
+    expect(error.partialStderr).toBe('warn');
+    expect(error.stdoutOmittedBytes).toBe(12);
+    expect(error.stderrOmittedBytes).toBe(3);
+    expect(error.message).toMatch(/process tree was terminated/i);
+  });
+
+  it('is an Error, so one catch covers both positions', () => {
+    expect(new ExecAbortedError({ processStarted: true })).toBeInstanceOf(Error);
+    expect(isExecAbortedError(new Error('nope'))).toBe(false);
+    expect(isExecAbortedError(undefined)).toBe(false);
   });
 });

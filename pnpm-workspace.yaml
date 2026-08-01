@@ -19,6 +19,7 @@ cleanupUnusedCatalogs: true
 # this file, and a rewrite DELETES comments indented inside the catalog: block
 # (verified). Column-0 comments above a block survive.
 catalog:
+  '@anthropic-ai/sandbox-runtime': 0.0.67
   '@assistant-ui/react': '~0.14.26'
   '@assistant-ui/react-data-stream': ^0.12.18
   '@assistant-ui/react-markdown': ^0.14.5
@@ -52,7 +53,7 @@ catalog:
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.2
   '@tanstack/react-table': ^8.21.3
-  '@tanstack/react-virtual': ^3.14.6
+  '@tanstack/react-virtual': ^3.14.9
   '@testing-library/jest-dom': ^6.9.1
   '@testing-library/react': ^16.3.2
   '@testing-library/user-event': ^14.6.1
