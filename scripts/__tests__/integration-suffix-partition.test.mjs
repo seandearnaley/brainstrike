@@ -97,10 +97,34 @@ function declaresUncachedTest(packageDir) {
   return parsed.tasks?.test?.cache === false;
 }
 
-/** Does the `test` script exclude the env-sensitive suffix? */
-function testScriptExcludesSuffix(manifest) {
+/** Which spellings does the `test` script exclude? */
+function excludedSpellings(manifest) {
   const script = manifest.scripts?.test ?? '';
-  return /--exclude\s+["']?\*\*\/\*\.integration\.(test|spec)\.\*/u.test(script);
+  const found = new Set();
+  for (const match of script.matchAll(
+    /--exclude\s+["']?\*\*\/\*\.integration\.(?<spelling>test|spec)\.\*/gu
+  )) {
+    found.add(match.groups.spelling);
+  }
+  return found;
+}
+
+/** Which spellings do this package's env-sensitive files actually use? */
+function presentSpellings(files) {
+  return new Set(files.map((file) => ENV_SENSITIVE_SUFFIX.exec(path.basename(file))[1]));
+}
+
+/**
+ * A package is covered by shape A only if it excludes EVERY spelling it
+ * actually holds. Checking the two spellings independently would leave the
+ * guard's own hazard open: `agent` excludes `.spec.`, so a new
+ * `foo.integration.test.ts` there would satisfy a spelling-agnostic check
+ * while running inside the cacheable lane — exactly the failure this guard
+ * exists to catch (review #2171).
+ */
+function testScriptExcludesSuffix(manifest, files) {
+  const excluded = excludedSpellings(manifest);
+  return [...presentSpellings(files)].every((spelling) => excluded.has(spelling));
 }
 
 function packagesHoldingEnvSensitiveFiles() {
@@ -116,7 +140,7 @@ test('every package with env-sensitive tests keeps them out of the cacheable lan
     if (!pkg.manifest.scripts?.test) {
       continue; // no cacheable `test` task to be unsound about
     }
-    if (testScriptExcludesSuffix(pkg.manifest) || declaresUncachedTest(pkg.dir)) {
+    if (testScriptExcludesSuffix(pkg.manifest, pkg.files) || declaresUncachedTest(pkg.dir)) {
       continue;
     }
     violations.push(
@@ -142,7 +166,7 @@ test('a package excluding the suffix also ships the uncached sibling lane', () =
   // (cache: false) is where they belong.
   const orphaned = [];
   for (const pkg of packagesHoldingEnvSensitiveFiles()) {
-    if (!testScriptExcludesSuffix(pkg.manifest)) {
+    if (!testScriptExcludesSuffix(pkg.manifest, pkg.files)) {
       continue;
     }
     if (!pkg.manifest.scripts?.['test:integration']) {

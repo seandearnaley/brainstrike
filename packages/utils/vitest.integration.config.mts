@@ -26,6 +26,13 @@ export default defineConfig({
   ...baseConfig,
   test: {
     ...baseConfig.test,
+    // Coverage OFF in this lane, matching every other integration config in
+    // the repo. Two reasons: the base config turns coverage on whenever
+    // CI==='true', so the pure and integration lanes would race on the same
+    // coverage temp directory under `turbo run test test:integration`; and
+    // measuring global thresholds against this lane's single file is a
+    // guaranteed non-zero exit. `test:coverage` measures the whole suite.
+    coverage: { ...baseConfig.test?.coverage, enabled: false },
     include: ['**/*.integration.test.?(c|m)[jt]s?(x)'],
   },
 });
