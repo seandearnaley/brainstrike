@@ -23,28 +23,28 @@ describe('layout-helpers (unit)', () => {
     }
   }
 
-  it('uses Vitest-native environment stubs with deterministic cleanup', () => {
-    const implementation = withCiEnv.toString();
-
-    expect(implementation).toContain('stubEnv');
-    expect(implementation).toContain('unstubAllEnvs');
-    expect(implementation).not.toContain('process.env');
-  });
-
   it('restores environment stubs when the callback throws', async () => {
+    const originalHadCI = Object.hasOwn(process.env, 'CI');
+    const originalHadGitHubActions = Object.hasOwn(process.env, 'GITHUB_ACTIONS');
     const originalCI = process.env['CI'];
     const originalGitHubActions = process.env['GITHUB_ACTIONS'];
+    let observedCI: string | undefined;
+    let observedGitHubActions: string | undefined;
 
     await expect(
-      withCiEnv(true, () => {
-        expect(process.env['CI']).toBe('true');
-        expect(process.env['GITHUB_ACTIONS']).toBe('true');
+      withCiEnv(false, () => {
+        observedCI = process.env['CI'];
+        observedGitHubActions = process.env['GITHUB_ACTIONS'];
         throw new Error('callback failed');
       })
     ).rejects.toThrow('callback failed');
 
+    expect(observedCI).toBe('false');
+    expect(observedGitHubActions).toBe('false');
     expect(process.env['CI']).toBe(originalCI);
     expect(process.env['GITHUB_ACTIONS']).toBe(originalGitHubActions);
+    expect(Object.hasOwn(process.env, 'CI')).toBe(originalHadCI);
+    expect(Object.hasOwn(process.env, 'GITHUB_ACTIONS')).toBe(originalHadGitHubActions);
   });
 
   it('getPanelElements returns expected locators', () => {
