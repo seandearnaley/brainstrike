@@ -8,7 +8,6 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -16,39 +15,39 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "require": "./dist/index.js"
     },
     "./chunking-core": {
       "types": "./dist/chunking-core.d.ts",
       "import": "./dist/chunking-core.js",
-      "require": "./dist/chunking-core.cjs"
+      "require": "./dist/chunking-core.js"
     },
     "./token-counting-heuristics": {
       "types": "./dist/token-counting-heuristics.d.ts",
       "import": "./dist/token-counting-heuristics.js",
-      "require": "./dist/token-counting-heuristics.cjs"
+      "require": "./dist/token-counting-heuristics.js"
     },
     "./token-constants": {
       "types": "./dist/token-constants.d.ts",
       "import": "./dist/token-constants.js",
-      "require": "./dist/token-constants.cjs"
+      "require": "./dist/token-constants.js"
     },
     "./token-utils-accurate-lite": {
       "types": "./dist/token-utils-accurate-lite.d.ts",
       "import": "./dist/token-utils-accurate-lite.js",
-      "require": "./dist/token-utils-accurate-lite.cjs"
+      "require": "./dist/token-utils-accurate-lite.js"
     }
   },
   "files": [
     "dist/**"
   ],
-  "main": "./dist/index.cjs",
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
+    "build": "pnpm run clean && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsup --config ./tsup.config.ts --watch",
+    "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",

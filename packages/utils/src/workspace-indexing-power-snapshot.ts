@@ -2,7 +2,7 @@ import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
   WorkspaceIndexingThermalState,
-} from './workspace-indexing-qos';
+} from './workspace-indexing-qos.js';
 
 export interface WorkspaceIndexingPowerSnapshot {
   readonly idleState: WorkspaceIndexingIdleState;

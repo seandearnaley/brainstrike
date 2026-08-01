@@ -5,7 +5,7 @@ import type {
   TransportTargetOptions,
 } from 'pino';
 import pino from 'pino';
-import { isDevEnv } from './env-utils';
+import { isDevEnv } from './env-utils.js';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {

@@ -1,4 +1,4 @@
-import type { DirectoryHandle, DirectoryReadOptions } from './types';
+import type { DirectoryHandle, DirectoryReadOptions } from './types.js';
 
 /**
  * Extracts the native FileSystemDirectoryHandle from an adapter DirectoryHandle.

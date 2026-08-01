@@ -23,7 +23,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAdapters } from './adapters-context';
+import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useTabFileRestoration');
 

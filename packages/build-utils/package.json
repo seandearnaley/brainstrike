@@ -5,7 +5,6 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
@@ -16,21 +15,21 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "default": "./dist/index.mjs"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
     "dist/**"
   ],
-  "main": "./dist/index.mjs",
-  "module": "./dist/index.mjs",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "peerDependencies": {
     "vite": "^8"
   },
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
+    "build": "pnpm run clean && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm -w lint",
     "test": "vitest run",
@@ -44,5 +43,6 @@
       "dist/**"
     ]
   },
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "type": "module"
 }

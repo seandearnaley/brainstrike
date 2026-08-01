@@ -7,8 +7,6 @@
     "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
-    "emitDeclarationOnly": true,
-    "declarationDir": "dist",
     "declarationMap": true,
     "types": [
       "node"

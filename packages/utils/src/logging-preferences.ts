@@ -5,7 +5,7 @@ import {
   type LoggerConfig,
   LogLevel,
 } from '@brainstrike/utils/logger';
-import type { LoggerRuntime } from './logging-initializer';
+import type { LoggerRuntime } from './logging-initializer.js';
 
 export interface FileLoggingPreferences {
   append: boolean;

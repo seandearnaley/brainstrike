@@ -24,9 +24,13 @@ import type {
   WatcherFailure,
   WatcherHealthState,
   WatcherHealthTransition,
-} from '../types';
-import { createFileSystemChangeBatcher } from './electron-watchers';
-import { loadParcelWatcher, type ParcelWatcherModule, selectParcelBackend } from './parcel-backend';
+} from '../types.js';
+import { createFileSystemChangeBatcher } from './electron-watchers.js';
+import {
+  loadParcelWatcher,
+  type ParcelWatcherModule,
+  selectParcelBackend,
+} from './parcel-backend.js';
 
 const logger = createLogger('ParcelWatchers');
 

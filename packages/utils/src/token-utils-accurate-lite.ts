@@ -1,4 +1,4 @@
-import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from './token-constants';
+import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from './token-constants.js';
 
 type EncodeFn = (text: string) => Uint32Array;
 

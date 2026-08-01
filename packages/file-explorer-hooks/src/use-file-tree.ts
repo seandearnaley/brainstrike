@@ -6,8 +6,8 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { finalPath as getFinalPath } from '@brainstrike/utils/path-utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAdapters } from './adapters-context';
-import { calculateDynamicTotal } from './progress-utils';
+import { useAdapters } from './adapters-context.js';
+import { calculateDynamicTotal } from './progress-utils.js';
 
 const logger = createLogger('useFileTree');
 

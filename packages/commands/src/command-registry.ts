@@ -1,4 +1,4 @@
-import type { Command, CommandContext, CommandRegistry } from './types';
+import type { Command, CommandContext, CommandRegistry } from './types.js';
 
 /**
  * Mirrors context-actions `isUsable`: a command is available only when every

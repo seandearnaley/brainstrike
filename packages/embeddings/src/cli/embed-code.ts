@@ -3,9 +3,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { glob } from 'glob';
-import { SimpleEmbeddingService } from '../bge-m3-service';
-import type { EmbeddingProgress, EmbeddingResult, ModelConfig } from '../types';
-import { FALLBACK_MODEL_CONFIG } from '../types';
+import { SimpleEmbeddingService } from '../bge-m3-service.js';
+import type { EmbeddingProgress, EmbeddingResult, ModelConfig } from '../types.js';
+import { FALLBACK_MODEL_CONFIG } from '../types.js';
 
 /**
  * Code file patterns to include in embedding

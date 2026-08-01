@@ -2,8 +2,8 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HmrContext, Plugin, Rolldown } from 'vite';
-import { createBuildLogger } from './build-logger';
-import { isCompilerHotspot } from './compiler-hotspots';
+import { createBuildLogger } from './build-logger.js';
+import { isCompilerHotspot } from './compiler-hotspots.js';
 
 // @ts-expect-error: process.env has index signature
 const isDev = process.env.NODE_ENV === 'development';

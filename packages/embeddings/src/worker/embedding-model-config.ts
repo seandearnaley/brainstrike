@@ -1,7 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
-import type { ModelConfig } from '../types';
+import type { ModelConfig } from '../types.js';
 
 const modelConfigLogger = createLogger('EmbeddingWorkerModelConfig');
 
