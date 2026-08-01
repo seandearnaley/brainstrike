@@ -2,35 +2,6 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing the assistant tool/stream chain, tool approval, lifecycle hooks, or plan-mode/suspension. Keep this doc updated with the code.
 
-## WHERE THE MASTRA STREAMING SPECS LIVE (BST-988)
-
-`packages/agent/src/__tests__/mastra-streaming.spec.ts` was a single 4,246-line
-file covering the whole stream boundary. BST-986 split `agent-streaming.ts` into
-modules; the spec is now split to match. Four files share ONE fake-Mastra harness
-(`packages/agent/src/__tests__/fixtures/mastra-stream-harness.ts` — the mocked
-`Agent`/`Mastra`/MCP classes plus the mutable stream-part queue they read):
-
-| Spec | Pins |
-| --- | --- |
-| `mastra-tool-lifecycle.spec.ts` | `mastra/tool-lifecycle-processors.ts` — `ToolLifecycleState`, `mapToolLifecyclePart`, `mapGenericToolEvent`, `makePendingToolOutputRunEventChunks`, `makeLifecycleStepMetadata` |
-| `mastra-tool-approval-chunks.spec.ts` | `mastra/tool-approval-chunks.ts` (`makeApprovalRequiredChunks`, `makeToolSuspendRequiredChunks`) **paired with** `streamMastraToolApprovalAction` / `streamMastraToolResumeAction` — a pause that cannot be resumed is a bug in the PAIR, so splitting these across two files would let either side stay green while the contract broke |
-| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`, `makeStreamWatchdogTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
-| `mastra-streaming.spec.ts` | What no single module owns: the async-iterator contract, the R6 unknown-chunk diagnostic, token measurement, cross-step usage/cost accumulation, steering, observational-memory chunks, and everything reached through `createMastraAgentRuntime` |
-
-**These are integration specs, not unit specs — deliberately.** They drive
-`streamMastraAgent` over a fake Mastra stream instead of importing the module
-under test, because the mappers are reachable only through the R6 dispatch
-(`processMastraStreamPart`) and the ORDERING they must produce is a property of
-the dispatch loop, not of any single mapper. Contrast
-`packages/agent/src/mastra/__tests__/mastra-chunk-decoding.spec.ts` (BST-985),
-which CAN import its subject directly because those decoders are pure. Put a new
-case in the file whose module owns the behaviour; add a file only when a new
-module seam appears.
-
-`mastra/stream-run-event-chunks.ts` has no dedicated spec on purpose: its
-minting helpers are used by all three of the others, so every file above
-exercises it and no coherent set of cases pins it alone.
-
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety
@@ -720,6 +691,35 @@ mapper and UI key all per-call state by toolCallId and handle interleaving.
 When changing this flow, update this section and the related tests.
 
 ---
+
+## WHERE THE MASTRA STREAMING SPECS LIVE (BST-988)
+
+`packages/agent/src/__tests__/mastra-streaming.spec.ts` was a single 4,246-line
+file covering the whole stream boundary. BST-986 split `agent-streaming.ts` into
+modules; the spec is now split to match. Four files share ONE fake-Mastra harness
+(`packages/agent/src/__tests__/fixtures/mastra-stream-harness.ts` — the mocked
+`Agent`/`Mastra`/MCP classes plus the mutable stream-part queue they read):
+
+| Spec | Pins |
+| --- | --- |
+| `mastra-tool-lifecycle.spec.ts` | `mastra/tool-lifecycle-processors.ts` — `ToolLifecycleState`, `mapToolLifecyclePart`, `mapGenericToolEvent`, `makePendingToolOutputRunEventChunks`, `makeLifecycleStepMetadata` |
+| `mastra-tool-approval-chunks.spec.ts` | `mastra/tool-approval-chunks.ts` (`makeApprovalRequiredChunks`, `makeToolSuspendRequiredChunks`) **paired with** `streamMastraToolApprovalAction` / `streamMastraToolResumeAction` — a pause that cannot be resumed is a bug in the PAIR, so splitting these across two files would let either side stay green while the contract broke |
+| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`, `makeStreamWatchdogTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
+| `mastra-streaming.spec.ts` | What no single module owns: the async-iterator contract, the R6 unknown-chunk diagnostic, token measurement, cross-step usage/cost accumulation, steering, observational-memory chunks, and everything reached through `createMastraAgentRuntime` |
+
+**These are integration specs, not unit specs — deliberately.** They drive
+`streamMastraAgent` over a fake Mastra stream instead of importing the module
+under test, because the mappers are reachable only through the R6 dispatch
+(`processMastraStreamPart`) and the ORDERING they must produce is a property of
+the dispatch loop, not of any single mapper. Contrast
+`packages/agent/src/mastra/__tests__/mastra-chunk-decoding.spec.ts` (BST-985),
+which CAN import its subject directly because those decoders are pure. Put a new
+case in the file whose module owns the behaviour; add a file only when a new
+module seam appears.
+
+`mastra/stream-run-event-chunks.ts` has no dedicated spec on purpose: its
+minting helpers are used by all three of the others, so every file above
+exercises it and no coherent set of cases pins it alone.
 
 ## THREAD SCROLLING (STICK-TO-BOTTOM + JUMP-TO-LATEST)
 

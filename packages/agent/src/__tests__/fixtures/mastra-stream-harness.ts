@@ -127,14 +127,18 @@ export function resetMastraStreamHarness(): void {
   agentInstances.length = 0;
   mastraInstances.length = 0;
   mcpInstances.length = 0;
-  mcpToolsets = {
+  // Every field goes through its setter, including this reset. The header
+  // above advertises each as module-private behind an explicit setter; a
+  // direct assignment here would silently bypass any validation or logging a
+  // setter later gains (review #2173).
+  setMcpToolsets({
     filesystem: {
       'remote tool': { description: 'remote', id: 'remote tool' },
     },
-  };
+  });
   setMockStreamParts([]);
-  streamPartDelayMs = 0;
-  suspendedRuns = defaultSuspendedRuns();
+  setStreamPartDelayMs(0);
+  setSuspendedRuns(defaultSuspendedRuns());
 }
 
 function createMockMastraOutput() {
@@ -230,10 +234,6 @@ export const googleSdkMock = {
 /** Mock module for `@mastra/core/agent`. */
 export const mastraAgentModuleMock = {
   Agent: class {
-    static reset() {
-      agentInstances.length = 0;
-    }
-
     config: { memory?: unknown; tools: Record<string, unknown> };
     approveToolCallCalls: unknown[] = [];
     declineToolCallCalls: unknown[] = [];
