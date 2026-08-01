@@ -15,8 +15,10 @@ export {
   type FenceInterpreter,
   type FenceInterpreterMap,
   FenceInvalidRequestError,
+  FenceQueueTimeoutError,
   FenceUnsupportedLanguageError,
   FenceUnsupportedPlatformError,
+  INHERITED_ENV_VARS,
   isFenceSupported,
 } from './fence/fence-executor';
 export {

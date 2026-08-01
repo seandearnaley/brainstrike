@@ -42,6 +42,25 @@ function resolvePython(): string | undefined {
 
 const pythonPath = resolvePython();
 
+const PROBE_URL = 'https://example.com';
+
+/**
+ * Unsandboxed reachability probe. The allow-list test asserts a real 200
+ * through srt's proxy, so on a host with restricted egress it would fail RED
+ * for a reason that has nothing to do with the fence. Its sibling
+ * "re-denies the network" test would then pass VACUOUSLY, since absence of a
+ * reachable host is indistinguishable from a working deny — so the whole
+ * suite skips together rather than reporting a leak guard it never exercised.
+ */
+async function isNetworkReachable(): Promise<boolean> {
+  try {
+    const response = await fetch(PROBE_URL, { signal: AbortSignal.timeout(15_000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function describeSkipReason(): Promise<string | undefined> {
   if (platform !== 'darwin' && platform !== 'linux') {
     return `the OS fence requires macOS (Seatbelt) or Linux (bubblewrap); this host is '${platform}'`;
@@ -52,6 +71,9 @@ async function describeSkipReason(): Promise<string | undefined> {
   }
   if (!pythonPath) {
     return 'no python3/python interpreter is on PATH';
+  }
+  if (!(await isNetworkReachable())) {
+    return `${PROBE_URL} is not reachable unsandboxed, so neither the network allow-list nor the (otherwise vacuous) network-deny assertions can be proven here`;
   }
   return;
 }
@@ -238,5 +260,82 @@ describe.skipIf(skipReason !== undefined)('FenceExecutor against the real OS fen
       ].join('\n')
     );
     expect(result.stdout).not.toContain('NETWORK-REACHED');
+    // Not merely "absent": the suite only runs when the host CAN reach this
+    // URL, so a block here is the fence, not a dead network.
+    expect(result.stdout).toContain('NETWORK-BLOCKED');
   });
+
+  it('does NOT hand host environment secrets to the sandboxed process', async () => {
+    // The filesystem deny-list is pointless if the same secrets ride in on
+    // the environment. This is the channel nothing else in the suite covers.
+    const canary = 'bst-fence-canary-must-not-leak';
+    process.env['AWS_SECRET_ACCESS_KEY'] = canary;
+    process.env['ANTHROPIC_API_KEY'] = canary;
+    process.env['BRAINSTRIKE_FENCE_CANARY'] = canary;
+    try {
+      const result = await run(
+        [
+          'import os',
+          'names = ["AWS_SECRET_ACCESS_KEY", "ANTHROPIC_API_KEY", "BRAINSTRIKE_FENCE_CANARY"]',
+          'print("LEAKED", [n for n in names if n in os.environ])',
+          'print("ALLENV", "|".join(os.environ.values()))',
+        ].join('\n')
+      );
+      expect(result.stdout).toContain('LEAKED []');
+      expect(result.stdout).not.toContain(canary);
+      // The interpreter still gets what it needs to run at all.
+      expect(result.exitCode).toBe(0);
+    } finally {
+      process.env['AWS_SECRET_ACCESS_KEY'] = undefined;
+      process.env['ANTHROPIC_API_KEY'] = undefined;
+      process.env['BRAINSTRIKE_FENCE_CANARY'] = undefined;
+    }
+  });
+
+  it('passes through the interpreter env a caller explicitly declared', async () => {
+    const declared = createFenceExecutor({
+      interpreters: {
+        python: {
+          command: pythonPath as string,
+          env: { BRAINSTRIKE_DECLARED: 'declared-value' },
+          scriptExtension: 'py',
+        },
+      },
+    });
+    try {
+      const result = await declared.execute({
+        code: 'import os; print("DECLARED", os.environ.get("BRAINSTRIKE_DECLARED"))',
+        language: 'python',
+        policy: NO_NETWORK,
+        scratchDir,
+        timeoutMs: 20_000,
+      });
+      expect(result.stdout).toContain('DECLARED declared-value');
+    } finally {
+      await declared.dispose();
+    }
+  });
+
+  it('does not settle until the process group is down, even when stdio closes early', async () => {
+    // The descendant detaches its stdio, so our pipes close while it is still
+    // alive. Settling there would return with it running, free to outlive the
+    // policy this run was granted.
+    const marker = join(scratchDir, 'detached-stdio-marker.txt');
+    rmSync(marker, { force: true });
+    const result = await run(
+      [
+        'import subprocess, sys, os',
+        'devnull = os.open(os.devnull, os.O_RDWR)',
+        `subprocess.Popen([sys.executable, "-c", ${JSON.stringify(
+          `import time; time.sleep(5); open(${JSON.stringify(marker)}, "w").write("survived")`
+        )}], stdin=devnull, stdout=devnull, stderr=devnull)`,
+        'print("PARENT-DONE")',
+      ].join('\n')
+    );
+    expect(result.stdout).toContain('PARENT-DONE');
+    expect(result.timedOut).toBe(false);
+
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+    expect(existsSync(marker)).toBe(false);
+  }, 30_000);
 });

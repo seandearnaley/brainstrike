@@ -6,7 +6,8 @@
  * unit-testable without spawning anything.
  */
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { isAbsolute, join, normalize, resolve, sep } from 'node:path';
+import { platform } from 'node:process';
 import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
 import { type ExecPolicy, execPolicySchema } from '../code-execution';
@@ -69,14 +70,63 @@ function expandTilde(path: string): string {
   return path;
 }
 
+/** Metacharacters srt would expand into paths this module never inspected. */
+const GLOB_CHARACTERS = /[*?[\]{}]/;
+
+/**
+ * Case-insensitive on the platforms whose default filesystem is: otherwise
+ * `~/.SSH` compares unequal to `~/.ssh` on APFS and slips past containment.
+ */
+const FILESYSTEM_IS_CASE_INSENSITIVE = platform === 'darwin' || platform === 'win32';
+
+function canonical(path: string): string {
+  const resolved = resolve(expandTilde(path));
+  return FILESYSTEM_IS_CASE_INSENSITIVE ? resolved.toLowerCase() : resolved;
+}
+
 /** True when `candidate` is `parent` itself or lives beneath it. */
 function isAtOrUnder(candidate: string, parent: string): boolean {
-  const normalizedCandidate = resolve(expandTilde(candidate));
-  const normalizedParent = resolve(expandTilde(parent));
+  const normalizedCandidate = canonical(candidate);
+  const normalizedParent = canonical(parent);
   return (
     normalizedCandidate === normalizedParent ||
     normalizedCandidate.startsWith(normalizedParent + sep)
   );
+}
+
+/**
+ * Every policy path is normalized to the exact string srt receives, and
+ * anything ambiguous is refused rather than guessed:
+ *
+ * - a GLOB would be expanded by srt into paths this module never compared
+ *   against the always-denied stores, so `allowRead: ['~/.config/*']` would
+ *   silently re-open `~/.config/gcloud`. The seam has no stated need for glob
+ *   paths; refusing is the non-degrading option.
+ * - a RELATIVE path is resolved by srt against the Node process cwd, not
+ *   `scratchDir`, so the grant lands somewhere the caller did not write.
+ * - a `..` segment makes the written policy and the effective policy differ.
+ *
+ * Tilde is expanded HERE so the containment guard below and srt operate on
+ * the same bytes.
+ */
+function normalizePolicyPath(field: string, path: string): string {
+  if (GLOB_CHARACTERS.test(path)) {
+    throw new FencePolicyError(
+      `${field} entry ${JSON.stringify(path)} contains a glob; the fence needs literal paths it can compare against the always-denied credential stores.`
+    );
+  }
+  const expanded = expandTilde(path);
+  if (!isAbsolute(expanded)) {
+    throw new FencePolicyError(
+      `${field} entry ${JSON.stringify(path)} is not absolute; a relative path would be resolved against this process's cwd, not scratchDir.`
+    );
+  }
+  if (expanded.split(sep).includes('..')) {
+    throw new FencePolicyError(
+      `${field} entry ${JSON.stringify(path)} contains a '..' segment; the written policy and the effective policy must be the same path.`
+    );
+  }
+  return normalize(expanded);
 }
 
 /**
@@ -105,7 +155,10 @@ export function buildSandboxRuntimeConfig(
     );
   }
 
-  const allowRead = parsed.allowRead ?? [];
+  const allowRead = (parsed.allowRead ?? []).map((path) => normalizePolicyPath('allowRead', path));
+  const allowWrite = parsed.allowWrite.map((path) => normalizePolicyPath('allowWrite', path));
+  const denyRead = (parsed.denyRead ?? []).map((path) => normalizePolicyPath('denyRead', path));
+
   for (const readable of allowRead) {
     const reopened = ALWAYS_DENY_READ_PATHS.find((denied) => isAtOrUnder(readable, denied));
     if (reopened) {
@@ -118,8 +171,8 @@ export function buildSandboxRuntimeConfig(
   return {
     filesystem: {
       allowRead,
-      allowWrite: [scratchDir, ...parsed.allowWrite],
-      denyRead: [...ALWAYS_DENY_READ_PATHS, ...(parsed.denyRead ?? [])],
+      allowWrite: [normalize(scratchDir), ...allowWrite],
+      denyRead: [...ALWAYS_DENY_READ_PATHS, ...denyRead],
       denyWrite: [],
     },
     // An empty allowedDomains list IS the no-network state: srt still routes

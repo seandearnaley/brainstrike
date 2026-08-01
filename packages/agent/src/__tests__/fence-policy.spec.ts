@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { platform } from 'node:process';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -80,7 +81,8 @@ describe('buildSandboxRuntimeConfig', () => {
       throw new Error('unreachable');
     }
     expect(caught.code).toBe('fence_policy_invalid');
-    expect(caught.message).toContain('~/.ssh');
+    // Reported as the normalized path — the bytes srt would have received.
+    expect(caught.message).toContain(join(homedir(), '.ssh'));
   });
 
   it('rejects an allowRead nested INSIDE an always-denied store (the real re-open shape)', () => {
@@ -99,6 +101,67 @@ describe('buildSandboxRuntimeConfig', () => {
         scratchDir
       )
     ).not.toThrow();
+  });
+
+  it('rejects a GLOB in allowRead — srt would expand it past the containment guard', () => {
+    // ~/.config/* is not at-or-under ~/.config/gcloud, so a literal comparison
+    // passes it; srt then expands it right back over the denied store.
+    expect(() =>
+      buildSandboxRuntimeConfig(
+        { allowedDomains: [], allowRead: [join(homedir(), '.config', '*')], allowWrite: [] },
+        scratchDir
+      )
+    ).toThrowError(FencePolicyError);
+    expect(() =>
+      buildSandboxRuntimeConfig(
+        { allowedDomains: [], allowRead: [join(homedir(), '.s*')], allowWrite: [] },
+        scratchDir
+      )
+    ).toThrowError(FencePolicyError);
+  });
+
+  it.runIf(platform === 'darwin')(
+    'catches a case-variant re-open on a case-insensitive filesystem',
+    () => {
+      expect(() =>
+        buildSandboxRuntimeConfig(
+          { allowedDomains: [], allowRead: [join(homedir(), '.SSH')], allowWrite: [] },
+          scratchDir
+        )
+      ).toThrowError(FencePolicyError);
+    }
+  );
+
+  it.each([
+    'allowWrite',
+    'allowRead',
+    'denyRead',
+  ] as const)('rejects a relative %s entry rather than letting srt resolve it against this process cwd', (field) => {
+    expect(() =>
+      buildSandboxRuntimeConfig(
+        { allowedDomains: [], allowWrite: [], [field]: ['../out'] },
+        scratchDir
+      )
+    ).toThrowError(FencePolicyError);
+  });
+
+  it('rejects a .. segment so the written policy and the effective policy agree', () => {
+    expect(() =>
+      buildSandboxRuntimeConfig(
+        // Written as a raw string: path.join would collapse the `..` itself.
+        { allowedDomains: [], allowWrite: [`${homedir()}/a/../b`] },
+        scratchDir
+      )
+    ).toThrowError(FencePolicyError);
+  });
+
+  it('expands a tilde on policy paths so srt receives what the guard compared', () => {
+    const config = buildSandboxRuntimeConfig(
+      { allowedDomains: [], allowWrite: ['~/projects/out'] },
+      scratchDir
+    );
+    expect(config.filesystem.allowWrite).toEqual([scratchDir, join(homedir(), 'projects', 'out')]);
+    expect(config.filesystem.allowWrite.some((path) => path.includes('~'))).toBe(false);
   });
 
   it('rejects a relative scratch dir instead of resolving it against an implicit cwd', () => {

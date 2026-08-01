@@ -94,9 +94,30 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   broader `allowRead`. An `allowRead` entry AT or UNDER one of these throws
   `FencePolicyError`; it is never silently dropped. An ANCESTOR entry is fine
   (srt re-emits the nested deny).
+- **Every policy path is normalized at this boundary, and anything ambiguous
+  is refused.** A GLOB in `allowRead` is rejected — srt would expand it into
+  paths the containment guard never compared, so `allowRead: ['~/.config/*']`
+  would silently re-open `~/.config/gcloud`. A RELATIVE path is rejected — srt
+  resolves it against the Node process cwd, not `scratchDir`. A `..` segment
+  is rejected so the written and effective policies are the same path. `~` is
+  expanded here so the guard and srt see identical bytes, and containment
+  compares case-insensitively on darwin/win32 (APFS would otherwise let
+  `~/.SSH` through).
+- **The sandboxed process environment is an ALLOW-LIST, never a pass-through**
+  (`INHERITED_ENV_VARS`: `HOME`, `LANG`, `LC_ALL`, `LC_CTYPE`, `PATH`,
+  `TMPDIR`, `TZ`). Denying `~/.aws` on disk is pointless if
+  `AWS_SECRET_ACCESS_KEY` — or this app's provider API keys — ride in on the
+  environment, and that channel is not covered by any filesystem rule.
+  Anything an interpreter needs beyond the list is named explicitly on
+  `FenceInterpreter.env`. Keys srt CHANGED in the env it returns are carried
+  over, so a future srt that starts returning proxy vars in `env` keeps
+  working without reopening the host environment. Proven by an integration
+  test that plants secret-shaped vars in the parent and asserts their absence.
 - **`scratchDir` is always writable** and listed first in
-  `filesystem.allowWrite`; the script srt runs is written there and removed
-  after the run.
+  `filesystem.allowWrite`; the script srt runs is written there with
+  `mode: 0o600` (this module does not own `scratchDir`, and a shared one would
+  otherwise leave a window where another local user could read or replace the
+  script) and removed after the run.
 - **Session lifecycle: initialize ONCE per process, `updateConfig` per
   execution.** `SandboxManager` is a process-global singleton — a second
   `initialize()` is a no-op, and its network proxy reads the module-level
@@ -107,12 +128,25 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   `SandboxManager.reset()` only when the last one goes away.
   `cleanupAfterCommand()` runs after every execution (it clears bwrap mount
   points; inert elsewhere, but one code path).
-- **Timeout kills the whole process TREE.** Children are spawned
-  `detached: true` (so the child is a process-group leader) and the timeout
-  signals the negative pid: SIGTERM, then SIGKILL after 500 ms. `timedOut` is
-  set; the exit code is `128 + signum` when no code is available. A proven
-  test asserts a grandchild spawned by the sandboxed code does not outlive
-  the kill. Live groups are also reaped on the host's `process exit` event —
+- **The deadline starts when `execute()` is entered, not at spawn.** Because
+  executions are serialized, a spawn-scoped timer would silently mean
+  "queue wait + `timeoutMs`" and a caller behind two other runs could not tell
+  a queue from a hung fence. If the whole budget elapses while queued, nothing
+  is spawned and `FenceQueueTimeoutError` is thrown — never a fabricated
+  `ExecResult` for code that did not run.
+- **Timeout kills the whole process TREE, and no path settles before the group
+  is down.** Children are spawned `detached: true` (so the child is a
+  process-group leader) and the timeout signals the negative pid: SIGTERM,
+  then SIGKILL after 500 ms. `timedOut` is set; the exit code is
+  `128 + signum` when no code is available. Settling on `'close'` alone would
+  be a bug: a descendant that detaches its stdio closes our pipes while still
+  running, so an early settle would clear the pending SIGKILL and return with
+  that process alive — free to still be running when `updateConfig()` installs
+  the NEXT execution's allow-list. So `'close'` only settles once the root's
+  exit status is known, and the settle path itself SIGKILLs the group. Two
+  proven tests cover this: a grandchild does not outlive a timeout kill, and a
+  detached-stdio descendant does not outlive a normal completion. Live groups
+  are also reaped on the host's `process exit` event —
   `detached` means a run would otherwise outlive the timer that bounds it.
   **Residual risk**: a hard crash of the host process (SIGKILL) cannot run
   that reaper, so a sandboxed run would keep going — still inside its fence,
@@ -124,8 +158,11 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   projection budget (docs/agents/assistant-providers.md).
 
 The integration suite skips only with a message naming exactly what is
-missing (platform, srt dependency, or interpreter) — never by weakening an
-assertion.
+missing (platform, srt dependency, interpreter, or unsandboxed reachability of
+the probe URL) — never by weakening an assertion. The reachability guard
+matters in both directions: without it the allow-list test fails RED on a host
+with restricted egress, AND its sibling network-deny test would pass
+VACUOUSLY, asserting a leak guard it never actually exercised.
 
 ### VM executor (mode two)
 

@@ -52,6 +52,29 @@ export const FENCE_MAX_STREAM_BYTES = 1024 * 1024;
 /** Grace period between the SIGTERM and the SIGKILL sent to the process tree. */
 const KILL_GRACE_MS = 500;
 
+/**
+ * The ONLY host environment variables a sandboxed process inherits.
+ *
+ * The filesystem deny-list keeps `~/.aws` and `~/.npmrc` out of the sandbox;
+ * inheriting `process.env` wholesale would hand the same secrets — plus this
+ * app's provider API keys — straight to model-authored code through a channel
+ * nothing checks. So the environment is an allow-list, not a pass-through, and
+ * the decision lives here rather than being whatever srt's current version
+ * happens to return.
+ *
+ * Anything an interpreter additionally needs is named on its
+ * {@link FenceInterpreter.env}.
+ */
+export const INHERITED_ENV_VARS: readonly string[] = [
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'PATH',
+  'TMPDIR',
+  'TZ',
+];
+
 /** How long to wait for the stdio pipes to close after the root process exits. */
 const DRAIN_AFTER_EXIT_MS = 250;
 
@@ -62,6 +85,13 @@ const DRAIN_AFTER_EXIT_MS = 250;
 export interface FenceInterpreter {
   readonly args?: readonly string[];
   readonly command: string;
+  /**
+   * Extra environment this interpreter needs (a bundled CPython's
+   * `PYTHONHOME`/`PYTHONPATH`, say). Nothing else from the host environment
+   * reaches the sandbox — see {@link INHERITED_ENV_VARS} — so anything
+   * required must be named here, visibly.
+   */
+  readonly env?: Readonly<Record<string, string>>;
   /** Extension for the script file written into scratchDir, without the dot. */
   readonly scriptExtension: string;
 }
@@ -112,6 +142,24 @@ export class FenceInvalidRequestError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'FenceInvalidRequestError';
+  }
+}
+
+/**
+ * The request's whole timeout elapsed while it waited behind other executions,
+ * so nothing was ever spawned. Distinct from a run that timed out: no code
+ * executed, so there is no `ExecResult` to report.
+ */
+export class FenceQueueTimeoutError extends Error {
+  readonly code = 'fence_queue_timeout' as const;
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(
+      `The ${timeoutMs}ms budget elapsed while this execution waited behind others; no code was run. Executions are serialized because sandbox-runtime's session state is process-global.`
+    );
+    this.name = 'FenceQueueTimeoutError';
+    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -192,6 +240,37 @@ function registerExitReaper(): void {
     }
     liveProcessGroups.clear();
   });
+}
+
+/**
+ * The environment the sandboxed process actually gets: the allow-list above,
+ * plus this interpreter's declared additions, plus anything srt ADDED to the
+ * env it handed back.
+ *
+ * That last part matters for forward-compatibility. On macOS/Linux srt bakes
+ * its proxy/CA variables into the wrapped command string and returns
+ * `process.env` unchanged, so today the diff is empty — but a later version
+ * that starts returning them in `env` keeps working, while host secrets still
+ * never cross, because only keys srt CHANGED are carried over.
+ */
+function buildSandboxEnv(
+  srtEnv: NodeJS.ProcessEnv,
+  interpreterEnv: Readonly<Record<string, string>> | undefined
+): NodeJS.ProcessEnv {
+  const inherited: NodeJS.ProcessEnv = {};
+  for (const name of INHERITED_ENV_VARS) {
+    const value = process.env[name];
+    if (value !== undefined) {
+      inherited[name] = value;
+    }
+  }
+  const addedBySrt: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(srtEnv)) {
+    if (value !== undefined && process.env[name] !== value) {
+      addedBySrt[name] = value;
+    }
+  }
+  return { ...inherited, ...interpreterEnv, ...addedBySrt };
 }
 
 function toExitCode(code: number | null, signal: NodeJS.Signals | null): number {
@@ -293,7 +372,13 @@ function spawnFenced(
       }
       settled = true;
       clearTimers();
+      // Tear the group down BEFORE settling, on every path. A descendant that
+      // detached its stdio closes our pipes while still running, which fires
+      // 'close' early — settling there would clear the pending SIGKILL and
+      // return with the descendant alive, free to outlive the policy this run
+      // was granted. Killing here means no exit path can leak the group.
       if (child.pid !== undefined) {
+        killTree(child.pid, 'SIGKILL');
         liveProcessGroups.delete(child.pid);
       }
       resolvePromise({
@@ -324,17 +409,18 @@ function spawnFenced(
       exitCode = code;
       exitSignal = signal;
       // 'close' waits for every pipe holder; a surviving grandchild can keep
-      // stdout open forever. Give the pipes a short drain window, then take
-      // the group down and report the status we already have.
-      later(DRAIN_AFTER_EXIT_MS, () => {
-        if (child.pid !== undefined) {
-          killTree(child.pid, 'SIGKILL');
-        }
-        finish();
-      });
+      // stdout open forever. Give the pipes a short drain window, then finish
+      // (which tears the group down) with the status we already have.
+      later(DRAIN_AFTER_EXIT_MS, finish);
     });
 
-    child.on('close', finish);
+    // Deliberately NOT settling on 'close' alone: pipes can close while the
+    // group still has members. Wait for the root's exit status, then finish.
+    child.on('close', () => {
+      if (exitCode !== null || exitSignal !== null) {
+        finish();
+      }
+    });
 
     const { pid } = child;
     if (pid === undefined) {
@@ -421,12 +507,26 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
       input.scratchDir,
       `brainstrike-exec-${randomUUID()}.${interpreter.scriptExtension}`
     );
+    // The deadline starts HERE, not at spawn. Executions are serialized
+    // process-wide, so a spawn-scoped timeout would silently mean
+    // "queue wait + timeoutMs" and a caller waiting behind two other runs
+    // could not tell a queue from a hung fence.
+    const deadline = Date.now() + input.timeoutMs;
 
     return await runExclusive(async () => {
       if (disposed) {
         throw new FenceExecutorDisposedError();
       }
-      await writeFile(scriptPath, input.code, 'utf8');
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        // Nothing ran, so there is no honest ExecResult to return — the seam
+        // forbids fabricating one for code that never executed.
+        throw new FenceQueueTimeoutError(input.timeoutMs);
+      }
+      // 0o600: this module does not own scratchDir, and a shared or
+      // group-writable one would otherwise leave a window where another local
+      // user can read or replace the script that is about to run.
+      await writeFile(scriptPath, input.code, { encoding: 'utf8', mode: 0o600 });
       try {
         await applySessionConfig(config);
         const command = [interpreter.command, ...(interpreter.args ?? []), scriptPath]
@@ -439,7 +539,12 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
           undefined,
           input.scratchDir
         );
-        return await spawnFenced(argv, env, input.scratchDir, input.timeoutMs);
+        return await spawnFenced(
+          argv,
+          buildSandboxEnv(env, interpreter.env),
+          input.scratchDir,
+          Math.max(1, deadline - Date.now())
+        );
       } finally {
         // Linux-only in effect (it clears bwrap mount points), but calling it
         // unconditionally keeps one code path and is a no-op elsewhere.
