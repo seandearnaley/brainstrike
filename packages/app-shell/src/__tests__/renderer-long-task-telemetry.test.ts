@@ -43,7 +43,7 @@ describe('renderer-long-task-telemetry', () => {
     });
 
     expect(telemetry.snapshot()).toMatchObject({
-      availability: 'active',
+      availability: 'idle',
       durationP50Ms: 100,
       durationP95Ms: 120,
       featureFlags: [
@@ -179,6 +179,53 @@ describe('renderer-long-task-telemetry', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('defers snapshot rebuilding until an unobserved store is read', () => {
+    const now = vi.fn(() => 1000);
+    const telemetry = createRendererLongTaskTelemetry({ now });
+
+    expect(now).toHaveBeenCalledTimes(1);
+
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: [],
+      route: 'settings',
+    });
+
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(telemetry.getSnapshot()).toMatchObject({ sampleCount: 1 });
+    expect(now).toHaveBeenCalledTimes(3);
+    expect(telemetry.getSnapshot()).toBe(telemetry.getSnapshot());
+    expect(now).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not let direct samples mask a failed observer', () => {
+    class ThrowingPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(_callback: PerformanceObserverCallback) {
+        throw new Error('observer construction failed');
+      }
+    }
+    vi.stubGlobal('PerformanceObserver', ThrowingPerformanceObserver);
+    const telemetry = createRendererLongTaskTelemetry();
+    telemetry.observe(() => ({
+      enabledFeatureFlags: [],
+      route: 'explorer',
+    }));
+
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: [],
+      route: 'settings',
+    });
+
+    expect(telemetry.snapshot()).toMatchObject({
+      availability: 'failed',
+      sampleCount: 1,
+      unavailableReason: 'observer construction failed',
+    });
+  });
+
   it('surfaces unsupported and failed observer states instead of silently degrading', () => {
     vi.stubGlobal('PerformanceObserver', undefined);
     const unsupported = createRendererLongTaskTelemetry();
@@ -207,6 +254,30 @@ describe('renderer-long-task-telemetry', () => {
     expect(failed.snapshot()).toMatchObject({
       availability: 'failed',
       unavailableReason: 'observer construction failed',
+    });
+  });
+
+  it('treats an empty supported entry type list as explicitly unsupported', () => {
+    const observe = vi.fn();
+    class UnsupportedPerformanceObserver {
+      static readonly supportedEntryTypes: readonly string[] = [];
+
+      observe(): void {
+        observe();
+      }
+    }
+    vi.stubGlobal('PerformanceObserver', UnsupportedPerformanceObserver);
+    const telemetry = createRendererLongTaskTelemetry();
+
+    telemetry.observe(() => ({
+      enabledFeatureFlags: [],
+      route: 'explorer',
+    }));
+
+    expect(observe).not.toHaveBeenCalled();
+    expect(telemetry.snapshot()).toMatchObject({
+      availability: 'unsupported',
+      unavailableReason: 'This renderer does not support PerformanceObserver longtask entries.',
     });
   });
 });

@@ -490,6 +490,19 @@ function formatDuration(durationMs: number | null): string {
   return durationMs === null ? 'No samples' : `${Math.round(durationMs)} ms`;
 }
 
+function formatRendererLongTaskStatus(snapshot: RendererLongTaskTelemetrySnapshot): string {
+  if (snapshot.availability === 'active') {
+    return formatCount(snapshot.sampleCount, 'sample', 'samples');
+  }
+  if (snapshot.availability === 'failed') {
+    return 'Failed';
+  }
+  if (snapshot.availability === 'unsupported') {
+    return 'Unsupported';
+  }
+  return 'Idle';
+}
+
 function RendererLongTaskStatusSection({
   snapshot,
 }: {
@@ -501,7 +514,7 @@ function RendererLongTaskStatusSection({
       : snapshot.availability === 'unsupported' || snapshot.availability === 'idle'
         ? 'warning'
         : 'success';
-  const statusLabel = formatCount(snapshot.sampleCount, 'sample', 'samples');
+  const statusLabel = formatRendererLongTaskStatus(snapshot);
 
   return (
     <DiagnosticCard
@@ -537,11 +550,13 @@ function RendererLongTaskStatusSection({
           <span className="text-right font-mono text-[10px]">
             {snapshot.featureFlagContextAvailability === 'unavailable'
               ? 'No feature flag source'
-              : snapshot.featureFlags.length === 0
-                ? 'None active'
-                : snapshot.featureFlags
-                    .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
-                    .join(', ')}
+              : snapshot.sampleCount === 0
+                ? 'No samples'
+                : snapshot.featureFlags.length === 0
+                  ? 'None active'
+                  : snapshot.featureFlags
+                      .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
+                      .join(', ')}
           </span>
         </div>
         {snapshot.unavailableReason && (

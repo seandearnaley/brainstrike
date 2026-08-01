@@ -41,6 +41,7 @@ describe('SystemDiagnosticsPanel', () => {
     __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
+    vi.unstubAllGlobals();
   });
 
   describe('rendering', () => {
@@ -92,7 +93,7 @@ describe('SystemDiagnosticsPanel', () => {
       render(<SystemDiagnosticsPanel />);
 
       expect(screen.getByText('Renderer Long Tasks')).toBeInTheDocument();
-      expect(screen.getByText('1 sample')).toBeInTheDocument();
+      expect(screen.getByText('Idle')).toBeInTheDocument();
       expect(screen.getAllByText('125 ms')).toHaveLength(3);
       expect(screen.getByText('settings (1)')).toBeInTheDocument();
       expect(screen.getByText('diagnostic-search (1)')).toBeInTheDocument();
@@ -111,9 +112,47 @@ describe('SystemDiagnosticsPanel', () => {
         });
       });
 
-      expect(screen.getByText('1 sample')).toBeInTheDocument();
+      expect(screen.getByText('Idle')).toBeInTheDocument();
       expect(screen.getAllByText('80 ms')).toHaveLength(3);
       expect(screen.getByText('No feature flag source')).toBeInTheDocument();
+    });
+
+    it('labels unsupported long-task collection instead of reporting zero samples', () => {
+      vi.stubGlobal('PerformanceObserver', undefined);
+      act(() => {
+        rendererLongTaskTelemetry.observe(() => ({
+          enabledFeatureFlags: [],
+          route: 'settings',
+        }));
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Unsupported')).toBeInTheDocument();
+      expect(
+        screen.getByText('PerformanceObserver is unavailable in this renderer.')
+      ).toBeInTheDocument();
+    });
+
+    it('distinguishes no samples from no active feature flags', () => {
+      class MockPerformanceObserver {
+        static readonly supportedEntryTypes = ['longtask'];
+
+        observe(): void {}
+
+        disconnect(): void {}
+      }
+      vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+      act(() => {
+        rendererLongTaskTelemetry.observe(() => ({
+          enabledFeatureFlags: [],
+          route: 'settings',
+        }));
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Feature flags').parentElement).toHaveTextContent('No samples');
     });
 
     it('renders desktop platform diagnostics when the desktop bridge is available', async () => {

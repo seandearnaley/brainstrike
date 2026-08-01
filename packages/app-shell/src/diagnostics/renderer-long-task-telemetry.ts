@@ -52,6 +52,7 @@ export interface RendererLongTaskTelemetry {
   readonly getSnapshot: () => RendererLongTaskTelemetrySnapshot;
   readonly observe: (getContext: () => RendererLongTaskContext) => () => void;
   readonly record: (metric: RendererLongTaskMetric) => void;
+  /** Disconnects collection, clears retained samples, and restores the idle state. */
   readonly reset: () => void;
   readonly snapshot: () => RendererLongTaskTelemetrySnapshot;
   readonly subscribe: (listener: () => void) => () => void;
@@ -131,9 +132,15 @@ export function createRendererLongTaskTelemetry(
   };
 
   let currentSnapshot = buildSnapshot(now());
+  let snapshotDirty = false;
 
   const publish = (): void => {
+    snapshotDirty = true;
+    if (listeners.size === 0) {
+      return;
+    }
     currentSnapshot = buildSnapshot(now());
+    snapshotDirty = false;
     for (const listener of listeners) {
       listener();
     }
@@ -146,8 +153,6 @@ export function createRendererLongTaskTelemetry(
     const observedAt = now();
     featureFlagContextAvailability =
       metric.enabledFeatureFlags === null ? 'unavailable' : 'available';
-    availability = 'active';
-    unavailableReason = null;
     samples.push({
       ...metric,
       enabledFeatureFlags:
@@ -167,7 +172,13 @@ export function createRendererLongTaskTelemetry(
 
   const snapshot = (): RendererLongTaskTelemetrySnapshot => buildSnapshot(now());
 
-  const getSnapshot = (): RendererLongTaskTelemetrySnapshot => currentSnapshot;
+  const getSnapshot = (): RendererLongTaskTelemetrySnapshot => {
+    if (snapshotDirty) {
+      currentSnapshot = buildSnapshot(now());
+      snapshotDirty = false;
+    }
+    return currentSnapshot;
+  };
 
   const subscribe = (listener: () => void): (() => void) => {
     listeners.add(listener);
@@ -202,7 +213,7 @@ export function createRendererLongTaskTelemetry(
     let observer: PerformanceObserver | null = null;
     try {
       const supportedEntryTypes = PerformanceObserver.supportedEntryTypes;
-      if (supportedEntryTypes.length > 0 && !supportedEntryTypes.includes('longtask')) {
+      if (!supportedEntryTypes.includes('longtask')) {
         availability = 'unsupported';
         unavailableReason = 'This renderer does not support PerformanceObserver longtask entries.';
         publish();
