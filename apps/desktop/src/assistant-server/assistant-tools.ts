@@ -36,7 +36,6 @@ import {
   type WebSearchInput,
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
-import { createFenceExecutorFactory } from '@brainstrike/agent/fence-executor';
 import {
   isDesktopNativeToolId,
   NATIVE_TOOL_ID,
@@ -585,6 +584,18 @@ export function buildDesktopAssistantTools(
           // ticket changes the factory, not this call site.
           [NATIVE_TOOL_ID.runPython]: createRunPythonTool({
             resolveHost: async (signal) => {
+              // LAZY import, deliberately. `@brainstrike/agent/fence-executor`
+              // pulls in @anthropic-ai/sandbox-runtime AND evaluates
+              // `promisify(fs.realpath.native)` at MODULE SCOPE. A top-level
+              // import would load all of that merely to BUILD the tool map —
+              // on every desktop main startup, and inside every test that
+              // imports this registry (measured: it broke 8 suites that mock
+              // `node:fs` without a `.native`). Loading it only when a
+              // run_python call actually needs an executor is what the seam's
+              // Node-only subpath posture intends.
+              const { createFenceExecutorFactory } = await import(
+                '@brainstrike/agent/fence-executor'
+              );
               const command = await (
                 dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable
               )(signal);

@@ -58,7 +58,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.renameWorkspaceFile]:
     'Rename or move a single file within a chosen open workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
   [NATIVE_TOOL_ID.runPython]:
-    'Run Python you write, inside an OS sandbox: NO network at all, and writes confined to a fresh scratch directory that is deleted afterwards. Reads are not restricted. Use for computation, parsing, and data wrangling; results come back as stdout/stderr. Requires approval',
+    'Run Python in an OS sandbox for computation, parsing, and data wrangling. NO network; writes only to a scratch dir deleted afterwards; reads unrestricted. print() to return values. Requires approval',
   [NATIVE_TOOL_ID.runSkillScript]:
     "Run an enabled Agent Skill's listed script with literal argv in a mounted root/cwd. Resolution and approval required",
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]:
