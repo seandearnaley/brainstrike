@@ -60,13 +60,19 @@ describe('chooseBufferedActivationCount', () => {
     expect(chooseBufferedActivationCount(chunks, activationInput())).toEqual({ count: 1 });
   });
 
-  it('uses the largest available under-target boundary and keeps a non-empty fallback', () => {
+  it('uses the largest available under-target boundary', () => {
     expect(
       chooseBufferedActivationCount(
         [bufferedChunk('a', 100), bufferedChunk('b', 150)],
         activationInput()
       )
     ).toEqual({ count: 2 });
+  });
+
+  it('documents the guarded empty-input result', () => {
+    // `swapBufferedToActive` returns before calling this helper when there are
+    // no chunks. This characterizes the helper only; count 1 is not a caller
+    // contract and must not replace that guard.
     expect(chooseBufferedActivationCount([], activationInput())).toEqual({ count: 1 });
   });
 });
