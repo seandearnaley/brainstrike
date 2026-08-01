@@ -25,14 +25,37 @@ production recommendation.
   distinguishable `timeout` result.
 - A growing series of `ArrayBuffer` allocations fails with `out of memory` at
   the configured cap, after which a fresh runtime still executes normally.
+  The `memory-limit` classification is a **host-owned signal**: it is derived
+  from `runtime.computeMemoryUsage()` (`memory_used_size` vs. the configured
+  cap), not from pattern-matching the guest-thrown error text. Guest code
+  that merely throws `new Error("out of memory")` without ever approaching
+  the cap is correctly classified as an ordinary `exception`, not spoofed
+  into `memory-limit` — verified empirically (see the memory-usage probe
+  numbers below) and covered by a dedicated denial test.
+- Promises and async functions are handled, not just synchronous code: after
+  `evalCode`'s synchronous phase, pending jobs are drained
+  (`runtime.executePendingJobs`) bounded by the same interrupt deadline, and
+  the result is unwrapped via `context.getPromiseState`. A rejected promise
+  or a thrown async function is reported as a genuine failure — earlier in
+  this spike's development, both were silently dumped as `{ ok: true, value:
+  {} }` once the scope disposed the runtime before the rejection was ever
+  observed, which is exactly the "NO SILENT FALLBACKS" failure mode this
+  project's own rules forbid. A promise that never settles (and has no more
+  queued jobs) is reported as `kind: "unresolved-promise"` rather than
+  dumped as an empty object.
 - The guest has no ambient `fetch`, `XMLHttpRequest`, `WebSocket`, `require`,
   `process`, `fs`, `Buffer`, CommonJS `module`, or Emscripten `FS`/`MEMFS`/
   `NODEFS`. The `Function`-constructor escape attempt still resolves globals
   inside QuickJS and cannot find the host `process`.
-- With no module loader installed, `import fs from "node:fs"` fails.
+- With no module loader installed, `import fs from "node:fs"` fails with a
+  concrete `ReferenceError: could not load module 'node:fs'`.
 - An explicitly installed string function made with `context.newFunction` is
   callable and round-trips a value. The same name is `undefined` when it is not
-  granted.
+  granted. A grant that would collide with another grant, or silently shadow
+  an existing guest global (e.g. naming a bridge `JSON`), is rejected before
+  evaluation rather than silently overwritten — the host owning and auditing
+  the bridge surface is the whole point of not using a wrapper that installs
+  its own convenience globals.
 
 The selected package's installed README reports that it was built with
 `-s FILESYSTEM=0`. The tests above establish the consequence at the guest

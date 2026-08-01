@@ -3,14 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "demo": "node src/demo.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@jitl/quickjs-ng-wasmfile-release-sync": "^0.32.0",
-    "quickjs-emscripten-core": "^0.32.0"
+    "@jitl/quickjs-ng-wasmfile-release-sync": "0.32.0",
+    "quickjs-emscripten-core": "0.32.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
