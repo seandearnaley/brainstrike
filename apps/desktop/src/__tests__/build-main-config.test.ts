@@ -6,6 +6,36 @@ import {
   MAIN_PROCESS_ENTRY_POINTS,
 } from '../../scripts/build-main-config.mjs';
 
+interface DesktopPackageConfig {
+  build?: { asarUnpack?: readonly string[] };
+  dependencies?: Record<string, string>;
+}
+
+function packagedTypeScriptServerViolations(packageJson: DesktopPackageConfig): string[] {
+  const violations: string[] = [];
+  if (packageJson.dependencies?.['@typescript/old'] !== 'catalog:') {
+    violations.push('desktop must ship the classic TypeScript implementation as a dependency');
+  }
+
+  const asarUnpack = packageJson.build?.asarUnpack ?? [];
+  for (const requiredPattern of [
+    '**/node_modules/@typescript/old/**',
+    '**/node_modules/typescript-language-server/**',
+    '**/node_modules/typescript/**',
+  ]) {
+    if (!asarUnpack.includes(requiredPattern)) {
+      violations.push(`desktop must unpack ${requiredPattern}`);
+    }
+  }
+  return violations;
+}
+
+function readDesktopPackageConfig(): DesktopPackageConfig {
+  return JSON.parse(
+    fs.readFileSync(path.resolve(import.meta.dirname, '../../package.json'), 'utf8')
+  ) as DesktopPackageConfig;
+}
+
 /**
  * Contract for the bundled main-process build (Electron performance checklist
  * recipe 7: "Bundle your code"). The runtime resolves these outputs by exact
@@ -28,13 +58,32 @@ describe('main-process bundle config', () => {
   });
 
   it('unpacks the logging transport worker for a plain packaged-worker path', () => {
-    const packageJson = JSON.parse(
-      fs.readFileSync(path.resolve(import.meta.dirname, '../../package.json'), 'utf8')
-    ) as {
-      build?: { asarUnpack?: readonly string[] };
-    };
+    const packageJson = readDesktopPackageConfig();
 
     expect(packageJson.build?.asarUnpack).toContain('dist/main-log-transport.js');
+  });
+
+  it('ships and unpacks the classic TypeScript server used by LSP diagnostics', () => {
+    expect(packagedTypeScriptServerViolations(readDesktopPackageConfig())).toEqual([]);
+  });
+
+  it('money test: an omitted TypeScript implementation or unpack rule fails loudly', () => {
+    const packageJson = readDesktopPackageConfig();
+    const mutatedPackage = {
+      ...packageJson,
+      build: {
+        ...packageJson.build,
+        asarUnpack: packageJson.build?.asarUnpack?.filter(
+          (pattern) => pattern !== '**/node_modules/@typescript/old/**'
+        ),
+      },
+      dependencies: { ...packageJson.dependencies, '@typescript/old': '^6' },
+    };
+
+    expect(packagedTypeScriptServerViolations(mutatedPackage)).toEqual([
+      'desktop must ship the classic TypeScript implementation as a dependency',
+      'desktop must unpack **/node_modules/@typescript/old/**',
+    ]);
   });
 
   it('bundles app code only, as flat CJS for the Electron main process', () => {
