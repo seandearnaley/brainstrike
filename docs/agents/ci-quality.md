@@ -571,7 +571,16 @@ local embedding.
 
 Three assertions, over both apps: every `@web-*`/`@desktop-*` tag routes at
 least one title somewhere; every TEST is reachable from at least one lane; every
-lane's explicit file list names files that exist and selects a non-empty set.
+explicitly targeted `test:e2e*` package script and inline workflow lane names
+files that exist and selects a non-empty set. The third assertion intentionally
+does not claim to model broad package scripts with no file list: their default
+project selection can include suites outside this lane sweep (notably web
+performance), while targeted scripts must state `--project` so the answer is
+exact. The raw package-script floor protects discovery of the overall
+`test:e2e*` surface. A separate floor is applied to the list this assertion
+actually consumes: one explicitly targeted non-lane desktop invocation and none
+for web today. That applicable count is printed in every verdict, and the paired
+money test removes the desktop invocation and observes the floor fail.
 
 **Reachability is resolved per test title, not per spec file** (review finding on
 PR #2180). A file-granular answer marks a whole spec covered as soon as any ONE
@@ -623,10 +632,8 @@ What holds it honest:
   scripts' real-repo verdicts are unchanged — but they are now correct for that
   shape rather than accidentally unexercised.
 - **Only CI-invoked lanes supply coverage.** A lane is CI-invoked if a scoped
-  workflow runs it or the `full-regression` `&&` chain reaches it. Desktop's
-  `db-storage`, `ipc-reset` and `runtime-hosts` lane scripts are reached by
-  nothing and therefore cannot mark a spec covered (their specs are covered by
-  full-regression's broad pass anyway).
+  workflow runs it or the `full-regression` `&&` chain reaches it. Detached
+  package scripts cannot mark a spec covered merely by existing.
 - **`LANE_WORKFLOW_FILES` is explicit, and that is the safe direction.** The
   `@desktop-embedding-*` lane is written inline in `desktop-e2e.yml` rather than
   as a package script, so workflows must be scanned. An inline lane in an
@@ -639,10 +646,9 @@ What holds it honest:
   regression returning zero titles per file would leave the file count healthy
   while every reachability question went vacuous. `KNOWN_UNREACHABLE_SPECS`
   entries fail if the listed spec becomes reachable, becomes only partly dark, or
-  stops existing, so an exemption cannot rot into a permanent hole. It currently
-  holds one entry: `embedding-worker-renderer.crash-b.desktop.test.ts`, a
-  long-standing orphan (the inline embedding job's file list names crash-a but
-  not crash-b) whose fix is a one-line workflow edit.
+  stops existing, so an exemption cannot rot into a permanent hole. It is
+  currently empty after the inline desktop embedding lane adopted its former
+  crash-b orphan.
 - **The money test.** Per the BST-836 lesson below, the paired test drives the
   checker against a synthetic fixture repo carrying a planted orphan tag and
   orphan spec and asserts a non-zero exit, plus a clean control fixture, plus
