@@ -112,19 +112,21 @@ the Unit shards' `turbo run test` and `turbo run test:integration` (unfiltered,
 so `packages/db` really runs); the Browser tests lane; and the web + desktop
 E2E **smoke** lanes.
 
-- `--fast`: everything above except the runner-heavy lanes (Browser tests, E2E).
+- `--fast`: everything above except the runner-heavy lanes (Browser tests, E2E);
+  the banner explicitly names those omitted CI gates.
 - `--full`: the default plan **plus** the non-required gates —
   `nightly-coverage.yml`'s `coverage:enforce` and the web/desktop full E2E
   regression lanes. Additive, never a swap.
-- `--no-install`, `--no-e2e`, `--no-coverage` (opt out of the `--full` coverage
-  gate), `--headless`, `--verbose`.
+- `--no-install`, `--no-e2e`, `--no-coverage` (only with `--full`, to opt out
+  of its coverage gate), `--headless`, `--verbose`.
 - `--fix-lint`: run the **writing** lint chain (`lint-all`) instead of CI's
   read-only `lint:ci`. Opt-in on purpose — a gate must not rewrite the tree it
   is judging.
 
-Every run prints the CI gates it does *not* cover (the two native jobs) with
-the reason, and `scripts/__tests__/check-ci-parity.test.mjs` fails if a CI gate
-is ever neither covered nor explicitly declared uncovered.
+Every run prints the CI gates it does *not* cover — the two native jobs plus
+any gates deliberately omitted by its mode flags — with the reason, and
+`scripts/__tests__/check-ci-parity.test.mjs` fails if a CI gate is ever neither
+covered nor explicitly declared uncovered.
 
 ### Performance Test Isolation
 

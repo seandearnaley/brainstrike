@@ -27,6 +27,7 @@
  * observed failing is not evidence.
  */
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -34,7 +35,14 @@ import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
-import { buildPlan, CI_GATES_NOT_RUN_LOCALLY, parseFlags, runStep } from '../check.mjs';
+import {
+  buildPlan,
+  CI_GATE_PLAN_IDS,
+  CI_GATES_NOT_RUN_LOCALLY,
+  parseFlags,
+  runStep,
+  uncoveredCiGates,
+} from '../check.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const checkSourcePath = path.join(repoRoot, 'scripts', 'check.mjs');
@@ -66,30 +74,64 @@ const PROVISIONING_STEPS = new Set([
 ]);
 
 /**
- * CI gate -> the `buildPlan()` step id(s) that cover it. The CI shards and the
- * PR/push variants of the Unit job are two spellings of the same two turbo
- * tasks over an affected-set partition; the local plan runs them unfiltered,
- * which is their union.
+ * Exact commands of every mapped workflow gate. The local command can use a
+ * portable wrapper, but changing CI's command must force an explicit parity
+ * decision instead of retaining the old mapping by step name alone.
  */
-const GATE_PLAN_IDS = new Map([
-  ['static › Secret scan', ['secrets-scan']],
-  ['static › Package boundaries', ['boundaries']],
-  ['static › Script tests', ['script-tests']],
+const CI_GATE_RUNS = new Map([
+  ['static › Secret scan', 'pnpm secrets:scan'],
+  ['static › Package boundaries', 'pnpm exec turbo boundaries'],
+  ['static › Script tests', 'pnpm test:scripts'],
   [
     'static › Check DB test + coverage lane assignments',
-    ['db-test-lane-check', 'db-coverage-lane-check'],
+    'pnpm --filter @brainstrike/db test:db:check-lanes\npnpm --filter @brainstrike/db test:coverage:db:check-lanes\n',
   ],
-  ['static › Lint', ['lint']],
-  ['static › Type check', ['type-check']],
-  ['unit-shard › Pull request affected unit tests', ['unit-tests']],
-  ['unit-shard › Pull request affected integration tests', ['integration-tests']],
-  ['unit-shard › Push and manual unit tests', ['unit-tests']],
-  ['unit-shard › Push and manual integration tests', ['integration-tests']],
-  ['build › Build', ['build']],
-  ['build › Validate CSS bundle', ['validate-css-bundle']],
-  ['browser-tests › Run browser tests', ['browser-tests']],
-  ['web-e2e › Run web smoke', ['web-e2e-smoke']],
-  ['desktop-e2e › Run desktop smoke', ['desktop-e2e-smoke']],
+  ['static › Lint', 'pnpm run lint:ci'],
+  ['static › Type check', 'pnpm run type-check'],
+  [
+    'unit-shard › Pull request affected unit tests',
+    `pnpm turbo run test ${'$'}{{ matrix.pr_filters }} --concurrency=4`,
+  ],
+  [
+    'unit-shard › Pull request affected integration tests',
+    `pnpm turbo run test:integration ${'$'}{{ matrix.pr_filters }} --concurrency=2`,
+  ],
+  [
+    'unit-shard › Push and manual unit tests',
+    `pnpm turbo run test ${'$'}{{ matrix.push_filters }} --concurrency=4`,
+  ],
+  [
+    'unit-shard › Push and manual integration tests',
+    `pnpm turbo run test:integration ${'$'}{{ matrix.push_filters }} --concurrency=2`,
+  ],
+  [
+    'build › Build',
+    'pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful',
+  ],
+  [
+    'build › Validate CSS bundle',
+    `CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
+echo "CSS bundle size: \${CSS_SIZE} bytes"
+
+if [ "$CSS_SIZE" -lt 50000 ]; then
+  echo "::error::CSS bundle too small: \${CSS_SIZE} bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources."
+  exit 1
+fi
+
+PAT='*,:after,:before,::backdrop{box-sizing:border-box'
+DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
+if [ "$DUPLICATE_COUNT" -ne 1 ]; then
+  echo "::error::Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import \\"tailwindcss\\" statements."
+  exit 1
+fi
+`,
+  ],
+  [
+    'browser-tests › Run browser tests',
+    'pnpm test:browser --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui',
+  ],
+  ['web-e2e › Run web smoke', 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke'],
+  ['desktop-e2e › Run desktop smoke', 'dbus-run-session -- pnpm run test:e2e:lane:smoke'],
 ]);
 
 function workflowSource() {
@@ -138,7 +180,7 @@ function assertPlanCoversCiGates(plan, exclusions) {
     if (PROVISIONING_STEPS.has(key) || excluded.has(key)) {
       continue;
     }
-    const required = GATE_PLAN_IDS.get(key);
+    const required = CI_GATE_PLAN_IDS.get(key);
     if (!required) {
       unmapped.push(key);
       continue;
@@ -159,6 +201,21 @@ function assertPlanCoversCiGates(plan, exclusions) {
     );
   }
 }
+
+test('every mapped CI gate command remains the reviewed command', () => {
+  for (const [key, expectedRun] of CI_GATE_RUNS) {
+    assert.equal(
+      ciRunStep(key),
+      expectedRun,
+      `CI gate "${key}" changed command; update its local parity mapping deliberately.`
+    );
+  }
+  assert.equal(
+    CI_GATE_RUNS.size,
+    CI_GATE_PLAN_IDS.size,
+    'every local parity mapping needs a command lock'
+  );
+});
 
 /** Import a variant of check.mjs with `mutate` applied to its source text. */
 async function importMutatedCheck(mutate) {
@@ -307,13 +364,21 @@ test('the CSS bundle gate has not drifted from the workflow', () => {
   // these cannot drift silently.
   const floor = ciStep.match(/-lt (\d+)/);
   assert.ok(floor, 'the CI gate must still assert a minimum CSS bundle size');
-  assert.match(local.command, new RegExp(`-lt ${floor[1]}\\b`));
+  assert.equal(local.command, 'node scripts/validate-css-bundle.mjs');
+  const validatorSource = readFileSync(
+    path.join(repoRoot, 'scripts', 'validate-css-bundle.mjs'),
+    'utf8'
+  );
+  assert.match(
+    validatorSource,
+    new RegExp(`CSS_BUNDLE_MIN_BYTES = ${floor[1].replace(/000$/, '_000')}`)
+  );
 
   const pattern = ciStep.match(/PAT='([^']+)'/);
   assert.ok(pattern, 'the CI gate must still assert a single Tailwind base layer');
   assert.ok(
-    local.command.includes(pattern[1]),
-    `the local CSS gate must use the same duplicate-layer pattern: ${pattern[1]}`
+    validatorSource.includes(pattern[1]),
+    `the portable CSS gate must use the same duplicate-layer pattern: ${pattern[1]}`
   );
 });
 
@@ -339,6 +404,18 @@ test('a non-zero step exit fails the whole check despite --continue', async () =
   assert.equal(ok.label, 'control');
 });
 
+test('a child spawn error fails the whole check instead of hanging', async () => {
+  const failedSpawn = () => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit('error', new Error('spawn failed')));
+    return child;
+  };
+  await assert.rejects(
+    () => runStep({ command: 'control', id: 'control', label: 'control' }, false, failedSpawn),
+    (error) => error.code === 1 && error.message === 'spawn failed'
+  );
+});
+
 test('boundaries runs before any dist-producing step, as it does in Static', () => {
   const ids = buildPlan(parseFlags([])).map((step) => step.id);
   const boundaries = ids.indexOf('boundaries');
@@ -362,7 +439,16 @@ test('the documented flags stay coherent', () => {
   // --fast keeps every gate a single Static/Unit/Build runner performs and
   // drops the lanes CI fans out to separate machines.
   const fast = ids(['--fast']);
-  for (const id of ['secrets-scan', 'boundaries', 'script-tests', 'lint', 'type-check', 'build']) {
+  for (const id of [
+    'secrets-scan',
+    'boundaries',
+    'script-tests',
+    'lint',
+    'type-check',
+    'build',
+    'unit-tests',
+    'integration-tests',
+  ]) {
     assert.ok(fast.includes(id), `--fast must keep ${id}`);
   }
   for (const id of ['browser-tests', 'web-e2e-smoke', 'desktop-e2e-smoke']) {
@@ -383,6 +469,40 @@ test('the documented flags stay coherent', () => {
   assert.ok(!ids(['--full', '--no-coverage']).includes('coverage-enforce'));
 
   assert.ok(ids(['--headless'])[0] === 'setup-headless');
+
+  assert.throws(() => parseFlags(['--fast', '--full']), /select different plans/);
+  assert.throws(() => parseFlags(['--no-coverage']), /only applies with --full/);
+});
+
+test('mode flags report every required gate they omit', () => {
+  const omittedByFast = new Set(
+    uncoveredCiGates(buildPlan(parseFlags(['--fast']))).map((gate) => gate.step)
+  );
+  for (const step of [
+    'browser-tests › Run browser tests',
+    'web-e2e › Run web smoke',
+    'desktop-e2e › Run desktop smoke',
+  ]) {
+    assert.ok(omittedByFast.has(step), `--fast must disclose that it omits ${step}`);
+  }
+
+  const omittedByNoE2E = new Set(
+    uncoveredCiGates(buildPlan(parseFlags(['--no-e2e']))).map((gate) => gate.step)
+  );
+  for (const step of ['web-e2e › Run web smoke', 'desktop-e2e › Run desktop smoke']) {
+    assert.ok(omittedByNoE2E.has(step), `--no-e2e must disclose that it omits ${step}`);
+  }
+});
+
+test('install and smoke lanes match CI failure semantics', () => {
+  const plan = buildPlan(parseFlags([]));
+  assert.equal(
+    plan.find((step) => step.id === 'install')?.command,
+    'pnpm -s install --frozen-lockfile'
+  );
+  for (const id of ['web-e2e-smoke', 'desktop-e2e-smoke']) {
+    assert.match(plan.find((step) => step.id === id)?.command ?? '', /run-env\.mjs CI=true/);
+  }
 });
 
 test('an unknown flag fails loudly rather than running a different plan', () => {

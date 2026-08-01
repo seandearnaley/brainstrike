@@ -114,25 +114,49 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
   },
 ];
 
+/** CI run steps covered by each local plan step. */
+export const CI_GATE_PLAN_IDS = new Map([
+  ['static › Secret scan', ['secrets-scan']],
+  ['static › Package boundaries', ['boundaries']],
+  ['static › Script tests', ['script-tests']],
+  [
+    'static › Check DB test + coverage lane assignments',
+    ['db-test-lane-check', 'db-coverage-lane-check'],
+  ],
+  ['static › Lint', ['lint']],
+  ['static › Type check', ['type-check']],
+  ['unit-shard › Pull request affected unit tests', ['unit-tests']],
+  ['unit-shard › Pull request affected integration tests', ['integration-tests']],
+  ['unit-shard › Push and manual unit tests', ['unit-tests']],
+  ['unit-shard › Push and manual integration tests', ['integration-tests']],
+  ['build › Build', ['build']],
+  ['build › Validate CSS bundle', ['validate-css-bundle']],
+  ['browser-tests › Run browser tests', ['browser-tests']],
+  ['web-e2e › Run web smoke', ['web-e2e-smoke']],
+  ['desktop-e2e › Run desktop smoke', ['desktop-e2e-smoke']],
+]);
+
 /**
- * The CSS bundle gate, mirroring build › "Validate CSS bundle" in test.yml.
- * The 50,000-byte floor and the layer-duplication pattern are the two numbers
- * that carry the gate; the parity test asserts both still match the workflow,
- * so this copy cannot drift from it unnoticed.
+ * Returns every CI gate this exact plan does not cover. Static exclusions are
+ * intentional platform limitations; the remaining entries are selected by
+ * flags and must be reported rather than silently omitted.
  */
-const VALIDATE_CSS_BUNDLE = `set -eu
-CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-echo "CSS bundle size: $CSS_SIZE bytes"
-if [ "$CSS_SIZE" -lt 50000 ]; then
-  echo "CSS bundle too small: $CSS_SIZE bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources." >&2
-  exit 1
-fi
-PAT='*,:after,:before,::backdrop{box-sizing:border-box'
-DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
-if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-  echo "Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import tailwindcss statements." >&2
-  exit 1
-fi`;
+export function uncoveredCiGates(plan) {
+  const planIds = new Set(plan.map((step) => step.id));
+  const skippedByFlags = [];
+
+  for (const [step, requiredIds] of CI_GATE_PLAN_IDS) {
+    if (!requiredIds.every((id) => planIds.has(id))) {
+      skippedByFlags.push({
+        reason:
+          'Skipped by the flags passed to this run; run pnpm check without that mode to cover it.',
+        step,
+      });
+    }
+  }
+
+  return [...CI_GATES_NOT_RUN_LOCALLY, ...skippedByFlags];
+}
 
 const KNOWN_FLAGS = new Set([
   '--fast',
@@ -156,6 +180,13 @@ export function parseFlags(argv) {
   }
 
   const args = new Set(argv);
+  if (args.has('--fast') && args.has('--full')) {
+    throw new Error('--fast and --full select different plans; pass one.');
+  }
+  if (args.has('--no-coverage') && !args.has('--full')) {
+    throw new Error('--no-coverage only applies with --full.');
+  }
+
   return {
     coverage: !args.has('--no-coverage'),
     e2e: !args.has('--no-e2e'),
@@ -198,7 +229,7 @@ export function buildPlan(options = {}) {
   }
 
   if (install) {
-    plan.push({ command: 'pnpm -s install', id: 'install', label: 'install' });
+    plan.push({ command: 'pnpm -s install --frozen-lockfile', id: 'install', label: 'install' });
   }
 
   // --- Static ------------------------------------------------------------
@@ -257,7 +288,7 @@ export function buildPlan(options = {}) {
     label: 'build',
   });
   plan.push({
-    command: VALIDATE_CSS_BUNDLE,
+    command: 'node scripts/validate-css-bundle.mjs',
     id: 'validate-css-bundle',
     label: 'validate CSS bundle',
   });
@@ -296,14 +327,16 @@ export function buildPlan(options = {}) {
   // --- Web E2E / Desktop E2E ---------------------------------------------
   if (runE2E) {
     plan.push({
-      command: 'pnpm -s --filter @brainstrike/web run test:e2e:lane:smoke',
+      command:
+        'node scripts/run-env.mjs CI=true -- pnpm -s --filter @brainstrike/web run test:e2e:lane:smoke',
       id: 'web-e2e-smoke',
       label: 'web e2e smoke',
     });
     plan.push({
       // CI wraps this in `dbus-run-session` purely to silence Chromium's
       // missing-bus noise on the Linux runner; the tests pass without it.
-      command: 'pnpm -s --filter @brainstrike/desktop run test:e2e:lane:smoke',
+      command:
+        'node scripts/run-env.mjs CI=true -- pnpm -s --filter @brainstrike/desktop run test:e2e:lane:smoke',
       id: 'desktop-e2e-smoke',
       label: 'desktop e2e smoke',
     });
@@ -359,11 +392,16 @@ function banner(message, verbose) {
  * semantics directly: ANY non-zero exit rejects, which is what stops a
  * `--continue=dependencies-successful` turbo run from being swallowed.
  */
-export async function runStep(step, verbose) {
+export async function runStep(step, verbose, spawnCommand = spawn) {
   return new Promise((resolve, reject) => {
     const started = performance.now();
     banner(`Starting ${step.label}`, verbose);
-    const child = spawn(step.command, { cwd: REPO_ROOT, shell: true, stdio: 'inherit' });
+    const child = spawnCommand(step.command, { cwd: REPO_ROOT, shell: true, stdio: 'inherit' });
+    child.on('error', (error) => {
+      const ms = Math.round(performance.now() - started);
+      console.error(`${RED}✖ ${step.label} could not start${RESET} ${YELLOW}(${ms} ms)${RESET}`);
+      reject(Object.assign(error, { code: 1, label: step.label, ms }));
+    });
     child.on('exit', (code) => {
       const ms = Math.round(performance.now() - started);
       if (code === 0) {
@@ -388,7 +426,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   console.log('');
   console.log(`${BOLD}CI gates this run does NOT cover:${RESET}`);
-  for (const gate of CI_GATES_NOT_RUN_LOCALLY) {
+  for (const gate of uncoveredCiGates(steps)) {
     console.log(`  - ${gate.step}`);
     console.log(`    ${YELLOW}${gate.reason}${RESET}`);
   }

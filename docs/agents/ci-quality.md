@@ -402,18 +402,21 @@ survive future edits:
 - **`--full` is additive**, not a swap: the required-check mirror plus
   `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
   `--fast` drops only the lanes CI fans out to separate runners (Browser tests,
-  E2E). Coverage is deliberately NOT in the default plan, because it is not a
-  required check.
+  E2E) and reports those omissions in the banner. `--fast --full` is rejected
+  because it would otherwise request contradictory E2E selections; `--no-coverage`
+  is valid only with `--full`. Coverage is deliberately NOT in the default
+  plan, because it is not a required check.
 - **`--continue=dependencies-successful` (mirroring the Build job) changes
   turbo's scheduling, not its exit code.** `runStep()` rejects on ANY non-zero
   exit and the orchestrator is fail-fast, so a `--continue` run still fails the
   whole command. A test proves this with a real `exit 3`.
 - **A CI gate that is not run locally must be DECLARED**, never quietly
-  dropped. `CI_GATES_NOT_RUN_LOCALLY` in `check.mjs` names each such
-  `<job> › <step>` with a reason, prints them at the top of every run, and
-  currently holds exactly the two native jobs (`native-windows`: needs a
-  Windows host; `native-electron`: electron-builder packaging for the runner's
-  own platform, non-required, ~25 min).
+  dropped. `CI_GATES_NOT_RUN_LOCALLY` in `check.mjs` names platform exclusions;
+  `uncoveredCiGates()` adds any gates omitted by the selected mode flags before
+  printing the banner. The static list currently holds exactly the two native
+  jobs (`native-windows`: needs a Windows host; `native-electron`:
+  electron-builder packaging for the runner's own platform, non-required,
+  ~25 min).
 
 `scripts/__tests__/check-ci-parity.test.mjs` (Static job, via
 `pnpm test:scripts`) holds the line. It parses every `run:` step in `test.yml`
@@ -425,6 +428,12 @@ cannot be silently missed. Per BST-836 it is control-tested against synthetic
 exclusion entry deleted — and both must make the parity assertion throw; the
 mutation helper fails loudly if its own edit matched nothing, so the control
 cannot go vacuous when formatting moves.
+
+The mapped workflow commands themselves are locked in that test too: renaming a
+step cannot mask a changed `run:` command that the local plan does not yet
+mirror. The local CSS validation is a small Node script rather than the
+workflow's POSIX shell snippet, so it has the same byte/pattern assertions on
+Windows as on Unix; its paired controls prove both failure modes still fail.
 
 Local-vs-CI difference that is stated rather than hidden: `turbo boundaries`
 scans build output as well as source and CI runs it on a checkout with no
