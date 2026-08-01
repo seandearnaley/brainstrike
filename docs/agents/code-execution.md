@@ -71,9 +71,24 @@ should use, including on runtime-computed paths. Its rules:
   in a Windows-shaped path; on POSIX it is a legal filename character, so
   `/tmp/scratch\run` is a sibling directory named `scratch\run`, not a
   descendant of `/tmp/scratch`.
-- **Case is folded only when an operand is Windows-shaped**, because
-  drive-letter case is not stable across Node APIs. POSIX comparison stays
-  case-sensitive.
+- **Only the Windows VOLUME segments are case-folded** — the drive letter
+  (`C:`), or the host AND share for a UNC path (`\\server\share`, both
+  case-insensitive at the SMB protocol level). Never directory segments, never
+  on POSIX. Volume case is what Node APIs spell inconsistently; directory
+  segments are a different question, because NTFS supports per-directory case
+  sensitivity (WSL enables it), so folding them could report coverage the
+  filesystem does not grant. That is a false PERMIT, the unsafe direction, and
+  the same platform-shaped guess this doc rejects for darwin below.
+  Case-insensitive volumes are served correctly by resolving first — but only
+  with the NATIVE resolver, see the next bullet.
+- **Resolve with `realpath.native`, not `fs/promises`' `realpath`.** Node's JS
+  implementation resolves symlinks but copies non-symlink components verbatim
+  from the input string; it does NOT return the OS-canonical case. Only the
+  native binding (`realpath(3)`, `GetFinalPathNameByHandleW`) does. Measured on
+  darwin: for an on-disk `MixedCase`, the JS version returns `mixedcase`, the
+  native one `MixedCase`. Since directory segments compare case-sensitively,
+  the JS resolver silently voids both the containment guarantee and the
+  always-deny check on a case-insensitive volume.
 
 ### Backends MUST resolve before asking (requirement, not advice)
 
@@ -258,6 +273,18 @@ approval suspension are decided before `execute()` is ever reached. The seam
 never re-implements or bypasses that gate, and executor errors never
 auto-approve or auto-decline anything.
 
+The UX design for that gating — the pre-run approval card, the network
+escalation, the result surface, and the remember-choice scope — is specified in
+`docs/run-python-approval-ux-design-2026-08-01.md` (BST-1070, DESIGN ONLY;
+implementation blocked on BST-1067). Its load-bearing ruling: a non-empty
+`ExecPolicy.allowedDomains` escalates on the SUSPEND channel, not the approval
+channel, because Mastra's `requireApproval` is per-tool and cannot be
+conditioned on a single call's arguments — so an approval-channel escalation
+would be silently skipped by any session/per-tool grant. That doc also records
+four gaps in this seam's expressiveness (no incremental output channel, no
+omission POSITION alongside the omitted byte counts, no read-list provenance,
+and no channel for host-computed approval display context).
+
 ## The null stub
 
 `createNullCodeExecutor({ platform })` lets tool code integrate against the
@@ -285,7 +312,10 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   in the workspace catalog (`catalogMode: strict` means every package
   references the catalog; the catalog entry itself carries no caret). It is a
   fast-moving beta — re-derive the boundary from its README/`.d.ts` before
-  bumping, never from memory.
+  bumping, never from memory. The escape-resistance suite (BST-1071) ASSERTS
+  this version, so a bump goes red until the suite is re-greened on macOS AND
+  Linux; see `packages/agent/src/__tests__/fence-escape-resistance.README.md`
+  for the required procedure and the guarantee/non-guarantee list.
 - **Platforms: darwin + linux only.** `isFenceSupported()` is the probe and
   `createFenceExecutorFactory()` returns `undefined` on anything else, so an
   unsupported host simply has no `fence` capability and `resolveCodeExecutor`
@@ -329,6 +359,16 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   would silently re-open `~/.config/gcloud`. A RELATIVE path is rejected (srt
   resolves it against the Node process cwd, not `scratchDir`), as is a `..`
   segment and a `~` (never expanded — see the seam's rule).
+- **A ROOT-WIDE `allowRead` is refused** (`FencePolicyError`), even though it is
+  a mere ancestor of the always-denied stores. Ancestors are normally safe
+  because srt re-emits the nested deny after the broader allow — but at 0.0.67
+  that re-emission tests `denied.startsWith(allowed + '/')`, which for
+  `allowed === '/'` compares against `'//'` and never matches. **Measured on
+  macOS (BST-1071): `allowRead: ['/']` made `~/.ssh/*` and the contents of
+  `~/.config/gh/hosts.yml` readable from sandboxed code.** Linux was unaffected
+  (bubblewrap masks denied directories with tmpfs), so CI alone would not have
+  caught it — which is why the refusal lives in the policy layer, not a
+  platform branch. Every ancestor SHORT of the root is still accepted.
 - **Containment compares `realpath` output** — the reference implementation of
   the seam's "resolve before asking" requirement above, including the
   nonexistent-path error and the best-effort deny canonicalization. The
@@ -406,6 +446,25 @@ the probe URL) — never by weakening an assertion. The reachability guard
 matters in both directions: without it the allow-list test fails RED on a host
 with restricted egress, AND its sibling network-deny test would pass
 VACUOUSLY, asserting a leak guard it never actually exercised.
+
+#### Escape-resistance suite (BST-1071, LIVE)
+
+`packages/agent/src/__tests__/fence-escape-resistance.integration.spec.ts`, with
+`fence-escape-resistance.README.md` beside it. The contract suite above proves
+the executor behaves; this one attacks it — traversal, symlink escape, fork /
+multiprocessing / depth-2 grandchild inheritance, raw sockets that ignore the
+proxy, DNS as an exfil channel, resource exhaustion shape, host-env exfiltration,
+descendant survival across a policy change, and cancellation in both positions.
+
+**Read the README before changing either file.** It is the honest statement of
+what the fence does and does NOT guarantee (reads are permissive by default;
+exfiltration via an allow-listed domain is unaddressed; CPU/memory are bounded
+only by the timeout; kernel-level attacks defeat it entirely; there is no
+always-deny list for WRITES), it carries the mutation-kill table proving each
+security assertion actually detects the hole it names, and it records the srt
+re-green procedure. srt is an OS fence, not a VM — mode two (ADR-0003) is the
+answer for adversarial code, and this suite must not be read as claiming
+otherwise.
 
 ### VM executor (mode two)
 

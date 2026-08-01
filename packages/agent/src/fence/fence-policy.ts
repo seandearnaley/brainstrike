@@ -6,12 +6,31 @@
  * — is injected, so the mapping that decides what the fence actually permits
  * stays unit-testable without spawning or touching real directories.
  */
-import { realpath } from 'node:fs/promises';
+import { realpath as realpathCallback } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, normalize, sep } from 'node:path';
+import { isAbsolute, join, normalize, parse, sep } from 'node:path';
+import { promisify } from 'node:util';
 import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
 import { type ExecPolicy, execPolicySchema } from '../code-execution';
+
+/**
+ * `realpath.NATIVE`, not `fs/promises`' `realpath` (BST-1074).
+ *
+ * Node's JS implementation walks components with `lstat`/`readlink` and copies
+ * every non-symlink component VERBATIM from the input string: it resolves
+ * symlinks but does NOT return the OS-canonical case. Only the native binding
+ * (`realpath(3)` on macOS, `GetFinalPathNameByHandleW` on Windows) does.
+ * Measured on darwin: for an on-disk `MixedCase`, the JS version returns
+ * `mixedcase` while the native one returns `MixedCase`.
+ *
+ * The distinction is load-bearing. `isPathCoveredBy` compares directory
+ * segments case-SENSITIVELY, and the always-deny containment check resolves
+ * before comparing precisely so a case variant cannot dodge it. With the JS
+ * resolver both guarantees evaporate on a case-insensitive volume: `~/.SSH`
+ * would come back as `~/.SSH` and compare unequal to the denied `~/.ssh`.
+ */
+const realpathNative = promisify(realpathCallback.native);
 
 /**
  * Home-relative names of the credential stores sandboxed code may never read,
@@ -62,8 +81,7 @@ export function isFencePolicyError(value: unknown): value is FencePolicyError {
 
 /**
  * Resolves a path to its canonical on-disk form. Injected so unit tests can
- * exercise the mapping without a real filesystem; production passes
- * `fs.promises.realpath`.
+ * exercise the mapping without a real filesystem; production passes the NATIVE realpath (see above).
  */
 export type FencePathResolver = (path: string) => Promise<string>;
 
@@ -73,6 +91,11 @@ const GLOB_CHARACTERS = /[*?[\]{}]/;
 /** True when `candidate` is `parent` itself or lives beneath it. */
 function isAtOrUnder(candidate: string, parent: string): boolean {
   return candidate === parent || candidate.startsWith(parent + sep);
+}
+
+/** True when `path` is the filesystem root (`/` on POSIX). */
+function isFilesystemRoot(path: string): boolean {
+  return parse(path).root === path;
 }
 
 /**
@@ -162,18 +185,28 @@ async function resolveOptional(path: string, resolvePath: FencePathResolver): Pr
  * and holds the script srt runs — and is listed first so the mapping is
  * obvious when the config is logged.
  *
- * An `allowRead` entry that sits AT or UNDER an always-denied credential store
- * throws instead of being dropped: on Linux such an entry is re-bound inside
- * the deny's tmpfs and really would re-open the store, and silently discarding
- * it would be exactly the quiet degradation this codebase forbids. An
- * ANCESTOR entry is fine — srt re-applies the nested deny on top of it on both
- * platforms. The comparison runs on canonical paths, so it cannot be dodged by
- * a symlink or a case variant on a case-insensitive volume.
+ * Four ways a policy can re-open what the fence always denies are refused here
+ * rather than silently dropped — every one of them because srt would honour
+ * the written policy in a way that does not match what it says:
+ *
+ * 1. an `allowRead` AT or UNDER an always-denied store (re-bound inside the
+ *    deny's tmpfs on Linux);
+ * 2. an `allowRead` on the filesystem ROOT (srt's nested-deny re-emission
+ *    misses it — see the comment on that check);
+ * 3. an `allowRead` naming exactly a path the same policy DENIES (the allow
+ *    wins and the deny vanishes);
+ * 4. an `allowWrite` AT or UNDER an always-denied store (a read-write bind
+ *    re-opens the store for READING on Linux).
+ *
+ * An `allowRead` ANCESTOR short of the root is fine — srt re-applies the
+ * nested deny on top of it. Every comparison runs on canonical paths, so none
+ * of them can be dodged by a symlink or a case variant on a case-insensitive
+ * volume.
  */
 export async function buildSandboxRuntimeConfig(
   policy: ExecPolicy,
   scratchDir: string,
-  resolvePath: FencePathResolver = realpath
+  resolvePath: FencePathResolver = realpathNative
 ): Promise<SandboxRuntimeConfig> {
   const parsed = execPolicySchema.parse(policy);
 
@@ -205,10 +238,62 @@ export async function buildSandboxRuntimeConfig(
   );
 
   for (const [index, readable] of allowRead.entries()) {
+    const written = JSON.stringify(parsed.allowRead?.[index] ?? readable);
+    // A root-wide read grant is REFUSED, not narrowed. The always-denied
+    // stores survive an ANCESTOR allowRead only because srt re-emits the
+    // nested deny after the broader allow — and at srt 0.0.67 that re-emission
+    // tests `denied.startsWith(allowed + '/')`, which for `allowed === '/'`
+    // compares against `'//'` and never matches. Measured on macOS (BST-1071,
+    // fence-escape-resistance.integration.spec.ts): with `allowRead: ['/']`,
+    // sandboxed code read `~/.ssh/*` and the contents of `~/.config/gh/
+    // hosts.yml`. Linux masks denied directories with tmpfs and was not
+    // affected, which is exactly why this must be refused here rather than
+    // left to the platform. Any ancestor SHORT of the root re-emits correctly
+    // and stays allowed.
+    if (isFilesystemRoot(readable)) {
+      throw new FencePolicyError(
+        `allowRead entry ${written} resolves to the filesystem root ${readable}; a whole-filesystem read grant is not expressible, because it stops the always-denied credential stores from being re-applied on top of it. Name the directories the run actually needs.`
+      );
+    }
     const reopened = alwaysDenyRead.find((denied) => isAtOrUnder(readable, denied));
     if (reopened) {
       throw new FencePolicyError(
-        `allowRead entry ${JSON.stringify(parsed.allowRead?.[index] ?? readable)} resolves to ${readable}, which would re-open the always-denied credential store ${reopened}; remove it or narrow the policy.`
+        `allowRead entry ${written} resolves to ${readable}, which would re-open the always-denied credential store ${reopened}; remove it or narrow the policy.`
+      );
+    }
+    // An allowRead that names EXACTLY a path the policy also denies is a
+    // contradiction, and srt resolves it silently in the allow's favour: the
+    // re-emission that keeps a nested deny alive tests
+    // `denied.startsWith(allowed + '/')`, which is false when the two are
+    // equal, so the last-match-wins allow stands and the caller's denyRead is
+    // discarded without a word. Refused rather than pinned, because a policy
+    // that does not mean what it says is the quiet degradation this codebase
+    // forbids. A deny NESTED under a broader allow is a different, supported
+    // shape — srt re-emits that one — and stays legal.
+    const contradicted = denyRead.find((denied) => denied === readable);
+    if (contradicted) {
+      throw new FencePolicyError(
+        `allowRead entry ${written} resolves to ${readable}, which the same policy also names in denyRead; srt would resolve that contradiction in favour of the allow and silently drop the deny. Remove one of the two, or deny a path NESTED inside the allowed one.`
+      );
+    }
+  }
+
+  for (const [index, writable] of allowWrite.entries()) {
+    // A WRITE grant on a credential store re-opens it for READING on Linux.
+    // bubblewrap masks a denied directory with `--tmpfs`, then re-binds every
+    // allowed write path that is at or under that directory with a read-write
+    // `--bind` — and there is no such thing as a write bind you cannot read.
+    // So `allowWrite: ['~/.ssh']` would hand back the very store
+    // ALWAYS_DENY_READ_PATHS exists to keep out, through a channel the
+    // allowRead containment check above never looks at. macOS keeps write and
+    // read authority separate and is not affected, which makes this the mirror
+    // image of the root-allowRead finding: there, macOS leaked and Linux held.
+    // Refused in the policy layer for the same reason — the guarantee must not
+    // depend on which platform the run lands on.
+    const reopened = alwaysDenyRead.find((denied) => isAtOrUnder(writable, denied));
+    if (reopened) {
+      throw new FencePolicyError(
+        `allowWrite entry ${JSON.stringify(parsed.allowWrite[index] ?? writable)} resolves to ${writable}, which sits inside the always-denied credential store ${reopened}; a write grant there re-opens the store for reading on Linux. Remove it or narrow the policy.`
       );
     }
   }
