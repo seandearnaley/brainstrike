@@ -270,7 +270,8 @@ Transient-vs-durable is a mapper decision. That is the contract.
 ### Unknown-chunk policy — NEW
 
 Today all three dispatch sites drop silently with no log and no comment:
-`agent-streaming.ts:1103-1104`, `data-stream-mapper.ts:318-319`,
+`agent-streaming.ts` (`processMastraStreamPart`'s `default:` arm),
+`data-stream-mapper.ts:318-319`,
 `tool-event-mapper.ts:102-103`. This contradicts the project's NO SILENT FALLBACKS
 rule, and contradicts the sibling read path in the same subsystem —
 `requireRunEventKind()` (`packages/app-shell/src/assistant-memory-repository.ts:1209-1217`)
@@ -357,7 +358,8 @@ Four stores, contractually separate:
 Run-event metadata is redacted by denial-list at construction *and* at both write
 sites (`packages/assistant-contract/src/run-events.ts:104-138`, `:164-214`). The
 tool-lifecycle bridge builds metadata from scratch with four keys only
-(`agent-streaming.ts:411-425`), so raw args, results, and error text never reach a
+(`mastra-chunk-decoding.ts` `makeToolEventMetadata`, plus the delegation
+builder in `tool-lifecycle-processors.ts`), so raw args, results, and error text never reach a
 durable row.
 
 Adopting `@mastra/observability` would add a second exporter topology over the same
@@ -391,7 +393,8 @@ telemetry. Neither replaces the other.**
 
 `mastra_workflow_snapshot` (`packages/agent/src/pglite-mastra-memory/workflows-store.ts:208`)
 is written on suspend and read on resume — plus pending-approval discovery
-(`agent-streaming.ts:2380-2449`), which is still the resume path. Nothing else
+(`agent-streaming.ts`, the pending-approval / suspended-run discovery helpers),
+which is still the resume path. Nothing else
 reads it: no analytics, no UI, no history view. Mastra's own guidance is to store
 references rather than payloads, and `pruneSnapshot` must be pure and JSON-safe
 because a snapshot may cross a pubsub boundary.
@@ -447,7 +450,7 @@ package or the live tree at `8b6ccb92b`.
 | A bespoke desktop SSE MCP client needs replacing | Removed in #1593; the file is an 11-line shim over the SDK adapter |
 | `@mastra/mcp` is present and duplicates a lifecycle | Not a dependency anywhere |
 | Stream mapping is missing "cache chunks" | No such chunk type; prompt-cache usage is already on `message-finish.usage` |
-| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`agent-streaming.ts:1658`) |
+| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`agent-streaming.ts`, the rejected-option guard) |
 | Evals are gated on the deployment boundary | `runEvals`/`createScorer` are in core; no server or storage required |
 | Mastra Editor requires Mastra Cloud | `source: 'code'` is git-backed JSON |
 | A CI eval entrypoint shipped in #1088 | The CLI is wired into **no** workflow; the eval logic is gated via vitest under `unit-shard` instead |
