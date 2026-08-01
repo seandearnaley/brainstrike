@@ -363,6 +363,74 @@ level), so an unrelated label creates a run whose job is skipped; since
 workflow-level concurrency is evaluated before job-level `if:`, that no-op run
 would otherwise cancel an in-flight 11-14 min Coverage run.
 
+### `pnpm check` is a mirror of test.yml, not a second CI definition (BST-1009)
+
+`scripts/check.mjs` is the local gate. It has ZERO workflow references and is
+not in `lefthook.yml`, so it is pure human/agent convenience — which is exactly
+why a false green there is dangerous: it is the thing people cite as "CI-
+equivalent" before pushing.
+
+It was one. The pre-BST-1009 plan ran `lint-all`, `build`, `type-check`,
+`test:coverage:split`, `coverage:enforce`, `test:browser`,
+`test:e2e:functional`, `test:e2e:desktop` — a second, divergent definition of
+CI whose divergences were silent:
+
+- `test:coverage:split` → `test:coverage:base` =
+  `pnpm -r --filter '!@brainstrike/db' --filter '!@brainstrike/embeddings' run test:coverage`.
+  **A green `pnpm check` had never run `packages/db`** — the largest suite in
+  the repo and the one turbo task that can never be replayed from a cache hit.
+- It omitted four Static gates: `pnpm secrets:scan`, `pnpm exec turbo
+  boundaries`, the two db lane checks, and **`pnpm test:scripts`** — i.e. the
+  gate that runs the guard-script tests did not run in the local gate that
+  guard scripts exist to protect (BST-836 again, one level up).
+- `lint-all` = `pnpm lint && pnpm format`, which **writes** (`biome check .
+  --fix`); CI's `lint:ci` is read-only. A gate must not rewrite the tree it is
+  judging.
+- It ran whole E2E suites where CI runs the smoke *lanes*.
+
+The rewrite conforms to `test.yml` rather than paraphrasing it. Rules that must
+survive future edits:
+
+- **Turbo-native where CI is turbo.** The unit lanes are
+  `turbo run test --concurrency=4` then `turbo run test:integration
+  --concurrency=2` under `TURBO_TEST_MODE=unit`, unfiltered — CI's three Unit
+  shards are an affected-set PARTITION of those same two tasks, and unfiltered
+  is their union. Never reintroduce a `pnpm -r` filter list here; that is the
+  shape that drifted.
+- **Read-only lint by default.** `--fix-lint` is the explicit opt-in to the
+  writing chain.
+- **`--full` is additive**, not a swap: the required-check mirror plus
+  `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
+  `--fast` drops only the lanes CI fans out to separate runners (Browser tests,
+  E2E). Coverage is deliberately NOT in the default plan, because it is not a
+  required check.
+- **`--continue=dependencies-successful` (mirroring the Build job) changes
+  turbo's scheduling, not its exit code.** `runStep()` rejects on ANY non-zero
+  exit and the orchestrator is fail-fast, so a `--continue` run still fails the
+  whole command. A test proves this with a real `exit 3`.
+- **A CI gate that is not run locally must be DECLARED**, never quietly
+  dropped. `CI_GATES_NOT_RUN_LOCALLY` in `check.mjs` names each such
+  `<job> › <step>` with a reason, prints them at the top of every run, and
+  currently holds exactly the two native jobs (`native-windows`: needs a
+  Windows host; `native-electron`: electron-builder packaging for the runner's
+  own platform, non-required, ~25 min).
+
+`scripts/__tests__/check-ci-parity.test.mjs` (Static job, via
+`pnpm test:scripts`) holds the line. It parses every `run:` step in `test.yml`
+and requires each to be (a) mapped to a plan step id `buildPlan()` emits,
+(b) named in `CI_GATES_NOT_RUN_LOCALLY` with a reason, or (c) listed as runner
+plumbing in its `PROVISIONING_STEPS` set. Anything else fails, so a NEW CI gate
+cannot be silently missed. Per BST-836 it is control-tested against synthetic
+`check.mjs` modules — one with a gate deleted from the plan, one with an
+exclusion entry deleted — and both must make the parity assertion throw; the
+mutation helper fails loudly if its own edit matched nothing, so the control
+cannot go vacuous when formatting moves.
+
+Local-vs-CI difference that is stated rather than hidden: `turbo boundaries`
+scans build output as well as source and CI runs it on a checkout with no
+`dist/`, so a stale local artifact can produce a phantom violation. That is a
+loud failure — `pnpm clean` and re-run before treating it as a real finding.
+
 ### Guard-script entrypoint contract (BST-836)
 
 Every `scripts/verify-*.mjs` MUST run its check when executed directly and MUST
@@ -500,7 +568,10 @@ without a prior build (`pnpm --filter @brainstrike/secure-fs-native test`, or a
 bare `pnpm test:fast` / `test:coverage:base`, which use recursive `pnpm -r`
 rather than turbo) finds no addon. This matches `@brainstrike/utils`, whose
 dist-singleton tests fail the same way without a prior build, and the `check.mjs`
-gate is safe because it runs `build` before `test:fast` sequentially. A preflight
+gate is safe because it runs `build` before the turbo test lanes sequentially
+(BST-1009 replaced its `test:fast`/`test:coverage:split` steps with the same
+`turbo run test` / `turbo run test:integration` invocations CI uses, so the
+addon arrives through turbo's own `#build` edge either way). A preflight
 (`test/ensure-addon.cjs`) turns that case into an actionable message naming the
 build command instead of `bindings`' generic "Could not locate the bindings file".
 It deliberately CHECKS rather than builds: auto-building on a miss would silently

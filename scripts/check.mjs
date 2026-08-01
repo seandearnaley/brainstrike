@@ -1,27 +1,67 @@
 #!/usr/bin/env node
-// Lightweight orchestrator for repo checks with timing and clear output.
-// Modes:
-// - default: install, lint-all, build, type-check, test:coverage:split, coverage:enforce, test:browser, e2e:functional (web), e2e:desktop
-// - --fast:   install, lint-all, build, type-check, test:fast, test:browser, e2e:functional (web), e2e:desktop
-// - --full:   lint-all, build, type-check, test:coverage:split, coverage:enforce, test:browser, e2e:functional (web), e2e:desktop
-// Flags:
-//   --no-install     Skip pnpm install
-//   --no-e2e         Skip E2E tests
-//   --no-coverage    Skip coverage enforcement (only affects default/full modes)
-//   --headless       Run headless display setup before checks (Linux CI/dev)
-//   --verbose        Show step start/finish banners
+/**
+ * `pnpm check` — the local mirror of the CI gate set (BST-1009).
+ *
+ * `.github/workflows/test.yml` is the SOURCE OF TRUTH; this file conforms to
+ * it. The default plan reproduces the five REQUIRED status checks — Static,
+ * Unit, Build, Web E2E, Desktop E2E — plus the always-on (non-required)
+ * Browser tests lane, step for step.
+ *
+ * Why this was rewritten: the previous plan claimed to be "the repo check"
+ * while running a SECOND, divergent definition of CI. It ran
+ * `test:coverage:split`, whose `test:coverage:base` is
+ * `pnpm -r --filter '!@brainstrike/db' ... run test:coverage` — so a green
+ * `pnpm check` had never executed `packages/db`, the largest suite in the repo
+ * and the one turbo task that can never be replayed from cache. It also
+ * omitted four Static gates outright (`secrets:scan`, `turbo boundaries`,
+ * `test:scripts`, and the two db lane checks), including the guard-script gate
+ * that exists to catch exactly this class of false green (BST-836). And its
+ * lint step WROTE to the working tree (`biome check . --fix`) where CI's
+ * `lint:ci` is read-only.
+ *
+ * Two rules keep it honest:
+ *
+ * 1. Every command below mirrors a `run:` step of a gating job in test.yml.
+ *    Where CI uses turbo, this uses turbo — so the two cannot drift on
+ *    selection semantics the way a `pnpm -r` filter list can.
+ * 2. A CI gate this plan does NOT run is declared in
+ *    `CI_GATES_NOT_RUN_LOCALLY` with a reason, printed at the top of every
+ *    run, and audited by `scripts/__tests__/check-ci-parity.test.mjs`. That
+ *    test parses test.yml and fails if any gating `run:` step is neither
+ *    mapped to a plan step nor listed as an exclusion — so a new CI gate
+ *    cannot be silently missed. NO SILENT FALLBACKS.
+ *
+ * Modes:
+ *   default   the required-check mirror (+ Browser tests), with install
+ *   --fast    the same, minus the runner-heavy lanes (Browser tests, E2E)
+ *   --full    the default plan PLUS the advisory/nightly gates that are not
+ *             required checks: nightly-coverage.yml's threshold gate and the
+ *             web/desktop full E2E regression lanes. Additive, never a swap.
+ *
+ * Flags:
+ *   --no-install   Skip pnpm install
+ *   --no-e2e       Skip the E2E lanes (smoke and, under --full, regression)
+ *   --no-coverage  Skip the coverage gate (only reachable under --full)
+ *   --fix-lint     Run the WRITING lint chain (`lint-all`) instead of the
+ *                  read-only `lint:ci` CI uses. Opt-in on purpose: a gate must
+ *                  not rewrite the tree it is judging.
+ *   --headless     Run headless display setup before the checks (Linux)
+ *   --verbose      Show step start banners
+ *
+ * Known local-vs-CI difference, stated rather than hidden: `turbo boundaries`
+ * scans build output as well as source, and CI runs it on a checkout with no
+ * `dist/`. Locally your tree usually has one, so a stale artifact can produce
+ * a phantom violation. That is a loud failure, not a silent pass — clear it
+ * with `pnpm clean` and re-run before treating it as a real finding
+ * (docs/agents/ci-quality.md, BST-967 + the 2026-07-30 cache-poisoning note).
+ */
 
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
 
-const args = new Set(process.argv.slice(2));
-const isFast = args.has('--fast');
-const isFull = args.has('--full');
-const noInstall = args.has('--no-install');
-const noE2E = args.has('--no-e2e');
-const noCoverage = args.has('--no-coverage');
-const headless = args.has('--headless');
-const verbose = args.has('--verbose');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const GREEN = '\u001b[32m';
 const RED = '\u001b[31m';
@@ -30,122 +70,334 @@ const BLUE = '\u001b[34m';
 const BOLD = '\u001b[1m';
 const RESET = '\u001b[0m';
 
-function banner(msg) {
-  if (!verbose) {
-    return;
-  }
-  console.log(`${BLUE}${BOLD}› ${msg}${RESET}`);
-}
+/**
+ * CI `run:` steps this plan deliberately does not execute. Each entry names
+ * the exact `<job> › <step>` it opts out of and why. The parity test refuses
+ * to let anything else go unmapped, so this list is the complete, auditable
+ * set of what a green `pnpm check` has NOT proven.
+ */
+export const CI_GATES_NOT_RUN_LOCALLY = [
+  {
+    reason:
+      'Windows-only: node-gyp + MSVC on windows-latest. It cannot run on a macOS or Linux workstation at all.',
+    step: 'native-windows › Build and test secure filesystem capability',
+  },
+  {
+    reason:
+      'Windows-only: the Job Object addon exists solely for win32 and its test asserts Windows process-tree semantics.',
+    step: 'native-windows › Build and test Agent DevTools process ownership',
+  },
+  {
+    reason:
+      'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
+    step: 'native-electron › Build desktop dependency graph',
+  },
+  {
+    reason:
+      'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
+    step: 'native-electron › Load the native capability in Electron',
+  },
+  {
+    reason:
+      "Non-required check that runs electron-builder for the RUNNER's platform. A local run would package a macOS/dev-OS artifact and prove nothing about the Linux x64 package CI gates, while costing a full electron-builder toolchain and ~25 minutes. Run `pnpm --filter @brainstrike/desktop run pack` by hand when touching packaging.",
+    step: 'native-electron › Package the desktop application',
+  },
+  {
+    reason:
+      'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
+    step: 'native-electron › Load the packaged native capability in Electron',
+  },
+  {
+    reason:
+      'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
+    step: 'native-electron › Load the packaged @parcel/watcher binding in Electron (BST-568)',
+  },
+];
 
-function stepLabel(cmd) {
-  // Short labels for summary
-  if (cmd.includes('install')) {
-    return 'install';
-  }
-  if (cmd.includes('lint-all')) {
-    return 'lint-all';
-  }
-  if (cmd === 'pnpm -s run build') {
-    return 'build';
-  }
-  if (cmd === 'pnpm -s run type-check') {
-    return 'type-check';
-  }
-  if (cmd.endsWith('test')) {
-    return 'test';
-  }
-  if (cmd.endsWith('test:fast')) {
-    return 'test:fast';
-  }
-  if (cmd.endsWith('test:coverage:split')) {
-    return 'test:coverage:split';
-  }
-  if (cmd.endsWith('test:browser')) {
-    return 'test:browser';
-  }
-  if (cmd.endsWith('test:e2e:functional')) {
-    return 'e2e:functional';
-  }
-  if (cmd.endsWith('test:e2e:desktop')) {
-    return 'e2e:desktop';
-  }
-  if (cmd.endsWith('setup:headless')) {
-    return 'setup:headless';
-  }
-  if (cmd.endsWith('coverage:enforce')) {
-    return 'coverage:enforce';
-  }
-  return cmd;
-}
+/**
+ * The CSS bundle gate, mirroring build › "Validate CSS bundle" in test.yml.
+ * The 50,000-byte floor and the layer-duplication pattern are the two numbers
+ * that carry the gate; the parity test asserts both still match the workflow,
+ * so this copy cannot drift from it unnoticed.
+ */
+const VALIDATE_CSS_BUNDLE = `set -eu
+CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
+echo "CSS bundle size: $CSS_SIZE bytes"
+if [ "$CSS_SIZE" -lt 50000 ]; then
+  echo "CSS bundle too small: $CSS_SIZE bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources." >&2
+  exit 1
+fi
+PAT='*,:after,:before,::backdrop{box-sizing:border-box'
+DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
+if [ "$DUPLICATE_COUNT" -ne 1 ]; then
+  echo "Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import tailwindcss statements." >&2
+  exit 1
+fi`;
 
-async function run(cmd) {
-  return new Promise((resolve, reject) => {
-    const started = performance.now();
-    banner(`Starting ${cmd}`);
-    const child = spawn(cmd, { shell: true, stdio: 'inherit' });
-    child.on('exit', (code) => {
-      const ms = Math.round(performance.now() - started);
-      const label = stepLabel(cmd);
-      if (code === 0) {
-        console.log(`${GREEN}✔ ${label}${RESET} ${YELLOW}(${ms} ms)${RESET}`);
-        resolve({ label, ms });
-      } else {
-        console.error(`${RED}✖ ${label} failed${RESET} ${YELLOW}(${ms} ms)${RESET}`);
-        reject(Object.assign(new Error(`${label} failed`), { code, label, ms }));
-      }
-    });
-  });
-}
+const KNOWN_FLAGS = new Set([
+  '--fast',
+  '--full',
+  '--no-install',
+  '--no-e2e',
+  '--no-coverage',
+  '--fix-lint',
+  '--headless',
+  '--verbose',
+]);
 
-function buildPlan() {
-  const plan = [];
-
-  if (headless) {
-    plan.push('pnpm -s run setup:headless');
-  }
-  if (!(noInstall || isFull)) {
-    plan.push('pnpm -s install');
-  }
-
-  plan.push('pnpm -s run lint-all');
-  plan.push('pnpm -s run build');
-  plan.push('pnpm -s run type-check');
-
-  // --fast: quick tests without coverage
-  // default/--full: coverage tests + enforcement
-  if (isFast) {
-    plan.push('pnpm -s run test:fast');
-  } else {
-    plan.push('pnpm -s run test:coverage:split');
-    if (!noCoverage) {
-      plan.push('pnpm -s run coverage:enforce');
+export function parseFlags(argv) {
+  for (const arg of argv) {
+    if (!KNOWN_FLAGS.has(arg)) {
+      throw new Error(
+        `Unknown flag: ${arg}. Supported: ${[...KNOWN_FLAGS].join(' ')}. ` +
+          'Refusing to run a plan you did not ask for.'
+      );
     }
   }
 
-  plan.push('pnpm -s run test:browser');
+  const args = new Set(argv);
+  return {
+    coverage: !args.has('--no-coverage'),
+    e2e: !args.has('--no-e2e'),
+    fast: args.has('--fast'),
+    fixLint: args.has('--fix-lint'),
+    full: args.has('--full'),
+    headless: args.has('--headless'),
+    install: !args.has('--no-install'),
+    verbose: args.has('--verbose'),
+  };
+}
 
-  if (!noE2E) {
-    plan.push('pnpm -s run test:e2e:functional');
-    plan.push('pnpm -s run test:e2e:desktop');
+/**
+ * @returns {{ id: string, label: string, command: string }[]}
+ */
+export function buildPlan(options = {}) {
+  const {
+    fast = false,
+    full = false,
+    install = true,
+    e2e = true,
+    coverage = true,
+    fixLint = false,
+    headless = false,
+  } = options;
+
+  // `--fast` drops the runner-heavy lanes CI fans out across separate
+  // machines; everything a single Static/Unit/Build runner does still runs.
+  const runBrowser = !fast;
+  const runE2E = e2e && !fast;
+
+  const plan = [];
+
+  if (headless) {
+    plan.push({
+      command: 'pnpm -s run setup:headless',
+      id: 'setup-headless',
+      label: 'setup:headless',
+    });
+  }
+
+  if (install) {
+    plan.push({ command: 'pnpm -s install', id: 'install', label: 'install' });
+  }
+
+  // --- Static ------------------------------------------------------------
+  plan.push({
+    command: 'pnpm -s run secrets:scan',
+    id: 'secrets-scan',
+    label: 'secrets:scan',
+  });
+  // Ordering is load-bearing and mirrors Static: boundaries BEFORE anything
+  // that can materialize dist/ (type-check dependsOn build).
+  plan.push({
+    command: 'pnpm -s exec turbo boundaries',
+    id: 'boundaries',
+    label: 'turbo boundaries',
+  });
+  plan.push({
+    command: 'pnpm -s run test:scripts',
+    id: 'script-tests',
+    label: 'test:scripts',
+  });
+  plan.push({
+    command: 'pnpm -s --filter @brainstrike/db run test:db:check-lanes',
+    id: 'db-test-lane-check',
+    label: 'db test lane check',
+  });
+  plan.push({
+    command: 'pnpm -s --filter @brainstrike/db run test:coverage:db:check-lanes',
+    id: 'db-coverage-lane-check',
+    label: 'db coverage lane check',
+  });
+  plan.push({
+    command: fixLint ? 'pnpm -s run lint-all' : 'pnpm -s run lint:ci',
+    id: 'lint',
+    label: fixLint ? 'lint-all (writes)' : 'lint:ci',
+  });
+  plan.push({
+    // CI additionally caps TURBO_CONCURRENCY=4 for the arm64 runner's memory
+    // budget; that cap is deliberately a CI-invocation property and is not
+    // imposed on local developer defaults (docs/agents/ci-quality.md).
+    command: 'pnpm -s run type-check',
+    id: 'type-check',
+    label: 'type-check',
+  });
+
+  // --- Build -------------------------------------------------------------
+  plan.push({
+    // Invoked through the turbo wrapper directly, NOT `pnpm run build -- …`:
+    // pnpm preserves the `--`, turbo then treats the flags as pass-through
+    // args and appends them to every package's own build script (measured on
+    // BST-1005; it killed tsup and node-gyp). `--continue` only affects
+    // turbo's scheduling — the wrapper still exits non-zero, and `runStep()`
+    // below rejects on any non-zero exit, so the whole check still fails.
+    command:
+      'node scripts/run-env.mjs TAILWIND_DEBUG=1 -- node scripts/run-turbo-command.mjs -- run build --summarize --log-order=grouped --continue=dependencies-successful',
+    id: 'build',
+    label: 'build',
+  });
+  plan.push({
+    command: VALIDATE_CSS_BUNDLE,
+    id: 'validate-css-bundle',
+    label: 'validate CSS bundle',
+  });
+
+  // --- Unit --------------------------------------------------------------
+  // Unfiltered on purpose: CI's three shards are an affected-set PARTITION of
+  // the same two turbo tasks, and their union is the whole workspace. Running
+  // unfiltered locally is that union — packages/db very much included.
+  // TURBO_TEST_MODE=unit keeps the cache key identical to CI's; the two-phase
+  // split with the same concurrency caps mirrors the CI phase split.
+  plan.push({
+    command:
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
+    id: 'unit-tests',
+    label: 'test',
+  });
+  plan.push({
+    command:
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
+    id: 'integration-tests',
+    label: 'test:integration',
+  });
+
+  // --- Browser tests -----------------------------------------------------
+  // CI filters to db/storage/ui because its Playwright container has no C
+  // toolchain; a workstation has one, so the unfiltered root script is a
+  // superset of the CI selection.
+  if (runBrowser) {
+    plan.push({
+      command: 'pnpm -s run test:browser',
+      id: 'browser-tests',
+      label: 'test:browser',
+    });
+  }
+
+  // --- Web E2E / Desktop E2E ---------------------------------------------
+  if (runE2E) {
+    plan.push({
+      command: 'pnpm -s --filter @brainstrike/web run test:e2e:lane:smoke',
+      id: 'web-e2e-smoke',
+      label: 'web e2e smoke',
+    });
+    plan.push({
+      // CI wraps this in `dbus-run-session` purely to silence Chromium's
+      // missing-bus noise on the Linux runner; the tests pass without it.
+      command: 'pnpm -s --filter @brainstrike/desktop run test:e2e:lane:smoke',
+      id: 'desktop-e2e-smoke',
+      label: 'desktop e2e smoke',
+    });
+  }
+
+  // --- --full: the advisory / nightly gates ------------------------------
+  if (full && coverage) {
+    // nightly-coverage.yml's threshold gate. Its six package shards plus the
+    // dedicated db shard exist for CI timeout/failure domains; one unfiltered
+    // turbo run is the same task set, db included.
+    plan.push({
+      command:
+        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
+      id: 'coverage',
+      label: 'test:coverage',
+    });
+    plan.push({
+      command: 'pnpm -s run coverage:prepare-workspace',
+      id: 'coverage-prepare',
+      label: 'coverage:prepare-workspace',
+    });
+    plan.push({
+      command: 'pnpm -s run coverage:enforce',
+      id: 'coverage-enforce',
+      label: 'coverage:enforce',
+    });
+  }
+
+  if (full && runE2E) {
+    plan.push({
+      command: 'pnpm -s --filter @brainstrike/web run test:e2e:lane:full-regression',
+      id: 'web-e2e-full-regression',
+      label: 'web e2e full regression',
+    });
+    plan.push({
+      command: 'pnpm -s --filter @brainstrike/desktop run test:e2e:lane:full-regression',
+      id: 'desktop-e2e-full-regression',
+      label: 'desktop e2e full regression',
+    });
   }
 
   return plan;
 }
 
-async function main() {
+function banner(message, verbose) {
+  if (verbose) {
+    console.log(`${BLUE}${BOLD}› ${message}${RESET}`);
+  }
+}
+
+/**
+ * Runs one plan step. Exported so the parity test can prove the failure
+ * semantics directly: ANY non-zero exit rejects, which is what stops a
+ * `--continue=dependencies-successful` turbo run from being swallowed.
+ */
+export async function runStep(step, verbose) {
+  return new Promise((resolve, reject) => {
+    const started = performance.now();
+    banner(`Starting ${step.label}`, verbose);
+    const child = spawn(step.command, { cwd: REPO_ROOT, shell: true, stdio: 'inherit' });
+    child.on('exit', (code) => {
+      const ms = Math.round(performance.now() - started);
+      if (code === 0) {
+        console.log(`${GREEN}✔ ${step.label}${RESET} ${YELLOW}(${ms} ms)${RESET}`);
+        resolve({ label: step.label, ms });
+        return;
+      }
+      console.error(`${RED}✖ ${step.label} failed${RESET} ${YELLOW}(${ms} ms)${RESET}`);
+      reject(Object.assign(new Error(`${step.label} failed`), { code, label: step.label, ms }));
+    });
+  });
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  const options = parseFlags(argv);
   const startedAll = performance.now();
-  const steps = buildPlan();
+  const steps = buildPlan(options);
+
   console.log(`${BOLD}Running ${steps.length} step(s):${RESET}`);
-  for (const s of steps) {
-    console.log(`  - ${s}`);
+  for (const step of steps) {
+    console.log(`  - ${step.label}`);
+  }
+  console.log('');
+  console.log(`${BOLD}CI gates this run does NOT cover:${RESET}`);
+  for (const gate of CI_GATES_NOT_RUN_LOCALLY) {
+    console.log(`  - ${gate.step}`);
+    console.log(`    ${YELLOW}${gate.reason}${RESET}`);
   }
   console.log('');
 
   const results = [];
   try {
-    for (const cmd of steps) {
-      const res = await run(cmd);
-      results.push(res);
+    for (const step of steps) {
+      results.push(await runStep(step, options.verbose));
     }
   } catch (err) {
     const totalMs = Math.round(performance.now() - startedAll);
@@ -153,20 +405,35 @@ async function main() {
     console.log(`${RED}${BOLD}Check failed${RESET} after ${YELLOW}${totalMs} ms${RESET}`);
     if (results.length) {
       console.log(`${BOLD}Completed steps:${RESET}`);
-      for (const r of results) {
-        console.log(`  - ${r.label} (${r.ms} ms)`);
+      for (const result of results) {
+        console.log(`  - ${result.label} (${result.ms} ms)`);
       }
     }
-    process.exit(typeof err.code === 'number' ? err.code : 1);
+    return typeof err.code === 'number' ? err.code : 1;
   }
 
   const totalMs = Math.round(performance.now() - startedAll);
   console.log('');
   console.log(`${GREEN}${BOLD}All checks passed${RESET} in ${YELLOW}${totalMs} ms${RESET}`);
   console.log(`${BOLD}Step timings:${RESET}`);
-  for (const r of results) {
-    console.log(`  - ${r.label} (${r.ms} ms)`);
+  for (const result of results) {
+    console.log(`  - ${result.label} (${result.ms} ms)`);
   }
+  return 0;
 }
 
-main();
+// Only orchestrate when executed directly. Importing this module (the parity
+// test does) must never launch the gate.
+const invokedDirectly =
+  process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (invokedDirectly) {
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(`${RED}${error instanceof Error ? error.message : String(error)}${RESET}`);
+      process.exitCode = 1;
+    });
+}
