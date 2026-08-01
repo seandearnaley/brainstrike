@@ -29,7 +29,7 @@
  * opt-in gate on any platform. Do not raise this to a version pg_textsearch
  * has not shipped, and do not treat single-platform local evidence as a
  * substitute for the doc's "every supported desktop platform" bar before
- * ever loosening this guard further.
+ * loosening this guard further.
  *
  * UNRESOLVED, BLOCKS MERGE OF PR #2206 — existing installs are not covered
  * by this guard at all. `customMigration('custom-066-...', ...)` in
