@@ -135,6 +135,37 @@ Construction sites (keep in sync when adding extensions or new sites):
 Tests that construct PGlite directly and run migrations must also pass the full
 extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.test.ts).
 
+### The test snapshot `globalSetup` lives on ONE project — do not hoist it
+
+`packages/db/vitest.config.mts` declares
+`globalSetup: ['./__tests__/helpers/db-snapshot-global.ts']` on the **`unit`
+project only**. That setup runs the whole numbered-migration chain once and
+`provide()`s the resulting tarball path, so per-test boots become cheap
+`loadDataDir` restores (PR #1807). Two ways to break it, both measured on vitest
+4.1.10 and pinned by `__tests__/vitest-global-setup-contract.test.ts`:
+
+- **Declaring it on a second project** re-runs the full migration chain once per
+  project — `globalSetup` is per-project, not per-run.
+- **Hoisting it to the root `test` config** still runs once for a full
+  `vitest run`, but a root-declared `globalSetup` also runs under *every*
+  `--project` filter — including `--project browser`, which the `Browser tests`
+  CI job runs against this package. `pglite-browser.browser.test.ts` never calls
+  `inject('dbSnapshotPath')`, so that job would build and discard a fully
+  migrated snapshot on every run.
+
+Note this is a **per-process** property: any flow that spawns several
+`vitest run` invocations (`coverage-lanes.mjs`, one per coverage lane) pays for
+one snapshot build per invocation regardless.
+
+**There is a second, correct declaration** — `packages/db/vitest.mutation.config.ts`
+also declares the same `globalSetup`, deliberately: the Stryker lane throws in
+`beforeEach` before any mutant runs without it. That is NOT the per-project
+double-run this section warns about, because it is a separate config reached by
+a separate `vitest run` invocation, so it inherits the per-process property
+above. The rule to apply is "one declaration **per config**", not "one in the
+package" — and the contract test inspects `vitest.config.mts` only, for exactly
+that reason.
+
 ---
 
 ## BROWSER FIRST-RUN FAST BOOTSTRAP (idb:// STORES)
