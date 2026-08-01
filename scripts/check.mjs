@@ -356,7 +356,7 @@ export function buildPlan(options = {}) {
   // superset of the CI selection.
   if (runBrowser) {
     plan.push({
-      command: 'pnpm -s run test:browser',
+      command: 'node scripts/run-env.mjs TEST_TIMEOUT_MULTIPLIER=2 -- pnpm -s run test:browser',
       id: 'browser-tests',
       label: 'test:browser',
     });
@@ -385,7 +385,7 @@ export function buildPlan(options = {}) {
     // turbo run is the same task set, db included.
     plan.push({
       command:
-        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
+        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
       id: 'coverage',
       label: 'test:coverage',
     });

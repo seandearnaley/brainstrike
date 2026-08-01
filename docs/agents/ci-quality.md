@@ -418,15 +418,26 @@ survive future edits:
   threshold when `CI === 'true'`. It belongs to the four Playwright
   invocations and nowhere else; the parity test asserts both halves.
 - **Vitest timeout parity uses `TEST_TIMEOUT_MULTIPLIER=2`, not `CI=true`.** The
-  four Unit workflow steps, the root `pnpm test` script, and `pnpm check`'s
-  unit/integration steps all set the dedicated variable explicitly. Turbo
-  declares it in the test tasks' `env` rather than `passThroughEnv`: timeouts
-  can change pass/fail, so the value must be part of the cache key. Using `2`
-  everywhere preserves local/CI cache sharing while avoiding CI-conditioned
-  coverage and worker changes. `getTimeoutMultiplier()` gives the explicit
-  variable precedence, accepts only a positive plain decimal, and throws on a
-  malformed value; with no explicit value, the existing CI=2 and DEBUG=5
-  defaults remain.
+  four Unit workflow steps, Nightly Coverage's Turbo steps, root Vitest battery
+  scripts (`test`, `test:fast`, browser and coverage), and every Vitest phase of
+  `pnpm check` set the dedicated variable explicitly. Turbo declares it in the
+  unit, integration, browser and coverage task families' `env` rather than
+  `passThroughEnv`: timeouts can change pass/fail, so the value must be part of
+  the cache key and must not disappear in strict environment mode. Using `2`
+  everywhere preserves cache sharing between official PR and push paths while
+  avoiding CI-conditioned coverage changes locally. The cacheable `test` task
+  also hashes `CI` itself: CI changes Vitest worker counts and some package
+  coverage workloads, so replaying a local green under CI would be unsound even
+  with the same timeout multiplier. Direct package/editor invocations
+  intentionally retain the unscaled base unless the caller opts into
+  `TEST_TIMEOUT_MULTIPLIER=2`; that keeps isolated iteration honest while
+  allowing a contention-bearing run to request the gate policy explicitly.
+  `getTimeoutMultiplier()` gives the explicit variable precedence, accepts only
+  a positive plain decimal no greater than 10, and throws on malformed or
+  runaway values; with no explicit value, the existing CI=2 and DEBUG=5
+  defaults remain. That validation contract applies where Vitest timeout policy
+  is consumed; native `node --test` tasks do not read this setting and are not
+  silently choosing a fallback timeout from it.
 - **`--full` is additive**, not a swap: the required-check mirror plus
   `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
   `--fast` drops only the lanes CI fans out to separate runners (Browser tests,

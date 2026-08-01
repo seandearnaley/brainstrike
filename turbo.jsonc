@@ -154,10 +154,12 @@
       "dependsOn": [
         "topo"
       ],
-      // Tests can be sensitive to NODE_ENV. TURBO_TEST_MODE differentiates
-      // plain test runs from coverage runs, and TEST_TIMEOUT_MULTIPLIER is
-      // result-affecting configuration that must be hashed (BST-1050).
+      // Tests can be sensitive to NODE_ENV. CI changes Vitest worker count and
+      // some package coverage workloads, TURBO_TEST_MODE differentiates plain
+      // test runs from coverage runs, and TEST_TIMEOUT_MULTIPLIER changes
+      // timeout verdicts. All are result-affecting and must be hashed.
       "env": [
+        "CI",
         "NODE_ENV",
         "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
@@ -171,16 +173,14 @@
       //   - packages/test-utils/src/vitest.base.ts gates `maxWorkers` on `CI`,
       //   - ~12 packages compute `coverageEnabled = CI === 'true' || COVERAGE === 'true'`,
       //   - packages/db/vitest.config.mts adds Chromium `--no-sandbox` flags when `CI` is set.
-      // They belong in `passThroughEnv`, NOT `env`: they must NOT enter the cache
-      // key. The official Unit paths set the result-affecting timeout policy
-      // separately through hashed TEST_TIMEOUT_MULTIPLIER, leaving `CI` here
-      // for worker count / report emission. `COVERAGE` differs between the PR
-      // path (unset) and the push path ("false") —
+      // CI belongs in `env`: its worker and coverage branches change the
+      // workload, so a local green must never be replayed in CI without
+      // executing CI's profile. `COVERAGE` differs between the PR path (unset)
+      // and the push path ("false") —
       // hashing it would give the two paths different cache keys and defeat the whole
       // point of this change (PR and push runs sharing cache entries). passThroughEnv
-      // exposes them at runtime while keeping the hash identical across both paths.
+      // exposes COVERAGE at runtime while keeping the hash identical across both paths.
       "passThroughEnv": [
-        "CI",
         "COVERAGE"
       ],
       // Plain unit tests do not produce stable artifacts. Coverage is handled by
@@ -221,9 +221,10 @@
       //
       // Mirrors `test`'s dependsOn/env/passThroughEnv so cache keys and the
       // Strict-mode runtime env match the pure lane (TURBO_TEST_MODE
-      // differentiates unit vs coverage; CI/COVERAGE stay in passThroughEnv so
-      // they never enter a hash — moot here since caching is off, but kept
-      // identical so a file moving between lanes sees the same runtime env).
+      // differentiates unit vs coverage; CI stays hashed for parity with the
+      // cacheable task, while COVERAGE stays in passThroughEnv — moot here
+      // since caching is off, but kept aligned so a file moving between lanes
+      // sees the same runtime env).
       // dependsOn is `["topo"]` for parity with `test` (see that task + the topo
       // transit-node comment). This lane is `cache: false`, so topo's cascade is
       // moot for it, but keeping it identical means a file moving between the two
@@ -233,12 +234,12 @@
         "topo"
       ],
       "env": [
+        "CI",
         "NODE_ENV",
         "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "passThroughEnv": [
-        "CI",
         "COVERAGE"
       ],
       "outputs": [],
@@ -347,7 +348,8 @@
       // it through to package-level tasks.
       "env": [
         "CI",
-        "PLAYWRIGHT_BROWSERS_PATH"
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "TEST_TIMEOUT_MULTIPLIER"
       ],
       // Browser tests produce screenshots and artifacts
       "outputs": [
@@ -372,6 +374,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       // Coverage output artifacts (e.g., coverage reports).
@@ -408,6 +411,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
@@ -425,6 +429,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
@@ -442,6 +447,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
@@ -459,6 +465,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
@@ -476,6 +483,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
@@ -493,6 +501,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
@@ -510,6 +519,7 @@
       "env": [
         "COVERAGE",
         "NODE_ENV",
+        "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [

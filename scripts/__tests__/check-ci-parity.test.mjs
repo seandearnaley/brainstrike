@@ -46,6 +46,12 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const checkSourcePath = path.join(repoRoot, 'scripts', 'check.mjs');
+const nightlyCoverageWorkflowPath = path.join(
+  repoRoot,
+  '.github',
+  'workflows',
+  'nightly-coverage.yml'
+);
 const workflowPath = path.join(repoRoot, '.github', 'workflows', 'test.yml');
 
 /**
@@ -75,6 +81,65 @@ const PROVISIONING_STEPS = new Set([
 
 function workflowSource() {
   return readFileSync(workflowPath, 'utf8');
+}
+
+function stripJsonc(source) {
+  let output = '';
+  let inBlockComment = false;
+  let inLineComment = false;
+  let inString = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (inLineComment) {
+      if (character === '\n') {
+        inLineComment = false;
+        output += character;
+      }
+      continue;
+    }
+    if (inBlockComment) {
+      if (character === '*' && nextCharacter === '/') {
+        inBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (inString) {
+      output += character;
+      if (character === '\\') {
+        output += nextCharacter ?? '';
+        index += 1;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      output += character;
+      continue;
+    }
+    if (character === '/' && nextCharacter === '/') {
+      inLineComment = true;
+      index += 1;
+      continue;
+    }
+    if (character === '/' && nextCharacter === '*') {
+      inBlockComment = true;
+      index += 1;
+      continue;
+    }
+    output += character;
+  }
+
+  return output.replace(/,(\s*[}\]])/g, '$1');
+}
+
+function parseJsonc(source) {
+  return JSON.parse(stripJsonc(source));
 }
 
 /**
@@ -222,10 +287,10 @@ function gateInvocations(text) {
   return found;
 }
 
-/** @returns {{ env: Record<string, unknown>, key: string, run: string }[]} every `run:` step in test.yml */
-function ciRunSteps(source = workflowSource()) {
+/** @returns {{ env: Record<string, unknown>, key: string, run: string }[]} every named `run:` step */
+function workflowRunSteps(source, { label, minimumSteps }) {
   const workflow = parseYaml(source);
-  assert.ok(workflow?.jobs, 'test.yml must parse to a workflow with jobs');
+  assert.ok(workflow?.jobs, `${label} must parse to a workflow with jobs`);
 
   const steps = [];
   for (const [jobId, job] of Object.entries(workflow.jobs)) {
@@ -243,10 +308,16 @@ function ciRunSteps(source = workflowSource()) {
       }
     }
   }
-  // Discovery floor: refuse a vacuous green if the parse silently found
-  // nothing (a restructured workflow, a YAML shape change).
-  assert.ok(steps.length >= 30, `expected the full test.yml step set, found ${steps.length}`);
+  assert.ok(
+    steps.length >= minimumSteps,
+    `expected at least ${minimumSteps} named run steps in ${label}, found ${steps.length}`
+  );
   return steps;
+}
+
+/** @returns {{ env: Record<string, unknown>, key: string, run: string }[]} every `run:` step in test.yml */
+function ciRunSteps(source = workflowSource()) {
+  return workflowRunSteps(source, { label: 'test.yml', minimumSteps: 30 });
 }
 
 function ciStep(key) {
@@ -259,35 +330,108 @@ function ciRunStep(key) {
   return ciStep(key).run;
 }
 
-function rootTurboTaskSource(source, taskName) {
-  const taskStarts = [...source.matchAll(/^ {4}"([^"]+)": \{/gm)];
+function timeoutSensitiveTurboTaskNames(config) {
   assert.ok(
-    taskStarts.length >= 10,
-    `expected the root turbo task graph, found only ${taskStarts.length} task blocks`
+    config?.tasks && typeof config.tasks === 'object' && !Array.isArray(config.tasks),
+    'turbo.jsonc must declare a tasks object'
   );
-  const taskIndex = taskStarts.findIndex((match) => match[1] === taskName);
-  assert.notEqual(taskIndex, -1, `turbo.jsonc no longer declares the ${taskName} task`);
-  const start = taskStarts[taskIndex].index;
-  assert.notEqual(start, undefined, `could not locate the ${taskName} task`);
-  const end = taskStarts[taskIndex + 1]?.index ?? source.length;
-  return source.slice(start, end);
+  const taskNames = Object.keys(config.tasks).filter(
+    (taskName) =>
+      ['test', 'test:browser', 'test:coverage', 'test:integration'].includes(taskName) ||
+      (/^test:coverage:db:/.test(taskName) && taskName !== 'test:coverage:db:check-lanes')
+  );
+  assert.ok(
+    taskNames.length >= 11,
+    `expected at least 11 Vitest task families to hash timeout policy, found ${taskNames.length}`
+  );
+  return taskNames;
 }
 
-function assertTimeoutMultiplierIsHashed(source) {
-  for (const taskName of ['test', 'test:integration']) {
-    const taskSource = rootTurboTaskSource(source, taskName);
-    const env = taskSource.match(/"env"\s*:\s*\[([\s\S]*?)\]/);
-    assert.ok(env, `turbo ${taskName} must declare its result-affecting environment`);
-    assert.match(
-      env[1],
-      /"TEST_TIMEOUT_MULTIPLIER"/,
+function assertTimeoutMultiplierIsHashed(config) {
+  for (const taskName of timeoutSensitiveTurboTaskNames(config)) {
+    const task = config.tasks[taskName];
+    assert.ok(task, `turbo.jsonc no longer declares the ${taskName} task`);
+    assert.ok(
+      task.env?.includes('TEST_TIMEOUT_MULTIPLIER'),
       `turbo ${taskName} must hash TEST_TIMEOUT_MULTIPLIER in env`
     );
-    const passThroughEnv = taskSource.match(/"passThroughEnv"\s*:\s*\[([\s\S]*?)\]/);
-    assert.doesNotMatch(
-      passThroughEnv?.[1] ?? '',
-      /"TEST_TIMEOUT_MULTIPLIER"/,
+    assert.ok(
+      !task.passThroughEnv?.includes('TEST_TIMEOUT_MULTIPLIER'),
       `turbo ${taskName} must not leave the result-affecting multiplier unhashed`
+    );
+  }
+}
+
+function assertCacheableTestWorkerModeIsHashed(config) {
+  const task = config.tasks.test;
+  assert.ok(task, 'turbo.jsonc no longer declares the test task');
+  assert.ok(
+    task.env?.includes('CI'),
+    'turbo test must hash CI because it changes Vitest worker and coverage workloads'
+  );
+  assert.ok(
+    !task.passThroughEnv?.includes('CI'),
+    'turbo test must not pass CI through without hashing its result-affecting workload'
+  );
+}
+
+function assertRootTestPhaseParity(rootPackage) {
+  const commands = splitShellCommands(rootPackage.scripts.test);
+  assert.equal(commands.length, 2, 'root pnpm test must run unit and integration as two phases');
+  assert.match(
+    commands[0],
+    /\brun\s+test\s+--concurrency=4\b/,
+    'root pnpm test must run the unit phase at CI concurrency 4'
+  );
+  assert.doesNotMatch(
+    commands[0],
+    /\btest:integration\b/,
+    'root pnpm test must not combine integration into the unit phase'
+  );
+  assert.match(
+    commands[1],
+    /\brun\s+test:integration\s+--concurrency=2\b/,
+    'root pnpm test must run integration after unit at CI concurrency 2'
+  );
+}
+
+function unitPhaseTestSteps(source = workflowSource()) {
+  return ciRunSteps(source).filter(
+    (step) =>
+      step.key.startsWith('unit-shard › ') &&
+      /\bpnpm\s+turbo\s+run\s+test(?::integration)?(?:\s|$)/.test(step.run)
+  );
+}
+
+function assertUnitWorkflowTimeoutPolicy(source = workflowSource()) {
+  const steps = unitPhaseTestSteps(source);
+  assert.equal(steps.length, 4, 'the Unit phase test-step count changed; re-audit timeout policy');
+  for (const step of steps) {
+    assert.equal(
+      step.env['TEST_TIMEOUT_MULTIPLIER'],
+      '2',
+      `${step.key} must use the same explicit timeout policy as local gates`
+    );
+  }
+}
+
+function assertNightlyCoverageTimeoutPolicy(
+  source = readFileSync(nightlyCoverageWorkflowPath, 'utf8')
+) {
+  const steps = workflowRunSteps(source, {
+    label: 'nightly-coverage.yml',
+    minimumSteps: 10,
+  }).filter((step) => /\bpnpm\s+turbo\s+run\s+test:coverage(?:\s|:)/.test(step.run));
+  assert.equal(
+    steps.length,
+    3,
+    'the Nightly Coverage Vitest step count changed; re-audit timeout policy'
+  );
+  for (const step of steps) {
+    assert.equal(
+      step.env['TEST_TIMEOUT_MULTIPLIER'],
+      '2',
+      `${step.key} must use the explicit coverage timeout policy`
     );
   }
 }
@@ -534,7 +678,12 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
     'web-e2e-full-regression',
     'desktop-e2e-full-regression',
   ]);
-  const timeoutMatchedIds = new Set(['unit-tests', 'integration-tests']);
+  const timeoutMatchedIds = new Set([
+    'browser-tests',
+    'coverage',
+    'integration-tests',
+    'unit-tests',
+  ]);
 
   for (const step of plan) {
     if (playwrightIds.has(step.id)) {
@@ -576,44 +725,99 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
   );
 });
 
-test('the Unit workflow, root test script, and pnpm check share one hashed timeout policy', () => {
-  const unitStepKeys = [
-    'unit-shard › Pull request affected unit tests',
-    'unit-shard › Pull request affected integration tests',
-    'unit-shard › Push and manual unit tests',
-    'unit-shard › Push and manual integration tests',
-  ];
-  assert.equal(unitStepKeys.length, 4, 'the Unit phase discovery floor changed unexpectedly');
-  for (const key of unitStepKeys) {
-    assert.equal(
-      ciStep(key).env['TEST_TIMEOUT_MULTIPLIER'],
-      '2',
-      `${key} must use the same explicit timeout policy as local gates`
+test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout policy', () => {
+  assertUnitWorkflowTimeoutPolicy();
+  assertNightlyCoverageTimeoutPolicy();
+
+  const rootPackage = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  for (const scriptName of [
+    'test',
+    'test:browser',
+    'test:coverage',
+    'test:coverage:base',
+    'test:coverage:embeddings',
+    'test:fast',
+  ]) {
+    assert.match(
+      rootPackage.scripts[scriptName],
+      /\bTEST_TIMEOUT_MULTIPLIER=2\b/,
+      `the root pnpm ${scriptName} battery must match the CI timeout policy`
+    );
+  }
+  assertRootTestPhaseParity(rootPackage);
+
+  const turboConfig = parseJsonc(readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8'));
+  assertTimeoutMultiplierIsHashed(turboConfig);
+  assertCacheableTestWorkerModeIsHashed(turboConfig);
+
+  for (const taskName of ['test', 'test:browser', 'test:coverage', 'test:coverage:db:runtime']) {
+    const mutatedTurboConfig = structuredClone(turboConfig);
+    mutatedTurboConfig.tasks[taskName].env = mutatedTurboConfig.tasks[taskName].env.filter(
+      (name) => name !== 'TEST_TIMEOUT_MULTIPLIER'
+    );
+    assert.throws(
+      () => assertTimeoutMultiplierIsHashed(mutatedTurboConfig),
+      new RegExp(`${taskName} must hash TEST_TIMEOUT_MULTIPLIER`),
+      `CONTROL: removing the hashed multiplier from ${taskName} must turn the contract red`
     );
   }
 
-  const rootPackage = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-  assert.match(
-    rootPackage.scripts.test,
-    /\bTEST_TIMEOUT_MULTIPLIER=2\b/,
-    'the root pnpm test battery must match the CI timeout policy'
+  const unhashedWorkerMode = structuredClone(turboConfig);
+  unhashedWorkerMode.tasks.test.env = unhashedWorkerMode.tasks.test.env.filter(
+    (name) => name !== 'CI'
   );
-
-  const turboSource = readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8');
-  assertTimeoutMultiplierIsHashed(turboSource);
-
-  const testTaskSource = rootTurboTaskSource(turboSource, 'test');
-  const mutatedTaskSource = testTaskSource.replace(/\s*"TEST_TIMEOUT_MULTIPLIER",?/, '');
-  assert.notEqual(
-    mutatedTaskSource,
-    testTaskSource,
-    'the timeout-hash control mutation matched nothing and would be vacuous'
-  );
-  const mutatedTurboSource = turboSource.replace(testTaskSource, mutatedTaskSource);
+  unhashedWorkerMode.tasks.test.passThroughEnv = [
+    ...(unhashedWorkerMode.tasks.test.passThroughEnv ?? []),
+    'CI',
+  ];
   assert.throws(
-    () => assertTimeoutMultiplierIsHashed(mutatedTurboSource),
-    /test must hash TEST_TIMEOUT_MULTIPLIER/,
-    'CONTROL: removing the hashed multiplier from test must turn the contract red'
+    () => assertCacheableTestWorkerModeIsHashed(unhashedWorkerMode),
+    /turbo test must hash CI/,
+    'CONTROL: moving CI back to passThroughEnv must expose the cache false-green'
+  );
+
+  const mismatchedRootPhases = structuredClone(rootPackage);
+  mismatchedRootPhases.scripts.test = mismatchedRootPhases.scripts.test.replace(
+    'run test:integration --concurrency=2',
+    'run test:integration --concurrency=4'
+  );
+  assert.notEqual(
+    mismatchedRootPhases.scripts.test,
+    rootPackage.scripts.test,
+    'the root-phase control mutation matched nothing'
+  );
+  assert.throws(
+    () => assertRootTestPhaseParity(mismatchedRootPhases),
+    /integration after unit at CI concurrency 2/,
+    'CONTROL: root integration scheduling drift must turn the parity guard red'
+  );
+});
+
+test('CONTROL: a fifth Unit test step without timeout policy turns the discovery guard red', () => {
+  const source = workflowSource();
+  const insertionPoint = '      - name: Push and manual integration tests\n';
+  const mutated = source.replace(
+    insertionPoint,
+    '      - name: Unreviewed fifth unit phase\n' +
+      '        run: pnpm turbo run test --filter=@brainstrike/types\n\n' +
+      insertionPoint
+  );
+  assert.notEqual(mutated, source, 'the fifth-step control mutation matched nothing');
+  assert.throws(
+    () => assertUnitWorkflowTimeoutPolicy(mutated),
+    /Unit phase test-step count changed/,
+    'a newly added Unit phase must not bypass timeout-policy review'
+  );
+});
+
+test('CONTROL: Nightly Coverage without explicit timeout policy turns the guard red', () => {
+  const source = readFileSync(nightlyCoverageWorkflowPath, 'utf8');
+  const mutated = source.replace('          TEST_TIMEOUT_MULTIPLIER: "2"\n', '');
+  assert.notEqual(mutated, source, 'the Nightly Coverage control mutation matched nothing');
+  assert.throws(
+    () => assertNightlyCoverageTimeoutPolicy(mutated),
+    /must use the explicit coverage timeout policy/,
+    'a Nightly Coverage task must not fall back to Turbo-filtered CI state'
   );
 });
 

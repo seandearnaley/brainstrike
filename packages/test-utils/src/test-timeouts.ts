@@ -29,6 +29,8 @@ export const TEST_TIMEOUTS = {
  */
 export const getTestTimeout = (type: keyof typeof TEST_TIMEOUTS): number => TEST_TIMEOUTS[type];
 
+const MAX_TEST_TIMEOUT_MULTIPLIER = 10;
+
 /**
  * Environment-specific timeout multipliers
  */
@@ -40,9 +42,16 @@ export const getTimeoutMultiplier = (): number => {
     // mistakes, not alternative spellings to accept silently.
     const isPositiveDecimal = /^(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)$/.test(configuredMultiplier);
     const multiplier = Number(configuredMultiplier);
-    if (!(isPositiveDecimal && Number.isFinite(multiplier) && multiplier > 0)) {
+    if (
+      !(
+        isPositiveDecimal &&
+        Number.isFinite(multiplier) &&
+        multiplier > 0 &&
+        multiplier <= MAX_TEST_TIMEOUT_MULTIPLIER
+      )
+    ) {
       throw new Error(
-        `Invalid TEST_TIMEOUT_MULTIPLIER ${JSON.stringify(configuredMultiplier)}; expected a positive decimal number.`
+        `Invalid TEST_TIMEOUT_MULTIPLIER ${JSON.stringify(configuredMultiplier)}; expected a positive decimal number no greater than ${MAX_TEST_TIMEOUT_MULTIPLIER}.`
       );
     }
     return multiplier;
