@@ -145,7 +145,7 @@ default and are unaffected."
 
 **Assessment for BST-1062's actual workload: low impact.** The failure is scoped
 to **schannel** TLS backends. CPython links OpenSSL, not schannel, so `urllib`,
-`requests`, `httpx`, and `pip` take the env-var trust path (`README.md:541`:
+`requests`, `httpx`, and `pip` take the env-var trust path (`README.md:543`:
 `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, …, with the bundle
 path auto-added to the session `allowRead` grant). Agent Python runs should be
 unaffected. This is a **prediction from srt's documentation, not an
@@ -220,7 +220,7 @@ no-op the filesystem policy and the second would throw. See §4.
 | Finding | Evidence | Why it matters |
 | --- | --- | --- |
 | `wrapWithSandbox()` (shell-string form) **throws on Windows** | `sandbox-manager.js:1193-1200` | `wrapWithSandboxArgv()` + `{shell:false}` is the only supported wrap. PR #2190 already uses the argv form — but its POSIX `shellQuote()` emits `'…'` single-quoting, which `cmd.exe` (the default inner shell, `parseWindowsBinShell`) does not treat as quoting. A Windows fence needs a `cmd`/`pwsh`-correct quoter |
-| `resolveSrtWin()` requires an **explicit** `windows.srtWin.path` — "no ambient vendor fallback" | `windows-sandbox-utils.js:193-203` | Electron packaging must `asar`-unpack `vendor/srt-win/<arch>/srt-win.exe` and pass its real on-disk path; an exe inside an asar archive cannot be spawned. srt's own CLI opts into `VENDORED_SRT_WIN_EXE` explicitly (`cli.js:141-155`) — the library never guesses |
+| `resolveSrtWin()` requires an **explicit** `windows.srtWin.path` — "no ambient vendor fallback" | `windows-sandbox-utils.js:193-203` | Electron packaging must `asar`-unpack `vendor/srt-win/<arch>/srt-win.exe` and pass its real on-disk path; an exe inside an asar archive cannot be spawned. srt's own CLI opts into `VENDORED_SRT_WIN_EXE` explicitly (`cli.js:145-155`) — the library never guesses |
 | `proxyAuthToken` is **visible in the runner's argv** | README known limitation 5 | "readable by any local principal that can open the runner process for `PROCESS_QUERY_LIMITED_INFORMATION`". Fine on a single-user dev machine; on a shared host, treat the allowlist as reachable by other same-session principals |
 | `network.tlsTerminate` needs a **separate, unelevated** CA-trust step | `README.md:532-543`; `windowsTrustCa` / `ensurePersistentWindowsCa` | Not covered by `windows-install`. `initialize()` fails closed on a thumbprint mismatch. We do not use `tlsTerminate` today; noted so a future request-filtering feature does not discover it late |
 | A **non-elevated readiness probe exists** | `checkWindowsSandboxStatusAsync`, `checkWindowsDependenciesAsync` (both exported) | This is what makes the capability model in §2 possible at all |
@@ -269,7 +269,7 @@ const { errors } = await checkWindowsDependenciesAsync({ srtWin });
 const ready: boolean = errors.length === 0;
 ```
 
-What it actually checks (`windows-sandbox-utils.js:1318-1400`):
+What it actually checks (`windows-sandbox-utils.js:1316-1400`):
 
 - `srt-win user status` → `provisioned` (the account exists) **and**
   `credPresent` (the DPAPI credential row in `state.db` is readable **by this
@@ -499,7 +499,7 @@ node --input-type=module -e "import {checkWindowsSandboxStatusAsync,resolveSrtWi
 > not a failure**; it is exactly the admin-gating described in §2.2.
 
 Settings file at `%USERPROFILE%\.srt-settings.json` (the CLI supplies
-`VENDORED_SRT_WIN_EXE` itself, `cli.js:141-155`, so `windows.srtWin.path` may be
+`VENDORED_SRT_WIN_EXE` itself, `cli.js:145-155`, so `windows.srtWin.path` may be
 omitted for CLI runs):
 
 ```json
