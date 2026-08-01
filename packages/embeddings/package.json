@@ -81,7 +81,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:integration": "vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:models": "vitest run --config vitest.models.config.mts",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
