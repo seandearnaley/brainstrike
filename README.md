@@ -123,10 +123,15 @@ E2E **smoke** lanes.
   read-only `lint:ci`. Opt-in on purpose — a gate must not rewrite the tree it
   is judging.
 
+The install is `--frozen-lockfile` (as CI installs), and the Playwright lanes —
+and only those — run under `CI=true` so `forbidOnly`, retries, workers and the
+CI wait budgets match the required job.
+
 Every run prints the CI gates it does *not* cover — the two native jobs plus
 any gates deliberately omitted by its mode flags — with the reason, and
-`scripts/__tests__/check-ci-parity.test.mjs` fails if a CI gate is ever neither
-covered nor explicitly declared uncovered.
+`scripts/__tests__/check-ci-parity.test.mjs` compares the actual commands, not
+just step names, so a CI gate can never be neither covered nor explicitly
+declared uncovered.
 
 ### Performance Test Isolation
 

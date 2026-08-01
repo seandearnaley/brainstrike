@@ -73,74 +73,158 @@ const PROVISIONING_STEPS = new Set([
   'desktop-e2e › Provision Electron binary',
 ]);
 
-/**
- * Exact commands of every mapped workflow gate. The local command can use a
- * portable wrapper, but changing CI's command must force an explicit parity
- * decision instead of retaining the old mapping by step name alone.
- */
-const CI_GATE_RUNS = new Map([
-  ['static › Secret scan', 'pnpm secrets:scan'],
-  ['static › Package boundaries', 'pnpm exec turbo boundaries'],
-  ['static › Script tests', 'pnpm test:scripts'],
-  [
-    'static › Check DB test + coverage lane assignments',
-    'pnpm --filter @brainstrike/db test:db:check-lanes\npnpm --filter @brainstrike/db test:coverage:db:check-lanes\n',
-  ],
-  ['static › Lint', 'pnpm run lint:ci'],
-  ['static › Type check', 'pnpm run type-check'],
-  [
-    'unit-shard › Pull request affected unit tests',
-    `pnpm turbo run test ${'$'}{{ matrix.pr_filters }} --concurrency=4`,
-  ],
-  [
-    'unit-shard › Pull request affected integration tests',
-    `pnpm turbo run test:integration ${'$'}{{ matrix.pr_filters }} --concurrency=2`,
-  ],
-  [
-    'unit-shard › Push and manual unit tests',
-    `pnpm turbo run test ${'$'}{{ matrix.push_filters }} --concurrency=4`,
-  ],
-  [
-    'unit-shard › Push and manual integration tests',
-    `pnpm turbo run test:integration ${'$'}{{ matrix.push_filters }} --concurrency=2`,
-  ],
-  [
-    'build › Build',
-    'pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful',
-  ],
-  [
-    'build › Validate CSS bundle',
-    `CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-echo "CSS bundle size: \${CSS_SIZE} bytes"
-
-if [ "$CSS_SIZE" -lt 50000 ]; then
-  echo "::error::CSS bundle too small: \${CSS_SIZE} bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources."
-  exit 1
-fi
-
-PAT='*,:after,:before,::backdrop{box-sizing:border-box'
-DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
-if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-  echo "::error::Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import \\"tailwindcss\\" statements."
-  exit 1
-fi
-`,
-  ],
-  [
-    'browser-tests › Run browser tests',
-    'pnpm test:browser --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui',
-  ],
-  ['web-e2e › Run web smoke', 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke'],
-  ['desktop-e2e › Run desktop smoke', 'dbus-run-session -- pnpm run test:e2e:lane:smoke'],
-]);
-
 function workflowSource() {
   return readFileSync(workflowPath, 'utf8');
 }
 
+/**
+ * CI gates whose work is raw shell — no pnpm/turbo/node invocation for the
+ * command comparison below to match on. Each needs a named test that covers
+ * its drift, or the comparison would pass vacuously for it.
+ */
+const SHELL_GATE_STEPS = new Set([
+  // The LOCAL side of this gate is no longer shell — it is
+  // `node scripts/validate-css-bundle.mjs`, control-tested in
+  // scripts/__tests__/validate-css-bundle.test.mjs (too small, and duplicate
+  // layers, each proven to throw). The CI side is still inline shell and
+  // test.yml is not ours to edit, so the exemption stays — but it now means
+  // "CI's half is unparseable", not "nothing verifies this". Its drift is
+  // covered by 'the CSS bundle gate has not drifted from the workflow', which
+  // reads the byte floor and duplicate-layer pattern out of test.yml and
+  // requires the validator's exported constants to match.
+  'build › Validate CSS bundle',
+]);
+
+/** pnpm subcommands that are not a package script. */
+const PNPM_NON_SCRIPT_SUBCOMMANDS = new Set([
+  'add',
+  'dlx',
+  'exec',
+  'install',
+  'licenses',
+  'link',
+  'list',
+  'remove',
+  'store',
+  'turbo',
+  'update',
+  'why',
+]);
+
+function splitShellCommands(text) {
+  return text
+    .split(/\n|&&|;/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function turboInvocations(command) {
+  const found = new Set();
+  // `pnpm turbo run <tasks>` / `turbo run <tasks>` (CI) and this repo's wrapper
+  // `run-turbo-command.mjs [wrapper flags] -- run <tasks>` (the local plan).
+  for (const pattern of [
+    /(?:^|\s)turbo\s+run\s+(.*)$/,
+    /run-turbo-command\.mjs\b.*?\s--\s+run\s+(.*)$/,
+  ]) {
+    const match = command.match(pattern);
+    if (!match) {
+      continue;
+    }
+    for (const token of match[1].trim().split(/\s+/)) {
+      // Tasks come first; the first flag or `${{ … }}` expression ends them.
+      if (token.startsWith('-') || token.startsWith('$')) {
+        break;
+      }
+      found.add(`turbo-task:${token}`);
+    }
+  }
+  // Non-`run` turbo subcommands — `turbo boundaries` today, whatever is added
+  // tomorrow. `run-turbo-command.mjs` cannot match: its `turbo` is preceded by
+  // a hyphen, not by whitespace.
+  const subcommand = command.match(/(?:^|\s)turbo\s+([a-z][\w-]*)/);
+  if (subcommand && subcommand[1] !== 'run') {
+    found.add(`turbo:${subcommand[1]}`);
+  }
+  return found;
+}
+
+function pnpmInvocations(command) {
+  const found = new Set();
+  const tokens = command.split(/\s+/);
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index] !== 'pnpm') {
+      continue;
+    }
+    let cursor = index + 1;
+    while (cursor < tokens.length && tokens[cursor].startsWith('-')) {
+      // `--filter <value>` takes a separate argument; `--filter=<value>` does not.
+      cursor += tokens[cursor] === '--filter' ? 2 : 1;
+    }
+    const subcommand = tokens[cursor];
+    if (subcommand === undefined) {
+      continue;
+    }
+    if (subcommand === 'run') {
+      if (tokens[cursor + 1]) {
+        found.add(`pnpm-script:${tokens[cursor + 1]}`);
+      }
+      continue;
+    }
+    if (subcommand === 'exec') {
+      const binary = tokens[cursor + 1];
+      // turbo is covered with far more precision by turboInvocations.
+      if (binary && binary !== 'turbo') {
+        found.add(`pnpm-exec:${binary}`);
+      }
+      continue;
+    }
+    if (!PNPM_NON_SCRIPT_SUBCOMMANDS.has(subcommand)) {
+      // Script shorthand: `pnpm --filter @brainstrike/db test:db:check-lanes`.
+      found.add(`pnpm-script:${subcommand}`);
+    }
+  }
+  return found;
+}
+
+function nodeScriptInvocations(command) {
+  const found = new Set();
+  for (const match of command.matchAll(/(?:^|\s)node\s+(\S+\.(?:mjs|cjs|js))(?:\s|$)/g)) {
+    found.add(`node-script:${match[1].split('/').pop()}`);
+  }
+  return found;
+}
+
+/**
+ * The gate SEMANTICS of a command: which pnpm scripts, turbo tasks, and node
+ * scripts it actually invokes.
+ *
+ * Comparing these instead of step names is the whole point. Asserting only
+ * that a mapped plan id still exists lets `pnpm test:scripts` become
+ * `pnpm test:scripts && pnpm run new-gate` with the contract still green — the
+ * new gate would run in CI, never locally, and nothing would say so. Every
+ * gate in test.yml is a pnpm/turbo/node invocation, so a CI step whose token
+ * set comes back EMPTY is a shape this extractor does not understand and must
+ * fail rather than pass vacuously (see SHELL_GATE_STEPS).
+ */
+function gateInvocations(text) {
+  const found = new Set();
+  for (const command of splitShellCommands(text)) {
+    for (const token of turboInvocations(command)) {
+      found.add(token);
+    }
+    for (const token of pnpmInvocations(command)) {
+      found.add(token);
+    }
+    for (const token of nodeScriptInvocations(command)) {
+      found.add(token);
+    }
+  }
+  return found;
+}
+
 /** @returns {{ key: string, run: string }[]} every `run:` step in test.yml */
-function ciRunSteps() {
-  const workflow = parseYaml(workflowSource());
+function ciRunSteps(source = workflowSource()) {
+  const workflow = parseYaml(source);
   assert.ok(workflow?.jobs, 'test.yml must parse to a workflow with jobs');
 
   const steps = [];
@@ -168,15 +252,25 @@ function ciRunStep(key) {
 }
 
 /**
- * The single parity assertion, shared by the real module and by the synthetic
- * control modules. Throws — it must be usable inside `assert.throws`.
+ * The single parity assertion, shared by the real module, by the synthetic
+ * control modules, and by the mutated-workflow controls. Throws — it must be
+ * usable inside `assert.throws`.
+ *
+ * `workflowText` and `shellGateSteps` are parameters so a control can drive
+ * this against a workflow that gained a gate, or with the vacuity allowlist
+ * emptied.
  */
-function assertPlanCoversCiGates(plan, exclusions) {
-  const planIds = new Set(plan.map((step) => step.id));
+function assertPlanCoversCiGates(
+  plan,
+  exclusions,
+  workflowText = workflowSource(),
+  shellGateSteps = SHELL_GATE_STEPS
+) {
+  const planById = new Map(plan.map((step) => [step.id, step]));
   const excluded = new Set(exclusions.map((entry) => entry.step));
   const unmapped = [];
 
-  for (const { key } of ciRunSteps()) {
+  for (const { key, run } of ciRunSteps(workflowText)) {
     if (PROVISIONING_STEPS.has(key) || excluded.has(key)) {
       continue;
     }
@@ -185,10 +279,33 @@ function assertPlanCoversCiGates(plan, exclusions) {
       unmapped.push(key);
       continue;
     }
+
+    const covered = new Set();
     for (const id of required) {
-      if (!planIds.has(id)) {
+      const step = planById.get(id);
+      if (!step) {
         throw new Error(
           `CI gate "${key}" maps to plan step "${id}", which pnpm check's plan does not contain.`
+        );
+      }
+      for (const token of gateInvocations(step.command)) {
+        covered.add(token);
+      }
+    }
+
+    const wanted = gateInvocations(run);
+    if (wanted.size === 0 && !shellGateSteps.has(key)) {
+      throw new Error(
+        `CI gate "${key}" invokes no pnpm/turbo/node command this contract can compare, so ` +
+          'mapping it proves nothing. Declare it in SHELL_GATE_STEPS naming the test that ' +
+          'covers its drift, or teach gateInvocations its shape.'
+      );
+    }
+    for (const token of wanted) {
+      if (!covered.has(token)) {
+        throw new Error(
+          `CI gate "${key}" runs \`${token}\`, which no plan step mapped to it ` +
+            `(${required.join(', ')}) runs. pnpm check would go green without it.`
         );
       }
     }
@@ -202,19 +319,17 @@ function assertPlanCoversCiGates(plan, exclusions) {
   }
 }
 
-test('every mapped CI gate command remains the reviewed command', () => {
-  for (const [key, expectedRun] of CI_GATE_RUNS) {
-    assert.equal(
-      ciRunStep(key),
-      expectedRun,
-      `CI gate "${key}" changed command; update its local parity mapping deliberately.`
-    );
-  }
-  assert.equal(
-    CI_GATE_RUNS.size,
-    CI_GATE_PLAN_IDS.size,
-    'every local parity mapping needs a command lock'
-  );
+test('CI_GATE_PLAN_IDS maps exactly the gating steps — no missing, no stale', () => {
+  // The mapping must be exhaustive in BOTH directions. Missing entries are
+  // caught by the parity assertion's `unmapped` list; a STALE entry — one
+  // naming a step test.yml no longer has — is not, and it would quietly shrink
+  // what the contract checks while every test stayed green.
+  const excluded = new Set(CI_GATES_NOT_RUN_LOCALLY.map((entry) => entry.step));
+  const gatingSteps = ciRunSteps()
+    .map((step) => step.key)
+    .filter((key) => !(PROVISIONING_STEPS.has(key) || excluded.has(key)));
+
+  assert.deepEqual([...CI_GATE_PLAN_IDS.keys()].sort(), gatingSteps.sort());
 });
 
 /** Import a variant of check.mjs with `mutate` applied to its source text. */
@@ -276,6 +391,132 @@ test('CONTROL: deleting an exclusion entry FAILS the parity assertion', async ()
       ),
     /neither covered by a plan step nor declared/,
     'an undeclared, uncovered CI step must FAIL this contract'
+  );
+});
+
+test('CONTROL: a CI step that GAINS an uncovered gate FAILS the parity assertion', () => {
+  // The drift this contract exists to catch, and the one a name-only check
+  // sails past: the mapped step id still exists, the plan is untouched, and a
+  // brand-new gate runs in CI and nowhere else.
+  const source = workflowSource();
+  const mutated = source.replace(
+    'run: pnpm test:scripts',
+    'run: pnpm test:scripts && pnpm run new-uncovered-gate'
+  );
+  assert.notEqual(
+    mutated,
+    source,
+    'the control mutation matched nothing in test.yml — the control would be vacuous'
+  );
+
+  assert.throws(
+    () => assertPlanCoversCiGates(buildPlan(parseFlags([])), CI_GATES_NOT_RUN_LOCALLY, mutated),
+    /pnpm-script:new-uncovered-gate/,
+    'a CI gate the plan does not run must FAIL this contract'
+  );
+});
+
+test('CONTROL: an undeclared shell-only CI gate FAILS rather than passing vacuously', () => {
+  // Emptying the allowlist makes `build › Validate CSS bundle` — whose run is
+  // pure shell — the undeclared case. It must fail, not silently match nothing.
+  assert.throws(
+    () =>
+      assertPlanCoversCiGates(
+        buildPlan(parseFlags([])),
+        CI_GATES_NOT_RUN_LOCALLY,
+        workflowSource(),
+        new Set()
+      ),
+    /invokes no pnpm\/turbo\/node command this contract can compare/
+  );
+});
+
+test('gateInvocations reads the shapes both sides are actually written in', () => {
+  // Control for the comparator itself: if it silently returned nothing, every
+  // command comparison above would pass vacuously.
+  assert.deepEqual([...gateInvocations('pnpm secrets:scan')], ['pnpm-script:secrets:scan']);
+  assert.deepEqual([...gateInvocations('pnpm -s run secrets:scan')], ['pnpm-script:secrets:scan']);
+  assert.deepEqual(
+    [...gateInvocations('pnpm --filter @brainstrike/db test:db:check-lanes')],
+    ['pnpm-script:test:db:check-lanes']
+  );
+  assert.deepEqual([...gateInvocations('pnpm exec turbo boundaries')], ['turbo:boundaries']);
+
+  // Read from the real workflow rather than retyped here: these two carry the
+  // shapes most likely to defeat a naive extractor — a `${{ … }}` matrix
+  // expression right after the task name, and a `dbus-run-session --` wrapper
+  // in front of pnpm.
+  assert.ok(
+    gateInvocations(ciRunStep('unit-shard › Pull request affected unit tests')).has(
+      'turbo-task:test'
+    )
+  );
+  assert.ok(
+    gateInvocations(ciRunStep('desktop-e2e › Run desktop smoke')).has(
+      'pnpm-script:test:e2e:lane:smoke'
+    )
+  );
+  assert.ok(
+    gateInvocations(
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4'
+    ).has('turbo-task:test')
+  );
+  // A wrapper must not be mistaken for the task it wraps.
+  assert.ok(
+    !gateInvocations('node scripts/run-turbo-command.mjs -- run build').has('turbo:command')
+  );
+});
+
+test('the install step is frozen, exactly as the CI composite installs', () => {
+  const composite = readFileSync(
+    path.join(repoRoot, '.github/actions/setup-workspace/action.yml'),
+    'utf8'
+  );
+  assert.match(
+    composite,
+    /run: pnpm install --frozen-lockfile/,
+    'the CI composite this mirrors must still install frozen'
+  );
+
+  const install = buildPlan(parseFlags([])).find((step) => step.id === 'install');
+  assert.ok(install, 'the default plan must install');
+  // A plain `pnpm install` UPDATES pnpm-lock.yaml on manifest drift and stays
+  // green while CI rejects the same input.
+  assert.match(install.command, /--frozen-lockfile\b/);
+});
+
+test('the Playwright lanes run under CI semantics, and nothing else does', () => {
+  const plan = buildPlan(parseFlags(['--full']));
+  const playwrightIds = new Set([
+    'web-e2e-smoke',
+    'desktop-e2e-smoke',
+    'web-e2e-full-regression',
+    'desktop-e2e-full-regression',
+  ]);
+
+  for (const step of plan) {
+    if (playwrightIds.has(step.id)) {
+      // Without this, playwright.config.ts loads in local mode: forbidOnly is
+      // false, so a stray `test.only` passes the lane while the required Web
+      // E2E job rejects the same source.
+      assert.match(step.command, /\bCI=true\b/, `${step.id} must mirror CI's environment`);
+      continue;
+    }
+    // BST-1050: `CI` must NOT leak into the unit/integration/build steps —
+    // getTimeoutMultiplier() doubles under it and vector-management's vitest
+    // config switches on a 70% line-coverage threshold when CI === 'true'.
+    assert.doesNotMatch(
+      step.command,
+      /\bCI=true\b/,
+      `${step.id} must not run under CI semantics; it would change the workload, not just the env`
+    );
+  }
+
+  // And the unit lanes still assert the uninstrumented CI workload.
+  assert.match(
+    plan.find((step) => step.id === 'unit-tests').command,
+    /COVERAGE=false/,
+    "the unit lane must stay uninstrumented, as CI's Unit shards are"
   );
 });
 
@@ -491,17 +732,6 @@ test('mode flags report every required gate they omit', () => {
   );
   for (const step of ['web-e2e › Run web smoke', 'desktop-e2e › Run desktop smoke']) {
     assert.ok(omittedByNoE2E.has(step), `--no-e2e must disclose that it omits ${step}`);
-  }
-});
-
-test('install and smoke lanes match CI failure semantics', () => {
-  const plan = buildPlan(parseFlags([]));
-  assert.equal(
-    plan.find((step) => step.id === 'install')?.command,
-    'pnpm -s install --frozen-lockfile'
-  );
-  for (const id of ['web-e2e-smoke', 'desktop-e2e-smoke']) {
-    assert.match(plan.find((step) => step.id === id)?.command ?? '', /run-env\.mjs CI=true/);
   }
 });
 

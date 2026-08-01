@@ -399,6 +399,24 @@ survive future edits:
   shape that drifted.
 - **Read-only lint by default.** `--fix-lint` is the explicit opt-in to the
   writing chain.
+- **The install is `--frozen-lockfile`**, matching
+  `.github/actions/setup-workspace`. A plain `pnpm install` silently UPDATES
+  `pnpm-lock.yaml` when a workspace manifest has drifted from it and continues
+  green, while CI rejects that same input — a false green in the install step
+  of the script that exists to stop false greens.
+- **The Playwright lanes run under `CI=true`, and nothing else does.** Both
+  `playwright.config.ts` files branch on `config.isCI` for `forbidOnly`,
+  `fullyParallel`, `globalTimeout`, `retries`, `workers`, `reporter`, the
+  Chromium launch args and `trace`, and the `e2e/utils` helpers key their wait
+  budgets off `CI` too — so without it a stray `test.only` in an `@web-smoke`
+  test passes the lane locally while the required Web E2E job rejects the same
+  source. Playwright's `--forbid-only` flag was considered and REJECTED: it
+  repairs one of ~10 CI-conditioned divergences. **Do not hoist `CI` to the
+  whole run (BST-1050)**: it would change the WORKLOAD of the unit lanes, not
+  just their environment — `getTimeoutMultiplier()` returns 2 under `CI`, and
+  `packages/vector-management`'s base vitest config switches on a 70% line
+  threshold when `CI === 'true'`. It belongs to the four Playwright
+  invocations and nowhere else; the parity test asserts both halves.
 - **`--full` is additive**, not a swap: the required-check mirror plus
   `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
   `--fast` drops only the lanes CI fans out to separate runners (Browser tests,
@@ -423,17 +441,54 @@ survive future edits:
 and requires each to be (a) mapped to a plan step id `buildPlan()` emits,
 (b) named in `CI_GATES_NOT_RUN_LOCALLY` with a reason, or (c) listed as runner
 plumbing in its `PROVISIONING_STEPS` set. Anything else fails, so a NEW CI gate
-cannot be silently missed. Per BST-836 it is control-tested against synthetic
-`check.mjs` modules — one with a gate deleted from the plan, one with an
-exclusion entry deleted — and both must make the parity assertion throw; the
-mutation helper fails loudly if its own edit matched nothing, so the control
-cannot go vacuous when formatting moves.
+cannot be silently missed.
 
-The mapped workflow commands themselves are locked in that test too: renaming a
-step cannot mask a changed `run:` command that the local plan does not yet
-mirror. The local CSS validation is a small Node script rather than the
-workflow's POSIX shell snippet, so it has the same byte/pattern assertions on
-Windows as on Unix; its paired controls prove both failure modes still fail.
+**It compares COMMANDS, not names**, and that distinction is the contract.
+`gateInvocations()` reduces both the CI `run:` text and the mapped plan
+command(s) to the set of pnpm scripts, turbo tasks and node scripts each
+actually invokes (splitting on newlines/`&&`/`;`, seeing through
+`pnpm --filter X <script>`, `pnpm turbo run`, this repo's
+`run-turbo-command.mjs -- run`, and a `dbus-run-session --` prefix), then
+requires the CI set to be a subset of the plan set. Asserting only that a
+mapped id still exists was itself the drift class: `pnpm test:scripts` could
+become `pnpm test:scripts && pnpm run new-gate` with the contract still green
+and the new gate running in CI and nowhere else. A CI step whose token set
+comes back EMPTY fails unless it is declared in `SHELL_GATE_STEPS` naming the
+test that covers its drift (only `build › Validate CSS bundle` today, covered
+by the byte-floor/duplicate-layer comparison).
+
+Per BST-836 every part of that is control-tested — a synthetic `check.mjs` with
+a gate deleted from the plan; another with an exclusion entry deleted; a
+MUTATED `test.yml` whose `Script tests` step gains `&& pnpm run
+new-uncovered-gate`; and the parity assertion run with `SHELL_GATE_STEPS`
+emptied — each must make it throw. `gateInvocations` has its own control
+asserting it really extracts the shapes both sides are written in, because a
+comparator that silently returned nothing would make every command comparison
+vacuous. Both mutation helpers fail loudly if their own edit matched nothing:
+that already fired once on this branch when `biome check --write` sorted object
+keys out from under a literal anchor.
+
+The mapping is exhaustive in BOTH directions: a missing entry surfaces as an
+unmapped step, and a STALE entry — one naming a step `test.yml` no longer has —
+fails its own test, because otherwise it would quietly shrink what the contract
+checks while every test stayed green.
+
+The local CSS validation is `scripts/validate-css-bundle.mjs`, a small Node
+script rather than the workflow's POSIX shell snippet, so it makes the same
+byte/pattern assertions on Windows as on Unix; its paired controls prove both
+failure modes still fail. CI's half of that step is still inline shell, which
+is why it remains in `SHELL_GATE_STEPS` — that entry now means "CI's command is
+unparseable by the comparator", not "nothing verifies this".
+
+What this deliberately does NOT catch: a mapped CI command that gains or
+changes a FLAG the local plan does not mirror (say `lint:ci --max-warnings=0`).
+The token model compares which gates run, not their every argument. Snapshotting
+each `run:` block verbatim into the test was tried and rejected — it is a
+hand-maintained second copy of `test.yml`, the exact shape this section exists
+to remove, and its failure mode invites a paste-and-move-on update rather than a
+decision. The arguments that actually carry a contract are asserted
+individually, read live from the workflow: the Unit lanes' `--concurrency=4`
+and `--concurrency=2`, and Build's `--continue=dependencies-successful`.
 
 Local-vs-CI difference that is stated rather than hidden: `turbo boundaries`
 scans build output as well as source and CI runs it on a checkout with no

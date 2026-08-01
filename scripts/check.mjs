@@ -158,6 +158,35 @@ export function uncoveredCiGates(plan) {
   return [...CI_GATES_NOT_RUN_LOCALLY, ...skippedByFlags];
 }
 
+/**
+ * A Playwright lane, run under CI environment semantics — and ONLY this
+ * command.
+ *
+ * Both `playwright.config.ts` files branch on `config.isCI` (which reads
+ * `CI`/`GITHUB_ACTIONS`) for `forbidOnly`, `fullyParallel`, `globalTimeout`,
+ * `retries`, `workers`, `reporter`, the Chromium launch args, and `trace`; the
+ * `e2e/utils` helpers key their own wait budgets off `CI` too. Without it the
+ * lane loads in local mode, so a stray `test.only` in an `@web-smoke` test
+ * makes this "pass" by running one test while the required Web E2E job rejects
+ * the same source — precisely the false green this script exists to remove.
+ *
+ * Playwright's `--forbid-only` flag was considered and REJECTED: it repairs one
+ * of roughly ten CI-conditioned divergences, so it would leave the same class
+ * of gap alive under a name that claims otherwise. `CI=true` mirrors all of
+ * them at once.
+ *
+ * SCOPE IS LOAD-BEARING — do not hoist this to the whole run (BST-1050). A
+ * process-wide `CI` would change the workload of the unit/integration steps,
+ * not just their environment: `getTimeoutMultiplier()` returns 2 under `CI`,
+ * and `packages/vector-management`'s base vitest config turns on coverage with
+ * a 70% line threshold when `CI === 'true'`. Those steps must stay exactly as
+ * CI's Unit shards run them (`COVERAGE=false`), so `CI` belongs to these
+ * Playwright invocations and nothing else.
+ */
+function playwrightLane(pkg, script) {
+  return `node scripts/run-env.mjs CI=true -- pnpm -s --filter ${pkg} run ${script}`;
+}
+
 const KNOWN_FLAGS = new Set([
   '--fast',
   '--full',
@@ -229,7 +258,16 @@ export function buildPlan(options = {}) {
   }
 
   if (install) {
-    plan.push({ command: 'pnpm -s install --frozen-lockfile', id: 'install', label: 'install' });
+    plan.push({
+      // `--frozen-lockfile`, exactly as `.github/actions/setup-workspace`
+      // installs. A plain `pnpm install` SILENTLY UPDATES pnpm-lock.yaml when a
+      // workspace manifest has drifted from it and then carries on green, while
+      // CI rejects that same input — a false green in the install step of the
+      // script whose whole purpose is to stop false greens.
+      command: 'pnpm -s install --frozen-lockfile',
+      id: 'install',
+      label: 'install',
+    });
   }
 
   // --- Static ------------------------------------------------------------
@@ -327,16 +365,14 @@ export function buildPlan(options = {}) {
   // --- Web E2E / Desktop E2E ---------------------------------------------
   if (runE2E) {
     plan.push({
-      command:
-        'node scripts/run-env.mjs CI=true -- pnpm -s --filter @brainstrike/web run test:e2e:lane:smoke',
+      command: playwrightLane('@brainstrike/web', 'test:e2e:lane:smoke'),
       id: 'web-e2e-smoke',
       label: 'web e2e smoke',
     });
     plan.push({
       // CI wraps this in `dbus-run-session` purely to silence Chromium's
       // missing-bus noise on the Linux runner; the tests pass without it.
-      command:
-        'node scripts/run-env.mjs CI=true -- pnpm -s --filter @brainstrike/desktop run test:e2e:lane:smoke',
+      command: playwrightLane('@brainstrike/desktop', 'test:e2e:lane:smoke'),
       id: 'desktop-e2e-smoke',
       label: 'desktop e2e smoke',
     });
@@ -367,12 +403,12 @@ export function buildPlan(options = {}) {
 
   if (full && runE2E) {
     plan.push({
-      command: 'pnpm -s --filter @brainstrike/web run test:e2e:lane:full-regression',
+      command: playwrightLane('@brainstrike/web', 'test:e2e:lane:full-regression'),
       id: 'web-e2e-full-regression',
       label: 'web e2e full regression',
     });
     plan.push({
-      command: 'pnpm -s --filter @brainstrike/desktop run test:e2e:lane:full-regression',
+      command: playwrightLane('@brainstrike/desktop', 'test:e2e:lane:full-regression'),
       id: 'desktop-e2e-full-regression',
       label: 'desktop e2e full regression',
     });
