@@ -166,9 +166,10 @@ Required external timing must therefore compare the Turbo `type-check` phase on
 a PR that actually changes the compiler wiring. Job duration alone is too
 coarse because setup and unrelated phases can dominate.
 
-No TypeScript checker-count flag is added in this slice. TS7's shipped default
-is used and measured first; tuning concurrency without evidence would combine
-two variables and make the result harder to attribute.
+No TypeScript checker-count flag is added in this slice. TS7's published
+default is `--checkers 4`, so the unflagged command is already the parallel
+baseline. It is used and measured first; tuning concurrency without evidence
+would combine two variables and make the result harder to attribute.
 
 ## Reproduction checklist
 
