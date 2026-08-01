@@ -81,15 +81,20 @@ BST-1061, BST-1063 and BST-1064 were being worked in agent worktrees that had
 **never been pushed** and would have died with the session. All three were
 salvaged at the end into draft PRs:
 
-| Ticket | Draft PR | What's in it |
-| --- | --- | --- |
-| BST-1061 | #2205 | manifest + independently verified checksums; implementation not started |
-| BST-1063 | #2206 | bump complete, BM25 re-qualified with evidence, one open question |
-| BST-1064 | #2207 | measurements taken, the ticket's premise disproved, no baseline |
+All four lane PRs finished their review cycles before handoff — **every thread on
+every one is resolved** (#2191 12/12, #2205 3/3, #2206 5/5, #2207 6/6). None is a
+half-finished branch you have to reconstruct intent from.
 
-Each PR body itemises what remains. **Read the per-ticket sections below before
-opening them** — in every case the findings are worth more than the diff, and
-two of the three change what the ticket is even asking for.
+| Ticket | PR | State on handoff |
+| --- | --- | --- |
+| BST-1061 | #2205 draft | hardened manifest + verified checksums. No implementation code yet; punch list in the PR body |
+| BST-1063 | #2206 **DO NOT MERGE** | bump works for greenfield only. [BST-1081](https://linear.app/brainstrike/issue/BST-1081) Urgent + [BST-1080](https://linear.app/brainstrike/issue/BST-1080) filed. Both obvious fixes ruled out — read below |
+| BST-1064 | #2207 draft | harness fixed and re-measured (stdev 295 ms → 18 ms), premise disproved, baseline still owed |
+| BST-1068 | #2191 open | human hardware run complete; recommendation survived and is now numeric |
+
+**Read the per-ticket sections below before opening any of them.** In every case
+the findings outweigh the diff, and two of the four changed what their ticket was
+even asking for.
 
 ---
 
@@ -209,10 +214,23 @@ already existed, so the `expect False` precondition can't establish where
 `pip --user` writes; and both curl runs returned HTTP 200 under Schannel, leaving
 the revocation differential with no defined outcome.
 
-**Recommendation before these results:** absent factory on win32, no
-elevated-install prompt, blocked on *expressibility* rather than maturity
-(Windows srt fixes filesystem scope at `initialize()`). **Whether it survives the
-new evidence is the open question — read the PR, not this paragraph.**
+**The recommendation SURVIVED and is now measured rather than argued.** Absent
+factory on win32; no elevated-install prompt. The blocker was always
+*expressibility* — Windows srt fixes filesystem scope at `initialize()`, so the
+only lifecycle that applies a per-execution `ExecPolicy` correctly is
+`reset()` + `initialize()` per run. Your ten cycles priced that:
+`[1531, 1535, 1538, 1548, 1551, 1559, 1570, 1607, 1642, 1689]`, **median
+1559 ms**.
+
+Two properties make that decisive rather than indicative: the **fastest** cycle
+(1531 ms) is already over the affordability line, so it is not a tail-latency
+artefact a quieter machine would fix; and the spread is tight (~10%), which is
+the shape of a real fixed cost, so ten samples generalise safely.
+
+So Windows can either honour the seam's per-execution policy at ~1.5 s of
+overhead per run, or be fast and silently wrong. Neither is shippable, which is
+why the factory is absent rather than degraded — and that is now a number, not a
+judgement call.
 
 ### BST-1063 — PGlite 0.5.4 · **draft PR #2206 · DO NOT MERGE**
 
