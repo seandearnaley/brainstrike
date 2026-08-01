@@ -206,20 +206,31 @@ jobs:
     # `test-lanes.mjs run all`, i.e. five SEQUENTIAL per-lane vitest boots. PR
     # #1807 replaced that with a single `vitest run --project unit` over a
     # migrate-once PGlite snapshot, so db#test is now ONE invocation whose files
-    # parallelize across forks. That rewrite also ENDED db's reign as the
-    # critical path: on the first db-touching PR after it (run 30681934145) the
-    # three shards measured db 439s, heavy 486s, rest 327s — heavy is now the
-    # long pole. The dedicated db shard still earns its keep, but for two
-    # different reasons, both checkable rather than assumed: db is ONE package
-    # against heavy's FOUR, so it is still by far the largest single suite, and
-    # it is the only whole-task-uncached one (packages/db/turbo.json), so unlike
-    # every other shard it can never be skipped by a cache hit. Do not restore
-    # a "longest turbo task" claim here without a fresh number — that superlative
-    # was true at audit time and silently false for months afterward.
+    # parallelize across forks. RE-MEASURED on the first db-touching PR after
+    # that rewrite (run 30681934145), per turbo phase:
+    #     turbo `test`             db 6m24s (1 pkg) | heavy 3m54s (3 pkgs) | rest 1m26s (11 pkgs)
+    #     turbo `test:integration` db 0 tasks/0.2s  | heavy 3m18s (3 pkgs) | —
+    #     job wall-clock           db 439s          | heavy 486s           | rest 327s
+    # Read those together, because either row alone misleads. `db#test` IS
+    # still the longest single test task by a wide margin (6m24s for ONE
+    # package vs 3m54s across three) — that is what earns the dedicated shard.
+    # But the db SHARD is no longer the workflow's long pole: heavy's JOB runs
+    # longer because it also carries an integration phase db has none of (db
+    # keeps its env-sensitive specs inside the unit project under a whole-task
+    # `cache: false`, so it has no separate integration lane). Shrinking db
+    # therefore buys no workflow wall-clock until heavy shrinks first.
+    # TWO TRAPS when re-measuring, both of which produced a wrong answer here
+    # before the logs were read:
+    #   - job durations alone rank heavy above db and invite the conclusion
+    #     that db is no longer the biggest suite. It is; the phases differ.
+    #   - a shard whose `...[ref]` filter selects nothing no-ops in seconds and
+    #     is INDISTINGUISHABLE from a fast one. Take numbers only from a PR
+    #     that actually changes that shard's packages (a #2173-era db shard
+    #     reads as 1m purely because the PR touched only packages/agent).
     # The matrix splits the package graph across three runners so the heavy
     # suites stop queuing behind each other:
     #   db    — @brainstrike/db only (whole-task-uncached, one parallel-fork
-    #           vitest run; the largest single-package suite).
+    #           vitest run; the longest single test task).
     #   heavy — the four biggest remaining suites by measured vitest duration
     #           (desktop, ui, file-explorer-ui, app-shell).
     #   rest  — affected-set minus the five packages above (negation filters).
