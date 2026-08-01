@@ -119,10 +119,6 @@ export const CI_GATE_PLAN_IDS = new Map([
   ['static › Secret scan', ['secrets-scan']],
   ['static › Package boundaries', ['boundaries']],
   ['static › Script tests', ['script-tests']],
-  [
-    'static › Check DB test + coverage lane assignments',
-    ['db-test-lane-check', 'db-coverage-lane-check'],
-  ],
   ['static › Lint', ['lint']],
   ['static › Type check', ['type-check']],
   ['unit-shard › Pull request affected unit tests', ['unit-tests']],
@@ -287,16 +283,6 @@ export function buildPlan(options = {}) {
     command: 'pnpm -s run test:scripts',
     id: 'script-tests',
     label: 'test:scripts',
-  });
-  plan.push({
-    command: 'pnpm -s --filter @brainstrike/db run test:db:check-lanes',
-    id: 'db-test-lane-check',
-    label: 'db test lane check',
-  });
-  plan.push({
-    command: 'pnpm -s --filter @brainstrike/db run test:coverage:db:check-lanes',
-    id: 'db-coverage-lane-check',
-    label: 'db coverage lane check',
   });
   plan.push({
     command: fixLint ? 'pnpm -s run lint-all' : 'pnpm -s run lint:ci',

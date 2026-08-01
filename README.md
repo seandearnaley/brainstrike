@@ -106,8 +106,8 @@ Scope to a package with `--filter`, e.g. `pnpm test --filter @brainstrike/utils`
 
 `pnpm check` runs the same gates `.github/workflows/test.yml` requires on a PR,
 in the same order and through the same turbo invocations: the Static job's
-secret scan, `turbo boundaries`, `pnpm test:scripts`, both DB lane checks,
-read-only lint and type-check; the Build job's build and CSS-bundle validation;
+secret scan, `turbo boundaries`, `pnpm test:scripts`, read-only lint and
+type-check; the Build job's build and CSS-bundle validation;
 the Unit shards' `turbo run test` and `turbo run test:integration` (unfiltered,
 so `packages/db` really runs); the Browser tests lane; and the web + desktop
 E2E **smoke** lanes.

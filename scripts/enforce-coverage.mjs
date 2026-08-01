@@ -76,9 +76,10 @@ const OVERRIDES = new Map([
   ['@brainstrike/preferences', { branches: 63, functions: 70, lines: 82, statements: 76 }],
 ]);
 
-// DB coverage is intentionally split into dedicated test:coverage:db:* lanes
-// because running it in the normal workspace coverage pass is too slow for PR
-// gates. If DB coverage artifacts exist, they are still enforced below.
+// DB coverage is intentionally isolated from the normal workspace coverage
+// pass because it is too slow for PR gates. Nightly runs two native Vitest file
+// shards and merges their blob reports into packages/db/coverage with Vitest's
+// own --merge-reports path. If that artifact exists, it is enforced below.
 // Embeddings is not exempt: the supported split/nightly coverage flows run its
 // dedicated coverage lane before enforcement, so a missing artifact is a real
 // orchestration failure rather than an allowed split-lane omission.

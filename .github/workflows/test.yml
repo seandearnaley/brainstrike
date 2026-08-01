@@ -154,24 +154,6 @@ jobs:
       - name: Script tests
         run: pnpm test:scripts
 
-      - name: Check DB test + coverage lane assignments
-        # These are two DERIVED VIEWS of one shared manifest
-        # (packages/db/scripts/db-test-lane-manifest.mjs), not two registries to be
-        # maintained by hand: `test-lanes` (PR unit lanes) and `coverage-lanes`
-        # (nightly coverage lanes) both import it, and a test's coverage lane is
-        # resolved from its unit lane automatically. Adding a test therefore takes ONE
-        # edit — a regex in `dbUnitLaneDefinitions` — and cannot leave the two views
-        # inconsistent the way the old hand-synced registries could (issue #1101).
-        #
-        # Still worth running both here: a brand-new UNIT LANE needs its own
-        # `coverageDefaultsByUnitLane` entry, and only the coverage check catches a
-        # missing one (it fails loudly rather than dropping the test). The checks
-        # validate lane assignment without executing the suite (~1s), so drift
-        # surfaces on the PR rather than at 2am in Nightly Coverage.
-        run: |
-          pnpm --filter @brainstrike/db test:db:check-lanes
-          pnpm --filter @brainstrike/db test:coverage:db:check-lanes
-
       - name: Lint
         run: pnpm run lint:ci
 
@@ -203,10 +185,12 @@ jobs:
     # run 29718029263-era worst case 29718226412: Unit 42m, every other job done
     # by ~9m), and `db#test` alone accounted for ~30m of it. HISTORICAL DETAIL,
     # kept because it explains the ~30m figure: at audit time `db#test` was
-    # `test-lanes.mjs run all`, i.e. five SEQUENTIAL per-lane vitest boots. PR
-    # #1807 replaced that with a single `vitest run --project unit` over a
-    # migrate-once PGlite snapshot, so db#test is now ONE invocation whose files
-    # parallelize across forks. RE-MEASURED on the first db-touching PR after
+    # five sequential per-lane Vitest boots. PR #1807 replaced that with one
+    # `vitest run --project unit` over a migrate-once PGlite snapshot, so
+    # db#test became one invocation whose files parallelize across forks.
+    # BST-1046 now splits that one invocation with Vitest's native `--shard`
+    # inside this single package; no cross-package sharding or custom file map
+    # is involved. RE-MEASURED on the first db-touching PR after
     # that rewrite (run 30681934145), per turbo phase:
     #     turbo `test`             db 6m24s (1 pkg) | heavy 3m54s (3 pkgs) | rest 1m26s (11 pkgs)
     #     turbo `test:integration` db 0 tasks/0.2s  | heavy 3m18s (3 pkgs) | —
@@ -227,10 +211,10 @@ jobs:
     #     is INDISTINGUISHABLE from a fast one. Take numbers only from a PR
     #     that actually changes that shard's packages (a #2173-era db shard
     #     reads as 1m purely because the PR touched only packages/agent).
-    # The matrix splits the package graph across three runners so the heavy
+    # The matrix splits the package graph across four runners so the heavy
     # suites stop queuing behind each other:
-    #   db    — @brainstrike/db only (whole-task-uncached, one parallel-fork
-    #           vitest run; the longest single test task).
+    #   db-1/db-2 — @brainstrike/db only (whole-task-uncached, two native
+    #               Vitest file shards of the same unit project).
     #   heavy — the four biggest remaining suites by measured vitest duration
     #           (desktop, ui, file-explorer-ui, app-shell).
     #   rest  — affected-set minus the five packages above (negation filters).
@@ -253,10 +237,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: db
+          - shard: db-1
+            partition: db
             pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
             push_filters: --filter="@brainstrike/db"
+            test_args: -- --shard=1/2
+          - shard: db-2
+            partition: db
+            pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
+            push_filters: --filter="@brainstrike/db"
+            test_args: -- --shard=2/2
           - shard: heavy
+            partition: heavy
             pr_filters: >-
               --filter="@brainstrike/desktop...[origin/$BASE_REF]"
               --filter="@brainstrike/ui...[origin/$BASE_REF]"
@@ -267,7 +259,9 @@ jobs:
               --filter="@brainstrike/ui"
               --filter="@brainstrike/file-explorer-ui"
               --filter="@brainstrike/app-shell"
+            test_args: ''
           - shard: rest
+            partition: rest
             pr_filters: >-
               --filter="...[origin/$BASE_REF]"
               --filter="!@brainstrike/db"
@@ -275,6 +269,7 @@ jobs:
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
               --filter="!@brainstrike/app-shell"
+            test_args: ''
             push_filters: >-
               --filter="!@brainstrike/db"
               --filter="!@brainstrike/desktop"
@@ -386,7 +381,7 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
+        run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4 ${{ matrix.test_args }}
 
       - name: Pull request affected integration tests
         if: github.event_name == 'pull_request'
@@ -421,7 +416,7 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
+        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4 ${{ matrix.test_args }}
 
       - name: Push and manual integration tests
         if: github.event_name != 'pull_request'

@@ -23,7 +23,7 @@ When changing the model catalog:
      Its version parser still accepts `/` or `\` for direct analyzer callers and
      fixtures, preventing Windows paths from misclassifying historical deletions
      as new remap obligations.
-5. Add any new `packages/db/__tests__/*.test.ts` to `dbUnitLaneDefinitions` in `packages/db/scripts/db-test-lane-manifest.mjs` — that is the ONLY registration needed. Both `test-lanes.mjs` (PR unit lanes) and `coverage-lanes.mjs` (nightly coverage lanes) import and derive from this single manifest: `buildDbCoverageLaneMap` resolves each test's coverage lane automatically from its unit lane via `coverageDefaultsByUnitLane`. Add an entry to `coverageOverridesByLane` only when a test needs a *different* coverage lane than its unit-lane default (e.g. build-hygiene tests like `runtime-import-extensions.test.ts` and compiler-only contracts like `migration-runner-types.test.ts` are unit-laned under `schema-migration` but overridden into the `architecture` coverage lane so they do not contend with PGlite-heavy migration tests). The one remaining manual step is introducing a brand-new *unit lane* (not just a new test in an existing one): it needs its own `coverageDefaultsByUnitLane` entry, and `buildDbCoverageLaneMap` fails LOUDLY — not silently — if that entry is missing. Verify: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR; `packages/db/__tests__/db-test-lane-manifest.test.ts` also guards this in the regular unit-test run). This manifest unification is what structurally fixed the historical dual-registry drift that caused issue #1101 (registries independently maintained, one edited without the other) — that failure mode is no longer reachable for ordinary test additions.
+5. Add new `packages/db/__tests__/**/*.test.{ts,tsx}` files without a lane-registry edit. The `unit` Vitest project discovers that tree recursively; required Unit and nightly coverage both split the same project with Vitest's native `--shard=1/2` and `--shard=2/2`. Nightly rejoins Vitest blob reports with `--merge-reports`, so coverage is one native union rather than whichever serial lane wrote last. `scripts/__tests__/db-test-discovery-contract.test.mjs` pins the recursive include, browser exclusion, nested discovery, and a minimum 150-file floor, with mutations proving each assertion can fail. The former regex manifest and its two derived lane scripts were deleted in BST-1046; do not recreate a registration map for test placement.
 6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
    packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
    (no DB migration). It drives the thread context meter and the auto-derived
@@ -153,9 +153,10 @@ project only**. That setup runs the whole numbered-migration chain once and
   `inject('dbSnapshotPath')`, so that job would build and discard a fully
   migrated snapshot on every run.
 
-Note this is a **per-process** property: any flow that spawns several
-`vitest run` invocations (`coverage-lanes.mjs`, one per coverage lane) pays for
-one snapshot build per invocation regardless.
+Note this is a **per-process** property: each native DB shard is its own
+`vitest run` process and therefore builds one snapshot. The two required Unit
+rows and two nightly coverage rows run those processes on separate runners;
+within each process, the selected files share that one snapshot.
 
 **There is a second, correct declaration** — `packages/db/vitest.mutation.config.ts`
 also declares the same `globalSetup`, deliberately: the Stryker lane throws in
