@@ -5,6 +5,7 @@ import {
   findTaggedPlaywrightTitleRanges,
   hasPlaywrightTitleTag,
   isInsideRange,
+  listPlaywrightTitleEntries,
 } from '../e2e-playwright-title-tags.mjs';
 
 test('findTaggedPlaywrightTitleRanges uses AST ranges instead of brace counting', () => {
@@ -42,6 +43,50 @@ test('ordinary flow', async () => {});
 `;
 
   assert.equal(hasPlaywrightTitleTag(source, 'ordinary.test.ts', '@stateful'), false);
+});
+
+// `titlePath` is what `--grep` / `--grep-invert` and a project's `grep` match
+// against, so lane-coverage modelling depends on describe tags reaching the
+// leaves. Cross-checked against real Playwright 1.61 `--list` output: a tag on
+// the describe selects the nested test.
+test('listPlaywrightTitleEntries gives each test the tags it inherits from its describes', () => {
+  const source = `
+test.describe('Outer @stateful', () => {
+  test.describe('Inner @web-indexing', () => {
+    test('leaf', async () => {});
+  });
+});
+test('top level @web-smoke', async () => {});
+`;
+
+  const tests = listPlaywrightTitleEntries(source, 'nested.test.ts').filter(
+    (entry) => entry.kind === 'test'
+  );
+
+  assert.deepEqual(
+    tests.map((entry) => entry.titlePath),
+    ['Outer @stateful Inner @web-indexing leaf', 'top level @web-smoke']
+  );
+  assert.deepEqual(
+    listPlaywrightTitleEntries(source, 'nested.test.ts')
+      .filter((entry) => entry.kind === 'describe')
+      .map((entry) => entry.title),
+    ['Outer @stateful', 'Inner @web-indexing']
+  );
+});
+
+test('listPlaywrightTitleEntries ignores non-title calls that look similar', () => {
+  const source = `
+test.describe.configure({ mode: 'serial' });
+test.use({ locale: 'en-US' });
+const notATest = describe('decoy', () => {});
+test('real leaf', async () => {});
+`;
+
+  assert.deepEqual(
+    listPlaywrightTitleEntries(source, 'decoy.test.ts').map((entry) => entry.titlePath),
+    ['real leaf']
+  );
 });
 
 test('hasPlaywrightTitleTag detects Playwright title modifiers', () => {

@@ -395,6 +395,72 @@ tree than CI is a second, weaker verdict wearing the same name).
 shape exceptions: each inspects a build artifact, so it takes a bundle
 `directory` instead of a repo root.
 
+### E2E lane-coverage contract (BST-1010)
+
+`scripts/e2e-lane-coverage.mjs` (paired test:
+`scripts/__tests__/e2e-lane-coverage.test.mjs`, run in the Static job via
+`pnpm test:scripts`) statically proves that every Playwright spec in `apps/web`
+and `apps/desktop` is selected by some lane CI actually invokes.
+
+BST-1010 was filed as a *nightly selection audit* — run the full suite, diff it
+against affected-selection. Both premises were wrong and the ticket was reduced:
+the nightly already exists (`web-e2e.yml` cron 07:37, `desktop-e2e.yml` cron
+07:53, both running `test:e2e:lane:full-regression`), and the cited bug class
+(BST-891/816/817) is not a selection bug at all. It is lane wiring, computable
+from source with no suite run. Two live instances the guard found on `main`:
+`workspace-index-background-indexing.test.ts` carried `@web-indexing`, a tag no
+lane grepped, on a `@stateful` describe that the broad pass grep-inverts; and
+`production-csp.test.ts` carried `@stateful`, no lane tag, and appeared in zero
+lane file lists. Both ran in no CI job. Each got a serialized dedicated lane —
+deleting the `@stateful` tag to sweep them into the parallel broad pass would be
+wrong, since one writes to the DB and the other runs PGlite search plus a real
+local embedding.
+
+Three assertions, over both apps: every `@web-*`/`@desktop-*` tag routes at
+least one title somewhere; every spec is reachable from at least one lane; every
+lane's explicit file list names files that exist and selects a non-empty set.
+
+What holds it honest:
+
+- **Selection is modelled exactly, not heuristically.** Reachability applies real
+  Playwright semantics (explicit file list, project `grep`/`grepInvert`,
+  command-line `--grep`/`--grep-invert`) to the real title paths parsed from each
+  spec's AST via `listPlaywrightTitleEntries` in the shared
+  `e2e-playwright-title-tags.mjs`. Title-path inheritance matters: a tag on a
+  describe routes the tests nested inside it. Anything unmodellable — an unknown
+  `--project`, a positional that is not a spec path, a `--flag value` form the
+  parser does not know — THROWS rather than being assumed benign.
+- **Only CI-invoked lanes supply coverage.** A lane is CI-invoked if a scoped
+  workflow runs it or the `full-regression` `&&` chain reaches it. Desktop's
+  `db-storage`, `ipc-reset` and `runtime-hosts` lane scripts are reached by
+  nothing and therefore cannot mark a spec covered (their specs are covered by
+  full-regression's broad pass anyway).
+- **`LANE_WORKFLOW_FILES` is explicit, and that is the safe direction.** The
+  `@desktop-embedding-*` lane is written inline in `desktop-e2e.yml` rather than
+  as a package script, so workflows must be scanned. An inline lane in an
+  unlisted workflow makes the guard report its specs as unreachable (loud red),
+  never the reverse. Scanning every workflow is the UNSAFE direction:
+  `local-desktop-e2e.yml` is a dispatch-only whole-suite shard run, and counting
+  it would mark every desktop spec reachable and make the sweep vacuous.
+- **Floors and self-cleaning exemptions.** `MINIMUMS` refuses to report a green
+  when discovery collapses. `KNOWN_UNREACHABLE_SPECS` entries fail if the listed
+  spec becomes reachable or stops existing, so an exemption cannot rot into a
+  permanent hole. It currently holds one entry:
+  `embedding-worker-renderer.crash-b.desktop.test.ts`, a long-standing orphan
+  (the inline embedding job's file list names crash-a but not crash-b) whose fix
+  is a one-line workflow edit.
+- **The money test.** Per the BST-836 lesson below, the paired test drives the
+  checker against a synthetic fixture repo carrying a planted orphan tag and
+  orphan spec and asserts a non-zero exit, plus a clean control fixture, plus
+  failure paths for a dangling lane file, a grep that matches nothing, and a lane
+  no CI entrypoint reaches.
+
+**What a green does NOT prove:** that a spec ran. `full-regression` is an
+`&&`-sequential chain, so a failing lane short-circuits every lane after it —
+the BST-1032 blind-window class. A spec at the tail of that chain is statically
+"covered" while never executing. That is why the two rescued lanes are chained
+FIRST. Detecting non-execution needs a run-artifact diff and is out of scope.
+
 ### The `__vitest_worker__` mutation guard (was: @vitest/runner teardown patch)
 
 The "every test passes but vitest exits 1" flake (`Vitest failed to access its

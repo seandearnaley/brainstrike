@@ -68,7 +68,20 @@ function getCallbackRangeEnd(node) {
   return callback.body.end;
 }
 
-export function findTaggedPlaywrightTitleRanges(source, fileName, tag) {
+function isPlaywrightDescribeCall(expression) {
+  return getCalleeParts(expression)[1] === 'describe';
+}
+
+/**
+ * Every `test(...)` / `test.describe(...)` title literal in a spec, in source
+ * order, each carrying the enclosing describe titles it inherits.
+ *
+ * `titlePath` is what Playwright's `--grep` / `--grep-invert` and a project's
+ * `grep` are matched against, so a caller modelling lane selection must filter
+ * on `titlePath`, not on the leaf `title` — a tag written on a describe applies
+ * to every test inside it.
+ */
+export function listPlaywrightTitleEntries(source, fileName) {
   const sourceFile = ts.createSourceFile(
     fileName,
     source,
@@ -76,24 +89,40 @@ export function findTaggedPlaywrightTitleRanges(source, fileName, tag) {
     true,
     getScriptKind(fileName)
   );
-  const ranges = [];
+  const entries = [];
 
-  function visit(node) {
+  function visit(node, ancestorTitles) {
+    let childAncestorTitles = ancestorTitles;
+
     if (ts.isCallExpression(node) && isPlaywrightTitleCall(node.expression)) {
       const title = node.arguments[0] ? getLiteralText(node.arguments[0]) : null;
-      if (title?.includes(tag)) {
-        ranges.push({
+      if (title !== null) {
+        const isDescribe = isPlaywrightDescribeCall(node.expression);
+        entries.push({
           end: getCallbackRangeEnd(node),
+          kind: isDescribe ? 'describe' : 'test',
+          line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
           start: node.getStart(sourceFile),
+          title,
+          titlePath: [...ancestorTitles, title].join(' '),
         });
+        if (isDescribe) {
+          childAncestorTitles = [...ancestorTitles, title];
+        }
       }
     }
 
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, (child) => visit(child, childAncestorTitles));
   }
 
-  visit(sourceFile);
-  return ranges;
+  visit(sourceFile, []);
+  return entries;
+}
+
+export function findTaggedPlaywrightTitleRanges(source, fileName, tag) {
+  return listPlaywrightTitleEntries(source, fileName)
+    .filter((entry) => entry.title.includes(tag))
+    .map((entry) => ({ end: entry.end, start: entry.start }));
 }
 
 export function hasPlaywrightTitleTag(source, fileName, tag) {
