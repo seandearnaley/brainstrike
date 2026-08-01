@@ -48,6 +48,11 @@
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
     },
+    "./code-execution": {
+      "types": "./dist/code-execution.d.ts",
+      "import": "./dist/code-execution.mjs",
+      "require": "./dist/code-execution.js"
+    },
     "./mcp-client": {
       "types": "./dist/mcp-client.d.ts",
       "import": "./dist/mcp-client.mjs",
