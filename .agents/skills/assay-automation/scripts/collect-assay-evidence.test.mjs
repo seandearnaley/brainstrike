@@ -11,7 +11,7 @@ import {
 } from './collect-assay-evidence.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-const liveCharter = readFileSync(path.join(repoRoot, '.night-shift/charters/assay.md'), 'utf8');
+const liveCharter = readFileSync(path.join(repoRoot, '.night-shift/charters/reviewer.md'), 'utf8');
 
 test('deriveCharter parses the live charter, not a synthetic fixture', () => {
   const charter = deriveCharter(liveCharter);
@@ -19,7 +19,7 @@ test('deriveCharter parses the live charter, not a synthetic fixture', () => {
   assert.ok(charter.riskLabels.length >= 4, 'expected the four risk grades');
   assert.ok(charter.factorLabels.includes('review/touches-schema'));
   assert.ok(charter.allowedLabels.every((label) => label.startsWith('review/')));
-  assert.equal(charter.stateIssueTitle, '[automation-state] Assay');
+  assert.equal(charter.stateIssueTitle, '[automation-state] Reviewer');
 });
 
 test('deriveCharter rejects a charter whose Beat 0 allowlist cannot be isolated', () => {

@@ -8,7 +8,9 @@ MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=propose-pr (additive catalog-data migrations only; everything
          else is a ticket)
-CHARTER_VERSION=2   # v2: every added model must be grounded in the
+CHARTER_VERSION=3   # v3: Keeper succeeds Axiom/Ledger references
+                    # (2026-08-01 renovation); v2: every added model
+                    # must be grounded in the
                     # provider's OFFICIAL docs and proven working by a
                     # live smoke test (Beats 2 and 3b); unverifiable
                     # models are tickets, never catalog rows
@@ -31,7 +33,7 @@ GLM/MiniMax additions) are exactly the toil you retire. NOOP is success.
 
 First: read .night-shift/PROTOCOL.md, then docs/agents/database.md (the
 catalog invariants live there — dual migration-runner registration, and
-the user-enablement-preservation rule that Axiom's guard now enforces)
+the user-enablement-preservation rule that Keeper's guard now enforces)
 and docs/agents/assistant-providers.md. These are non-negotiable context;
 a Curator PR that violates them is worse than no PR.
 
@@ -84,12 +86,12 @@ Beat 3 — act:
 - Additions → ONE PR max, additive catalog-data migration ONLY,
   following the existing numbered-migration pattern exactly: registered
   in BOTH runners, new models inserted disabled-by-default per the
-  documented pattern, is_enabled of existing rows untouched (Axiom's
+  documented pattern, is_enabled of existing rows untouched (Keeper's
   guard must pass), sort_order handled like the latest shipped catalog
   migration. Title "Curator: catalog — <models>". The PR body lists each
   model with, per field, the official-doc URL that justified it (Beat 2)
   and the smoke-test evidence that proved it (Beat 3b). A model missing
-  either is not in the PR. Note for the human that Ledger's parity sweep
+  either is not in the PR. Note for the human that Keeper's parity sweep
   and the enablement guard both cover it.
 - Removals/renames → fingerprinted Linear ticket per model family,
   `needs-human`: retiring a row can touch user state and is NEVER yours
@@ -161,7 +163,7 @@ re-run confirms the new IDs now appear on the repo side.
 Beat 5 — checkpoint. Watermark = the collector's watched-set hash
 (provider surface + repo surface). Learnings: durable provider-behavior
 quirks (endpoint pagination, ID-scheme changes) go in
-.night-shift/curator.md via your PR; bulletin Assay when a catalog PR is
+.night-shift/curator.md via your PR; bulletin Reviewer when a catalog PR is
 in flight so its schema-risk grading has context.
 </task>
 ```

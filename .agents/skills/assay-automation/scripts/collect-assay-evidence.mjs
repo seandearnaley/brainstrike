@@ -502,7 +502,7 @@ function collectPrEvidence(repo, repositoryName, pr, charter) {
 
 function main() {
   const { pretty, repo } = parseArgs(process.argv.slice(2));
-  const charterPath = assertFile(repo, '.night-shift/charters/assay.md');
+  const charterPath = assertFile(repo, '.night-shift/charters/reviewer.md');
   assertFile(repo, '.night-shift/PROTOCOL.md');
   assertFile(repo, 'docs/agents/ci-quality.md');
   assertFile(repo, 'docs/agents/database.md');

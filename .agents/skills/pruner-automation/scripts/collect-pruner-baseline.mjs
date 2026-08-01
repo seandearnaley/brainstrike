@@ -373,7 +373,7 @@ async function main() {
     'pnpm-lock.yaml',
     'pnpm-workspace.yaml',
     '.night-shift/PROTOCOL.md',
-    '.night-shift/charters/pruner.md',
+    '.night-shift/charters/groundskeeper.md',
   ]) {
     if (!existsSync(join(repoRoot, requiredPath))) {
       fail(`required Brainstrike file is missing: ${requiredPath}`);

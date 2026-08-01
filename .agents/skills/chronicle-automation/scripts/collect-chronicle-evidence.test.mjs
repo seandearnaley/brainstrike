@@ -160,6 +160,7 @@ function createFixture() {
   const bin = createFakeGh(root);
   const prs = [
     {
+      body: 'Summary line.\n\nFelt-by: users — thread deletes stop leaving orphan rows\n',
       createdAt: '2026-07-20T18:00:00Z',
       headRefName: 'night-shift/daily/merged',
       isDraft: false,
@@ -169,6 +170,7 @@ function createFixture() {
       title: 'Merged in window',
     },
     {
+      body: 'No tag in this body.',
       createdAt: '2026-07-21T08:00:00Z',
       headRefName: 'night-shift/daily/opened',
       isDraft: false,
@@ -178,6 +180,7 @@ function createFixture() {
       title: 'Opened in window',
     },
     {
+      body: '',
       createdAt: '2026-07-19T08:00:00Z',
       headRefName: 'night-shift/daily/closed',
       isDraft: false,
@@ -187,6 +190,7 @@ function createFixture() {
       title: 'Old and closed',
     },
     {
+      body: 'Felt-by: fleet-internal — steward tooling only\n',
       createdAt: '2026-07-18T08:00:00Z',
       headRefName: 'night-shift/weekly/still-open',
       isDraft: true,
@@ -249,6 +253,11 @@ test('collects 24-hour roster, PR, paginated thread, check, and scheduled-workfl
   assert.deepEqual(
     evidence.prs.merged.map((pr) => pr.number),
     [1]
+  );
+  assert.equal(evidence.prs.merged[0].feltBy, 'users — thread deletes stop leaving orphan rows');
+  assert.deepEqual(
+    evidence.prs.open.map((pr) => pr.feltBy),
+    [null, 'fleet-internal — steward tooling only']
   );
   assert.deepEqual(
     evidence.prs.opened.map((pr) => pr.number),
