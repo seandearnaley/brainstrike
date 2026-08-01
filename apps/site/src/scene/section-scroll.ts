@@ -1,10 +1,6 @@
 export interface SectionScrollMetrics {
-  readonly contentDocumentTop: number;
-  readonly contentHeight: number;
-  readonly headerHeight: number;
   readonly maximumScrollTop: number;
-  readonly viewportGap: number;
-  readonly viewportHeight: number;
+  readonly sectionDocumentTop: number;
 }
 
 function assertFiniteNonNegative(value: number, label: string): void {
@@ -14,27 +10,10 @@ function assertFiniteNonNegative(value: number, label: string): void {
 }
 
 export function computeSectionScrollTop({
-  contentDocumentTop,
-  contentHeight,
-  headerHeight,
   maximumScrollTop,
-  viewportGap,
-  viewportHeight,
+  sectionDocumentTop,
 }: SectionScrollMetrics): number {
-  assertFiniteNonNegative(contentDocumentTop, 'Content document top');
-  assertFiniteNonNegative(contentHeight, 'Content height');
-  assertFiniteNonNegative(headerHeight, 'Header height');
+  assertFiniteNonNegative(sectionDocumentTop, 'Section document top');
   assertFiniteNonNegative(maximumScrollTop, 'Maximum scroll top');
-  assertFiniteNonNegative(viewportGap, 'Viewport gap');
-  assertFiniteNonNegative(viewportHeight, 'Viewport height');
-
-  const usableHeight = viewportHeight - headerHeight - viewportGap * 2;
-  if (usableHeight <= 0) {
-    throw new Error('Section navigation requires positive usable viewport height.');
-  }
-
-  const centeredOffset = Math.max(0, (usableHeight - contentHeight) / 2);
-  const desiredViewportTop = headerHeight + viewportGap + centeredOffset;
-  const requestedScrollTop = contentDocumentTop - desiredViewportTop;
-  return Math.min(maximumScrollTop, Math.max(0, requestedScrollTop));
+  return Math.min(maximumScrollTop, sectionDocumentTop);
 }

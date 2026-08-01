@@ -30,7 +30,7 @@ export function SectionFrame({
         data-scene-stage={stage}
         id={`${id}-scene`}
       />
-      <div className="section-copy" data-scroll-content>
+      <div className="section-copy">
         <div className="section-index">
           <span>{String(stage + 1).padStart(2, '0')}</span>
           <span>{code}</span>

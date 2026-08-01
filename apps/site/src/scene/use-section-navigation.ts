@@ -1,11 +1,7 @@
 import { useEffect } from 'react';
 import { computeSectionScrollTop } from './section-scroll';
 
-const DESKTOP_VIEWPORT_GAP = 24;
-const MOBILE_VIEWPORT_GAP = 16;
-const MOBILE_BREAKPOINT = 520;
-
-function scrollToMeasuredSection(hash: string, behavior: ScrollBehavior): boolean {
+function scrollToSectionFrame(hash: string, behavior: ScrollBehavior): boolean {
   if (!(hash.length > 1 && hash.startsWith('#'))) {
     return false;
   }
@@ -15,28 +11,10 @@ function scrollToMeasuredSection(hash: string, behavior: ScrollBehavior): boolea
     return false;
   }
 
-  const content = target.querySelector<HTMLElement>('[data-scroll-content]');
-  if (!content) {
-    throw new Error(`Measured section "${target.id}" requires a data-scroll-content element.`);
-  }
-
-  const header = document.querySelector<HTMLElement>('.site-header');
-  if (!header) {
-    throw new Error('Measured section navigation requires the fixed site header.');
-  }
-
-  const contentRect = content.getBoundingClientRect();
-  const headerHeight = header.getBoundingClientRect().bottom;
-  const viewportGap =
-    window.innerWidth <= MOBILE_BREAKPOINT ? MOBILE_VIEWPORT_GAP : DESKTOP_VIEWPORT_GAP;
   const maximumScrollTop = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
   const top = computeSectionScrollTop({
-    contentDocumentTop: contentRect.top + window.scrollY,
-    contentHeight: contentRect.height,
-    headerHeight,
     maximumScrollTop,
-    viewportGap,
-    viewportHeight: window.innerHeight,
+    sectionDocumentTop: target.getBoundingClientRect().top + window.scrollY,
   });
 
   window.scrollTo({ behavior, top });
@@ -56,7 +34,7 @@ export function useSectionNavigation(): void {
       if (!active) {
         return;
       }
-      scrollToMeasuredSection(window.location.hash, 'auto');
+      scrollToSectionFrame(window.location.hash, 'auto');
     };
 
     const handleClick = (event: MouseEvent): void => {
@@ -80,7 +58,7 @@ export function useSectionNavigation(): void {
       }
 
       const behavior: ScrollBehavior = reducedMotion.matches ? 'auto' : 'smooth';
-      if (!scrollToMeasuredSection(url.hash, behavior)) {
+      if (!scrollToSectionFrame(url.hash, behavior)) {
         return;
       }
 

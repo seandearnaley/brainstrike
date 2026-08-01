@@ -38,14 +38,15 @@ const PLATFORMS: readonly PlatformDefinition[] = [
 
 interface DownloadChooserProps {
   readonly manifestState: ReleaseManifestState;
+  readonly presentation?: 'full' | 'terminal';
 }
 
-export function DownloadChooser({ manifestState }: DownloadChooserProps) {
+export function DownloadChooser({ manifestState, presentation = 'full' }: DownloadChooserProps) {
   const manifest = manifestState.status === 'ready' ? manifestState.manifest : null;
   const published = manifest?.latest !== null && manifest?.latest !== undefined;
 
   return (
-    <div className="download-chooser">
+    <div className={`download-chooser download-chooser-${presentation}`}>
       <div className="download-status-line">
         <span className={`status-dot ${published ? 'status-dot-live' : ''}`} />
         {manifestState.status === 'loading' ? <span>Reading release manifest…</span> : null}

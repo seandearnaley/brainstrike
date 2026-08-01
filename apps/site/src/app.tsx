@@ -373,7 +373,7 @@ export default function App() {
             data-scene-stage="7"
             id="download-scene"
           />
-          <div className="closing-intro" data-scroll-content>
+          <div className="closing-intro">
             <p className="eyebrow">RESOLVED OUTPUT / 07</p>
             <h2>
               Brainstrike lives
@@ -385,7 +385,7 @@ export default function App() {
               Choose a platform when a signed release is available.
             </p>
           </div>
-          <DownloadChooser manifestState={releaseManifest} />
+          <DownloadChooser manifestState={releaseManifest} presentation="terminal" />
           <footer className="site-footer">
             <a className="brand-lockup" href="#signal">
               <BrainstrikeMark className="brand-mark" />
