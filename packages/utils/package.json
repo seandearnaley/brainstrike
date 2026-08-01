@@ -14,6 +14,7 @@
     "@stryker-mutator/vitest-runner": "catalog:",
     "@swc/core": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
