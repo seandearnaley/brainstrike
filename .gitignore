@@ -155,6 +155,8 @@ icons/.generated/
 .pnpm-store/
 packages/db/__tests__/__screenshots__/
 apps/desktop/e2e-artifacts/
+apps/desktop/resources/python-runtime/*
+!apps/desktop/resources/python-runtime/manifest.json
 
 # Vitest browser-mode (real Chromium) run artifacts
 **/.vitest-attachments/

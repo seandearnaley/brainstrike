@@ -67,6 +67,14 @@ If you add new persistence (Caches API, service worker, filesystem handles, etc.
 - Integrate into reset pipeline.
 - Otherwise stale embeddings/providers may reappear.
 
+Desktop bundled Python runtime (BST-1061): `resolvePythonBinary` unpacks the
+pinned CPython under `app.getPath('userData')/python-runtime/`, so the
+wholesale userData wipe in `desktop-factory-reset.ts` covers it with zero
+dedicated wiring. That coverage is pinned by the BST-1061 regression test in
+`apps/desktop/src/__tests__/main/desktop-factory-reset.test.ts` — if the
+unpack dir ever moves outside userData, it needs explicit reset wiring plus an
+update here.
+
 Desktop reset order:
 1. Dispose embeddings.
 2. Clear UI state.

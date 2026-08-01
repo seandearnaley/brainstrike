@@ -28,7 +28,17 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dmg",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "extraResources": [
+        {
+          "from": "resources/python-runtime",
+          "to": "python-runtime",
+          "filter": [
+            "manifest.json",
+            "*.tar.gz"
+          ]
+        }
+      ]
     },
     "win": {
       "target": "nsis",
@@ -162,6 +172,7 @@
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
+    "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs",
     "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run build --filter=@brainstrike/assistant-service --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/ui --filter=@brainstrike/platform-utils",
     "predev": "node ../../scripts/ensure-desktop-dev-deps.mjs",
     "agent-debug:mcp-config": "node scripts/start-agent-devtools-session.mjs --print-config",
@@ -171,12 +182,12 @@
     "dev:main": "node scripts/build-main.mjs",
     "dev:renderer": "vite",
     "dev:runtime": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
-    "dist": "pnpm build && electron-builder",
+    "dist": "pnpm fetch:python-runtime && pnpm build && electron-builder",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
-    "pack": "pnpm build && electron-builder --dir",
+    "pack": "pnpm fetch:python-runtime && pnpm build && electron-builder --dir",
     "postinstall": "node scripts/chmod-pty-spawn-helper.mjs",
-    "start": "pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
+    "start": "pnpm fetch:python-runtime && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism",

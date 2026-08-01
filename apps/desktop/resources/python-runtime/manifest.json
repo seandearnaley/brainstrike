@@ -1,0 +1,18 @@
+{
+  "releaseTag": "20260728",
+  "pythonVersion": "3.13.14",
+  "variant": "install_only",
+  "scope": "macOS (darwin) only for BST-1061. Windows and Linux are deliberately absent from supportedTargets below, not an oversight: a build/resolver for a target not listed here must throw a typed unsupported-platform error rather than silently omitting the bundled interpreter or falling back to a PATH python.",
+  "supportedTargets": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
+  "assetUrlTemplate": "https://github.com/astral-sh/python-build-standalone/releases/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "sha256": "a48399e6ddbb9ccf215eb5afea8f40eca289c808f99faa5d38f35f575a6f1784",
+      "bytes": 25272160
+    },
+    "x86_64-apple-darwin": {
+      "sha256": "1cae8109be20b827cf39abe76f0ef6fdb5cfc621ab1791beda77abf8ea7bb75e",
+      "bytes": 25020800
+    }
+  }
+}
