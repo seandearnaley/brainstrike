@@ -665,7 +665,13 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
     await expect(client.close()).rejects.toThrow(/Failed to terminate session/);
 
-    expect(requests.at(-1)).toMatchObject({ method: 'DELETE', pathname: '/mcp' });
+    // Same reason as the sibling case above (#1638): the DELETE must have been
+    // issued, but under load an SSE reconnect GET /mcp can land after it, so
+    // its POSITION is not part of the contract — only that it happened. That
+    // de-flake missed this twin, which is why it kept failing.
+    expect(
+      requests.some((request) => request.method === 'DELETE' && request.pathname === '/mcp')
+    ).toBe(true);
     expect(signals.some((signal) => signal.aborted)).toBe(true);
     await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
   });
