@@ -118,8 +118,10 @@ export interface DesktopAssistantToolDependencies {
    * BST-1061: test seam for the bundled-CPython capability used by the
    * `python3` skill-script runtime. Production omits it and gets the real
    * `resolveDesktopPythonExecutable`; there is never a PATH-python fallback.
+   * Accepts an optional `AbortSignal` so a cold first-run unpack can be
+   * bounded by the tool call's own timeout/Stop (PR #2205 review).
    */
-  resolvePythonExecutable?: (() => Promise<string>) | undefined;
+  resolvePythonExecutable?: ((signal?: AbortSignal) => Promise<string>) | undefined;
   skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
   /**

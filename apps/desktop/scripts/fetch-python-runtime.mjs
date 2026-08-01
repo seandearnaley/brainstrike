@@ -14,6 +14,26 @@ import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 
 const defaultResourcesDir = path.resolve(import.meta.dirname, '../resources/python-runtime');
+// PR #2205 review: the original call had no AbortSignal/timeout at all, so a
+// GitHub Releases stall hung to whatever timeout wrapped this whole script
+// (a CI job timeout, if any) instead of failing fast with a clear message.
+// 25MB over any non-broken connection finishes in well under this.
+const DEFAULT_FETCH_TIMEOUT_MS = 120_000;
+
+async function fetchWithTimeout(fetchImpl, url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, { signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`python-runtime: download of ${url} timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function renderAssetUrl(manifest, target) {
   return manifest.assetUrlTemplate
@@ -83,6 +103,7 @@ function loadManifestTargets(manifest, manifestPath) {
 
 export async function fetchPythonRuntime({
   fetchImpl = fetch,
+  fetchTimeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
   log = (message) => console.error(message),
   resourcesDir = defaultResourcesDir,
 } = {}) {
@@ -100,7 +121,7 @@ export async function fetchPythonRuntime({
       continue;
     }
     log(`python-runtime: fetching ${url}`);
-    const response = await fetchImpl(url);
+    const response = await fetchWithTimeout(fetchImpl, url, fetchTimeoutMs);
     if (!(response.ok && response.body)) {
       throw new Error(`python-runtime: download of ${url} failed with HTTP ${response.status}.`);
     }

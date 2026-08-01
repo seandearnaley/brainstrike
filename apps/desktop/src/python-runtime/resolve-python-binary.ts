@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
  * tell the user which half of the stack is missing (no interpreter vs no
  * sandbox). The `python_*` code family must stay disjoint from the
  * CodeExecutor seam's own codes (`no_sandbox_configured`,
- * `exec_capability_mismatch`, …) and the fence's `fence_*` family — see
+ * `exec_capability_mismatch`, ...) and the fence's `fence_*` family — see
  * docs/agents/code-execution.md.
  */
 export type PythonRuntimeErrorCode =
@@ -101,6 +101,15 @@ export interface ResolvePythonBinaryOptions {
   readonly platform?: string;
   /** Absolute dir holding `manifest.json` + the fetched tarballs. */
   readonly resourcesDir: string;
+  /**
+   * Optional cancellation (e.g. a run_skill_script user Stop, or a caller's
+   * own timeout budget). Checked before hashing and threaded into the
+   * `/usr/bin/tar` child process, so a cold first-run unpack -- the only slow
+   * part of this function -- can actually be interrupted (PR #2205 review:
+   * previously a fired signal reached `runDetachedProcess` but never this
+   * resolver, so Stop could not touch an in-flight extraction).
+   */
+  readonly signal?: AbortSignal | undefined;
   /** Absolute per-user app-data dir; the runtime unpacks under `<dir>/python-runtime/`. */
   readonly userDataDir: string;
 }
@@ -253,19 +262,27 @@ async function unpackArchive({
   binaryRelativePath,
   expectedSha256,
   installDir,
+  signal,
 }: {
   archivePath: string;
   binaryRelativePath: string;
   expectedSha256: string;
   installDir: string;
+  signal: AbortSignal | undefined;
 }): Promise<void> {
   const stagingDir = `${installDir}.staging-${process.pid}-${Date.now()}`;
   await fsPromises.rm(stagingDir, { force: true, recursive: true });
   await fsPromises.mkdir(stagingDir, { recursive: true });
   try {
     try {
-      await execFileAsync(TAR_BINARY, ['-xzf', archivePath, '-C', stagingDir]);
+      // `signal` lets Node kill the tar child (and reject this call with an
+      // AbortError) the moment it fires -- this is the ONLY step here slow
+      // enough for cancellation to matter (a full CPython tree extraction).
+      await execFileAsync(TAR_BINARY, ['-xzf', archivePath, '-C', stagingDir], { signal });
     } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
       throw new PythonUnpackFailedError(
         `Unpacking the bundled Python runtime failed (${TAR_BINARY} -xzf ${archivePath}): ${
           error instanceof Error ? error.message : String(error)
@@ -364,6 +381,7 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
     );
   }
 
+  options.signal?.throwIfAborted();
   const actualSha256 = await hashFileSha256(archivePath);
   if (actualSha256 !== targetEntry.sha256) {
     throw new PythonChecksumMismatchError(
@@ -372,12 +390,14 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
     );
   }
 
+  options.signal?.throwIfAborted();
   logger.info('Unpacking bundled Python runtime', { archivePath, installDir });
   await unpackArchive({
     archivePath,
     binaryRelativePath,
     expectedSha256: targetEntry.sha256,
     installDir,
+    signal: options.signal,
   });
   return assertAbsolute(binaryPath);
 }
@@ -396,10 +416,26 @@ const inflightResolutions = new Map<string, Promise<string>>();
 
 /**
  * Resolves (unpacking on first run) the bundled CPython interpreter and
- * returns its ABSOLUTE path. Successful resolutions are memoized per
- * location so composition roots can treat this as "resolve once, inject";
- * failures are not cached, so a fixed environment (e.g. after fetching the
- * archive) can retry.
+ * returns its ABSOLUTE path. This is SELF-VALIDATING, not a permanent memo:
+ * the cache entry only coalesces CONCURRENT callers onto one in-flight
+ * promise, and is cleared the moment that promise settles, win or lose.
+ *
+ * A permanent success cache was the original design, and it was wrong (PR
+ * #2205 review, corroborated independently by two reviewers): factory reset
+ * deletes `<userDataDir>/python-runtime` on disk but has no way to reach
+ * into this module's in-memory map, and desktop factory reset only reloads
+ * the RENDERER (`factory-reset-panel.tsx`) — this main-process module keeps
+ * running across a reset. A cached path surviving reset would let the next
+ * `python3` skill script in the SAME process hand `runDetachedProcess` a
+ * path that no longer exists, failing as a raw OS `ENOENT` instead of one of
+ * this module's typed `python_*` errors — precisely the untyped-failure
+ * outcome the whole error family exists to prevent.
+ *
+ * Clearing on every settle instead makes each top-level call re-run
+ * `resolvePythonBinaryUncached`, whose `isUsableInstall` check is a cheap
+ * sentinel-file read + `fs.access` (not a re-hash or re-unpack) when nothing
+ * changed on disk, and correctly re-unpacks from the archive still sitting
+ * in `resourcesDir` when the install was actually removed.
  *
  * Unpacks into `<userDataDir>/python-runtime/…`. On macOS that is a SIBLING
  * of the fence's always-deny credential stores (`~/.ssh`, `~/.aws`,
@@ -413,15 +449,20 @@ export function resolvePythonBinary(options: ResolvePythonBinaryOptions): Promis
     options.resourcesDir,
     options.platform ?? process.platform,
     options.arch ?? process.arch,
-  ].join(' ');
+  ].join(' ');
   const existing = inflightResolutions.get(key);
   if (existing) {
     return existing;
   }
   const resolution = resolvePythonBinaryUncached(options);
   inflightResolutions.set(key, resolution);
-  resolution.catch(() => {
+  const clearCacheEntry = () => {
     inflightResolutions.delete(key);
-  });
+  };
+  // Attached to BOTH outcomes via the two-callback form (not `.finally`), so
+  // this bookkeeping never creates its own unhandled-rejection warning — the
+  // `resolution` promise returned below still carries the rejection for the
+  // real caller to handle.
+  resolution.then(clearCacheEntry, clearCacheEntry);
   return resolution;
 }

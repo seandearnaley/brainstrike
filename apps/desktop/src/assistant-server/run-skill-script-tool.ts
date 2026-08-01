@@ -78,7 +78,8 @@ async function resolveWorkingDirectory(
 
 async function resolveRuntime(
   runtime: RunSkillScriptInput['runtime'],
-  resolvePythonExecutable: (() => Promise<string>) | undefined
+  resolvePythonExecutable: ((signal?: AbortSignal) => Promise<string>) | undefined,
+  signal: AbortSignal | undefined
 ): Promise<{
   env?: NodeJS.ProcessEnv;
   executable: string;
@@ -96,18 +97,38 @@ async function resolveRuntime(
     // BST-1061: python3 means the BUNDLED CPython, resolved through the
     // injected capability — never a PATH `python`/`python3` fallback. An
     // unusable bundled runtime surfaces as a typed PythonRuntimeError from
-    // the resolver.
+    // the resolver. `signal` (PR #2205 review) lets a cold first-run unpack
+    // — the only slow part of resolution — actually be interrupted by the
+    // caller's timeout/Stop budget; see `resolveRuntimeTimeoutSignal`.
     if (!resolvePythonExecutable) {
       throw new Error(
         'The python3 skill-script runtime requires the bundled-Python resolver, and none was injected.'
       );
     }
-    return { executable: await resolvePythonExecutable() };
+    return { executable: await resolvePythonExecutable(signal) };
   }
   if (process.platform === 'win32') {
     throw new ToolInputError('The bash skill-script runtime is unavailable on Windows.');
   }
   return { executable: 'bash' };
+}
+
+/**
+ * Bounds `resolveRuntime` by the SAME `timeoutMs` budget the model asked for
+ * on the whole tool call, combined with the caller's own cancellation
+ * (`options.signal`, e.g. a user Stop) — PR #2205 review. Without this, a
+ * cold `python3` resolve (sha256 over a ~25MB archive, then `tar -xzf` of a
+ * ~250MB CPython tree) ran entirely BEFORE `startedAt` was captured and
+ * before `input.timeoutMs` had anything to bound: a tool call the model
+ * capped at 30s could silently block for a minute or more, and Stop could
+ * not reach an in-flight extraction.
+ */
+function createRuntimeResolveSignal(
+  timeoutMs: number,
+  externalSignal: AbortSignal | undefined
+): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return externalSignal ? AbortSignal.any([externalSignal, timeoutSignal]) : timeoutSignal;
 }
 
 function fitOutput(
@@ -135,7 +156,7 @@ export async function runSkillScript(
   runtimeData: RuntimeData | undefined,
   resolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'>,
   options?: {
-    resolvePythonExecutable?: (() => Promise<string>) | undefined;
+    resolvePythonExecutable?: ((signal?: AbortSignal) => Promise<string>) | undefined;
     signal?: AbortSignal | undefined;
     stream?: ShellOutputStreamer | undefined;
   }
@@ -147,8 +168,29 @@ export async function runSkillScript(
     skillName: input.skillName,
   });
   const { cwd, rootName } = await resolveWorkingDirectory(runtimeData, input, resolved);
-  const runtime = await resolveRuntime(input.runtime, options?.resolvePythonExecutable);
+
+  // `startedAt` and `timeoutMs` are captured BEFORE resolving the runtime
+  // (PR #2205 review): a cold `python3` resolve can itself take real time
+  // (hashing a ~25MB archive, then `tar -xzf` of a ~250MB tree), and that
+  // work used to run before either existed — under-reporting `durationMs`
+  // and leaving `input.timeoutMs` with nothing to bound.
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const startedAt = Date.now();
+  const runtime = await resolveRuntime(
+    input.runtime,
+    options?.resolvePythonExecutable,
+    createRuntimeResolveSignal(timeoutMs, options?.signal)
+  );
+  const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
+  if (remainingTimeoutMs <= 0) {
+    // Resolving the runtime already consumed the model's whole timeout
+    // budget. Never spawn with an ambiguous zero/negative timeout — fail
+    // the same way a process-level timeout would, rather than guessing at
+    // what `runDetachedProcess({ timeoutMs: 0 })` means.
+    throw new ToolInputError(
+      `Resolving the "${input.runtime}" skill-script runtime took longer than the ${timeoutMs}ms timeout; the script was not run.`
+    );
+  }
   const outcome = await runDetachedProcess({
     argv: [resolved.absolutePath, ...(input.args ?? [])],
     cwd,
@@ -156,7 +198,7 @@ export async function runSkillScript(
     executable: runtime.executable,
     signal: options?.signal,
     streamer: options?.stream,
-    timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    timeoutMs: remainingTimeoutMs,
   });
   const durationMs = Date.now() - startedAt;
   const output = fitOutput(outcome.stdout, outcome.stderr);

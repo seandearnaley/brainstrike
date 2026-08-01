@@ -124,4 +124,34 @@ describe('fetch-python-runtime script', () => {
       fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir })
     ).rejects.toThrow(/404/);
   });
+
+  it('fails fast with a clear message instead of hanging when the download stalls (PR #2205)', async () => {
+    // The original call had no AbortSignal/timeout at all, so a GitHub
+    // Releases stall hung to whatever timeout wrapped this whole script
+    // instead of failing fast. A short `fetchTimeoutMs` keeps this test
+    // itself fast rather than relying on fake timers.
+    const resourcesDir = await createResourcesDir();
+    const fetchImpl = vi.fn(
+      (_url: string, options?: { signal?: AbortSignal }) =>
+        new Promise<Response>((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const abortError = new Error('The operation was aborted');
+            abortError.name = 'AbortError';
+            reject(abortError);
+          });
+        })
+    );
+    await expect(
+      fetchPythonRuntime({
+        fetchImpl,
+        fetchTimeoutMs: 20,
+        log: () => undefined,
+        resourcesDir,
+      })
+    ).rejects.toThrow(/timed out/i);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
 });

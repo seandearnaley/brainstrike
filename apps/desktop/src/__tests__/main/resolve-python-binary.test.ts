@@ -1,20 +1,24 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
+
+/** `execFileAsync` may call the mock with or without an options bag. */
+function lastCallback(optionsOrCallback: unknown, maybeCallback: unknown): ExecFileCallback {
+  return (
+    typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback
+  ) as ExecFileCallback;
+}
+
 const execFileMock = vi.hoisted(() =>
-  vi.fn(
-    (
-      _command: string,
-      _args: readonly string[],
-      callback: (error: Error | null, stdout: string, stderr: string) => void
-    ) => {
-      callback(null, '', '');
-    }
-  )
+  vi.fn((_command: string, _args: readonly string[], ...rest: unknown[]) => {
+    const callback = rest.at(-1) as ExecFileCallback;
+    callback(null, '', '');
+  })
 );
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -94,14 +98,10 @@ function plantUnpackedRuntime(targetDir: string): string {
 
 function mockTarSuccess(): void {
   execFileMock.mockImplementation(
-    (
-      _command: string,
-      args: readonly string[],
-      callback: (error: Error | null, stdout: string, stderr: string) => void
-    ) => {
+    (_command: string, args: readonly string[], ...rest: unknown[]) => {
       const destinationIndex = args.indexOf('-C') + 1;
       plantUnpackedRuntime(args[destinationIndex] as string);
-      callback(null, '', '');
+      lastCallback(rest[0], rest[1])(null, '', '');
     }
   );
 }
@@ -247,12 +247,12 @@ describe('resolvePythonBinary', () => {
     writeManifest(resourcesDir);
     writeArchive(resourcesDir);
     execFileMock.mockImplementation(
-      (
-        _command: string,
-        _args: readonly string[],
-        callback: (error: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        callback(new Error('tar: Error opening archive'), '', 'tar: Error opening archive');
+      (_command: string, _args: readonly string[], ...rest: unknown[]) => {
+        lastCallback(rest[0], rest[1])(
+          new Error('tar: Error opening archive'),
+          '',
+          'tar: Error opening archive'
+        );
       }
     );
     const { resolvePythonBinary } = await loadModule();
@@ -266,14 +266,10 @@ describe('resolvePythonBinary', () => {
     writeManifest(resourcesDir);
     writeArchive(resourcesDir);
     execFileMock.mockImplementation(
-      (
-        _command: string,
-        args: readonly string[],
-        callback: (error: Error | null, stdout: string, stderr: string) => void
-      ) => {
+      (_command: string, args: readonly string[], ...rest: unknown[]) => {
         const destinationIndex = args.indexOf('-C') + 1;
         mkdirSync(path.join(args[destinationIndex] as string, 'python'), { recursive: true });
-        callback(null, '', '');
+        lastCallback(rest[0], rest[1])(null, '', '');
       }
     );
     const { resolvePythonBinary } = await loadModule();
@@ -315,6 +311,27 @@ describe('resolvePythonBinary', () => {
     expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 
+  it('revalidates a memoized success and re-unpacks after the install dir is deleted', async () => {
+    // Factory reset wipes userData/python-runtime while the main process (and
+    // this module's memo) stays alive — the next resolution must notice the
+    // deleted install and re-unpack, not hand back a path that will ENOENT
+    // at spawn time.
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    mockTarSuccess();
+    const { resolvePythonBinary } = await loadModule();
+    const options = { arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir } as const;
+    const binary = await resolvePythonBinary(options);
+    await fsPromises.rm(path.join(userDataDir, 'python-runtime'), {
+      force: true,
+      recursive: true,
+    });
+    await expect(resolvePythonBinary(options)).resolves.toBe(binary);
+    await expect(fsPromises.access(binary)).resolves.toBeUndefined();
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+  });
+
   it('does not cache a failed resolution', async () => {
     const { resourcesDir, userDataDir } = await createFixtureDirs();
     writeManifest(resourcesDir);
@@ -326,5 +343,234 @@ describe('resolvePythonBinary', () => {
     });
     writeArchive(resourcesDir);
     await expect(resolvePythonBinary(options)).resolves.toContain('python3');
+  });
+
+  it('coalesces concurrent calls onto one in-flight resolution', async () => {
+    // Distinct from the memoization test above: THIS asserts the two calls
+    // share the exact same in-flight promise (no await between them), not
+    // just that they eventually agree on the same path.
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    mockTarSuccess();
+    const { resolvePythonBinary } = await loadModule();
+    const options = { arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir } as const;
+    const first = resolvePythonBinary(options);
+    const second = resolvePythonBinary(options);
+    expect(second).toBe(first);
+    await expect(first).resolves.toContain('python3');
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('manifest shape validation (python_manifest_invalid)', () => {
+    it('rejects a manifest whose top-level value is not an object', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeFileSync(path.join(resourcesDir, 'manifest.json'), JSON.stringify('just-a-string'));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+    });
+
+    it('rejects a manifest missing a required string field', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      // `JSON.stringify` omits `undefined`-valued keys, so this drops
+      // "variant" from the written JSON exactly like `delete` would.
+      manifest.variant = undefined;
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: expect.stringContaining('variant'),
+      });
+    });
+
+    it('rejects a manifest whose supportedTargets is not a string array', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.supportedTargets = [123];
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+    });
+
+    it('rejects a manifest whose target entry is malformed', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeManifest(resourcesDir);
+      const manifestPath = path.join(resourcesDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      manifest.targets[TRIPLE] = { bytes: -1, sha256: 'not-a-valid-hash' };
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_manifest_invalid',
+        message: expect.stringContaining(TRIPLE),
+      });
+    });
+
+    it('rejects manifest.json that is not valid JSON', async () => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeFileSync(path.join(resourcesDir, 'manifest.json'), '{ not: valid json');
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({ code: 'python_manifest_invalid' });
+    });
+  });
+
+  it('renderPythonRuntimeAssetFileName rejects a template with no resulting file name', async () => {
+    const { renderPythonRuntimeAssetFileName } = await loadModule();
+    expect(() =>
+      renderPythonRuntimeAssetFileName(
+        {
+          assetUrlTemplate: 'https://example.invalid/{releaseTag}/',
+          pythonVersion: PYTHON_VERSION,
+          releaseTag: RELEASE_TAG,
+          variant: 'install_only',
+        },
+        TRIPLE
+      )
+    ).toThrow(expect.objectContaining({ code: 'python_manifest_invalid' }));
+  });
+
+  it('re-unpacks when a good sentinel is present but the binary itself is missing', async () => {
+    // isUsableInstall's binary-access branch specifically, distinct from the
+    // sentinel-mismatch case above: the sentinel hash is correct, but
+    // `python/bin/python3` was never written (e.g. an interrupted unpack).
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    const installDir = installDirFor(userDataDir);
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(path.join(installDir, '.brainstrike-python-runtime-ok'), `${ARCHIVE_SHA256}\n`);
+    mockTarSuccess();
+    const { resolvePythonBinary } = await loadModule();
+    await expect(
+      resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+    ).resolves.toContain('python3');
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a concurrent installer that wins the rename race, if it verifies', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    mockTarSuccess();
+    const installDir = installDirFor(userDataDir);
+    const renameSpy = vi.spyOn(fsPromises, 'rename').mockImplementationOnce(async () => {
+      // Simulate a second app instance finishing its own unpack into the
+      // SAME installDir first, so this process's rename loses the race.
+      plantUnpackedRuntime(installDir);
+      writeFileSync(path.join(installDir, '.brainstrike-python-runtime-ok'), `${ARCHIVE_SHA256}\n`);
+      throw new Error('EEXIST: another process already renamed the staging dir');
+    });
+    try {
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).resolves.toContain('python3');
+    } finally {
+      renameSpy.mockRestore();
+    }
+  });
+
+  it('surfaces a typed unpack error when the rename race is lost AND the winner never verifies', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    mockTarSuccess();
+    const renameSpy = vi
+      .spyOn(fsPromises, 'rename')
+      .mockRejectedValueOnce(new Error('EEXIST: rename lost the race'));
+    try {
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({ code: 'python_unpack_failed' });
+    } finally {
+      renameSpy.mockRestore();
+    }
+  });
+
+  it('checks the signal before hashing and never invokes tar when already aborted', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    mockTarSuccess();
+    const controller = new AbortController();
+    controller.abort();
+    const { resolvePythonBinary } = await loadModule();
+    await expect(
+      resolvePythonBinary({
+        arch: 'arm64',
+        platform: 'darwin',
+        resourcesDir,
+        signal: controller.signal,
+        userDataDir,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards the signal into the tar child process so an in-flight unpack can be cancelled', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    writeManifest(resourcesDir);
+    writeArchive(resourcesDir);
+    const controller = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+    // Deterministic latch: resolvePythonBinaryUncached performs several real
+    // fs awaits (manifest read, sentinel probe, archive hash) before tar, so
+    // counting microtask ticks cannot reliably reach the tar step — and an
+    // early abort would trip the pre-unpack `throwIfAborted` guards instead,
+    // passing without proving the `{ signal }` forwarding this test names.
+    let tarStarted!: () => void;
+    const tarStartedPromise = new Promise<void>((resolve) => {
+      tarStarted = resolve;
+    });
+    execFileMock.mockImplementation(
+      (_command: string, _args: readonly string[], ...rest: unknown[]) => {
+        const options = rest[0] as { signal?: AbortSignal } | undefined;
+        const callback = lastCallback(rest[0], rest[1]);
+        capturedSignal = options?.signal;
+        // Mirrors real `child_process.execFile`'s `signal` option: it does
+        // NOT call back on its own here (as if tar were still running) —
+        // the signal firing is what ends it, with the same AbortError shape
+        // Node uses.
+        options?.signal?.addEventListener(
+          'abort',
+          () => {
+            const abortError = new Error('The operation was aborted');
+            abortError.name = 'AbortError';
+            callback(abortError, '', '');
+          },
+          { once: true }
+        );
+        tarStarted();
+      }
+    );
+    const { resolvePythonBinary } = await loadModule();
+    const attempt = resolvePythonBinary({
+      arch: 'arm64',
+      platform: 'darwin',
+      resourcesDir,
+      signal: controller.signal,
+      userDataDir,
+    });
+    await tarStartedPromise;
+    expect(capturedSignal).toBe(controller.signal);
+    controller.abort();
+    await expect(attempt).rejects.toMatchObject({ name: 'AbortError' });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 });
