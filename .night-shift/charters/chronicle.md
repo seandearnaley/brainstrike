@@ -125,9 +125,11 @@ Beat 4 — write the digest: maintain ONE Linear issue
 "[shift-report] Chronicle digest" whose description you fully overwrite
 each run (marked generated), max ~50 lines:
 1. SHIPPED: night-shift PRs merged in the window, one line each, each
-   ending with the PR's `Felt-by:` tag (PROTOCOL.md "Felt-value
-   doctrine") so the felt/internal split reads at a glance; a PR with
-   no tag shows `Felt-by: MISSING`.
+   ending with the PR's `Felt-by:` tag so the felt/internal split reads
+   at a glance (PROTOCOL.md "Felt-value doctrine"). The tag comes from
+   the collector's `feltBy` field (extracted from the PR body); a null
+   `feltBy` shows `Felt-by: MISSING` and is a doctrine violation only
+   for PRs merged after 2026-08-01 — earlier merges predate the rule.
 2. WAITING ON YOU: open needs-human tickets and READY PRs, oldest
    first, each with a one-line "what deciding unblocks".
 3. FLEET: one status line per rostered loop (last checkpoint status +

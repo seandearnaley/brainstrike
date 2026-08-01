@@ -48,18 +48,35 @@ stay comparable across charter changes:
 - Checkpoints: NOOP ratio, INCOMPLETE/BLOCKED streaks, budget overruns.
 - Porter specifically: merges executed, per-condition block counts,
   refusals, breaker events, reverts traced to its merges.
-- Felt value (PROTOCOL.md "Felt-value doctrine"): fleet share =
-  fleet-authored merges / ALL repo merges, trailing 7 days; per-loop
-  felt yield = merged PRs whose `Felt-by:` line names a non-fleet
-  beneficiary, over merged PRs (a missing line scores as fleet-internal
-  AND gets flagged as a doctrine violation); for finding loops, product
-  yield = filed tickets that led to a merged product fix.
+- Felt value (PROTOCOL.md "Felt-value doctrine"). Operational
+  definitions are COMMITTED here because demotions hang off them:
+  - Fleet-authored merge = a merged PR whose headRefName starts with
+    `night-shift/` — the same literal-prefix rule the Chronicle
+    collector commits to; never the search qualifier, never commit
+    authorship or Co-Authored-By trailers.
+  - Denominator = ALL merged PRs in the trailing 7 days (squash-merged
+    PRs, never merge commits on main).
+  - Fleet-internal share (THE budget number) = fleet-authored merges
+    whose `Felt-by:` is `fleet-internal` or missing / all repo merges.
+  - Per-loop felt yield = merged PRs whose `Felt-by:` names a non-fleet
+    beneficiary / merged PRs — EXCLUDING from the numerator any traced
+    self-churn (a fix-forward or revert touching the loop's own merged
+    diff within 72h) regardless of what its Felt-by line claims; a
+    missing line scores as fleet-internal AND gets flagged as a
+    doctrine violation.
+  - EFFECTIVE DATE: only PRs merged after 2026-08-01 carry Felt-by
+    evidence (merged PRs cannot be backfilled), so felt metrics count
+    only post-doctrine merges, and a "scored week" for the thresholds
+    below is one whose window is entirely post-doctrine. Pre-doctrine
+    merges are excluded from these rates, never scored as violations.
+  - For finding loops, product yield = filed tickets that led to a
+    merged product fix.
 
 Beat 2 — scorecard: ONE Linear issue "[scoreboard] Auditor" whose
 description you fully overwrite each run (marked generated): one block
 per loop — headline numbers, trend vs prior week, and n (sample size)
 stated on every rate. A rate without its n is a lie of confidence.
-The scorecard LEADS with the fleet share number and its trend against
+The scorecard LEADS with the fleet-internal share and its trend against
 the 10% budget — it is the one number the human reads first.
 
 Beat 3 — proposals, fingerprinted `auditor:authority:<loop>:<change>`,
@@ -72,14 +89,17 @@ part of this charter; changing them is a human charter PR):
   hold-and-review in the same week's ticket, with the trace.
 - Any loop: finding-acceptance <50% over >=10 findings → propose a
   charter tightening for that loop's gate, citing the declined tickets.
-- Fleet budget breach: fleet share >10% for 2 consecutive scored weeks →
-  propose cadence demotion (or a discovery pause) for the PR-authoring
-  loops with the lowest felt yield, evidence attached, sized so the
-  projected share returns under budget.
+- Fleet budget breach: fleet-internal share >10% for 2 consecutive
+  scored weeks (scored = entirely post-doctrine, per the effective-date
+  rule) → propose cadence demotion (or a discovery pause) for the
+  PR-authoring loops with the lowest felt yield, evidence attached,
+  sized so the projected share returns under budget.
 - Zero-felt loop: a PR-authoring loop scored >=4 consecutive weeks with
-  n>=4 wakes whose merged output is 100% fleet-internal → propose
-  demotion to monthly or retirement; a retired charter can always be
-  re-proposed with a felt mission.
+  n>=4 MERGED post-doctrine PRs in that span, all of them
+  fleet-internal → propose demotion to monthly or retirement; fewer
+  than 4 merged PRs is "insufficient data (n=X)" — a loop that merged
+  nothing has an empty rate, not a bad one. A retired charter can
+  always be re-proposed with a felt mission.
 - n below threshold → no proposal; say "insufficient data (n=X)" in
   the scorecard instead. Small samples propose nothing.
 

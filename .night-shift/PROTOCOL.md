@@ -227,19 +227,26 @@ Auditor measures, proposes with evidence, and the human merges.
   orphan rows behind"), or
   `Felt-by: fleet-internal — <one-line justification>` when only the
   fleet itself benefits. Add the line before opening the PR; on a steward
-  wake, add it to any of your open PRs that predate this rule. The line
+  wake, add it to any of your open PRs that predate this rule — a missing
+  Felt-by line on your own open PR is itself an actionable change, so the
+  steward probe's "nothing changed" exit does not apply until the line
+  exists. The line
   is a measurement surface, not prose: Auditor keys felt-yield on it and
   Chronicle's SHIPPED lines carry it. An honest `fleet-internal` is
   correct and costs you nothing this week; a decorated one corrupts the
   only metric that justifies your cadence, which costs you everything at
   review time.
-- FLEET BUDGET. Fleet-authored merges target at most 10% of ALL repo
-  merges over any trailing 7 days. Loops do NOT self-throttle against
-  this: you cannot cheaply see global merge flow at wake, and a loop that
-  suppresses real findings to look frugal hides defects. The budget binds
-  through Auditor — it measures the share weekly and, on sustained
-  breach, proposes cadence demotions for the lowest felt-yield loops
-  (thresholds in auditor.md); the human merges the charter PR.
+- FLEET BUDGET. FLEET-INTERNAL merges — fleet-authored merges whose
+  Felt-by line reads `fleet-internal` or is missing — target at most 10%
+  of ALL repo merges over any trailing 7 days. The cap is on the mix,
+  not the volume: felt product output is never throttled by this budget,
+  so the number falls as behavior improves, not as output shrinks. Loops
+  do NOT self-throttle against this: you cannot cheaply see global merge
+  flow at wake, and a loop that suppresses real findings to look frugal
+  hides defects. The budget binds through Auditor — it measures the
+  share weekly and, on sustained breach, proposes cadence demotions for
+  the lowest felt-yield loops (operational definitions and thresholds in
+  auditor.md); the human merges the charter PR.
 - CHURN IS NOT OUTPUT. A fix-forward or revert touching your own merged
   diff within 72h of merge counts against your yield (Auditor already
   traces these), never as fresh output. When you open a fix-forward to

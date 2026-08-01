@@ -384,6 +384,14 @@ function parseGitHubDate(value, label, nullable = false) {
   return new Date(value);
 }
 
+// The Felt-value doctrine (PROTOCOL.md) requires every fleet PR body to carry
+// a `Felt-by:` line; Chronicle's SHIPPED digest lines surface it. The raw body
+// is not emitted — only the extracted tag — so evidence payloads stay lean.
+function extractFeltBy(body) {
+  const match = body.match(/^Felt-by:\s*(.+?)\s*$/m);
+  return match ? match[1] : null;
+}
+
 function normalizePr(pr, index) {
   if (
     !pr ||
@@ -392,7 +400,8 @@ function normalizePr(pr, index) {
     typeof pr.title !== 'string' ||
     !['OPEN', 'MERGED', 'CLOSED'].includes(pr.state) ||
     typeof pr.isDraft !== 'boolean' ||
-    typeof pr.headRefName !== 'string'
+    typeof pr.headRefName !== 'string' ||
+    typeof pr.body !== 'string'
   ) {
     fail(`gh pr list returned malformed PR at index ${index}`);
   }
@@ -400,6 +409,7 @@ function normalizePr(pr, index) {
   const mergedAt = parseGitHubDate(pr.mergedAt, `PR #${pr.number} mergedAt`, true);
   return {
     createdAt: createdAt.toISOString(),
+    feltBy: extractFeltBy(pr.body),
     headRefName: pr.headRefName,
     isDraft: pr.isDraft,
     mergedAt: mergedAt?.toISOString() ?? null,
@@ -544,7 +554,7 @@ function collectPullRequests(repo, repository, windowStart, windowEnd) {
       '--limit',
       '1000',
       '--json',
-      'number,title,state,isDraft,headRefName,createdAt,mergedAt',
+      'number,title,state,isDraft,headRefName,createdAt,mergedAt,body',
     ],
     repo
   );
