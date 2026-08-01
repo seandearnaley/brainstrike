@@ -441,6 +441,12 @@ function createSelectedDirectoryCountSnapshot(folderId: string): SelectedDirecto
   };
 }
 
+export function resetSelectedDirectoryCountSnapshot(
+  activeFolderId: string
+): SelectedDirectoryCountSnapshot {
+  return createSelectedDirectoryCountSnapshot(activeFolderId);
+}
+
 function computeSelectedDirectoryCountSnapshot(
   previousSnapshot: SelectedDirectoryCountSnapshot,
   selectedFilePaths: Set<string>,
@@ -527,7 +533,9 @@ export function useSelectedDirectoryCounts(
 
   useEffect(
     () => () => {
-      selectedDirectoryCountSnapshotRef.current = createSelectedDirectoryCountSnapshot(
+      // The ref may have advanced after a folder switch. Reset against that
+      // active folder, not the folder captured when this effect was mounted.
+      selectedDirectoryCountSnapshotRef.current = resetSelectedDirectoryCountSnapshot(
         selectedDirectoryCountSnapshotRef.current.folderId
       );
     },
