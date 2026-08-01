@@ -1,15 +1,15 @@
-import * as variantModule from "@jitl/quickjs-ng-wasmfile-release-sync";
+import * as variantModule from '@jitl/quickjs-ng-wasmfile-release-sync';
 import {
+  isFail,
+  newQuickJSWASMModuleFromVariant,
   type QuickJSContext,
   type QuickJSHandle,
   type QuickJSRuntime,
   type QuickJSSyncVariant,
   type QuickJSWASMModule,
   Scope,
-  isFail,
-  newQuickJSWASMModuleFromVariant,
   shouldInterruptAfterDeadline,
-} from "quickjs-emscripten-core";
+} from 'quickjs-emscripten-core';
 
 /**
  * `invoke` runs synchronously on the host, on the same tick as the guest call
@@ -21,8 +21,8 @@ import {
  * non-blocking (e.g. a `fetch` bridge must apply its own request timeout).
  */
 export interface StringHostFunction {
-  readonly name: string;
   readonly invoke: (input: string) => string;
+  readonly name: string;
 }
 
 export interface SandboxOptions {
@@ -31,11 +31,7 @@ export interface SandboxOptions {
   readonly timeoutMs: number;
 }
 
-export type SandboxFailureKind =
-  | "exception"
-  | "memory-limit"
-  | "timeout"
-  | "unresolved-promise";
+export type SandboxFailureKind = 'exception' | 'memory-limit' | 'timeout' | 'unresolved-promise';
 
 export interface SandboxSuccess {
   readonly error: null;
@@ -72,16 +68,16 @@ function getVariant(): QuickJSSyncVariant {
   // nested module namespace, although Node exposes the variant object here.
   const candidate: unknown = variantModule.default;
   if (
-    typeof candidate !== "object" ||
+    typeof candidate !== 'object' ||
     candidate === null ||
-    !("type" in candidate) ||
-    candidate.type !== "sync" ||
-    !("importFFI" in candidate) ||
-    typeof candidate.importFFI !== "function" ||
-    !("importModuleLoader" in candidate) ||
-    typeof candidate.importModuleLoader !== "function"
+    !('type' in candidate) ||
+    candidate.type !== 'sync' ||
+    !('importFFI' in candidate) ||
+    typeof candidate.importFFI !== 'function' ||
+    !('importModuleLoader' in candidate) ||
+    typeof candidate.importModuleLoader !== 'function'
   ) {
-    throw new TypeError("QuickJS package did not export a synchronous variant");
+    throw new TypeError('QuickJS package did not export a synchronous variant');
   }
   return candidate as QuickJSSyncVariant;
 }
@@ -113,20 +109,19 @@ function safeStringify(value: unknown): string {
   try {
     return String(value);
   } catch {
-    return "[unrepresentable thrown value]";
+    return '[unrepresentable thrown value]';
   }
 }
 
 function normalizeGuestError(value: unknown): { message: string; name: string } {
-  if (typeof value === "object" && value !== null) {
+  if (typeof value === 'object' && value !== null) {
     const record = value as Record<string, unknown>;
-    const name = typeof record.name === "string" ? record.name : "Error";
-    const message =
-      typeof record.message === "string" ? record.message : safeStringify(value);
+    const name = typeof record.name === 'string' ? record.name : 'Error';
+    const message = typeof record.message === 'string' ? record.message : safeStringify(value);
     return { message, name };
   }
 
-  return { message: safeStringify(value), name: "Error" };
+  return { message: safeStringify(value), name: 'Error' };
 }
 
 /** Host-owned signal for "the configured cap actually held": guest-thrown
@@ -145,11 +140,11 @@ function isMemoryLimitExceeded(
 ): boolean {
   const usageHandle = scope.manage(runtime.computeMemoryUsage());
   const usage = context.dump(usageHandle) as unknown;
-  if (typeof usage !== "object" || usage === null || !("memory_used_size" in usage)) {
+  if (typeof usage !== 'object' || usage === null || !('memory_used_size' in usage)) {
     return false;
   }
   const used = (usage as Record<string, unknown>).memory_used_size;
-  return typeof used === "number" && used >= limitBytes;
+  return typeof used === 'number' && used >= limitBytes;
 }
 
 function installHostFunction(
@@ -159,7 +154,7 @@ function installHostFunction(
   grantedNames: Set<string>
 ): void {
   if (grant.name.length === 0) {
-    throw new TypeError("host function name must not be empty");
+    throw new TypeError('host function name must not be empty');
   }
   if (grantedNames.has(grant.name)) {
     throw new TypeError(
@@ -171,7 +166,7 @@ function installHostFunction(
   // intrinsic like JSON/Object/Array, or globalThis itself) rather than
   // last-writer-wins overwriting it with no signal.
   const existingHandle = scope.manage(context.getProp(context.global, grant.name));
-  if (context.typeof(existingHandle) !== "undefined") {
+  if (context.typeof(existingHandle) !== 'undefined') {
     throw new TypeError(
       `host function "${grant.name}" would shadow an existing global; grant it under a different name`
     );
@@ -184,7 +179,7 @@ function installHostFunction(
       if (argument === undefined) {
         throw new TypeError(`${grant.name} expects one string argument`);
       }
-      if (context.typeof(argument) !== "string") {
+      if (context.typeof(argument) !== 'string') {
         throw new TypeError(`${grant.name} expects one string argument`);
       }
       return context.newString(grant.invoke(context.getString(argument)));
@@ -197,8 +192,8 @@ export async function executeQuickJs(
   code: string,
   options: SandboxOptions
 ): Promise<SandboxResult> {
-  assertPositiveInteger(options.memoryLimitBytes, "memoryLimitBytes");
-  assertPositiveInteger(options.timeoutMs, "timeoutMs");
+  assertPositiveInteger(options.memoryLimitBytes, 'memoryLimitBytes');
+  assertPositiveInteger(options.timeoutMs, 'timeoutMs');
 
   const quickJs = await getModule();
 
@@ -225,10 +220,10 @@ export async function executeQuickJs(
       const memoryLimitExceeded =
         !interrupted && isMemoryLimitExceeded(runtime, context, scope, options.memoryLimitBytes);
       const kind: SandboxFailureKind = interrupted
-        ? "timeout"
+        ? 'timeout'
         : memoryLimitExceeded
-          ? "memory-limit"
-          : "exception";
+          ? 'memory-limit'
+          : 'exception';
 
       return {
         error: { ...guestError, kind },
@@ -239,7 +234,7 @@ export async function executeQuickJs(
       };
     };
 
-    const callResult = context.evalCode(code, "agent-code.js");
+    const callResult = context.evalCode(code, 'agent-code.js');
 
     if (isFail(callResult)) {
       const errorHandle = scope.manage(callResult.error);
@@ -256,11 +251,7 @@ export async function executeQuickJs(
     // interrupt handler fires during job execution too), so `timeoutMs`
     // still bounds async work.
     let jobIterations = 0;
-    while (
-      runtime.hasPendingJob() &&
-      !interrupted &&
-      jobIterations < MAX_PENDING_JOB_ITERATIONS
-    ) {
+    while (runtime.hasPendingJob() && !interrupted && jobIterations < MAX_PENDING_JOB_ITERATIONS) {
       const jobsResult = scope.manage(runtime.executePendingJobs(1));
       if (isFail(jobsResult)) {
         const jobErrorHandle = scope.manage(jobsResult.error);
@@ -274,12 +265,12 @@ export async function executeQuickJs(
     // so this one path covers both sync and async results.
     const promiseState = context.getPromiseState(valueHandle);
 
-    if (promiseState.type === "rejected") {
+    if (promiseState.type === 'rejected') {
       const rejectionHandle = scope.manage(promiseState.error);
       return toFailure(context.dump(rejectionHandle));
     }
 
-    if (promiseState.type === "pending") {
+    if (promiseState.type === 'pending') {
       // No queued job will ever settle this (the drain loop above exhausted
       // hasPendingJob(), or was cut short by the deadline). Surfacing this
       // explicitly, instead of silently dumping an unsettled promise as
@@ -287,11 +278,11 @@ export async function executeQuickJs(
       // program actually finished."
       return {
         error: {
-          kind: "unresolved-promise",
+          kind: 'unresolved-promise',
           message: interrupted
-            ? "the returned promise had not settled when the execution deadline was reached"
-            : "the returned promise never settled and no further jobs are queued",
-          name: "UnresolvedPromiseError",
+            ? 'the returned promise had not settled when the execution deadline was reached'
+            : 'the returned promise never settled and no further jobs are queued',
+          name: 'UnresolvedPromiseError',
         },
         memoryLimitExceeded: false,
         ok: false,

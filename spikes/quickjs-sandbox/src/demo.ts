@@ -1,4 +1,4 @@
-import { executeQuickJs } from "./quickjs-sandbox.ts";
+import { executeQuickJs } from './quickjs-sandbox.ts';
 
 const result = await executeQuickJs(
   `
@@ -8,8 +8,8 @@ const result = await executeQuickJs(
   {
     hostFunctions: [
       {
-        name: "hostAnnotate",
         invoke: (input: string): string => `HOST[${input}]`,
+        name: 'hostAnnotate',
       },
     ],
     memoryLimitBytes: 8 * 1024 * 1024,
@@ -17,4 +17,4 @@ const result = await executeQuickJs(
   }
 );
 
-console.log(JSON.stringify(result, null, 2));
+process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

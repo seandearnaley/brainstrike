@@ -1,29 +1,29 @@
-import { describe, expect, it } from "vitest";
-import { executeQuickJs } from "../src/quickjs-sandbox.ts";
+import { describe, expect, it } from 'vitest';
+import { executeQuickJs } from '../src/quickjs-sandbox.ts';
 
 const mib = 1024 * 1024;
 
-describe("QuickJS denial boundaries", () => {
-  it("interrupts a runaway loop without hanging the host", async () => {
+describe('QuickJS denial boundaries', () => {
+  it('interrupts a runaway loop without hanging the host', async () => {
     const startedAt = Date.now();
-    const result = await executeQuickJs("while (true) {}", {
+    const result = await executeQuickJs('while (true) {}', {
       memoryLimitBytes: 8 * mib,
       timeoutMs: 25,
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
     // Only `kind` is a property of the API's own contract; the engine's
     // literal "interrupted" message text is an implementation detail that
     // could change on an engine bump without weakening the guarantee.
     expect(result).toMatchObject({
-      error: { kind: "timeout" },
+      error: { kind: 'timeout' },
       memoryLimitExceeded: false,
       ok: false,
       timedOut: true,
     });
   });
 
-  it("contains a memory bomb at the configured runtime cap", async () => {
+  it('contains a memory bomb at the configured runtime cap', async () => {
     const result = await executeQuickJs(
       `
         const chunks = [];
@@ -33,13 +33,13 @@ describe("QuickJS denial boundaries", () => {
       `,
       {
         memoryLimitBytes: 2 * mib,
-        timeoutMs: 2_000,
+        timeoutMs: 2000,
       }
     );
 
     expect(result).toMatchObject({
       error: {
-        kind: "memory-limit",
+        kind: 'memory-limit',
         message: expect.stringMatching(/out of memory/i),
       },
       memoryLimitExceeded: true,
@@ -47,14 +47,14 @@ describe("QuickJS denial boundaries", () => {
       timedOut: false,
     });
 
-    const healthyFollowUp = await executeQuickJs("21 * 2", {
+    const healthyFollowUp = await executeQuickJs('21 * 2', {
       memoryLimitBytes: 2 * mib,
       timeoutMs: 100,
     });
     expect(healthyFollowUp).toMatchObject({ ok: true, value: 42 });
   });
 
-  it("does not classify a guest-spoofed message as a real memory-limit hit", async () => {
+  it('does not classify a guest-spoofed message as a real memory-limit hit', async () => {
     // A guest that merely throws text resembling an OOM message must not be
     // able to forge `kind: "memory-limit"` / `memoryLimitExceeded: true` —
     // that signal has to come from the host's own memory accounting
@@ -65,14 +65,14 @@ describe("QuickJS denial boundaries", () => {
     });
 
     expect(result).toMatchObject({
-      error: { kind: "exception", message: "out of memory" },
+      error: { kind: 'exception', message: 'out of memory' },
       memoryLimitExceeded: false,
       ok: false,
       timedOut: false,
     });
   });
 
-  it("has no ambient network, filesystem, Emscripten FS, or Node globals", async () => {
+  it('has no ambient network, filesystem, Emscripten FS, or Node globals', async () => {
     const result = await executeQuickJs(
       `
         ({
@@ -108,23 +108,23 @@ describe("QuickJS denial boundaries", () => {
       ok: true,
       timedOut: false,
       value: {
-        Buffer: "undefined",
-        FS: "undefined",
-        MEMFS: "undefined",
-        NODEFS: "undefined",
-        WebSocket: "undefined",
-        XMLHttpRequest: "undefined",
-        escapedProcess: "ReferenceError",
-        fetch: "undefined",
-        fs: "undefined",
-        module: "undefined",
-        process: "undefined",
-        require: "undefined",
+        Buffer: 'undefined',
+        escapedProcess: 'ReferenceError',
+        FS: 'undefined',
+        fetch: 'undefined',
+        fs: 'undefined',
+        MEMFS: 'undefined',
+        module: 'undefined',
+        NODEFS: 'undefined',
+        process: 'undefined',
+        require: 'undefined',
+        WebSocket: 'undefined',
+        XMLHttpRequest: 'undefined',
       },
     });
   });
 
-  it("cannot import node:fs when no module loader is installed", async () => {
+  it('cannot import node:fs when no module loader is installed', async () => {
     const result = await executeQuickJs('import fs from "node:fs";', {
       memoryLimitBytes: 8 * mib,
       timeoutMs: 100,
@@ -137,68 +137,68 @@ describe("QuickJS denial boundaries", () => {
     // installed and silently started resolving "node:fs" to something real.
     expect(result).toMatchObject({
       error: {
-        kind: "exception",
+        kind: 'exception',
         message: "could not load module 'node:fs'",
-        name: "ReferenceError",
+        name: 'ReferenceError',
       },
       ok: false,
       timedOut: false,
     });
   });
 
-  it("calls only a deliberately granted host function and round-trips a value", async () => {
+  it('calls only a deliberately granted host function and round-trips a value', async () => {
     let observedHostInput: string | undefined;
     const result = await executeQuickJs('hostEcho("from guest")', {
       hostFunctions: [
         {
-          name: "hostEcho",
           invoke: (input: string): string => {
             observedHostInput = input;
             return `${input} -> from host`;
           },
+          name: 'hostEcho',
         },
       ],
       memoryLimitBytes: 8 * mib,
       timeoutMs: 100,
     });
 
-    expect(observedHostInput).toBe("from guest");
+    expect(observedHostInput).toBe('from guest');
     expect(result).toMatchObject({
       ok: true,
-      value: "from guest -> from host",
+      value: 'from guest -> from host',
     });
   });
 
-  it("does not invent an ungranted host bridge", async () => {
-    const result = await executeQuickJs("typeof hostEcho", {
+  it('does not invent an ungranted host bridge', async () => {
+    const result = await executeQuickJs('typeof hostEcho', {
       memoryLimitBytes: 8 * mib,
       timeoutMs: 100,
     });
 
-    expect(result).toMatchObject({ ok: true, value: "undefined" });
+    expect(result).toMatchObject({ ok: true, value: 'undefined' });
   });
 
-  it("rejects a host-function grant that would shadow an existing global", async () => {
+  it('rejects a host-function grant that would shadow an existing global', async () => {
     // The value proposition over a wrapper like @sebastianwessel/quickjs is
     // that the host owns and audits the bridge surface. Silently clobbering
     // a guest intrinsic (JSON, in particular, has host-side reach through
     // context.dump's JSON-based serialization) is exactly the unaudited gap
     // that undermines that claim, so it must fail loudly instead.
     await expect(
-      executeQuickJs("1", {
-        hostFunctions: [{ invoke: (input) => input, name: "JSON" }],
+      executeQuickJs('1', {
+        hostFunctions: [{ invoke: (input) => input, name: 'JSON' }],
         memoryLimitBytes: 8 * mib,
         timeoutMs: 100,
       })
     ).rejects.toThrow(/would shadow an existing global/);
   });
 
-  it("rejects duplicate host-function grants instead of last-writer-wins", async () => {
+  it('rejects duplicate host-function grants instead of last-writer-wins', async () => {
     await expect(
-      executeQuickJs("1", {
+      executeQuickJs('1', {
         hostFunctions: [
-          { invoke: (input) => input, name: "dup" },
-          { invoke: (input) => input, name: "dup" },
+          { invoke: (input) => input, name: 'dup' },
+          { invoke: (input) => input, name: 'dup' },
         ],
         memoryLimitBytes: 8 * mib,
         timeoutMs: 100,
@@ -206,7 +206,7 @@ describe("QuickJS denial boundaries", () => {
     ).rejects.toThrow(/granted more than once/);
   });
 
-  it("surfaces a rejected promise instead of silently reporting success", async () => {
+  it('surfaces a rejected promise instead of silently reporting success', async () => {
     // Before this was fixed, evalCode returned as soon as the synchronous
     // phase finished, the scope disposed the runtime immediately after, and
     // the queued rejection was discarded unobserved — the guest's thrown
@@ -217,7 +217,7 @@ describe("QuickJS denial boundaries", () => {
     });
 
     expect(result).toMatchObject({
-      error: { kind: "exception", message: "boom" },
+      error: { kind: 'exception', message: 'boom' },
       ok: false,
     });
   });
@@ -229,13 +229,13 @@ describe("QuickJS denial boundaries", () => {
     });
 
     expect(result).toMatchObject({
-      error: { kind: "exception", message: "boom" },
+      error: { kind: 'exception', message: 'boom' },
       ok: false,
     });
   });
 
-  it("resolves a genuinely fulfilled async result", async () => {
-    const result = await executeQuickJs("(async () => 42)()", {
+  it('resolves a genuinely fulfilled async result', async () => {
+    const result = await executeQuickJs('(async () => 42)()', {
       memoryLimitBytes: 8 * mib,
       timeoutMs: 100,
     });
@@ -243,19 +243,19 @@ describe("QuickJS denial boundaries", () => {
     expect(result).toMatchObject({ ok: true, value: 42 });
   });
 
-  it("reports a promise that never settles as unresolved rather than dumping it as {}", async () => {
-    const result = await executeQuickJs("new Promise(() => {})", {
+  it('reports a promise that never settles as unresolved rather than dumping it as {}', async () => {
+    const result = await executeQuickJs('new Promise(() => {})', {
       memoryLimitBytes: 8 * mib,
       timeoutMs: 100,
     });
 
     expect(result).toMatchObject({
-      error: { kind: "unresolved-promise" },
+      error: { kind: 'unresolved-promise' },
       ok: false,
     });
   });
 
-  it("normalizes a thrown value whose own toString cannot be invoked", async () => {
+  it('normalizes a thrown value whose own toString cannot be invoked', async () => {
     // `throw { toString: "not callable" }` makes plain `String(value)` throw
     // a host TypeError on the dumped object; executeQuickJs must still
     // return a structured SandboxFailure rather than rejecting itself.
@@ -266,8 +266,8 @@ describe("QuickJS denial boundaries", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.kind).toBe("exception");
-      expect(typeof result.error.message).toBe("string");
+      expect(result.error.kind).toBe('exception');
+      expect(typeof result.error.message).toBe('string');
     }
   });
 });

@@ -188,8 +188,7 @@
   "exclude": [
     "node_modules",
     ".turbo",
-    "dist",
-    "spikes"
+    "dist"
   ],
   "references": [
     {

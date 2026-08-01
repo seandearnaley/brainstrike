@@ -29,8 +29,7 @@
       "!**/*.html",
       "!.claude",
       "!.pnpm-store",
-      "!**/*.bundled_*.mjs",
-      "!spikes"
+      "!**/*.bundled_*.mjs"
     ]
   },
   "linter": {
