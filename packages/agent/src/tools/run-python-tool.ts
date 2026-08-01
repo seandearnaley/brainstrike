@@ -45,6 +45,7 @@ const RUN_PYTHON_MAX_OUTPUT_BYTES = Math.min(4 * 1024 * 1024, MAX_EXEC_OUTPUT_BY
 export type RunPythonUnavailableReason =
   | 'executor_kind_unavailable'
   | 'executor_tier_mismatch'
+  | 'interpreter_unavailable'
   | 'language_unsupported'
   | 'network_unsupported'
   | 'no_sandbox_configured';
@@ -175,7 +176,28 @@ function toUnavailableResult(error: unknown): RunPythonResult {
   if (isExecCapabilityMismatchError(error)) {
     return { detail: error.message, kind: 'unavailable', reason: error.reason };
   }
+  if (isInterpreterUnavailableError(error)) {
+    return {
+      detail: error.message,
+      kind: 'unavailable',
+      reason: 'interpreter_unavailable',
+    };
+  }
   throw error;
+}
+
+/**
+ * A `python_*`-coded error from the bundled-interpreter resolver (BST-1061).
+ * Matched structurally rather than by importing the desktop module: this
+ * package must not depend on `apps/desktop`, and the seam's own error codes
+ * are all `exec_*`/`executor_*`/`fence_*`, so the prefix cannot collide.
+ */
+function isInterpreterUnavailableError(error: unknown): error is Error & { code: string } {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code: unknown = (error as unknown as { code?: unknown }).code;
+  return typeof code === 'string' && code.startsWith('python_');
 }
 
 /**
@@ -193,8 +215,15 @@ async function createScratchDir(): Promise<string> {
 }
 
 export interface RunPythonToolOptions {
-  /** Host executor capabilities; `fence` absent ⇒ every call is `unavailable`. */
-  readonly host: CodeExecutorHostCapabilities;
+  /**
+   * Resolves the host's executor capabilities for THIS call. Async because the
+   * bundled CPython (BST-1061) may still need a first-run unpack, and because
+   * an interpreter that cannot be produced must surface as a typed
+   * `interpreter_unavailable` — distinguishable from `no_sandbox_configured`,
+   * so the user is told which half is missing rather than a generic failure.
+   * `fence` absent ⇒ every call is `unavailable`.
+   */
+  readonly resolveHost: (signal?: AbortSignal) => Promise<CodeExecutorHostCapabilities>;
 }
 
 /**
@@ -226,7 +255,8 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
 
       let executor: ReturnType<typeof resolveCodeExecutor>;
       try {
-        executor = resolveCodeExecutor('fence', options.host);
+        const host = await options.resolveHost(signal);
+        executor = resolveCodeExecutor('fence', host);
       } catch (error) {
         return toUnavailableResult(error);
       }

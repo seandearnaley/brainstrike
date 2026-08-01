@@ -59,12 +59,16 @@ function hostWith(stub: StubExecutor): CodeExecutorHostCapabilities {
   return { fence: () => stub.executor };
 }
 
+function resolveHostFor(host: CodeExecutorHostCapabilities) {
+  return async () => host;
+}
+
 async function runTool(
   host: CodeExecutorHostCapabilities,
   input: { code: string; timeoutMs?: number },
   context?: { abortSignal?: AbortSignal }
 ) {
-  const tool = createRunPythonTool({ host });
+  const tool = createRunPythonTool({ resolveHost: resolveHostFor(host) });
   return await tool.execute(input, context);
 }
 
@@ -169,6 +173,26 @@ describe('createRunPythonTool', () => {
     expect(result).toMatchObject({ kind: 'unavailable', reason: 'executor_tier_mismatch' });
   });
 
+  it('distinguishes a missing interpreter from a missing sandbox', async () => {
+    // BST-1061 carried this requirement into BST-1067: the user must be told
+    // WHICH half is missing. A generic failure here would collapse "no Python
+    // was bundled for this platform" into "no sandbox", which points at the
+    // wrong fix.
+    const interpreterFailure = Object.assign(
+      new Error('The bundled Python runtime does not support linux/x64'),
+      { code: 'python_unsupported_platform' }
+    );
+    const tool = createRunPythonTool({
+      resolveHost: () => Promise.reject(interpreterFailure),
+    });
+    const result = await tool.execute({ code: 'pass' });
+    expect(result).toMatchObject({
+      kind: 'unavailable',
+      reason: 'interpreter_unavailable',
+    });
+    expect(result).not.toMatchObject({ reason: 'no_sandbox_configured' });
+  });
+
   it('rethrows an unrecognised failure instead of labelling it unavailable', async () => {
     const stub = stubFence(async () => {
       throw new Error('something nobody has classified');
@@ -180,7 +204,7 @@ describe('createRunPythonTool', () => {
 
   it('rejects input the strict schema does not accept, without reaching the executor', async () => {
     const stub = stubFence(async () => execResult());
-    const tool = createRunPythonTool({ host: hostWith(stub) });
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
     // Mastra validates against inputSchema BEFORE execute() runs and returns a
     // validation-error payload rather than throwing — so this asserts the
     // returned shape, not a rejection.

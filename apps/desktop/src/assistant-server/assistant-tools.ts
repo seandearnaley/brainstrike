@@ -1,5 +1,6 @@
 import {
   createAskUserTool,
+  createRunPythonTool,
   createSubmitPlanTool,
   type DeleteWorkspaceFileInput,
   type ExecuteCommandInput,
@@ -35,6 +36,7 @@ import {
   type WebSearchInput,
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
+import { createFenceExecutorFactory } from '@brainstrike/agent/fence-executor';
 import {
   isDesktopNativeToolId,
   NATIVE_TOOL_ID,
@@ -574,6 +576,29 @@ export function buildDesktopAssistantTools(
           // built-in local provider (same WebGPU-prefill reasoning as the task-list
           // tool and the plan-mode gate).
           [NATIVE_TOOL_ID.askUser]: createAskUserTool(),
+          // BST-1067. Registered as the factory-returned Tool object for the
+          // same reason as its two neighbours: BST-1070 will add a
+          // suspendSchema for the network escalation, and the registry's
+          // `{description, execute, id, inputSchema}` literal silently drops
+          // it — which would leave the network gate never firing, with no
+          // error and no run event. Registering in this shape now means that
+          // ticket changes the factory, not this call site.
+          [NATIVE_TOOL_ID.runPython]: createRunPythonTool({
+            resolveHost: async (signal) => {
+              const command = await (
+                dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable
+              )(signal);
+              const fence = createFenceExecutorFactory({
+                interpreters: { python: { command, scriptExtension: 'py' } },
+              });
+              // `undefined` on a host with no OS fence (Windows today). Under
+              // exactOptionalPropertyTypes an explicit `fence: undefined` is
+              // not assignable, and omitting the key is also the honest
+              // shape: the capability is ABSENT, and the seam then throws
+              // ExecutorKindUnavailableError rather than degrading.
+              return fence ? { fence } : {};
+            },
+          }),
           [NATIVE_TOOL_ID.submitPlan]: createSubmitPlanTool(),
           [NATIVE_TOOL_ID.manageTaskList]: {
             description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
@@ -776,7 +801,11 @@ export function buildDesktopAssistantTools(
       // Skill execution is capability-gated by the trusted per-request scan
       // engine. A persisted preference may still name it while Skills are
       // disabled; omission is the explicit capability result, not corruption.
-      toolId !== NATIVE_TOOL_ID.runSkillScript
+      toolId !== NATIVE_TOOL_ID.runSkillScript &&
+      // run_python is capability-gated twice over: absent for the built-in
+      // local provider, and `createFenceExecutorFactory` yields undefined on
+      // a host with no OS fence. Omission is the explicit capability result.
+      toolId !== NATIVE_TOOL_ID.runPython
   );
   if (unavailableToolIds.length > 0) {
     logger.debug('Enabled native tool ids unavailable in the current runtime', {
