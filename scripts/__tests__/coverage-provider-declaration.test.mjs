@@ -16,25 +16,68 @@ import { fileURLToPath } from 'node:url';
  * providing it, `coverage.yml` and `nightly-coverage.yml` break.
  *
  * Discriminator: a package needs the provider iff it ships a `test:coverage`
- * script AND has a vitest config. The two native addon packages ship a
- * `test:coverage` that aliases to `node --test` — Node's own runner, no vitest
- * config, no provider to declare — and are correctly excluded by that rule
- * rather than by a hand-maintained ignore list that could rot.
+ * script AND runs vitest. The two native addon packages ship a `test:coverage`
+ * that aliases to `node --test` — Node's own runner, no vitest config, no
+ * provider to declare — and are excluded by that rule rather than by a
+ * hand-maintained ignore list that could rot.
  */
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const COVERAGE_PROVIDER = '@vitest/coverage-v8';
 
-function hasVitestConfig(packageDir) {
-  return ['mts', 'ts', 'mjs', 'js'].some((extension) =>
-    existsSync(path.join(packageDir, `vitest.config.${extension}`))
-  );
+/**
+ * Packages that run vitest but ship no `test:coverage`, so their tests are in
+ * NO coverage run at all — the same physically-unreal boundary R01 targets,
+ * inverted (review #2170). Recorded rather than fixed in-band: adding a package
+ * to the coverage aggregate changes what the thresholds measure, which is its
+ * own change. Tracked by BST-1045.
+ */
+const KNOWN_UNCOVERED_VITEST_PACKAGES = new Set(['packages/assistant-service']);
+
+/**
+ * Workspace globs come from pnpm-workspace.yaml so this sweep cannot drift from
+ * the real member list — a depth-1 scan silently skipped `packages/config/*`
+ * (review #2170).
+ */
+function workspaceGlobDirs() {
+  const yaml = readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
+  const globs = [];
+  for (const line of yaml.split('\n')) {
+    if (/^\S/u.test(line) && globs.length > 0) {
+      break;
+    }
+    const match = /^\s*-\s*(?<glob>[\w./*-]+)\s*$/u.exec(line);
+    if (match?.groups?.glob?.endsWith('/*')) {
+      globs.push(match.groups.glob.slice(0, -2));
+    }
+  }
+  assert.ok(globs.length >= 3, `expected the workspace globs, parsed [${globs.join(', ')}]`);
+  return globs;
+}
+
+/**
+ * A package "runs vitest" if it has a dedicated vitest config OR inlines a
+ * `test:` block in its vite config (the standard Vite-app arrangement, which a
+ * config-filename-only check would misclassify as non-vitest).
+ */
+function runsVitest(packageDir) {
+  const extensions = ['mts', 'ts', 'mjs', 'js'];
+  if (extensions.some((ext) => existsSync(path.join(packageDir, `vitest.config.${ext}`)))) {
+    return true;
+  }
+  return extensions.some((ext) => {
+    const viteConfig = path.join(packageDir, `vite.config.${ext}`);
+    return existsSync(viteConfig) && /\btest\s*:/u.test(readFileSync(viteConfig, 'utf8'));
+  });
 }
 
 function workspacePackages() {
   const found = [];
-  for (const group of ['packages', 'apps']) {
+  for (const group of workspaceGlobDirs()) {
     const base = path.join(repoRoot, group);
+    if (!existsSync(base)) {
+      continue;
+    }
     for (const entry of readdirSync(base, { withFileTypes: true })) {
       if (!entry.isDirectory()) {
         continue;
@@ -56,7 +99,7 @@ test('every package collecting vitest coverage declares the coverage provider', 
   const undeclared = [];
   let checked = 0;
   for (const { dir, manifest, name } of workspacePackages()) {
-    if (!(manifest.scripts?.['test:coverage'] && hasVitestConfig(dir))) {
+    if (!(manifest.scripts?.['test:coverage'] && runsVitest(dir))) {
       continue;
     }
     checked += 1;
@@ -76,12 +119,43 @@ test('every package collecting vitest coverage declares the coverage provider', 
   assert.ok(checked > 30, `expected the sweep to cover the workspace, only checked ${checked}`);
 });
 
+test('every package running vitest actually ships a coverage script', () => {
+  // The converse direction: a package with tests but no `test:coverage` is
+  // skipped by coverage.yml's `--if-present` and has no task for
+  // nightly-coverage.yml, so its tests are measured NOWHERE. The sweep above
+  // can never see it — it gates on the very script that is missing.
+  const uncovered = [];
+  for (const { dir, manifest, name } of workspacePackages()) {
+    if (!(manifest.scripts?.test && runsVitest(dir))) {
+      continue;
+    }
+    if (!(manifest.scripts['test:coverage'] || KNOWN_UNCOVERED_VITEST_PACKAGES.has(name))) {
+      uncovered.push(name);
+    }
+  }
+  assert.deepEqual(
+    uncovered,
+    [],
+    `these packages run vitest but ship no test:coverage, so nothing measures them: ${uncovered.join(', ')}`
+  );
+  // The allowlist must shrink, never rot: a stale exemption hides a package
+  // that IS covered and quietly weakens the assertion above.
+  for (const name of KNOWN_UNCOVERED_VITEST_PACKAGES) {
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, name, 'package.json'), 'utf8'));
+    assert.equal(
+      manifest.scripts?.['test:coverage'],
+      undefined,
+      `${name} now ships test:coverage; drop it from KNOWN_UNCOVERED_VITEST_PACKAGES`
+    );
+  }
+});
+
 test('the coverage provider is pinned through the workspace catalog', () => {
   // A hardcoded version here would drift from every other @vitest/* entry, and
   // a mismatched provider/vitest pair fails at runtime rather than at install.
   for (const { dir, manifest, name } of workspacePackages()) {
     const declared = manifest.devDependencies?.[COVERAGE_PROVIDER];
-    if (!(declared && hasVitestConfig(dir))) {
+    if (!(declared && runsVitest(dir))) {
       continue;
     }
     assert.equal(
@@ -97,12 +171,13 @@ test('a package aliasing test:coverage to node --test needs no vitest provider',
   // excludes non-vitest coverage scripts for a REASON, not by omission.
   for (const name of ['secure-fs-native', 'windows-job-native']) {
     const dir = path.join(repoRoot, 'packages', name);
-    if (!existsSync(dir)) {
-      continue;
-    }
+    // Asserted, not skipped: a rename would otherwise make this test silently
+    // vacuous, and the discriminator's justification needs revisiting either
+    // way (review #2170).
+    assert.ok(existsSync(dir), `packages/${name} moved or was removed; revisit BST-1017`);
     const manifest = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
     assert.ok(manifest.scripts?.['test:coverage'], `${name} lost its test:coverage script`);
-    assert.equal(hasVitestConfig(dir), false, `${name} gained a vitest config; revisit BST-1017`);
+    assert.equal(runsVitest(dir), false, `${name} now runs vitest; revisit BST-1017`);
     assert.equal(
       manifest.devDependencies?.[COVERAGE_PROVIDER],
       undefined,
