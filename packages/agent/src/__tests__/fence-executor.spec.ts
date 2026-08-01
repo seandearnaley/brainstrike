@@ -1,5 +1,5 @@
 import { platform } from 'node:process';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ExecCapabilityMismatchError, type ExecInput } from '../code-execution';
 import {
@@ -35,6 +35,29 @@ describe('isFenceSupported', () => {
     // darwin (Seatbelt) and linux (bubblewrap) only — win32 is deliberately
     // NOT offered; see docs/agents/code-execution.md.
     expect(isFenceSupported()).toBe(platform === 'darwin' || platform === 'linux');
+  });
+
+  // The assertion above restates the implementation against the HOST's
+  // platform, so on the CI runners both sides are true and deleting the
+  // platform literal would stay green — and the `native-windows` job never
+  // runs this package, so the regression would ship. This pins win32 → false
+  // independently of where the suite runs (BST-1074).
+  it('refuses win32 even though srt reports the platform as supported', async () => {
+    vi.resetModules();
+    vi.doMock('node:process', async () => {
+      const actual = await vi.importActual<typeof import('node:process')>('node:process');
+      return { ...actual, default: actual, platform: 'win32' };
+    });
+    vi.doMock('@anthropic-ai/sandbox-runtime', () => ({
+      // srt's own probe DOES return true on Windows — that is the whole point.
+      SandboxManager: { isSupportedPlatform: () => true },
+    }));
+    const mod = await import('../fence/fence-executor');
+    expect(mod.isFenceSupported()).toBe(false);
+    expect(mod.createFenceExecutorFactory({ interpreters: {} })).toBeUndefined();
+    vi.doUnmock('node:process');
+    vi.doUnmock('@anthropic-ai/sandbox-runtime');
+    vi.resetModules();
   });
 });
 

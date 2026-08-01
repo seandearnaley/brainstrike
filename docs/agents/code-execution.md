@@ -71,9 +71,24 @@ should use, including on runtime-computed paths. Its rules:
   in a Windows-shaped path; on POSIX it is a legal filename character, so
   `/tmp/scratch\run` is a sibling directory named `scratch\run`, not a
   descendant of `/tmp/scratch`.
-- **Case is folded only when an operand is Windows-shaped**, because
-  drive-letter case is not stable across Node APIs. POSIX comparison stays
-  case-sensitive.
+- **Only the Windows VOLUME segments are case-folded** — the drive letter
+  (`C:`), or the host AND share for a UNC path (`\\server\share`, both
+  case-insensitive at the SMB protocol level). Never directory segments, never
+  on POSIX. Volume case is what Node APIs spell inconsistently; directory
+  segments are a different question, because NTFS supports per-directory case
+  sensitivity (WSL enables it), so folding them could report coverage the
+  filesystem does not grant. That is a false PERMIT, the unsafe direction, and
+  the same platform-shaped guess this doc rejects for darwin below.
+  Case-insensitive volumes are served correctly by resolving first — but only
+  with the NATIVE resolver, see the next bullet.
+- **Resolve with `realpath.native`, not `fs/promises`' `realpath`.** Node's JS
+  implementation resolves symlinks but copies non-symlink components verbatim
+  from the input string; it does NOT return the OS-canonical case. Only the
+  native binding (`realpath(3)`, `GetFinalPathNameByHandleW`) does. Measured on
+  darwin: for an on-disk `MixedCase`, the JS version returns `mixedcase`, the
+  native one `MixedCase`. Since directory segments compare case-sensitively,
+  the JS resolver silently voids both the containment guarantee and the
+  always-deny check on a case-insensitive volume.
 
 ### Backends MUST resolve before asking (requirement, not advice)
 
@@ -231,6 +246,18 @@ execute-risk native tool gated by the existing permission engine
 approval suspension are decided before `execute()` is ever reached. The seam
 never re-implements or bypasses that gate, and executor errors never
 auto-approve or auto-decline anything.
+
+The UX design for that gating — the pre-run approval card, the network
+escalation, the result surface, and the remember-choice scope — is specified in
+`docs/run-python-approval-ux-design-2026-08-01.md` (BST-1070, DESIGN ONLY;
+implementation blocked on BST-1067). Its load-bearing ruling: a non-empty
+`ExecPolicy.allowedDomains` escalates on the SUSPEND channel, not the approval
+channel, because Mastra's `requireApproval` is per-tool and cannot be
+conditioned on a single call's arguments — so an approval-channel escalation
+would be silently skipped by any session/per-tool grant. That doc also records
+four gaps in this seam's expressiveness (no incremental output channel, no
+omission POSITION alongside the omitted byte counts, no read-list provenance,
+and no channel for host-computed approval display context).
 
 ## The null stub
 

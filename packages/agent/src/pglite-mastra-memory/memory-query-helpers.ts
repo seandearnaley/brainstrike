@@ -176,7 +176,15 @@ export function normalizeIncludeThreadId(
   return threadId;
 }
 
-function messageMatchesListScope(message: MastraDBMessage, args: MessageListArgs): boolean {
+interface MessageListScopeIdentity {
+  readonly resourceId?: string | null;
+  readonly threadId?: string | null;
+}
+
+export function messageMatchesListScope(
+  message: MessageListScopeIdentity,
+  args: MessageListArgs
+): boolean {
   if (args.threadIds) {
     const threadId = message.threadId;
     if (!(threadId && args.threadIds.includes(threadId))) {
