@@ -51,6 +51,7 @@ const LANE_FLAGS =
  * `e2e/`. `webExtras` injects the violations under test.
  */
 function createFixtureRepo({
+  includeDesktopTargetedScript = true,
   extraWorkflowSteps = [],
   webExtras = {},
   webLanes = {},
@@ -78,6 +79,12 @@ function createFixtureRepo({
       {
         name: '@brainstrike/desktop',
         scripts: {
+          ...(includeDesktopTargetedScript
+            ? {
+                'test:e2e:backgrounding':
+                  'pnpm exec playwright test e2e/desktop.test.ts --project=regression',
+              }
+            : {}),
           'test:e2e:lane:full-regression': 'pnpm exec playwright test --project=regression',
         },
       },
@@ -125,8 +132,22 @@ function createFixtureRepo({
 // floors would reject it. Analysing it with floors of 1 keeps the fixture legible
 // while leaving the real floors doing their job in the real run.
 const FIXTURE_MINIMUMS = {
-  desktop: { e2eScripts: 1, lanes: 1, laneTags: 0, specs: 1, titles: 1 },
-  web: { e2eScripts: 2, lanes: 1, laneTags: 1, specs: 2, titles: 2 },
+  desktop: {
+    e2eScripts: 1,
+    lanes: 1,
+    laneTags: 0,
+    specs: 1,
+    targetedE2eScripts: 1,
+    titles: 1,
+  },
+  web: {
+    e2eScripts: 2,
+    lanes: 1,
+    laneTags: 1,
+    specs: 2,
+    targetedE2eScripts: 0,
+    titles: 2,
+  },
 };
 
 function analyzeFixture(root, knownUnreachableSpecs = {}) {
@@ -560,18 +581,10 @@ test('anti-vacuity: discovery floors refuse to report a green on an empty sweep'
   );
 });
 
-test('anti-vacuity: the E2E package-script floor protects the widened assertion', async () => {
+test('anti-vacuity: removing the targeted non-lane script turns its consumed-list floor red', async () => {
   await assert.rejects(
-    () =>
-      analyzeE2eLaneCoverage({
-        knownUnreachableSpecs: {},
-        minimums: {
-          ...FIXTURE_MINIMUMS,
-          web: { ...FIXTURE_MINIMUMS.web, e2eScripts: 5000 },
-        },
-        repoRoot: createFixtureRepo(),
-      }),
-    /Anti-vacuity floor: found \d+ web package script\(s\) named test:e2e\*/
+    () => analyzeFixture(createFixtureRepo({ includeDesktopTargetedScript: false })),
+    /Anti-vacuity floor: found 0 desktop explicitly targeted non-lane test:e2e\* package invocation\(s\)/
   );
 });
 

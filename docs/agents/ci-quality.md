@@ -555,8 +555,11 @@ files that exist and selects a non-empty set. The third assertion intentionally
 does not claim to model broad package scripts with no file list: their default
 project selection can include suites outside this lane sweep (notably web
 performance), while targeted scripts must state `--project` so the answer is
-exact. A separate package-script discovery floor keeps that widened sweep from
-collapsing back to lane-prefixed scripts only.
+exact. The raw package-script floor protects discovery of the overall
+`test:e2e*` surface. A separate floor is applied to the list this assertion
+actually consumes: one explicitly targeted non-lane desktop invocation and none
+for web today. That applicable count is printed in every verdict, and the paired
+money test removes the desktop invocation and observes the floor fail.
 
 **Reachability is resolved per test title, not per spec file** (review finding on
 PR #2180). A file-granular answer marks a whole spec covered as soon as any ONE
@@ -622,8 +625,8 @@ What holds it honest:
   regression returning zero titles per file would leave the file count healthy
   while every reachability question went vacuous. `KNOWN_UNREACHABLE_SPECS`
   entries fail if the listed spec becomes reachable, becomes only partly dark, or
-  stops existing, so an exemption cannot rot into a permanent hole. It currently
-  is currently empty after the inline desktop embedding lane adopted its former
+  stops existing, so an exemption cannot rot into a permanent hole. It is
+  currently empty after the inline desktop embedding lane adopted its former
   crash-b orphan.
 - **The money test.** Per the BST-836 lesson below, the paired test drives the
   checker against a synthetic fixture repo carrying a planted orphan tag and

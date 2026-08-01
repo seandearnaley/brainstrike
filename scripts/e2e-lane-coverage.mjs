@@ -101,8 +101,22 @@ const LANE_WORKFLOW_FILES = ['desktop-e2e.yml', 'test.yml', 'web-e2e.yml'];
 // enough: a parser regression that returned zero titles per file would keep the
 // file count healthy while every reachability question became vacuous.
 const MINIMUMS = {
-  desktop: { e2eScripts: 8, lanes: 3, laneTags: 12, specs: 35, titles: 100 },
-  web: { e2eScripts: 15, lanes: 8, laneTags: 8, specs: 30, titles: 120 },
+  desktop: {
+    e2eScripts: 8,
+    lanes: 3,
+    laneTags: 12,
+    specs: 35,
+    targetedE2eScripts: 1,
+    titles: 100,
+  },
+  web: {
+    e2eScripts: 15,
+    lanes: 8,
+    laneTags: 8,
+    specs: 30,
+    targetedE2eScripts: 0,
+    titles: 120,
+  },
 };
 
 /**
@@ -349,8 +363,7 @@ function collectPackageE2eScripts(app, packageJson) {
         const packageInvocation = { ...invocation, app, name, scriptName: name };
         if (isLane) {
           lanes.push(packageInvocation);
-        }
-        if (invocation.files.length > 0) {
+        } else if (invocation.files.length > 0) {
           if (invocation.project === null) {
             throw new Error(
               `${origin}: explicitly targets spec files without --project, so this guard cannot ` +
@@ -635,6 +648,12 @@ export async function analyzeE2eLaneCoverage({
       minimums.e2eScripts,
       `${app} package script(s) named ${E2E_SCRIPT_PREFIX}*`
     );
+    const targetedE2eInvocations = targetedE2eInvocationsByApp[app];
+    assertFloor(
+      targetedE2eInvocations.length,
+      minimums.targetedE2eScripts,
+      `${app} explicitly targeted non-lane ${E2E_SCRIPT_PREFIX}* package invocation(s)`
+    );
     assertFloor(lanes.length, minimums.lanes, `${app} CI-invoked E2E lane invocation(s)`);
     assertFloor(allSpecs.length, minimums.specs, `${app} E2E spec file(s)`);
 
@@ -759,13 +778,11 @@ export async function analyzeE2eLaneCoverage({
     // their default-project selection can include deliberately excluded suites
     // such as web performance tests, so pretending this lane-only model can
     // answer for them would be a silent fallback. Any targeted script must name
-    // --project above, making its selector exact.
-    const selectorChecks = [
-      ...allLanes,
-      ...targetedE2eInvocationsByApp[app].filter(
-        (invocation) => !invocation.name.startsWith(LANE_SCRIPT_PREFIX)
-      ),
-    ];
+    // --project above, making its selector exact. Web's performance specs are
+    // excluded from `allSpecs`; modelling a future `web:performance` project
+    // here therefore also requires lifting that exclusion, or the selection
+    // would be answered against an incomplete universe.
+    const selectorChecks = [...allLanes, ...targetedE2eInvocations];
     for (const invocation of selectorChecks) {
       for (const file of invocation.files) {
         if (!existsSync(path.join(appRoot, file))) {
@@ -794,6 +811,7 @@ export async function analyzeE2eLaneCoverage({
       laneNames: lanes.map((lane) => lane.name).sort(),
       laneTagCount: titlePathsByTag.size,
       specCount: allSpecs.length,
+      targetedE2eScriptCount: targetedE2eInvocations.length,
       titleCount,
       uninvokedLaneNames: allLanes
         .filter((lane) => !lane.ciInvoked)
@@ -809,7 +827,7 @@ export function formatReport(report) {
   const lines = [];
   for (const app of report.apps) {
     lines.push(
-      `${app.app}: examined ${app.titleCount} test title(s) across ${app.specCount} spec file(s), ${app.e2eScriptCount} test:e2e* package script(s), ${app.laneNames.length} CI-invoked lane invocation(s), ${app.laneTagCount} lane tag(s)`
+      `${app.app}: examined ${app.titleCount} test title(s) across ${app.specCount} spec file(s), ${app.e2eScriptCount} test:e2e* package script(s), ${app.targetedE2eScriptCount} explicitly targeted non-lane package invocation(s), ${app.laneNames.length} CI-invoked lane invocation(s), ${app.laneTagCount} lane tag(s)`
     );
     for (const laneName of app.laneNames) {
       lines.push(`    lane: ${laneName}`);
