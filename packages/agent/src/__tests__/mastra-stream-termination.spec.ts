@@ -4,9 +4,9 @@
  * policy that decides `run.finished` vs `run.failed`.
  *
  * The termination module covers provider-error and tripwire endings: flush
- * pending tool-output run-events, emit
- * the reason as visible text, emit `run.failed` carrying that reason as its
- * durable `detail`, then an ERROR finish — never a throw.
+ * pending tool-output run-events, emit the reason as visible text, emit
+ * `run.failed` carrying that reason as its durable `detail`, then an ERROR
+ * finish — never a throw.
  *
  * The finish-reason cases (`length` / absent / `unknown` / unrecognized) are
  * here DELIBERATELY even though the decision itself is split across

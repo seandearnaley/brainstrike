@@ -719,8 +719,18 @@ case in the file whose module owns the behaviour; add a file only when a new
 module seam appears.
 
 `mastra/stream-run-event-chunks.ts` has no dedicated spec on purpose: its
-minting helpers are used by all three of the others, so every file above
-exercises it and no coherent set of cases pins it alone.
+minting helpers are used by all four module-seam specs above, so each of those
+files exercises it and no coherent set of cases pins it alone.
+
+Mocked dependencies do not by themselves make a watchdog case cache-safe. The
+two watchdog specs above drive production `Date.now` / `setTimeout` behavior
+with real elapsed-time gaps, so their verdict still depends on un-hashed host
+scheduling and every invocation must execute them. A watchdog test that uses
+deterministic/fake time, or whose verdict does not depend on scheduler progress,
+stays in the cacheable unit lane. The BST-839 case deliberately keeps 10x
+per-gap headroom (20ms stream gaps against a 200ms inactivity window) while its
+~400ms total stream remains long enough to prove the old coupled-timeout
+regression; do not narrow that margin merely to shorten the integration lane.
 
 ## THREAD SCROLLING (STICK-TO-BOTTOM + JUMP-TO-LATEST)
 
