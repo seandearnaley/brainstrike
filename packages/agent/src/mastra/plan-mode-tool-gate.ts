@@ -4,10 +4,11 @@
  * permission gate:
  *
  * 1. {@link filterToolsForPlanMode} — when the run is in plan mode, keep only
- *    read/mcp tools plus the suspending tools (`submitPlan`/`askUser`) and OMIT
- *    every edit/execute tool, so the model can investigate and propose a plan
- *    but cannot mutate anything until it is approved. Runs BEFORE the permission
- *    gate (a dropped mutation tool is dropped regardless of allow/ask/deny).
+ *    risk ∈ {read, mcp} and OMIT every edit/execute tool, so the model can
+ *    investigate and propose a plan but cannot mutate anything until it is
+ *    approved. Runs BEFORE the permission gate (a dropped mutation tool is
+ *    dropped regardless of allow/ask/deny). `submitPlan`/`askUser` survive
+ *    because they are classified `read` — NOT because they suspend (BST-1073).
  *
  * 2. {@link resolveSuspendToolsForRun} — a tool that pauses via `suspend()` is
  *    useless without Mastra workflow storage to resume it, so without storage
@@ -31,7 +32,9 @@ export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 
 /**
- * The suspending native tools (kept in plan mode; omitted without storage).
+ * The suspending native tools (omitted without storage). They also survive
+ * plan mode, but on their `read` risk classification rather than on suspending
+ * — a suspend schema is not a plan-mode admission ticket (BST-1073).
  * DERIVED from `REGISTERED_SUSPEND_RESUME_TOOL_IDS` — a tool that can `suspend()`
  * but has no registered typed resume UI would pause a run this build cannot
  * answer, so the two lists are one list by construction rather than two
