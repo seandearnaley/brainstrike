@@ -143,6 +143,80 @@ describe('brainstrike.runSkillScript', () => {
     ).rejects.toThrow(/belongs to root id "root-a".*"root-b"/i);
   });
 
+  it('runs the python3 runtime through the injected bundled-Python resolver', async () => {
+    const fixture = await createFixture();
+    // /bin/echo stands in for the interpreter: its stdout is the argv it was
+    // handed, which proves the spawned executable came from the resolver
+    // rather than a PATH `python3`.
+    const resolvePythonExecutable = async () => '/bin/echo';
+    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      resolvePythonExecutable,
+      skillScriptResolver: fixture.resolver,
+    })['brainstrike.runSkillScript'];
+    const result = await tool.execute({
+      cwd: '.',
+      root: 'root-a',
+      runtime: 'python3',
+      scriptPath: 'scripts/inspect.mjs',
+      skillName: 'site-design',
+    });
+    expect(result).toMatchObject({ exitCode: 0, runtime: 'python3', timedOut: false });
+    expect(result.stdout.trim()).toContain(path.join('scripts', 'inspect.mjs'));
+  });
+
+  it('propagates a typed bundled-Python failure instead of falling back to PATH python3', async () => {
+    const fixture = await createFixture();
+    const failure = Object.assign(
+      new Error('The bundled Python runtime does not support linux/x64'),
+      {
+        code: 'python_unsupported_platform',
+      }
+    );
+    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      resolvePythonExecutable: () => Promise.reject(failure),
+      skillScriptResolver: fixture.resolver,
+    })['brainstrike.runSkillScript'];
+    await expect(
+      tool.execute({
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'python3',
+        scriptPath: 'scripts/inspect.mjs',
+        skillName: 'site-design',
+      })
+    ).rejects.toBe(failure);
+  });
+
+  it('bounds a slow bundled-Python resolve by the tool timeout budget', async () => {
+    // PR #2205 review: a cold first-run unpack used to run before `startedAt`
+    // and outside `timeoutMs`. This pins the fix — a resolver that never
+    // settles on its own must be aborted by the tool's own budget, and the
+    // script must not run.
+    const fixture = await createFixture();
+    const resolvePythonExecutable = (signal?: AbortSignal) =>
+      new Promise<string>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      resolvePythonExecutable,
+      skillScriptResolver: fixture.resolver,
+    })['brainstrike.runSkillScript'];
+    const startedAt = Date.now();
+    await expect(
+      tool.execute({
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'python3',
+        scriptPath: 'scripts/inspect.mjs',
+        skillName: 'site-design',
+        timeoutMs: 500,
+      })
+    ).rejects.toThrow(/timeout|timed out|abort/i);
+    // Loose upper bound only — proves the budget fired rather than the
+    // resolver hanging forever; deliberately not a tight wall-clock assert.
+    expect(Date.now() - startedAt).toBeLessThan(30_000);
+  });
+
   it('rejects absolute and traversal working directories in the strict schema', async () => {
     const fixture = await createFixture();
     const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {

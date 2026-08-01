@@ -281,6 +281,23 @@ describe('logger', () => {
   });
 
   describe('transport lifecycle', () => {
+    afterEach(() => {
+      resetLogger();
+    });
+
+    it('disables node transport output without disabling log listeners', () => {
+      setEnvironment(true);
+      configureLogger({ console: false });
+
+      expect(__loggerTesting.isRootTransportEnabled()).toBe(false);
+
+      const records = collectLogs(() => {
+        info('listener-only record');
+      });
+
+      expect(records.map((record) => record.message)).toEqual(['listener-only record']);
+    });
+
     it('synchronously drains an old transport before ending it', () => {
       const lifecycle: string[] = [];
 

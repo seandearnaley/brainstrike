@@ -1,7 +1,11 @@
 // Guard for the `unit-shard` matrix partition in .github/workflows/test.yml.
 //
-// The Unit job is split across three shards (db / heavy / rest) whose turbo
-// `--filter`s must form an exact partition of the affected package set:
+// The Unit job has four physical runners over three logical package
+// partitions (db / heavy / rest). DB is split again with Vitest's native
+// `--shard=1/2` + `2/2`; both physical rows own the same logical package.
+// The shard id is a task environment input, not a Turbo passthrough argument:
+// passthrough arguments also reach dependency and topo tasks.
+// The turbo `--filter`s must form an exact partition of the affected set:
 //   - db + heavy list packages POSITIVELY (`--filter=@brainstrike/x`)
 //   - rest runs the affected-all base MINUS every package the other shards own
 //     (`--filter="...[ref]"` then one `--filter="!@brainstrike/x"` per package)
@@ -20,7 +24,7 @@ const PKG = /@brainstrike\/([a-z0-9-]+)/;
  * positive and negation @brainstrike package-name sets for both pr and push
  * filter modes.
  * @param {string} yamlText full contents of test.yml
- * @returns {{ shard: string, pr: {positives: string[], negations: string[]}, push: {positives: string[], negations: string[]} }[]}
+ * @returns {{ shard: string, partition: string, vitestShard: {index: number, count: number} | null, pr: {positives: string[], negations: string[]}, push: {positives: string[], negations: string[]} }[]}
  */
 export function parseUnitShardMatrix(yamlText) {
   const includeStart = yamlText.indexOf('matrix:');
@@ -40,10 +44,50 @@ export function parseUnitShardMatrix(yamlText) {
 
   return parts.map((part) => {
     const shard = part.split('\n', 1)[0].trim();
+    const partition = scalarKey(part, 'partition');
+    if (!partition) {
+      throw new Error(`unit-shard matrix row "${shard}" has no explicit partition`);
+    }
+    const rawVitestShard = scalarKey(part, 'vitest_shard');
+    if (rawVitestShard === null) {
+      throw new Error(`unit-shard matrix row "${shard}" has no explicit vitest_shard`);
+    }
+    const vitestShard = unquote(rawVitestShard);
+    const shardMatch = /^(\d+)\/(\d+)$/u.exec(vitestShard);
+    if (vitestShard !== '' && !shardMatch) {
+      throw new Error(
+        `unit-shard matrix row "${shard}" has malformed vitest_shard "${vitestShard}"; ` +
+          'expected empty or exactly "i/N"'
+      );
+    }
     const prBlock = sliceKey(part, 'pr_filters', 'push_filters');
     const pushBlock = sliceKey(part, 'push_filters', null);
-    return { pr: classifyFilters(prBlock), push: classifyFilters(pushBlock), shard };
+    return {
+      partition,
+      pr: classifyFilters(prBlock),
+      push: classifyFilters(pushBlock),
+      shard,
+      vitestShard: shardMatch
+        ? { count: Number(shardMatch[2]), index: Number(shardMatch[1]) }
+        : null,
+    };
   });
+}
+
+function scalarKey(text, key) {
+  const match = new RegExp(`^\\s*${key}:\\s*(.*?)\\s*$`, 'mu').exec(text);
+  return match?.[1] ?? null;
+}
+
+function unquote(value) {
+  if (
+    value.length >= 2 &&
+    ((value.startsWith("'") && value.endsWith("'")) ||
+      (value.startsWith('"') && value.endsWith('"')))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
 }
 
 function sliceKey(text, key, nextKey) {
@@ -83,11 +127,20 @@ const eqSet = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
  */
 export function validateUnitShardPartition(matrix) {
   const failures = [];
-  const byShard = new Map(matrix.map((s) => [s.shard, s]));
+  const shardLabels = new Set();
+  const byPartition = new Map();
 
   // pr and push filter modes must select the same packages, or a package is
   // covered on PRs but silently dropped on push (or vice-versa).
   for (const s of matrix) {
+    if (shardLabels.has(s.shard)) {
+      failures.push(`physical shard label "${s.shard}" is duplicated`);
+    }
+    shardLabels.add(s.shard);
+    const rows = byPartition.get(s.partition) ?? [];
+    rows.push(s);
+    byPartition.set(s.partition, rows);
+
     if (!eqSet(s.pr.positives, s.push.positives)) {
       failures.push(
         `shard "${s.shard}": pr positives [${s.pr.positives}] != push positives [${s.push.positives}]`
@@ -100,26 +153,83 @@ export function validateUnitShardPartition(matrix) {
     }
   }
 
-  const rest = byShard.get('rest');
-  if (!rest) {
-    failures.push('no "rest" shard found');
+  for (const [partition, rows] of byPartition) {
+    const baseline = rows[0];
+    for (const row of rows.slice(1)) {
+      for (const mode of ['pr', 'push']) {
+        if (
+          !(
+            eqSet(baseline[mode].positives, row[mode].positives) &&
+            eqSet(baseline[mode].negations, row[mode].negations)
+          )
+        ) {
+          failures.push(
+            `logical partition "${partition}" has divergent ${mode} filters between ` +
+              `"${baseline.shard}" and "${row.shard}"`
+          );
+        }
+      }
+    }
+
+    const nativeShards = rows.filter((row) => row.vitestShard !== null);
+    if (nativeShards.length === 0) {
+      if (rows.length > 1) {
+        failures.push(
+          `logical partition "${partition}" has ${rows.length} physical rows but no native Vitest shard specs`
+        );
+      }
+      continue;
+    }
+    if (nativeShards.length !== rows.length) {
+      failures.push(`logical partition "${partition}" mixes sharded and unsharded rows`);
+      continue;
+    }
+    const counts = [...new Set(nativeShards.map((row) => row.vitestShard.count))];
+    if (counts.length !== 1) {
+      failures.push(
+        `logical partition "${partition}" has inconsistent native shard counts [${counts}]`
+      );
+      continue;
+    }
+    const count = counts[0];
+    const indices = nativeShards.map((row) => row.vitestShard.index).sort((a, b) => a - b);
+    const expected = Array.from({ length: count }, (_, index) => index + 1);
+    if (!eqSet(indices, expected)) {
+      failures.push(
+        `logical partition "${partition}" native shards must be exactly 1/${count}..${count}/${count}; ` +
+          `found indices [${indices}]`
+      );
+    }
+  }
+
+  const restRows = byPartition.get('rest');
+  if (!restRows) {
+    failures.push('no "rest" logical partition found');
     return failures;
   }
-  const positiveShards = matrix.filter((s) => s.shard !== 'rest');
+  if (restRows.length !== 1 || restRows[0].vitestShard !== null) {
+    failures.push('the "rest" logical partition must be one unsharded physical row');
+  }
+  const rest = restRows[0];
+  const positivePartitions = [...byPartition.entries()].filter(([name]) => name !== 'rest');
 
-  // A package must never appear positively in two shards.
+  // A package must never appear positively in two logical partitions. Repeated
+  // physical rows inside one native Vitest partition are intentional.
   const seen = new Map();
-  for (const s of positiveShards) {
+  for (const [partition, rows] of positivePartitions) {
+    const s = rows[0];
     for (const pkg of s.pr.positives) {
       if (seen.has(pkg)) {
         failures.push(
-          `package "${pkg}" is positively owned by both "${seen.get(pkg)}" and "${s.shard}"`
+          `package "${pkg}" is positively owned by both "${seen.get(pkg)}" and "${partition}"`
         );
       }
-      seen.set(pkg, s.shard);
+      seen.set(pkg, partition);
     }
     if (s.pr.negations.length > 0) {
-      failures.push(`shard "${s.shard}" should carry no negations, has [${s.pr.negations}]`);
+      failures.push(
+        `logical partition "${partition}" should carry no negations, has [${s.pr.negations}]`
+      );
     }
   }
 
@@ -136,7 +246,7 @@ export function validateUnitShardPartition(matrix) {
     const missing = unionPositives.filter((p) => !rest.pr.negations.includes(p));
     const extra = rest.pr.negations.filter((p) => !unionPositives.includes(p));
     failures.push(
-      `"rest" negations must equal the union of db+heavy positives. ` +
+      `"rest" negations must equal the union of positive logical partitions. ` +
         `missing negations (double-tested): [${missing}]; ` +
         `extra negations (UNTESTED — owned by no shard): [${extra}]`
     );
