@@ -27,13 +27,7 @@ import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/ag
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
-import {
-  extractProviderRunError,
-  MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS,
-  PROVIDER_RUN_ERROR_FALLBACK_CODE,
-  type ProviderRunError,
-  providerRunErrorToEventMetadata,
-} from '../provider-error-metadata';
+import { type ProviderRunError, providerRunErrorToEventMetadata } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
@@ -41,12 +35,10 @@ import {
 } from '../providers/native-web-search';
 import { getDefaultModel } from '../providers/provider-factory';
 import type {
-  AssistantRunEventJson,
   AssistantRunEventKind,
   AssistantRunEventMetadata,
   AssistantRunEventStatus,
 } from '../run-events';
-import { sanitizeAssistantRunEventMetadata } from '../run-events';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
@@ -60,7 +52,6 @@ import type {
   RuntimeData,
   StreamChunk,
   StreamChunkTool,
-  StreamFinishReason,
   StreamIterator,
 } from '../types';
 import {
@@ -72,6 +63,25 @@ import {
 import { buildProviderHistoryCompatInputProcessor } from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import {
+  asMastraStreamPart,
+  buildProviderErrorDiagnosticCode,
+  buildProviderErrorDiagnosticCorrelation,
+  getDeltaText,
+  getToolCallIdFromToolEvent,
+  isObservationalMemoryDataChunkType,
+  MAX_VISIBLE_PROVIDER_ERROR_CHARS,
+  type MastraStreamPart,
+  makeStepMetadata,
+  makeToolEventMetadata,
+  OM_FAILURE_DETAIL_MAX_CHARS,
+  type ResolvedTripwire,
+  readFinishReason,
+  readOmTokenCount,
+  resolveProviderError,
+  resolveTripwire,
+  truncateStreamDetail,
+} from './mastra-chunk-decoding';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
 import { type PermissionAskToolMetadata, resolveAskToolMetadata } from './permission-tool-gate';
@@ -83,9 +93,7 @@ import {
   accumulateSteppedUsage,
   readCacheTokenCount,
   readOpenRouterBilledCost,
-  readOpenRouterDiagnostics,
   readStreamPartUsage,
-  type UsageLike,
 } from './runtime-assembly/usage-metering';
 import {
   type ResolvedRuntimeConfiguration,
@@ -213,41 +221,6 @@ function readStaticMastraChunkDisposition(type: string): MastraStaticChunkDispos
   return MASTRA_STATIC_CHUNK_DISPOSITIONS[type as keyof typeof MASTRA_STATIC_CHUNK_DISPOSITIONS];
 }
 
-/** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
-interface MastraStreamPart {
-  delta?: string;
-  error?: unknown;
-  finishReason?: unknown;
-  messageId?: unknown;
-  payload?: {
-    delta?: string;
-    error?: unknown;
-    metadata?: { providerMetadata?: unknown; usage?: UsageLike };
-    output?: { usage?: UsageLike };
-    processorId?: unknown;
-    reason?: unknown;
-    retry?: unknown;
-    stepResult?: { reason?: unknown };
-    text?: string;
-    textDelta?: string;
-    tripwireReason?: unknown;
-  };
-  providerMetadata?: unknown;
-  runId?: unknown;
-  text?: string;
-  textDelta?: string;
-  tripwireReason?: unknown;
-  type: string;
-  usage?: UsageLike;
-}
-
-function asMastraStreamPart(part: unknown): MastraStreamPart {
-  if (part && typeof part === 'object') {
-    return part as MastraStreamPart;
-  }
-  return { type: 'unknown' };
-}
-
 function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
   const p = asMastraStreamPart(part);
   const usage = readStreamPartUsage(p) ?? {};
@@ -323,50 +296,6 @@ function makeToolCallsFinishChunk(): StreamChunk {
   };
 }
 
-function normalizeFinishReason(reason: string): StreamFinishReason {
-  switch (reason) {
-    case 'stop':
-    case 'length':
-    case 'content-filter':
-    case 'tool-calls':
-    case 'error':
-    case 'other':
-    case 'unknown':
-      return reason;
-    case 'tool_calls':
-      return 'tool-calls';
-    default:
-      return 'unrecognized';
-  }
-}
-
-function readFinishReason(part: unknown): StreamFinishReason {
-  const p = asMastraStreamPart(part);
-  const direct = p.finishReason;
-  if (typeof direct === 'string' && direct.length > 0) {
-    return normalizeFinishReason(direct);
-  }
-  const nested = p.payload?.stepResult?.reason;
-  if (typeof nested === 'string' && nested.length > 0) {
-    return normalizeFinishReason(nested);
-  }
-  return 'absent';
-}
-
-function getDeltaText(part: unknown): string {
-  const p = asMastraStreamPart(part);
-  const payloadText = p.payload?.text ?? p.payload?.textDelta ?? p.payload?.delta;
-  return p.text ?? p.textDelta ?? p.delta ?? payloadText ?? '';
-}
-
-function isRunEventMetadata(value: unknown): value is AssistantRunEventMetadata {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
 function makeRunEventChunk(
   kind: AssistantRunEventKind,
   status: AssistantRunEventStatus,
@@ -424,40 +353,6 @@ function makeRunFailedChunk(
     },
     type: 'run-event',
   };
-}
-
-function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined {
-  const p = asMastraStreamPart(part);
-  const metadata: AssistantRunEventMetadata = {};
-  if (typeof p.messageId === 'string' && p.messageId.length > 0) {
-    metadata['messageId'] = p.messageId;
-  }
-  // Reading just `p.usage` here left every step event token-free in
-  // production (a real part nests usage under `payload.output.usage`), which
-  // silently killed the renderer's live tick (BST-953) — caught by live CDP,
-  // missed by every unit test because the fixtures are top-level shaped. The
-  // shared reader is now the single source of that knowledge.
-  const stepUsage = readStreamPartUsage(p);
-  if (stepUsage) {
-    const promptTokens = stepUsage.promptTokens ?? stepUsage.inputTokens;
-    if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) {
-      metadata['promptTokens'] = promptTokens;
-    }
-    // v1/v2 fallback, same reason: an AI-SDK-v2 part carries `outputTokens`,
-    // and the live tick needs BOTH counts on the step event.
-    const completionTokens = stepUsage.completionTokens ?? stepUsage.outputTokens;
-    if (typeof completionTokens === 'number' && Number.isFinite(completionTokens)) {
-      metadata['completionTokens'] = completionTokens;
-    }
-  }
-  const openRouterDiagnostics = readOpenRouterDiagnostics(p);
-  if (openRouterDiagnostics?.provider) {
-    metadata['openRouterProvider'] = openRouterDiagnostics.provider;
-  }
-  if (openRouterDiagnostics?.reasoningTokens !== undefined) {
-    metadata['reasoningTokens'] = openRouterDiagnostics.reasoningTokens;
-  }
-  return isRunEventMetadata(metadata) && Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 type TerminalToolCallState = 'completed' | 'failed';
@@ -587,35 +482,6 @@ function makeCancelledDelegationRunEventChunks(lifecycleState: ToolLifecycleStat
     );
 }
 
-function getToolEventPayload(toolEvent: StreamChunkTool): AssistantRunEventMetadata | undefined {
-  return isRunEventMetadata(toolEvent.payload) ? toolEvent.payload : undefined;
-}
-
-function getToolCallIdFromToolEvent(toolEvent: StreamChunkTool): string | undefined {
-  const payload = getToolEventPayload(toolEvent);
-  return typeof payload?.['toolCallId'] === 'string'
-    ? payload['toolCallId']
-    : typeof payload?.['callId'] === 'string'
-      ? payload['callId']
-      : undefined;
-}
-
-function makeToolEventMetadata(toolEvent: StreamChunkTool): AssistantRunEventMetadata {
-  const payload = getToolEventPayload(toolEvent);
-  const toolCallId = getToolCallIdFromToolEvent(toolEvent);
-  const metadata: AssistantRunEventMetadata = {
-    toolName: toolEvent.name,
-    ...(toolCallId ? { toolCallId } : {}),
-  };
-  if (typeof payload?.['providerExecuted'] === 'boolean') {
-    metadata['providerExecuted'] = payload['providerExecuted'];
-  }
-  if (typeof payload?.['dynamic'] === 'boolean') {
-    metadata['dynamic'] = payload['dynamic'];
-  }
-  return metadata;
-}
-
 function makeToolLifecycleRunEventChunk(
   toolEvent: StreamChunkTool,
   mastraPartType: string | undefined,
@@ -690,297 +556,6 @@ function makePendingToolOutputRunEventChunks(lifecycleState: ToolLifecycleState)
   }
   lifecycleState.outputOnlyToolEvents.clear();
   return chunks;
-}
-
-const INVALID_TRIPWIRE_REASON = 'Mastra emitted a malformed tripwire without a valid reason.';
-const MAX_TRIPWIRE_PROCESSOR_ID_CHARS = 256;
-const MAX_TRIPWIRE_METADATA_KEY_CHARS = 128;
-const MAX_TRIPWIRE_METADATA_ARRAY_ITEMS = 32;
-const MAX_TRIPWIRE_METADATA_OBJECT_ENTRIES = 32;
-const TRIPWIRE_METADATA_SUMMARY_KEY = '__brainstrikeSummary';
-const SAFE_TRIPWIRE_METADATA_STRING_KEYS = new Set([
-  'category',
-  'kind',
-  'processorId',
-  'rule',
-  'severity',
-  'strategy',
-  'type',
-]);
-
-type TripwireSource = 'legacy-tripwire-reason' | 'malformed' | 'mastra-1.51';
-
-interface ResolvedTripwire {
-  detail: string;
-  diagnostic: AssistantRunEventJson;
-}
-
-interface OptionalTripwireField<T> {
-  malformed: boolean;
-  value?: T;
-}
-
-function truncateTripwireString(value: string, maxChars: number): string {
-  if (value.length <= maxChars) {
-    return value;
-  }
-  return `${value.slice(0, maxChars - PROVIDER_ERROR_TRUNCATION_MARKER.length)}${PROVIDER_ERROR_TRUNCATION_MARKER}`;
-}
-
-function makeTripwireMetadataSummary(
-  input: Record<string, AssistantRunEventJson>
-): AssistantRunEventJson {
-  return { [TRIPWIRE_METADATA_SUMMARY_KEY]: input };
-}
-
-function isSafeTripwireMetadataString(key: string | undefined, value: string): boolean {
-  if (key === 'match') {
-    return value === '[REDACTED_MATCH]';
-  }
-  return (
-    key !== undefined &&
-    SAFE_TRIPWIRE_METADATA_STRING_KEYS.has(key) &&
-    value.length <= MAX_TRIPWIRE_METADATA_KEY_CHARS &&
-    /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u.test(value)
-  );
-}
-
-function boundTripwireMetadataArray(value: AssistantRunEventJson[]): AssistantRunEventJson {
-  const items = value
-    .slice(0, MAX_TRIPWIRE_METADATA_ARRAY_ITEMS)
-    .map((item) => boundTripwireMetadata(item));
-  if (value.length <= MAX_TRIPWIRE_METADATA_ARRAY_ITEMS) {
-    return items;
-  }
-  return {
-    [TRIPWIRE_METADATA_SUMMARY_KEY]: {
-      itemCount: value.length,
-      kind: 'array',
-      omittedItemCount: value.length - MAX_TRIPWIRE_METADATA_ARRAY_ITEMS,
-    },
-    items,
-  };
-}
-
-function boundTripwireMetadataObject(
-  value: Record<string, AssistantRunEventJson>
-): AssistantRunEventJson {
-  const entries = Object.entries(value);
-  const bounded: Record<string, AssistantRunEventJson> = {};
-  let acceptedEntryCount = 0;
-  let omittedEntryCount = 0;
-  let overlongKeyCount = 0;
-  let reservedKeyCount = 0;
-  for (const [key, nested] of entries) {
-    if (key === TRIPWIRE_METADATA_SUMMARY_KEY) {
-      omittedEntryCount += 1;
-      reservedKeyCount += 1;
-      continue;
-    }
-    if (key.length > MAX_TRIPWIRE_METADATA_KEY_CHARS) {
-      omittedEntryCount += 1;
-      overlongKeyCount += 1;
-      continue;
-    }
-    if (acceptedEntryCount >= MAX_TRIPWIRE_METADATA_OBJECT_ENTRIES) {
-      omittedEntryCount += 1;
-      continue;
-    }
-    bounded[key] = boundTripwireMetadata(nested, key);
-    acceptedEntryCount += 1;
-  }
-  if (omittedEntryCount > 0) {
-    bounded[TRIPWIRE_METADATA_SUMMARY_KEY] = {
-      entryCount: entries.length,
-      kind: 'object',
-      omittedEntryCount,
-      ...(overlongKeyCount === 0 ? {} : { overlongKeyCount }),
-      ...(reservedKeyCount === 0 ? {} : { reservedKeyCount }),
-    };
-  }
-  return bounded;
-}
-
-function boundTripwireMetadata(
-  value: AssistantRunEventJson,
-  sourceKey?: string
-): AssistantRunEventJson {
-  if (typeof value === 'string') {
-    return isSafeTripwireMetadataString(sourceKey, value)
-      ? value
-      : makeTripwireMetadataSummary({
-          characterCount: value.length,
-          kind: 'string',
-        });
-  }
-  if (Array.isArray(value)) {
-    return boundTripwireMetadataArray(value);
-  }
-  return value && typeof value === 'object' ? boundTripwireMetadataObject(value) : value;
-}
-
-function isTripwireMetadataJson(value: unknown, depth = 0): boolean {
-  // The shared sanitizer receives this value one level deeper under `{value}`.
-  // Reject anything at depth eight so it cannot silently coerce depth nine to null.
-  if (depth >= 8) {
-    return false;
-  }
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'boolean' ||
-    (typeof value === 'number' && Number.isFinite(value))
-  ) {
-    return true;
-  }
-  if (Array.isArray(value)) {
-    return value.every((item) => isTripwireMetadataJson(item, depth + 1));
-  }
-  if (!(value && typeof value === 'object')) {
-    return false;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (!(prototype === Object.prototype || prototype === null)) {
-    return false;
-  }
-  return Object.values(value).every((nested) => isTripwireMetadataJson(nested, depth + 1));
-}
-
-function sanitizeTripwireMetadata(value: unknown): AssistantRunEventJson | undefined {
-  if (!isTripwireMetadataJson(value)) {
-    return;
-  }
-  const sanitized = sanitizeAssistantRunEventMetadata({ value })?.['value'];
-  return sanitized === undefined ? undefined : boundTripwireMetadata(sanitized);
-}
-
-function makeTripwireDiagnostic(
-  source: TripwireSource,
-  input: {
-    malformedFields?: string[];
-    metadata?: AssistantRunEventJson;
-    processorId?: string;
-    retry?: boolean;
-  }
-): AssistantRunEventJson {
-  return {
-    ...(input.malformedFields && input.malformedFields.length > 0
-      ? { malformedFields: input.malformedFields }
-      : {}),
-    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
-    ...(input.processorId === undefined ? {} : { processorId: input.processorId }),
-    ...(input.retry === undefined ? {} : { retry: input.retry }),
-    source,
-  };
-}
-
-function hasCurrentTripwirePayload(
-  payload: MastraStreamPart['payload']
-): payload is NonNullable<MastraStreamPart['payload']> {
-  return (
-    payload !== undefined &&
-    (Object.hasOwn(payload, 'reason') ||
-      Object.hasOwn(payload, 'retry') ||
-      Object.hasOwn(payload, 'processorId'))
-  );
-}
-
-function resolveLegacyTripwire(part: MastraStreamPart): ResolvedTripwire {
-  const legacyReason = part.tripwireReason ?? part.payload?.tripwireReason;
-  if (typeof legacyReason !== 'string' || legacyReason.trim().length === 0) {
-    return {
-      detail: INVALID_TRIPWIRE_REASON,
-      diagnostic: makeTripwireDiagnostic('malformed', {
-        malformedFields: ['reason'],
-      }),
-    };
-  }
-  return {
-    detail: truncateTripwireString(legacyReason.trim(), MAX_VISIBLE_PROVIDER_ERROR_CHARS),
-    diagnostic: makeTripwireDiagnostic('legacy-tripwire-reason', {}),
-  };
-}
-
-function readOptionalTripwireMetadata(
-  payload: NonNullable<MastraStreamPart['payload']>
-): OptionalTripwireField<AssistantRunEventJson> {
-  if (!Object.hasOwn(payload, 'metadata')) {
-    return { malformed: false };
-  }
-  const metadata = sanitizeTripwireMetadata(payload.metadata);
-  if (metadata === undefined) {
-    return { malformed: true };
-  }
-  return { malformed: false, value: metadata };
-}
-
-function readOptionalTripwireProcessorId(
-  payload: NonNullable<MastraStreamPart['payload']>
-): OptionalTripwireField<string> {
-  if (!Object.hasOwn(payload, 'processorId')) {
-    return { malformed: false };
-  }
-  if (typeof payload.processorId !== 'string' || payload.processorId.trim().length === 0) {
-    return { malformed: true };
-  }
-  return {
-    malformed: false,
-    value: truncateTripwireString(payload.processorId.trim(), MAX_TRIPWIRE_PROCESSOR_ID_CHARS),
-  };
-}
-
-function readOptionalTripwireRetry(
-  payload: NonNullable<MastraStreamPart['payload']>
-): OptionalTripwireField<boolean> {
-  if (!Object.hasOwn(payload, 'retry')) {
-    return { malformed: false };
-  }
-  if (typeof payload.retry !== 'boolean') {
-    return { malformed: true };
-  }
-  return { malformed: false, value: payload.retry };
-}
-
-function resolveCurrentTripwire(part: MastraStreamPart): ResolvedTripwire {
-  const payload = part.payload as NonNullable<MastraStreamPart['payload']>;
-  const metadata = readOptionalTripwireMetadata(payload);
-  const processorId = readOptionalTripwireProcessorId(payload);
-  const retry = readOptionalTripwireRetry(payload);
-  const reason = payload.reason;
-  const currentReason =
-    typeof reason === 'string' && reason.trim().length > 0 ? reason.trim() : null;
-  const legacyReason = part.tripwireReason ?? payload.tripwireReason;
-  const validLegacyReason =
-    typeof legacyReason === 'string' && legacyReason.trim().length > 0 ? legacyReason.trim() : null;
-  const resolvedReason = currentReason ?? validLegacyReason;
-  const malformedFields = [
-    ...(metadata.malformed ? ['metadata'] : []),
-    ...(processorId.malformed ? ['processorId'] : []),
-    ...(resolvedReason === null ? ['reason'] : []),
-    ...(retry.malformed ? ['retry'] : []),
-  ];
-  return {
-    detail: resolvedReason
-      ? truncateTripwireString(resolvedReason, MAX_VISIBLE_PROVIDER_ERROR_CHARS)
-      : INVALID_TRIPWIRE_REASON,
-    diagnostic: makeTripwireDiagnostic(
-      currentReason ? 'mastra-1.51' : validLegacyReason ? 'legacy-tripwire-reason' : 'malformed',
-      {
-        malformedFields,
-        ...(metadata.value === undefined ? {} : { metadata: metadata.value }),
-        ...(processorId.value === undefined ? {} : { processorId: processorId.value }),
-        ...(retry.value === undefined ? {} : { retry: retry.value }),
-      }
-    ),
-  };
-}
-
-function resolveTripwire(part: unknown): ResolvedTripwire {
-  const streamPart = asMastraStreamPart(part);
-  if (!hasCurrentTripwirePayload(streamPart.payload)) {
-    return resolveLegacyTripwire(streamPart);
-  }
-  return resolveCurrentTripwire(streamPart);
 }
 
 function getUnsupportedApprovalDetail(
@@ -1726,26 +1301,6 @@ function processMastraStreamPart(
 }
 
 /**
- * Mastra streams observational-memory bookkeeping as DYNAMIC `data-om-*`
- * chunks (not in the static disposition map, so they must branch BEFORE the
- * typed switch whose default clause carries the R6 unrecognized-chunk
- * diagnostic — see scripts/mastra-stream-chunk-contract.mjs).
- */
-function isObservationalMemoryDataChunkType(type: unknown): type is string {
-  return typeof type === 'string' && type.startsWith('data-om-');
-}
-
-const OM_FAILURE_DETAIL_MAX_CHARS = 500;
-
-function readOmTokenCount(
-  payload: Record<string, unknown> | undefined,
-  key: string
-): number | undefined {
-  const value = payload?.[key];
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-/**
  * Map a successful OM cycle end marker to estimated child usage (BST-953).
  * `data-om-observation-end` carries `tokensObserved` (observer input) /
  * `observationTokens` (output); `data-om-buffering-end` carries the same pair
@@ -1821,7 +1376,7 @@ function mapObservationalMemoryDataPart(part: MastraStreamPart): {
   const rawError = payload?.['error'];
   const errorText =
     typeof rawError === 'string' && rawError.length > 0
-      ? rawError.slice(0, OM_FAILURE_DETAIL_MAX_CHARS)
+      ? truncateStreamDetail(rawError, OM_FAILURE_DETAIL_MAX_CHARS)
       : 'Observation cycle failed without a reported reason.';
   const operationType =
     typeof payload?.['operationType'] === 'string' ? payload['operationType'] : undefined;
@@ -1856,35 +1411,6 @@ function mapObservationalMemoryDataPart(part: MastraStreamPart): {
  * replaces throwing on the error part: the throw surfaced a data-stream error
  * frame the renderer never rendered, leaving the thread hung on a spinner.
  */
-/** Cap the provider error detail rendered as visible assistant text. Provider
- * error bodies can be verbose; the full detail is preserved in the log. */
-const MAX_VISIBLE_PROVIDER_ERROR_CHARS = MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS;
-const PROVIDER_ERROR_TRUNCATION_MARKER = '… [truncated]';
-
-interface ResolvedProviderError {
-  detail: string;
-  runError: ProviderRunError;
-}
-
-function resolveProviderError(
-  value: unknown,
-  runtimeData: RuntimeData | undefined
-): ResolvedProviderError {
-  const runError = extractProviderRunError(value);
-  const extractedDetail = extractErrorMessage(value);
-  const detail =
-    extractedDetail && extractedDetail !== '[object Object]'
-      ? extractedDetail
-      : (runError.message ?? 'agent_stream_error');
-  const provider = runtimeData?.provider?.trim().toLowerCase();
-  const includeStableCode =
-    provider === 'openrouter' && runError.code !== PROVIDER_RUN_ERROR_FALLBACK_CODE;
-  return {
-    detail: includeStableCode ? `[${runError.code}] ${detail}` : detail,
-    runError,
-  };
-}
-
 function makeProviderErrorTermination(
   detail: string,
   lifecycleState: ToolLifecycleState,
@@ -1952,13 +1478,7 @@ function makeVisibleRunFailureTermination(
   // (and occasionally echo request context), which reads poorly as persisted
   // assistant text. Provider errors retain their full detail in the breadcrumb;
   // tripwire reasons arrive here already bounded by their privacy contract.
-  const visibleDetail =
-    detail.length > MAX_VISIBLE_PROVIDER_ERROR_CHARS
-      ? `${detail.slice(
-          0,
-          MAX_VISIBLE_PROVIDER_ERROR_CHARS - PROVIDER_ERROR_TRUNCATION_MARKER.length
-        )}${PROVIDER_ERROR_TRUNCATION_MARKER}`
-      : detail;
+  const visibleDetail = truncateStreamDetail(detail, MAX_VISIBLE_PROVIDER_ERROR_CHARS);
   return {
     chunks: [
       ...makePendingToolOutputRunEventChunks(lifecycleState),
@@ -1967,41 +1487,6 @@ function makeVisibleRunFailureTermination(
       makeErrorFinishChunk(),
     ],
     finished: true,
-  };
-}
-
-function buildProviderErrorDiagnosticCode(runError: ProviderRunError): string {
-  const httpStatus = runError.httpStatus === undefined ? 'no_status' : String(runError.httpStatus);
-  if (runError.code === PROVIDER_RUN_ERROR_FALLBACK_CODE) {
-    return `${PROVIDER_RUN_ERROR_FALLBACK_CODE}:${httpStatus}`;
-  }
-  return `mastra_agent_stream_provider_error:${runError.code}:${httpStatus}`;
-}
-
-interface ProviderErrorDiagnosticCorrelation {
-  readonly resourceId?: string;
-  readonly rootId?: string;
-  readonly runId?: string;
-  readonly threadId?: string;
-}
-
-/**
- * Explicit request context for the provider-error diagnostic choke point.
- *
- * These identifiers must ride the structured log argument: the durable
- * diagnostic converter promotes correlation from context keys, not logger
- * bindings or ambient async state. The run id is the renderer-minted durable
- * id carried in memory; the root is the server-validated thread binding.
- */
-function buildProviderErrorDiagnosticCorrelation(
-  runtimeData: RuntimeData | undefined
-): ProviderErrorDiagnosticCorrelation {
-  const memory = runtimeData?.memory;
-  return {
-    ...(memory?.resourceId ? { resourceId: memory.resourceId } : {}),
-    ...(runtimeData?.boundWorkspaceRootId ? { rootId: runtimeData.boundWorkspaceRootId } : {}),
-    ...(memory?.runId ? { runId: memory.runId } : {}),
-    ...(memory?.threadId ? { threadId: memory.threadId } : {}),
   };
 }
 
@@ -2098,29 +1583,6 @@ function makeStreamWatchdogTermination(
     return makeToolCallInputTimeoutTermination(error, lifecycleState, runtimeData);
   }
   return makeStreamStalledTermination(error, lifecycleState, runtimeData);
-}
-
-function extractErrorMessage(value: unknown): string | undefined {
-  if (value === undefined || value === null) {
-    return;
-  }
-  if (typeof value === 'string') {
-    return value.length > 0 ? value : undefined;
-  }
-  if (value instanceof Error) {
-    return value.message || value.name;
-  }
-  if (typeof value === 'object') {
-    const message = (value as { message?: unknown }).message;
-    if (typeof message === 'string' && message.length > 0) {
-      return message;
-    }
-  }
-  try {
-    return String(value);
-  } catch {
-    return;
-  }
 }
 
 interface RuntimeInitializationResult {
