@@ -219,6 +219,24 @@ CSP eval-warning allowlist now silently stops suppressing 2 EVAL warnings (build
 still exits 0). That wants a real BST-573/594 security re-qualification, not a
 quiet allowlist edit.
 
+**Two review findings on #2206 that MUST be settled before it leaves draft** —
+both are `docs/agents/database.md` claiming more than the evidence supports,
+which is the §6 pattern aimed at a doc future agents trust without re-deriving:
+
+1. The doc says every construction site was "verified post-bump", naming
+   `apps/desktop/src/db-main.ts` as real Electron main — but that site was never
+   launch-tested under Electron. **`process.type` is only defined in a real
+   Electron process**, so a Node/jsdom unit run cannot exercise the code path the
+   upstream fix changes. The one case the tests can't reach is the one claimed as
+   verified. A real desktop launch smoke test is owed.
+2. The section keeps the rule "repeated gate runs on **every supported desktop
+   platform**" while, twenty lines earlier, recording that all evidence is macOS
+   arm64 only. Same section, both "here is the bar" and "we went under it".
+   Needs a **scoped, dated exception recorded in place** plus a follow-up ticket
+   for Linux/Windows qualification — *not* a quietly relaxed bar. That bar is the
+   only thing between users and the BM25 corruption the original pin existed to
+   prevent.
+
 ### BST-1064 — Electron 43 · **the ticket's premise was wrong** · draft PR #2207
 
 **Electron was already on 43.1.1 before this ticket was filed.** The major bump
