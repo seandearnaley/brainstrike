@@ -281,11 +281,15 @@ describe('logger', () => {
   });
 
   describe('transport lifecycle', () => {
+    afterEach(() => {
+      resetLogger();
+    });
+
     it('disables node transport output without disabling log listeners', () => {
+      setEnvironment(true);
       configureLogger({ console: false });
 
-      const transportLogger = __loggerTesting.createRootLogger();
-      expect(transportLogger.isLevelEnabled(LogLevel.INFO)).toBe(false);
+      expect(__loggerTesting.isRootTransportEnabled()).toBe(false);
 
       const records = collectLogs(() => {
         info('listener-only record');

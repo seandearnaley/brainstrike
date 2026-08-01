@@ -553,6 +553,9 @@ function createRootLogger(): PinoLogger {
         enabled: transportEnabled,
       });
   activeNodeDestination = destination ? requireManagedNodeDestination(destination) : undefined;
+  // Pino implements `enabled: false` by coercing the logger level to `silent`.
+  // Reassigning `.level` for a transport-free Node logger would re-enable Pino's
+  // implicit stdout destination and defeat the explicit console opt-out above.
   if (transportEnabled) {
     logger.level = resolvedLevel;
   }
@@ -947,9 +950,9 @@ export function addLogListener(listener: LogListener): () => void {
 
 export const __loggerTesting = {
   createBrowserWrite,
-  createRootLogger,
   drainNodeDestination,
   formatBrowserConsoleMessage,
+  isRootTransportEnabled: () => ensureRootLogger().isLevelEnabled(currentLevel),
   normalizePinoLogArgs,
   sanitizeBrowserConsoleValue,
   writePinoLog,
