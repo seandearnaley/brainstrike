@@ -16,6 +16,7 @@
     "@mermaid-js/mermaid-cli": "^11.16.0",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
+    "@typescript/native": "catalog:",
     "@typescript-eslint/parser": "^8.62.1",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",

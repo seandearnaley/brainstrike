@@ -831,6 +831,32 @@ loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
 bypasses vitest aliases and needs dist, absent by default post-B4). See the
 Series B turbo-monorepo architecture review.
 
+### TypeScript 7 CLI with the TypeScript 6 compatibility API (BST-1011)
+
+All bare `tsc` commands use the TypeScript 7 native compiler. The catalog's
+`@typescript/native` alias installs `typescript@7.0.2` at the root and owns the
+`tsc` bin. The catalog's existing `typescript` name resolves to the official
+`@typescript/typescript6@6.0.2` compatibility package: it owns `tsc6` and the
+classic programmatic API, but deliberately does not own `tsc`. This is the
+TypeScript team's supported side-by-side topology; do not replace it with two
+aliases of the ordinary `typescript` package, which recreate an ambiguous bin.
+
+Repository scripts, ESLint, Stryker, DB compiler tests, and the desktop
+runtime-host boundary import `typescript` as a library and must continue to
+resolve major 6. Type-check/build scripts execute `tsc` and must resolve major
+7 from both root and package scope. `scripts/__tests__/typescript-compiler-wiring.test.mjs`
+derives both the type-check-package and API-consumer sets dynamically, applies
+anti-vacuity floors, checks the installed package/bin identities, and executes
+both compilers. Its mutation controls prove a swapped major, a native API
+consumer, or a compatibility package shadowing `tsc` all fail loudly.
+
+`scripts/ts7-parity-check.mjs` compares every discoverable `--noEmit` command
+under `tsc6` and `tsc`, checking binary majors before discovery. It deliberately
+does not claim parity for `apps/web`'s emitting `tsc --build --force`; that path
+must be verified in a clean isolated worktree so one compiler's declarations
+cannot affect the other. The adoption evidence and reproduction commands live
+in `docs/series-c-ts7-parity-findings.md`.
+
 ### Root clean orchestration
 
 The root `pnpm clean` command stays on the shared Turbo command wrapper so it
