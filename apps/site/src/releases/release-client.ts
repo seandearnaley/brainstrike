@@ -2,6 +2,7 @@ import { parseReleaseManifest, type ReleaseManifest } from './release-manifest';
 
 const DEFAULT_MANIFEST_PATH = '/release-manifest.json';
 const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_CACHE_TTL_MS = 60_000;
 const PLACEHOLDER_ORIGIN = 'https://site.invalid';
 
 export type ReleaseManifestFetch = (
@@ -10,6 +11,7 @@ export type ReleaseManifestFetch = (
 ) => Promise<Response>;
 
 export interface ReleaseManifestClientOptions {
+  readonly cacheTtlMs?: number;
   readonly fetch?: ReleaseManifestFetch;
   readonly path?: string;
   readonly timeoutMs?: number;
@@ -47,6 +49,13 @@ function requireTimeoutMs(timeoutMs: number): number {
     throw new Error('Release manifest timeoutMs must be a positive safe integer.');
   }
   return timeoutMs;
+}
+
+function requireCacheTtlMs(cacheTtlMs: number): number {
+  if (!(Number.isSafeInteger(cacheTtlMs) && cacheTtlMs > 0)) {
+    throw new Error('Release manifest cacheTtlMs must be a positive safe integer.');
+  }
+  return cacheTtlMs;
 }
 
 function errorMessage(error: unknown): string {
@@ -128,20 +137,25 @@ export function createReleaseManifestClient(
 ): ReleaseManifestClient {
   const path = requireSameOriginPath(options.path ?? DEFAULT_MANIFEST_PATH);
   const timeoutMs = requireTimeoutMs(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const cacheTtlMs = requireCacheTtlMs(options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
   const fetchManifest = options.fetch ?? globalThis.fetch.bind(globalThis);
   let active: ActiveRequest | undefined;
   let cached: ReleaseManifest | undefined;
+  let cachedAt: number | undefined;
 
   const invalidate = (): void => {
     cached = undefined;
+    cachedAt = undefined;
     active?.controller.abort(new Error('Release manifest request was invalidated.'));
     active = undefined;
   };
 
   const load = (): Promise<ReleaseManifest> => {
-    if (cached !== undefined) {
+    if (cached !== undefined && cachedAt !== undefined && Date.now() - cachedAt < cacheTtlMs) {
       return Promise.resolve(cached);
     }
+    cached = undefined;
+    cachedAt = undefined;
     if (active !== undefined) {
       return active.promise;
     }
@@ -153,6 +167,7 @@ export function createReleaseManifestClient(
           throw new Error('Release manifest request was invalidated.');
         }
         cached = manifest;
+        cachedAt = Date.now();
         return manifest;
       })
       .finally(() => {

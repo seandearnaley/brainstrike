@@ -18,6 +18,7 @@ const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   expect: { timeout: 8000 },
+  failOnFlakyTests: process.env['CI'] === 'true',
   forbidOnly: process.env['CI'] === 'true',
   fullyParallel: false,
   outputDir: 'test-results',

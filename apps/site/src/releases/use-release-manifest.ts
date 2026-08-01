@@ -8,6 +8,7 @@ export type ReleaseManifestState =
   | { readonly manifest: ReleaseManifest; readonly status: 'ready' };
 
 export interface ReleaseManifestController {
+  readonly refresh: () => void;
   readonly retry: () => void;
   readonly state: ReleaseManifestState;
 }
@@ -29,11 +30,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function runRequest(request: Promise<ReleaseManifest>): void {
+function runRequest(request: Promise<ReleaseManifest>, showLoading = true): void {
   requestStarted = true;
   requestSequence += 1;
   const sequence = requestSequence;
-  publish({ status: 'loading' });
+  if (showLoading) {
+    publish({ status: 'loading' });
+  }
   void request.then(
     (manifest) => {
       if (sequence === requestSequence) {
@@ -59,6 +62,13 @@ function retry(): void {
   runRequest(client.retry());
 }
 
+function refresh(): void {
+  if (releaseState.status !== 'ready') {
+    return;
+  }
+  runRequest(client.load(), false);
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   startManifestRequest();
@@ -71,5 +81,5 @@ function getSnapshot(): ReleaseManifestState {
 
 export function useReleaseManifest(): ReleaseManifestController {
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return useMemo(() => ({ retry, state }), [state]);
+  return useMemo(() => ({ refresh, retry, state }), [state]);
 }

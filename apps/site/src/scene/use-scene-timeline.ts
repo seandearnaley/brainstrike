@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { parseSceneFormationIndex, type SceneFormationIndex } from './scene-formations';
+import { parseSceneFormationIndex } from './scene-formations';
 import {
-  computeSceneTimeline,
+  computeSceneFrame,
   normalizeSceneAnchors,
   SCENE_CHANGE_EVENT,
   type SceneAnchor,
@@ -17,7 +17,7 @@ const INITIAL_STATE: SceneTimelineState = {
 };
 
 interface SceneTimelineController {
-  readonly activeStage: SceneFormationIndex;
+  readonly activeStageId: string | null;
   readonly getSceneState: () => SceneTimelineState;
 }
 
@@ -37,14 +37,16 @@ export function useSceneTimeline(): SceneTimelineController {
   const stateRef = useRef<SceneTimelineState>(INITIAL_STATE);
   const anchorsRef = useRef<readonly SceneAnchor[]>([]);
   const updateFrameRef = useRef<number | null>(null);
-  const [activeStage, setActiveStage] = useState<SceneFormationIndex>(0);
+  const [activeStageId, setActiveStageId] = useState<string | null>(null);
 
   const update = useCallback((): void => {
     updateFrameRef.current = null;
-    const next = computeSceneTimeline(anchorsRef.current, window.scrollY, window.innerHeight);
-    stateRef.current = next;
+    const next = computeSceneFrame(anchorsRef.current, window.scrollY, window.innerHeight);
+    stateRef.current = next.scene;
     window.dispatchEvent(new Event(SCENE_CHANGE_EVENT));
-    setActiveStage((current) => (current === next.activeStage ? current : next.activeStage));
+    setActiveStageId((current) =>
+      current === next.activeAnchorId ? current : next.activeAnchorId
+    );
   }, []);
 
   const scheduleUpdate = useCallback((): void => {
@@ -88,5 +90,5 @@ export function useSceneTimeline(): SceneTimelineController {
   }, [measure, scheduleUpdate]);
 
   const getSceneState = useCallback(() => stateRef.current, []);
-  return { activeStage, getSceneState };
+  return { activeStageId, getSceneState };
 }

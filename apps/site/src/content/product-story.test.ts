@@ -42,7 +42,7 @@ describe('product story registry', () => {
 
   it('derives the stage rail from the same ordered story definitions', () => {
     expect(PRODUCT_STAGE_RAIL).toEqual(
-      PRODUCT_STORY.map(({ formation, id, railLabel }) => ({ formation, id, railLabel }))
+      PRODUCT_STORY.map(({ id, railLabel }) => ({ id, railLabel }))
     );
   });
 

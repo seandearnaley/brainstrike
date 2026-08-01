@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useRef } from 'react';
 import type { ReleaseManifestState } from '../releases/use-release-manifest';
 import {
   buildDownloadViewModel,
@@ -116,13 +116,13 @@ export function DownloadChooser({
       <p className="release-integrity-note">
         {view.releasesHubUrl ? (
           <>
-            Direct links are verified against the signed release manifest.{' '}
+            Links are declared by the public release manifest. SHA-256 metadata is shown.{' '}
             <a href={view.releasesHubUrl} rel="noreferrer" target="_blank">
               All release assets <span aria-hidden="true">↗</span>
             </a>
           </>
         ) : (
-          'Direct links appear only after a public release manifest names a verified asset.'
+          'Direct links appear only after a public release manifest names an asset. SHA-256 metadata will be shown.'
         )}
       </p>
     </section>
@@ -132,6 +132,22 @@ export function DownloadChooser({
 interface DownloadDialogProps extends DownloadChooserProps {
   readonly onClose: () => void;
   readonly open: boolean;
+}
+
+function focusableDialogControls(dialog: HTMLDialogElement): readonly HTMLElement[] {
+  return [
+    ...dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ),
+  ].filter((element) => !(element.hidden || element.getAttribute('aria-hidden') === 'true'));
+}
+
+function focusInitialDialogControl(dialog: HTMLDialogElement): void {
+  const initialControl = dialog.querySelector<HTMLElement>('[data-dialog-initial-focus]');
+  if (!initialControl) {
+    throw new Error('The download dialog requires an initial focus control.');
+  }
+  initialControl.focus();
 }
 
 export function DownloadDialog({ manifestState, onClose, onRetry, open }: DownloadDialogProps) {
@@ -145,21 +161,35 @@ export function DownloadDialog({ manifestState, onClose, onRetry, open }: Downlo
       dialogRef.current = null;
       return;
     }
+    dialogRef.current = dialog;
+    if (!scrollLockRef.current) {
+      scrollLockRef.current = lockDocumentScroll();
+    }
     if (dialog.open) {
+      focusInitialDialogControl(dialog);
       return;
     }
-    dialogRef.current = dialog;
     returnFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    scrollLockRef.current = lockDocumentScroll();
-    dialog.showModal();
+    try {
+      dialog.showModal();
+      focusInitialDialogControl(dialog);
+    } catch (error: unknown) {
+      scrollLockRef.current.release();
+      scrollLockRef.current = null;
+      dialogRef.current = null;
+      throw error;
+    }
   }, []);
   const handleClose = useCallback(() => {
     const returnFocus = returnFocusRef.current;
-    scrollLockRef.current?.release();
+    const scrollLock = scrollLockRef.current;
     scrollLockRef.current = null;
     onClose();
-    requestAnimationFrame(() => returnFocus?.focus());
+    queueMicrotask(() => {
+      scrollLock?.release();
+      returnFocus?.focus({ preventScroll: true });
+    });
   }, [onClose]);
   const requestClose = useCallback(() => {
     const dialog = dialogRef.current;
@@ -169,16 +199,45 @@ export function DownloadDialog({ manifestState, onClose, onRetry, open }: Downlo
     }
     handleClose();
   }, [handleClose]);
+  const keepFocusInDialog = useCallback((event: ReactKeyboardEvent<HTMLDialogElement>): void => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const controls = focusableDialogControls(event.currentTarget);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!(first && last)) {
+      return;
+    }
+    const activeElement = document.activeElement;
+    if (
+      event.shiftKey &&
+      (activeElement === first || !event.currentTarget.contains(activeElement))
+    ) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+    if (
+      !event.shiftKey &&
+      (activeElement === last || !event.currentTarget.contains(activeElement))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
 
   if (!open) {
     return null;
   }
 
   return (
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: The modal dialog owns its keyboard focus-containment boundary.
     <dialog
       aria-labelledby="download-dialog-title"
       className="download-dialog"
       onClose={handleClose}
+      onKeyDown={keepFocusInDialog}
       ref={showDialog}
     >
       <div className="download-dialog-shell">
@@ -189,7 +248,9 @@ export function DownloadDialog({ manifestState, onClose, onRetry, open }: Downlo
           </div>
           <button
             aria-label="Close download chooser"
+            autoFocus
             className="dialog-close"
+            data-dialog-initial-focus
             onClick={requestClose}
             type="button"
           >

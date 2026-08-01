@@ -132,14 +132,22 @@ test('Resolve navigation is deterministic and the final frame remains composed',
 });
 
 test('the final frame tolerates expanded localized copy without overlap', async ({ page }) => {
-  await page.setViewportSize({ height: 450, width: 640 });
+  await page.setViewportSize({ height: 568, width: 320 });
   await page.goto('/#download');
+  await page.locator('.closing h2').evaluate((heading) => {
+    heading.innerHTML = 'Brainstrike arbeitet vollständig<br><em>auf Ihrem eigenen Gerät.</em>';
+  });
   await page.locator('.closing-intro > p:last-child').evaluate((paragraph) => {
     paragraph.textContent =
-      'Arbeitsbereich, Gesprächsverläufe, Indizes, wiederverwendbare Eingabevorlagen und dauerhafte Kontinuität bleiben genau dort, wo die Arbeit begonnen hat. Wählen Sie eine passende Plattform, sobald eine signierte Veröffentlichung verfügbar ist.';
+      'Arbeitsbereich, Gesprächsverläufe, Indizes, wiederverwendbare Eingabevorlagen, Werkzeuge und dauerhafte Kontinuität bleiben genau dort, wo die Arbeit begonnen hat. Wählen Sie die passende Plattform, sobald eine signierte Veröffentlichung verfügbar ist.';
+  });
+  await page.locator('.download-status-line span:last-of-type').evaluate((status) => {
+    status.textContent =
+      'Öffentliche Downloads sind derzeit noch nicht verfügbar. Die signierten Veröffentlichungspakete für alle unterstützten Plattformen sind jedoch bereits vollständig konfiguriert.';
   });
   await page.evaluate(async () => document.fonts.ready);
 
+  const frame = await boxEdges(page, '#download');
   const intro = await boxEdges(page, '.closing-intro');
   const dock = await boxEdges(page, '#download .download-chooser-terminal');
   const footer = await boxEdges(page, '#download .site-footer');
@@ -150,8 +158,12 @@ test('the final frame tolerates expanded localized copy without overlap', async 
 
   expect(intro.bottom).toBeLessThanOrEqual(dock.top);
   expect(dock.bottom).toBeLessThanOrEqual(footer.top + 1);
-  expect(footer.bottom).toBeLessThanOrEqual(viewport.height + 1);
+  expect(footer.bottom).toBeLessThanOrEqual(frame.bottom + 1);
+  expect(frame.bottom - frame.top).toBeGreaterThan(viewport.height);
   expect(viewport.overflow).toBeLessThanOrEqual(0);
+
+  await page.locator('#download .site-footer').scrollIntoViewIfNeeded();
+  await expect(page.locator('#download .site-footer')).toBeInViewport();
 });
 
 test('download dialog opens and closes without cumulative layout shift', async ({ page }) => {
@@ -189,6 +201,33 @@ test('download dialog restores focus and keeps its close control visible while s
   await expect(download).toBeFocused();
 });
 
+test('published mobile dialog focuses Close and contains forward and reverse tabbing', async ({
+  page,
+}) => {
+  await page.setViewportSize({ height: 568, width: 320 });
+  await page.route('**/release-manifest.json', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify(PUBLISHED_MANIFEST),
+      contentType: 'application/json',
+    });
+  });
+  await page.goto('/#download');
+  await page
+    .locator('#download')
+    .getByRole('button', { name: /2 builds/i })
+    .click();
+
+  const dialog = page.getByRole('dialog');
+  const close = dialog.getByRole('button', { name: /close download chooser/i });
+  const finalLink = dialog.getByRole('link', { name: /all release assets/i });
+  await expect(close).toBeFocused();
+
+  await page.keyboard.press('Shift+Tab');
+  await expect(finalLink).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+});
+
 test('download dialog preserves the underlying scroll position', async ({ page }) => {
   await page.goto('/#context');
   await waitForSettledScroll(page);
@@ -204,7 +243,7 @@ test('download dialog preserves the underlying scroll position', async ({ page }
 
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toBeHidden();
-  expect(await page.evaluate(() => window.scrollY)).toBe(before);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
 });
 
 test('surfaces an explicit visual-engine error when WebGPU is unavailable', async ({ page }) => {
@@ -213,10 +252,19 @@ test('surfaces an explicit visual-engine error when WebGPU is unavailable', asyn
   });
   await page.goto('/');
 
-  await expect(page.getByRole('alert')).toContainText('WebGPU could not initialize.');
-  await expect(page.getByRole('alert')).toContainText('This browser does not expose WebGPU.');
-  const topmostClass = await page.getByRole('alert').evaluate((alert) => {
-    const rect = alert.getBoundingClientRect();
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('WebGPU could not initialize.');
+  await expect(alert).toContainText('This browser does not expose WebGPU.');
+  const compactHeight = await alert.evaluate((element) => element.getBoundingClientRect().height);
+  await alert.getByRole('button', { name: 'Details' }).click();
+  await expect(alert.getByRole('link', { name: /check browser support/i })).toBeVisible();
+  expect(await alert.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(
+    compactHeight
+  );
+  await alert.getByRole('button', { name: 'Minimize' }).click();
+  await expect(alert.getByRole('button', { name: 'Details' })).toBeVisible();
+  const topmostClass = await alert.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
     const topmost = document.elementFromPoint(
       rect.left + rect.width / 2,
       rect.top + rect.height / 2
@@ -238,7 +286,7 @@ test('never exposes a private repository link while downloads are unpublished', 
   await expect(page.getByText('Public release / pending')).toBeVisible();
 });
 
-test('renders only manifest-verified assets and bounds multiple builds behind the full chooser', async ({
+test('renders only manifest-declared assets and bounds multiple builds behind the full chooser', async ({
   page,
 }) => {
   await page.route('**/release-manifest.json', async (route) => {
@@ -263,7 +311,7 @@ test('renders only manifest-verified assets and bounds multiple builds behind th
   await expect(dialog.getByText('125 MB').first()).toBeVisible();
 });
 
-test('retries a visible manifest error and reaches the verified ready state', async ({ page }) => {
+test('retries a visible manifest error and reaches the validated ready state', async ({ page }) => {
   let attempts = 0;
   await page.route('**/release-manifest.json', async (route) => {
     attempts += 1;
@@ -283,5 +331,39 @@ test('retries a visible manifest error and reaches the verified ready state', as
 
   await dialog.getByRole('button', { name: 'Retry' }).click();
   await expect(dialog.getByRole('status')).toContainText('Latest stable build: v1.0.0');
+  expect(attempts).toBe(2);
+});
+
+test('revalidates an expired unpublished manifest when the chooser opens', async ({ page }) => {
+  await page.clock.install();
+  let attempts = 0;
+  await page.route('**/release-manifest.json', async (route) => {
+    attempts += 1;
+    await route.fulfill({
+      body: JSON.stringify(
+        attempts === 1
+          ? {
+              channel: 'stable',
+              distribution: null,
+              latest: null,
+              product: 'Brainstrike',
+              schemaVersion: 2,
+            }
+          : PUBLISHED_MANIFEST
+      ),
+      contentType: 'application/json',
+    });
+  });
+  await page.goto('/#download');
+  await expect(
+    page.locator('#download').getByText('Public downloads are not available yet.')
+  ).toBeVisible();
+
+  await page.clock.fastForward(60_001);
+  await page.getByRole('button', { name: 'Download' }).click();
+
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText(
+    'Latest stable build: v1.0.0'
+  );
   expect(attempts).toBe(2);
 });

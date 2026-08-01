@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const workflow = readFileSync('.github/workflows/test.yml', 'utf8');
+const sitePlaywrightConfig = readFileSync('apps/site/playwright.config.ts', 'utf8');
 
 const REQUIRED_JOBS = new Map([
   ['static', 'Static'],
@@ -68,6 +69,7 @@ test('required Web E2E covers both browser products on the admitted build', () =
   assert.match(webE2E, /pnpm --filter @brainstrike\/site run test:e2e/);
   assert.match(webE2E, /apps\/site\/test-results\//);
   assert.match(webE2E, /apps\/site\/playwright-report\//);
+  assert.match(sitePlaywrightConfig, /failOnFlakyTests: process\.env\['CI'\] === 'true'/);
 });
 
 test('Static bounds type-check concurrency to the arm64 runner memory budget', () => {

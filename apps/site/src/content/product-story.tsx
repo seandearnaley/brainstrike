@@ -142,13 +142,12 @@ export const PRODUCT_HEADER_NAV: readonly ProductHeaderEntry[] = PRODUCT_STORY.f
 );
 
 export interface ProductStageRailEntry {
-  readonly formation: SceneFormationId;
   readonly id: ProductStoryStage['id'];
   readonly railLabel: string;
 }
 
 export const PRODUCT_STAGE_RAIL: readonly ProductStageRailEntry[] = PRODUCT_STORY.map(
-  ({ formation, id, railLabel }) => ({ formation, id, railLabel })
+  ({ id, railLabel }) => ({ id, railLabel })
 );
 
 export function sceneAnchorId(stage: Pick<ProductStoryStage, 'id'>): string {

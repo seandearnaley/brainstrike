@@ -13,6 +13,7 @@ type WebGPUCanvasState =
 
 export function WebGPUCanvas({ getSceneState }: WebGPUCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [failureExpanded, setFailureExpanded] = useState(false);
   const [state, setState] = useState<WebGPUCanvasState>({ status: 'initializing' });
 
   // biome-ignore lint/plugin: The external WebGPU lifecycle reports its asynchronous ready and failure states to React.
@@ -26,6 +27,7 @@ export function WebGPUCanvas({ getSceneState }: WebGPUCanvasProps) {
       if (cancelled) {
         return;
       }
+      setFailureExpanded(false);
       setState({ error: error.message, status: 'failed' });
     };
     const scene = new WebGPUScene({
@@ -61,13 +63,24 @@ export function WebGPUCanvas({ getSceneState }: WebGPUCanvasProps) {
         />
       </div>
       {state.status === 'failed' ? (
-        <div className="gpu-failure" role="alert">
-          <span className="eyebrow">VISUAL ENGINE / OFFLINE</span>
+        <div className={`gpu-failure ${failureExpanded ? 'is-expanded' : ''}`} role="alert">
+          <div className="gpu-failure-header">
+            <span className="eyebrow">VISUAL ENGINE / OFFLINE</span>
+            <button
+              aria-expanded={failureExpanded}
+              onClick={() => setFailureExpanded((expanded) => !expanded)}
+              type="button"
+            >
+              {failureExpanded ? 'Minimize' : 'Details'}
+            </button>
+          </div>
           <strong>WebGPU could not initialize.</strong>
-          <p>{state.error}</p>
-          <a href="https://webgpu.org/" rel="noreferrer" target="_blank">
-            Check browser support <span aria-hidden="true">↗</span>
-          </a>
+          <p className={failureExpanded ? undefined : 'sr-only'}>{state.error}</p>
+          {failureExpanded ? (
+            <a href="https://webgpu.org/" rel="noreferrer" target="_blank">
+              Check browser support <span aria-hidden="true">↗</span>
+            </a>
+          ) : null}
         </div>
       ) : null}
     </>

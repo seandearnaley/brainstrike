@@ -56,7 +56,11 @@ function createMediaQuery(matches: boolean): MediaQueryList {
 }
 
 function installBrowserHarness(
-  options: { readonly contextAvailable?: boolean; readonly failResourceCreation?: boolean } = {}
+  options: {
+    readonly contextAvailable?: boolean;
+    readonly failResourceCreation?: boolean;
+    readonly lostImmediately?: boolean;
+  } = {}
 ): {
   readonly canvas: HTMLCanvasElement;
   readonly harness: BrowserHarness;
@@ -106,7 +110,9 @@ function installBrowserHarness(
     createRenderPipeline: vi.fn(() => ({})),
     createShaderModule: vi.fn(() => ({})),
     destroy: destroyDevice,
-    lost: new Promise<GPUDeviceLostInfo>(() => undefined),
+    lost: options.lostImmediately
+      ? Promise.resolve({ message: 'synthetic loss', reason: 'unknown' } as GPUDeviceLostInfo)
+      : new Promise<GPUDeviceLostInfo>(() => undefined),
     popErrorScope: vi.fn(async () => null),
     pushErrorScope: vi.fn(() => {
       if (options.failResourceCreation) {
@@ -210,7 +216,7 @@ function installBrowserHarness(
   };
 }
 
-function createScene(canvas: HTMLCanvasElement): WebGPUScene {
+function createScene(canvas: HTMLCanvasElement, onError = vi.fn()): WebGPUScene {
   return new WebGPUScene({
     canvas,
     getSceneState: () => ({
@@ -220,7 +226,7 @@ function createScene(canvas: HTMLCanvasElement): WebGPUScene {
       morph: 0,
       toStage: 0,
     }),
-    onError: vi.fn(),
+    onError,
   });
 }
 
@@ -242,6 +248,18 @@ describe('WebGPUScene lifecycle', () => {
     const scene = createScene(canvas);
 
     await expect(scene.initialize()).rejects.toThrow('synthetic resource failure');
+    expect(harness.destroyDevice).toHaveBeenCalledOnce();
+  });
+
+  it('rejects initialization when the device is lost before readiness', async () => {
+    const { canvas, harness } = installBrowserHarness({ lostImmediately: true });
+    const onError = vi.fn();
+    const scene = createScene(canvas, onError);
+
+    await expect(scene.initialize()).rejects.toThrow(
+      'WebGPU device lost (unknown): synthetic loss'
+    );
+    expect(onError).toHaveBeenCalledOnce();
     expect(harness.destroyDevice).toHaveBeenCalledOnce();
   });
 

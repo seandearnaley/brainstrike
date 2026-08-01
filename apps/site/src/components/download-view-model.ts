@@ -16,19 +16,19 @@ interface PlatformDefinition {
 
 const PLATFORM_DEFINITIONS: readonly PlatformDefinition[] = [
   {
-    configuredSummary: 'DMG target / Apple silicon + Intel',
+    configuredSummary: 'DMG packaging target',
     glyph: '⌘',
     name: 'macOS',
     platform: 'macos',
   },
   {
-    configuredSummary: 'NSIS target / x64',
+    configuredSummary: 'NSIS / EXE packaging target',
     glyph: '⊞',
     name: 'Windows',
     platform: 'windows',
   },
   {
-    configuredSummary: 'AppImage target / x64',
+    configuredSummary: 'AppImage packaging target',
     glyph: '△',
     name: 'Linux',
     platform: 'linux',

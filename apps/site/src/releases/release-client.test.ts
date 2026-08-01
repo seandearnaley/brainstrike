@@ -57,6 +57,22 @@ describe('createReleaseManifestClient', () => {
     expect(fetchManifest).toHaveBeenCalledTimes(1);
   });
 
+  it('revalidates a successful manifest after the bounded cache lifetime', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-01T00:00:00Z'));
+    const fetchManifest = vi.fn(async () => jsonResponse(UNPUBLISHED_MANIFEST));
+    const client = createReleaseManifestClient({ cacheTtlMs: 1000, fetch: fetchManifest });
+
+    await client.load();
+    await vi.advanceTimersByTimeAsync(999);
+    await client.load();
+    expect(fetchManifest).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2);
+    await client.load();
+    expect(fetchManifest).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidates a successful value and explicitly retries', async () => {
     const fetchManifest = vi.fn(async () => jsonResponse(UNPUBLISHED_MANIFEST));
     const client = createReleaseManifestClient({ fetch: fetchManifest });

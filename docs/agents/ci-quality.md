@@ -22,7 +22,9 @@ Rules:
 - Web and desktop E2E smoke workflows run on every PR. The required `Web E2E`
   job covers both the local-first web application smoke suite and the product
   site's production-build Playwright suite; keep both in the same stable check
-  context instead of adding a new required-check name.
+  context instead of adding a new required-check name. The product-site matrix
+  may retry once in CI to retain traces, but `failOnFlakyTests` remains enabled:
+  a pass-on-retry is evidence of a defect, not a green required check.
 - Full web and desktop E2E regression runs on `schedule` or explicit
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.

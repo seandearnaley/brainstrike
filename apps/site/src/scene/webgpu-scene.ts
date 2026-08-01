@@ -77,6 +77,7 @@ export class WebGPUScene {
   private resizeObserver: ResizeObserver | null = null;
   private startTime = 0;
   private stopped = false;
+  private terminalError: Error | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private readonly uniformData = new Float32Array(UNIFORM_FLOAT_COUNT);
 
@@ -99,7 +100,7 @@ export class WebGPUScene {
       const device = await adapter.requestDevice({ label: 'Brainstrike signal spine device' });
       if (this.stopped) {
         device.destroy();
-        return;
+        throw this.terminalError ?? new Error('WebGPU scene initialization was stopped.');
       }
       this.device = device;
       const context = this.canvas.getContext('webgpu') as GPUCanvasContext | null;
@@ -112,6 +113,13 @@ export class WebGPUScene {
       this.particleCount = resolveParticleCount(window.innerWidth);
       await this.createResources();
       this.startRendering();
+      await Promise.resolve();
+      if (this.terminalError) {
+        throw this.terminalError;
+      }
+      if (this.stopped) {
+        throw new Error('WebGPU scene initialization was stopped.');
+      }
     } catch (error: unknown) {
       this.stop();
       throw error;
@@ -478,6 +486,7 @@ export class WebGPUScene {
     if (this.stopped) {
       return;
     }
+    this.terminalError = error;
     try {
       this.onError(error);
     } finally {

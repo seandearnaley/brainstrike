@@ -93,9 +93,9 @@ describe('buildDownloadViewModel', () => {
     });
     expect(view.releasesHubUrl).toBeNull();
     expect(view.platforms.map((platform) => platform.summary)).toEqual([
-      'DMG target / Apple silicon + Intel',
-      'NSIS target / x64',
-      'AppImage target / x64',
+      'DMG packaging target',
+      'NSIS / EXE packaging target',
+      'AppImage packaging target',
     ]);
   });
 

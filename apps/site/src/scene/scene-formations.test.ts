@@ -6,6 +6,7 @@ import {
   type SceneFormationId,
   sceneFormationIndex,
 } from './scene-formations';
+import signalSpineShader from './signal-spine.wgsl?raw';
 
 describe('scene formation contract', () => {
   it('keeps named formations in their stable narrative order', () => {
@@ -33,6 +34,16 @@ describe('scene formation contract', () => {
       trace: 4,
     });
     expect(Object.keys(SCENE_FORMATION_GPU_INDEX).sort()).toEqual([...SCENE_FORMATIONS].sort());
+  });
+
+  it('keeps the WGSL switch exhaustive with an explicit invalid-state sentinel', () => {
+    const shaderCases = [...signalSpineShader.matchAll(/case\s+(\d+)u:/g)].map((match) =>
+      Number(match[1])
+    );
+    expect(shaderCases).toEqual(Object.values(SCENE_FORMATION_GPU_INDEX).toSorted());
+    expect(signalSpineShader).toContain(
+      'default: { return invalid_formation(index, count, time); }'
+    );
   });
 
   it('resolves every named formation through the checked mapping', () => {

@@ -105,6 +105,12 @@ fn final_aperture(index: u32, _count: u32, time: f32) -> vec3f {
   return vec3f(cos(angle) * radius, sin(angle) * radius, depth);
 }
 
+fn invalid_formation(index: u32, _count: u32, _time: f32) -> vec3f {
+  let u = f32(index % 512u) / 511.0 * 2.0 - 1.0;
+  let diagonal = select(-u, u, index % 2u == 0u);
+  return vec3f(u * 5.0, diagonal * 4.0, 0.0);
+}
+
 fn formation(stage: u32, index: u32, count: u32, time: f32) -> vec3f {
   switch stage {
     case 0u: { return signal_lattice(index, count, time); }
@@ -114,7 +120,8 @@ fn formation(stage: u32, index: u32, count: u32, time: f32) -> vec3f {
     case 4u: { return execution_helix(index, count, time); }
     case 5u: { return memory_archive(index, count, time); }
     case 6u: { return system_matrix(index, count, time); }
-    default: { return final_aperture(index, count, time); }
+    case 7u: { return final_aperture(index, count, time); }
+    default: { return invalid_formation(index, count, time); }
   }
 }
 

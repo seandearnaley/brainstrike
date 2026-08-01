@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { BrainstrikeMark } from './components/brainstrike-mark';
 import { DownloadChooser, DownloadDialog } from './components/download-chooser';
 import { SectionFrame } from './components/section-frame';
@@ -204,19 +204,28 @@ function ProductStoryStageView({
 
 export default function App() {
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const releaseManifest = useReleaseManifest();
-  const { activeStage, getSceneState } = useSceneTimeline();
+  const {
+    refresh: refreshReleases,
+    retry: retryReleases,
+    state: releaseState,
+  } = useReleaseManifest();
+  const { activeStageId, getSceneState } = useSceneTimeline();
   useSectionNavigation();
+  const openDownload = useCallback(() => {
+    refreshReleases();
+    setDownloadOpen(true);
+  }, [refreshReleases]);
+  const closeDownload = useCallback(() => setDownloadOpen(false), []);
 
   return (
     <>
       <WebGPUCanvas getSceneState={getSceneState} />
-      <Header onDownload={() => setDownloadOpen(true)} />
-      <StageRail activeStage={activeStage} stages={PRODUCT_STAGE_RAIL} />
+      <Header onDownload={openDownload} />
+      <StageRail activeStageId={activeStageId} stages={PRODUCT_STAGE_RAIL} />
       <DownloadDialog
-        manifestState={releaseManifest.state}
-        onClose={() => setDownloadOpen(false)}
-        onRetry={releaseManifest.retry}
+        manifestState={releaseState}
+        onClose={closeDownload}
+        onRetry={retryReleases}
         open={downloadOpen}
       />
 
@@ -224,9 +233,9 @@ export default function App() {
         {PRODUCT_STORY.map((stage, index) => (
           <ProductStoryStageView
             key={stage.id}
-            manifestState={releaseManifest.state}
-            onDownload={() => setDownloadOpen(true)}
-            onRetry={releaseManifest.retry}
+            manifestState={releaseState}
+            onDownload={openDownload}
+            onRetry={retryReleases}
             ordinal={index + 1}
             stage={stage}
           />

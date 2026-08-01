@@ -14,6 +14,11 @@ export interface SceneTimelineState {
   readonly toStage: SceneFormationIndex;
 }
 
+export interface SceneTimelineFrame {
+  readonly activeAnchorId: string | null;
+  readonly scene: SceneTimelineState;
+}
+
 export const SCENE_CHANGE_EVENT = 'brainstrike:site-scene-change';
 
 const TRANSITION_START = 0.18;
@@ -48,28 +53,32 @@ function settledState(stage: SceneFormationIndex): SceneTimelineState {
   };
 }
 
-export function computeSceneTimeline(
+function settledFrame(anchor: SceneAnchor): SceneTimelineFrame {
+  return { activeAnchorId: anchor.id, scene: settledState(anchor.stage) };
+}
+
+export function computeSceneFrame(
   anchors: readonly SceneAnchor[],
   scrollY: number,
   viewportHeight: number,
   readingLineRatio = 0.52
-): SceneTimelineState {
+): SceneTimelineFrame {
   if (anchors.length === 0) {
-    return settledState(0);
+    return { activeAnchorId: null, scene: settledState(0) };
   }
 
   const first = anchors[0];
   const last = anchors.at(-1);
   if (!(first && last)) {
-    return settledState(0);
+    return { activeAnchorId: null, scene: settledState(0) };
   }
 
   const readingY = scrollY + viewportHeight * readingLineRatio;
   if (readingY <= first.documentY) {
-    return settledState(first.stage);
+    return settledFrame(first);
   }
   if (readingY >= last.documentY) {
-    return settledState(last.stage);
+    return settledFrame(last);
   }
 
   for (let index = 0; index < anchors.length - 1; index += 1) {
@@ -86,25 +95,37 @@ export function computeSceneTimeline(
 
     const segmentProgress = clamp01((readingY - from.documentY) / distance);
     if (segmentProgress <= TRANSITION_START) {
-      return settledState(from.stage);
+      return settledFrame(from);
     }
     if (segmentProgress >= TRANSITION_END) {
-      return settledState(to.stage);
+      return settledFrame(to);
     }
 
     const transitionProgress =
       (segmentProgress - TRANSITION_START) / (TRANSITION_END - TRANSITION_START);
     const morph = smoothstep(transitionProgress);
     return {
-      activeStage: morph < 0.5 ? from.stage : to.stage,
-      bloom: Math.sin(morph * Math.PI),
-      fromStage: from.stage,
-      morph,
-      toStage: to.stage,
+      activeAnchorId: morph < 0.5 ? from.id : to.id,
+      scene: {
+        activeStage: morph < 0.5 ? from.stage : to.stage,
+        bloom: Math.sin(morph * Math.PI),
+        fromStage: from.stage,
+        morph,
+        toStage: to.stage,
+      },
     };
   }
 
-  return settledState(last.stage);
+  return settledFrame(last);
+}
+
+export function computeSceneTimeline(
+  anchors: readonly SceneAnchor[],
+  scrollY: number,
+  viewportHeight: number,
+  readingLineRatio = 0.52
+): SceneTimelineState {
+  return computeSceneFrame(anchors, scrollY, viewportHeight, readingLineRatio).scene;
 }
 
 export function normalizeSceneAnchors(anchors: readonly SceneAnchor[]): readonly SceneAnchor[] {

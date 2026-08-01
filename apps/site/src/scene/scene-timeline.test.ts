@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeSceneFrame,
   computeSceneTimeline,
   normalizeSceneAnchors,
   type SceneAnchor,
@@ -49,6 +50,19 @@ describe('computeSceneTimeline', () => {
 
   it('returns the initial formation when no anchors exist', () => {
     expect(computeSceneTimeline([], 100, 900).activeStage).toBe(0);
+  });
+
+  it('tracks editorial anchors independently when formations are deliberately reused', () => {
+    const repeatedFormation = [
+      { documentY: 500, id: 'first-story-frame', stage: 0 },
+      { documentY: 1500, id: 'second-story-frame', stage: 0 },
+    ] as const satisfies readonly SceneAnchor[];
+
+    expect(computeSceneFrame(repeatedFormation, 0, 1000).activeAnchorId).toBe('first-story-frame');
+    expect(computeSceneFrame(repeatedFormation, 980, 1000).activeAnchorId).toBe(
+      'second-story-frame'
+    );
+    expect(computeSceneFrame(repeatedFormation, 980, 1000).scene.activeStage).toBe(0);
   });
 });
 
