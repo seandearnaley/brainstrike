@@ -198,12 +198,14 @@
       // wall-clock timeouts and CPU contention, native/N-API binaries + their
       // host ABI, an installed CLI shelled out to (git, node-pty, /bin/sh), or
       // REAL-SUBSYSTEM execution under wall-clock budgets — must NOT be
-      // cacheable. Boundary note: watchdog timeouts and polling budgets over
-      // fully MOCKED subsystems do not qualify — their nondeterminism lives in
-      // the test harness (worst case a false red under load, which caching a
-      // green cannot cause), and any product change re-hashes and invalidates
-      // the entry. Cross-package file reads are a separate hazard: declare them
-      // as explicit `inputs` (see apps/web/turbo.json) instead of un-caching.
+      // cacheable. A mocked dependency graph is not sufficient to make a test
+      // cache-safe: a watchdog case that drives production Date.now/setTimeout
+      // behavior with real elapsed-time gaps still depends on un-hashed host
+      // scheduling and belongs here (BST-1047). Fully mocked watchdogs that use
+      // deterministic/fake time, or whose verdict does not depend on scheduler
+      // progress, remain unit tests. Cross-package file reads are a separate
+      // hazard: declare them as explicit `inputs` (see apps/web/turbo.json)
+      // instead of un-caching.
       // See the invariant that anchors this rule in packages/db/turbo.json.
       //
       // Instead of carving a package's WHOLE `test` task out with `cache: false`
