@@ -182,7 +182,26 @@ domains" — the latter per-call, argument-aware, structurally ungrantable);
 `run_python` vs `executeCommand`, already covered and strictly more dangerous);
 six seam gaps listed in the spec.
 
-### BST-1068 — Windows fence · **human results ARE IN** · PR #2191
+### BST-1068 — Windows fence · **acceptance criterion 1 MET** · PR #2191
+
+**The fence itself works on real Windows.** Fenced Python ran as `srt-sandbox`,
+and the decisive assertion passed *at the kernel*: a process that stripped every
+proxy env var and connected direct to a caller-owned loopback listener was
+refused at `connect()` with `WSAEACCES`. That is §1.3 confirmed by observation,
+not by reading srt's docs. `pip --user` landed in the sandbox profile, confirming
+§1.6.
+
+> **⚠️ Product finding that outlives this ticket: `allowRead` is NOT read-only on
+> Windows.** srt only *adds* ACEs, so a path whose baseline ACL already grants
+> `Authenticated Users` write **stays writable** inside the fence. The same
+> `ExecPolicy` therefore yields materially weaker isolation on Windows than on
+> POSIX — and nothing in `ExecutorCapabilities` can advertise that. Treat it as a
+> constraint on any future Windows backend, not a Windows-only curiosity: it is
+> the same shape as the mode-two finding that `denyRead` has no VirtioFS
+> expression.
+
+**Three of the four legs supporting the recommendation are NEW**, and all three
+came from the run *contradicting* the document — this was not confirmation bias.
 
 The Windows reviewer ran the plan on a real provisioned host (Windows 11 x64,
 Node 24.14.0) and posted **7 findings, 4 of them P1**. The plan did its job: it
@@ -230,7 +249,21 @@ the shape of a real fixed cost, so ten samples generalise safely.
 So Windows can either honour the seam's per-execution policy at ~1.5 s of
 overhead per run, or be fast and silently wrong. Neither is shippable, which is
 why the factory is absent rather than degraded — and that is now a number, not a
-judgement call.
+judgement call. It also **decides** a previously-open gate item: any future
+Windows support needs a per-workspace session model or a seam-level policy-epoch
+concept, because per-`ExecInput` policy is priced out.
+
+**Not observed, and recorded rather than assumed:** §6.5 (per-exec throw), §6.7
+(process-tree kill), and §6.8 as rewritten were not run, so the *correctness* leg
+remains unverified — affordability carries the recommendation on its own. Nothing
+INCONCLUSIVE was softened into a pass.
+
+The canonicalization refutation also landed sharper than first reported: the root
+cause is that `fs.realpath` is Node's **JS** resolver and copies non-symlink
+components verbatim — only `.native` reaches libuv. That is the same gap BST-1074
+found from the POSIX side, arrived at independently. §6.8 now tests both bindings
+against both alias forms and explicitly refuses to infer NTFS short-name
+behaviour from `.native`'s darwin case behaviour.
 
 ### BST-1063 — PGlite 0.5.4 · **draft PR #2206 · DO NOT MERGE**
 
