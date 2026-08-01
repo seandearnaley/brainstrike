@@ -2,6 +2,19 @@
 
 **Date:** 2026-08-01 · **Linear project:** [Agent Code Sandboxing — Two-Mode Path](https://linear.app/brainstrike/project/agent-code-sandboxing-two-mode-path-90a52846fbe8)
 
+> ## ⏱️ Point-in-time snapshot — re-verify before acting
+>
+> **§1–§4 assert live state** (ticket statuses, PR numbers, "do not merge",
+> "restart from scratch"). Those were true on 2026-08-01 and **will go stale**.
+> Check Linear and `gh pr list` before following any status-dependent directive
+> — acting on an expired "restart this lane" or "do not merge" is worse than
+> having no handoff at all.
+>
+> **§5 (how to work) and §6 (the silent-failure pattern) do not expire.** Nor do
+> the per-ticket *constraints* in §4 — only the statuses around them. When this
+> snapshot is fully stale, move those durable parts into
+> `docs/agents/code-execution.md` and delete the rest.
+
 Read this file end to end before picking up a ticket. It carries findings that
 are **not** in the tickets and not recoverable from the code — including three
 real sandbox escapes that were found and fixed, and three lanes whose work was
@@ -62,12 +75,21 @@ else is parallel and independent.
 
 ---
 
-## 3. In-flight work that was LOST — restart these
+## 3. Salvaged in-flight work — three draft PRs to pick up
 
-BST-1061, BST-1063 and BST-1064 were being worked in agent worktrees that were
-**never pushed**. `git ls-remote` confirms no remote branches exist. Their code
-is gone; their **findings are below and are the valuable part**. Restart the
-implementation, do not restart the investigation.
+BST-1061, BST-1063 and BST-1064 were being worked in agent worktrees that had
+**never been pushed** and would have died with the session. All three were
+salvaged at the end into draft PRs:
+
+| Ticket | Draft PR | What's in it |
+| --- | --- | --- |
+| BST-1061 | #2205 | manifest + independently verified checksums; implementation not started |
+| BST-1063 | #2206 | bump complete, BM25 re-qualified with evidence, one open question |
+| BST-1064 | #2207 | measurements taken, the ticket's premise disproved, no baseline |
+
+Each PR body itemises what remains. **Read the per-ticket sections below before
+opening them** — in every case the findings are worth more than the diff, and
+two of the three change what the ticket is even asking for.
 
 ---
 
@@ -134,9 +156,12 @@ Additional scope from BST-1070's design review that is **not** in the ticket:
    and every *live* approval degrades while only rediscovered ones work.
 2. **Register it as the factory-returned Mastra Tool object directly**, not via
    the `{description, execute, id, inputSchema}` literal every other native tool
-   uses (`assistant-tools.ts:558-568`). Re-wrapping **drops `suspendSchema`**, and
-   the failure is silent: `hasSuspendSchema` goes false, the network gate never
-   fires, and the run executes with a non-empty `allowedDomains` and no prompt.
+   uses. Copy the pattern from the `isLocalProvider` block in
+   `assistant-tools.ts` that registers `createAskUserTool()` /
+   `createSubmitPlanTool()` — that block is the *correct* example, and its
+   comment explains why. Re-wrapping **drops `suspendSchema`**, and the failure
+   is silent: `hasSuspendSchema` goes false, the network gate never fires, and
+   the run executes with a non-empty `allowedDomains` and no prompt.
 3. **Exclude it for the built-in local provider**, alongside `askUser`/`submitPlan`.
 4. `suspend()` returns `Promise<void>` — it does **not** resolve to the decision.
    Branch on `context.agent.resumeData` before calling it. Mirror `ask-user-tool.ts`.
@@ -194,13 +219,31 @@ CSP eval-warning allowlist now silently stops suppressing 2 EVAL warnings (build
 still exits 0). That wants a real BST-573/594 security re-qualification, not a
 quiet allowlist edit.
 
-### BST-1064 — Electron 43 · needs an idle machine
+### BST-1064 — Electron 43 · **the ticket's premise was wrong** · draft PR #2207
 
-The before/after boot median is the entire accept/reject signal. **Do not measure
-on a contended host.** BST-1065's benchmark had to be retracted after swinging
-from "+42% faster" to "2.5× slower" across four runs of identical code at load
-average 30+. Report median *and* spread; if the distributions overlap, say
-inconclusive rather than reporting a delta.
+**Electron was already on 43.1.1 before this ticket was filed.** The major bump
+landed in PR #1492 (2026-07-07) *with* a breaking-changes review, then a patch
+bump in #1803. There is nothing to bump; the real gap was always the unmeasured
+evaluation. Three weeks of clean Electron-43 CI history back that up.
+
+Captured on the current build (n=10 each): spawn→app-ready **867.7 ms**,
+spawn→assistant-listening **886.5 ms**. **There is no before/after delta** — the
+41.10.0 baseline build failed in the sandbox and was not retried. The numbers are
+labelled *indicative, not conclusive* because other agents were active during the
+run; treat them that way.
+
+Native/WASM deps all check out (`secure-fs-native` 7/7, `windows-job-native`
+builds, `node-pty` spawns, PGlite inits and queries) — all Node-API/WASM rather
+than raw V8-ABI-coupled, which is why the bump was uneventful.
+
+**Recommendation: keep 43.1.1 and close the spike with follow-ups** — not a
+revert, and not a claim of completion. Still missing: the 41.10.0 baseline,
+hidden-renderer/WebGPU runtime confirmation, and real E2E smoke.
+
+If anyone does re-measure: **do it on an idle machine.** BST-1065's benchmark had
+to be retracted after swinging from "+42% faster" to "2.5× slower" across four
+runs of identical code. Report median *and* spread; if the distributions overlap,
+say inconclusive rather than reporting a delta.
 
 ### BST-1072 — embeddings vitest worker crash · unassigned
 
@@ -279,16 +322,27 @@ timing ⇒ the integration lane. Everything else stays in the cacheable unit lan
 and getting it wrong silently runs environment-sensitive coverage in the
 cacheable unit lane:
 
-| Package | Suffix |
-| --- | --- |
-| `packages/agent` | `*.integration.spec.ts` |
-| `apps/desktop`, `packages/embeddings`, `packages/db` | `*.integration.test.ts` |
+| Package | Suffix | Lane |
+| --- | --- | --- |
+| `packages/agent` | `*.integration.spec.ts` | own `test:integration`; the unit script excludes `**/*.integration.spec.*` |
+| `apps/desktop`, `packages/embeddings` | `*.integration.test.ts` | own `test:integration` |
+| `packages/db` | `*.integration.test.ts` | **no `test:integration` script** — see below |
 
-(The PGlite durability gate is `packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`.)
-New `packages/db` tests must also register a regex in `dbUnitLaneDefinitions` in
-`db-test-lane-manifest.mjs` — `test-lanes.mjs` and `coverage-lanes.mjs` both
-derive from that single manifest, so lane and coverage assignment follow
-automatically.
+**`packages/db` is the trap.** It has no separate integration lane: `"test"` is
+`vitest run --project unit`, whose include is `__tests__/**/*.test.{ts,tsx}`, so
+`*.integration.test.ts` files run *inside the unit project*, gated by env vars.
+Two consequences:
+
+- A db file named `*.integration.spec.ts` matches **no project's include in any
+  config**. It is never collected, never run, and reports nothing — green CI,
+  zero coverage. Silent, and exactly the §6 pattern.
+- New `packages/db` tests must register a regex in `dbUnitLaneDefinitions` in
+  `db-test-lane-manifest.mjs`. `test-lanes.mjs` and `coverage-lanes.mjs` both
+  derive from that one manifest, so lane and coverage assignment follow
+  automatically — which is also why you must not hand-tune them separately.
+
+(The PGlite durability gate is
+`packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`.)
 
 **Do not move tests between lanes to make CI green** —
 that is relaxing a test with extra steps. If a lane is genuinely misassigned, say
