@@ -98,17 +98,47 @@ fifth branch and a sibling component in the same file, following
 `RunSkillScriptPreview` (semantic, purpose-built) rather than the raw-JSON
 default:
 
+**Two structural changes at that call site, easy to miss.**
+
+`ApprovalPreview` today is `({ toolName, args }: { toolName: string; args:
+unknown })` — it never receives the `AssistantToolApprovalRequest`, only two
+destructured fields, so `executionContext` needs threading through. And the
+grant-suppression rules (§2.2 when the context is absent, §6.5 when narrowing
+fails) have to reach the **button row**, which the parent renders — today
+`PreviewParseError` just returns JSX and the parent cannot tell it fired.
+
+Rather than have the preview return a `{ node, suppressGrants }` pair (a
+component that returns a tuple is awkward and easy to ignore), **the parent
+decides suppression before rendering either half**, from the same two inputs
+the preview narrows:
+
+```ts
+/** null → this tool has no structured preview; the raw-args view handles it. */
+function resolveApprovalPreviewPolicy(
+  approval: AssistantToolApprovalRequest
+): { readonly suppressGrants: boolean } | null;
+```
+
+For `run_python` it returns `{ suppressGrants: true }` when
+`narrowRunPythonArgs(approval.args)` is `null` **or**
+`approval.executionContext` is absent, and `{ suppressGrants: false }`
+otherwise. The parent passes `grantCategory={suppressGrants ? null :
+grantCategory}` to the existing `ApprovalGrantButtons`, which already renders
+nothing for a `null` category — so suppression reuses the existing
+capability-gating path instead of adding a second one. Every other tool returns
+`null` and is completely unaffected.
+
 ```ts
 const RUN_PYTHON_TOOL_ID = NATIVE_TOOL_ID.runPython;
 
 if (toolName === RUN_PYTHON_TOOL_ID) {
-  return <RunPythonPreview args={args} context={context} />;
+  return <RunPythonPreview args={args} context={executionContext} />;
 }
 ```
 
-Restart-safe rediscovery needs **no** extra work: the rediscovered approval
-carries the same `TOOL_APPROVAL_DATA_NAME` part, so the same preview renders
-(assistant-runtime.md § restart-safe rediscovery).
+Restart-safe rediscovery needs **no** extra work in the renderer: the
+rediscovered approval carries the same `TOOL_APPROVAL_DATA_NAME` part, so the
+same preview renders (assistant-runtime.md § restart-safe rediscovery).
 
 ### 2.2 The wire gap this design needs closed
 
@@ -140,6 +170,11 @@ export interface CodeExecutionApprovalContext {
   readonly allowWrite: readonly string[];
   readonly executorKind: ExecutorKind; // 'fence' | 'vm'
   readonly language: ExecLanguage;     // 'python' for run_python
+  /**
+   * Stable hash over every field above. The tool recomputes it at execute
+   * time and refuses to run if it differs — see "Display can drift" below.
+   */
+  readonly policyFingerprint: string;
   readonly scratchDir: string;
   readonly timeoutMs: number;
 }
@@ -151,9 +186,37 @@ export interface AssistantToolApprovalRequest {
 }
 ```
 
-Rediscovery recomputes it exactly where `riskCategory` is recomputed today
-(`apps/desktop/src/assistant-server/status-endpoints.ts`), from the same
-workspace config the tool would use.
+**It must be forwarded in THREE places, not one.** Stamping it in
+`makeApprovalRequiredChunks` alone delivers it to nothing:
+`DataStreamMapper.handleToolApprovalRequired`
+(`packages/agent/src/stream/data-stream-mapper.ts`) rebuilds
+`AssistantToolApprovalRequest` field by field and today copies only
+`riskCategory`, `policyDecision`, `args` and `resumeSchema` — anything not
+explicitly spread is dropped. Miss it and **every live approval takes the
+missing-context path** (no fact rows, grants suppressed), while only
+rediscovered ones work, which is precisely backwards.
+
+| Path | Where | Note |
+| --- | --- | --- |
+| live — chunk | `mastra/tool-approval-chunks.ts` | stamp from the resolved policy |
+| live — data part | `stream/data-stream-mapper.ts` | **add the spread**; needs a live-stream transport test |
+| rediscovered | `apps/desktop/src/assistant-server/status-endpoints.ts` | recompute, exactly where `riskCategory` is recomputed today |
+
+**Display can drift; execution must not.** Recomputing this context does not by
+itself bind what the user approved to what runs: approval resume rebuilds a
+fresh runtime around the durable arguments, so a workspace-config change while
+a card is pending — especially across a reload — could show one scratch dir or
+read scope and execute under another. That is why
+`policyFingerprint` is part of the payload rather than decoration: the tool
+recomputes it at execute time from the policy it is about to use, and a
+mismatch returns `{ kind: 'unavailable', reason: 'policy_changed' }` **without
+running anything**, so the user re-approves against the real terms. The
+fingerprint is display-context-derived and carries no secrets; it exists only
+to make the two sides comparable.
+
+(Gate B does not need this: its `suspendPayload` is built inside `execute()`
+from the live policy, so the domains shown are the domains used, by
+construction.)
 
 **Fail-safe when it is absent** (old snapshot, unmapped route, recompute
 failure): the card does **not** guess a scratch path, does **not** claim "no
@@ -269,27 +332,96 @@ rediscovery line uses.
 `run_python` becomes a **suspending tool**. Inside `execute()`, before
 `resolveCodeExecutor` and before any spawn:
 
+**`suspend()` returns `Promise<void>` — it does not resolve to the decision.**
+Mastra re-runs `execute` from the top on resume with the answer in
+`context.agent.resumeData`, which is exactly how `createAskUserTool` is written
+(`packages/agent/src/tools/ask-user-tool.ts`: `const resume =
+context?.agent?.resumeData; if (resume !== undefined) { … } … await
+suspend(payload); return;`). A design that awaited a return value from
+`suspend()` would suspend forever instead of ever deciding. The control flow is
+therefore resume-first:
+
 ```ts
-if (policy.allowedDomains.length > 0) {
-  const decision = await suspend({
-    kind: 'network',
-    allowedDomains: policy.allowedDomains,
-  } satisfies RunPythonNetworkSuspendPayload);
-  if (decision.action !== 'allow') {
-    return { kind: 'network_denied', deniedDomains: policy.allowedDomains };
+execute: async (input, context) => {
+  const resolved = resolveExecPolicy(input, runtimeData); // policy + executorKind
+
+  // 1. Resume leg — the user has answered Gate B.
+  const resume = readNetworkDecision(context?.agent?.resumeData);
+  if (resume !== undefined) {
+    if (resume.action !== 'allow') {
+      return { deniedDomains: resolved.policy.allowedDomains, kind: 'network_denied' };
+    }
+    return await runInExecutor(resolved, input);
   }
+
+  // 2. First leg — no network wanted, nothing to escalate.
+  if (resolved.policy.allowedDomains.length === 0) {
+    return await runInExecutor(resolved, input);
+  }
+
+  // 3. First leg, network wanted — escalate.
+  const suspend = context?.agent?.suspend;
+  if (!suspend) {
+    // Direct invocation outside an agent run. askUser degrades to a readable
+    // answer here; run_python MUST NOT — degrading would run the script with
+    // network and no prompt, the exact bypass Gate B exists to prevent.
+    return {
+      detail: 'No suspension channel is available, so network access could not be confirmed.',
+      kind: 'unavailable',
+      reason: 'network_confirmation_unavailable',
+    };
+  }
+  await suspend({
+    allowedDomains: resolved.policy.allowedDomains,
+    kind: 'network',
+  } satisfies RunPythonNetworkSuspendPayload);
+  return;
 }
 ```
 
-Registration follows the documented contract in
-`packages/assistant-contract/src/tool-suspend.ts` — **both halves, in the same
-change**:
+`readNetworkDecision` validates `resumeData` against `RunPythonNetworkDecision`
+and treats anything unrecognised as **deny**, not as allow: Mastra validates
+resume data against `resumeSchema`, but a fail-open narrowing here would turn a
+schema drift into a silent network grant.
+
+**The resumed leg re-derives the policy** (step 1 calls `resolveExecPolicy`
+again). That is why the fingerprint check in §2.2 matters: the domains the user
+ticked must be the domains that get used, and the resumed leg must prove it
+rather than assume it.
+
+Registration has **three** halves, all in the same change. The third is the one
+that fails silently in the direction that matters:
 
 1. add `NATIVE_TOOL_ID.runPython` to `REGISTERED_SUSPEND_RESUME_TOOL_IDS`;
-2. add its typed branch to `AssistantToolSuspendNotice`.
+2. add its typed branch to `AssistantToolSuspendNotice`;
+3. register the tool in `apps/desktop/src/assistant-server/assistant-tools.ts`
+   as the **factory-returned Mastra `Tool` object directly** —
+   `[NATIVE_TOOL_ID.runPython]: createRunPythonTool(runtimeData)` — never
+   re-wrapped in that file's usual
+   `{ description, execute, id, inputSchema }` registry literal.
 
-Adding the id alone recreates the silent dead end that list exists to prevent;
-adding the branch alone produces a `tool.resume.unsupported` run event.
+Half 1 alone recreates the silent dead end that list exists to prevent. Half 2
+alone produces a `tool.resume.unsupported` run event. **Half 3 alone is worse
+than either**, and it is the natural mistake: every other native tool in that
+file uses the literal shape, and the literal shape drops `suspendSchema` /
+`resumeSchema`. `hasSuspendSchema(tool)` then returns `false`, `suspend()` is
+never reachable, and **Gate B silently never fires** — the script runs with a
+non-empty `allowedDomains` and no prompt at all. No error, no log, no run
+event. The site already carries a comment saying exactly this
+(`assistant-tools.ts:557-566`), but a comment in another package is not a
+guard: §10 requires a test asserting `hasSuspendSchema` is true for the
+registered `run_python` entry.
+
+**Built-in local provider: excluded, alongside `askUser`/`submitPlan`.** The
+same registration site gates both suspending tools behind
+`isLocalProvider ? {} : { … }` (the WebGPU-prefill reasoning shared with the
+plan-mode gate). `run_python` goes **inside** the non-local branch. The
+alternative — registering it outside so the local model can run Python — puts
+it in the map without a suspend schema, i.e. with Gate B structurally absent
+while Gate A still shows the §2.6 line promising "You'll be asked about
+internet access separately". A prompt that makes a promise the build cannot
+keep is worse than an absent capability. This is also consistent with
+`runSkillScript` already being excluded from `LocalDesktopNativeToolId`.
 
 New contract types alongside `SubmitPlanPayload`/`AskUserPayload`:
 
@@ -453,22 +585,41 @@ blocked").
 
 ## 4. The result surface
 
-### 4.1 Three states plus one modifier — not four states
+### 4.1 Four terminal states plus one orthogonal modifier
 
-The ticket names four states; the seam actually gives **three terminal states
+The ticket names four states; the seam actually gives **four terminal states
 and one orthogonal modifier**, and conflating them would produce a card that
 cannot describe "timed out *and* truncated":
 
 | | Discriminator on `ExecResult` | Can be truncated? |
 | --- | --- | --- |
-| **Completed** | `exitCode !== null`, `timedOut === false` | yes |
-| **Timed out** | `timedOut === true` (⇒ `exitCode === null`, `signal` named) | yes |
+| **Completed** | `exitCode !== null` | yes |
+| **Timed out** | `exitCode === null` **and** `timedOut === true` | yes |
+| **Killed** | `exitCode === null` **and** `timedOut === false` | yes |
 | **Cancelled** | `ExecAbortedError` thrown (BST-1062), carries `partialStdout`/`partialStderr` | n/a — partial by definition |
-| **Didn't run** | one of the four typed errors | no output at all |
+| **Didn't run** | one of the typed seam errors | no output at all |
 | *truncated* | `stdoutOmittedBytes > 0 \|\| stderrOmittedBytes > 0` — **per stream** | *is the modifier* |
 
-Rendering truncation as a fifth peer state would force a choice between "timed
-out" and "truncated" for a run that was both. It is a per-stream note under the
+**Killed is a real, reachable state, not a defensive branch.** The seam says
+`exitCode` is null "exactly when the process was terminated by a signal —
+**including** a timeout kill". *Including* means a timeout is one case, not the
+only one: a segfaulting native extension, the OOM killer, or the fence tearing
+the process down all produce `exitCode: null, timedOut: false, signal:
+'SIGSEGV'`. Without its own branch an implementer must invent one of the two
+things this document exists to prevent — coerce it into **completed** (a green
+check for a crashed script) or into **didn't run** (destructive "Nothing ran"
+for a script that ran and printed output).
+
+**`signal` is nullable in the type but always named in a well-behaved
+backend.** The seam's contract says the signal names the termination, so
+`{ exitCode: null, signal: null }` is a **backend contract violation**, not a
+state to design copy around. The discriminators above therefore key on
+`exitCode`/`timedOut` only and never on `signal`; the copy in §6.4 has a
+signal-less variant marked **defensive-only** so a misbehaving backend still
+renders something true rather than printing "ended by null".
+
+Rendering truncation as a peer state would force a choice between "timed out"
+and "truncated" for a run that was both. It is a per-stream note under the
 affected pane.
 
 ### 4.2 Tool result shape (for BST-1067)
@@ -496,6 +647,14 @@ export type RunPythonResult =
       readonly timeoutMs: number;
     }
   | {
+      readonly kind: 'killed';
+      readonly signal: string | null;
+      readonly stderr: string;
+      readonly stderrOmittedBytes: number;
+      readonly stdout: string;
+      readonly stdoutOmittedBytes: number;
+    }
+  | {
       readonly kind: 'cancelled';
       readonly partialStderr: string;
       readonly partialStdout: string;
@@ -507,14 +666,35 @@ export type RunPythonUnavailableReason =
   | 'executor_kind_unavailable'
   | 'executor_tier_mismatch'
   | 'language_unsupported'
+  | 'network_confirmation_unavailable'
   | 'network_unsupported'
-  | 'no_sandbox_configured';
+  | 'no_sandbox_configured'
+  | 'policy_changed';
 ```
 
-`exitCode` is `number` in `completed` and **absent** in `timed_out` — the union
-makes it impossible to render `0` for a timeout, which is the failure mode the
-seam's `exitCode: number | null` convention exists to prevent. `signal` stays
-nullable in `timed_out` because the seam permits a signal-less kill path.
+`exitCode` is `number` in `completed` and **absent** in `timed_out`/`killed` —
+the union makes it impossible to render `0` for a signal-terminated run, which
+is the failure mode the seam's `exitCode: number | null` convention exists to
+prevent. `signal` stays nullable in both because the *type* permits it, while
+§4.1 rules a null signal a backend contract violation: the UI renders the
+defensive copy rather than trusting a value the contract says cannot occur.
+
+**Mapping seam errors → `RunPythonUnavailableReason`.** The union deliberately
+flattens two different seam fields, because §6.4 needs distinct copy for the
+two capability-mismatch reasons that share one error class. That flattening is
+a UI decision, so the mapping is stated rather than left to be re-derived:
+
+| Thrown | Reason value | Source field |
+| --- | --- | --- |
+| `ExecCapabilityMismatchError` | `language_unsupported` / `network_unsupported` | `err.reason` (`ExecCapabilityMismatchReason`) — `err.code` (`exec_capability_mismatch`) is **not** surfaced |
+| `ExecutorKindUnavailableError` | `executor_kind_unavailable` | `err.code` |
+| `ExecutorTierMismatchError` | `executor_tier_mismatch` | `err.code` |
+| `NoSandboxConfiguredError` | `no_sandbox_configured` | `err.code` |
+| *(not a seam error)* | `policy_changed` | §2.2 fingerprint mismatch, before any executor call |
+| *(not a seam error)* | `network_confirmation_unavailable` | §3.1, no suspension channel |
+
+Anything else must rethrow rather than map to a reason — an unrecognised
+failure rendered as one of these would claim a diagnosis the tool does not have.
 
 ### 4.3 Where it renders
 
@@ -545,6 +725,7 @@ does not.
 | completed, exit 0, no output | `CheckCircle` green | **Finished — the script didn't print anything** | no panes |
 | completed, exit ≠ 0 | `AlertCircle` amber (**not** destructive) | **Finished with an error (exit code 1)** | stderr pane first, then stdout |
 | timed out | `Timer` amber | **Stopped after 30 seconds — the script was still running** | both panes, headed "Output before it was stopped" |
+| killed | `AlertCircle` amber | **The script was stopped by the system before it finished** | both panes, headed "Output before it was stopped" |
 | cancelled | `CircleSlash` muted (**never** a green check) | **You stopped this** | both panes, headed "Partial output" |
 | cancelled, nothing printed | `CircleSlash` muted | **You stopped this before the script printed anything** | no panes |
 | network denied | `Globe` muted | **You didn't allow internet access, so the script didn't run** | no panes |
@@ -717,7 +898,8 @@ important copy rule on this card: **the safe state is stated, never implied.**
 | Finished, silent | **Finished — the script didn't print anything.** |
 | Finished, exit ≠ 0 | **Finished with an error (exit code 1).** |
 | Timed out | **Stopped after 30 seconds — the script was still running.**<br>*muted:* It was ended by SIGKILL, so there's no exit code. |
-| Timed out, no signal reported | *muted:* It was ended before it finished, so there's no exit code. |
+| Killed | **The script was stopped by the system before it finished.**<br>*muted:* It was ended by SIGSEGV, so there's no exit code. Out of memory or a crash inside a Python package are the usual causes. |
+| Timed out / killed, **no signal reported** *(defensive only — §4.1 rules this a backend contract violation)* | *muted:* It was ended before it finished, so there's no exit code. |
 | Cancelled, some output | **You stopped this.** Here's what it printed before it stopped. |
 | Cancelled, no output | **You stopped this before the script printed anything.** |
 | Network denied | **You didn't allow internet access, so the script didn't run.** |
@@ -733,6 +915,8 @@ Didn't-run states, one per typed error:
 | `ExecutorTierMismatchError` | **Nothing ran — the sandbox couldn't confirm it was actually isolating this script.**<br>That's a setup problem on this machine, not something the script did. |
 | `ExecCapabilityMismatchError` / `network_unsupported` | **Nothing ran — this sandbox can't give the script internet access, and the script needed it.**<br>Running it offline would have finished "successfully" with missing data, so it wasn't run at all. |
 | `ExecCapabilityMismatchError` / `language_unsupported` | **Nothing ran — this sandbox can't run Python.** |
+| `policy_changed` (§2.2) | **Nothing ran — what this script is allowed to touch changed after you approved it.**<br>Ask again and you'll get a fresh prompt showing the current terms. |
+| `network_confirmation_unavailable` (§3.1) | **Nothing ran — this script wanted internet access and there was no way to ask you about it.** |
 
 The `network_unsupported` second line is the seam's own no-silent-degradation
 rationale, in plain words. It is the sentence that teaches the user why the
@@ -779,22 +963,29 @@ stateDiagram-v2
     GateB --> Running: Allow these N domains
 
     state "executor.execute(ExecInput)" as Running
-    Running --> Completed: exitCode number, timedOut false
-    Running --> TimedOut: timedOut true, exitCode null, signal named
+    Running --> Completed: exitCode is a number
+    Running --> TimedOut: exitCode null AND timedOut true
+    Running --> Killed: exitCode null AND timedOut false (SIGSEGV, OOM…)
     Running --> Cancelled: ExecAbortedError (user Stop) — partial output
-    Running --> Unavailable: typed seam error — nothing ran
+    Running --> Unavailable: typed seam error / policy_changed — nothing ran
 
     Completed --> [*]
     TimedOut --> [*]
+    Killed --> [*]
     Cancelled --> [*]
     Unavailable --> [*]
     NetworkDenied --> [*]
     Declined --> [*]
 ```
 
+Note that **`Running` is re-entered from the top on the Gate B resume leg** —
+Mastra re-runs `execute` with `resumeData` rather than resolving `suspend()`
+(§3.1), so the "Allow these N domains" edge is a fresh `execute` call, not a
+continuation.
+
 The three horizontal bars a user can be at are: **may it run** (Gate A, once,
 grantable), **may it connect** (Gate B, every call, never grantable), **what
-happened** (result, always honest about which of five endings it was).
+happened** (result, always honest about which of six endings it was).
 
 ---
 
@@ -890,11 +1081,13 @@ Ordered by dependency. Items 1–2 are safe to land before BST-1067.
 | 1 | Risk-gate the plan-mode suspend short-circuit + spec case | `packages/agent/src/mastra/plan-mode-tool-gate.ts` |
 | 2 | Reword `RISK_CATEGORY_REASON.execute` | `packages/ui/src/assistant-ui-panel/assistant-tool-approval-notice.tsx` |
 | 3 | `NATIVE_TOOL_ID.runPython`; add to `WebNativeToolId`'s `Exclude<…>` | `packages/assistant-contract/src/native-tool-catalog.ts` |
-| 4 | `CodeExecutionApprovalContext` + `executionContext?` field | `packages/assistant-contract/src/tool-approval.ts` |
+| 4 | `CodeExecutionApprovalContext` (incl. `policyFingerprint`) + `executionContext?` field | `packages/assistant-contract/src/tool-approval.ts` |
 | 5 | `RunPythonNetworkSuspendPayload` / `RunPythonNetworkDecision`; register the id | `packages/assistant-contract/src/tool-suspend.ts` |
 | 6 | Stamp `executionContext` when building the approval chunk | `packages/agent/src/mastra/tool-approval-chunks.ts` |
+| 6b | **Spread `executionContext` into the data part** — without this the live path gets nothing (§2.2) | `packages/agent/src/stream/data-stream-mapper.ts` |
 | 7 | Recompute `executionContext` on rediscovery | `apps/desktop/src/assistant-server/status-endpoints.ts` |
-| 8 | `narrowRunPythonArgs` + `RunPythonPreview` + `ApprovalPreview` branch + grant suppression | `assistant-tool-approval-notice.tsx` |
+| 7b | **Register as the factory-returned `Tool` object, inside the non-local branch** (§3.2) | `apps/desktop/src/assistant-server/assistant-tools.ts` |
+| 8 | `narrowRunPythonArgs` + `RunPythonPreview` + `ApprovalPreview` branch + `resolveApprovalPreviewPolicy` grant suppression + prop threading | `assistant-tool-approval-notice.tsx` |
 | 9 | `RunPythonNetworkNotice` branch | `assistant-tool-suspend-notice.tsx` |
 | 10 | `RunPythonResult` + `RunPythonStreamPane`; branch in `tool-fallback.tsx` | `packages/ui/src/assistant-ui-panel/run-python-result.tsx` |
 | 11 | Unified suspend rediscovery (blocking dependency, §3.2c) | `packages/agent/src/mastra/agent-streaming.ts` |
@@ -902,11 +1095,21 @@ Ordered by dependency. Items 1–2 are safe to land before BST-1067.
 Tests that must exist before this is called done:
 
 - plan mode omits a suspending **execute**-risk tool (regression guard for §3.2a);
+- `hasSuspendSchema` is **true** for the registered `run_python` entry — the only
+  guard against the silent Gate-B bypass in §3.2, since the existing warning is a
+  comment in another package;
+- `run_python` is **absent** from the tool map under the built-in local provider;
+- a live-stream transport test asserting `executionContext` survives
+  `DataStreamMapper` and reaches the data part (the §2.2 three-place forwarding);
+- an execute-time `policyFingerprint` mismatch returns `policy_changed` and
+  **never** reaches `resolveCodeExecutor`;
+- unrecognised `resumeData` on the Gate B resume leg denies, never allows;
 - the escalation card's allow action is disabled until every checkbox is ticked,
   and renders **no** grant buttons under a mounted `ToolApprovalGrantProvider`;
 - a `run_python` approval with **no** `executionContext` renders no fact rows and
   no grant buttons;
-- each of the five result states, plus a run that is **both** timed out and
-  truncated on **one** stream only;
+- each of the six result states — including `exitCode: null, timedOut: false`
+  rendering **killed**, not completed and not "nothing ran" — plus a run that is
+  **both** timed out and truncated on **one** stream only;
 - a cancelled run with empty partial streams renders the "before the script
   printed anything" copy and **not** a success icon.
