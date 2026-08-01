@@ -31,15 +31,13 @@ vi.mock('@brainstrike/utils/selection-utils', async (importOriginal) => {
   };
 });
 
-// Mock console.debug and error to avoid test noise
-vi.spyOn(console, 'debug').mockImplementation(() => {});
-vi.spyOn(console, 'error').mockImplementation(() => {});
-
 describe('useFileContentLoading', () => {
   const TestFolderId = 'test-folder-id';
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     MockFileSystemAdapter.clearMockData(); // Clear adapter mocks
     // Setup fake timers for each test
     vi.useFakeTimers();
@@ -70,7 +68,7 @@ describe('useFileContentLoading', () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
     // Restore real timers after each test
     vi.useRealTimers();
   });
