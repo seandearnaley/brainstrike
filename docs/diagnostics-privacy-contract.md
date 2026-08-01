@@ -84,3 +84,11 @@ Current and planned telemetry work should reference this contract:
 These tickets may add metrics covered by the default allowed list. If a ticket
 needs anything outside that list, it must document the consent and export path
 before implementation.
+
+BST-400 is implemented by
+`packages/app-shell/src/diagnostics/renderer-long-task-telemetry.ts`. It keeps a
+bounded, one-minute in-memory window of durations, coarse app routes, and
+enabled feature-flag identifiers only; it never records attribution data, DOM
+selectors, paths, filenames, or content.
+The snapshot is visible in System Diagnostics and is discarded with the
+renderer process, so it adds no persistence or factory-reset obligation.

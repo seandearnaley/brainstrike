@@ -589,6 +589,19 @@ app-wide diagnostic capture — deliberately SEPARATE from the run-scoped
 `brainstrike_assistant_run_events` timeline (different scope, retention, and
 sanitization contract; do not relitigate).
 
+**Performance telemetry is a separate in-memory signal, not a fabricated
+warning event.** Renderer long tasks (BST-400) are observed only in the visible
+renderer by
+`packages/app-shell/src/diagnostics/renderer-long-task-telemetry.ts`, retained
+in a bounded one-minute/512-sample window, and shown in System Diagnostics.
+Only duration, the coarse app route, and enabled feature-flag identifiers are
+retained. Unsupported or failed `PerformanceObserver` setup is represented
+explicitly in the snapshot; it never silently degrades. Do not write routine
+performance samples into
+`brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
+failure signals, drives the unseen-error chip, and is the wrong cardinality and
+severity model for continuous performance measurements.
+
 **Table**: `brainstrike_diagnostic_events` (migration 073, numbered runner
 `packages/db/src/migrations/073-diagnostic-events.ts` AND drizzle
 `customMigrations` in `packages/db/src/drizzle/migrate.ts` —

@@ -46,6 +46,10 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import {
+  type RendererLongTaskContext,
+  rendererLongTaskTelemetry,
+} from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
@@ -413,6 +417,17 @@ export function RootLayoutContent({
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
+  const longTaskContextRef = useRef<RendererLongTaskContext>({
+    enabledFeatureFlags: [],
+    route: 'explorer',
+  });
+  const diagnosticSurface = settingsOpen || activeTab === 'settings' ? 'settings' : shellTab;
+  longTaskContextRef.current = {
+    enabledFeatureFlags: [],
+    route: diagnosticSurface,
+  };
+
+  useEffect(() => rendererLongTaskTelemetry.observe(() => longTaskContextRef.current), []);
 
   useEffect(() => {
     setMountedTabs((currentTabs) => {

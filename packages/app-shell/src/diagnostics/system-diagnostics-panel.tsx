@@ -23,6 +23,7 @@ import {
   type LucideIcon,
   RefreshCw,
   Server,
+  Timer,
   XCircle,
 } from 'lucide-react';
 import {
@@ -35,6 +36,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  type RendererLongTaskTelemetrySnapshot,
+  rendererLongTaskTelemetry,
+} from './renderer-long-task-telemetry';
 
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
@@ -480,6 +485,70 @@ function DesktopPlatformStatusSection({
   );
 }
 
+function formatDuration(durationMs: number | null): string {
+  return durationMs === null ? 'No samples' : `${Math.round(durationMs)} ms`;
+}
+
+function RendererLongTaskStatusSection({
+  snapshot,
+}: {
+  readonly snapshot: RendererLongTaskTelemetrySnapshot;
+}): ReactElement {
+  const status: StatusVariant =
+    snapshot.availability === 'failed'
+      ? 'error'
+      : snapshot.availability === 'unsupported'
+        ? 'warning'
+        : 'success';
+  const statusLabel = formatCount(snapshot.sampleCount, 'sample', 'samples');
+
+  return (
+    <DiagnosticCard
+      description="Main-thread stalls in the rolling one-minute window"
+      icon={<Timer className="h-4 w-4 text-primary" />}
+      status={status}
+      statusLabel={statusLabel}
+      title="Renderer Long Tasks"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">P50</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP50Ms)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">P95</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP95Ms)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Maximum</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.maxDurationMs)}</span>
+        </div>
+        {snapshot.routes.length > 0 && (
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-muted-foreground">Routes</span>
+            <span className="text-right font-mono text-[10px]">
+              {snapshot.routes.map((route) => `${route.route} (${route.count})`).join(', ')}
+            </span>
+          </div>
+        )}
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Feature flags</span>
+          <span className="text-right font-mono text-[10px]">
+            {snapshot.featureFlags.length === 0
+              ? 'None active'
+              : snapshot.featureFlags
+                  .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
+                  .join(', ')}
+          </span>
+        </div>
+        {snapshot.unavailableReason && (
+          <div className="pt-1 text-[10px] text-muted-foreground">{snapshot.unavailableReason}</div>
+        )}
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 export interface SystemDiagnosticsPanelProps {
   /** Token cache persistence mode (from TokenCacheContext) */
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
@@ -510,6 +579,7 @@ export function SystemDiagnosticsPanel({
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longTaskSnapshot = rendererLongTaskTelemetry.snapshot();
 
   // Cleanup timeout on unmount to prevent memory leaks
   useEffect(() => {
@@ -598,6 +668,7 @@ export function SystemDiagnosticsPanel({
           tokenCacheOperational={tokenCacheOperational}
           tokenCachePersisted={tokenCachePersisted}
         />
+        <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
         {desktopDiagnosticsError && (
           <DiagnosticCard
