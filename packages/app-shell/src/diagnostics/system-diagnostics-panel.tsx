@@ -35,6 +35,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import {
   type RendererLongTaskTelemetrySnapshot,
@@ -497,7 +498,7 @@ function RendererLongTaskStatusSection({
   const status: StatusVariant =
     snapshot.availability === 'failed'
       ? 'error'
-      : snapshot.availability === 'unsupported'
+      : snapshot.availability === 'unsupported' || snapshot.availability === 'idle'
         ? 'warning'
         : 'success';
   const statusLabel = formatCount(snapshot.sampleCount, 'sample', 'samples');
@@ -534,11 +535,13 @@ function RendererLongTaskStatusSection({
         <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Feature flags</span>
           <span className="text-right font-mono text-[10px]">
-            {snapshot.featureFlags.length === 0
-              ? 'None active'
-              : snapshot.featureFlags
-                  .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
-                  .join(', ')}
+            {snapshot.featureFlagContextAvailability === 'unavailable'
+              ? 'No feature flag source'
+              : snapshot.featureFlags.length === 0
+                ? 'None active'
+                : snapshot.featureFlags
+                    .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
+                    .join(', ')}
           </span>
         </div>
         {snapshot.unavailableReason && (
@@ -579,7 +582,11 @@ export function SystemDiagnosticsPanel({
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longTaskSnapshot = rendererLongTaskTelemetry.snapshot();
+  const longTaskSnapshot = useSyncExternalStore(
+    rendererLongTaskTelemetry.subscribe,
+    rendererLongTaskTelemetry.getSnapshot,
+    rendererLongTaskTelemetry.getSnapshot
+  );
 
   // Cleanup timeout on unmount to prevent memory leaks
   useEffect(() => {

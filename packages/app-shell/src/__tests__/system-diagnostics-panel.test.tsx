@@ -6,7 +6,7 @@ import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
 } from '@brainstrike/preferences/stores/database-status-store';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
@@ -96,6 +96,24 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getAllByText('125 ms')).toHaveLength(3);
       expect(screen.getByText('settings (1)')).toBeInTheDocument();
       expect(screen.getByText('diagnostic-search (1)')).toBeInTheDocument();
+    });
+
+    it('updates renderer long-task diagnostics when the collector publishes', () => {
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('No feature flag source')).toBeInTheDocument();
+
+      act(() => {
+        rendererLongTaskTelemetry.record({
+          durationMs: 80,
+          enabledFeatureFlags: null,
+          route: 'explorer',
+        });
+      });
+
+      expect(screen.getByText('1 sample')).toBeInTheDocument();
+      expect(screen.getAllByText('80 ms')).toHaveLength(3);
+      expect(screen.getByText('No feature flag source')).toBeInTheDocument();
     });
 
     it('renders desktop platform diagnostics when the desktop bridge is available', async () => {

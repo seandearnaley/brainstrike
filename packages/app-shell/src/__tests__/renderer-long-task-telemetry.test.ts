@@ -43,7 +43,7 @@ describe('renderer-long-task-telemetry', () => {
     });
 
     expect(telemetry.snapshot()).toMatchObject({
-      availability: 'idle',
+      availability: 'active',
       durationP50Ms: 100,
       durationP95Ms: 120,
       featureFlags: [
@@ -123,6 +123,60 @@ describe('renderer-long-task-telemetry', () => {
 
     dispose();
     expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('disconnects the active observer when telemetry is reset', () => {
+    const disconnect = vi.fn();
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      observe(): void {}
+
+      disconnect(): void {
+        disconnect();
+      }
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+
+    const telemetry = createRendererLongTaskTelemetry();
+    telemetry.observe(() => ({ enabledFeatureFlags: null, route: 'explorer' }));
+    telemetry.reset();
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(telemetry.getSnapshot()).toMatchObject({
+      availability: 'idle',
+      sampleCount: 0,
+    });
+  });
+
+  it('publishes stable external-store snapshots when telemetry changes', () => {
+    const telemetry = createRendererLongTaskTelemetry();
+    const listener = vi.fn();
+    const unsubscribe = telemetry.subscribe(listener);
+    const initialSnapshot = telemetry.getSnapshot();
+
+    expect(telemetry.getSnapshot()).toBe(initialSnapshot);
+
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: null,
+      route: 'settings',
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(telemetry.getSnapshot()).not.toBe(initialSnapshot);
+    expect(telemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'unavailable',
+      sampleCount: 1,
+    });
+
+    unsubscribe();
+    telemetry.record({
+      durationMs: 90,
+      enabledFeatureFlags: null,
+      route: 'settings',
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces unsupported and failed observer states instead of silently degrading', () => {

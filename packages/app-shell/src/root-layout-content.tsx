@@ -31,6 +31,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -46,7 +47,10 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
-import { rendererLongTaskTelemetry } from './diagnostics/renderer-long-task-telemetry';
+import {
+  type RendererDiagnosticSurface,
+  rendererLongTaskTelemetry,
+} from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
@@ -138,6 +142,11 @@ export interface RootLayoutContentProps {
   readonly contextExplorerPageContent: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
+  /**
+   * Active flags from an authoritative app-owned feature-flag registry.
+   * Omit when the app has no such registry; diagnostics surfaces that absence.
+   */
+  readonly diagnosticFeatureFlags?: readonly string[];
   /**
    * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
    *
@@ -393,6 +402,7 @@ export function RootLayoutContent({
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
+  diagnosticFeatureFlags,
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
@@ -414,16 +424,21 @@ export function RootLayoutContent({
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
-  const diagnosticSurface = settingsOpen || activeTab === 'settings' ? 'settings' : shellTab;
+  const diagnosticSurface: RendererDiagnosticSurface =
+    settingsOpen || activeTab === 'settings' ? 'settings' : shellTab;
+  const longTaskContextRef = useRef({
+    enabledFeatureFlags: diagnosticFeatureFlags ?? null,
+    route: diagnosticSurface,
+  });
 
-  useEffect(
-    () =>
-      rendererLongTaskTelemetry.observe(() => ({
-        enabledFeatureFlags: [],
-        route: diagnosticSurface,
-      })),
-    [diagnosticSurface]
-  );
+  useLayoutEffect(() => {
+    longTaskContextRef.current = {
+      enabledFeatureFlags: diagnosticFeatureFlags ?? null,
+      route: diagnosticSurface,
+    };
+  }, [diagnosticFeatureFlags, diagnosticSurface]);
+
+  useEffect(() => rendererLongTaskTelemetry.observe(() => longTaskContextRef.current), []);
 
   useEffect(() => {
     setMountedTabs((currentTabs) => {

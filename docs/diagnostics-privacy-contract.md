@@ -89,6 +89,9 @@ BST-400 is implemented by
 `packages/app-shell/src/diagnostics/renderer-long-task-telemetry.ts`. It keeps a
 bounded, one-minute in-memory window of durations, coarse app routes, and
 enabled feature-flag identifiers only; it never records attribution data, DOM
-selectors, paths, filenames, or content.
+selectors, paths, filenames, or content. Feature-flag identifiers are accepted
+only from an explicitly injected authoritative registry. If an app has no such
+registry, diagnostics reports the feature context as unavailable rather than
+recording a fabricated empty list.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.

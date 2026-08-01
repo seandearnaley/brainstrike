@@ -2,16 +2,11 @@ const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_MAX_SAMPLES = 512;
 const LONG_TASK_MIN_DURATION_MS = 50;
 
-export type RendererDiagnosticSurface =
-  | 'explorer'
-  | 'git'
-  | 'notes'
-  | 'settings'
-  | 'terminal'
-  | 'unknown';
+export type RendererDiagnosticSurface = 'explorer' | 'git' | 'notes' | 'settings' | 'terminal';
 
 export interface RendererLongTaskContext {
-  readonly enabledFeatureFlags: readonly string[];
+  /** Null means the app has no authoritative feature-flag source to provide. */
+  readonly enabledFeatureFlags: readonly string[] | null;
   readonly route: RendererDiagnosticSurface;
 }
 
@@ -37,6 +32,7 @@ export interface RendererLongTaskTelemetrySnapshot {
   readonly availability: 'active' | 'failed' | 'idle' | 'unsupported';
   readonly durationP50Ms: number | null;
   readonly durationP95Ms: number | null;
+  readonly featureFlagContextAvailability: 'available' | 'unavailable';
   readonly featureFlags: readonly RendererLongTaskFeatureFlagSummary[];
   readonly maxDurationMs: number | null;
   readonly routes: readonly RendererLongTaskRouteSummary[];
@@ -53,10 +49,12 @@ interface RendererLongTaskTelemetryOptions {
 }
 
 export interface RendererLongTaskTelemetry {
+  readonly getSnapshot: () => RendererLongTaskTelemetrySnapshot;
   readonly observe: (getContext: () => RendererLongTaskContext) => () => void;
   readonly record: (metric: RendererLongTaskMetric) => void;
   readonly reset: () => void;
   readonly snapshot: () => RendererLongTaskTelemetrySnapshot;
+  readonly subscribe: (listener: () => void) => () => void;
 }
 
 function readPercentile(sortedValues: readonly number[], percentile: number): number | null {
@@ -84,6 +82,11 @@ export function createRendererLongTaskTelemetry(
   }
 
   let availability: RendererLongTaskTelemetrySnapshot['availability'] = 'idle';
+  let activeObserver: PerformanceObserver | null = null;
+  let featureFlagContextAvailability: RendererLongTaskTelemetrySnapshot['featureFlagContextAvailability'] =
+    'unavailable';
+  const listeners = new Set<() => void>();
+  let refreshInterval: ReturnType<typeof setInterval> | null = null;
   let samples: RendererLongTaskSample[] = [];
   let unavailableReason: string | null = null;
 
@@ -92,33 +95,17 @@ export function createRendererLongTaskTelemetry(
     samples = samples.filter((sample) => sample.observedAt >= threshold);
   };
 
-  const record = (metric: RendererLongTaskMetric): void => {
-    if (!(Number.isFinite(metric.durationMs) && metric.durationMs >= LONG_TASK_MIN_DURATION_MS)) {
-      return;
-    }
-    const observedAt = now();
-    samples.push({
-      ...metric,
-      enabledFeatureFlags: [...new Set(metric.enabledFeatureFlags)],
-      observedAt,
-    });
-    prune(observedAt);
-    if (samples.length > maxSamples) {
-      samples.splice(0, samples.length - maxSamples);
-    }
-  };
-
-  const snapshot = (): RendererLongTaskTelemetrySnapshot => {
-    const snapshotAt = now();
-    prune(snapshotAt);
-    const durations = samples
+  const buildSnapshot = (snapshotAt: number): RendererLongTaskTelemetrySnapshot => {
+    const threshold = snapshotAt - windowMs;
+    const currentSamples = samples.filter((sample) => sample.observedAt >= threshold);
+    const durations = currentSamples
       .map((sample) => sample.durationMs)
       .sort((left, right) => left - right);
     const countsByRoute = new Map<RendererDiagnosticSurface, number>();
     const countsByFeatureFlag = new Map<string, number>();
-    for (const sample of samples) {
+    for (const sample of currentSamples) {
       countsByRoute.set(sample.route, (countsByRoute.get(sample.route) ?? 0) + 1);
-      for (const flag of sample.enabledFeatureFlags) {
+      for (const flag of sample.enabledFeatureFlags ?? []) {
         countsByFeatureFlag.set(flag, (countsByFeatureFlag.get(flag) ?? 0) + 1);
       }
     }
@@ -132,58 +119,155 @@ export function createRendererLongTaskTelemetry(
       availability,
       durationP50Ms: readPercentile(durations, 0.5),
       durationP95Ms: readPercentile(durations, 0.95),
+      featureFlagContextAvailability,
       featureFlags,
       maxDurationMs: durations.at(-1) ?? null,
       routes,
-      sampleCount: samples.length,
+      sampleCount: currentSamples.length,
       snapshotAt,
       unavailableReason,
       windowMs,
     };
   };
 
+  let currentSnapshot = buildSnapshot(now());
+
+  const publish = (): void => {
+    currentSnapshot = buildSnapshot(now());
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+
+  const record = (metric: RendererLongTaskMetric): void => {
+    if (!(Number.isFinite(metric.durationMs) && metric.durationMs >= LONG_TASK_MIN_DURATION_MS)) {
+      return;
+    }
+    const observedAt = now();
+    featureFlagContextAvailability =
+      metric.enabledFeatureFlags === null ? 'unavailable' : 'available';
+    availability = 'active';
+    unavailableReason = null;
+    samples.push({
+      ...metric,
+      enabledFeatureFlags:
+        metric.enabledFeatureFlags === null
+          ? null
+          : [...new Set(metric.enabledFeatureFlags)].sort((left, right) =>
+              left.localeCompare(right)
+            ),
+      observedAt,
+    });
+    prune(observedAt);
+    if (samples.length > maxSamples) {
+      samples.splice(0, samples.length - maxSamples);
+    }
+    publish();
+  };
+
+  const snapshot = (): RendererLongTaskTelemetrySnapshot => buildSnapshot(now());
+
+  const getSnapshot = (): RendererLongTaskTelemetrySnapshot => currentSnapshot;
+
+  const subscribe = (listener: () => void): (() => void) => {
+    listeners.add(listener);
+    if (refreshInterval === null) {
+      refreshInterval = setInterval(() => {
+        const sampleCountBeforePrune = samples.length;
+        prune(now());
+        if (samples.length !== sampleCountBeforePrune) {
+          publish();
+        }
+      }, 1000);
+    }
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0 && refreshInterval !== null) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+      }
+    };
+  };
+
   const observe = (getContext: () => RendererLongTaskContext): (() => void) => {
+    if (activeObserver !== null) {
+      throw new Error('Renderer long-task telemetry observer is already active.');
+    }
     if (typeof PerformanceObserver === 'undefined') {
       availability = 'unsupported';
       unavailableReason = 'PerformanceObserver is unavailable in this renderer.';
+      publish();
       return () => undefined;
     }
+    let observer: PerformanceObserver | null = null;
     try {
       const supportedEntryTypes = PerformanceObserver.supportedEntryTypes;
       if (supportedEntryTypes.length > 0 && !supportedEntryTypes.includes('longtask')) {
         availability = 'unsupported';
         unavailableReason = 'This renderer does not support PerformanceObserver longtask entries.';
+        publish();
         return () => undefined;
       }
 
-      const observer = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-          if (entry.entryType !== 'longtask' || entry.duration < LONG_TASK_MIN_DURATION_MS) {
-            continue;
+      const initialContext = getContext();
+      featureFlagContextAvailability =
+        initialContext.enabledFeatureFlags === null ? 'unavailable' : 'available';
+
+      const createdObserver = new PerformanceObserver((list) => {
+        try {
+          for (const entry of list.getEntries()) {
+            if (entry.entryType !== 'longtask' || entry.duration < LONG_TASK_MIN_DURATION_MS) {
+              continue;
+            }
+            record({ ...getContext(), durationMs: entry.duration });
           }
-          record({ ...getContext(), durationMs: entry.duration });
+        } catch (error) {
+          createdObserver.disconnect();
+          if (activeObserver === createdObserver) {
+            activeObserver = null;
+          }
+          availability = 'failed';
+          unavailableReason = error instanceof Error ? error.message : String(error);
+          publish();
         }
       });
-      observer.observe({ entryTypes: ['longtask'] });
+      observer = createdObserver;
+      activeObserver = createdObserver;
+      createdObserver.observe({ entryTypes: ['longtask'] });
       availability = 'active';
       unavailableReason = null;
+      publish();
       return () => {
-        observer.disconnect();
+        if (activeObserver === createdObserver) {
+          createdObserver.disconnect();
+          activeObserver = null;
+          availability = 'idle';
+          publish();
+        }
       };
     } catch (error) {
+      observer?.disconnect();
+      if (activeObserver === observer) {
+        activeObserver = null;
+      }
       availability = 'failed';
       unavailableReason = error instanceof Error ? error.message : String(error);
+      publish();
       return () => undefined;
     }
   };
 
   const reset = (): void => {
+    activeObserver?.disconnect();
+    activeObserver = null;
     availability = 'idle';
+    featureFlagContextAvailability = 'unavailable';
     samples = [];
     unavailableReason = null;
+    publish();
   };
 
-  return { observe, record, reset, snapshot };
+  return { getSnapshot, observe, record, reset, snapshot, subscribe };
 }
 
 export const rendererLongTaskTelemetry = createRendererLongTaskTelemetry();

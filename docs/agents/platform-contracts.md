@@ -595,8 +595,13 @@ renderer by
 `packages/app-shell/src/diagnostics/renderer-long-task-telemetry.ts`, retained
 in a bounded one-minute/512-sample window, and shown in System Diagnostics.
 Only duration, the coarse app route, and enabled feature-flag identifiers are
-retained. Unsupported or failed `PerformanceObserver` setup is represented
-explicitly in the snapshot; it never silently degrades. Do not write routine
+retained. The app shell accepts feature flags only from an authoritative
+app-owned registry; when no registry is wired, the snapshot and System
+Diagnostics say that the context is unavailable instead of treating an empty
+placeholder as "no flags active." The observer remains mounted across route
+changes and reads current context at delivery time. Unsupported or failed
+`PerformanceObserver` setup is represented explicitly in the snapshot; it
+never silently degrades. Do not write routine
 performance samples into
 `brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
 failure signals, drives the unseen-error chip, and is the wrong cardinality and
