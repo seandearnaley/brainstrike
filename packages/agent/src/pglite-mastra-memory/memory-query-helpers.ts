@@ -91,7 +91,11 @@ export function normalizePage(value: number | undefined): number {
   return page;
 }
 
-export function pagination(total: number, page: number, perPage: number | false) {
+export function pagination(
+  total: number,
+  page: number,
+  perPage: number | false
+): { hasMore: boolean; page: number; perPage: number | false; total: number } {
   if (perPage === false) {
     return { hasMore: false, page: 0, perPage, total };
   }
