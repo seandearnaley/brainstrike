@@ -79,6 +79,17 @@ describe('extractPrimaryArg display truncation (BST-949)', () => {
     expect(pathSummary?.display).not.toContain('\uFFFD');
   });
 
+  it('preserves surrogate pairs at both path truncation boundaries', () => {
+    const path = `${'🧠'.repeat(30)}/${'segment/'.repeat(20)}${'📁'.repeat(45)}`;
+    const summary = extractPrimaryArg({ path }, undefined);
+    const displayCodePoints = [...(summary?.display ?? '')];
+
+    expect(displayCodePoints).toHaveLength(64);
+    expect(displayCodePoints[24]).toBe('…');
+    expect(summary?.display).not.toContain('\uFFFD');
+    expect(summary?.full).toBe(path);
+  });
+
   it('never exceeds the cap for any long value', () => {
     for (const value of [
       '/'.repeat(300),
