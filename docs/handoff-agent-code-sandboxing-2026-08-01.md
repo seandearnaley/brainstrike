@@ -177,16 +177,42 @@ domains" — the latter per-call, argument-aware, structurally ungrantable);
 `run_python` vs `executeCommand`, already covered and strictly more dangerous);
 six seam gaps listed in the spec.
 
-### BST-1068 — Windows fence · **awaiting a human, do not merge**
+### BST-1068 — Windows fence · **human results ARE IN** · PR #2191
 
-PR #2191 is open and complete on the agent side. A human Windows reviewer is
-executing the test plan. **Three results could change the recommendation**:
-§6.3 raw TCP (must be exactly `WinError 10013`), §6.4/d1 the Python/OpenSSL
-revocation leg, §6.6 the median that decides per-exec vs per-workspace policy.
+The Windows reviewer ran the plan on a real provisioned host (Windows 11 x64,
+Node 24.14.0) and posted **7 findings, 4 of them P1**. The plan did its job: it
+contradicted the document rather than confirming it. Being worked now — check the
+PR for the resolved state before trusting the summary below.
 
-Current recommendation: **absent factory on win32**, no elevated-install prompt.
-The blocker is *expressibility*, not maturity — Windows srt fixes filesystem
-scope at `initialize()`, so a per-execution `ExecPolicy` cannot be honoured.
+**The premise that failed.** §6.8 assumed `realpath` resolves 8.3 short names via
+`GetFinalPathNameByHandleW`. It does not: `cmd` produced `C:\SRT-SP~1\PROGRA~1`
+and `fs.realpathSync` returned it unchanged. That was load-bearing for the
+short-name-aliasing analysis, and it may be the same class of gap as BST-1074's
+JS-vs-native `realpath` finding — worth checking whether `realpath.native`
+behaves differently on Windows.
+
+**The number the recommendation hinges on.** Ten real `initialize()`/`reset()`
+cycles measured **~1531–1555 ms each** — that is the §6.6 per-exec-vs-per-workspace
+decision, now measured rather than assumed, and it speaks directly to the
+expressibility argument.
+
+**Two tests that didn't prove what they claimed** (the same class the plan swept
+for — one survived the sweep): the `allowRead`-only fixture at `C:\srt-spike`
+inherited `Authenticated Users:(OI)(CI)(M)` from the default `C:\` ACL, and since
+srt only *adds* grants it never demonstrated the restriction; and `t_c.py` — which
+unconditionally treats successful HTTP as FAIL — was reused after widening
+`allowedDomains`, where success is the expected outcome.
+
+**Also measured:** CPython's real denial shape is `PermissionError errno=13
+winerror=None` (the branch expected a `winerror`); `%APPDATA%\Roaming\Python`
+already existed, so the `expect False` precondition can't establish where
+`pip --user` writes; and both curl runs returned HTTP 200 under Schannel, leaving
+the revocation differential with no defined outcome.
+
+**Recommendation before these results:** absent factory on win32, no
+elevated-install prompt, blocked on *expressibility* rather than maturity
+(Windows srt fixes filesystem scope at `initialize()`). **Whether it survives the
+new evidence is the open question — read the PR, not this paragraph.**
 
 ### BST-1063 — PGlite 0.5.4 · **draft PR #2206 · DO NOT MERGE**
 
