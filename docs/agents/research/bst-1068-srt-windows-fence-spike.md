@@ -358,7 +358,7 @@ any future Windows fence:
 | Never pass `filesystem.allowRead`/`allowWrite` in `wrapWithSandboxArgv`'s `customConfig` | it throws on Windows (§1.7.1). Per-exec **denies** are fine |
 | Never call `wrapWithSandbox()` | throws on Windows (§1.8) |
 | Replace the POSIX quoter | `shellQuote()`'s `'…'` form is not quoting to `cmd.exe` |
-| Replace the process-tree kill | `process.kill(-pid, …)` is POSIX process-group semantics; `detached: true` on Windows opens a new console, not a group. The real sandboxed child is a grandchild under srt-win's job object. **Unverified** — §6.7 |
+| Replace the process-tree kill | `process.kill(-pid, …)` is POSIX process-group semantics; `detached: true` on Windows opens a new console, not a group. The real sandboxed child is a grandchild under srt-win's job object. **Unverified** — §6.7. Note the repo already has a Windows Job Object addon, `packages/windows-job-native` (`initialize()` / `terminateOtherProcesses()` / `activeProcessCount()`), today wired only into `apps/desktop/scripts/start-agent-devtools-session.mjs` for dev process trees — if §6.7 shows srt-win's own job object does not suffice, extend that rather than writing a third kill path |
 | Set `windows.srtWin.path` (asar-unpacked) and `windows.proxyPortRange` matching the install | no ambient default; a range mismatch is a total egress outage (§1.3, §1.8) |
 | Budget the reset/initialize round trip | it re-stamps every ACE. If it costs more than a fraction of a second, per-exec policy is unaffordable on Windows and the design needs a per-workspace session model. **Unmeasured** — §6.6 |
 
@@ -697,7 +697,10 @@ log for 5 s.
 > process groups do not exist on Windows. Record whether the log stops growing
 > within 2 s. If the job object does the work, a Windows fence needs no kill
 > logic of its own beyond closing the broker's child; if it does not,
-> cancellation needs a Windows-specific implementation and that is a ticket.
+> cancellation needs a Windows-specific implementation and that is a ticket —
+> and it should extend the existing `packages/windows-job-native` addon (already
+> built and tested in CI, currently dev-tooling-only) rather than add a third
+> kill path.
 
 ### 6.8 Teardown
 
