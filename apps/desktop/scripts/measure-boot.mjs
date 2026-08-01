@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -10,9 +10,15 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(scriptDirectory, '..');
+const repoRoot = path.resolve(desktopRoot, '..', '..');
 const resultsPath = path.join(scriptDirectory, 'measure-boot-results.json');
 const bootMarkPattern = /^BOOT_MARK (app-ready|assistant-listening) ([0-9]+(?:\.[0-9]+)?)$/;
 const minimumRuns = 10;
+// Electron's own SIGTERM handler in apps/desktop/src/main.ts runs a graceful
+// shutdown bounded by a 5000ms forced-exit ceiling (SIGNAL_SHUTDOWN_TIMEOUT_MS).
+// Give that its full budget plus OS/process-teardown slack before escalating
+// to SIGKILL, so a normal graceful shutdown is never mistaken for a hang.
+const terminationGraceMs = 7000;
 
 function readOption(name) {
   const prefix = `--${name}=`;
@@ -37,7 +43,23 @@ function printUsage() {
     '  --app=<path>         Built app directory passed to Electron (default: desktop package)\n'
   );
   process.stdout.write('  --timeout-ms=<ms>    Per-run timeout (default: 120000)\n');
-  process.stdout.write('  --help               Show this help\n');
+  process.stdout.write('  --help               Show this help\n\n');
+  process.stdout.write(
+    'Methodology notes:\n' +
+      '  - Launches the real production boot path: no ELECTRON_IS_E2E_TEST / \n' +
+      "    --test-mode. Profile isolation uses only Electron's native \n" +
+      '    --user-data-dir flag, so this measures the same startup code path a \n' +
+      '    real user hits (E2E test mode changes launch mode, macOS activation \n' +
+      '    policy, secret handling, and preference overrides -- not appropriate \n' +
+      '    for a boot-latency measurement).\n' +
+      '  - Runs one discarded warm-up launch first (profile creation + PGlite \n' +
+      '    migrations happen once, not once per measured run), then reuses that \n' +
+      '    same warmed profile directory for all --n measured runs. This reports \n' +
+      "    steady-state repeat-boot latency (a returning user's daily launch), \n" +
+      '    not first-ever-launch latency. Pass --n=1 twice with separate \n' +
+      '    --label values (e.g. cold-* / warm-*) if you need the first-launch \n' +
+      '    number specifically.\n'
+  );
 }
 
 function requireNonEmptyOption(name) {
@@ -69,6 +91,24 @@ function resolveDefaultElectronBinary() {
     );
   }
   return electronBinary;
+}
+
+function toRepoRelative(absolutePath) {
+  const relative = path.relative(repoRoot, absolutePath);
+  // Never leak a path outside the repo (or the machine-specific prefix that
+  // implies) into committed results -- fall back to just the basename.
+  return relative.startsWith('..') ? path.basename(absolutePath) : relative;
+}
+
+function detectElectronVersion(binaryPath) {
+  try {
+    return execFileSync(binaryPath, ['--version'], {
+      encoding: 'utf8',
+      timeout: 15_000,
+    }).trim();
+  } catch {
+    return null;
+  }
 }
 
 function percentile(sortedValues, fraction) {
@@ -115,6 +155,14 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
     const outputTail = [];
     let stdoutBuffer = '';
     let settled = false;
+    // Set once we've decided to kill the child ourselves (timeout or a
+    // parse error). The promise only settles from the 'exit' handler, once
+    // the OS confirms the process is actually gone -- never immediately on
+    // kill() -- so the next sequential run (or the caller's directory
+    // cleanup) never races a still-shutting-down process holding the same
+    // user-data directory / PGlite files open.
+    let pendingError = null;
+    let killEscalationTimer = null;
     const spawnEpochMs = performance.timeOrigin + performance.now();
     const child = spawn(
       binaryPath,
@@ -131,8 +179,6 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
           BRAINSTRIKE_BOOT_MEASURE_QUIT_AFTER_LISTEN: '1',
           BRAINSTRIKE_BOOT_MEASURE_START_MS: String(spawnEpochMs),
           BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
-          BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDirectory,
-          ELECTRON_IS_E2E_TEST: 'true',
           NO_COLOR: '1',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -146,6 +192,17 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
       }
     };
 
+    function terminate(error) {
+      if (pendingError || settled) {
+        return;
+      }
+      pendingError = error;
+      child.kill('SIGTERM');
+      killEscalationTimer = setTimeout(() => {
+        child.kill('SIGKILL');
+      }, terminationGraceMs);
+    }
+
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
       stdoutBuffer += chunk;
@@ -156,12 +213,7 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
         try {
           parseOutputLine(line, marks);
         } catch (error) {
-          if (!settled) {
-            settled = true;
-            clearTimeout(timeout);
-            child.kill('SIGTERM');
-            reject(error);
-          }
+          terminate(error);
         }
       }
     });
@@ -175,11 +227,15 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
     });
 
     child.once('error', (error) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        reject(error);
+      if (settled) {
+        return;
       }
+      settled = true;
+      clearTimeout(timeout);
+      if (killEscalationTimer) {
+        clearTimeout(killEscalationTimer);
+      }
+      reject(error);
     });
     child.once('exit', (code, signal) => {
       if (settled) {
@@ -187,6 +243,13 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
       }
       settled = true;
       clearTimeout(timeout);
+      if (killEscalationTimer) {
+        clearTimeout(killEscalationTimer);
+      }
+      if (pendingError) {
+        reject(pendingError);
+        return;
+      }
       if (stdoutBuffer) {
         rememberOutput(`stdout: ${stdoutBuffer}`);
         parseOutputLine(stdoutBuffer, marks);
@@ -214,12 +277,7 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
     });
 
     const timeout = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      child.kill('SIGTERM');
-      reject(
+      terminate(
         new Error(
           `Electron boot measurement timed out after ${timeoutMs} ms.\n${outputTail.join('\n')}`
         )
@@ -272,6 +330,18 @@ async function main() {
   const runs = [];
 
   try {
+    // Discarded warm-up run: the first launch against a fresh profile pays
+    // one-time costs (userData directory creation, PGlite bootstrap and
+    // migrations) that a returning user's daily boot never pays. Without
+    // this, run 1 is not an outlier -- it is simply measuring something
+    // different from runs 2..N, which biases the summary statistics (a
+    // wide stdev that is really just "cold profile" hiding in the data).
+    // All --n measured runs below reuse this same warmed profile directory,
+    // so they report steady-state repeat-boot latency.
+    process.stdout.write('Warm-up run (discarded, not recorded)... ');
+    await runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory });
+    process.stdout.write('done\n');
+
     for (let index = 0; index < runCount; index += 1) {
       process.stdout.write(`Run ${index + 1}/${runCount}... `);
       const run = await runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory });
@@ -290,12 +360,21 @@ async function main() {
   };
   const results = await readResults();
   results.labels[label] = {
-    appPath,
-    binaryPath,
+    appPath: toRepoRelative(appPath),
+    binaryPath: toRepoRelative(binaryPath),
     capturedAt: new Date().toISOString(),
+    conditions:
+      'Not a controlled benchmark host: see the PR/commit that captured this label for ' +
+      'concurrent-load caveats. Treat as indicative, not authoritative -- do not diff a ' +
+      'future clean-host label against this one without capturing both under matching ' +
+      'conditions.',
+    electronVersion: detectElectronVersion(binaryPath),
     n: runCount,
+    nodeVersion: process.version,
+    platform: `${process.platform}-${process.arch}`,
     runs,
     summaries,
+    warmUp: 'discarded (profile-warmed before measured runs; see script header comment)',
   };
   await writeFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`, 'utf8');
   printSummary(label, runCount, summaries);

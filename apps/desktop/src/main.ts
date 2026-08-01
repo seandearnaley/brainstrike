@@ -32,7 +32,7 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
-import { emitBootMeasurementMark } from './boot-measurement';
+import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import {
@@ -1298,6 +1298,11 @@ if (singleInstanceLockAcquired) {
   app.whenReady().then(async () => {
     try {
       emitBootMeasurementMark('app-ready');
+      // Validated up front (before assistant-server startup) so a malformed
+      // value fails loudly and clearly here, instead of being caught by the
+      // assistant-server try/catch below and mislabeled as an assistant
+      // startup failure.
+      const quitAfterBootMeasurement = shouldQuitAfterBootMeasurement();
       logger.debug('App ready, starting initialization...');
 
       const launchMode = resolveDesktopRendererLaunchMode({
@@ -1555,7 +1560,7 @@ if (singleInstanceLockAcquired) {
         assistantAuthToken = authToken;
         stopAssistantServer = stop;
         logger.debug(`Assistant server started at ${assistantUrl}`);
-        if (process.env['BRAINSTRIKE_BOOT_MEASURE_QUIT_AFTER_LISTEN'] === '1') {
+        if (quitAfterBootMeasurement) {
           app.quit();
           return;
         }
