@@ -11,6 +11,9 @@ const unitWorkflow = await readFile(
   new URL('../../.github/workflows/test.yml', import.meta.url),
   'utf8'
 );
+const dbPackageJson = JSON.parse(
+  await readFile(new URL('../../packages/db/package.json', import.meta.url), 'utf8')
+);
 
 function parseCoverageDbShards(source) {
   const start = source.indexOf('  db-coverage-shard:\n');
@@ -38,6 +41,12 @@ function toShardIds(rows) {
   return rows.map((row) => `${row.index}/${row.count}`).sort();
 }
 
+function assertCheapDbShardReporter(script) {
+  assert.match(script, /--coverage\.reporter=text/u);
+  assert.match(script, /--reporter=blob/u);
+  assert.doesNotMatch(script, /html|clover|coverage\.reportsDirectory/u);
+}
+
 function assertNativeDbShardContract(unitSource, coverageSource) {
   const unitRows = parseUnitShardMatrix(unitSource).filter((row) => row.partition === 'db');
   const coverageRows = parseCoverageDbShards(coverageSource);
@@ -57,7 +66,13 @@ function assertNativeDbShardContract(unitSource, coverageSource) {
     ['1/2', '2/2'],
     'nightly coverage must run the same complete native Vitest shard set as Unit'
   );
+  const shardJob = coverageSource.slice(
+    coverageSource.indexOf('  db-coverage-shard:\n'),
+    coverageSource.indexOf('\n  db-coverage:\n')
+  );
   assert.match(coverageSource, /pnpm turbo run test:coverage:db:shard/u);
+  assert.match(coverageSource, /DB_TEST_SHARD: \$\{\{ matrix\.vitest_shard \}\}/u);
+  assert.doesNotMatch(shardJob, /--shard=|coverage\.reportsDirectory/u);
   assert.match(coverageSource, /--merge-reports=\.vitest-reports/u);
   assert.match(coverageSource, /if \[ "\$blob_count" -ne 2 \]/u);
   assert.doesNotMatch(
@@ -108,6 +123,10 @@ test('nightly coverage merges DB blobs natively and fans one artifact into the t
   assert.match(workflow, /name: Notify nightly coverage failure[\s\S]*needs:[\s\S]*- coverage/);
 });
 
+test('DB coverage shards emit only the blob plus a cheap text summary', () => {
+  assertCheapDbShardReporter(dbPackageJson.scripts['test:coverage:db:shard']);
+});
+
 test('money test: duplicate nightly shard indices fail parity', () => {
   const mutated = workflow.replace('vitest_shard: 2/2', 'vitest_shard: 1/2');
   assert.notEqual(mutated, workflow, 'the shard-index control must mutate real workflow');
@@ -121,4 +140,13 @@ test('money test: removing native Vitest merge fails the contract', () => {
   const mutated = workflow.replace('--merge-reports=.vitest-reports', '--no-merge-reports');
   assert.notEqual(mutated, workflow, 'the merge control must mutate real workflow');
   assert.throws(() => assertNativeDbShardContract(unitWorkflow, mutated), /merge-reports/);
+});
+
+test('money test: removing the cheap shard reporter fails the contract', () => {
+  const mutated = dbPackageJson.scripts['test:coverage:db:shard'].replace(
+    '--coverage.reporter=text',
+    ''
+  );
+  assert.notEqual(mutated, dbPackageJson.scripts['test:coverage:db:shard']);
+  assert.throws(() => assertCheapDbShardReporter(mutated), /input did not match/u);
 });

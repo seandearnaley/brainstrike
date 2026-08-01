@@ -14,7 +14,6 @@
       "!**/.turbo",
       "!**/build",
       "!**/coverage",
-      "!**/coverage-*",
       "!**/playwright-report",
       "!**/test-results",
       "!**/.vite",

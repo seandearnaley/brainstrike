@@ -81,7 +81,7 @@
     "test:all": "vitest run",
     "test:browser": "vitest run --project browser",
     "test:coverage": "vitest run --project unit --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:coverage:db:shard": "vitest run --project unit --coverage --reporter=default --reporter=blob",
+    "test:coverage:db:shard": "node ../../scripts/run-env.mjs DB_TEST_SHARD_REQUIRED=true -- vitest run --project unit --coverage --coverage.reporter=text --reporter=default --reporter=blob",
     "test:pg-textsearch-durability": "node ../../scripts/run-env.mjs TEST_ENABLE_PG_TEXTSEARCH_DURABILITY=true -- vitest run --project unit --reporter=verbose --disableConsoleIntercept __tests__/pg-textsearch-durability-gate.integration.test.ts",
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",

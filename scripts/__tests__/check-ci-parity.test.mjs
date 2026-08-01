@@ -375,6 +375,22 @@ function assertCacheableTestWorkerModeIsHashed(config) {
   );
 }
 
+function assertDbTestShardEnvIsScoped(rootConfig, dbConfig) {
+  assert.ok(
+    !rootConfig.tasks.test.env?.includes('DB_TEST_SHARD'),
+    'root turbo test must not hash DB_TEST_SHARD for every package in the filter closure'
+  );
+  assert.deepEqual(
+    dbConfig.tasks.test.env,
+    ['$TURBO_EXTENDS$', 'DB_TEST_SHARD'],
+    'packages/db test must append DB_TEST_SHARD to the inherited hashed environment'
+  );
+  assert.ok(
+    rootConfig.tasks['test:coverage:db:shard'].env?.includes('DB_TEST_SHARD'),
+    'the DB coverage shard task must hash DB_TEST_SHARD'
+  );
+}
+
 function assertRootTestPhaseParity(rootPackage) {
   const commands = splitShellCommands(rootPackage.scripts.test);
   assert.equal(commands.length, 2, 'root pnpm test must run unit and integration as two phases');
@@ -743,8 +759,12 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
   assertRootTestPhaseParity(rootPackage);
 
   const turboConfig = parseJsonc(readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8'));
+  const dbTurboConfig = parseJsonc(
+    readFileSync(path.join(repoRoot, 'packages/db/turbo.json'), 'utf8')
+  );
   assertTimeoutMultiplierIsHashed(turboConfig);
   assertCacheableTestWorkerModeIsHashed(turboConfig);
+  assertDbTestShardEnvIsScoped(turboConfig, dbTurboConfig);
 
   for (const taskName of ['test', 'test:browser', 'test:coverage', 'test:coverage:db:shard']) {
     const mutatedTurboConfig = structuredClone(turboConfig);
@@ -770,6 +790,22 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
     () => assertCacheableTestWorkerModeIsHashed(unhashedWorkerMode),
     /turbo test must hash CI/,
     'CONTROL: moving CI back to passThroughEnv must expose the cache false-green'
+  );
+
+  const globallyHashedShard = structuredClone(turboConfig);
+  globallyHashedShard.tasks.test.env.push('DB_TEST_SHARD');
+  assert.throws(
+    () => assertDbTestShardEnvIsScoped(globallyHashedShard, dbTurboConfig),
+    /must not hash DB_TEST_SHARD for every package/,
+    'CONTROL: leaking the shard environment into every unit task must turn the guard red'
+  );
+
+  const unscopedDbShard = structuredClone(dbTurboConfig);
+  unscopedDbShard.tasks.test.env = ['$TURBO_EXTENDS$'];
+  assert.throws(
+    () => assertDbTestShardEnvIsScoped(turboConfig, unscopedDbShard),
+    /must append DB_TEST_SHARD/,
+    'CONTROL: removing the package-local shard hash must turn the guard red'
   );
 
   const mismatchedRootPhases = structuredClone(rootPackage);

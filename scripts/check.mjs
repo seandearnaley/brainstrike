@@ -13,8 +13,8 @@
  * `pnpm -r --filter '!@brainstrike/db' ... run test:coverage` — so a green
  * `pnpm check` had never executed `packages/db`, the largest suite in the repo
  * and the one turbo task that can never be replayed from cache. It also
- * omitted four Static gates outright (`secrets:scan`, `turbo boundaries`,
- * `test:scripts`, and the two db lane checks), including the guard-script gate
+ * omitted three Static gates outright (`secrets:scan`, `turbo boundaries`,
+ * and `test:scripts`), including the guard-script gate
  * that exists to catch exactly this class of false green (BST-836). And its
  * lint step WROTE to the working tree (`biome check . --fix`) where CI's
  * `lint:ci` is read-only.

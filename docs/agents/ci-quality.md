@@ -216,8 +216,11 @@ partition, integration concurrency, and required `Unit` fan-in.
 
 The four physical rows still form three logical package partitions:
 `db`, `heavy`, and `rest`. Only `db` repeats its Turbo package filter; its two
-rows pass Vitest's native `--shard=1/2` and `--shard=2/2` into the single
-`@brainstrike/db#test` invocation. `scripts/unit-shard-partition.mjs` rejects
+rows supply `DB_TEST_SHARD=1/2` and `DB_TEST_SHARD=2/2` to the single
+`@brainstrike/db#test` invocation, whose Vitest config applies the native
+shard. The variable is appended only to the package-level DB Turbo task:
+Turbo CLI passthrough is forbidden here because it also reaches dependency
+and transit tasks. `scripts/unit-shard-partition.mjs` rejects
 missing, duplicate, mixed-count, or divergent-filter rows, so duplicating the
 DB package cannot become a double-run or an empty half silently. Do not apply
 this pattern across packages: it is valid here because DB is one package and
@@ -346,9 +349,8 @@ archive. The final `coverage` job still fails closed unless all seven package
 archives (six general plus the one natively merged DB archive) are present,
 restores them into one workspace, and is the only job that runs
 `coverage:prepare-workspace`, `coverage:enforce`, the merged report, and
-Codecov. Generated `coverage-*` shard directories are ignored by both Git and
-Biome, so validating coverage locally cannot poison a later lint gate with
-Istanbul's vendored HTML assets. Do not replace this with a generated planner
+Codecov. Each shard emits its blob plus a text summary; it does not render the
+unused HTML/Clover report tree. Do not replace this with a generated planner
 or raise the original shared timeout: the split preserves one authoritative
 threshold decision while giving slow packages independent failure and timeout
 domains.
@@ -395,8 +397,8 @@ CI whose divergences were silent:
   `pnpm -r --filter '!@brainstrike/db' --filter '!@brainstrike/embeddings' run test:coverage`.
   **A green `pnpm check` had never run `packages/db`** — the largest suite in
   the repo and the one turbo task that can never be replayed from a cache hit.
-- It omitted four Static gates: `pnpm secrets:scan`, `pnpm exec turbo
-  boundaries`, the two db lane checks, and **`pnpm test:scripts`** — i.e. the
+- It omitted three Static gates: `pnpm secrets:scan`, `pnpm exec turbo
+  boundaries`, and **`pnpm test:scripts`** — i.e. the
   gate that runs the guard-script tests did not run in the local gate that
   guard scripts exist to protect (BST-836 again, one level up).
 - `lint-all` = `pnpm lint && pnpm format`, which **writes** (`biome check .

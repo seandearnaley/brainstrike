@@ -58,8 +58,9 @@ Beat 3 — migration parity (ledger lineage), only when the delta touches
 packages/db/src/migrations/:
 - A migration registered in only one runner means tests pass but
   existing users never see the change. Registration-line PRs only, with
-  their regression tests; gates test:db:check-lanes,
-  test:coverage:db:check-lanes, and the db suite green in the same run.
+  their regression tests; gates `pnpm test:scripts` (including recursive DB
+  test discovery and native-shard contracts) and the db suite green in the
+  same run.
 - Anything SEMANTIC — divergent SQL between runners, ordering
   anomalies, destructive statements, ON CONFLICT catalog mutations — is
   a fingerprinted needs-human ticket, never a fix.

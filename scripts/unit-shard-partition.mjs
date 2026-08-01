@@ -3,6 +3,8 @@
 // The Unit job has four physical runners over three logical package
 // partitions (db / heavy / rest). DB is split again with Vitest's native
 // `--shard=1/2` + `2/2`; both physical rows own the same logical package.
+// The shard id is a task environment input, not a Turbo passthrough argument:
+// passthrough arguments also reach dependency and topo tasks.
 // The turbo `--filter`s must form an exact partition of the affected set:
 //   - db + heavy list packages POSITIVELY (`--filter=@brainstrike/x`)
 //   - rest runs the affected-all base MINUS every package the other shards own
@@ -22,7 +24,7 @@ const PKG = /@brainstrike\/([a-z0-9-]+)/;
  * positive and negation @brainstrike package-name sets for both pr and push
  * filter modes.
  * @param {string} yamlText full contents of test.yml
- * @returns {{ shard: string, partition: string, testArgs: string, vitestShard: {index: number, count: number} | null, pr: {positives: string[], negations: string[]}, push: {positives: string[], negations: string[]} }[]}
+ * @returns {{ shard: string, partition: string, vitestShard: {index: number, count: number} | null, pr: {positives: string[], negations: string[]}, push: {positives: string[], negations: string[]} }[]}
  */
 export function parseUnitShardMatrix(yamlText) {
   const includeStart = yamlText.indexOf('matrix:');
@@ -46,16 +48,16 @@ export function parseUnitShardMatrix(yamlText) {
     if (!partition) {
       throw new Error(`unit-shard matrix row "${shard}" has no explicit partition`);
     }
-    const rawTestArgs = scalarKey(part, 'test_args');
-    if (rawTestArgs === null) {
-      throw new Error(`unit-shard matrix row "${shard}" has no explicit test_args`);
+    const rawVitestShard = scalarKey(part, 'vitest_shard');
+    if (rawVitestShard === null) {
+      throw new Error(`unit-shard matrix row "${shard}" has no explicit vitest_shard`);
     }
-    const testArgs = unquote(rawTestArgs);
-    const shardMatch = /^-- --shard=(\d+)\/(\d+)$/u.exec(testArgs);
-    if (testArgs !== '' && !shardMatch) {
+    const vitestShard = unquote(rawVitestShard);
+    const shardMatch = /^(\d+)\/(\d+)$/u.exec(vitestShard);
+    if (vitestShard !== '' && !shardMatch) {
       throw new Error(
-        `unit-shard matrix row "${shard}" has unsupported test_args "${testArgs}"; ` +
-          'expected empty or exactly "-- --shard=i/N"'
+        `unit-shard matrix row "${shard}" has malformed vitest_shard "${vitestShard}"; ` +
+          'expected empty or exactly "i/N"'
       );
     }
     const prBlock = sliceKey(part, 'pr_filters', 'push_filters');
@@ -65,7 +67,6 @@ export function parseUnitShardMatrix(yamlText) {
       pr: classifyFilters(prBlock),
       push: classifyFilters(pushBlock),
       shard,
-      testArgs,
       vitestShard: shardMatch
         ? { count: Number(shardMatch[2]), index: Number(shardMatch[1]) }
         : null,

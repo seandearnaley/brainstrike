@@ -116,10 +116,8 @@ jobs:
         include:
           - shard: db-1
             vitest_shard: 1/2
-            reports_directory: coverage-db-shard-1
           - shard: db-2
             vitest_shard: 2/2
-            reports_directory: coverage-db-shard-2
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -138,6 +136,7 @@ jobs:
         timeout-minutes: 25
         env:
           COVERAGE: "true"
+          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
           NODE_ENV: test
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: coverage
@@ -148,9 +147,6 @@ jobs:
           --summarize
           --log-order=grouped
           --cache-dir=.turbo
-          --
-          --shard=${{ matrix.vitest_shard }}
-          --coverage.reportsDirectory=${{ matrix.reports_directory }}
 
       - name: Verify DB blob report
         run: |

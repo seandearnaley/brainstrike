@@ -403,13 +403,13 @@
       ],
       "env": [
         "COVERAGE",
+        "DB_TEST_SHARD",
         "NODE_ENV",
         "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
         ".vitest-reports/**",
-        "coverage-db-shard-*/**",
         "test-results/**"
       ],
       "outputLogs": "new-only"

@@ -1,4 +1,7 @@
-import type { RuntimeAssistantMemorySettings } from '@brainstrike/agent/hosted-web';
+import {
+  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
+  type RuntimeAssistantMemorySettings,
+} from '@brainstrike/agent/hosted-web';
 import { describe, expect, it } from 'vitest';
 import {
   parseObservationalMemoryModelTarget,
@@ -79,12 +82,12 @@ describe('parseSemanticRecallEmbeddingModelTarget', () => {
 
 describe('resolveDesktopObserverUsageTarget', () => {
   it.each([
-    [undefined, undefined],
-    [memorySettings(false, 'openai/gpt-5.4-mini'), undefined],
-    [memorySettings(true, 'auto'), undefined],
-    [memorySettings(true, 'invalid'), undefined],
-  ])('returns no usage target when no observer can run', (settings, expected) => {
-    expect(resolveDesktopObserverUsageTarget(settings)).toBe(expected);
+    undefined,
+    memorySettings(false, 'openai/gpt-5.4-mini'),
+    memorySettings(true, OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET),
+    memorySettings(true, 'invalid'),
+  ])('returns no usage target when no observer can run', (settings) => {
+    expect(resolveDesktopObserverUsageTarget(settings)).toBeUndefined();
   });
 
   it('returns the exact explicit observer target', () => {

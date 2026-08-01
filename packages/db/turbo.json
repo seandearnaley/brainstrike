@@ -64,6 +64,10 @@
       // utils#build is needed: migration-runner.ts imports no other workspace
       // package, so no other dist declaration enters the compiler's graph.
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/utils#build"],
+      // Only db#test consumes the native shard identity. Keeping this package-
+      // local prevents the variable from changing cache keys or runtime
+      // behavior for the dependency closure selected by the DB workflow rows.
+      "env": ["$TURBO_EXTENDS$", "DB_TEST_SHARD"],
       // Strict environment mode filtering is INDEPENDENT of caching, so the
       // cache:false carve-out above does NOT exempt db's test task from having
       // CI/COVERAGE stripped. Redeclare passThroughEnv here explicitly as

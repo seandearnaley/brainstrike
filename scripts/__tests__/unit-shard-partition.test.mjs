@@ -21,6 +21,9 @@ test('the real unit-shard matrix is a valid partition', () => {
       { count: 2, index: 2 },
     ]
   );
+  assert.match(workflow, /DB_TEST_SHARD: \$\{\{ matrix\.vitest_shard \}\}/u);
+  assert.match(workflow, /pnpm turbo run test \$\{\{ matrix\.pr_filters \}\}/u);
+  assert.doesNotMatch(workflow, /matrix\.test_args|-- --shard=/u);
   const failures = validateUnitShardPartition(matrix);
   assert.deepEqual(
     failures,
@@ -46,9 +49,6 @@ const shard = (name, positives, negations = [], options = {}) => ({
   pr: { negations: [...negations].sort(), positives: [...positives].sort() },
   push: { negations: [...negations].sort(), positives: [...positives].sort() },
   shard: name,
-  testArgs: options.vitestShard
-    ? `-- --shard=${options.vitestShard.index}/${options.vitestShard.count}`
-    : '',
   vitestShard: options.vitestShard ?? null,
 });
 
@@ -171,8 +171,8 @@ test('flags native Vitest shard-count drift', () => {
   );
 });
 
-test('money test: malformed native passthrough args fail parsing loudly', () => {
-  const mutated = workflow.replace('test_args: -- --shard=1/2', 'test_args: --shard=1/2');
+test('money test: malformed native shard environment value fails parsing loudly', () => {
+  const mutated = workflow.replace('vitest_shard: 1/2', 'vitest_shard: shard-one');
   assert.notEqual(mutated, workflow, 'the control mutation must change the real workflow');
-  assert.throws(() => parseUnitShardMatrix(mutated), /unsupported test_args "--shard=1\/2"/);
+  assert.throws(() => parseUnitShardMatrix(mutated), /malformed vitest_shard "shard-one"/);
 });

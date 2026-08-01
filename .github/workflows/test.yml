@@ -241,12 +241,12 @@ jobs:
             partition: db
             pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
             push_filters: --filter="@brainstrike/db"
-            test_args: -- --shard=1/2
+            vitest_shard: 1/2
           - shard: db-2
             partition: db
             pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
             push_filters: --filter="@brainstrike/db"
-            test_args: -- --shard=2/2
+            vitest_shard: 2/2
           - shard: heavy
             partition: heavy
             pr_filters: >-
@@ -259,7 +259,7 @@ jobs:
               --filter="@brainstrike/ui"
               --filter="@brainstrike/file-explorer-ui"
               --filter="@brainstrike/app-shell"
-            test_args: ''
+            vitest_shard: ''
           - shard: rest
             partition: rest
             pr_filters: >-
@@ -269,7 +269,7 @@ jobs:
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
               --filter="!@brainstrike/app-shell"
-            test_args: ''
+            vitest_shard: ''
             push_filters: >-
               --filter="!@brainstrike/db"
               --filter="!@brainstrike/desktop"
@@ -379,9 +379,10 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           COVERAGE: "false"
+          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4 ${{ matrix.test_args }}
+        run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
 
       - name: Pull request affected integration tests
         if: github.event_name == 'pull_request'
@@ -414,9 +415,10 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
+          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4 ${{ matrix.test_args }}
+        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
         if: github.event_name != 'pull_request'
