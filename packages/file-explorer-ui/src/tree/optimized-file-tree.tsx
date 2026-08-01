@@ -49,6 +49,7 @@ import {
 } from '../utils/normalized-file-tree';
 import { scopeExpandedPathsToRoot } from '../utils/root-scoped-paths';
 import { getSelectionCount } from '../utils/selection-projection';
+import { setsEqual } from '../utils/sets-equal';
 import {
   useOptionalFileTreeContext,
   useOptionalFileTreeIndexContext,
@@ -314,18 +315,7 @@ export const fileTreeTelemetry = {
  * compare is far cheaper than a full row rebuild.
  */
 export function stringSetsEqual(a: Set<string>, b: Set<string>): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.size !== b.size) {
-    return false;
-  }
-  for (const value of a) {
-    if (!b.has(value)) {
-      return false;
-    }
-  }
-  return true;
+  return setsEqual(a, b);
 }
 
 export function resetFileTreeTelemetry(): void {
