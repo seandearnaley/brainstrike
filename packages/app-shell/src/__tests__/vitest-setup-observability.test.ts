@@ -1,9 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { captureConsoleError, REACT_ACT_WARNING_PROBE } from '@brainstrike/test-utils';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
-const consoleErrorAtTestDefinition = console.error;
+const consoleErrorProbe = captureConsoleError();
+
+vi.resetModules();
+await import('../../vitest.setup');
+
+afterAll(() => {
+  consoleErrorProbe.restore();
+});
 
 describe('app-shell Vitest setup observability', () => {
-  it('leaves console.error intact so React synchronization warnings are visible', () => {
-    expect(console.error).toBe(consoleErrorAtTestDefinition);
+  it('forwards React act warnings to console.error', () => {
+    consoleErrorProbe.clear();
+
+    console.error(REACT_ACT_WARNING_PROBE);
+
+    expect(consoleErrorProbe.calls).toContainEqual([REACT_ACT_WARNING_PROBE]);
   });
 });
