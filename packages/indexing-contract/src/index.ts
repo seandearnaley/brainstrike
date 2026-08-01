@@ -808,6 +808,7 @@ export interface EmbedWorkerRequest {
   readonly deviceHint: EmbeddingDeviceHint;
   readonly dimensionParameter?: EmbeddingDimensionParameter;
   readonly dtype?: EmbeddingDType;
+  readonly estimatedModelBytes?: number;
   readonly id: string;
   readonly maxBatchSize?: number;
   readonly model: string;
@@ -828,7 +829,7 @@ export interface EmbedWorkerProgress {
 export interface EmbedWorkerPipelineCacheMemoryDiagnostic {
   readonly gpuBytes: number | null;
   readonly heapBytes: number | null;
-  readonly reason: 'browser-runtime-unavailable' | 'measured';
+  readonly reason: 'browser-runtime-unavailable' | 'measured' | 'model-size-estimate';
 }
 
 export interface EmbedWorkerPipelineCacheEntryDiagnostic {
@@ -882,9 +883,12 @@ export interface EmbedWorkerBatch {
   readonly batchIndex: number;
   readonly endIndex: number;
   readonly id: string;
+  readonly peakVectorsInFlight: number;
   readonly startIndex: number;
+  readonly transferBytes: number;
   readonly type: 'batch';
   readonly vectors: readonly Float32Array[];
+  readonly vectorsInFlight: number;
 }
 
 export interface EmbedWorkerSuccess {

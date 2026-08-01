@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  getEmbeddingTelemetrySnapshot,
+  resetEmbeddingTelemetryForTests,
+} from '../src/embedding-telemetry';
 import type {
   EmbedWorkerBatch,
   EmbedWorkerPipelineCacheDiagnostic,
@@ -69,6 +73,10 @@ const flushMicrotasks = async (): Promise<void> => {
 };
 
 describe('StreamingEmbeddingWorkerClient', () => {
+  beforeEach(() => {
+    resetEmbeddingTelemetryForTests();
+  });
+
   it('aggregates streamed vectors through embed()', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
@@ -80,9 +88,12 @@ describe('StreamingEmbeddingWorkerClient', () => {
       batchIndex: 0,
       endIndex: 1,
       id: 'embed-1',
+      peakVectorsInFlight: 1,
       startIndex: 0,
+      transferBytes: 8,
       type: 'batch',
       vectors: [new Float32Array([1, 2])],
+      vectorsInFlight: 1,
     } satisfies EmbedWorkerBatch);
     worker.emitMessage({
       id: 'embed-1',
@@ -164,9 +175,12 @@ describe('StreamingEmbeddingWorkerClient', () => {
       batchIndex: 0,
       endIndex: 1,
       id: 'embed-1',
+      peakVectorsInFlight: 1,
       startIndex: 0,
+      transferBytes: 12,
       type: 'batch',
       vectors: [new Float32Array([1, 2, 3])],
+      vectorsInFlight: 1,
     } satisfies EmbedWorkerBatch);
     worker.emitMessage({
       id: 'embed-1',
@@ -199,6 +213,27 @@ describe('StreamingEmbeddingWorkerClient', () => {
       batchIndex: 0,
       id: 'embed-1',
       type: 'stream-ack',
+    });
+    expect(getEmbeddingTelemetrySnapshot()).toMatchObject({
+      batchTransfer: {
+        batchCount: 1,
+        totalBytes: 12,
+      },
+      cache: {
+        residentCount: 1,
+      },
+      peakVectorsInFlight: 1,
+    });
+
+    client.terminate();
+    expect(getEmbeddingTelemetrySnapshot()).toMatchObject({
+      batchTransfer: {
+        batchCount: 0,
+        totalBytes: 0,
+      },
+      cache: {
+        residentCount: 0,
+      },
     });
   });
 
@@ -293,9 +328,12 @@ describe('StreamingEmbeddingWorkerClient', () => {
       batchIndex: 0,
       endIndex: 1,
       id: 'embed-1',
+      peakVectorsInFlight: 1,
       startIndex: 0,
+      transferBytes: 12,
       type: 'batch',
       vectors: [new Float32Array([1, 2, 3])],
+      vectorsInFlight: 1,
     } satisfies EmbedWorkerBatch);
 
     await expect(streamPromise).rejects.toThrow('batch ack failed');

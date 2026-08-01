@@ -1,7 +1,13 @@
 // Export types and interfaces
 
 // Re-export power broadcast channel name for renderer ↔ worker coordination
-export { POWER_BROADCAST_CHANNEL } from '@brainstrike/embedding-worker';
+export {
+  createEmptyEmbeddingTelemetrySnapshot,
+  type EmbeddingTelemetrySnapshot,
+  getEmbeddingTelemetrySnapshot,
+  POWER_BROADCAST_CHANNEL,
+  subscribeEmbeddingTelemetry,
+} from '@brainstrike/embedding-worker';
 // Export API key validation utilities
 export {
   type ApiKeyValidationResult,
@@ -55,6 +61,7 @@ export type {
 } from './interfaces/provider';
 // Export model dimension helpers
 export { isValidDimension, validateDimensions } from './model-dimensions';
+export { parseModelSizeEstimateBytes } from './model-size-estimate';
 export * from './provider-core';
 export type {
   DistanceMetric,

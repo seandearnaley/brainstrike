@@ -1,4 +1,9 @@
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
+import {
+  recordEmbeddingBatchTelemetry,
+  recordEmbeddingPipelineCacheTelemetry,
+  removeEmbeddingTelemetrySource,
+} from './embedding-telemetry';
 import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
@@ -9,6 +14,8 @@ import type {
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
 } from './shared';
+
+let nextTelemetrySourceId = 1;
 
 interface StartStreamMessage {
   readonly request: EmbedWorkerRequest;
@@ -62,6 +69,7 @@ export class StreamingEmbeddingWorkerClient {
   private readonly runtime: ReturnType<typeof createWorkerRuntimeClient>;
   private readonly transport: ReturnType<typeof createWorkerRuntimeClient>['transport'];
   private executionChain: Promise<void> = Promise.resolve();
+  private readonly telemetrySourceId = `streaming-embedding-worker-${nextTelemetrySourceId++}`;
 
   /**
    * The worker must be supplied explicitly by the owning runtime so URL resolution stays
@@ -93,6 +101,7 @@ export class StreamingEmbeddingWorkerClient {
           activeStream.reject(error);
         }
         this.worker.terminate();
+        removeEmbeddingTelemetrySource(this.telemetrySourceId);
       },
     });
     this.transport = this.runtime.transport;
@@ -174,6 +183,7 @@ export class StreamingEmbeddingWorkerClient {
     this.runtime.clearFailure();
     this.runtime.dispose();
     this.worker.terminate();
+    removeEmbeddingTelemetrySource(this.telemetrySourceId);
   }
 
   private postMessage(message: StreamWorkerMessage): void {
@@ -194,6 +204,7 @@ export class StreamingEmbeddingWorkerClient {
     }
 
     if (payload.type === 'diagnostic') {
+      recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, payload);
       options.onDiagnostic?.(payload);
       return;
     }
@@ -224,6 +235,7 @@ export class StreamingEmbeddingWorkerClient {
     cleanup: StreamCleanup,
     reject: StreamReject
   ): void {
+    recordEmbeddingBatchTelemetry(this.telemetrySourceId, payload);
     void Promise.resolve(options.onBatch?.(payload))
       .then(() => {
         this.postMessage({

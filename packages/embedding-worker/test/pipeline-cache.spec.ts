@@ -268,6 +268,7 @@ describe('pipeline cache metadata and dispose', () => {
 
     await runEmbedding({
       deviceHint: 'wasm',
+      estimatedModelBytes: 300 * 1024 * 1024,
       id: 'cache-diagnostics-load',
       model: 'diagnostic-model',
       texts: ['hello'],
@@ -300,9 +301,9 @@ describe('pipeline cache metadata and dispose', () => {
             dtype: 'fp16',
             lastUsedAt: 0,
             memory: {
-              gpuBytes: null,
-              heapBytes: null,
-              reason: 'browser-runtime-unavailable',
+              gpuBytes: 0,
+              heapBytes: 300 * 1024 * 1024,
+              reason: 'model-size-estimate',
             },
             model: 'diagnostic-model',
           }),

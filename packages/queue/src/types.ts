@@ -16,6 +16,7 @@ export interface EmbedTaskPayload {
   readonly deviceHint: EmbeddingDeviceHint;
   readonly dimensionParameter?: ProviderDimensionParameter;
   readonly dtype?: EmbeddingDType;
+  readonly estimatedModelBytes?: number;
   readonly id: string;
   readonly kind: 'embed';
   readonly maxBatchSize?: number;
@@ -303,6 +304,9 @@ export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
     ...(payload.truncateDim === undefined ? {} : { truncateDim: payload.truncateDim }),
     ...(payload.dtype === undefined ? {} : { dtype: payload.dtype }),
     deviceHint: payload.deviceHint,
+    ...(payload.estimatedModelBytes === undefined
+      ? {}
+      : { estimatedModelBytes: payload.estimatedModelBytes }),
     ...(payload.maxBatchSize === undefined ? {} : { maxBatchSize: payload.maxBatchSize }),
     ...(payload.provider === undefined ? {} : { provider: payload.provider }),
     ...(payload.targetDimension === undefined ? {} : { targetDimension: payload.targetDimension }),

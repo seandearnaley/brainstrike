@@ -154,6 +154,7 @@ interface PipelineCacheEntry {
   readonly createdAt: number;
   readonly device: EmbeddingDevice;
   readonly dtype: EmbeddingDType;
+  estimatedModelBytes: number | null;
   lastUsedAt: number;
   readonly model: string;
   readonly pipeline: Promise<FeatureExtractor>;
@@ -364,11 +365,29 @@ type PipelineCacheDisposalDiagnosticOptions = PipelineCacheDiagnosticOptionsBase
       }
   );
 
-const UNAVAILABLE_PIPELINE_MEMORY = {
-  gpuBytes: null,
-  heapBytes: null,
-  reason: 'browser-runtime-unavailable',
-} as const;
+function resolvePipelineMemory(
+  entry: PipelineCacheEntry
+): EmbedWorkerPipelineCacheEntryDiagnostic['memory'] {
+  if (entry.estimatedModelBytes === null) {
+    return {
+      gpuBytes: null,
+      heapBytes: null,
+      reason: 'browser-runtime-unavailable',
+    };
+  }
+  if (entry.device === 'webgpu') {
+    return {
+      gpuBytes: entry.estimatedModelBytes,
+      heapBytes: 0,
+      reason: 'model-size-estimate',
+    };
+  }
+  return {
+    gpuBytes: 0,
+    heapBytes: entry.estimatedModelBytes,
+    reason: 'model-size-estimate',
+  };
+}
 
 function toPipelineCacheEntryDiagnostic(
   entry: PipelineCacheEntry,
@@ -380,7 +399,7 @@ function toPipelineCacheEntryDiagnostic(
     device: entry.device,
     dtype: entry.dtype,
     lastUsedAt: entry.lastUsedAt,
-    memory: UNAVAILABLE_PIPELINE_MEMORY,
+    memory: resolvePipelineMemory(entry),
     model: entry.model,
     residencyMs: Math.max(0, timestamp - entry.createdAt),
   };
@@ -854,6 +873,7 @@ async function loadPipeline(
   model: string,
   device: EmbeddingDevice,
   dtype: EmbeddingDType,
+  estimatedModelBytes: number | null,
   diagnostics: {
     readonly id?: string;
     readonly sink?: PipelineCacheDiagnosticSink;
@@ -862,6 +882,18 @@ async function loadPipeline(
   const cacheKey = `${model}|${device}|${dtype}`;
   const existing = pipelines.get(cacheKey);
   if (existing !== undefined) {
+    if (
+      estimatedModelBytes !== null &&
+      existing.estimatedModelBytes !== null &&
+      existing.estimatedModelBytes !== estimatedModelBytes
+    ) {
+      throw new Error(
+        `Embedding model size metadata changed for cached pipeline "${cacheKey}": ${existing.estimatedModelBytes} -> ${estimatedModelBytes} bytes.`
+      );
+    }
+    if (existing.estimatedModelBytes === null && estimatedModelBytes !== null) {
+      existing.estimatedModelBytes = estimatedModelBytes;
+    }
     existing.lastUsedAt = now();
     emitPipelineCacheDiagnostic({
       entry: existing,
@@ -885,6 +917,7 @@ async function loadPipeline(
     createdAt: timestamp,
     device,
     dtype,
+    estimatedModelBytes,
     lastUsedAt: timestamp,
     model,
     pipeline: rawLoader.then(
@@ -983,6 +1016,7 @@ function isTransformersTensor(
 interface EmbeddingContext {
   readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
   readonly dtype: EmbeddingDType;
+  readonly estimatedModelBytes: number | null;
   readonly id: string;
   readonly model: string;
   readonly provider?: string;
@@ -1002,8 +1036,18 @@ interface EmbeddingState {
 
 function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
   const requestedDimension = payload.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+  const estimatedModelBytes = payload.estimatedModelBytes ?? null;
+  if (
+    estimatedModelBytes !== null &&
+    !(Number.isSafeInteger(estimatedModelBytes) && estimatedModelBytes > 0)
+  ) {
+    throw new Error(
+      `estimatedModelBytes must be a positive safe integer, received ${String(payload.estimatedModelBytes)}.`
+    );
+  }
   const context: EmbeddingContext = {
     dtype: payload.dtype ?? 'fp16',
+    estimatedModelBytes,
     id: payload.id,
     model: payload.model,
     started: typeof performance === 'undefined' ? Date.now() : performance.now(),
@@ -1091,9 +1135,13 @@ async function processEmbeddings(
   context: EmbeddingContext,
   state: EmbeddingState
 ): Promise<EmbedWorkerSuccess> {
-  const extractor = await loadPipeline(context.model, state.device, context.dtype, {
-    id: context.id,
-  });
+  const extractor = await loadPipeline(
+    context.model,
+    state.device,
+    context.dtype,
+    context.estimatedModelBytes,
+    { id: context.id }
+  );
   const vectors = await runBatches(context, state, extractor);
   if (vectors.length === 0) {
     return buildSuccessResult(context, state, vectors);
@@ -1197,13 +1245,20 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     type: 'progress',
   });
 
-  const extractor = await loadPipeline(context.model, state.device, context.dtype, {
-    id: context.id,
-    sink: postStreamEvent,
-  });
+  const extractor = await loadPipeline(
+    context.model,
+    state.device,
+    context.dtype,
+    context.estimatedModelBytes,
+    {
+      id: context.id,
+      sink: postStreamEvent,
+    }
+  );
   const runtime = await getTransformersRuntime();
   let batchIndex = 0;
   let dimensions = context.truncateDim ?? 0;
+  let peakVectorsInFlight = 0;
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
@@ -1223,16 +1278,26 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     }
     dimensions = vectorsFromBatch[0]?.length ?? dimensions;
 
+    const transferList = getTransferableBuffers(vectorsFromBatch);
+    const transferBytes = transferList.reduce(
+      (totalBytes, buffer) => totalBytes + buffer.byteLength,
+      0
+    );
+    const vectorsInFlight = vectorsFromBatch.length;
+    peakVectorsInFlight = Math.max(peakVectorsInFlight, vectorsInFlight);
     postStreamEvent(
       {
         batchIndex,
         endIndex,
         id,
+        peakVectorsInFlight,
         startIndex,
+        transferBytes,
         type: 'batch',
         vectors: vectorsFromBatch,
+        vectorsInFlight,
       },
-      vectorsFromBatch.map((vector) => vector.buffer)
+      transferList
     );
 
     postStreamEvent({
