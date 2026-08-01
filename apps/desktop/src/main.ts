@@ -32,6 +32,7 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
+import { emitBootMeasurementMark } from './boot-measurement';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import {
@@ -1296,6 +1297,7 @@ if (singleInstanceLockAcquired) {
 
   app.whenReady().then(async () => {
     try {
+      emitBootMeasurementMark('app-ready');
       logger.debug('App ready, starting initialization...');
 
       const launchMode = resolveDesktopRendererLaunchMode({
@@ -1553,6 +1555,10 @@ if (singleInstanceLockAcquired) {
         assistantAuthToken = authToken;
         stopAssistantServer = stop;
         logger.debug(`Assistant server started at ${assistantUrl}`);
+        if (process.env['BRAINSTRIKE_BOOT_MEASURE_QUIT_AFTER_LISTEN'] === '1') {
+          app.quit();
+          return;
+        }
       } catch (err) {
         // Captured and surfaced to the renderer via assistant:get-auth — the
         // availability probe presents it as an error state instead of the app
