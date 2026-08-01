@@ -96,6 +96,8 @@ half-finished branch you have to reconstruct intent from.
 | Ticket | PR | State on handoff |
 | --- | --- | --- |
 | BST-1061 | #2205 **MERGED** (`aa91862b4`) | Done. Nothing to pick up — see below before touching the bundled interpreter |
+| BST-1067 | #2213 **green + mergeable** | `run_python` implemented; two review rounds, all threads resolved. Network structurally absent — read §4 before touching |
+| BST-1083 | #2216 open | MCP session-termination assertion, pre-existing on `main`. Fixes a red required check for ANY agent-touching PR |
 | BST-1063 | #2206 **DO NOT MERGE** | bump works for greenfield only. [BST-1081](https://linear.app/brainstrike/issue/BST-1081) Urgent + [BST-1080](https://linear.app/brainstrike/issue/BST-1080) filed. Both obvious fixes ruled out — read below |
 | BST-1064 | #2207 draft | harness fixed and re-measured (stdev 295 ms → 18 ms), premise disproved, baseline still owed |
 | BST-1068 | #2191 open | human hardware run complete; recommendation survived and is now numeric |
@@ -105,6 +107,26 @@ the findings outweigh the diff, and two of the four changed what their ticket wa
 even asking for.
 
 ---
+
+> **CI blockers that are NOT your change — check these before debugging your own diff.**
+> Two pre-existing `main` failures repeatedly fail the required `Unit` check,
+> and both cost real time to attribute:
+>
+> - **[BST-1072](https://linear.app/brainstrike/issue/BST-1072) (High)** — the
+>   `packages/embeddings` integration lane crashes a vitest worker
+>   (`[vitest-pool]: Worker exited unexpectedly`). The ticket originally blamed
+>   root-config edits; that is too narrow. The real trigger is **anything that
+>   marks embeddings as affected**, which includes touching a widely-depended-on
+>   package like `assistant-contract`. Seen on **5 of 6 observed runs**. Does NOT
+>   reproduce on macOS (74/74 locally) — it is Linux-runner-specific.
+> - **[BST-1083](https://linear.app/brainstrike/issue/BST-1083) (High, PR #2216)**
+>   — an MCP test asserted the session DELETE was the LAST request; an SSE
+>   reconnect GET lands after it under load. Fails the full agent integration
+>   lane on clean `main`, passes in isolation.
+>
+> The `Unit` check itself is only an AGGREGATOR — it reports `SHARD_RESULT`
+> from the sharded lanes, so a red `Unit` always means read `Unit (rest)` /
+> `Unit (heavy)` / `Unit (db-*)` for the real cause.
 
 ## 4. Per-ticket context
 
