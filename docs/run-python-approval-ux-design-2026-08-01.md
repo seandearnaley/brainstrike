@@ -31,7 +31,7 @@ pre-granted.
   ungrantable**.
 
 Everything below is the detail of those two surfaces, the result surface, the
-copy, and the four places the existing code has to change.
+copy, and the twelve places the existing code has to change (§10).
 
 ---
 
