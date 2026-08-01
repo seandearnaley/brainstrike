@@ -65,9 +65,17 @@ error to a model-visible structured failure; it must never fabricate an
   (python-build-standalone, BST-1061) with `@anthropic-ai/sandbox-runtime`
   (Seatbelt / bubblewrap / Windows restricted token). srt is a beta — pin the
   exact version, no caret.
-- **VM executor (mode two)**: design-only ADR (BST-1069);
-  Virtualization.framework, macOS-first. No implementation yet — do not
-  design other code against a VM backend existing.
+- **VM executor (mode two)**: design settled in ADR-0003 (BST-1069) —
+  `docs/adr/0003-mode-two-full-isolation-vm.md`, **Accepted 2026-08-01**.
+  Embeds Virtualization.framework directly in a signed helper process,
+  macOS/Apple silicon first; one warm VM per workspace (cap 1, LRU evict),
+  a rootfs we own and fetch-verify on first enable, granted-folder VirtioFS
+  shares only (never `/` or `$HOME`), no guest NIC at all (egress via a
+  host-side deny-first proxy over vsock), plus a bubblewrap+seccomp fence
+  inside the guest that is load-bearing for policy fidelity, not just defense
+  in depth. Gating mode two on a user-installed Docker/OrbStack/Podman is
+  **rejected** (ADR-0003 D9) — do not propose it as a shortcut. Still no
+  implementation: do not design other code against a VM backend existing.
 
 When changing this flow, update this doc and the paired spec in the same
 change.
