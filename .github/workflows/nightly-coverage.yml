@@ -106,10 +106,18 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  db-coverage:
-    name: Coverage DB
+  db-coverage-shard:
+    name: Coverage DB (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: db-1
+            vitest_shard: 1/2
+          - shard: db-2
+            vitest_shard: 2/2
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -122,56 +130,86 @@ jobs:
       - name: Clear coverage directories
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf .nyc_output
+          rm -rf packages/db/.vitest-reports .nyc_output
 
-      - name: Run DB runtime coverage
-        timeout-minutes: 10
+      - name: Run DB coverage shard
+        timeout-minutes: 25
         env:
           COVERAGE: "true"
+          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
           NODE_ENV: test
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: coverage
         run: >
-          pnpm turbo run test:coverage:db:runtime
+          pnpm turbo run test:coverage:db:shard
           --filter="@brainstrike/db"
           --concurrency=1
           --summarize
           --log-order=grouped
           --cache-dir=.turbo
 
-      - name: Run DB serial coverage lanes
-        timeout-minutes: 30
-        env:
-          COVERAGE: "true"
-          NODE_ENV: test
-          TEST_TIMEOUT_MULTIPLIER: "2"
-          TURBO_TEST_MODE: coverage
-        run: >
-          pnpm turbo run
-          test:coverage:db:architecture
-          test:coverage:db:chunking
-          test:coverage:db:migrations
-          test:coverage:db:queue
-          test:coverage:db:repositories
-          test:coverage:db:search
-          --filter="@brainstrike/db"
-          --concurrency=1
-          --summarize
-          --log-order=grouped
-          --cache-dir=.turbo
-
-      - name: Bundle DB coverage
-        if: always()
+      - name: Verify DB blob report
         run: |
-          find packages/db -type f -name "coverage-final.json" -path "*/coverage-*/*" -print0 > coverage-files
-          if [ ! -s coverage-files ]; then
-            echo "::error::DB coverage produced no coverage artifacts."
+          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          if [ "$blob_count" -ne 1 ]; then
+            echo "::error::Expected one Vitest blob from ${{ matrix.shard }}; found ${blob_count}."
             exit 1
           fi
-          tar --null --files-from=coverage-files --create --file=nightly-coverage-db.tar
+
+      - name: Upload DB blob report
+        uses: actions/upload-artifact@v7
+        with:
+          include-hidden-files: true
+          name: db-vitest-blob-${{ matrix.shard }}
+          path: packages/db/.vitest-reports/blob-*.json
+          retention-days: 7
+          if-no-files-found: error
+
+  db-coverage:
+    name: Coverage DB merge
+    needs: [db-coverage-shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Download DB blob reports
+        uses: actions/download-artifact@v7
+        with:
+          pattern: db-vitest-blob-*
+          path: packages/db/.vitest-reports
+          merge-multiple: true
+
+      - name: Merge DB coverage with Vitest
+        run: |
+          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          if [ "$blob_count" -ne 2 ]; then
+            echo "::error::Expected two Vitest DB blob reports; found ${blob_count}."
+            exit 1
+          fi
+          pnpm --filter @brainstrike/db exec vitest \
+            --merge-reports=.vitest-reports \
+            --project=unit \
+            --coverage \
+            --coverage.reportsDirectory=coverage \
+            --coverage.reporter=json \
+            --coverage.reporter=lcov \
+            --coverage.reporter=text
+          if [ ! -f packages/db/coverage/coverage-final.json ]; then
+            echo "::error::Vitest merged no DB coverage-final.json artifact."
+            exit 1
+          fi
+
+      - name: Bundle DB coverage
+        run: tar --create --file=nightly-coverage-db.tar packages/db/coverage/coverage-final.json
 
       - name: Upload DB coverage
-        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: nightly-coverage-db
@@ -204,7 +242,7 @@ jobs:
       - name: Restore coverage shards
         run: |
           archive_count=$(find .coverage-artifacts -type f -name "nightly-coverage-*.tar" | wc -l | tr -d ' ')
-          # Six package matrix shards plus the dedicated DB shard.
+          # Six package matrix shards plus the natively merged DB archive.
           if [ "$archive_count" -ne 7 ]; then
             echo "::error::Expected 7 coverage shard archives; found ${archive_count}."
             exit 1
@@ -267,12 +305,14 @@ jobs:
     name: Notify nightly coverage failure
     needs:
       - package-coverage
+      - db-coverage-shard
       - db-coverage
       - coverage
     if: >-
       always() &&
       github.event_name == 'schedule' &&
       (needs.package-coverage.result != 'success' ||
+       needs.db-coverage-shard.result != 'success' ||
        needs.db-coverage.result != 'success' ||
        needs.coverage.result != 'success')
     runs-on: ubuntu-latest

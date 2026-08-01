@@ -8,17 +8,15 @@ import { pathToFileURL } from 'node:url';
 const MIGRATIONS_ROOT = 'packages/db/src/migrations';
 const INDEX_PATH = `${MIGRATIONS_ROOT}/index.ts`;
 const DRIZZLE_PATH = 'packages/db/src/drizzle/migrate.ts';
-const LANE_MANIFEST_PATH = 'packages/db/scripts/db-test-lane-manifest.mjs';
 const RUNTIME_BASELINE_PATH = 'packages/db/src/architecture/db-runtime-baseline.ts';
 const FACTORY_RESET_PATHS = [
   'packages/preferences/src/settings/system/factory-reset-helpers.ts',
   'packages/db/src/db-provider.tsx',
   'apps/desktop/src/db-main.ts',
 ];
-const DB_TEST_ROOT = 'packages/db/__tests__/';
 
-// Exit codes follow the Axiom collector convention:
-// 1 = collection error (fail closed), 2 = evidence emitted with blocking gaps.
+// Exit code 1 means collection failed closed. Successful evidence is emitted
+// with exit code 0; classification stays with the Keeper charter.
 function fail(message) {
   process.stderr.write(`collect-ledger-evidence: ${message}\n`);
   process.exit(1);
@@ -217,62 +215,11 @@ function semanticSignals(text) {
   return signals;
 }
 
-// Mirrors buildDbUnitLaneMap semantics: a test is assigned when it matches exactly one
-// LANE. Multiple patterns per lane are house style and must not read as ambiguity, so
-// regexes are grouped by the manifest's per-lane `name:` boundary (which follows each
-// lane's `matches` array in the alphabetized object literal).
-function parseManifestLanes(text) {
-  const lanes = [];
-  let pending = [];
-  text.split(/\r?\n/).forEach((line, offset) => {
-    const trimmed = line.trim();
-    const regexMatch = trimmed.match(/^\/((?:\\.|[^/])+)\/([a-z]*),?$/i);
-    if (regexMatch) {
-      try {
-        pending.push({
-          line: offset + 1,
-          regex: new RegExp(regexMatch[1], regexMatch[2]),
-          source: `/${regexMatch[1]}/${regexMatch[2]}`,
-        });
-      } catch (error) {
-        fail(
-          `invalid lane-manifest regex at line ${offset + 1}: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-      return;
-    }
-    const nameMatch = trimmed.match(/^name:\s*['"]([^'"]+)['"],?$/);
-    if (!nameMatch) {
-      return;
-    }
-    if (!pending.length) {
-      fail(`lane ${nameMatch[1]} declares no parseable regexes in the manifest`);
-    }
-    lanes.push({ name: nameMatch[1], regexes: pending });
-    pending = [];
-  });
-  if (pending.length) {
-    fail(
-      `${pending.length} lane-manifest regexes follow the last lane name and cannot be attributed to a lane`
-    );
-  }
-  if (!lanes.length) {
-    fail('no DB test-lane definitions could be parsed');
-  }
-  return lanes;
-}
-
 // Every hardcoded contract path must exist at the audited revision. A missing path is a
 // moved/renamed contract, and silently returning empty evidence is exactly the
 // stale-user-data fail-open this loop exists to catch.
 function assertContractPaths(repo, revision) {
-  const contractPaths = [
-    INDEX_PATH,
-    DRIZZLE_PATH,
-    LANE_MANIFEST_PATH,
-    RUNTIME_BASELINE_PATH,
-    ...FACTORY_RESET_PATHS,
-  ];
+  const contractPaths = [INDEX_PATH, DRIZZLE_PATH, RUNTIME_BASELINE_PATH, ...FACTORY_RESET_PATHS];
   for (const contractPath of contractPaths) {
     try {
       execFileSync('git', ['-C', repo, 'cat-file', '-e', `${revision}:${contractPath}`], {
@@ -323,7 +270,7 @@ function main() {
       removedMigrations: [],
       repo,
       revision,
-      schemaVersion: 1,
+      schemaVersion: 2,
       semanticReviewCandidates: [],
       watermark,
     };
@@ -341,8 +288,6 @@ function main() {
       `${watermark}..${revision}`,
       '--',
       MIGRATIONS_ROOT,
-      'packages/db/__tests__',
-      LANE_MANIFEST_PATH,
       RUNTIME_BASELINE_PATH,
     ])
   );
@@ -359,23 +304,12 @@ function main() {
   const modifiedExistingMigrations = migrationChanges
     .filter((change) => !(change.status.startsWith('A') || change.status.startsWith('D')))
     .map((change) => ({ change, number: Number(migrationNumber(change.path)), path: change.path }));
-  const newDbTests = changes
-    .filter(
-      (change) =>
-        (change.status.startsWith('A') || change.status.startsWith('R')) &&
-        change.path.startsWith(DB_TEST_ROOT) &&
-        /\.test\.(?:ts|tsx)$/.test(change.path)
-    )
-    .map((change) => change.path.slice(DB_TEST_ROOT.length));
-
   const indexText = readRevisionFile(repo, revision, INDEX_PATH);
   const drizzleText = readRevisionFile(repo, revision, DRIZZLE_PATH);
-  const manifestText = readRevisionFile(repo, revision, LANE_MANIFEST_PATH);
   const indexEntries = migrationArray(indexText, 'export const migrations');
   const customEntries = customMigrationArray(drizzleText);
   const indexOrderProblems = orderProblems(indexEntries, 'numbered-runner');
   const drizzleOrderProblems = orderProblems(customEntries, 'drizzle-customMigrations');
-  const laneDefinitions = parseManifestLanes(manifestText);
 
   const migrationDelta = addedMigrationChanges.map((change) => {
     const text = readRevisionFile(repo, revision, change.path);
@@ -442,37 +376,6 @@ function main() {
   });
   for (const problem of [...indexOrderProblems, ...drizzleOrderProblems]) {
     mechanicalGaps.push({ kind: 'ordering-anomaly', ...problem });
-  }
-
-  const testLaneAssignments = newDbTests.map((path) => {
-    const matchedLanes = laneDefinitions.filter((lane) =>
-      lane.regexes.some((entry) => entry.regex.test(path))
-    );
-    const matches = matchedLanes.flatMap((lane) =>
-      lane.regexes
-        .filter((entry) => entry.regex.test(path))
-        .map((entry) => ({ lane: lane.name, line: entry.line, source: entry.source }))
-    );
-    return {
-      lanes: matchedLanes.map((lane) => lane.name),
-      matches,
-      path,
-      status:
-        matchedLanes.length === 1
-          ? 'assigned'
-          : matchedLanes.length === 0
-            ? 'unassigned'
-            : 'ambiguous',
-    };
-  });
-  for (const assignment of testLaneAssignments.filter(
-    (assignment) => assignment.status !== 'assigned'
-  )) {
-    mechanicalGaps.push({
-      kind: `db-test-lane-${assignment.status}`,
-      matches: assignment.matches,
-      path: assignment.path,
-    });
   }
 
   const newTables = migrationDelta.flatMap((migration) =>
@@ -544,21 +447,11 @@ function main() {
         modifiedExistingMigrations.length > 0 ||
         removedMigrations.length > 0,
     },
-    schemaVersion: 1,
+    schemaVersion: 2,
     semanticReviewCandidates,
-    testLaneAssignments,
     watermark,
   };
   process.stdout.write(`${JSON.stringify(result, null, options.pretty ? 2 : 0)}\n`);
-  // Incomplete test-lane assignment is blocking evidence: emit it and exit 2 so the loop
-  // cannot treat an unassigned or ambiguous lane as a clean run.
-  if (
-    testLaneAssignments.some(
-      (assignment) => assignment.status === 'unassigned' || assignment.status === 'ambiguous'
-    )
-  ) {
-    process.exitCode = 2;
-  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

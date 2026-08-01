@@ -1287,6 +1287,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
       concurrently:
         specifier: 'catalog:'
         version: 10.0.3

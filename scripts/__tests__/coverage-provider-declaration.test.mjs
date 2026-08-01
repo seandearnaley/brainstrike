@@ -26,15 +26,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const COVERAGE_PROVIDER = '@vitest/coverage-v8';
 
 /**
- * Packages that run vitest but ship no `test:coverage`, so their tests are in
- * NO coverage run at all — the same physically-unreal boundary R01 targets,
- * inverted (review #2170). Recorded rather than fixed in-band: adding a package
- * to the coverage aggregate changes what the thresholds measure, which is its
- * own change. Tracked by BST-1045.
- */
-const KNOWN_UNCOVERED_VITEST_PACKAGES = new Set(['packages/assistant-service']);
-
-/**
  * Workspace globs come from pnpm-workspace.yaml so this sweep cannot drift from
  * the real member list — a depth-1 scan silently skipped `packages/config/*`
  * (review #2170).
@@ -95,6 +86,15 @@ function workspacePackages() {
   return found;
 }
 
+function findUncoveredVitestPackages(packages) {
+  return packages
+    .filter(
+      ({ dir, manifest }) =>
+        manifest.scripts?.test && runsVitest(dir) && !manifest.scripts['test:coverage']
+    )
+    .map(({ name }) => name);
+}
+
 test('every package collecting vitest coverage declares the coverage provider', () => {
   const undeclared = [];
   let checked = 0;
@@ -124,30 +124,26 @@ test('every package running vitest actually ships a coverage script', () => {
   // skipped by coverage.yml's `--if-present` and has no task for
   // nightly-coverage.yml, so its tests are measured NOWHERE. The sweep above
   // can never see it — it gates on the very script that is missing.
-  const uncovered = [];
-  for (const { dir, manifest, name } of workspacePackages()) {
-    if (!(manifest.scripts?.test && runsVitest(dir))) {
-      continue;
-    }
-    if (!(manifest.scripts['test:coverage'] || KNOWN_UNCOVERED_VITEST_PACKAGES.has(name))) {
-      uncovered.push(name);
-    }
-  }
+  const uncovered = findUncoveredVitestPackages(workspacePackages());
   assert.deepEqual(
     uncovered,
     [],
     `these packages run vitest but ship no test:coverage, so nothing measures them: ${uncovered.join(', ')}`
   );
-  // The allowlist must shrink, never rot: a stale exemption hides a package
-  // that IS covered and quietly weakens the assertion above.
-  for (const name of KNOWN_UNCOVERED_VITEST_PACKAGES) {
-    const manifest = JSON.parse(readFileSync(path.join(repoRoot, name, 'package.json'), 'utf8'));
-    assert.equal(
-      manifest.scripts?.['test:coverage'],
-      undefined,
-      `${name} now ships test:coverage; drop it from KNOWN_UNCOVERED_VITEST_PACKAGES`
-    );
-  }
+});
+
+test('money test: a vitest package without test:coverage is reported', () => {
+  const dir = path.join(repoRoot, 'packages/assistant-service');
+  const manifest = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+  const { ['test:coverage']: _coverageScript, ...scriptsWithoutCoverage } = manifest.scripts;
+  const uncovered = findUncoveredVitestPackages([
+    {
+      dir,
+      manifest: { ...manifest, scripts: scriptsWithoutCoverage },
+      name: 'packages/assistant-service',
+    },
+  ]);
+  assert.deepEqual(uncovered, ['packages/assistant-service']);
 });
 
 test('the coverage provider is pinned through the workspace catalog', () => {

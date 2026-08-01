@@ -158,6 +158,7 @@ apps/desktop/e2e-artifacts/
 
 # Vitest browser-mode (real Chromium) run artifacts
 **/.vitest-attachments/
+packages/db/.vitest-reports/
 packages/ui/src/**/__screenshots__/
 
 .claude

@@ -5,6 +5,30 @@ import { defineConfig } from 'vitest/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+export function resolveDbTestShard(
+  environment: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  const shard = environment['DB_TEST_SHARD'];
+  if (!shard) {
+    if (environment['DB_TEST_SHARD_REQUIRED'] === 'true') {
+      throw new Error('DB_TEST_SHARD is required for the DB native-shard task');
+    }
+    return;
+  }
+  const match = /^(?<index>[1-9]\d*)\/(?<count>[1-9]\d*)$/u.exec(shard);
+  if (!match?.groups) {
+    throw new Error(`DB_TEST_SHARD must use Vitest's i/N form; received "${shard}"`);
+  }
+  const index = Number(match.groups.index);
+  const count = Number(match.groups.count);
+  if (index > count) {
+    throw new Error(`DB_TEST_SHARD index must not exceed its count; received "${shard}"`);
+  }
+  return shard;
+}
+
+const dbTestShard = resolveDbTestShard();
+
 /**
  * Shared workspace source aliases. Vitest inline `projects` do NOT inherit the
  * top-level `resolve.alias`, so the unit project spreads this map explicitly
@@ -66,6 +90,10 @@ export default defineConfig({
     alias: sharedAliases,
   },
   test: {
+    // `shard` is a Vitest runner option, not a per-project option. Keeping it
+    // beside `projects` ensures the selected unit project is actually split;
+    // Vitest deliberately strips this option from inline project configs.
+    ...(dbTestShard ? { shard: dbTestShard } : {}),
     projects: [
       {
         // Inline projects do not inherit the top-level resolve.alias, so the
@@ -81,7 +109,7 @@ export default defineConfig({
           // (React db-provider/hook tests, browser-storage/first-run-bootstrap,
           // wasm-loader) opt back in per-file with `// @vitest-environment jsdom`.
           environment: 'node',
-          exclude: ['node_modules', 'dist', 'helpers/**', '**/*.browser.test.{ts,tsx}'],
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
           // Build the migrated PGlite snapshot ONCE per process (see
           // helpers/db-snapshot-global.ts) so per-test boots are cheap restores.
           globalSetup: ['./__tests__/helpers/db-snapshot-global.ts'],
