@@ -7,7 +7,8 @@
  * they read — could only be declared once, so every test that needed a fake
  * Mastra stream had to live beside it. Hoisting it here lets the per-module
  * specs (`mastra-tool-lifecycle.spec.ts`, `mastra-tool-approval-chunks.spec.ts`,
- * `mastra-stream-termination.spec.ts`) share ONE definition.
+ * `mastra-stream-termination.spec.ts`,
+ * `mastra-stream-watchdogs.integration.spec.ts`) share ONE definition.
  *
  * WHY THE MUTABLE STATE IS BEHIND SETTERS. `streamParts`, `streamPartDelayMs`,
  * `mcpToolsets` and `suspendedRuns` were plain module-scope `let`s that tests
