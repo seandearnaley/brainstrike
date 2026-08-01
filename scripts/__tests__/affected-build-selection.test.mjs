@@ -95,7 +95,10 @@ test('the Build job filters only on pull requests and keeps push/dispatch whole'
   // The unit-shard precedent: PR runs use turbo's git-range filter, push and
   // workflow_dispatch runs build everything so main never drifts behind a
   // partially-built cache.
-  const buildRun = /run: TAILWIND_DEBUG=1 pnpm run build -- (?<flags>.*)\n/u.exec(workflow);
+  // Matches the DIRECT turbo invocation: routing through `pnpm run build --`
+  // made turbo treat these as pass-through args and appended them to every
+  // package's own script (see the Build step comment).
+  const buildRun = /run: pnpm turbo run build (?<flags>.*)\n/u.exec(workflow);
   assert.ok(buildRun, 'could not locate the Build step run line');
   const flags = buildRun.groups.flags;
   assert.match(
@@ -107,6 +110,11 @@ test('the Build job filters only on pull requests and keeps push/dispatch whole'
   // gates were computed from, so the two can never disagree about what was
   // selected.
   assert.match(flags, /\$BUILD_FILTERS/, 'Build must consume the resolved selection filter');
+  assert.match(
+    workflow,
+    /run: pnpm turbo run build/,
+    'Build must invoke turbo directly so flags cannot leak into package scripts'
+  );
   assert.match(
     workflow,
     /BUILD_FILTERS: \$\{\{ steps\.selection\.outputs\.filters \}\}/,
