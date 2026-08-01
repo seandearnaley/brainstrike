@@ -380,6 +380,23 @@ function trackClient(options: {
 // Every case here drives a REAL local HTTP/SSE server through real fetches —
 // sub-second when idle, but the 5s vitest default flaked on loaded machines
 // (the suite is env-sensitive by contract, per the *.integration.* suffix).
+/**
+ * Asserts the session DELETE was issued AFTER every protocol request, without
+ * requiring it to be last overall.
+ *
+ * `connect()` leaves an SSE **GET** stream open and a reconnect GET can be
+ * recorded after the DELETE under load, which is what made the positional
+ * `requests.at(-1)` assertion fail intermittently (#1638, BST-1083). Filtering
+ * GETs out keeps the part of the ordering that IS a contract — the DELETE
+ * follows every POST — while dropping only the part that never was.
+ */
+function expectSessionDeletedLast(requests: readonly RecordedRequest[], pathname: string): void {
+  expect(requests.filter((request) => request.method !== 'GET').at(-1)).toMatchObject({
+    method: 'DELETE',
+    pathname,
+  });
+}
+
 describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
   it.each([
     'file:///tmp/mcp.sock',
@@ -633,11 +650,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
     await client.close();
 
-    // The session DELETE must have been issued, but under load an SSE reconnect
-    // GET /mcp can land after it, so we don't require it to be the final request.
-    expect(
-      requests.some((request) => request.method === 'DELETE' && request.pathname === '/mcp')
-    ).toBe(true);
+    expectSessionDeletedLast(requests, '/mcp');
     expect(signals.some((signal) => signal.aborted)).toBe(true);
   });
 
@@ -665,7 +678,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
     await expect(client.close()).rejects.toThrow(/Failed to terminate session/);
 
-    expect(requests.at(-1)).toMatchObject({ method: 'DELETE', pathname: '/mcp' });
+    expectSessionDeletedLast(requests, '/mcp');
     expect(signals.some((signal) => signal.aborted)).toBe(true);
     await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
   });
