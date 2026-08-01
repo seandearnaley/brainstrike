@@ -383,3 +383,305 @@ describe('DrizzleEmbeddingCacheRepository', () => {
     });
   });
 });
+
+// BST-989 Pair C promotion parity: the Drizzle variant must carry the raw
+// repo's newer semantics before the factory can construct it.
+describe('DrizzleEmbeddingCacheRepository promotion parity (BST-989)', () => {
+  it('tracks fire-and-forget access-time updates and flushes them', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(db as never));
+      await repo.set('hash-flush', 'model-a', [0.1, 0.2, 0.3], 3);
+      const result = await repo.get('hash-flush', 'model-a');
+      expect(result.hit).toBe(true);
+      // The access-time write is fire-and-forget; flush must await it so a
+      // worker shutdown cannot lose the LRU bump (raw-repo semantics).
+      await repo.flushPendingAccessTimeUpdates();
+      const stats = await repo.getStats();
+      // 1 from the insert default + 1 from the flushed access-time bump — the
+      // exact value is what proves the flush landed (review #2166: >=1 was
+      // satisfied by the insert default alone).
+      expect(stats.totalHits).toBe(2);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('evicts oldest entries in a single atomic statement', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const queries: string[] = [];
+      const real = db as unknown as {
+        exec: (...a: unknown[]) => unknown;
+        query: (...a: unknown[]) => unknown;
+        transaction: (...a: unknown[]) => unknown;
+      };
+      const countingHandle = {
+        exec: (...args: unknown[]) => real.exec(...args),
+        query: (...args: unknown[]) => {
+          queries.push(String(args[0]));
+          return real.query(...args);
+        },
+        transaction: (...args: unknown[]) => real.transaction(...args),
+      };
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(countingHandle as never) as never);
+      await repo.setBatch([
+        { contentHash: 'old', dimensions: 3, embedding: [1, 2, 3], modelKey: 'model-a' },
+        { contentHash: 'new', dimensions: 3, embedding: [4, 5, 6], modelKey: 'model-a' },
+      ]);
+      queries.length = 0;
+      const evicted = await repo.evictOldest(1);
+      expect(evicted).toBe(1);
+      // Selection AND deletion in ONE statement (raw-repo parity, review
+      // #2166 round 3): two awaits opened a window where a concurrent lookup
+      // could bump a selected victim's accessed_at and still lose it.
+      expect(queries).toHaveLength(1);
+      expect(queries[0]).toContain('WITH oldest AS');
+      expect(queries[0]).toContain('DELETE FROM');
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('rejects invalid dimensions and non-finite values with named errors', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(db as never));
+      // Raw-repo parity: these previously reached pgvector and surfaced as
+      // driver-level errors instead of named repository errors.
+      await expect(repo.set('h', 'model-a', [], 0)).rejects.toThrow('has invalid dimensions');
+      await expect(repo.set('h', 'model-a', [1, 2], 2.5)).rejects.toThrow('has invalid dimensions');
+      await expect(repo.set('h', 'model-a', [1, Number.NaN, 3], 3)).rejects.toThrow(
+        'contains a non-finite value'
+      );
+      await expect(
+        repo.setBatch([
+          {
+            contentHash: 'h2',
+            dimensions: 3,
+            embedding: [1, Number.POSITIVE_INFINITY, 3],
+            modelKey: 'model-a',
+          },
+        ])
+      ).rejects.toThrow('contains a non-finite value');
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('tracks and flushes the getBatch access-time update path too', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(db as never));
+      await repo.setBatch([
+        { contentHash: 'batch-1', dimensions: 3, embedding: [1, 2, 3], modelKey: 'model-a' },
+        { contentHash: 'batch-2', dimensions: 3, embedding: [4, 5, 6], modelKey: 'model-a' },
+      ]);
+      const hits = await repo.getBatch([
+        { contentHash: 'batch-1', modelKey: 'model-a' },
+        { contentHash: 'batch-2', modelKey: 'model-a' },
+      ]);
+      expect(hits.size).toBe(2);
+      await repo.flushPendingAccessTimeUpdates();
+      const stats = await repo.getStats();
+      // 2 insert defaults + 2 flushed batch access-time bumps.
+      expect(stats.totalHits).toBe(4);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('de-duplicates a batch on (contentHash, modelKey) so a duplicate key does not throw', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(db as never));
+      // Byte-identical content under two roots in one mixed-root batch —
+      // without write-side de-dup the multi-row ON CONFLICT INSERT fails
+      // with SQLSTATE 21000 (raw-repo parity; see _shared.ts).
+      const stored = await repo.setBatch([
+        { contentHash: 'shared', dimensions: 3, embedding: [1, 2, 3], modelKey: 'model-a' },
+        { contentHash: 'shared', dimensions: 3, embedding: [4, 5, 6], modelKey: 'model-a' },
+      ]);
+      expect(stored).toBe(1);
+      // First occurrence wins, matching the raw repository's semantics.
+      const hit = await repo.get('shared', 'model-a');
+      expect(hit.hit).toBe(true);
+      if (hit.hit) {
+        expect(hit.entry.embedding[0]).toBeCloseTo(1, 5);
+      }
+      await repo.flushPendingAccessTimeUpdates();
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('honors a configurable maxEntries in evictIfNeeded', async () => {
+    const db = await createMigratedTestDb();
+    try {
+      const repo = new DrizzleEmbeddingCacheRepository(drizzle(db as never), { maxEntries: 2 });
+      for (const n of [1, 2, 3]) {
+        await repo.set(`hash-${n}`, 'model-a', [n, n, n], 3);
+      }
+      const verdict = await repo.evictIfNeeded({ dryRun: true });
+      expect(verdict.needed).toBe(true);
+      expect(verdict.totalEntries).toBe(3);
+    } finally {
+      await db.close();
+    }
+  });
+});
+
+// The promoted factory (BST-989 Pair C): a capability dispatch. Every
+// IN-PROCESS execution surface (plain PGlite, scheduled/priority handles —
+// they all carry callback `transaction`) gets the Drizzle variant, wrapped —
+// never unwrapped — so a priority/scheduling proxy stays in the query path.
+// The Electron-style query-only IPC handle keeps the raw implementation:
+// drizzle's pglite driver ships parser FUNCTIONS in `client.query`'s third
+// argument, which cannot survive structured clone across the IPC bridge.
+describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
+  it('builds a working Drizzle repo over a plain PGlite client', async () => {
+    const { createEmbeddingCacheRepository } = await import(
+      '../src/repositories/embedding-cache-repository.js'
+    );
+    const db = await createMigratedTestDb();
+    try {
+      const repo = createEmbeddingCacheRepository(db as never);
+      expect(repo).toBeInstanceOf(DrizzleEmbeddingCacheRepository);
+      await repo.set('hash-factory', 'model-a', [1, 2, 3], 3);
+      const hit = await repo.get('hash-factory', 'model-a');
+      expect(hit.hit).toBe(true);
+      await repo.flushPendingAccessTimeUpdates();
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('keeps a scheduling proxy in the query path (wrap, never unwrap)', async () => {
+    const { createEmbeddingCacheRepository } = await import(
+      '../src/repositories/embedding-cache-repository.js'
+    );
+    const db = await createMigratedTestDb();
+    try {
+      let proxiedQueries = 0;
+      // A plain pass-through client with its own query/exec/transaction
+      // wrappers delegating to the real client. This pins that the factory
+      // never reaches around a wrapping surface for `.raw`; the full
+      // production proxy stack (real scheduler + priority handle) is
+      // exercised by the QoS test below.
+      const real = db as unknown as {
+        query: (...a: unknown[]) => unknown;
+        exec: (...a: unknown[]) => unknown;
+        transaction: (...a: unknown[]) => unknown;
+      };
+      const proxyHandle = {
+        exec: (...args: unknown[]) => real.exec(...args),
+        query: (...args: unknown[]) => {
+          proxiedQueries += 1;
+          return real.query(...args);
+        },
+        transaction: (...args: unknown[]) => real.transaction(...args),
+      };
+      const repo = createEmbeddingCacheRepository(proxyHandle as never);
+      await repo.set('hash-proxy', 'model-a', [1, 2, 3], 3);
+      const hit = await repo.get('hash-proxy', 'model-a');
+      // Without this flush, close() below runs while get()'s fire-and-forget
+      // access-time UPDATE is still in flight and PGlite wedges its WASM
+      // event loop permanently (observed: even vitest's testTimeout never
+      // fires). The flush IS the ported shutdown-safety semantics under test.
+      await repo.flushPendingAccessTimeUpdates();
+      expect(hit.hit).toBe(true);
+      // The proxied query surface must have carried the traffic — unwrapping
+      // to .raw would leave this at zero and silently bypass scheduling.
+      expect(proxiedQueries).toBeGreaterThan(0);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('keeps background QoS through the real scheduler + priority-handle stack', async () => {
+    const { createEmbeddingCacheRepository } = await import(
+      '../src/repositories/embedding-cache-repository.js'
+    );
+    const { createDatabaseWorkScheduler, createScheduledDbHandle, createPriorityDbHandle } =
+      await import('../src/database-work-scheduler.js');
+    const { createDbHandle } = await import('../src/db-provider.js');
+    const db = await createMigratedTestDb();
+    try {
+      // The exact production web stack (embedding-runtime-controller):
+      // PGlite → scheduled handle → DbProvider's exposed DbHandle →
+      // createPriorityDbHandle(…, 'background') → this factory. Drizzle's
+      // native per-query config occupies the 3rd query argument, pushing the
+      // scheduler work options into a 4th — which the DbHandle wrapper's
+      // fixed arity used to DROP, silently running background embedding-cache
+      // traffic at foreground priority (review #2166 P1).
+      const scheduler = createDatabaseWorkScheduler();
+      const scheduled = createScheduledDbHandle(db as never, scheduler, 'foreground');
+      const exposed = createDbHandle(scheduled as never);
+      const background = createPriorityDbHandle(exposed as never, 'background');
+      const repo = createEmbeddingCacheRepository(background as never);
+      await repo.set('hash-qos', 'model-a', [1, 2, 3], 3);
+      const hit = await repo.get('hash-qos', 'model-a');
+      expect(hit.hit).toBe(true);
+      await repo.flushPendingAccessTimeUpdates();
+      const stats = scheduler.getSnapshot().priorityStats;
+      expect(stats.background.started).toBeGreaterThan(0);
+      // Every repo query must have carried the background tag — foreground
+      // work on this scheduler would mean the priority was dropped en route.
+      expect(stats.foreground.started).toBe(0);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('dispatches a query-only IPC-style handle to the boundary-hardened raw class', async () => {
+    const { createEmbeddingCacheRepository, EmbeddingCacheRepository } = await import(
+      '../src/repositories/embedding-cache-repository.js'
+    );
+    const db = await createMigratedTestDb();
+    try {
+      const real = db as unknown as {
+        query: (...a: unknown[]) => unknown;
+      };
+      // The desktop preload bridge shape: query only — no callback
+      // `transaction` (it exposes statement-list runTransaction instead,
+      // #1141/#1145) and no .raw. Must NOT be given the Drizzle variant.
+      const ipcHandle = {
+        query: (sql: string, params?: unknown[]) => real.query(sql, params),
+      };
+      expect('transaction' in ipcHandle).toBe(false);
+      const repo = createEmbeddingCacheRepository(ipcHandle as never);
+      expect(repo).toBeInstanceOf(EmbeddingCacheRepository);
+      expect(repo).not.toBeInstanceOf(DrizzleEmbeddingCacheRepository);
+
+      // The marker is POSITIVE (statement-list runTransaction identifies the
+      // bridge), not the absence of `transaction`: ElectronDatabaseAPI's
+      // optional callback-transaction member invites a future preload to add
+      // one, and that must still not flip desktop into drizzle-over-IPC
+      // (review #2166). Driven through the REAL createDbHandle because it
+      // unconditionally installs `.raw` (= the bridge executor) — a marker
+      // guard on the direct branch alone would be bypassed by extractPGlite
+      // unwrapping that `.raw` (review #2166 round 3).
+      const { createDbHandle } = await import('../src/db-provider.js');
+      const futureBridgeExecutor = {
+        exec: async (sql: string) => (db as unknown as { exec: (s: string) => unknown }).exec(sql),
+        query: async (sql: string, params?: unknown[]) => real.query(sql, params),
+        runTransaction: async () => ({ rows: [] }),
+        transaction: async <T>(fn: (tx: unknown) => Promise<T>) => fn(futureBridgeExecutor),
+      };
+      const futureHandle = createDbHandle(futureBridgeExecutor as never);
+      expect((futureHandle as { raw?: unknown }).raw).toBe(futureBridgeExecutor);
+      const futureRepo = createEmbeddingCacheRepository(futureHandle as never);
+      expect(futureRepo).toBeInstanceOf(EmbeddingCacheRepository);
+      expect(futureRepo).not.toBeInstanceOf(DrizzleEmbeddingCacheRepository);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('throws loudly on a handle with no execution surface', async () => {
+    const { createEmbeddingCacheRepository } = await import(
+      '../src/repositories/embedding-cache-repository.js'
+    );
+    expect(() => createEmbeddingCacheRepository({} as never)).toThrow('PGlite-compatible handle');
+  });
+});

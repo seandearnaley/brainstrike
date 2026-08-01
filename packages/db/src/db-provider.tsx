@@ -332,12 +332,26 @@ function clearActiveEmbeddingSetIdFromStorage(): void {
   }
 }
 
-function createDbHandle(executor: QueryExecutor): DbHandle {
+export function createDbHandle(executor: QueryExecutor): DbHandle {
   const query: DbHandle['query'] = async <T = unknown>(
     sql: string,
     params?: unknown[],
-    options?: unknown
+    options?: unknown,
+    workOptions?: unknown
   ) => {
+    // A 4th argument only ever originates from a priority proxy stacked over a
+    // scheduler-backed handle: a native per-query config (drizzle's parser
+    // set, the sandbox's rowMode) occupies the 3rd slot, pushing the
+    // scheduler work options to the 4th (appendDatabaseWorkOptions THROWS on
+    // unscheduled stacks instead of emitting one). Forward it — the scheduled
+    // executor variadic-splits trailing work options. This wrapper's fixed
+    // 3-arg arity used to drop it, silently downgrading background embedding
+    // workers to foreground QoS (PR #2166 review P1).
+    if (workOptions !== undefined) {
+      const variadicQuery = executor.query as (...args: unknown[]) => Promise<{ rows: unknown[] }>;
+      const result = await variadicQuery.call(executor, sql, params, options, workOptions);
+      return { rows: result.rows as T[] };
+    }
     const forwarded = splitExposedDatabaseWorkOptions(params, options);
     const result = await executor.query(sql, forwarded.params, forwarded.options);
     return { rows: result.rows as T[] };
@@ -905,6 +919,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
       await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
       await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');
+      // Mind op-log (migration 079): tombstones for data this reset just
+      // destroyed must not survive onto the fresh database (BST-993).
+      await clearRelationIfPresent(tx, 'brainstrike_mind_ops');
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -967,6 +984,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
     await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
     await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');
+    // Mind op-log (migration 079): cleared with the mind it describes (BST-993).
+    await clearRelationIfPresent(tx, 'brainstrike_mind_ops');
     await clearRelationIfPresent(tx, 'job_queue');
     await clearRelationIfPresent(tx, 'collection_indexing_stats');
     await clearRelationIfPresent(tx, 'embedding_sets');

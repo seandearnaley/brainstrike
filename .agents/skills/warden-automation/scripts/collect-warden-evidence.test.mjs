@@ -22,7 +22,7 @@ function createFixture({ includeInventory = true } = {}) {
   write(root, '.night-shift/PROTOCOL.md', '# Protocol\n');
   write(
     root,
-    '.night-shift/charters/warden.md',
+    '.night-shift/charters/keeper.md',
     'CHARTER_VERSION=7\nSTATE_ISSUE="[automation-state] Warden"\nInventory scripts/*.mjs and scripts/*.cjs plus scripts/__tests__/*.test.mjs.\nCap at 5 repairs per PR.\n'
   );
   write(

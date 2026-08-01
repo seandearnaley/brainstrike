@@ -324,7 +324,7 @@ function main() {
     throw new Error(`--repo must be the repository root: ${repositoryRoot}`);
   }
 
-  const charterPath = assertFile(repo, '.night-shift/charters/warden.md');
+  const charterPath = assertFile(repo, '.night-shift/charters/keeper.md');
   assertFile(repo, '.night-shift/PROTOCOL.md');
   assertFile(repo, 'AGENTS.md');
   assertFile(repo, 'docs/agents/ci-quality.md');

@@ -42,7 +42,7 @@ function createFixture() {
   write(repo, '.night-shift/charters/README.md', '# Charters\n\nFirst runs use a full sweep.\n');
   write(
     repo,
-    '.night-shift/charters/axiom.md',
+    '.night-shift/charters/keeper.md',
     '# Axiom\n\n```\nNAME=Axiom\nROLE=invariant maintainer\nCHARTER_VERSION=1\nSTATE_ISSUE="[automation-state] Axiom"\nLEARNINGS_FILE=".night-shift/axiom.md"\n```\n'
   );
   write(repo, '.night-shift/axiom.md', '# Axiom learnings\n');

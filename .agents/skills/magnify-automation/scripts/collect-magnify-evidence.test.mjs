@@ -41,10 +41,10 @@ then oldest.
 test('derives mutable values from the real repository charter', () => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
   const charter = deriveCharter(
-    readFileSync(join(repoRoot, '.night-shift/charters/magnify.md'), 'utf8')
+    readFileSync(join(repoRoot, '.night-shift/charters/reviewer.md'), 'utf8')
   );
   assert.match(charter.version, /^\d+$/);
-  assert.equal(charter.stateIssue, '[automation-state] Magnify');
+  assert.equal(charter.stateIssue, '[automation-state] Reviewer');
   assert.ok(charter.maximumPullRequests >= 1);
 });
 

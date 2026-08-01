@@ -3129,17 +3129,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const second = await repository.createThread('workspace-a');
     const survivor = await repository.createThread('workspace-a');
 
-    await db.exec(`
-      CREATE TABLE brainstrike_assistant_thread_placements (
-        thread_id text PRIMARY KEY,
-        resource_id text NOT NULL,
-        group_id text,
-        rank text NOT NULL,
-        flat_rank text,
-        updated_at timestamptz NOT NULL DEFAULT NOW()
-      );
-    `);
-
+    // The placements table is bootstrapped by the repository itself now that
+    // the delete cascade owns the placements stage on every path (BST-993).
     for (const thread of [first, second, survivor]) {
       await db.query(
         `INSERT INTO mastra_messages
@@ -3220,6 +3211,49 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(
       countRows(db, 'brainstrike_assistant_message_parents', 'thread_id', survivor.id)
     ).resolves.toBe(1);
+    // The op-log seam (BST-993): one tombstone per actually-deleted thread.
+    await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', first.id)).resolves.toBe(1);
+    await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', second.id)).resolves.toBe(1);
+    await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', survivor.id)).resolves.toBe(0);
+  });
+
+  it('emits a single tombstone op per delete; idempotent deletes emit none (BST-993)', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-mind-ops');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+    // Placements now cascade on the SINGLE-thread path too — previously only
+    // the bulk CTE owned this stage and the panel compensated in TS.
+    await db.query(
+      `INSERT INTO brainstrike_assistant_thread_placements
+        (thread_id, resource_id, group_id, rank, flat_rank)
+       VALUES ($1, 'workspace-a', null, 'a0', 'a0')`,
+      [thread.id]
+    );
+
+    await repository.deleteThread(thread.id);
+
+    await expect(
+      countRows(db, 'brainstrike_assistant_thread_placements', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    const ops = await db.query<{
+      entity_kind: string;
+      op: string;
+      resource_id: string | null;
+      seq: string | number;
+    }>('SELECT entity_kind, op, resource_id, seq FROM brainstrike_mind_ops WHERE entity_id = $1', [
+      thread.id,
+    ]);
+    expect(ops.rows).toHaveLength(1);
+    expect(ops.rows[0]?.entity_kind).toBe('thread');
+    expect(ops.rows[0]?.op).toBe('delete');
+    // Workspace scope is captured at delete time — unrecoverable afterwards.
+    expect(ops.rows[0]?.resource_id).toBe('workspace-a');
+
+    // Deleting an already-gone thread is a no-op for the log: a tombstone
+    // must record an actual deletion, not an attempt.
+    await repository.deleteThread(thread.id);
+    await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', thread.id)).resolves.toBe(1);
   });
 
   it('rejects an unknown bulk-delete id without deleting known threads', async () => {
@@ -3227,22 +3261,16 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const db = await wasmLoader.createPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
-    await db.exec(`
-      CREATE TABLE brainstrike_assistant_thread_placements (
-        thread_id text PRIMARY KEY,
-        resource_id text NOT NULL,
-        group_id text,
-        rank text NOT NULL,
-        flat_rank text,
-        updated_at timestamptz NOT NULL DEFAULT NOW()
-      );
-    `);
+    // The placements table is bootstrapped by the repository itself now that
+    // the delete cascade owns the placements stage on every path (BST-993).
 
     await expect(repository.deleteThreads([thread.id, 'thread-unknown'])).rejects.toThrow(
       'One or more assistant threads do not exist.'
     );
 
     await expect(countRows(db, 'mastra_threads', 'id', thread.id)).resolves.toBe(1);
+    // A rejected bulk delete must not write tombstones for threads it kept.
+    await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', thread.id)).resolves.toBe(0);
   });
 
   it('purges edit-checkpoint rows for the deleted thread in real PGlite', async () => {

@@ -27,6 +27,7 @@
     "@electric-sql/pglite": "catalog:",
     "@electric-sql/pglite-pgvector": "catalog:",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "assistant-stream": "0.3.25",
     "concurrently": "catalog:",
     "tsup": "catalog:",
@@ -46,6 +47,11 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
+    },
+    "./code-execution": {
+      "types": "./dist/code-execution.d.ts",
+      "import": "./dist/code-execution.mjs",
+      "require": "./dist/code-execution.js"
     },
     "./mcp-client": {
       "types": "./dist/mcp-client.d.ts",

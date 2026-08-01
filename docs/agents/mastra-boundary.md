@@ -227,8 +227,31 @@ Mastra output is adapted into it. Mastra's AI SDK v5 stream output is not adopte
 
 Two stages, and both are Brainstrike-owned:
 
-1. Mastra chunk → `StreamChunk`: `processMastraStreamPart`,
-   `packages/agent/src/mastra/agent-streaming.ts:866` (dispatch `:877-1105`).
+1. Mastra chunk → `StreamChunk`: `processMastraStreamPart` in
+   `packages/agent/src/mastra/agent-streaming.ts`. Its PURE decoders (part-shape
+   readers, tripwire resolution/bounding, provider-error resolution, tool-event
+   metadata, OM readers) live in `packages/agent/src/mastra/mastra-chunk-decoding.ts`
+   and are unit-tested directly (BST-985). The impure mapping concerns the dispatch
+   delegates to are one module each (BST-986), all under `packages/agent/src/mastra/`:
+
+   | Module | Owns |
+   | --- | --- |
+   | `stream-run-event-chunks.ts` | run-event + finish chunk MINTING (`generateUUID` + `new Date()`); the leaf every other concern depends on |
+   | `tool-lifecycle-processors.ts` | the mutable `ToolLifecycleState` record and every mapper that reads or advances it (tool events, delegation/subagent events, terminal + pending-output run events, the finish chunk) |
+   | `tool-approval-chunks.ts` | `tool-call-approval` / `tool-call-suspended` PAUSES — well-formed approval, well-formed suspend (registered or not), and the malformed-pause termination |
+   | `stream-termination.ts` | abnormal-ending POLICY: provider error, tripwire, stream stall, tool-call-input timeout |
+
+   `agent-streaming.ts` keeps the R6 dispatch itself, the OM data-part mapping, the
+   entry points, and the tool-loop options — that file is pinned by name in
+   `scripts/mastra-stream-chunk-contract.mjs`, so the `ChunkType` import, the
+   disposition inventory, `processMastraStreamPart`, and
+   `warnForUnrecognizedMastraStreamPart` must not move out of it.
+
+   Provider-error CLASSIFICATION was never part of this file: `../provider-error-metadata.ts`
+   owns the bounded `runError` extractor and `mastra-chunk-decoding.ts` owns
+   `resolveProviderError` / the diagnostic code + correlation. Likewise the watchdog
+   MECHANISM is `../stream/with-inactivity-timeout.ts` + `../stream/with-tool-call-input-timeout.ts`;
+   `stream-termination.ts` owns only what a fired watchdog emits.
 2. `StreamChunk` → encoded frames: `DataStreamMapper`,
    `packages/agent/src/stream/data-stream-mapper.ts:255` (dispatch `:289-321`).
 
@@ -247,7 +270,8 @@ Transient-vs-durable is a mapper decision. That is the contract.
 ### Unknown-chunk policy — NEW
 
 Today all three dispatch sites drop silently with no log and no comment:
-`agent-streaming.ts:1103-1104`, `data-stream-mapper.ts:318-319`,
+`agent-streaming.ts` (`processMastraStreamPart`'s `default:` arm),
+`data-stream-mapper.ts:318-319`,
 `tool-event-mapper.ts:102-103`. This contradicts the project's NO SILENT FALLBACKS
 rule, and contradicts the sibling read path in the same subsystem —
 `requireRunEventKind()` (`packages/app-shell/src/assistant-memory-repository.ts:1209-1217`)
@@ -260,9 +284,10 @@ must emit a coded warning plus a diagnostic event while keeping the stream alive
 Deliberately **not** a throw: a Mastra minor release adding a chunk type must fail
 in CI, not in a user's live run.
 
-`asMastraStreamPart()` (`agent-streaming.ts:118`) currently casts to a *local*
-`MastraStreamPart` interface (`:94-116`) rather than importing Mastra's union, so
-the compiler cannot see drift at all. Fixing that is the substance of this policy.
+`asMastraStreamPart()` (now `packages/agent/src/mastra/mastra-chunk-decoding.ts`)
+still casts to a *local* `MastraStreamPart` interface rather than importing
+Mastra's union, so the compiler cannot see drift at all. Fixing that is the
+substance of this policy.
 
 Scale of the current gap, measured against `dist/stream/types.d.ts:994`:
 
@@ -333,7 +358,8 @@ Four stores, contractually separate:
 Run-event metadata is redacted by denial-list at construction *and* at both write
 sites (`packages/assistant-contract/src/run-events.ts:104-138`, `:164-214`). The
 tool-lifecycle bridge builds metadata from scratch with four keys only
-(`agent-streaming.ts:411-425`), so raw args, results, and error text never reach a
+(`mastra-chunk-decoding.ts` `makeToolEventMetadata`, plus the delegation
+builder in `tool-lifecycle-processors.ts`), so raw args, results, and error text never reach a
 durable row.
 
 Adopting `@mastra/observability` would add a second exporter topology over the same
@@ -367,7 +393,8 @@ telemetry. Neither replaces the other.**
 
 `mastra_workflow_snapshot` (`packages/agent/src/pglite-mastra-memory/workflows-store.ts:208`)
 is written on suspend and read on resume — plus pending-approval discovery
-(`agent-streaming.ts:2380-2449`), which is still the resume path. Nothing else
+(`agent-streaming.ts`, the pending-approval / suspended-run discovery helpers),
+which is still the resume path. Nothing else
 reads it: no analytics, no UI, no history view. Mastra's own guidance is to store
 references rather than payloads, and `pruneSnapshot` must be pure and JSON-safe
 because a snapshot may cross a pubsub boundary.
@@ -423,7 +450,7 @@ package or the live tree at `8b6ccb92b`.
 | A bespoke desktop SSE MCP client needs replacing | Removed in #1593; the file is an 11-line shim over the SDK adapter |
 | `@mastra/mcp` is present and duplicates a lifecycle | Not a dependency anywhere |
 | Stream mapping is missing "cache chunks" | No such chunk type; prompt-cache usage is already on `message-finish.usage` |
-| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`agent-streaming.ts:1658`) |
+| Structured object result is a reachable gap | `object`/`object-result` exist but are unreachable — `structuredOutput` is a rejected option (`agent-streaming.ts`, the rejected-option guard) |
 | Evals are gated on the deployment boundary | `runEvals`/`createScorer` are in core; no server or storage required |
 | Mastra Editor requires Mastra Cloud | `source: 'code'` is git-backed JSON |
 | A CI eval entrypoint shipped in #1088 | The CLI is wired into **no** workflow; the eval logic is gated via vitest under `unit-shard` instead |

@@ -1,6 +1,13 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
+import { drizzle, extractPGlite } from '../drizzle/database.js';
 import type { EmbeddingCacheEntry } from '../schema/index.js';
-import { parseEmbeddingLoose } from './_shared.js';
+import type { CreateEmbeddingCacheRepositoryOptions } from './_shared.js';
+import {
+  assertEmbeddingDimensions,
+  assertFiniteEmbedding,
+  dedupeByContentAndModel,
+  parseEmbeddingLoose,
+} from './_shared.js';
 import type {
   BatchLookupRequest,
   BatchLookupResult,
@@ -9,6 +16,7 @@ import type {
   EmbeddingCacheStats,
 } from './drizzle/embedding-cache-repository.js';
 import {
+  DrizzleEmbeddingCacheRepository,
   MAX_BATCH_SIZE,
   RECOMMENDED_MAX_CACHE_ENTRIES,
 } from './drizzle/embedding-cache-repository.js';
@@ -25,27 +33,17 @@ interface EmbeddingCacheRow {
   model_key: string;
 }
 
-export interface CreateEmbeddingCacheRepositoryOptions {
-  readonly maxEntries?: number;
-}
+// Definition lives in _shared.ts so the Drizzle module can import it without
+// depending on this factory module (review #2166: the type-only import here
+// inverted the layering even though it erased at runtime).
+export type { CreateEmbeddingCacheRepositoryOptions } from './_shared.js';
 
-function assertDimensions(embedding: readonly number[], dimensions: number, label: string): void {
-  if (!Number.isInteger(dimensions) || dimensions <= 0) {
-    throw new Error(`Embedding cache ${label} has invalid dimensions (${dimensions}).`);
-  }
-  if (embedding.length !== dimensions) {
-    throw new Error(
-      `Embedding dimension mismatch for ${label}: expected ${dimensions}, got ${embedding.length}`
-    );
-  }
-}
+// Write-side validation now lives in _shared.ts so the Drizzle variant
+// enforces the identical named-error contract (BST-989 Pair C review).
+const assertDimensions = assertEmbeddingDimensions;
 
 function toVectorLiteral(embedding: readonly number[], label: string): string {
-  for (const value of embedding) {
-    if (!Number.isFinite(value)) {
-      throw new Error(`Embedding cache ${label} contains a non-finite value.`);
-    }
-  }
+  assertFiniteEmbedding(embedding, label);
   return `[${embedding.join(',')}]`;
 }
 
@@ -95,28 +93,9 @@ function chunkArray<T>(items: readonly T[], size: number): readonly T[][] {
   return chunks;
 }
 
-// De-duplicate entries on their (contentHash, modelKey) conflict key, keeping the first
-// occurrence. A multi-row `INSERT ... ON CONFLICT (content_hash, model_key) DO UPDATE`
-// fails with SQLSTATE 21000 ("ON CONFLICT DO UPDATE command cannot affect row a second
-// time") if the VALUES list carries the same conflict-target key twice. Under multi-root
-// workspaces, identical content (empty __init__.py, vendored files, lockfiles) lives under
-// two roots as distinct file_records that share one content_hash, so a mixed-root embedding
-// batch routinely carries the duplicate key. NUL separates the two fields because modelKey
-// itself contains ':' (e.g. `local:Xenova/bge-m3`). Mirrors getBatch's read-side de-dup.
-function dedupeByContentAndModel<T extends { contentHash: string; modelKey: string }>(
-  entries: readonly T[]
-): T[] {
-  const seen = new Set<string>();
-  const result: T[] = [];
-  for (const entry of entries) {
-    const key = `${entry.contentHash}\u0000${entry.modelKey}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      result.push(entry);
-    }
-  }
-  return result;
-}
+// dedupeByContentAndModel moved to _shared.ts (BST-989 Pair C): the Drizzle
+// variant needs the identical write-side de-dup, and importing it from this
+// module would close a runtime cycle with the factory's Drizzle-class import.
 
 export class EmbeddingCacheRepository {
   private readonly logger = createLogger('EmbeddingCacheRepository');
@@ -462,9 +441,62 @@ export class EmbeddingCacheRepository {
   }
 }
 
+/**
+ * BST-989 Pair C promotion — a capability dispatch, not a blanket swap.
+ *
+ * The Drizzle variant serves every IN-PROCESS execution surface: drizzle's
+ * pglite driver passes a per-query config carrying parser FUNCTIONS as
+ * `client.query`'s third argument, which is fine for a real PGlite, a
+ * `createPriorityDbHandle` proxy, or web's scheduled handle (all in-process,
+ * full-argument forwarding). The given handle is wrapped, never unwrapped —
+ * reaching for `.raw` under a priority proxy would bypass the database work
+ * scheduler; `extractPGlite` runs only for wrappers with no own surface.
+ *
+ * The Electron-style QUERY-ONLY handle (desktop renderer → main over IPC)
+ * cannot host that driver: parser functions do not survive structured clone,
+ * and the bridge deliberately exposes statement-list `runTransaction`
+ * (#1141/#1145) instead of a callback `transaction`. That shape keeps the raw
+ * implementation, whose 2-argument queries and strict row validation exist
+ * precisely for the IPC serialization boundary. Detection key: an in-process
+ * surface always carries callback `transaction`; the IPC bridge never does.
+ *
+ * NO SILENT FALLBACKS: a handle with neither surface throws.
+ */
 export function createEmbeddingCacheRepository(
   db: IDatabase,
   options?: CreateEmbeddingCacheRepositoryOptions
-): EmbeddingCacheRepository {
-  return new EmbeddingCacheRepository(db, options);
+): DrizzleEmbeddingCacheRepository | EmbeddingCacheRepository {
+  const surface = db as { query?: unknown; transaction?: unknown; runTransaction?: unknown };
+  // Statement-list runTransaction (#1141/#1145) positively identifies the IPC
+  // bridge — do not infer it from the ABSENCE of callback `transaction`:
+  // ElectronDatabaseAPI's optional `transaction` member invites a future
+  // preload to add one, which would otherwise flip desktop into
+  // drizzle-over-IPC far from the change that caused it (review #2166).
+  // The bridge returns EARLY, before any Drizzle branch: createDbHandle
+  // unconditionally installs `.raw` (the executor — i.e. the bridge itself),
+  // so a mere `!isIpcBridge` guard on the first branch would let
+  // extractPGlite unwrap the same bridge below (review #2166 round 3).
+  const isIpcBridge = typeof surface.runTransaction === 'function';
+  if (isIpcBridge && typeof surface.query === 'function') {
+    return new EmbeddingCacheRepository(db, options);
+  }
+  if (typeof surface.query === 'function' && typeof surface.transaction === 'function') {
+    return new DrizzleEmbeddingCacheRepository(
+      drizzle(db as unknown as Parameters<typeof drizzle>[0]),
+      options
+    );
+  }
+  const raw = extractPGlite(db);
+  if (raw) {
+    return new DrizzleEmbeddingCacheRepository(
+      drizzle(raw as unknown as Parameters<typeof drizzle>[0]),
+      options
+    );
+  }
+  if (typeof surface.query === 'function') {
+    return new EmbeddingCacheRepository(db, options);
+  }
+  throw new Error(
+    'createEmbeddingCacheRepository requires a PGlite-compatible handle (query + transaction), a DbHandle exposing .raw, or an IPC-style query handle.'
+  );
 }

@@ -1,3 +1,4 @@
+import { MIND_OPS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type CreatePromptItemInput,
   derivePromptItemTitle,
@@ -586,8 +587,20 @@ export class PromptItemRepository {
   }
 
   async delete(id: string): Promise<void> {
+    // Prompts are part of the sync-the-mind scope (BST-993): the delete
+    // emits a tombstone op in the same statement, and only when the row
+    // actually existed. No production UI calls this yet — the seam is laid
+    // so prompt deletion is sync-correct from its first caller.
     const result = await this.db.query<{ id: string }>(
-      'DELETE FROM prompt_items WHERE id = $1 RETURNING id',
+      `WITH deleted AS (
+         DELETE FROM prompt_items WHERE id = $1 RETURNING id
+       ),
+       inserted_mind_ops AS (
+         INSERT INTO ${MIND_OPS_TABLE} (entity_kind, entity_id, op)
+         SELECT 'prompt_item', id, 'delete' FROM deleted
+         RETURNING seq
+       )
+       SELECT id FROM deleted`,
       [id]
     );
     if (!result.rows[0]) {

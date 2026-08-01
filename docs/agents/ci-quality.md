@@ -368,6 +368,138 @@ level), so an unrelated label creates a run whose job is skipped; since
 workflow-level concurrency is evaluated before job-level `if:`, that no-op run
 would otherwise cancel an in-flight 11-14 min Coverage run.
 
+### `pnpm check` is a mirror of test.yml, not a second CI definition (BST-1009)
+
+`scripts/check.mjs` is the local gate. It has ZERO workflow references and is
+not in `lefthook.yml`, so it is pure human/agent convenience — which is exactly
+why a false green there is dangerous: it is the thing people cite as "CI-
+equivalent" before pushing.
+
+It was one. The pre-BST-1009 plan ran `lint-all`, `build`, `type-check`,
+`test:coverage:split`, `coverage:enforce`, `test:browser`,
+`test:e2e:functional`, `test:e2e:desktop` — a second, divergent definition of
+CI whose divergences were silent:
+
+- `test:coverage:split` → `test:coverage:base` =
+  `pnpm -r --filter '!@brainstrike/db' --filter '!@brainstrike/embeddings' run test:coverage`.
+  **A green `pnpm check` had never run `packages/db`** — the largest suite in
+  the repo and the one turbo task that can never be replayed from a cache hit.
+- It omitted four Static gates: `pnpm secrets:scan`, `pnpm exec turbo
+  boundaries`, the two db lane checks, and **`pnpm test:scripts`** — i.e. the
+  gate that runs the guard-script tests did not run in the local gate that
+  guard scripts exist to protect (BST-836 again, one level up).
+- `lint-all` = `pnpm lint && pnpm format`, which **writes** (`biome check .
+  --fix`); CI's `lint:ci` is read-only. A gate must not rewrite the tree it is
+  judging.
+- It ran whole E2E suites where CI runs the smoke *lanes*.
+
+The rewrite conforms to `test.yml` rather than paraphrasing it. Rules that must
+survive future edits:
+
+- **Turbo-native where CI is turbo.** The unit lanes are
+  `turbo run test --concurrency=4` then `turbo run test:integration
+  --concurrency=2` under `TURBO_TEST_MODE=unit`, unfiltered — CI's three Unit
+  shards are an affected-set PARTITION of those same two tasks, and unfiltered
+  is their union. Never reintroduce a `pnpm -r` filter list here; that is the
+  shape that drifted.
+- **Read-only lint by default.** `--fix-lint` is the explicit opt-in to the
+  writing chain.
+- **The install is `--frozen-lockfile`**, matching
+  `.github/actions/setup-workspace`. A plain `pnpm install` silently UPDATES
+  `pnpm-lock.yaml` when a workspace manifest has drifted from it and continues
+  green, while CI rejects that same input — a false green in the install step
+  of the script that exists to stop false greens.
+- **The Playwright lanes run under `CI=true`, and nothing else does.** Both
+  `playwright.config.ts` files branch on `config.isCI` for `forbidOnly`,
+  `fullyParallel`, `globalTimeout`, `retries`, `workers`, `reporter`, the
+  Chromium launch args and `trace`, and the `e2e/utils` helpers key their wait
+  budgets off `CI` too — so without it a stray `test.only` in an `@web-smoke`
+  test passes the lane locally while the required Web E2E job rejects the same
+  source. Playwright's `--forbid-only` flag was considered and REJECTED: it
+  repairs one of ~10 CI-conditioned divergences. **Do not hoist `CI` to the
+  whole run (BST-1050)**: it would change the WORKLOAD of the unit lanes, not
+  just their environment — `getTimeoutMultiplier()` returns 2 under `CI`, and
+  `packages/vector-management`'s base vitest config switches on a 70% line
+  threshold when `CI === 'true'`. It belongs to the four Playwright
+  invocations and nowhere else; the parity test asserts both halves.
+- **`--full` is additive**, not a swap: the required-check mirror plus
+  `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
+  `--fast` drops only the lanes CI fans out to separate runners (Browser tests,
+  E2E) and reports those omissions in the banner. `--fast --full` is rejected
+  because it would otherwise request contradictory E2E selections; `--no-coverage`
+  is valid only with `--full`. Coverage is deliberately NOT in the default
+  plan, because it is not a required check.
+- **`--continue=dependencies-successful` (mirroring the Build job) changes
+  turbo's scheduling, not its exit code.** `runStep()` rejects on ANY non-zero
+  exit and the orchestrator is fail-fast, so a `--continue` run still fails the
+  whole command. A test proves this with a real `exit 3`.
+- **A CI gate that is not run locally must be DECLARED**, never quietly
+  dropped. `CI_GATES_NOT_RUN_LOCALLY` in `check.mjs` names platform exclusions;
+  `uncoveredCiGates()` adds any gates omitted by the selected mode flags before
+  printing the banner. The static list currently holds exactly the two native
+  jobs (`native-windows`: needs a Windows host; `native-electron`:
+  electron-builder packaging for the runner's own platform, non-required,
+  ~25 min).
+
+`scripts/__tests__/check-ci-parity.test.mjs` (Static job, via
+`pnpm test:scripts`) holds the line. It parses every `run:` step in `test.yml`
+and requires each to be (a) mapped to a plan step id `buildPlan()` emits,
+(b) named in `CI_GATES_NOT_RUN_LOCALLY` with a reason, or (c) listed as runner
+plumbing in its `PROVISIONING_STEPS` set. Anything else fails, so a NEW CI gate
+cannot be silently missed.
+
+**It compares COMMANDS, not names**, and that distinction is the contract.
+`gateInvocations()` reduces both the CI `run:` text and the mapped plan
+command(s) to the set of pnpm scripts, turbo tasks and node scripts each
+actually invokes (splitting on newlines/`&&`/`;`, seeing through
+`pnpm --filter X <script>`, `pnpm turbo run`, this repo's
+`run-turbo-command.mjs -- run`, and a `dbus-run-session --` prefix), then
+requires the CI set to be a subset of the plan set. Asserting only that a
+mapped id still exists was itself the drift class: `pnpm test:scripts` could
+become `pnpm test:scripts && pnpm run new-gate` with the contract still green
+and the new gate running in CI and nowhere else. A CI step whose token set
+comes back EMPTY fails unless it is declared in `SHELL_GATE_STEPS` naming the
+test that covers its drift (only `build › Validate CSS bundle` today, covered
+by the byte-floor/duplicate-layer comparison).
+
+Per BST-836 every part of that is control-tested — a synthetic `check.mjs` with
+a gate deleted from the plan; another with an exclusion entry deleted; a
+MUTATED `test.yml` whose `Script tests` step gains `&& pnpm run
+new-uncovered-gate`; and the parity assertion run with `SHELL_GATE_STEPS`
+emptied — each must make it throw. `gateInvocations` has its own control
+asserting it really extracts the shapes both sides are written in, because a
+comparator that silently returned nothing would make every command comparison
+vacuous. Both mutation helpers fail loudly if their own edit matched nothing:
+that already fired once on this branch when `biome check --write` sorted object
+keys out from under a literal anchor.
+
+The mapping is exhaustive in BOTH directions: a missing entry surfaces as an
+unmapped step, and a STALE entry — one naming a step `test.yml` no longer has —
+fails its own test, because otherwise it would quietly shrink what the contract
+checks while every test stayed green.
+
+The local CSS validation is `scripts/validate-css-bundle.mjs`, a small Node
+script rather than the workflow's POSIX shell snippet, so it makes the same
+byte/pattern assertions on Windows as on Unix; its paired controls prove both
+failure modes still fail. CI's half of that step is still inline shell, which
+is why it remains in `SHELL_GATE_STEPS` — that entry now means "CI's command is
+unparseable by the comparator", not "nothing verifies this".
+
+What this deliberately does NOT catch: a mapped CI command that gains or
+changes a FLAG the local plan does not mirror (say `lint:ci --max-warnings=0`).
+The token model compares which gates run, not their every argument. Snapshotting
+each `run:` block verbatim into the test was tried and rejected — it is a
+hand-maintained second copy of `test.yml`, the exact shape this section exists
+to remove, and its failure mode invites a paste-and-move-on update rather than a
+decision. The arguments that actually carry a contract are asserted
+individually, read live from the workflow: the Unit lanes' `--concurrency=4`
+and `--concurrency=2`, and Build's `--continue=dependencies-successful`.
+
+Local-vs-CI difference that is stated rather than hidden: `turbo boundaries`
+scans build output as well as source and CI runs it on a checkout with no
+`dist/`, so a stale local artifact can produce a phantom violation. That is a
+loud failure — `pnpm clean` and re-run before treating it as a real finding.
+
 ### Guard-script entrypoint contract (BST-836)
 
 Every `scripts/verify-*.mjs` MUST run its check when executed directly and MUST
@@ -399,6 +531,128 @@ tree than CI is a second, weaker verdict wearing the same name).
 `verify-tokenizer-asset-bundle` and `verify-no-cross-chunk-cycles` are the
 shape exceptions: each inspects a build artifact, so it takes a bundle
 `directory` instead of a repo root.
+
+### E2E lane-coverage contract (BST-1010)
+
+`scripts/e2e-lane-coverage.mjs` (paired test:
+`scripts/__tests__/e2e-lane-coverage.test.mjs`, run in the Static job via
+`pnpm test:scripts`) statically proves that every Playwright spec in `apps/web`
+and `apps/desktop` is selected by some lane CI actually invokes.
+
+BST-1010 was filed as a *nightly selection audit* — run the full suite, diff it
+against affected-selection. Both premises were wrong and the ticket was reduced:
+the nightly already exists (`web-e2e.yml` cron 07:37, `desktop-e2e.yml` cron
+07:53, both running `test:e2e:lane:full-regression`), and the cited bug class
+(BST-891/816/817) is not a selection bug at all. It is lane wiring, computable
+from source with no suite run. Two live instances the guard found on `main`:
+`workspace-index-background-indexing.test.ts` carried `@web-indexing`, a tag no
+lane grepped, on a `@stateful` describe that the broad pass grep-inverts; and
+`production-csp.test.ts` carried `@stateful`, no lane tag, and appeared in zero
+lane file lists. Both ran in no CI job. Each got a serialized dedicated lane —
+deleting the `@stateful` tag to sweep them into the parallel broad pass would be
+wrong, since one writes to the DB and the other runs PGlite search plus a real
+local embedding.
+
+Three assertions, over both apps: every `@web-*`/`@desktop-*` tag routes at
+least one title somewhere; every TEST is reachable from at least one lane; every
+lane's explicit file list names files that exist and selects a non-empty set.
+
+**Reachability is resolved per test title, not per spec file** (review finding on
+PR #2180). A file-granular answer marks a whole spec covered as soon as any ONE
+of its titles is selected, so an untagged `@stateful` test sitting beside an
+ordinary test the broad pass picks up reads as fully covered while running in no
+CI job — the guard's own bug class, one level down. The failure output names the
+dark `file:line` and title, because naming the file alone does not tell the
+author which test is dark. The shape is not hypothetical: 11 real spec files
+currently mix tag sets within one file (e.g. `git-panel.desktop.test.ts` has one
+`@smoke` test that only the smoke lane can reach plus six the regression project
+covers, and `embedding-worker-renderer.memory.desktop.test.ts` has one untagged
+test that only full-regression reaches among eight `@desktop-embedding-*`
+siblings). All are currently covered; the per-title check is what keeps them
+honest. A whole-file `KNOWN_UNREACHABLE_SPECS` exemption is valid only while
+EVERY title in the file is dark — partial coverage fails the entry rather than
+letting it hide the titles still dark.
+
+What holds it honest:
+
+- **Selection is modelled exactly, not heuristically.** Reachability applies real
+  Playwright semantics (explicit file list, project `grep`/`grepInvert`,
+  command-line `--grep`/`--grep-invert`) to the real title paths parsed from each
+  spec's AST via `listPlaywrightTitleEntries` in the shared
+  `e2e-playwright-title-tags.mjs`. Anything unmodellable — an unknown
+  `--project`, a positional that is not a spec path, a `--flag value` form the
+  parser does not know, a `tag` that is not a literal — THROWS rather than being
+  assumed benign.
+
+  `titlePath` reproduces `TestCase._grepTitleWithTags()` exactly: for each
+  ancestor suite its title THEN its tags, then the node's own title, then its own
+  tags, space-joined. Two things that are easy to get wrong and were verified
+  against real Playwright 1.61 `--list` rather than assumed:
+
+  - **Tags inherit.** A tag on a describe routes every test nested inside it.
+  - **`{ tag: '@x' }` counts.** Playwright's options form is NOT part of any
+    title string, but it IS in the grep string. Reading title literals only made
+    the guard wrong in both directions and hid three real desktop orphans
+    (`agent-devtools`, `local-runtime-probe`, `secrets-settings` — each a
+    `test.describe(..., { tag: '@smoke' }, …)` that the `regression` project
+    grep-inverts and the smoke lane's file list omitted). There are 23
+    options-form tag usages across `apps/*/e2e`; the array form
+    (`tag: ['@a', '@b']`) is supported too.
+
+  Both sibling consumers of this parser — `check-e2e-destructive-tags.mjs` and
+  `check-e2e-readiness-contracts.mjs` — were silently affected by the same gap: a
+  `{ tag: '@destructive' }` or `{ tag: '@stateful' }` describe was invisible to
+  them, so each would have reported a FALSE POSITIVE on it (over-strict, not
+  under-strict). No spec uses those two tags in options form today, so both
+  scripts' real-repo verdicts are unchanged — but they are now correct for that
+  shape rather than accidentally unexercised.
+- **Only CI-invoked lanes supply coverage.** A lane is CI-invoked if a scoped
+  workflow runs it or the `full-regression` `&&` chain reaches it. Desktop's
+  `db-storage`, `ipc-reset` and `runtime-hosts` lane scripts are reached by
+  nothing and therefore cannot mark a spec covered (their specs are covered by
+  full-regression's broad pass anyway).
+- **`LANE_WORKFLOW_FILES` is explicit, and that is the safe direction.** The
+  `@desktop-embedding-*` lane is written inline in `desktop-e2e.yml` rather than
+  as a package script, so workflows must be scanned. An inline lane in an
+  unlisted workflow makes the guard report its specs as unreachable (loud red),
+  never the reverse. Scanning every workflow is the UNSAFE direction:
+  `local-desktop-e2e.yml` is a dispatch-only whole-suite shard run, and counting
+  it would mark every desktop spec reachable and make the sweep vacuous.
+- **Floors and self-cleaning exemptions.** `MINIMUMS` refuses to report a green
+  when discovery collapses, and floors BOTH spec files and test titles — a parser
+  regression returning zero titles per file would leave the file count healthy
+  while every reachability question went vacuous. `KNOWN_UNREACHABLE_SPECS`
+  entries fail if the listed spec becomes reachable, becomes only partly dark, or
+  stops existing, so an exemption cannot rot into a permanent hole. It currently
+  holds one entry: `embedding-worker-renderer.crash-b.desktop.test.ts`, a
+  long-standing orphan (the inline embedding job's file list names crash-a but
+  not crash-b) whose fix is a one-line workflow edit.
+- **The money test.** Per the BST-836 lesson below, the paired test drives the
+  checker against a synthetic fixture repo carrying a planted orphan tag and
+  orphan spec and asserts a non-zero exit, plus a clean control fixture, plus
+  failure paths for a dangling lane file, a grep that matches nothing, a lane no
+  CI entrypoint reaches, and — the case that verifies per-title granularity — a
+  file holding one covered test and one dark sibling. That last case was
+  control-tested against the pre-fix per-file logic and goes red there, which the
+  other fixtures do not.
+
+**Chain position: the two rescued web lanes run LAST, deliberately.** Head
+position was tried and reverted on review. The tail-is-starved-first argument is
+real in isolation, but it loses to the budget: `web-e2e.yml` caps the job at
+`timeout-minutes: 45`, every lane restarts `webServer` from scratch
+(`reuseExistingServer: false`), and `production-csp` sets
+`test.setTimeout(180_000)` for a real local embedding. These two lanes have never
+executed in CI even once, so at the head one first-run flake blinds the eight
+downstream lanes that currently work; at the tail a failure costs only itself,
+and they run 0% of the time today, so tail is still a strict improvement.
+Revisit once they have a green track record. The position is pinned by a test
+whose message carries this reasoning.
+
+**What a green does NOT prove:** that a spec ran. `full-regression` is an
+`&&`-sequential chain, so a failing lane short-circuits every lane after it —
+the BST-1032 blind-window class. A spec at the tail of that chain is statically
+"covered" while never executing. That is why the two rescued lanes are chained
+FIRST. Detecting non-execution needs a run-artifact diff and is out of scope.
 
 ### The `__vitest_worker__` mutation guard (was: @vitest/runner teardown patch)
 
@@ -505,7 +759,10 @@ without a prior build (`pnpm --filter @brainstrike/secure-fs-native test`, or a
 bare `pnpm test:fast` / `test:coverage:base`, which use recursive `pnpm -r`
 rather than turbo) finds no addon. This matches `@brainstrike/utils`, whose
 dist-singleton tests fail the same way without a prior build, and the `check.mjs`
-gate is safe because it runs `build` before `test:fast` sequentially. A preflight
+gate is safe because it runs `build` before the turbo test lanes sequentially
+(BST-1009 replaced its `test:fast`/`test:coverage:split` steps with the same
+`turbo run test` / `turbo run test:integration` invocations CI uses, so the
+addon arrives through turbo's own `#build` edge either way). A preflight
 (`test/ensure-addon.cjs`) turns that case into an actionable message naming the
 build command instead of `bindings`' generic "Could not locate the bindings file".
 It deliberately CHECKS rather than builds: auto-building on a miss would silently
