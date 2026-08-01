@@ -157,6 +157,15 @@ Note this is a **per-process** property: any flow that spawns several
 `vitest run` invocations (`coverage-lanes.mjs`, one per coverage lane) pays for
 one snapshot build per invocation regardless.
 
+**There is a second, correct declaration** — `packages/db/vitest.mutation.config.ts`
+also declares the same `globalSetup`, deliberately: the Stryker lane throws in
+`beforeEach` before any mutant runs without it. That is NOT the per-project
+double-run this section warns about, because it is a separate config reached by
+a separate `vitest run` invocation, so it inherits the per-process property
+above. The rule to apply is "one declaration **per config**", not "one in the
+package" — and the contract test inspects `vitest.config.mts` only, for exactly
+that reason.
+
 ---
 
 ## BROWSER FIRST-RUN FAST BOOTSTRAP (idb:// STORES)

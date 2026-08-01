@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -85,13 +86,25 @@ function summarizeGlobalSetup(config: DbVitestConfig): GlobalSetupSummary {
         `vitest project #${index} is a path string (${project}); this contract can only inspect inline project objects.`
       );
     }
+    const entries = toEntries(project.test?.globalSetup);
     const name = project.test?.name;
     if (name === undefined) {
-      throw new TypeError(`vitest project #${index} has no name; cannot pin its globalSetup.`);
+      // Vitest does not require `name` on an inline project. Only demand one
+      // when the project actually declares a setup — otherwise an unrelated
+      // unnamed third project fails this contract with a confusing error on a
+      // change that never touched globalSetup (review #2175).
+      if (entries.length > 0) {
+        throw new TypeError(
+          `vitest project #${index} declares globalSetup but has no name; cannot pin it.`
+        );
+      }
+      continue;
     }
-    const entries = toEntries(project.test?.globalSetup);
     byProject.set(name, entries);
-    if (entries.length > 0) {
+    // Count ONLY the snapshot setup. A future unrelated globalSetup — a
+    // browser fixture initializer, say — must not fail this contract, which
+    // exists to pin where the SNAPSHOT is built (review #2175).
+    if (entries.includes(DB_SNAPSHOT_GLOBAL_SETUP)) {
       declaringProjects.push(name);
     }
   }
@@ -99,7 +112,9 @@ function summarizeGlobalSetup(config: DbVitestConfig): GlobalSetupSummary {
   return {
     byProject,
     declaringProjects,
-    rootGlobalSetup: toEntries(config.test?.globalSetup),
+    rootGlobalSetup: toEntries(config.test?.globalSetup).filter(
+      (entry) => entry === DB_SNAPSHOT_GLOBAL_SETUP
+    ),
   };
 }
 
@@ -110,6 +125,9 @@ async function loadDbVitestConfig(): Promise<DbVitestConfig> {
 
   return configModule.default;
 }
+
+/** The snapshot builder this contract pins. Other globalSetups are none of its business. */
+const DB_SNAPSHOT_GLOBAL_SETUP = './__tests__/helpers/db-snapshot-global.ts';
 
 describe('db vitest globalSetup contract', () => {
   it('builds the migrated PGlite snapshot from exactly one project', async () => {
@@ -126,7 +144,28 @@ describe('db vitest globalSetup contract', () => {
     // measurement table above), which would hand the browser CI job a full
     // migration chain it has no use for.
     expect(summary.rootGlobalSetup).toEqual([]);
-    expect(summary.byProject.get('browser')).toEqual([]);
+    expect(summary.byProject.get('browser') ?? []).toEqual([]);
+  });
+
+  it('pins the FACT the placement rests on: no browser spec consumes the snapshot', () => {
+    // The argument above is "the browser lane has no use for a snapshot". That
+    // is a fact about the browser specs, not about the config — and a comment
+    // asserting it would outlive the fact (review #2175). If a browser spec
+    // ever does inject('dbSnapshotPath'), this goes red HERE, pointing at the
+    // real decision (declare globalSetup on `browser`) instead of leaving the
+    // placement test to fail with stale reasoning.
+    const browserSpecs = readdirSync(path.resolve(import.meta.dirname), {
+      recursive: true,
+      withFileTypes: true,
+    }).filter((entry) => entry.isFile() && entry.name.endsWith('.browser.test.ts'));
+    expect(browserSpecs.length).toBeGreaterThan(0);
+    for (const spec of browserSpecs) {
+      const source = readFileSync(path.join(spec.parentPath ?? spec.path, spec.name), 'utf8');
+      expect(
+        source.includes('dbSnapshotPath'),
+        `${spec.name} consumes the snapshot; the browser project now needs its own globalSetup`
+      ).toBe(false);
+    }
   });
 
   // --- Controls: prove the two assertions above can actually go red. ---
@@ -135,8 +174,8 @@ describe('db vitest globalSetup contract', () => {
     const summary = summarizeGlobalSetup({
       test: {
         projects: [
-          { test: { globalSetup: ['./a.ts'], name: 'unit' } },
-          { test: { globalSetup: './b.ts', name: 'browser' } },
+          { test: { globalSetup: [DB_SNAPSHOT_GLOBAL_SETUP], name: 'unit' } },
+          { test: { globalSetup: DB_SNAPSHOT_GLOBAL_SETUP, name: 'browser' } },
         ],
       },
     });
@@ -164,8 +203,40 @@ describe('db vitest globalSetup contract', () => {
     expect(() =>
       summarizeGlobalSetup({ test: { projects: ['./packages/*/vitest.config.ts'] } })
     ).toThrow(/can only inspect inline project objects/);
-    expect(() => summarizeGlobalSetup({ test: { projects: [{ test: {} }] } })).toThrow(
-      /has no name/
-    );
+    // An unnamed project that DECLARES a setup is unpinnable, so it throws...
+    expect(() =>
+      summarizeGlobalSetup({
+        test: { projects: [{ test: { globalSetup: [DB_SNAPSHOT_GLOBAL_SETUP] } }] },
+      })
+    ).toThrow(/declares globalSetup but has no name/);
+  });
+
+  it('tolerates an unnamed project that declares no setup', () => {
+    // Vitest does not require `name`, and this contract is about WHERE the
+    // snapshot is built — an unrelated unnamed project must not fail it
+    // (review #2175).
+    const summary = summarizeGlobalSetup({
+      test: {
+        projects: [
+          { test: { globalSetup: [DB_SNAPSHOT_GLOBAL_SETUP], name: 'unit' } },
+          { test: {} },
+        ],
+      },
+    });
+    expect(summary.declaringProjects).toEqual(['unit']);
+  });
+
+  it('ignores an unrelated globalSetup that is not the snapshot builder', () => {
+    // A browser fixture initializer is none of this contract's business; only
+    // a second SNAPSHOT declaration is (review #2175).
+    const summary = summarizeGlobalSetup({
+      test: {
+        projects: [
+          { test: { globalSetup: [DB_SNAPSHOT_GLOBAL_SETUP], name: 'unit' } },
+          { test: { globalSetup: ['./__tests__/helpers/browser-fixtures.ts'], name: 'browser' } },
+        ],
+      },
+    });
+    expect(summary.declaringProjects).toEqual(['unit']);
   });
 });
