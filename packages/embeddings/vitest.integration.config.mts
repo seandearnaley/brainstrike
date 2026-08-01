@@ -1,8 +1,14 @@
 // Integration lane config for @brainstrike/embeddings.
 //
 // Runs ONLY the env-sensitive `*.integration.test.*` files. For embeddings that
-// is 12 files, all of which construct REAL PGlite via wasmLoader.createPGlite
-// (under wall-clock timeouts + machine-relative worker concurrency). Their
+// is 12 files, all of which construct REAL PGlite via wasmLoader.createPGlite.
+// NOTE: this lane is SERIALIZED — the `test:integration` script passes
+// `--maxWorkers=1 --no-file-parallelism`, overriding the machine-relative
+// `maxWorkers: '50%'` this file otherwise inherits from the base config. A
+// worker peaks at ~1.9 GB RSS, and two of them plus a turbo-co-scheduled
+// integration lane crashed workers on the CI host (BST-1072; see
+// docs/agents/ci-quality.md, "The embeddings integration lane is serialized").
+// Their
 // pass/fail can depend on inputs turbo does NOT hash (WASM/PGlite timing, CPU
 // contention, the scheduler), so they must not be cacheable. Executed by the
 // `test:integration` script, which turbo routes through the root uncached
