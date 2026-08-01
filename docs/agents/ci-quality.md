@@ -289,6 +289,36 @@ load-bearing: run 30704747207 let DB share the host with another package and a
 10-second type-contract test timed out after 24 minutes. Do not widen that test
 or serialize every package; keep only the PGlite-heavy DB task isolated.
 
+#### The embeddings integration lane is serialized (BST-1072, settled 2026-08-01)
+
+`packages/embeddings`'s `test:integration` runs
+`--pool=forks --maxWorkers=1 --no-file-parallelism`, matching `apps/desktop`.
+It is NOT an instance of the "don't serialize every package" rule above: that
+rule is about CPU contention, this is about **memory**.
+
+Measured: a single embeddings integration worker peaks at **~1.9 GB RSS** (real
+PGlite plus WASM embedding heaps). The lane previously ran with vitest's
+DEFAULT parallelism — no cap of any kind — so several of those ran at once on
+the 2-vCPU runner and exhausted it. The worker died with
+`[vitest-pool]: Worker exited unexpectedly` and the job reported
+`Test Files 11 passed (12)`: eleven files finished, the twelfth never reported
+at all.
+
+**The evidence that this is resource exhaustion and not a bug in one test: the
+victim VARIES.** Across two failing runs on PR #2213 the file that never
+reported was `embedding-worker-model-resolution` once and
+`embedding-worker-batch` the other time — whichever worker happened to be
+running when memory ran out. It also never reproduced on a developer Mac
+(74/74), because the failure is a function of available RAM, not of the code.
+
+It surfaced on any PR marking embeddings as AFFECTED — which includes editing a
+widely-depended-on package such as `assistant-contract`, not just root config —
+so it repeatedly failed the required `Unit` check for changes that touch no
+embeddings code (5 of 6 observed runs).
+
+Do not remove these flags to speed the lane up without first re-measuring peak
+RSS against the runner's memory.
+
 #### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
 
 The ruleset requires exactly five contexts — `Static`, `Unit`, `Build`,
