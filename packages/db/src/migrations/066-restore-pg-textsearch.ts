@@ -18,6 +18,14 @@ export const migration066RestorePgTextsearch: Migration = {
 
     DROP EXTENSION IF EXISTS pg_textsearch;
   `,
+  // The "_1_2" suffix is historical and deliberately frozen, not a bug: this
+  // name is surfaced in migration-runner errors and the Drizzle ledger
+  // (`custom-066-restore-pg-textsearch` in drizzle/migrate.ts), and that
+  // ledger hash is append-only — renaming it has ledger consequences for
+  // every database that already recorded this migration. BST-1063 moved the
+  // guarded version to 1.3.1 without renaming this field; a drift failure
+  // will report `restore_pg_textsearch_1_2` while complaining the engine
+  // isn't 1.3.1. That mismatch is expected, not evidence of a stale edit.
   name: 'restore_pg_textsearch_1_2',
   up: `
     CREATE EXTENSION IF NOT EXISTS pg_textsearch;
