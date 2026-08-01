@@ -12,30 +12,40 @@ import {
 
 describe('layout-helpers (unit)', () => {
   async function withCiEnv<T>(isCI: boolean, callback: () => Promise<T> | T): Promise<T> {
-    const originalCI = process.env['CI'];
-    const originalGitHubActions = process.env['GITHUB_ACTIONS'];
-    const hadCI = Object.hasOwn(process.env, 'CI');
-    const hadGitHubActions = Object.hasOwn(process.env, 'GITHUB_ACTIONS');
-
-    process.env['CI'] = isCI ? 'true' : 'false';
-    process.env['GITHUB_ACTIONS'] = isCI ? 'true' : 'false';
+    const value = isCI ? 'true' : 'false';
+    vi.stubEnv('CI', value);
+    vi.stubEnv('GITHUB_ACTIONS', value);
 
     try {
       return await callback();
     } finally {
-      if (hadCI) {
-        process.env['CI'] = originalCI;
-      } else {
-        Reflect.deleteProperty(process.env, 'CI');
-      }
-
-      if (hadGitHubActions) {
-        process.env['GITHUB_ACTIONS'] = originalGitHubActions;
-      } else {
-        Reflect.deleteProperty(process.env, 'GITHUB_ACTIONS');
-      }
+      vi.unstubAllEnvs();
     }
   }
+
+  it('uses Vitest-native environment stubs with deterministic cleanup', () => {
+    const implementation = withCiEnv.toString();
+
+    expect(implementation).toContain('stubEnv');
+    expect(implementation).toContain('unstubAllEnvs');
+    expect(implementation).not.toContain('process.env');
+  });
+
+  it('restores environment stubs when the callback throws', async () => {
+    const originalCI = process.env['CI'];
+    const originalGitHubActions = process.env['GITHUB_ACTIONS'];
+
+    await expect(
+      withCiEnv(true, () => {
+        expect(process.env['CI']).toBe('true');
+        expect(process.env['GITHUB_ACTIONS']).toBe('true');
+        throw new Error('callback failed');
+      })
+    ).rejects.toThrow('callback failed');
+
+    expect(process.env['CI']).toBe(originalCI);
+    expect(process.env['GITHUB_ACTIONS']).toBe(originalGitHubActions);
+  });
 
   it('getPanelElements returns expected locators', () => {
     const locator = vi.fn((sel: string) => ({ sel }));
