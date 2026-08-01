@@ -25,6 +25,14 @@ function collectTestFiles(directory, prefix = '') {
   return files.sort();
 }
 
+function collectUnitExcludePatterns(source) {
+  const exclude = /exclude:\s*\[(?<patterns>[^\]]*)\]/u.exec(source);
+  assert.ok(exclude?.groups, 'DB unit discovery must declare an exclude array');
+  return [...exclude.groups.patterns.matchAll(/['"](?<pattern>[^'"]+)['"]/gu)].map(
+    (match) => match.groups?.pattern
+  );
+}
+
 function assertDbUnitDiscovery(source, allTestFiles) {
   assert.match(
     source,
@@ -35,6 +43,10 @@ function assertDbUnitDiscovery(source, allTestFiles) {
     source,
     /exclude:\s*\[[^\]]*['"]\*\*\/\*\.browser\.test\.\{ts,tsx\}['"][^\]]*\]/u,
     'DB unit discovery must keep browser-only specs out of the node unit project'
+  );
+  assert.ok(
+    collectUnitExcludePatterns(source).every((pattern) => !pattern?.includes('helpers/')),
+    'DB unit discovery must not exclude helper-directory tests covered by the recursive contract'
   );
 
   const unitFiles = allTestFiles.filter((file) => !file.includes('.browser.test.'));
@@ -81,4 +93,20 @@ test('money test: dropping the browser exclusion fails loudly', () => {
   );
   assert.notEqual(unexcluded, configSource, 'the browser-exclude control must match real config');
   assert.throws(() => assertDbUnitDiscovery(unexcluded, allTestFiles), /browser-only specs/);
+});
+
+test('money test: excluding helper-directory tests fails loudly', () => {
+  const helperExcluded = configSource.replace(
+    "exclude: ['node_modules', 'dist',",
+    "exclude: ['node_modules', 'dist', '__tests__/helpers/**',"
+  );
+  assert.notEqual(
+    helperExcluded,
+    configSource,
+    'the helper-exclude control mutation must match real config'
+  );
+  assert.throws(
+    () => assertDbUnitDiscovery(helperExcluded, allTestFiles),
+    /helper-directory tests/
+  );
 });

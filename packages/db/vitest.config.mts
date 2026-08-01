@@ -109,7 +109,7 @@ export default defineConfig({
           // (React db-provider/hook tests, browser-storage/first-run-bootstrap,
           // wasm-loader) opt back in per-file with `// @vitest-environment jsdom`.
           environment: 'node',
-          exclude: ['node_modules', 'dist', 'helpers/**', '**/*.browser.test.{ts,tsx}'],
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
           // Build the migrated PGlite snapshot ONCE per process (see
           // helpers/db-snapshot-global.ts) so per-test boots are cheap restores.
           globalSetup: ['./__tests__/helpers/db-snapshot-global.ts'],
