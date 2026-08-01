@@ -3,6 +3,10 @@ import type {
   DimensionIndexMaintenanceRow,
   DimensionIndexSuspensionRow,
 } from '@brainstrike/db';
+import {
+  createEmptyEmbeddingTelemetrySnapshot,
+  type EmbeddingTelemetrySnapshot,
+} from '@brainstrike/embedding-worker';
 import { LogLevel } from '@brainstrike/utils/logger';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
@@ -40,6 +44,7 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly reset: DesktopResetDiagnosticsSnapshot;
   readonly telemetry: {
     readonly backgroundRuntimeMetrics: readonly BackgroundRuntimeProcessMetric[];
+    readonly embedding: EmbeddingTelemetrySnapshot;
   };
 }
 
@@ -60,6 +65,7 @@ export interface DesktopPlatformDiagnosticsProviders {
   };
   readonly embeddingHost: {
     readonly getPlatformStatus: () => RuntimeHostPlatformStatus<'embedding-host'>;
+    readonly getTelemetrySnapshot: () => EmbeddingTelemetrySnapshot;
   };
   readonly indexing: {
     readonly getBackfillsInFlight: () =>
@@ -90,6 +96,7 @@ type DesktopPlatformDiagnosticsProviderName =
   | 'databaseScheduler'
   | 'dimensionIndexMaintenance'
   | 'embeddingHost'
+  | 'embeddingTelemetry'
   | 'llmHost'
   | 'logging'
   | 'reset'
@@ -266,6 +273,12 @@ export async function collectDesktopPlatformDiagnostics(
         'telemetry',
         () => providers.telemetry.getRuntimeMetrics(),
         []
+      ),
+      embedding: await readDiagnosticsProvider(
+        errors,
+        'embeddingTelemetry',
+        () => providers.embeddingHost.getTelemetrySnapshot(),
+        createEmptyEmbeddingTelemetrySnapshot()
       ),
     },
   };

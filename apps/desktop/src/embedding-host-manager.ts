@@ -1,3 +1,7 @@
+import {
+  createEmptyEmbeddingTelemetrySnapshot,
+  type EmbeddingTelemetrySnapshot,
+} from '@brainstrike/embedding-worker';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createRuntimeId, deserializeRuntimeError } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
@@ -110,6 +114,10 @@ export class EmbeddingHostManager {
           : {}),
       pendingRequestCount: this.pendingQueryEmbeddingRequests.size,
     });
+  }
+
+  getTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
+    return this.getStatus().embeddingRuntime?.telemetry ?? createEmptyEmbeddingTelemetrySnapshot();
   }
 
   isHostWindow(window: BrowserWindow): boolean {

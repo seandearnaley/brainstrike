@@ -107,6 +107,24 @@ Environment variables:
 
 Do not move or reintroduce workers in Electron main. Desktop local embeddings must stay in the hidden renderer host.
 
+Embedding runtime telemetry (BST-402):
+- The streaming worker reports exact bytes for the unique `ArrayBuffer`s transferred in
+  each batch, current/peak vectors in flight, and pipeline-cache residency diagnostics.
+- Cache memory is an estimate from the model registry's declared `size`, parsed strictly
+  into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
+  entries to heap memory. Missing registry metadata remains explicitly unavailable; it
+  is never presented as a measured browser-memory value.
+- `StreamingEmbeddingWorkerClient` owns a source-scoped, in-memory telemetry record and
+  removes it when the worker terminates or faults. No model weights, vector values,
+  input text, paths, or content are retained by the telemetry store.
+- On desktop, the hidden embedding-host renderer remains the source of truth. It reports
+  a validated snapshot through the existing typed host-status bridge; Electron main
+  stores/relays that snapshot but never observes or runs inference. Web diagnostics read
+  the same renderer-local store directly.
+- This telemetry is intentionally session-only and must not be persisted. A future
+  persistence or export path requires the diagnostics privacy and factory-reset contracts
+  to be revisited explicitly.
+
 ---
 
 

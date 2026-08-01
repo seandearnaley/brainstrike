@@ -41,6 +41,78 @@ describe('SystemDiagnosticsPanel', () => {
   });
 
   describe('rendering', () => {
+    it('surfaces embedding transfer, residency, and memory telemetry', async () => {
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
+        getSnapshot: vi.fn(async () => ({
+          collectedAt: '2026-08-01T00:00:00.000Z',
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          indexing: { activeBackfills: [] },
+          llmHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'llm-host:idle',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          reset: { userDataPath: '/tmp/brainstrike-user-data' },
+          telemetry: {
+            backgroundRuntimeMetrics: [],
+            embedding: {
+              batchTransfer: {
+                batchCount: 2,
+                lastBytes: 12 * 1024,
+                peakBytes: 16 * 1024,
+                totalBytes: 28 * 1024,
+              },
+              cache: {
+                entries: [
+                  {
+                    cacheKey: 'model-a|webgpu|fp16',
+                    createdAt: 0,
+                    device: 'webgpu',
+                    dtype: 'fp16',
+                    lastUsedAt: 60_000,
+                    memory: {
+                      gpuBytes: 300 * 1024 * 1024,
+                      heapBytes: 0,
+                      reason: 'model-size-estimate',
+                    },
+                    model: 'model-a',
+                    residencyMs: 60_000,
+                  },
+                ],
+                estimatedGpuBytes: 300 * 1024 * 1024,
+                estimatedHeapBytes: 0,
+                memoryEstimateUnavailableCount: 0,
+                residentCount: 1,
+              },
+              lastUpdatedAt: 1000,
+              peakVectorsInFlight: 4,
+            },
+          },
+        })),
+      };
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(await screen.findByText('Embedding Runtime')).toBeInTheDocument();
+      expect(screen.getByText('1 resident')).toBeInTheDocument();
+      expect(screen.getByText('28 KiB')).toBeInTheDocument();
+      expect(screen.getByText('300 MiB')).toBeInTheDocument();
+      expect(screen.getByText('model-a')).toBeInTheDocument();
+      expect(screen.getByText('4 vectors')).toBeInTheDocument();
+    });
+
     it('renders header with title and description', () => {
       render(<SystemDiagnosticsPanel />);
 

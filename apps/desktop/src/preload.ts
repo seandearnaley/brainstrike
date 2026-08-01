@@ -1,6 +1,8 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
+type EmbeddingTelemetrySnapshot =
+  import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -372,6 +374,7 @@ interface EmbeddingHostStatus {
     } | null;
     readonly backendMismatch: boolean;
     readonly selectedDevicePreference: 'webgpu' | 'wasm';
+    readonly telemetry: EmbeddingTelemetrySnapshot;
   };
   readonly lastError: string | null;
   readonly runtimeId: string;

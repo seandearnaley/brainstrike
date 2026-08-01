@@ -48,6 +48,18 @@ describe('desktop diagnostics IPC', () => {
           sourceState: 'stopped',
           state: 'stopped',
         })),
+        getTelemetrySnapshot: vi.fn(() => ({
+          batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
+          cache: {
+            entries: [],
+            estimatedGpuBytes: 0,
+            estimatedHeapBytes: 0,
+            memoryEstimateUnavailableCount: 0,
+            residentCount: 0,
+          },
+          lastUpdatedAt: null,
+          peakVectorsInFlight: 0,
+        })),
       },
       indexing: { getBackfillsInFlight: vi.fn(() => []) },
       llmHost: {
@@ -92,7 +104,10 @@ describe('desktop diagnostics IPC', () => {
       database: { hasDatabaseHandle: true },
       indexing: { activeBackfills: [] },
       reset: { userDataPath: '<redacted>' },
-      telemetry: { backgroundRuntimeMetrics: [] },
+      telemetry: {
+        backgroundRuntimeMetrics: [],
+        embedding: { batchTransfer: { totalBytes: 0 }, peakVectorsInFlight: 0 },
+      },
     });
 
     unregister();

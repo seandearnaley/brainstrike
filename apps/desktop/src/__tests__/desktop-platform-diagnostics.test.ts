@@ -113,6 +113,18 @@ describe('desktop platform diagnostics', () => {
       sourceState: 'stopped' as const,
       state: 'stopped' as const,
     };
+    const embeddingTelemetry = {
+      batchTransfer: { batchCount: 2, lastBytes: 12, peakBytes: 24, totalBytes: 36 },
+      cache: {
+        entries: [],
+        estimatedGpuBytes: 0,
+        estimatedHeapBytes: 0,
+        memoryEstimateUnavailableCount: 0,
+        residentCount: 0,
+      },
+      lastUpdatedAt: 1000,
+      peakVectorsInFlight: 3,
+    };
     const llmHostStatus = {
       active: true,
       lastError: null,
@@ -149,7 +161,10 @@ describe('desktop platform diagnostics', () => {
       crashRecovery: { getSnapshot: vi.fn(() => crashRecovery) },
       database: { getDiagnostics: vi.fn(async () => databaseDiagnostics) },
       databaseScheduler: { getSnapshot: vi.fn(() => schedulerSnapshot) },
-      embeddingHost: { getPlatformStatus: vi.fn(() => embeddingHostStatus) },
+      embeddingHost: {
+        getPlatformStatus: vi.fn(() => embeddingHostStatus),
+        getTelemetrySnapshot: vi.fn(() => embeddingTelemetry),
+      },
       indexing: {
         getBackfillsInFlight: vi.fn(() => activeBackfills),
         getDimensionIndexMaintenanceSnapshot: vi.fn(() => dimensionIndexMaintenance),
@@ -197,8 +212,10 @@ describe('desktop platform diagnostics', () => {
       },
       telemetry: {
         backgroundRuntimeMetrics: runtimeMetrics,
+        embedding: embeddingTelemetry,
       },
     });
+    expect(snapshot.errors).toEqual({});
     expect(Date.parse(snapshot.collectedAt)).not.toBeNaN();
   });
 
@@ -218,6 +235,9 @@ describe('desktop platform diagnostics', () => {
       embeddingHost: {
         getPlatformStatus: vi.fn(() => {
           throw new Error('embedding unavailable');
+        }),
+        getTelemetrySnapshot: vi.fn(() => {
+          throw new Error('embedding telemetry unavailable');
         }),
       },
       indexing: {
@@ -256,6 +276,7 @@ describe('desktop platform diagnostics', () => {
       databaseScheduler: 'scheduler unavailable',
       dimensionIndexMaintenance: 'dimension maintenance unavailable',
       embeddingHost: 'embedding unavailable',
+      embeddingTelemetry: 'embedding telemetry unavailable',
       llmHost: 'llm unavailable',
       logging: 'logging unavailable',
       reset: 'reset unavailable',

@@ -1,3 +1,7 @@
+import {
+  recordEmbeddingBatchTelemetry,
+  resetEmbeddingTelemetryForTests,
+} from '@brainstrike/embedding-worker';
 import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEmbeddingHostCommand } from '../../../embedding-host-shared';
@@ -132,6 +136,7 @@ vi.mock('../../../renderer/components/embedding-worker-config', () => ({
 describe('EmbeddingHostRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetEmbeddingTelemetryForTests();
     currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
@@ -316,6 +321,63 @@ describe('EmbeddingHostRuntime', () => {
           }),
           lastError: expect.stringContaining('backend'),
           state: 'error',
+        })
+      );
+    });
+  });
+
+  it('coalesces embedding telemetry updates before reporting them to main', async () => {
+    storeState.hasHydrated = true;
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'webgpu',
+        dtype: 'fp16',
+        fallbackApplied: false,
+      });
+      return {
+        stop: stopMock,
+      };
+    });
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.any(Object),
+          state: 'running',
+        })
+      );
+    });
+    reportStatusMock.mockClear();
+
+    for (let batchIndex = 0; batchIndex < 2; batchIndex += 1) {
+      recordEmbeddingBatchTelemetry('test-worker', {
+        batchIndex,
+        endIndex: batchIndex + 1,
+        id: 'embed-test',
+        peakVectorsInFlight: 1,
+        startIndex: batchIndex,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+    }
+
+    expect(reportStatusMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledTimes(1);
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({
+                batchCount: 2,
+                totalBytes: 16,
+              }),
+            }),
+          }),
         })
       );
     });

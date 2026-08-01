@@ -84,3 +84,17 @@ Current and planned telemetry work should reference this contract:
 These tickets may add metrics covered by the default allowed list. If a ticket
 needs anything outside that list, it must document the consent and export path
 before implementation.
+
+### BST-402 embedding-runtime boundary
+
+Embedding telemetry is local, in-memory, and source-scoped to a live worker. It may
+retain exact batch transfer byte counts, counts/peaks of vectors in flight, model and
+device labels already present in runtime diagnostics, cache-entry timestamps, and a
+model-memory estimate derived from catalog metadata. The estimate is not measured
+browser memory and must be labeled as estimated or unavailable.
+
+It must not retain vector values or buffers, input text, chunks, model weights, local
+paths, filenames, or content-derived identifiers. Terminating or faulting a worker
+removes that worker's telemetry source. The desktop hidden renderer owns the snapshot;
+Electron main may only validate and relay the typed aggregate. No background upload,
+durable storage, or diagnostic export is authorized by BST-402.

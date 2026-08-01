@@ -10,6 +10,12 @@
  * without navigating to multiple places.
  */
 
+import {
+  createEmptyEmbeddingTelemetrySnapshot,
+  type EmbeddingTelemetrySnapshot,
+  getEmbeddingTelemetrySnapshot,
+  subscribeEmbeddingTelemetry,
+} from '@brainstrike/embeddings';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import {
   databaseStatusSelectors,
@@ -34,10 +40,12 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
+const EMPTY_EMBEDDING_TELEMETRY = createEmptyEmbeddingTelemetrySnapshot();
 const LazyQueueDiagnosticsPanel = lazy(async () => {
   const module = await import('@brainstrike/vector-management');
   return { default: module.QueueDiagnosticsPanel };
@@ -114,6 +122,7 @@ interface DesktopPlatformDiagnosticsSnapshot {
   };
   readonly telemetry?: {
     readonly backgroundRuntimeMetrics: readonly unknown[];
+    readonly embedding?: EmbeddingTelemetrySnapshot;
   };
 }
 
@@ -338,6 +347,86 @@ function formatCount(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function formatBinaryBytes(bytes: number): string {
+  const units = [
+    { bytes: 1024 ** 3, label: 'GiB' },
+    { bytes: 1024 ** 2, label: 'MiB' },
+    { bytes: 1024, label: 'KiB' },
+  ] as const;
+  for (const unit of units) {
+    if (bytes >= unit.bytes) {
+      const scaled = bytes / unit.bytes;
+      return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)} ${unit.label}`;
+    }
+  }
+  return `${bytes} B`;
+}
+
+function EmbeddingRuntimeDiagnosticsCard({
+  telemetry,
+}: {
+  readonly telemetry: EmbeddingTelemetrySnapshot;
+}): ReactElement {
+  const hasSamples = telemetry.lastUpdatedAt !== null;
+  return (
+    <DiagnosticCard
+      description="Worker transfer and model residency"
+      icon={<Activity className="h-4 w-4 text-primary" />}
+      status={hasSamples ? 'success' : 'warning'}
+      statusLabel={hasSamples ? 'Observed' : 'No samples'}
+      title="Embedding Runtime"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Pipeline Cache</span>
+          <span className="font-medium">
+            {formatCount(telemetry.cache.residentCount, 'resident', 'resident')}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Batch Transfer</span>
+          <span className="font-mono text-[10px]">
+            {formatBinaryBytes(telemetry.batchTransfer.totalBytes)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Estimated GPU</span>
+          <span className="font-mono text-[10px]">
+            {formatBinaryBytes(telemetry.cache.estimatedGpuBytes)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Estimated Heap</span>
+          <span className="font-mono text-[10px]">
+            {formatBinaryBytes(telemetry.cache.estimatedHeapBytes)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Peak In Flight</span>
+          <span className="font-medium">
+            {formatCount(telemetry.peakVectorsInFlight, 'vector', 'vectors')}
+          </span>
+        </div>
+        {telemetry.cache.entries.map((entry) => (
+          <div className="flex items-center justify-between" key={entry.cacheKey}>
+            <span className="max-w-48 truncate text-muted-foreground">{entry.model}</span>
+            <span className="font-mono text-[10px]">{entry.device}</span>
+          </div>
+        ))}
+        {telemetry.cache.memoryEstimateUnavailableCount > 0 && (
+          <div className="text-[10px] text-amber-700 dark:text-amber-300">
+            {formatCount(
+              telemetry.cache.memoryEstimateUnavailableCount,
+              'model estimate unavailable',
+              'model estimates unavailable'
+            )}
+          </div>
+        )}
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 function getMigrationLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): string {
   const migration = snapshot.migration;
   if (!migration) {
@@ -510,6 +599,12 @@ export function SystemDiagnosticsPanel({
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localEmbeddingTelemetry = useSyncExternalStore(
+    subscribeEmbeddingTelemetry,
+    getEmbeddingTelemetrySnapshot,
+    () => EMPTY_EMBEDDING_TELEMETRY
+  );
+  const embeddingTelemetry = desktopSnapshot?.telemetry?.embedding ?? localEmbeddingTelemetry;
 
   // Cleanup timeout on unmount to prevent memory leaks
   useEffect(() => {
@@ -599,6 +694,7 @@ export function SystemDiagnosticsPanel({
           tokenCachePersisted={tokenCachePersisted}
         />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
+        <EmbeddingRuntimeDiagnosticsCard telemetry={embeddingTelemetry} />
         {desktopDiagnosticsError && (
           <DiagnosticCard
             description="Hidden desktop runtime hosts"
