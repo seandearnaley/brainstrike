@@ -336,8 +336,10 @@ contributing:
     
 2. **Write tests first**. Any new feature or bugfix should be accompanied by  
     unit tests in `src/__tests__`. Tests document expected behaviour and  
-    prevent regressions. Use Vitest and the existing mocks (e.g. in  
-    `mastra-streaming.spec.ts`) as examples.
+    prevent regressions. Use Vitest and the existing mocks (e.g. the shared  
+    fake-Mastra harness in `src/__tests__/fixtures/mastra-stream-harness.ts`,  
+    used by `mastra-streaming.spec.ts` and its three per-module siblings) as  
+    examples.
     
 3. **Document new tools and runtime options** by updating this file. Include  
     usage examples and edge cases. Tools with side effects must be clearly  
