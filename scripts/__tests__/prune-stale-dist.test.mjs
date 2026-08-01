@@ -594,9 +594,9 @@ test('every build-chain script with an emitting tsc cleans or prunes dist first'
 
 // --- Cache-hash coverage: editing the pruner must invalidate cached builds ---
 
-test('turbo.jsonc hashes prune-stale-dist.mjs into build tasks via globalDependencies', () => {
+test('turbo.jsonc hashes prune-stale-dist.mjs into build tasks via global.inputs', () => {
   // The pruner is invoked by package build scripts, but repo-root scripts live
-  // outside every package's $TURBO_DEFAULT$ inputs. Without a globalDependencies
+  // outside every package's $TURBO_DEFAULT$ inputs. Without a global.inputs
   // entry, editing the pruner would replay stale cached builds — the invisible-
   // input class (#1066/#1207); same precedent as verify-no-cross-chunk-cycles.mjs.
   const turboConfig = readFileSync(path.join(REPO_ROOT, 'turbo.jsonc'), 'utf8');
