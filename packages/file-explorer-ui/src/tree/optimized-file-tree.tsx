@@ -304,20 +304,6 @@ export const fileTreeTelemetry = {
   treeRowsRebuildCount: 0,
 };
 
-/**
- * Content equality for two string sets (#1594b). Used as the zustand selector
- * `equalityFn` for `expandedDirectoryPaths`: a selection toggle triggers a
- * secondary store commit that rebuilds that set with IDENTICAL content but a
- * fresh identity. Returning the previous reference on content-equality keeps
- * `treeRowsBuild` (and thus every row) from re-rendering on selection changes,
- * while a genuine expand/collapse (membership change) still yields a new
- * identity and rebuilds. The expanded set is small (visible dirs), so the O(n)
- * compare is far cheaper than a full row rebuild.
- */
-export function stringSetsEqual(a: Set<string>, b: Set<string>): boolean {
-  return setsEqual(a, b);
-}
-
 export function resetFileTreeTelemetry(): void {
   fileTreeTelemetry.columnsRebuildCount = 0;
   fileTreeTelemetry.treeRowsRebuildCount = 0;
@@ -530,7 +516,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // known root path the set passes through unscoped (single-root behavior).
     const expandedDirectoryPaths = useFileExplorerStoreSelector(
       (s) => scopeExpandedPathsToRoot(s.expandedDirectoryPaths, rootPath),
-      stringSetsEqual
+      setsEqual
     );
     const toggleDirectoryExpansion = useFileExplorerStoreSelector(
       (s) => s.toggleDirectoryExpansion

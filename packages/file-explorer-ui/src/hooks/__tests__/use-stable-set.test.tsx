@@ -39,4 +39,22 @@ describe('useStableSet', () => {
     rerender({ value: equalToChanged });
     expect(result.current).toBe(changed);
   });
+
+  it('does not add an extra render pass when membership changes', () => {
+    let renderCount = 0;
+    const initial = new Set(['alpha']);
+    const changed = new Set(['alpha', 'beta']);
+    const { rerender } = renderHook(
+      ({ value }: { value: Set<string> }) => {
+        renderCount += 1;
+        return useStableSet(value);
+      },
+      { initialProps: { value: initial } }
+    );
+    const rendersBeforeMembershipChange = renderCount;
+
+    rerender({ value: changed });
+
+    expect(renderCount).toBe(rendersBeforeMembershipChange + 1);
+  });
 });
