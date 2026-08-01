@@ -31,7 +31,6 @@
 ## Extract Path Segments without split
 **Learning:** Extracting path segments using `.split('/').filter(Boolean)` creates intermediate string arrays and allocates new strings that are immediately discarded if empty. In hot paths (like building paths or verifying traversal), this causes GC pressure and slows execution.
 **Action:** Replace `.split('/').filter(...)` with a native string loop using `indexOf('/')` and `.slice()` in a shared utility function (`extractPathSegments`). This avoids intermediate regex array allocations and executes 3-4x faster in V8.
-
 ## Optimize Regex matching into loop and index scanning
 **Learning:** Using regex like `.match(/\.\./g)` implicitly creates intermediate array allocations. When executed inside a hot loop like file traversal or path validation, this leads to immense GC overhead and performance drops compared to a simple native scan in a while loop using `indexOf(target, offset)`.
 **Action:** Replace `match()` with native `indexOf()` loops using proper index jumps when checking strings or computing lengths of matched groups in performance-critical methods.
@@ -104,7 +103,6 @@
 ## Command-session output retention avoids full-buffer slices
 **Learning:** `apps/desktop/src/assistant-server/command-session-manager.ts` appended PTY chunks to one retained string and sliced that string after every append beyond the 2 Mi UTF-16 cap. On Node 24.16.0, three warmups plus seven measured trials of 5,000 x 1 KiB Latin-1 chunks took a 393.37ms median with one read per 100 appends; adaptive 16 Ki blocks took 9.82ms with identical output. With one read per 10 appends, medians were 409.75ms and 86.81ms. Real PTYs may emit tiny events: five measured trials of 2,102,152 one-character appends took 723.42ms with the flat string and 55.86ms with 129 retained blocks after two warmups. Twenty-five capped Latin-1 buffers required exactly 52,428,800 backing bytes; unconditionally using UTF-16LE would double common ASCII/ANSI retention.
 **Action:** Keep bounded command-session output in fixed-size, head-evicted adaptive blocks and materialize only the suffix requested by `read()`; preserve one-byte Latin-1 storage, upgrade only blocks containing wider code units, and never retain each PTY event separately or restore per-append full-buffer slicing.
-
 ## Stream watchdog ignores unrelated parts before ID probing
 **Learning:** `withToolCallInputTimeout` observes every Mastra stream part, including text and reasoning deltas. Probing tool-call IDs before checking the part type caused 10,000 unnecessary property reads and candidate-array allocations for a 10,000-part non-tool fixture.
 **Action:** Keep the watchdog's part-type gate before tool-call ID extraction, and read supported ID locations directly without a temporary candidates array.
@@ -117,3 +115,6 @@
 ## QuerySelf projection fitting searches retained prefixes
 **Learning:** `querySelf` can project 200 bounded result rows, but fitting its 6,000-character model output previously dropped one row and re-serialized the whole candidate per iteration. The maximum two-wide-cell fixture required 188 full serializations; largest-fitting-prefix search requires exactly 9 while retaining the same complete rows and omission signal.
 **Action:** Keep bounded `querySelf` row, schema, lens, and plan fitting on largest-prefix search; do not restore decrement-and-reserialize loops.
+## Tool summary truncation scans only retained code points
+**Learning:** `packages/ui/src/assistant-ui-panel/tool-summaries.ts` capped visible tool arguments at 64 Unicode code points but first expanded the complete normalized value with `[...full]`. Over 1,000 representative 16 KiB values on Node 24.14.0, bounded surrogate-safe index scans reduced the 15-sample median from 87.91ms to 1.08ms for paths, 171.51ms to 74.10ms for prose, and 235.67ms to 82.57ms for emoji-heavy prose with identical checksums.
+**Action:** Keep tool-summary head/tail truncation on bounded forward/backward UTF-16 index scans; do not materialize the complete code-point array merely to retain 64 visible code points.
