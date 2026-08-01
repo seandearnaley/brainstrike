@@ -455,12 +455,6 @@ jobs:
     needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
-    # Consumed by the two E2E jobs below, which skip when their app was not in
-    # the affected set (BST-1005). On push/workflow_dispatch both are 'true'
-    # because those runs build the whole workspace.
-    outputs:
-      desktop_selected: ${{ steps.selection.outputs.desktop }}
-      web_selected: ${{ steps.selection.outputs.web }}
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -468,103 +462,41 @@ jobs:
           echo "::error::Quiet-head admission failed; refusing to skip the required Build check."
           exit 1
 
-      # `fetch-depth: 0` is REQUIRED: the turbo filter below diffs against
-      # `origin/$BASE_REF`, which needs full history (same reason as the Unit
-      # shards).
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
 
-      # Which of the two E2E apps are in the affected set? Turbo answers from
-      # its own task graph via `--dry=json`; scripts/affected-build-selection.mjs
-      # parses that and emits the GitHub outputs.
-      #
-      # FAIL-CLOSED. `Build`, `Web E2E`, and `Desktop E2E` are required contexts
-      # in the repo ruleset, and GitHub counts a SKIPPED required check as
-      # satisfied — so a selection bug reporting "nothing affected" would merge
-      # untested code behind a green board. `set -o pipefail` plus the script's
-      # throw-on-anything-unexpected means a broken selection fails THIS job and
-      # holds the required checks red. There is no assume-empty path.
-      - name: Resolve the affected E2E apps
-        id: selection
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-
-          # `filters` is emitted FULLY RESOLVED (origin/main, not
-          # origin/$BASE_REF) because the Build step below expands it from an
-          # env var, and shell parameter expansion is not recursive.
-          select_everything() {
-            printf 'web=true\ndesktop=true\nfilters=\n' | tee -a "$GITHUB_OUTPUT"
-          }
-
-          # Push and workflow_dispatch build the whole workspace.
-          if [ "$EVENT_NAME" != "pull_request" ]; then
-            select_everything
-            exit 0
-          fi
-
-          # The CI harness is INVISIBLE to turbo's package graph: no workflow
-          # file lives in a package, so a change to the E2E jobs themselves
-          # would otherwise select nothing and skip the very checks it edits.
-          # Build and run everything whenever the harness moves. (App-side e2e
-          # specs need no special case — apps/web/e2e and apps/desktop/e2e are
-          # inside their packages, so turbo already selects them.)
-          if git diff --name-only "origin/$BASE_REF...HEAD" \
-            | grep -qE '^\.github/workflows/|^scripts/affected-build-selection\.mjs$'; then
-            echo "::notice::CI harness changed; building the full workspace and running both E2E suites."
-            select_everything
-            exit 0
-          fi
-
-          pnpm turbo run build --filter="...[origin/$BASE_REF]" --dry=json \
-            | node scripts/affected-build-selection.mjs \
-            | tee -a "$GITHUB_OUTPUT"
-          echo "filters=--filter=...[origin/$BASE_REF]" | tee -a "$GITHUB_OUTPUT"
-
-      # PR runs build only the affected set; push/workflow_dispatch stay whole
-      # so main never drifts behind a partially-built cache (the Unit-shard
-      # precedent). On a representative PR this selects 20 of 47 packages.
-      #
-      # `--continue=dependencies-successful` reports every independent failure
-      # in one run instead of cancelling siblings at the first error — the
-      # whole point of a build gate is to show all of what is broken.
-      # Invoked as `pnpm turbo` DIRECTLY, not through the root `pnpm run build`
-      # script, and that is load-bearing: `pnpm run build -- <flags>` preserves
-      # the `--`, so turbo reads the flags as PASS-THROUGH args and appends them
-      # to every package's own build script — where pnpm in turn tacks them onto
-      # the last command of the `&&` chain. Measured on the first run of this PR:
-      # `tsup ... --continue=dependencies-successful` and a node-gyp build both
-      # died that way, and `--filter` would leak identically on any normal PR.
-      # The Unit shards already call `pnpm turbo run test` directly for the same
-      # reason. Mirrors the root script's own turbo flags.
-      #
-      # BUILD_FILTERS comes from the selection step FULLY RESOLVED (an empty
-      # value means "build everything"), so the build and the E2E gates can
-      # never disagree about what was selected — one step decides, everything
-      # downstream consumes. Intentionally unquoted so the empty case
-      # contributes no argument; the value never contains spaces.
-      #
-      # `--continue=dependencies-successful` reports every independent failure
-      # in one run instead of cancelling siblings at the first error.
       - name: Build
+        # Invoked as `pnpm turbo` DIRECTLY rather than through the root
+        # `pnpm run build` script, and that is load-bearing for any flag added
+        # here: `pnpm run build -- <flags>` preserves the `--`, so turbo reads
+        # them as PASS-THROUGH args and appends them to every package's own
+        # build script, where pnpm tacks them onto the last command of the `&&`
+        # chain. Measured on the first run of BST-1005: `tsup ...
+        # --continue=dependencies-successful` and a node-gyp build both died
+        # that way. The Unit shards already call `pnpm turbo run test` directly
+        # for the same reason. Mirrors the root script's own turbo flags.
+        #
+        # `--continue=dependencies-successful` reports every independent
+        # failure in one run instead of cancelling siblings at the first error
+        # — the point of a build gate is to show all of what is broken.
+        #
+        # NOT affected-filtered (BST-1005, measured): both E2E smoke jobs run
+        # on EVERY PR (AGENTS.md CI contract, and audit-bolt-readiness.mjs
+        # counts a skipped required check as not-ready), so this job must
+        # always produce the web and desktop bundles they consume. Those two
+        # apps' dependency closure is 46 of 47 workspace packages, so a
+        # `...[origin/$BASE_REF]` filter here can skip at most ONE package
+        # (@brainstrike/tsconfig) while turbo's cache already replays the rest.
         env:
-          BUILD_FILTERS: ${{ steps.selection.outputs.filters }}
           TAILWIND_DEBUG: '1'
-        run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful $BUILD_FILTERS
+        run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful
 
-      # Only meaningful when web was actually built; on a PR that touches
-      # neither web nor its dependency closure there is no bundle to validate.
       - name: Validate CSS bundle
-        if: steps.selection.outputs.web == 'true'
         run: |
           CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
           echo "CSS bundle size: ${CSS_SIZE} bytes"
@@ -581,26 +513,6 @@ jobs:
             exit 1
           fi
 
-      # The artifact's job is to carry the bundles the SELECTED E2E jobs will
-      # consume, so that is what gets verified — explicitly and loudly. Under
-      # affected filtering an unselected app legitimately has no dist, which is
-      # why the upload below tolerates a missing path; this step is what keeps
-      # that tolerance from hiding a genuine missing-bundle failure.
-      - name: Verify the selected app bundles were built
-        run: |
-          set -euo pipefail
-          missing=""
-          if [ "${{ steps.selection.outputs.web }}" = "true" ] && [ ! -d apps/web/dist ]; then
-            missing="$missing apps/web/dist"
-          fi
-          if [ "${{ steps.selection.outputs.desktop }}" = "true" ] && [ ! -d apps/desktop/dist ]; then
-            missing="$missing apps/desktop/dist"
-          fi
-          if [ -n "$missing" ]; then
-            echo "::error::Selected app bundles are missing:$missing"
-            exit 1
-          fi
-
       - name: Upload build artifacts
         if: github.event_name != 'workflow_dispatch'
         uses: actions/upload-artifact@v7
@@ -611,9 +523,7 @@ jobs:
             apps/desktop/dist/
             packages/*/dist/
           retention-days: 1
-          # An unselected app has no dist by design (BST-1005); the explicit
-          # verification step above owns the real invariant.
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   native-windows:
     name: Native Windows
@@ -775,10 +685,6 @@ jobs:
 
   web-e2e:
     name: Web E2E
-    # Skips when apps/web was not in the affected set (BST-1005). GitHub counts
-    # a skipped required check as satisfied, so this gate is only safe because
-    # the selection that feeds it fails CLOSED — see the Build job's selection
-    # step and scripts/affected-build-selection.mjs.
     if: >-
       always() &&
       (
@@ -786,8 +692,7 @@ jobs:
         (
           github.event_name != 'workflow_dispatch' &&
           needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success' &&
-          needs.build.outputs.web_selected == 'true'
+          needs.build.result == 'success'
         )
       )
     needs: [admission, build]
@@ -868,8 +773,6 @@ jobs:
 
   desktop-e2e:
     name: Desktop E2E
-    # Skips when apps/desktop was not in the affected set (BST-1005) — same
-    # fail-closed reasoning as Web E2E above.
     if: >-
       always() &&
       (
@@ -877,8 +780,7 @@ jobs:
         (
           github.event_name != 'workflow_dispatch' &&
           needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success' &&
-          needs.build.outputs.desktop_selected == 'true'
+          needs.build.result == 'success'
         )
       )
     needs: [admission, build]
