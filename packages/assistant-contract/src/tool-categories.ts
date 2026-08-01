@@ -334,6 +334,18 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     requiresApproval: true,
     riskCategory: 'edit',
   },
+  // Arbitrary agent-authored Python. Sandboxed (OS fence, no network, writes
+  // confined to a per-call scratch dir), but still 'execute': the fence bounds
+  // the blast radius, it does not make running attacker-influenceable code a
+  // read. 'execute' also keeps it out of plan mode — plan-mode-tool-gate.ts
+  // pins that with brainstrike.runPython as its fixture (BST-1073).
+  [NATIVE_TOOL_ID.runPython]: {
+    category: 'action',
+    estimatedTokens: 190,
+    loadingTier: 'deferred',
+    requiresApproval: true,
+    riskCategory: 'execute',
+  },
   [NATIVE_TOOL_ID.runSkillScript]: {
     category: 'action',
     estimatedTokens: 220,

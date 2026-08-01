@@ -145,6 +145,24 @@ When adding a new tool:
     their purpose, limitations and usage. If the tool proxies to an external  
     service, document rate limits and fallback behaviour.
 
+### `brainstrike.runPython` tool
+
+Desktop-only deferred tool (BST-1067) that runs assistant-authored Python
+inside the OS fence, dispatched through the `CodeExecutor` seam — never a
+direct spawn. Input is `code` plus an optional `timeoutMs`; there is
+deliberately **no network field**, and `policy.allowedDomains` is a literal
+`[]`, so egress is inexpressible rather than defaulted off (the escalation
+needs suspension rediscovery, which does not exist yet — see
+`docs/agents/code-execution.md`). Writes are confined to a per-call scratch
+dir that is deleted afterwards, and a failure to delete it is reported on the
+result rather than swallowed; READS are unrestricted, so treat anything the
+script reads as sensitive. One timeout budget spans host resolution and
+execution. Results are a five-arm discriminated union — `completed` is the
+only arm carrying `exitCode`, so a signal kill can never read as exit 0 — and
+both the executor cap and the model-facing projection are reported as
+UTF-8 omitted-byte counts. Execute-risk and approval-gated; excluded for the
+built-in local provider. Full contract: `docs/agents/code-execution.md`.
+
 ### `brainstrike.runSkillScript` tool
 
 This desktop-only deferred tool runs a bundled script from the trusted,

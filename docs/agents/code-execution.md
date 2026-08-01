@@ -272,6 +272,61 @@ A backend that serializes executions must honour an abort WHILE QUEUED, not
 only once spawned — otherwise pressing Stop behind two other runs waits for
 them.
 
+## The run_python tool (BST-1067, LIVE)
+
+`packages/agent/src/tools/run-python-tool.ts`, exported from the package root
+as `createRunPythonTool`. Paired tests: `run-python-tool.spec.ts` (unit lane,
+stub executors) and `run-python-tool.integration.spec.ts` (integration lane,
+REAL Seatbelt/bwrap + a real interpreter). Registered by the desktop
+composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
+
+- **NETWORK IS STRUCTURALLY ABSENT, not defaulted off.** The strict input
+  schema has NO domain field and `policy.allowedDomains` is a literal `[]`, so
+  no call can request egress. This is deliberate and should not be "fixed" by
+  adding a domains argument: the network escalation (the BST-1070 design's
+  Gate B) rides the SUSPENSION channel, and suspensions are not rediscovered
+  across a renderer reload — a reload while the prompt was on screen would
+  strand the run silently. Egress becomes expressible when that gap closes,
+  and not before.
+  - **Testing the deny is easy to get VACUOUSLY right.** srt enforces
+    `allowedDomains` at its HTTP PROXY, so a raw `socket.create_connection` is
+    refused by the fence whatever the policy says — a raw-socket assertion
+    passes identically with `allowedDomains: []` and `['example.com']`, i.e.
+    it proves nothing about the policy. The integration proof uses `urllib`
+    (the proxied path) and is mutation-checked: granting the domain makes it
+    fail. Keep it that way.
+- **Registered as the factory-returned Mastra Tool object**, never re-wrapped
+  in the desktop registry's `{description, execute, id, inputSchema}` literal —
+  that shape drops `suspendSchema`, which is exactly what BST-1070 will add.
+  A desktop test asserts the real Tool object so the trap is armed before the
+  schema exists. Excluded for the built-in local provider, alongside
+  `askUser`/`submitPlan`.
+- **Per-call scratch dir is the only writable path**: `mkdtemp` under
+  `os.tmpdir()`, `realpath`'d (macOS `/var` → `/private/var`, and the seam
+  compares resolved paths for `scratchDir ⊆ allowWrite`), removed in a
+  `finally` on every exit path. Under `os.tmpdir()` rather than userData so a
+  hard-crash orphan is reaped by the OS.
+- **Five distinct terminal states**, mapped in `toRunPythonResult`:
+  `completed` (the ONLY arm carrying `exitCode`, so a signal kill can never
+  render as exit 0), `timed_out`, `killed` (`exitCode: null` with
+  `timedOut: false` — a REAL state per the seam's "including a timeout kill",
+  reachable via SIGSEGV/OOM, not a defensive branch), `cancelled` (carries
+  partial output; never an empty success), and `unavailable`. An unrecognised
+  error RETHROWS rather than being labelled with a diagnosis this layer cannot
+  make.
+- **`interpreter_unavailable` is distinct from `no_sandbox_configured`.** Host
+  resolution is async (the bundled CPython may need a first-run unpack), and a
+  `python_*`-coded failure from BST-1061's resolver maps to its own reason so
+  the user is told WHICH half is missing. Matched structurally by code prefix —
+  this package must not depend on `apps/desktop`, and the seam's own codes are
+  all `exec_*`/`executor_*`/`fence_*`, so the prefixes cannot collide.
+- **Output is bounded twice, and both counts are reported.** The executor cap
+  (`RUN_PYTHON_MAX_OUTPUT_BYTES`) stops a runaway loop exhausting memory; the
+  model projection fits the tool budget. Anything the projection trims is ADDED
+  to the executor's `stdoutOmittedBytes`/`stderrOmittedBytes`, so the model can
+  tell "the script produced 4 MB" from "we showed you the last 10 KB". The tail
+  is kept — a traceback ends with the exception.
+
 ## Permission engine relationship
 
 Approval/permission gating happens ABOVE this seam. The run_python tool is an

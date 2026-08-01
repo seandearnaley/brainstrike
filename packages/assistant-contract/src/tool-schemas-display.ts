@@ -517,6 +517,31 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
     toolId: 'brainstrike.readToolOutputArtifact',
   },
 
+  'brainstrike.runPython': {
+    description:
+      "Run Python source you write, inside an OS-level sandbox on the user's machine. The sandbox has NO network access of any kind — a script that tries to reach the internet fails — and can only WRITE inside a fresh per-call scratch directory that is deleted when the call finishes, so nothing it writes persists. Reads are not restricted, so treat anything it reads as sensitive. Requires approval (execute-risk). Use it for computation, parsing, and data wrangling; stdout and stderr come back to you.",
+    parameters: [
+      {
+        description:
+          'Python source to execute. Runs as a script, not a REPL — print() to return values.',
+        maxLength: 1_000_000,
+        minLength: 1,
+        name: 'code',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'Wall-clock limit in ms (default 30000, max 600000)',
+        name: 'timeoutMs',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns:
+      'A discriminated result: completed (exitCode, stdout, stderr, per-stream omitted byte counts), timed_out, killed, cancelled (partial output), or unavailable (no sandbox on this machine).',
+    toolId: 'brainstrike.runPython',
+  },
+
   'brainstrike.runSkillScript': {
     description:
       'Run one bundled script from an activated Agent Skill using trusted resolution, structured arguments, and an explicit mounted working root. Requires approval.',

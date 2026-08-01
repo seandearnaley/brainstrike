@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
+import { MAX_EXEC_CODE_LENGTH, MAX_EXEC_TIMEOUT_MS } from '../code-execution';
 import { ReadToolOutputArtifactCursorInputSchema } from '../mastra/tool-output-artifact-reader';
 
 const WORKSPACE_SEARCH_ROOT_DESCRIPTION =
@@ -788,6 +789,25 @@ const StrictRootRelativePathSchema = z
     'Must be a canonical root-relative path without traversal'
   );
 
+export const RunPythonInputSchema = z
+  .object({
+    code: z
+      .string()
+      .min(1)
+      .max(MAX_EXEC_CODE_LENGTH)
+      .describe('Python source to run as a script; print() to return values'),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_EXEC_TIMEOUT_MS)
+      .optional()
+      .describe('Wall-clock limit ms (default 30000, max 600000)'),
+  })
+  .strict();
+
+export type RunPythonInput = z.infer<typeof RunPythonInputSchema>;
+
 export const RunSkillScriptInputSchema = z
   .object({
     args: z.array(z.string().max(2000)).max(64).optional().describe('Literal argv'),
@@ -1036,6 +1056,7 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: ReadWorkspaceDirectoryInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceFile]: ReadWorkspaceFileInputSchema,
   [NATIVE_TOOL_ID.renameWorkspaceFile]: RenameWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.runPython]: RunPythonInputSchema,
   [NATIVE_TOOL_ID.runSkillScript]: RunSkillScriptInputSchema,
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: StringReplaceWorkspaceFileInputSchema,
   [NATIVE_TOOL_ID.submitPlan]: SubmitPlanInputSchema,
