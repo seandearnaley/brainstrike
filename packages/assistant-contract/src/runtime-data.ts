@@ -281,8 +281,9 @@ export interface RuntimeData {
   modelSettings?: RuntimeModelSettings;
   /**
    * Plan mode (opt-in, per-request). When `true`, the agent runtime constrains
-   * the tool map to read-only + `submitPlan`/`askUser` (edit/execute tools are
-   * omitted) and prepends a PLAN-MODE instruction block, so the model
+   * the tool map to risk ∈ {read, mcp} (edit/execute tools are omitted;
+   * `submitPlan`/`askUser` survive because they are classified `read`, not
+   * because they suspend) and prepends a PLAN-MODE instruction block, so the model
    * investigates and proposes a plan for approval before any changes. Sent over
    * the wire ONLY when `true` (presence-means-on, like `permissionPolicyRequest`).
    * Excluded for the built-in local provider. Agent-only enforcement.
