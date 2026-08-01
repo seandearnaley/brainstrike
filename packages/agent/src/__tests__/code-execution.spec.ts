@@ -4,6 +4,7 @@ import {
   assertExecRequestSatisfiable,
   type CodeExecutor,
   createNullCodeExecutor,
+  ExecAbortedError,
   ExecCapabilityMismatchError,
   type ExecInput,
   type ExecutorCapabilities,
@@ -11,6 +12,7 @@ import {
   ExecutorTierMismatchError,
   execInputSchema,
   execPolicySchema,
+  isExecAbortedError,
   isExecCapabilityMismatchError,
   isExecResultTruncated,
   isExecutorKindUnavailableError,
@@ -448,5 +450,45 @@ describe('createNullCodeExecutor', () => {
     const executor = createNullCodeExecutor({ platform: 'win32' });
     await expect(executor.dispose()).resolves.toBeUndefined();
     await expect(executor.dispose()).resolves.toBeUndefined();
+  });
+});
+
+describe('ExecAbortedError', () => {
+  // Cancellation is an error, not a result: `exitCode: null, timedOut: false`
+  // would differ from a timeout only by the ABSENCE of a flag, forcing every
+  // consumer to reverse-engineer the intent.
+  it('reports the queued position as nothing having run', () => {
+    const error = new ExecAbortedError({ processStarted: false });
+    expect(isExecAbortedError(error)).toBe(true);
+    expect(error.code).toBe('exec_aborted');
+    expect(error.name).toBe('ExecAbortedError');
+    expect(error.processStarted).toBe(false);
+    expect(error.message).toMatch(/before any process started/i);
+    expect(error.partialStdout).toBe('');
+    expect(error.partialStderr).toBe('');
+    expect(error.stdoutOmittedBytes).toBe(0);
+    expect(error.stderrOmittedBytes).toBe(0);
+  });
+
+  it('carries the partial output when the process had already started', () => {
+    const error = new ExecAbortedError({
+      partialStderr: 'warn',
+      partialStdout: 'half a line',
+      processStarted: true,
+      stderrOmittedBytes: 3,
+      stdoutOmittedBytes: 12,
+    });
+    expect(error.processStarted).toBe(true);
+    expect(error.partialStdout).toBe('half a line');
+    expect(error.partialStderr).toBe('warn');
+    expect(error.stdoutOmittedBytes).toBe(12);
+    expect(error.stderrOmittedBytes).toBe(3);
+    expect(error.message).toMatch(/process tree was terminated/i);
+  });
+
+  it('is an Error, so one catch covers both positions', () => {
+    expect(new ExecAbortedError({ processStarted: true })).toBeInstanceOf(Error);
+    expect(isExecAbortedError(new Error('nope'))).toBe(false);
+    expect(isExecAbortedError(undefined)).toBe(false);
   });
 });
