@@ -71,9 +71,14 @@ should use, including on runtime-computed paths. Its rules:
   in a Windows-shaped path; on POSIX it is a legal filename character, so
   `/tmp/scratch\run` is a sibling directory named `scratch\run`, not a
   descendant of `/tmp/scratch`.
-- **Case is folded only when an operand is Windows-shaped**, because
-  drive-letter case is not stable across Node APIs. POSIX comparison stays
-  case-sensitive.
+- **Only the Windows DRIVE LETTER is case-folded** — never directory segments,
+  and never on POSIX. Drive-letter case is what Node APIs spell
+  inconsistently; directory segments are a different question, because NTFS
+  supports per-directory case sensitivity (WSL enables it), so folding them
+  could report coverage the filesystem does not grant. That is a false PERMIT,
+  the unsafe direction, and the same platform-shaped guess this doc rejects
+  for darwin below. Case-insensitive volumes are served correctly by resolving
+  first — `realpath` returns the canonical on-disk spelling.
 
 ### Backends MUST resolve before asking (requirement, not advice)
 

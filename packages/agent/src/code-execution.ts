@@ -162,10 +162,15 @@ export type ExecPolicy = z.infer<typeof execPolicySchema>;
  * passed through `policyPathSchema`. It never claims coverage it cannot
  * prove; resolve paths before asking.
  *
- * Comparison is case-sensitive for POSIX paths and case-INSENSITIVE when
- * either operand is Windows-shaped: drive-letter case is not stable across
- * Node APIs, so two spellings of the same directory would otherwise be
- * reported as uncovered with an error the caller cannot act on.
+ * Comparison is case-sensitive everywhere EXCEPT the Windows drive letter
+ * (BST-1074). Drive-letter case is what Node APIs spell inconsistently, so
+ * folding it prevents an error the caller cannot act on. Directory segments
+ * are NOT folded: NTFS supports per-directory case sensitivity (WSL enables
+ * it), so folding them could report coverage the filesystem does not grant —
+ * a false PERMIT, which is the unsafe direction, and the same platform-shaped
+ * guess this module rejects for darwin. A case-insensitive volume is served
+ * correctly by resolving first: `realpath` returns the canonical on-disk
+ * spelling.
  */
 export function isPathCoveredBy(target: string, roots: readonly string[]): boolean {
   const targetSegments = pathSegments(target);
@@ -177,10 +182,11 @@ export function isPathCoveredBy(target: string, roots: readonly string[]): boole
     if (rootSegments.includes('..') || rootSegments.length > targetSegments.length) {
       return false;
     }
-    const foldCase = isWindowsShapedPath(target) || isWindowsShapedPath(root);
+    const foldDriveLetter = isWindowsShapedPath(target) || isWindowsShapedPath(root);
     return rootSegments.every((segment, index) => {
       const targetSegment = targetSegments[index] ?? '';
-      return foldCase
+      // Index 0 of a Windows-shaped path is the drive ("C:") or the UNC host.
+      return foldDriveLetter && index === 0
         ? segment.toLowerCase() === targetSegment.toLowerCase()
         : segment === targetSegment;
     });

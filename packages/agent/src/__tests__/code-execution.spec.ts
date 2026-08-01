@@ -254,9 +254,15 @@ describe('isPathCoveredBy', () => {
     expect(isPathCoveredBy('/tmp/scratch\\run', ['/tmp'])).toBe(true);
   });
 
-  it('folds case for Windows-shaped paths only', () => {
+  it('folds case for the Windows DRIVE LETTER only, not whole segments', () => {
+    // The drive letter is what Node APIs spell inconsistently, so it folds.
     expect(isPathCoveredBy('c:\\work\\scratch', ['C:\\work'])).toBe(true);
-    expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(true);
+    expect(isPathCoveredBy('C:\\work\\scratch', ['c:\\work'])).toBe(true);
+    // Directory segments do NOT fold: NTFS supports per-directory case
+    // sensitivity (WSL sets it), so folding them could report coverage the
+    // filesystem does not grant — a false PERMIT, the unsafe direction.
+    // Callers realpath first, which yields the canonical on-disk spelling.
+    expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(false);
     expect(isPathCoveredBy('/tmp/Scratch', ['/tmp/scratch'])).toBe(false);
   });
 });
