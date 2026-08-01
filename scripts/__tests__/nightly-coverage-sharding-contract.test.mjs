@@ -7,6 +7,10 @@ const workflow = await readFile(
   new URL('../../.github/workflows/nightly-coverage.yml', import.meta.url),
   'utf8'
 );
+const prCoverageWorkflow = await readFile(
+  new URL('../../.github/workflows/coverage.yml', import.meta.url),
+  'utf8'
+);
 const unitWorkflow = await readFile(
   new URL('../../.github/workflows/test.yml', import.meta.url),
   'utf8'
@@ -74,10 +78,35 @@ function assertNativeDbShardContract(unitSource, coverageSource) {
   assert.match(coverageSource, /DB_TEST_SHARD: \$\{\{ matrix\.vitest_shard \}\}/u);
   assert.doesNotMatch(shardJob, /--shard=|coverage\.reportsDirectory/u);
   assert.match(coverageSource, /--merge-reports=\.vitest-reports/u);
+  assert.match(shardJob, /include-hidden-files: true/u);
   assert.match(coverageSource, /if \[ "\$blob_count" -ne 2 \]/u);
   assert.doesNotMatch(
     coverageSource,
     /test:coverage:db:(architecture|check-lanes|chunking|migrations|queue|repositories|runtime|search)/u
+  );
+}
+
+function assertPrCoverageDbShardContract(unitSource, coverageSource) {
+  const unitShardIds = toShardIds(
+    parseUnitShardMatrix(unitSource)
+      .filter((row) => row.partition === 'db')
+      .map((row) => row.vitestShard)
+  );
+  const loop = coverageSource.match(/for db_test_shard in ([^;]+); do/u);
+  assert.ok(loop, 'PR coverage must declare its native DB shard loop');
+  const prShardIds = loop[1].trim().split(/\s+/u).sort();
+  assert.deepEqual(prShardIds, unitShardIds, 'PR coverage must use the Unit DB shard set');
+  assert.match(
+    coverageSource,
+    /DB_TEST_SHARD="\$db_test_shard" pnpm turbo run test:coverage:db:shard/u
+  );
+  assert.match(coverageSource, /if \[ "\$blob_count" -ne 2 \]/u);
+  assert.match(coverageSource, /--merge-reports=\.vitest-reports/u);
+  assert.match(coverageSource, /packages\/db\/coverage\/coverage-final\.json/u);
+  assert.match(
+    coverageSource,
+    /--filter "!@brainstrike\/db" --workspace-concurrency=4/u,
+    'the concurrent affected-package runner must exclude DB'
   );
 }
 
@@ -123,6 +152,10 @@ test('nightly coverage merges DB blobs natively and fans one artifact into the t
   assert.match(workflow, /name: Notify nightly coverage failure[\s\S]*needs:[\s\S]*- coverage/);
 });
 
+test('PR coverage isolates DB and natively merges the same complete shard set', () => {
+  assertPrCoverageDbShardContract(unitWorkflow, prCoverageWorkflow);
+});
+
 test('DB coverage shards emit only the blob plus a cheap text summary', () => {
   assertCheapDbShardReporter(dbPackageJson.scripts['test:coverage:db:shard']);
 });
@@ -149,4 +182,38 @@ test('money test: removing the cheap shard reporter fails the contract', () => {
   );
   assert.notEqual(mutated, dbPackageJson.scripts['test:coverage:db:shard']);
   assert.throws(() => assertCheapDbShardReporter(mutated), /input did not match/u);
+});
+
+test('money test: duplicating a PR coverage shard fails cross-workflow parity', () => {
+  const mutated = prCoverageWorkflow.replace(
+    'for db_test_shard in 1/2 2/2',
+    'for db_test_shard in 1/2 1/2'
+  );
+  assert.notEqual(mutated, prCoverageWorkflow, 'the PR shard control must mutate real workflow');
+  assert.throws(
+    () => assertPrCoverageDbShardContract(unitWorkflow, mutated),
+    /must use the Unit DB shard set/u
+  );
+});
+
+test('money test: allowing DB into concurrent PR coverage fails isolation', () => {
+  const mutated = prCoverageWorkflow.replace('--filter "!@brainstrike/db"', '');
+  assert.notEqual(
+    mutated,
+    prCoverageWorkflow,
+    'the DB-isolation control must mutate real workflow'
+  );
+  assert.throws(
+    () => assertPrCoverageDbShardContract(unitWorkflow, mutated),
+    /concurrent affected-package runner must exclude DB/u
+  );
+});
+
+test('money test: hidden Vitest blobs must remain uploadable', () => {
+  const mutated = workflow.replace('          include-hidden-files: true\n', '');
+  assert.notEqual(mutated, workflow, 'the hidden-upload control must mutate real workflow');
+  assert.throws(
+    () => assertNativeDbShardContract(unitWorkflow, mutated),
+    /include-hidden-files: true/u
+  );
 });

@@ -280,6 +280,15 @@ per PR lifecycle: it runs on non-draft `opened`, `ready_for_review`, non-draft
 `synchronize`. `nightly-coverage.yml` remains the authoritative threshold gate;
 per-PR coverage is advisory Codecov patch signal only.
 
+When DB is directly changed, the advisory workflow isolates its coverage from
+the recursive package runner. It executes the same native Vitest `1/2` + `2/2`
+shard set as required Unit and nightly coverage, sequentially on the single
+2-vCPU host, then uses `--merge-reports`. Other affected packages retain
+`--workspace-concurrency=4` and explicitly exclude DB. This boundary is
+load-bearing: run 30704747207 let DB share the host with another package and a
+10-second type-contract test timed out after 24 minutes. Do not widen that test
+or serialize every package; keep only the PGlite-heavy DB task isolated.
+
 #### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
 
 The ruleset requires exactly five contexts — `Static`, `Unit`, `Build`,
