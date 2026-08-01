@@ -4,13 +4,16 @@
 // is 12 files, all of which construct REAL PGlite via wasmLoader.createPGlite.
 // NOTE: this lane is SERIALIZED — the `test:integration` script passes
 // `--maxWorkers=1 --no-file-parallelism`, overriding the machine-relative
-// `maxWorkers: '50%'` this file otherwise inherits from the base config. A
-// worker peaks at ~1.9 GB RSS, and two of them plus a turbo-co-scheduled
-// integration lane crashed workers on the CI host (BST-1072; see
-// docs/agents/ci-quality.md, "The embeddings integration lane is serialized").
-// Their
-// pass/fail can depend on inputs turbo does NOT hash (WASM/PGlite timing, CPU
-// contention, the scheduler), so they must not be cacheable. Executed by the
+// `maxWorkers` this file inherits from the base config ('50%' on CI, '100%'
+// locally). The serialization also leans on the base config's `pool: 'forks'`
+// staying put: under `threads`, `--maxWorkers=1` would cap threads in ONE
+// process and the ~1.9 GB heaps would share its address space. A worker peaks
+// at ~1.9 GB RSS, and two of them plus a turbo-co-scheduled integration lane
+// crashed workers on the CI host (BST-1072; see docs/agents/ci-quality.md,
+// "The embeddings integration lane is serialized").
+//
+// The files' pass/fail can depend on inputs turbo does NOT hash (WASM/PGlite
+// timing, CPU contention, the scheduler), so they must not be cacheable. Executed by the
 // `test:integration` script, which turbo routes through the root uncached
 // `test:integration` task (turbo.jsonc, `cache: false`) so these lanes are
 // never replayed from cache. (The fake-timer foreground-embedding-gate suite is

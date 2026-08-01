@@ -305,23 +305,27 @@ the serialization is 2 → 1. The 2-vCPU figure belongs to `coverage.yml`'s
 `ubuntu-latest` host in the section above, a different workflow.
 
 The in-lane flag is also not the only concurrency knob: `test.yml` invokes
-`pnpm turbo run test:integration … --concurrency=2`, so a SECOND heavy
-integration lane (desktop, agent, app-shell…) shares the box with embeddings.
-The memory accounting is therefore 2 × the measured **~1.9 GB RSS per worker**
-(real PGlite plus WASM embedding heaps) PLUS the co-scheduled lane's peak,
-against 16 GB. Anyone re-measuring must hold that cross-package factor
-constant.
+`pnpm turbo run test:integration … --concurrency=2`, so a SECOND integration
+lane from the SAME `rest` partition (agent, web, file-import…) can share the
+box with embeddings — desktop/ui/file-explorer-ui/app-shell cannot, they run
+in the separate `heavy` matrix row. The memory accounting is therefore 2 × the
+measured **~1.9 GB RSS per worker** (real PGlite plus WASM embedding heaps)
+PLUS the co-scheduled rest-partition lane's peak, against 16 GB. Anyone
+re-measuring must hold that cross-package factor constant.
 
 **What is proven vs. plausible.** Proven: the crash is concurrency-dependent
 and not a bug in one test — the victim VARIES (across two failing runs on
 PR #2213 the file that never reported was `embedding-worker-model-resolution`
-once and `embedding-worker-batch` the other time), it never reproduced on a
-developer Mac (74/74), and the serialized lane passes. The worker died with
-`[vitest-pool]: Worker exited unexpectedly` and the job reported
-`Test Files 11 passed (12)` — the twelfth file never reported at all. NOT
-directly observed: the precise ceiling that killed the worker. Memory pressure
-from two workers plus a co-scheduled lane is the best-supported account, not a
-captured OOM kill.
+once and `embedding-worker-batch` the other time), and the serialized lane
+passes. The worker died with `[vitest-pool]: Worker exited unexpectedly` and
+the job reported `Test Files 11 passed (12)` — the twelfth file never reported
+at all. Supporting the MEMORY account specifically: the crash never reproduced
+on a developer Mac (74/74) even though a Mac runs `maxWorkers: '100%'` —
+strictly MORE concurrent workers than CI's 2 — with far more RAM, so worker
+count alone does not produce the crash; available memory does. NOT directly
+observed: the precise ceiling that killed the worker. Memory pressure from two
+workers plus a co-scheduled lane is the best-supported account, not a captured
+OOM kill.
 
 It surfaced on any PR marking embeddings as AFFECTED — which includes editing a
 widely-depended-on package such as `assistant-contract`, not just root config —
