@@ -166,6 +166,18 @@ approval suspension are decided before `execute()` is ever reached. The seam
 never re-implements or bypasses that gate, and executor errors never
 auto-approve or auto-decline anything.
 
+The UX design for that gating — the pre-run approval card, the network
+escalation, the result surface, and the remember-choice scope — is specified in
+`docs/run-python-approval-ux-design-2026-08-01.md` (BST-1070, DESIGN ONLY;
+implementation blocked on BST-1067). Its load-bearing ruling: a non-empty
+`ExecPolicy.allowedDomains` escalates on the SUSPEND channel, not the approval
+channel, because Mastra's `requireApproval` is per-tool and cannot be
+conditioned on a single call's arguments — so an approval-channel escalation
+would be silently skipped by any session/per-tool grant. That doc also records
+four gaps in this seam's expressiveness (no incremental output channel, no
+omission POSITION alongside the omitted byte counts, no read-list provenance,
+and no channel for host-computed approval display context).
+
 ## The null stub
 
 `createNullCodeExecutor({ platform })` lets tool code integrate against the
