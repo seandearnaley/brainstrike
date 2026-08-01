@@ -108,6 +108,26 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
     }
   }, 30_000);
 
+  it('keeps the bundled TS6 server clean on the TS7-checked WebGPU surface', async () => {
+    // BST-1011 deliberately keeps the LSP on the classic TS6 server while CI
+    // type-checks with native TS7. This real-workspace control prevents the
+    // device-detection WebGPU declarations from becoming LSP-only false
+    // positives that the native checker cannot see.
+    const repoRoot = path.resolve(import.meta.dirname, '../../../../..');
+    const absolutePath = path.join(repoRoot, 'packages/embeddings/src/device-detection.ts');
+    const content = await fsPromises.readFile(absolutePath, 'utf8');
+
+    const result = await getEditDiagnostics({
+      absolutePath,
+      content,
+      rootId: 'brainstrike-webgpu-compat',
+      rootPath: repoRoot,
+    });
+
+    expect(result.available).toBe(true);
+    expect(result.diagnostics ?? []).toEqual([]);
+  }, 30_000);
+
   it('omits diagnostics for an unsupported language (no note spam)', async () => {
     const root = await makeRoot();
     try {

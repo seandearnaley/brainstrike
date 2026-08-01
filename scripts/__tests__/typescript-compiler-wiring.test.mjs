@@ -5,12 +5,20 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const rootPackagePath = path.join(repoRoot, 'package.json');
 const workspacePath = path.join(repoRoot, 'pnpm-workspace.yaml');
 const sourceExtensions = new Set(['.cjs', '.js', '.mjs', '.ts', '.tsx']);
 const typescriptImport = /(?:from\s+|require\(\s*|import\(\s*)['"]typescript['"]/u;
+// Exact patches are load-bearing: changing either compiler invalidates the
+// diagnostic/timing evidence in docs/series-c-ts7-parity-findings.md. The
+// guard must stay red until that parity sweep is rerun and these pins move with
+// the recorded baseline.
+const EXPECTED_COMPAT_CATALOG = 'npm:@typescript/typescript6@6.0.2';
+const EXPECTED_LSP_CATALOG = 'npm:typescript@6.0.3';
+const EXPECTED_NATIVE_CATALOG = 'npm:typescript@7.0.2';
 
 function readMajor(command, args, cwd = repoRoot) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
@@ -46,31 +54,37 @@ function workspaceManifests() {
   return manifests;
 }
 
-function sourceFiles(directory) {
-  const files = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (entry.name === 'dist' || entry.name === 'node_modules') {
-      continue;
-    }
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...sourceFiles(entryPath));
-    } else if (sourceExtensions.has(path.extname(entry.name))) {
-      files.push(entryPath);
-    }
-  }
-  return files;
+function trackedSourceFiles() {
+  const result = spawnSync('git', ['ls-files', '-z', '--', 'apps', 'packages', 'scripts'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, `git ls-files failed: ${result.stderr.trim()}`);
+  return result.stdout
+    .split('\0')
+    .filter(Boolean)
+    .filter((file) => sourceExtensions.has(path.extname(file)))
+    .map((file) => path.join(repoRoot, file));
 }
 
 function classicApiConsumers() {
-  const files = ['apps', 'packages', 'scripts']
-    .flatMap((group) => sourceFiles(path.join(repoRoot, group)))
-    .filter((file) => typescriptImport.test(readFileSync(file, 'utf8')));
+  const files = trackedSourceFiles().filter((file) =>
+    typescriptImport.test(readFileSync(file, 'utf8'))
+  );
 
   return files.map((file) => {
-    const compiler = createRequire(file)('typescript');
-    const major = Number.parseInt(String(compiler.version).split('.')[0] ?? '', 10);
-    return { file: path.relative(repoRoot, file), major };
+    try {
+      const compiler = createRequire(file)('typescript');
+      const major = Number.parseInt(String(compiler.version).split('.')[0] ?? '', 10);
+      return { file: path.relative(repoRoot, file), major };
+    } catch (error) {
+      return {
+        file: path.relative(repoRoot, file),
+        major: null,
+        resolutionError: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 }
 
@@ -79,11 +93,23 @@ function collectViolations(state) {
   if (state.rootPackage.devDependencies?.['@typescript/native'] !== 'catalog:') {
     violations.push('root must depend on the native compiler through @typescript/native: catalog:');
   }
-  if (!/^\s{2}'@typescript\/native': 'npm:typescript@7\.0\.2'\s*$/mu.test(state.workspace)) {
-    violations.push('catalog must pin @typescript/native to npm:typescript@7.0.2');
+  if (state.nativeCatalog !== EXPECTED_NATIVE_CATALOG) {
+    violations.push(
+      `native compiler catalog pin changed from ${EXPECTED_NATIVE_CATALOG}; ` +
+        'rerun TS6/TS7 parity and update the recorded baseline before accepting the new patch'
+    );
   }
-  if (!/^\s{2}typescript: 'npm:@typescript\/typescript6@6\.0\.2'\s*$/mu.test(state.workspace)) {
-    violations.push('catalog must alias typescript to @typescript/typescript6@6.0.2');
+  if (state.compatCatalog !== EXPECTED_COMPAT_CATALOG) {
+    violations.push(
+      `compatibility compiler catalog pin changed from ${EXPECTED_COMPAT_CATALOG}; ` +
+        'rerun TS6/TS7 parity and update the recorded baseline before accepting the new patch'
+    );
+  }
+  if (state.lspCatalog !== EXPECTED_LSP_CATALOG) {
+    violations.push(
+      `LSP compiler catalog pin changed from ${EXPECTED_LSP_CATALOG}; ` +
+        'rerun TS6/TS7 parity and the real-LSP controls before accepting the new patch'
+    );
   }
   if (state.nativePackage.name !== 'typescript' || state.nativePackage.bin?.tsc !== './bin/tsc') {
     violations.push('the native package must expose the tsc bin');
@@ -111,7 +137,11 @@ function collectViolations(state) {
   if (wrongApiConsumers.length > 0) {
     violations.push(
       `classic TypeScript API consumers must resolve major 6: ${wrongApiConsumers
-        .map((consumer) => consumer.file)
+        .map((consumer) =>
+          consumer.resolutionError
+            ? `${consumer.file} (${consumer.resolutionError})`
+            : `${consumer.file} (major ${String(consumer.major)})`
+        )
         .join(', ')}`
     );
   }
@@ -120,6 +150,7 @@ function collectViolations(state) {
 
 const rootPackage = JSON.parse(readFileSync(rootPackagePath, 'utf8'));
 const workspace = readFileSync(workspacePath, 'utf8');
+const workspaceCatalog = parseYaml(workspace).catalog;
 const nativePackage = JSON.parse(
   readFileSync(path.join(repoRoot, 'node_modules/@typescript/native/package.json'), 'utf8')
 );
@@ -128,6 +159,7 @@ const compatPackage = JSON.parse(
 );
 const manifests = workspaceManifests();
 const actualState = {
+  compatCatalog: workspaceCatalog?.typescript,
   compatMajor: readMajor(path.join(repoRoot, 'node_modules/.bin/tsc6'), ['--version']),
   compatPackage,
   consumers: classicApiConsumers(),
@@ -136,13 +168,14 @@ const actualState = {
     ['exec', 'tsc', '--version'],
     path.join(repoRoot, 'packages/ui')
   ),
+  lspCatalog: workspaceCatalog?.['@typescript/old'],
+  nativeCatalog: workspaceCatalog?.['@typescript/native'],
   nativeMajor: readMajor(path.join(repoRoot, 'node_modules/.bin/tsc'), ['--version']),
   nativePackage,
   rootPackage,
   typeCheckPackageCount: manifests.filter((manifest) =>
     /\btsc\b/u.test(manifest.json.scripts?.['type-check'] ?? '')
   ).length,
-  workspace,
 };
 
 test('real workspace uses the official TS7/TS6 side-by-side compiler wiring', () => {
@@ -178,5 +211,27 @@ test('money test: swapped compiler majors cannot report a valid installation', (
   assert.match(
     collectViolations({ ...actualState, compatMajor: 7 }).join('\n'),
     /compatibility tsc6 must report major 6/u
+  );
+});
+
+test('money test: an unresolved classic API consumer is a readable violation', () => {
+  const consumers = actualState.consumers.map((consumer, index) =>
+    index === 0
+      ? { ...consumer, major: null, resolutionError: 'MODULE_NOT_FOUND: typescript' }
+      : consumer
+  );
+  const report = collectViolations({ ...actualState, consumers }).join('\n');
+  assert.match(report, /classic TypeScript API consumers must resolve major 6/u);
+  assert.match(report, /MODULE_NOT_FOUND: typescript/u);
+});
+
+test('money test: compiler patch bumps require renewed parity evidence', () => {
+  assert.match(
+    collectViolations({ ...actualState, nativeCatalog: 'npm:typescript@7.0.3' }).join('\n'),
+    /rerun TS6\/TS7 parity/u
+  );
+  assert.match(
+    collectViolations({ ...actualState, lspCatalog: 'npm:typescript@6.0.4' }).join('\n'),
+    /real-LSP controls/u
   );
 });

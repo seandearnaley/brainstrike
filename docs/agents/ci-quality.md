@@ -847,8 +847,22 @@ resolve major 6. Type-check/build scripts execute `tsc` and must resolve major
 7 from both root and package scope. `scripts/__tests__/typescript-compiler-wiring.test.mjs`
 derives both the type-check-package and API-consumer sets dynamically, applies
 anti-vacuity floors, checks the installed package/bin identities, and executes
-both compilers. Its mutation controls prove a swapped major, a native API
-consumer, or a compatibility package shadowing `tsc` all fail loudly.
+both compilers. API-consumer discovery comes from `git ls-files`, so ignored
+build/coverage output cannot change the census between a developer tree and CI;
+an unresolvable consumer is reported as a violation instead of crashing test
+module initialization. Its mutation controls prove a swapped major, a native
+API consumer, an unresolvable consumer, a compiler patch bump without renewed
+parity evidence, or a compatibility package shadowing `tsc` all fail loudly.
+The complete wiring file costs about 1.2 seconds locally (six tests, including
+three compiler-version subprocesses) inside the roughly 14-second script-test
+phase; keep that cost explicit if more process probes are added.
+
+Desktop packaging is a separate boundary from workspace module resolution.
+`apps/desktop/src/__tests__/build-main-config.test.ts` requires the concrete
+TypeScript 6 implementation to be a production dependency and requires its
+Electron Builder unpack rule. Its mutation control removes both seams and
+asserts the exact violations, preventing a source-tree-only LSP green from
+hiding a packaged-app failure.
 
 `scripts/ts7-parity-check.mjs` compares every discoverable `--noEmit` command
 under `tsc6` and `tsc`, checking binary majors before discovery. It deliberately
