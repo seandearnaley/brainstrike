@@ -346,9 +346,12 @@ archive. The final `coverage` job still fails closed unless all seven package
 archives (six general plus the one natively merged DB archive) are present,
 restores them into one workspace, and is the only job that runs
 `coverage:prepare-workspace`, `coverage:enforce`, the merged report, and
-Codecov. Do not replace this with a generated planner or raise the original
-shared timeout: the split preserves one authoritative threshold decision while
-giving slow packages independent failure and timeout domains.
+Codecov. Generated `coverage-*` shard directories are ignored by both Git and
+Biome, so validating coverage locally cannot poison a later lint gate with
+Istanbul's vendored HTML assets. Do not replace this with a generated planner
+or raise the original shared timeout: the split preserves one authoritative
+threshold decision while giving slow packages independent failure and timeout
+domains.
 
 Native packages may retain a `test:coverage` alias that deliberately runs their
 real addon tests without instrumentation. The artifact-completeness check
