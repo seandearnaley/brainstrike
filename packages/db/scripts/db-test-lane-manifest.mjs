@@ -109,6 +109,7 @@ export const dbUnitLaneDefinitions = [
       /^shared-helpers\.test\.ts$/,
       /^use-/,
       /^validate-embedding-batch\.test\.ts$/,
+      /^vitest-global-setup-contract\.test\.ts$/,
       /^vitest-mutation-config-contract\.test\.ts$/,
       /^wasm-loader/,
     ],
