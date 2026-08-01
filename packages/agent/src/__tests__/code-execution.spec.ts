@@ -144,7 +144,9 @@ describe('execPolicySchema', () => {
     'http://example.com',
     '*.*',
     'exa mple.com',
-  ])('rejects malformed domain %j', (domain) => {
+    '*.com',
+    '*.io',
+  ])('rejects malformed or over-broad domain %j', (domain) => {
     expect(() =>
       execPolicySchema.parse({
         allowedDomains: [domain],
@@ -237,6 +239,24 @@ describe('isPathCoveredBy', () => {
     expect(isPathCoveredBy('/tmp', ['/tmp/scratch'])).toBe(false);
     expect(isPathCoveredBy('/tmp/scratch', [])).toBe(false);
   });
+
+  it('never claims coverage for an unresolved traversal in either operand', () => {
+    expect(isPathCoveredBy('/tmp/scratch/../../etc/passwd', ['/tmp/scratch'])).toBe(false);
+    expect(isPathCoveredBy('/tmp/scratch/run', ['/tmp/scratch/../..'])).toBe(false);
+  });
+
+  it('treats a backslash as a literal filename character on POSIX paths', () => {
+    // On POSIX '/tmp/scratch\run' is a SIBLING named 'scratch\run', not a
+    // descendant of '/tmp/scratch'.
+    expect(isPathCoveredBy('/tmp/scratch\\run', ['/tmp/scratch'])).toBe(false);
+    expect(isPathCoveredBy('/tmp/scratch\\run', ['/tmp'])).toBe(true);
+  });
+
+  it('folds case for Windows-shaped paths only', () => {
+    expect(isPathCoveredBy('c:\\work\\scratch', ['C:\\work'])).toBe(true);
+    expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(true);
+    expect(isPathCoveredBy('/tmp/Scratch', ['/tmp/scratch'])).toBe(false);
+  });
 });
 
 describe('resolveCodeExecutor', () => {
@@ -311,6 +331,27 @@ describe('resolveCodeExecutor', () => {
     expect(caught.requestedKind).toBe('fence');
     expect(caught.requiredTier).toBe('os-fence');
     expect(caught.reportedTier).toBe('none');
+  });
+
+  it('disposes the executor it rejects, so a mis-tiered factory cannot leak', () => {
+    const dispose = vi.fn(() => Promise.resolve());
+    expect(() =>
+      resolveCodeExecutor('fence', {
+        fence: () => ({ ...createNullCodeExecutor({ platform: 'darwin' }), dispose }),
+      })
+    ).toThrowError(ExecutorTierMismatchError);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports the tier mismatch when disposing the rejected executor fails', () => {
+    expect(() =>
+      resolveCodeExecutor('fence', {
+        fence: () => ({
+          ...createNullCodeExecutor({ platform: 'darwin' }),
+          dispose: () => Promise.reject(new Error('teardown exploded')),
+        }),
+      })
+    ).toThrowError(ExecutorTierMismatchError);
   });
 
   it('rejects a fence-tier executor registered as the vm backend', () => {

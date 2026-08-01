@@ -17,7 +17,9 @@
  */
 import { z } from 'zod';
 
-export type ExecLanguage = 'python' | 'javascript' | 'bash';
+export const EXEC_LANGUAGES = ['python', 'javascript', 'bash'] as const;
+
+export type ExecLanguage = (typeof EXEC_LANGUAGES)[number];
 
 export const EXECUTOR_KINDS = ['fence', 'vm'] as const;
 
@@ -69,16 +71,24 @@ const WINDOWS_UNC_PATH = /^\\\\[^\\/]+[\\/][^\\/]+/;
 const DOMAIN_PATTERN =
   /^(\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
 
+/**
+ * Splits on the separators the path's own platform actually uses. A backslash
+ * is a separator ONLY in a Windows-shaped path: on POSIX it is a legal
+ * filename character, so splitting on it unconditionally would read
+ * `/tmp/scratch\run` — a sibling directory literally named `scratch\run` — as
+ * a descendant of `/tmp/scratch`.
+ */
 function pathSegments(value: string): string[] {
-  return value.split(/[\\/]+/).filter((segment) => segment.length > 0);
+  const separator = isWindowsShapedPath(value) ? /[\\/]+/ : /\/+/;
+  return value.split(separator).filter((segment) => segment.length > 0);
+}
+
+function isWindowsShapedPath(value: string): boolean {
+  return WINDOWS_ABSOLUTE_PATH.test(value) || WINDOWS_UNC_PATH.test(value);
 }
 
 function isAbsolutePath(value: string): boolean {
-  return (
-    POSIX_ABSOLUTE_PATH.test(value) ||
-    WINDOWS_ABSOLUTE_PATH.test(value) ||
-    WINDOWS_UNC_PATH.test(value)
-  );
+  return POSIX_ABSOLUTE_PATH.test(value) || isWindowsShapedPath(value);
 }
 
 /**
@@ -114,6 +124,10 @@ const policyDomainSchema = z
   .refine((value) => value !== '*', {
     message: 'a bare "*" wildcard is not expressible; list explicit domains',
   })
+  .refine((value) => !value.startsWith('*.') || value.slice(2).includes('.'), {
+    message:
+      'a wildcard must name a parent domain of at least two labels (e.g. "*.example.com", not "*.com")',
+  })
   .refine((value) => DOMAIN_PATTERN.test(value), {
     message: 'must be a hostname or a "*.example.com" wildcard',
   });
@@ -137,15 +151,39 @@ export const execPolicySchema = z
 
 export type ExecPolicy = z.infer<typeof execPolicySchema>;
 
-/** True when `target` is one of `roots` or lies beneath one of them. */
+/**
+ * True when `target` is one of `roots` or lies beneath one of them.
+ *
+ * Conservative by construction: an unresolved `..` segment in EITHER operand
+ * returns false rather than a prefix match. A pure segment-prefix compare
+ * would report `/tmp/scratch/../../etc/passwd` as covered by `/tmp/scratch`,
+ * and this predicate is exported for backends to use on runtime-computed
+ * paths (a resolved temp dir, a path read back from the sandbox) that never
+ * passed through `policyPathSchema`. It never claims coverage it cannot
+ * prove; resolve paths before asking.
+ *
+ * Comparison is case-sensitive for POSIX paths and case-INSENSITIVE when
+ * either operand is Windows-shaped: drive-letter case is not stable across
+ * Node APIs, so two spellings of the same directory would otherwise be
+ * reported as uncovered with an error the caller cannot act on.
+ */
 export function isPathCoveredBy(target: string, roots: readonly string[]): boolean {
   const targetSegments = pathSegments(target);
+  if (targetSegments.includes('..')) {
+    return false;
+  }
   return roots.some((root) => {
     const rootSegments = pathSegments(root);
-    return (
-      rootSegments.length <= targetSegments.length &&
-      rootSegments.every((segment, index) => segment === targetSegments[index])
-    );
+    if (rootSegments.includes('..') || rootSegments.length > targetSegments.length) {
+      return false;
+    }
+    const foldCase = isWindowsShapedPath(target) || isWindowsShapedPath(root);
+    return rootSegments.every((segment, index) => {
+      const targetSegment = targetSegments[index] ?? '';
+      return foldCase
+        ? segment.toLowerCase() === targetSegment.toLowerCase()
+        : segment === targetSegment;
+    });
   });
 }
 
@@ -164,7 +202,7 @@ export function isPathCoveredBy(target: string, roots: readonly string[]): boole
 export const execInputSchema = z
   .object({
     code: z.string().max(MAX_EXEC_CODE_LENGTH),
-    language: z.enum(['python', 'javascript', 'bash']),
+    language: z.enum(EXEC_LANGUAGES),
     maxOutputBytes: z.number().int().positive().max(MAX_EXEC_OUTPUT_BYTES),
     policy: execPolicySchema,
     scratchDir: policyPathSchema,
@@ -311,6 +349,11 @@ export function resolveCodeExecutor(
   const requiredTier = REQUIRED_ISOLATION_TIER[requested];
   const reportedTier = executor.capabilities().maxIsolationTier;
   if (reportedTier !== requiredTier) {
+    // The caller never receives this executor, so it cannot own the lifetime
+    // the contract assigns it. Release it here — the mismatch case is exactly
+    // the misconfigured backend, which may already hold a process, socket, or
+    // VM handle. A failing dispose must not mask the tier diagnostic.
+    void executor.dispose().catch(() => undefined);
     throw new ExecutorTierMismatchError(requested, requiredTier, reportedTier);
   }
   return executor;

@@ -58,9 +58,25 @@ Two of these are deliberate, load-bearing choices:
 
 `scratchDir ⊆ allowWrite` is enforced (`isPathCoveredBy`, segment-wise) because
 the alternative is an interpreter that cannot write its own scratch dir,
-failing as an opaque runtime error instead of a clear validation error. Path
-comparison is case-sensitive (macOS/Linux first); revisit when Windows lands
-(BST-1068).
+failing as an opaque runtime error instead of a clear validation error.
+
+`isPathCoveredBy` is exported and is the ONLY containment predicate backends
+should use, including on runtime-computed paths. Its rules:
+
+- **An unresolved `..` in either operand returns false.** It never claims
+  coverage it cannot prove — a segment-prefix compare would report
+  `/tmp/scratch/../../etc/passwd` as covered by `/tmp/scratch`. Resolve paths
+  (`realpath`) before asking.
+- **Separators follow the path's own shape.** A backslash is a separator only
+  in a Windows-shaped path; on POSIX it is a legal filename character, so
+  `/tmp/scratch\run` is a sibling directory named `scratch\run`, not a
+  descendant of `/tmp/scratch`.
+- **Case is folded only when an operand is Windows-shaped**, because
+  drive-letter case is not stable across Node APIs. POSIX comparison stays
+  case-sensitive.
+
+Windows path forms are accepted by the schema, but no Windows backend exists
+yet — the fence's Windows story is BST-1068.
 
 ## ExecPolicy shape rules (the seam owns these, not the backend)
 
