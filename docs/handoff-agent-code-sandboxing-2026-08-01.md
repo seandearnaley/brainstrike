@@ -4,8 +4,10 @@
 
 > ## ⏱️ Point-in-time snapshot — re-verify before acting
 >
-> **§1–§4 assert live state** (ticket statuses, PR numbers, "do not merge",
-> "restart from scratch"). Those were true on 2026-08-01 and **will go stale**.
+> **§1–§4 assert live state** (ticket statuses, PR numbers, "do not merge").
+> Those were true when written and **will go stale**. This file has already
+> been corrected once for exactly that reason: it told a later session to
+> "restart BST-1061 from scratch" after that work had merged.
 > Check Linear and `gh pr list` before following any status-dependent directive
 > — acting on an expired "restart this lane" or "do not merge" is worse than
 > having no handoff at all.
@@ -27,7 +29,7 @@ lost with their worktrees.
 **Brainstrike can now execute code inside a real OS-level sandbox.** The seam,
 the fence, and the adversarial test suite are all on `main`.
 
-### Merged (9 tickets)
+### Merged (10 tickets)
 
 | Ticket | What landed | Commit |
 | --- | --- | --- |
@@ -40,6 +42,7 @@ the fence, and the adversarial test suite are all on `main`.
 | BST-1071 | **Escape-resistance suite + 3 real escape fixes** | `9b419c4` |
 | BST-1073 | Plan-mode suspend bypass (security) | `fafd325` |
 | BST-1074 | Windows guard footguns (security) | `ae67943` |
+| BST-1061 | **Bundled pinned CPython** + typed `python_*` errors | `aa91862` |
 
 Three of those (1071's fixes, 1073, 1074) were **defects discovered during the
 work**, not planned tickets. All three were the kind that fail silently.
@@ -58,8 +61,8 @@ work**, not planned tickets. All three were the kind that fail silently.
 
 ```mermaid
 graph TD
-  A["BST-1061 bundled CPython<br/>HIGH · implemented in #2205"] --> B
-  B["BST-1067 run_python E2E<br/>URGENT · the milestone"] --> C["BST-1070 approval UX<br/>impl only, design merged"]
+  A["BST-1061 bundled CPython<br/>MERGED aa91862b4"] --> B
+  B["BST-1067 run_python E2E<br/>the milestone · PR #2213 in review"] --> C["BST-1070 approval UX<br/>impl only · BLOCKED, see §4"]
   B --> D["Luna CDT manual passes"]
   E["BST-1068 Windows assess<br/>PR #2191 · awaiting human"]
   F["BST-1063 PGlite 0.5.4<br/>restart · BLOCKED, see §4"]
@@ -67,29 +70,32 @@ graph TD
   H["BST-1072 embeddings vitest crash<br/>unassigned"]
 
   style B fill:#7c2d12,color:#fff
-  style A fill:#78350f,color:#fff
+  style A fill:#166534,color:#fff
 ```
 
-**Critical path is exactly one chain:** BST-1061 → BST-1067 → BST-1070. Everything
-else is parallel and independent.
+**Critical path is exactly one chain:** BST-1061 → BST-1067 → BST-1070. Its first
+two links are now closed — BST-1061 merged (`aa91862b4`) and BST-1067 is up as
+PR #2213 — so the live end of the chain is **BST-1070, which is BLOCKED on
+unified suspend rediscovery** (§4). Everything else is parallel and independent.
 
 ---
 
-## 3. Salvaged in-flight work — PR states to pick up
+## 3. Salvaged in-flight work — two draft PRs still to pick up
 
 BST-1061, BST-1063 and BST-1064 were being worked in agent worktrees that had
 **never been pushed** and would have died with the session. All three were
-salvaged at the end. #2205 has since completed implementation and is ready;
-#2206 and #2207 remain draft:
+salvaged at the end. #2205 has since been completed, reviewed twice, and
+MERGED; #2206 and #2207 remain draft:
 
-Before handoff, all four lane PRs completed their then-current review cycles
-(#2191 12/12, #2205 3/3, #2206 5/5, #2207 6/6). A later review pass on #2205
-raised the three open findings documented below. None is a half-finished branch
-you have to reconstruct intent from.
+Each lane PR had finished its review cycle **as of the handoff snapshot**
+(#2191 12/12, #2205 3/3, #2206 5/5, #2207 6/6). Read those counts as a
+point-in-time fact, not a standing one: #2205 later drew a SECOND review round
+of five findings, all since addressed, and it has now merged. None of these is a
+half-finished branch you have to reconstruct intent from.
 
 | Ticket | PR | State on handoff |
 | --- | --- | --- |
-| BST-1061 | #2205 **ready** | **fully implemented** (~1350 lines: fetch script, resolver, factory-reset wiring, notices, 6 test files). 3 review findings open — see below |
+| BST-1061 | #2205 **MERGED** (`aa91862b4`) | Done. Nothing to pick up — see below before touching the bundled interpreter |
 | BST-1063 | #2206 **DO NOT MERGE** | bump works for greenfield only. [BST-1081](https://linear.app/brainstrike/issue/BST-1081) Urgent + [BST-1080](https://linear.app/brainstrike/issue/BST-1080) filed. Both obvious fixes ruled out — read below |
 | BST-1064 | #2207 draft | harness fixed and re-measured (stdev 295 ms → 18 ms), premise disproved, baseline still owed |
 | BST-1068 | #2191 open | human hardware run complete; recommendation survived and is now numeric |
@@ -102,11 +108,13 @@ even asking for.
 
 ## 4. Per-ticket context
 
-### BST-1061 — Bundle a pinned CPython · **HIGH · start here**
+### BST-1061 — Bundle a pinned CPython · **MERGED (`aa91862b4`), nothing to build**
 
-Blocks the milestone. **Implemented in #2205 — do not restart.** The constraints
-below remain relevant to its review (they are in the ticket, repeated here
-because they are easy to miss):
+**Do not restart this lane.** An earlier revision of this section said "restart
+from scratch"; that was true at salvage time and is now wrong. PR #2205 is
+merged. The constraints below are kept because they are now INVARIANTS of the
+shipped code — read them before changing the bundled interpreter, not as a
+to-do list:
 
 - `resolvePythonBinary()` **must return an absolute path**. `ExecPolicy` paths are
   absolute-only and a literal `~` is *rejected*, not expanded.
@@ -124,33 +132,31 @@ because they are easy to miss):
   its own for supply-chain reasons; match that posture).
 - Wire the unpacked dir into **factory reset**.
 
-**PR #2205 is now FULLY IMPLEMENTED and out of draft** (~1350 lines): the
-checksum-verified fetch script, `resolvePythonBinary()`, `runSkillScript`
-wiring, factory-reset integration, third-party notices, and six test files.
-This section previously said implementation had not started — that was true at
-salvage time and is no longer.
+**What shipped** (PR #2205, two review rounds, merged): the checksum-verified
+build-time fetch script, `resolvePythonBinary()` with the typed `python_*` error
+family, the `runSkillScript` `python3` call-site wiring (the PATH-python
+fallback is GONE), factory-reset coverage, `THIRD-PARTY-NOTICES.md`, and the
+real-archive acceptance smoke.
 
-> **Three open review findings before it can merge**, the third being the
-> silent one:
-> 1. `extraResources` is top-level, so **both macOS tarballs ship inside the
->    Windows and Linux installers** (~50 MB of dead weight where
->    `resolvePythonBinary` always throws `python_unsupported_platform`, and
->    those artifacts then carry a PSF component the notices file frames as
->    macOS-only). Even the mac build ships both triples while
->    `resolveTargetTriple` picks one.
-> 2. The fetch is wired into `build`, so a **mandatory GitHub Releases download
->    now sits on CI's critical path** — `type-check` and the required E2E smoke
->    both `dependsOn: ["build"]`, on platforms that never use the artifact. No
->    `AbortSignal`, no timeout, no retry, so a stall hangs to the job timeout.
->    Moving the hook to `dist`/`pack`/`start` covers every packaging path and
->    takes the network off the build graph.
-> 3. **The success memo outlives factory reset.** Resolve → memoize → user
->    resets (deleting `userData/python-runtime`, as the new test pins) → the
->    next `python3` script in the same process hits the memo, returns the
->    deleted path, and gets a raw spawn `ENOENT` — **no re-unpack and no typed
->    `python_*` error**, the exact untyped failure this error family exists to
->    prevent. There is no relaunch after reset, so it is reachable in one
->    session. Make the memo self-validating.
+Three findings from that review are worth carrying forward, because each is a
+decision now baked into the code:
+
+1. **`extraResources` lives under `build.mac`**, so Windows/Linux installers
+   ship no CPython. A single-arch mac build still carries both triples (~25 MB
+   dead): electron-builder's `${arch}` macro spells arches `x64`/`arm64` while
+   the pinned upstream assets spell them `x86_64`/`aarch64`, so per-arch
+   filtering would mean renaming checksum-pinned artifacts. Open follow-up.
+2. **The fetch is NOT on the CI build graph.** It is a `fetch:python-runtime`
+   script invoked from `dist`/`pack`/`start`, with a 120 s timeout — because
+   `type-check` and the required E2E smoke both `dependsOn: ["build"]`, so a
+   GitHub Releases stall on the build script would fail required checks.
+   Do not move it back into `build`.
+3. **There is no success memo.** The in-flight cache coalesces CONCURRENT
+   callers only and clears on settle. A permanent memo was the original design
+   and was wrong: factory reset deletes `userData/python-runtime` but only
+   reloads the RENDERER, so a cached path would survive into the same process
+   and hand the next script a deleted interpreter — a raw spawn `ENOENT`
+   instead of a typed `python_*` error. A post-reset re-unpack test pins this.
 
 The pinned release, **independently verified by downloading both tarballs and
 hashing them**:
@@ -172,11 +178,35 @@ reasoning. And the implemented error family (`python_unsupported_platform`,
 `python_unpack_failed`) stays clear of the seam's four typed errors; keep that
 separation.
 
-The previously remaining checklist — fetch script, `resolvePythonBinary()`,
-call-site wiring, factory-reset, `code-execution.md` note, third-party notices —
-is complete in #2205. The outstanding items are the three review findings above.
+Every item once listed here as remaining — fetch script, `resolvePythonBinary()`,
+call-site wiring, factory-reset, the `code-execution.md` note, third-party
+notices — **shipped in #2205**. Nothing on that list is outstanding.
 
-### BST-1067 — Ship `run_python` · **URGENT · the milestone**
+### BST-1067 — Ship `run_python` · **IMPLEMENTED, PR #2213 in review**
+
+**The milestone is built.** `run_python` executes agent-authored Python in the
+real OS fence, dispatching through the seam, with a per-call scratch dir as the
+only writable path and the bundled CPython injected as the `FenceInterpreter`.
+Contract corrections below were all applied; keep reading them as invariants.
+
+**Scope call worth knowing before you touch it: network is STRUCTURALLY absent,
+not defaulted off.** The input schema has no domain field and
+`policy.allowedDomains` is a literal `[]`, so no call can request egress. That
+is narrower than this ticket's original wording, and deliberate — the
+escalation rides the suspension channel, which is not rediscovered across a
+reload (see BST-1070 below). Do not "fix" it by adding a domains argument
+before that gap closes.
+
+**One testing trap it cost a round to find:** srt enforces `allowedDomains` at
+its HTTP **proxy**, so a raw `socket.create_connection` is refused by the fence
+regardless of policy. A raw-socket deny assertion therefore passes identically
+with `allowedDomains: []` and `['example.com']` — it proves nothing. The
+shipped proof uses `urllib` and is mutation-checked.
+
+**Also:** importing `@brainstrike/agent/fence-executor` at module top level
+loads sandbox-runtime AND evaluates `promisify(fs.realpath.native)` at module
+scope, which broke 8 desktop suites that mock `node:fs`. It is imported lazily
+inside `resolveHost`; keep it that way.
 
 The ticket carries a ⚠️ **Contract corrections** block. Read it: the original
 wiring snippet in the ticket body *would throw* against the shipped schema.
@@ -202,7 +232,17 @@ Additional scope from BST-1070's design review that is **not** in the ticket:
 5. Do not reclassify `submitPlan`/`askUser` risk. They survive plan mode *only*
    because they are `read`; BST-1073's guard test pins this.
 
-### BST-1070 — Approval UX · implementation only
+### BST-1070 — Approval UX · implementation only · **BLOCKED, and now the live end of the critical path**
+
+**Blocking dependency, from the design's own §3.2c: suspension pauses are not
+rediscovered across a renderer reload.** A reload while the network escalation
+is on screen strands the run — safe in direction (nothing executes, no packet
+leaves) but silent, which this project does not accept. BST-1067 shipped with
+network inexpressible precisely so that gap could not reach users. Closing it
+(unified suspend rediscovery, or a scoped version covering
+`REGISTERED_SUSPEND_RESUME_TOOL_IDS`) is the prerequisite for the network half
+of this ticket. The approval-card and result-surface work below is NOT blocked
+by it.
 
 Design is merged and detailed. Settled rulings: **two gates on two channels**
 (approval channel = "may this run", suspension channel = "may it reach these
