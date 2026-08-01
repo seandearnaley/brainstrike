@@ -1027,6 +1027,30 @@ Flow (desktop assistant server → agent runtime):
    mounted root, root-relative cwd, runtime, and structured argv. It never
    presents or accepts a model-supplied absolute skill path; malformed typed
    arguments stay on the same visible raw-arguments error path.
+   `brainstrike.runPython` (BST-1070 Gate A) renders the code plus
+   always-rendered fact rows (internet / write / read / time limit / sandbox)
+   from a server-computed `executionContext`
+   (`CodeExecutionApprovalContext`, tool-approval contract): host facts the
+   model's args cannot carry, derived by
+   `resolveRunPythonExecutionContext` from the tool's own strict schema plus
+   the constants execute() uses. It is forwarded in THREE places — stamped in
+   `makeApprovalRequiredChunks`, spread through
+   `DataStreamMapper.handleToolApprovalRequired`'s field-by-field rebuild
+   (miss it and every LIVE approval degrades while rediscovered ones work —
+   pinned by a live-transport test), and RECOMPUTED on rediscovery in
+   `status-endpoints.ts` beside `riskCategory`. Fail-safe: args that fail
+   strict narrowing or an absent/invalid context keep Approve/Decline but
+   SUPPRESS the grant buttons (parent-side `resolveApprovalPreviewPolicy`,
+   riding the existing null-`grantCategory` gating path) with a visible
+   reason — no "always allow" for a call the card cannot read. Copy rule the
+   fence contract forces: an empty `allowRead` under `defaultReadAccess:
+   'permissive'` renders "most files on this computer", NEVER "can't read
+   your files". Settled result surface (`run-python-result.tsx`, mounted by
+   `tool-fallback.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
+   amber finish (destructive chrome is reserved for `unavailable`), cancelled
+   never renders as success or empty, truncation is a per-stream note, and
+   the card-level status maps cancelled/timed-out/killed to a `stopped` state
+   instead of the generic green check.
    The built-in local provider admits a call to this chain only after its
    arguments parse as a root JSON object. A
    `local_tool_call_arguments_invalid` generation ends visibly with typed
