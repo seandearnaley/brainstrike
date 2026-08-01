@@ -430,6 +430,36 @@ describe('projectRunPythonStreams', () => {
   });
 });
 
+describe('serialized-size fitting', () => {
+  it('keeps escape-heavy output under the transport threshold once serialized', () => {
+    // A script printing JSON is a routine run_python workload, and every
+    // quote and backslash roughly doubles under JSON.stringify. Fitting on
+    // raw length alone would let a "self-bounded" result still blow the
+    // transport guard.
+    const escapeHeavy = '"\\'.repeat(20_000);
+    const projected = projectRunPythonStreams({
+      stderr: '',
+      stderrOmittedBytes: 0,
+      stdout: escapeHeavy,
+      stdoutOmittedBytes: 0,
+    });
+    expect(JSON.stringify(projected.stdout).length).toBeLessThanOrEqual(9800);
+    expect(projected.stdoutOmittedBytes).toBeGreaterThan(0);
+  });
+
+  it('does not tax plain ASCII output for escaping it never needs', () => {
+    const plain = 'a'.repeat(9000);
+    const projected = projectRunPythonStreams({
+      stderr: '',
+      stderrOmittedBytes: 0,
+      stdout: plain,
+      stdoutOmittedBytes: 0,
+    });
+    expect(projected.stdout).toBe(plain);
+    expect(projected.stdoutOmittedBytes).toBe(0);
+  });
+});
+
 describe('sliceTailCodePoints', () => {
   it('keeps the tail, which is where a traceback names the exception', () => {
     expect(sliceTailCodePoints('abcdef', 3)).toBe('def');

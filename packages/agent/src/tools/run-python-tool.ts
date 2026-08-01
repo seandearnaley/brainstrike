@@ -177,6 +177,24 @@ function splitStreamBudget(
 }
 
 /**
+ * How much of the budget JSON escaping will consume for this output. Measured
+ * on the portion that would actually be kept, so plain ASCII pays nothing and
+ * escape-heavy output pays what it really costs.
+ */
+function serializationOverhead(stdout: string, stderr: string, budget: number): number {
+  const sampleStdout = sliceTailCodePoints(stdout, budget);
+  const sampleStderr = sliceTailCodePoints(stderr, budget);
+  const raw = sampleStdout.length + sampleStderr.length;
+  if (raw === 0) {
+    return 0;
+  }
+  // -2 per string drops the quotes JSON.stringify adds around each.
+  const serialized =
+    JSON.stringify(sampleStdout).length - 2 + (JSON.stringify(sampleStderr).length - 2);
+  return Math.max(0, Math.min(budget, serialized - raw));
+}
+
+/**
  * Fits captured output to the model's char budget, ADDING anything trimmed
  * here to the executor's own omitted-byte counts. Both layers drop output, and
  * a count reporting only one would understate the loss.
@@ -193,8 +211,17 @@ export function projectRunPythonStreams(result: {
   readonly stdoutOmittedBytes: number;
 }): ProjectedStreams {
   const budget = Math.max(0, NATIVE_TOOL_RESULT_CHAR_BUDGET - OUTPUT_ENVELOPE_CHARS);
+  // Fit against the SERIALIZED size, not raw length. Output full of quotes,
+  // backslashes, or control characters — a script printing JSON, which is a
+  // routine run_python workload — nearly doubles under JSON.stringify, so a
+  // raw-length fit can still cross the transport threshold and turn a result
+  // that was supposed to be self-bounded into an oversized-output failure.
+  const serializedBudget = Math.max(
+    0,
+    budget - serializationOverhead(result.stdout, result.stderr, budget)
+  );
   const { stderrBudget, stdoutBudget } = splitStreamBudget(
-    budget,
+    serializedBudget,
     result.stdout.length,
     result.stderr.length
   );
