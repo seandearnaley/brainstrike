@@ -231,11 +231,27 @@ Two stages, and both are Brainstrike-owned:
    `packages/agent/src/mastra/agent-streaming.ts`. Its PURE decoders (part-shape
    readers, tripwire resolution/bounding, provider-error resolution, tool-event
    metadata, OM readers) live in `packages/agent/src/mastra/mastra-chunk-decoding.ts`
-   and are unit-tested directly (BST-985); the dispatch itself, run-event minting,
-   lifecycle-state bookkeeping, and the coded diagnostics stay in `agent-streaming.ts`
-   — that file is pinned by name in `scripts/mastra-stream-chunk-contract.mjs`, so
-   the disposition inventory, `processMastraStreamPart`, and
+   and are unit-tested directly (BST-985). The impure mapping concerns the dispatch
+   delegates to are one module each (BST-986), all under `packages/agent/src/mastra/`:
+
+   | Module | Owns |
+   | --- | --- |
+   | `stream-run-event-chunks.ts` | run-event + finish chunk MINTING (`generateUUID` + `new Date()`); the leaf every other concern depends on |
+   | `tool-lifecycle-processors.ts` | the mutable `ToolLifecycleState` record and every mapper that reads or advances it (tool events, delegation/subagent events, terminal + pending-output run events, the finish chunk) |
+   | `tool-approval-chunks.ts` | `tool-call-approval` / `tool-call-suspended` PAUSES — well-formed approval, well-formed suspend (registered or not), and the malformed-pause termination |
+   | `stream-termination.ts` | abnormal-ending POLICY: provider error, tripwire, stream stall, tool-call-input timeout |
+
+   `agent-streaming.ts` keeps the R6 dispatch itself, the OM data-part mapping, the
+   entry points, and the tool-loop options — that file is pinned by name in
+   `scripts/mastra-stream-chunk-contract.mjs`, so the `ChunkType` import, the
+   disposition inventory, `processMastraStreamPart`, and
    `warnForUnrecognizedMastraStreamPart` must not move out of it.
+
+   Provider-error CLASSIFICATION was never part of this file: `../provider-error-metadata.ts`
+   owns the bounded `runError` extractor and `mastra-chunk-decoding.ts` owns
+   `resolveProviderError` / the diagnostic code + correlation. Likewise the watchdog
+   MECHANISM is `../stream/with-inactivity-timeout.ts` + `../stream/with-tool-call-input-timeout.ts`;
+   `stream-termination.ts` owns only what a fired watchdog emits.
 2. `StreamChunk` → encoded frames: `DataStreamMapper`,
    `packages/agent/src/stream/data-stream-mapper.ts:255` (dispatch `:289-321`).
 
