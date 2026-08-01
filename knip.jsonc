@@ -2,6 +2,12 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
     // Define workspaces based on the Turborepo setup
+    "apps/site": {
+      "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "apps/web": {
       "entry": [
         "index.html", // Entry for the web app

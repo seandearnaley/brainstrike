@@ -61,6 +61,15 @@ test('every expensive test job is held behind the same admission decision', () =
   }
 });
 
+test('required Web E2E covers both browser products on the admitted build', () => {
+  const webE2E = jobBlock('web-e2e');
+
+  assert.match(webE2E, /pnpm --filter @brainstrike\/web run test:e2e:lane:smoke/);
+  assert.match(webE2E, /pnpm --filter @brainstrike\/site run test:e2e/);
+  assert.match(webE2E, /apps\/site\/test-results\//);
+  assert.match(webE2E, /apps\/site\/playwright-report\//);
+});
+
 test('Static bounds type-check concurrency to the arm64 runner memory budget', () => {
   assert.match(
     jobBlock('static'),

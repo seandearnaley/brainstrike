@@ -1,15 +1,17 @@
+import type { SceneFormationIndex } from './scene-formations';
+
 export interface SceneAnchor {
   readonly documentY: number;
   readonly id: string;
-  readonly stage: number;
+  readonly stage: SceneFormationIndex;
 }
 
 export interface SceneTimelineState {
-  readonly activeStage: number;
+  readonly activeStage: SceneFormationIndex;
   readonly bloom: number;
-  readonly fromStage: number;
+  readonly fromStage: SceneFormationIndex;
   readonly morph: number;
-  readonly toStage: number;
+  readonly toStage: SceneFormationIndex;
 }
 
 export const SCENE_CHANGE_EVENT = 'brainstrike:site-scene-change';
@@ -26,7 +28,17 @@ export function smoothstep(value: number): number {
   return clamped * clamped * (3 - 2 * clamped);
 }
 
-function settledState(stage: number): SceneTimelineState {
+export function settleSceneTimeline(state: SceneTimelineState): SceneTimelineState {
+  return {
+    activeStage: state.activeStage,
+    bloom: 0,
+    fromStage: state.activeStage,
+    morph: 0,
+    toStage: state.activeStage,
+  };
+}
+
+function settledState(stage: SceneFormationIndex): SceneTimelineState {
   return {
     activeStage: stage,
     bloom: 0,
@@ -96,7 +108,7 @@ export function computeSceneTimeline(
 }
 
 export function normalizeSceneAnchors(anchors: readonly SceneAnchor[]): readonly SceneAnchor[] {
-  const ordered = [...anchors].sort((left, right) => left.documentY - right.documentY);
+  const ordered = anchors.toSorted((left, right) => left.documentY - right.documentY);
   for (let index = 1; index < ordered.length; index += 1) {
     if (ordered[index]?.documentY === ordered[index - 1]?.documentY) {
       throw new Error('Scene anchors cannot share the same document position.');

@@ -15,6 +15,8 @@
     "test": "vitest run --pool=threads --exclude '**/*.integration.test.*'",
     "test:coverage": "vitest run --pool=threads --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -25,6 +27,8 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",

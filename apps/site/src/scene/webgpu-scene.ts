@@ -1,7 +1,8 @@
 import { computeSceneCamera } from './scene-camera';
-import { SCENE_CHANGE_EVENT, type SceneTimelineState } from './scene-timeline';
+import { SCENE_CHANGE_EVENT, type SceneTimelineState, settleSceneTimeline } from './scene-timeline';
 import signalSpineShader from './signal-spine.wgsl?raw';
 import signalSpineRenderShader from './signal-spine-render.wgsl?raw';
+import { normalizePointerPosition, shouldTrackPointer } from './webgpu-interaction';
 
 const FLOATS_PER_PARTICLE = 8;
 const UNIFORM_FLOAT_COUNT = 16;
@@ -70,6 +71,7 @@ export class WebGPUScene {
   private pointerTarget = { x: 0, y: 0 };
   private readonly pointer = { x: 0, y: 0 };
   private readonly canvas: HTMLCanvasElement;
+  private readonly pointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
   private renderPipeline: GPURenderPipeline | null = null;
   private renderBindGroup: GPUBindGroup | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -85,30 +87,41 @@ export class WebGPUScene {
   }
 
   async initialize(): Promise<void> {
-    if (!navigator.gpu) {
-      throw new WebGPUCapabilityError('This browser does not expose WebGPU.');
-    }
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) {
-      throw new WebGPUCapabilityError('No compatible GPU adapter was available.');
-    }
+    try {
+      if (!navigator.gpu) {
+        throw new WebGPUCapabilityError('This browser does not expose WebGPU.');
+      }
+      const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (!adapter) {
+        throw new WebGPUCapabilityError('No compatible GPU adapter was available.');
+      }
 
-    const device = await adapter.requestDevice({ label: 'Brainstrike signal spine device' });
+      const device = await adapter.requestDevice({ label: 'Brainstrike signal spine device' });
+      if (this.stopped) {
+        device.destroy();
+        return;
+      }
+      this.device = device;
+      const context = this.canvas.getContext('webgpu') as GPUCanvasContext | null;
+      if (!context) {
+        throw new WebGPUCapabilityError('The canvas could not create a WebGPU context.');
+      }
+
+      this.context = context;
+      this.format = navigator.gpu.getPreferredCanvasFormat();
+      this.particleCount = resolveParticleCount(window.innerWidth);
+      await this.createResources();
+      this.startRendering();
+    } catch (error: unknown) {
+      this.stop();
+      throw error;
+    }
+  }
+
+  private startRendering(): void {
     if (this.stopped) {
-      device.destroy();
       return;
     }
-    const context = this.canvas.getContext('webgpu') as GPUCanvasContext | null;
-    if (!context) {
-      device.destroy();
-      throw new WebGPUCapabilityError('The canvas could not create a WebGPU context.');
-    }
-
-    this.device = device;
-    this.context = context;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.particleCount = resolveParticleCount(window.innerWidth);
-    this.createResources();
     this.startTime = performance.now();
     this.lastFrameTime = this.startTime;
     this.installLifecycleListeners();
@@ -123,16 +136,21 @@ export class WebGPUScene {
     this.stopped = true;
     if (this.animationFrame !== null) {
       cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
     }
     this.resizeObserver?.disconnect();
     window.removeEventListener('pointermove', this.handlePointerMove);
+    window.removeEventListener('pointercancel', this.handlePointerLoss);
+    window.removeEventListener('blur', this.handlePointerLoss);
     window.removeEventListener(SCENE_CHANGE_EVENT, this.handleSceneInput);
-    document.documentElement.removeEventListener('mouseleave', this.handlePointerLeave);
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    document.documentElement.removeEventListener('pointerleave', this.handlePointerLoss);
     this.motionQuery.removeEventListener('change', this.handleMotionPreferenceChange);
+    this.pointerQuery.removeEventListener('change', this.handlePointerCapabilityChange);
     this.device?.destroy();
   }
 
-  private createResources(): void {
+  private async createResources(): Promise<void> {
     const device = this.device;
     const format = this.format;
     if (!(device && format)) {
@@ -240,11 +258,10 @@ export class WebGPUScene {
       layout: renderBindGroupLayout,
     });
 
-    void device.popErrorScope().then((error) => {
-      if (error) {
-        this.fail(new Error(`WebGPU validation failed: ${error.message}`));
-      }
-    });
+    const validationError = await device.popErrorScope();
+    if (validationError) {
+      throw new Error(`WebGPU validation failed: ${validationError.message}`);
+    }
   }
 
   private installLifecycleListeners(): void {
@@ -253,9 +270,13 @@ export class WebGPUScene {
       return;
     }
     window.addEventListener('pointermove', this.handlePointerMove, { passive: true });
+    window.addEventListener('pointercancel', this.handlePointerLoss);
+    window.addEventListener('blur', this.handlePointerLoss);
     window.addEventListener(SCENE_CHANGE_EVENT, this.handleSceneInput);
-    document.documentElement.addEventListener('mouseleave', this.handlePointerLeave);
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    document.documentElement.addEventListener('pointerleave', this.handlePointerLoss);
     this.motionQuery.addEventListener('change', this.handleMotionPreferenceChange);
+    this.pointerQuery.addEventListener('change', this.handlePointerCapabilityChange);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.canvas);
     device.addEventListener('uncapturederror', (event: GPUUncapturedErrorEvent) => {
@@ -269,18 +290,27 @@ export class WebGPUScene {
   }
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
-    if (this.motionQuery.matches) {
+    if (
+      this.motionQuery.matches ||
+      !shouldTrackPointer({ fineHover: this.pointerQuery.matches, pointerType: event.pointerType })
+    ) {
+      this.resetPointer();
       return;
     }
     const bounds = this.canvas.getBoundingClientRect();
-    this.pointerTarget = {
-      x: ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
-      y: -(((event.clientY - bounds.top) / bounds.height) * 2 - 1),
-    };
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      this.resetPointer();
+      return;
+    }
+    try {
+      this.pointerTarget = normalizePointerPosition(event, bounds);
+    } catch (error: unknown) {
+      this.fail(error instanceof Error ? error : new Error(String(error)));
+    }
   };
 
-  private readonly handlePointerLeave = (): void => {
-    this.pointerTarget = { x: 0, y: 0 };
+  private readonly handlePointerLoss = (): void => {
+    this.resetPointer();
   };
 
   private readonly handleSceneInput = (): void => {
@@ -290,14 +320,37 @@ export class WebGPUScene {
   };
 
   private readonly handleMotionPreferenceChange = (): void => {
-    this.pointerTarget = { x: 0, y: 0 };
-    this.pointer.x = 0;
-    this.pointer.y = 0;
+    this.resetPointer();
     this.requestFrame();
   };
 
+  private readonly handlePointerCapabilityChange = (): void => {
+    if (!this.pointerQuery.matches) {
+      this.resetPointer();
+    }
+  };
+
+  private readonly handleVisibilityChange = (): void => {
+    if (document.visibilityState !== 'visible') {
+      this.resetPointer();
+      if (this.animationFrame !== null) {
+        cancelAnimationFrame(this.animationFrame);
+        this.animationFrame = null;
+      }
+      return;
+    }
+    this.lastFrameTime = performance.now();
+    this.requestFrame();
+  };
+
+  private resetPointer(): void {
+    this.pointerTarget = { x: 0, y: 0 };
+    this.pointer.x = 0;
+    this.pointer.y = 0;
+  }
+
   private requestFrame(): void {
-    if (this.animationFrame === null && !this.stopped) {
+    if (this.animationFrame === null && !this.stopped && document.visibilityState === 'visible') {
       this.animationFrame = requestAnimationFrame(this.renderFrame);
     }
   }
@@ -330,6 +383,9 @@ export class WebGPUScene {
     if (this.stopped) {
       return;
     }
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
     const reducedMotion = this.motionQuery.matches;
 
     const device = this.device;
@@ -359,7 +415,8 @@ export class WebGPUScene {
     this.lastFrameTime = now;
     this.pointer.x += (this.pointerTarget.x - this.pointer.x) * 0.045;
     this.pointer.y += (this.pointerTarget.y - this.pointer.y) * 0.045;
-    const scene = this.getSceneState();
+    const sceneState = this.getSceneState();
+    const scene = reducedMotion ? settleSceneTimeline(sceneState) : sceneState;
     const camera = computeSceneCamera(scene);
     const physicalPointScale = 2 / Math.max(1, this.canvas.height);
 
@@ -421,7 +478,10 @@ export class WebGPUScene {
     if (this.stopped) {
       return;
     }
-    this.onError(error);
-    this.stop();
+    try {
+      this.onError(error);
+    } finally {
+      this.stop();
+    }
   }
 }

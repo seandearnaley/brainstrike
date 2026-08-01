@@ -19,7 +19,10 @@ Rules:
 - Required PR checks should be the always-present checks from `.github/workflows/test.yml`.
   As of the Series C R7 split this is exactly: `Static`, `Unit`, `Build`,
   `Web E2E`, `Desktop E2E`. `Coverage` is deliberately NOT required.
-- Web and desktop E2E smoke workflows run on every PR.
+- Web and desktop E2E smoke workflows run on every PR. The required `Web E2E`
+  job covers both the local-first web application smoke suite and the product
+  site's production-build Playwright suite; keep both in the same stable check
+  context instead of adding a new required-check name.
 - Full web and desktop E2E regression runs on `schedule` or explicit
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.

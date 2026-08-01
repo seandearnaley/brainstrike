@@ -743,6 +743,12 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7(react@19.2.7)
     devDependencies:
+      '@playwright/test':
+        specifier: 'catalog:'
+        version: 1.61.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.17

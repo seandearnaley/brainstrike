@@ -3,6 +3,7 @@ import {
   computeSceneTimeline,
   normalizeSceneAnchors,
   type SceneAnchor,
+  settleSceneTimeline,
   smoothstep,
 } from './scene-timeline';
 
@@ -66,5 +67,17 @@ describe('scene timeline utilities', () => {
         { documentY: anchors[0]!.documentY, id: 'duplicate', stage: 7 },
       ])
     ).toThrow('cannot share');
+  });
+
+  it('quantizes an in-flight morph to its active stage for reduced motion', () => {
+    expect(
+      settleSceneTimeline({
+        activeStage: 1,
+        bloom: 0.9,
+        fromStage: 0,
+        morph: 0.62,
+        toStage: 1,
+      })
+    ).toEqual({ activeStage: 1, bloom: 0, fromStage: 1, morph: 0, toStage: 1 });
   });
 });

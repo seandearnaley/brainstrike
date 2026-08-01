@@ -1,11 +1,9 @@
-export interface StageDefinition {
-  readonly id: string;
-  readonly label: string;
-}
+import type { ProductStageRailEntry } from '../content/product-story';
+import { type SceneFormationIndex, sceneFormationIndex } from '../scene/scene-formations';
 
 interface StageRailProps {
-  readonly activeStage: number;
-  readonly stages: readonly StageDefinition[];
+  readonly activeStage: SceneFormationIndex;
+  readonly stages: readonly ProductStageRailEntry[];
 }
 
 export function StageRail({ activeStage, stages }: StageRailProps) {
@@ -14,10 +12,18 @@ export function StageRail({ activeStage, stages }: StageRailProps) {
       <span className="stage-rail-title">SIGNAL PATH</span>
       <ol>
         {stages.map((stage, index) => (
-          <li className={index === activeStage ? 'is-active' : ''} key={stage.id}>
-            <a aria-current={index === activeStage ? 'step' : undefined} href={`#${stage.id}`}>
+          <li
+            className={sceneFormationIndex(stage.formation) === activeStage ? 'is-active' : ''}
+            key={stage.id}
+          >
+            <a
+              aria-current={
+                sceneFormationIndex(stage.formation) === activeStage ? 'step' : undefined
+              }
+              href={`#${stage.id}`}
+            >
               <span>{String(index + 1).padStart(2, '0')}</span>
-              <em>{stage.label}</em>
+              <em>{stage.railLabel}</em>
             </a>
           </li>
         ))}

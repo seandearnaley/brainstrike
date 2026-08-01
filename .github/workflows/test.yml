@@ -739,12 +739,26 @@ jobs:
       - name: Run web smoke
         run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
 
+      - name: Run product site browser suite
+        run: pnpm --filter @brainstrike/site run test:e2e
+
       - name: Upload web smoke traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: web-smoke-main-test-results
           path: apps/web/test-results/
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Upload product site browser artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: product-site-test-results
+          path: |
+            apps/site/test-results/
+            apps/site/playwright-report/
           retention-days: 1
           if-no-files-found: ignore
 

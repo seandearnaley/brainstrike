@@ -4,8 +4,8 @@
     "composite": true,
     "incremental": true,
     "noEmit": true,
-    "types": ["vite/client"]
+    "types": ["node", "vite/client"]
   },
-  "include": ["src", "vite.config.mts", "vitest.config.mts"],
+  "include": ["e2e", "playwright.config.ts", "src", "vite.config.mts", "vitest.config.mts"],
   "exclude": ["node_modules", "dist", "coverage"]
 }

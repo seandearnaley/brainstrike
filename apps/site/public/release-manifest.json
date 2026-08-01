@@ -1,8 +1,7 @@
 {
-  "schemaVersion": 1,
-  "product": "Brainstrike",
-  "repository": "seandearnaley/brainstrike",
   "channel": "stable",
-  "releasesHub": "https://github.com/seandearnaley/brainstrike/releases",
-  "latest": null
+  "distribution": null,
+  "latest": null,
+  "product": "Brainstrike",
+  "schemaVersion": 2
 }

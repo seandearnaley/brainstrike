@@ -1,13 +1,21 @@
-import { useSyncExternalStore } from 'react';
-import { parseReleaseManifest, type ReleaseManifest } from './release-manifest';
+import { useMemo, useSyncExternalStore } from 'react';
+import { createReleaseManifestClient } from './release-client';
+import type { ReleaseManifest } from './release-manifest';
 
 export type ReleaseManifestState =
   | { readonly status: 'loading' }
   | { readonly error: string; readonly status: 'error' }
   | { readonly manifest: ReleaseManifest; readonly status: 'ready' };
 
+export interface ReleaseManifestController {
+  readonly retry: () => void;
+  readonly state: ReleaseManifestState;
+}
+
+const client = createReleaseManifestClient();
 const listeners = new Set<() => void>();
 let requestStarted = false;
+let requestSequence = 0;
 let releaseState: ReleaseManifestState = { status: 'loading' };
 
 function publish(nextState: ReleaseManifestState): void {
@@ -17,24 +25,38 @@ function publish(nextState: ReleaseManifestState): void {
   }
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function runRequest(request: Promise<ReleaseManifest>): void {
+  requestStarted = true;
+  requestSequence += 1;
+  const sequence = requestSequence;
+  publish({ status: 'loading' });
+  void request.then(
+    (manifest) => {
+      if (sequence === requestSequence) {
+        publish({ manifest, status: 'ready' });
+      }
+    },
+    (error: unknown) => {
+      if (sequence === requestSequence) {
+        publish({ error: errorMessage(error), status: 'error' });
+      }
+    }
+  );
+}
+
 function startManifestRequest(): void {
   if (requestStarted) {
     return;
   }
-  requestStarted = true;
-  void fetch('/release-manifest.json', { cache: 'no-store' })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`Release manifest request failed with HTTP ${response.status}.`);
-      }
-      return response.json() as Promise<unknown>;
-    })
-    .then((value) => {
-      publish({ manifest: parseReleaseManifest(value), status: 'ready' });
-    })
-    .catch((error: unknown) => {
-      publish({ error: error instanceof Error ? error.message : String(error), status: 'error' });
-    });
+  runRequest(client.load());
+}
+
+function retry(): void {
+  runRequest(client.retry());
 }
 
 function subscribe(listener: () => void): () => void {
@@ -47,6 +69,7 @@ function getSnapshot(): ReleaseManifestState {
   return releaseState;
 }
 
-export function useReleaseManifest(): ReleaseManifestState {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+export function useReleaseManifest(): ReleaseManifestController {
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return useMemo(() => ({ retry, state }), [state]);
 }
