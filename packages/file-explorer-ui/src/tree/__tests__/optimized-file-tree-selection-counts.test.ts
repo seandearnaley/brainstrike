@@ -220,6 +220,36 @@ describe('optimized file tree selection counts', () => {
     expect(result.current.size).toBe(0);
   });
 
+  it('rebuilds observable counts when the active folder changes', () => {
+    const selectionModel = createExplicitSelectionModel();
+    const firstFolderId = '/workspace/first-project';
+    const nextFolderId = '/workspace/next-project';
+    const firstSelectedFilePaths = new Set([`${firstFolderId}|@|src/first.ts`]);
+    const nextSelectedFilePaths = new Set([`${nextFolderId}|@|docs/next.md`]);
+    const { result, rerender } = renderHook(
+      ({ currentFolderId, selectedFilePaths }) =>
+        useSelectedDirectoryCounts(selectedFilePaths, currentFolderId, selectionModel, null),
+      {
+        initialProps: {
+          currentFolderId: firstFolderId,
+          selectedFilePaths: firstSelectedFilePaths,
+        },
+      }
+    );
+
+    expect(result.current.get('src')).toBe(1);
+
+    rerender({
+      currentFolderId: nextFolderId,
+      selectedFilePaths: nextSelectedFilePaths,
+    });
+
+    expect(result.current.get('src')).toBeUndefined();
+    expect(result.current.get('docs')).toBe(1);
+    expect(result.current.get(nextFolderId)).toBe(1);
+    expect(result.current.get(firstFolderId)).toBeUndefined();
+  });
+
   it('returns query manifest directory counts in query selection mode', () => {
     const queryDirectoryCounts = new Map([['src', 3]]);
     const queryDescriptor = createQueryDescriptor({
