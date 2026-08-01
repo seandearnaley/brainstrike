@@ -81,7 +81,10 @@ export function extractPrimaryArg(
 
 function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSummary {
   const full = value.replaceAll(/\s+/g, ' ').trim();
-  const capEnd = advanceCodePoints(full, 0, MAX_PRIMARY_ARG_LENGTH);
+  // Cut on CODE POINTS, not UTF-16 units — a slice landing inside a
+  // surrogate pair would render U+FFFD at the truncation seam. Scans are
+  // bounded by the cap so long values never expand into a code-point array.
+  const capEnd = advanceCodePoints(full, MAX_PRIMARY_ARG_LENGTH);
   if (capEnd === full.length) {
     return { display: full, full };
   }
@@ -91,17 +94,17 @@ function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSumma
   // are still paths); the separator heuristic only covers untyped keys.
   const isPathLike = isPathKey || (!full.includes(' ') && /[/\\]/.test(full));
   if (isPathLike) {
-    const head = full.slice(0, advanceCodePoints(full, 0, PATH_HEAD_LENGTH));
+    const head = full.slice(0, advanceCodePoints(full, PATH_HEAD_LENGTH));
     const tail = full.slice(retreatCodePoints(full, PATH_TAIL_LENGTH));
     return { display: `${head}…${tail}`, full };
   }
-  const displayEnd = advanceCodePoints(full, 0, MAX_PRIMARY_ARG_LENGTH - 1);
+  const displayEnd = advanceCodePoints(full, MAX_PRIMARY_ARG_LENGTH - 1);
   return { display: `${full.slice(0, displayEnd)}…`, full };
 }
 
 /** Advance by Unicode code points without materializing the complete string. */
-function advanceCodePoints(value: string, start: number, count: number): number {
-  let index = start;
+function advanceCodePoints(value: string, count: number): number {
+  let index = 0;
   for (let seen = 0; seen < count && index < value.length; seen++) {
     const codeUnit = value.charCodeAt(index);
     index++;
