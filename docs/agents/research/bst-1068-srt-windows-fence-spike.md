@@ -620,6 +620,16 @@ lurking. Three rules close it:
    exactly one of `PASS:`, `FAIL:`, or `INCONCLUSIVE:` and sets an exit code to
    match (`0` / `1` / `2`).
 
+**Never nest quotes inside an `srt -c` string — put the code in a file.**
+PowerShell does not treat `\"` as an escaped quote (that is C/cmd escaping), so
+a line like `srt -c "python.exe -c \"...\""` dies at PowerShell parse time
+before `npx` or srt ever starts. Write the script to `scratch\` with an
+`@'…'@` here-string and pass the **path**, as every step below does. Same trap,
+different escape: curl's `-w` takes a **single** `%` in PowerShell —
+`%%{http_code}` is cmd/batch escaping and, because `%%` is curl's own escape
+for a literal percent, it makes curl print the text `%{http_code}` instead of
+the status.
+
 **Expand host paths in the OUTER PowerShell, never inside the `srt -c` string.**
 The command string is handed to an inner `cmd.exe` running as `srt-sandbox`, so
 `%LOCALAPPDATA%`, `%USERPROFILE%`, and `%TEMP%` resolve against the **sandbox
@@ -632,12 +642,35 @@ a pass.
 
 ### 6.0 Setup
 
+**Preflight — refuse to run on paths this plan did not create.** Everything the
+run touches must be absent beforehand, and the one file that is *not* ours
+(`~/.srt-settings.json`) is backed up rather than overwritten. Teardown (§6.9)
+deletes only what this block recorded.
+
 ```powershell
-mkdir C:\srt-spike; cd C:\srt-spike
+$ErrorActionPreference = 'Stop'
+$RUN      = 'C:\srt-spike'
+$SETTINGS = Join-Path $env:USERPROFILE '.srt-settings.json'
+$BACKUP   = "$SETTINGS.bst1068.bak"
+$CREATED  = [System.Collections.ArrayList]::new()   # only these get deleted
+
+if (Test-Path $RUN) { throw "$RUN already exists. Choose a fresh path or remove it YOURSELF after checking what is in it — this plan must not delete anything it did not create." }
+if (Test-Path $BACKUP) { throw "$BACKUP already exists — a previous run did not restore cleanly. Resolve by hand before continuing." }
+if (Test-Path $SETTINGS) {
+  Copy-Item $SETTINGS $BACKUP           # your real srt config; restored in §6.9
+  "backed up existing $SETTINGS -> $BACKUP"
+} else { "no pre-existing $SETTINGS" }
+
+New-Item -ItemType Directory $RUN, "$RUN\scratch" | Out-Null
+[void]$CREATED.Add($RUN)
+cd $RUN
 npm init -y
 npm i @anthropic-ai/sandbox-runtime@0.0.67
-mkdir C:\srt-spike\scratch
 ```
+
+> Keep `$RUN`, `$SETTINGS`, `$BACKUP`, and `$CREATED` alive in this **same
+> PowerShell session** through teardown. If the session dies, do §6.9 by hand
+> and check each path before deleting it.
 
 Put a **machine-readable** CPython at `C:\srt-spike\py\python.exe` — unzip a
 python-build-standalone release there (deliberately NOT under `%LOCALAPPDATA%`;
@@ -853,7 +886,12 @@ blocked HTTP request means nothing on its own; the proxy could simply be down.
 Set `allowedDomains` to `["example.com"]` and re-run:
 
 ```powershell
-npx srt -c "C:\srt-spike\py\python.exe -c \"import urllib.request;print('CONTROL PASS: http status', urllib.request.urlopen('https://example.com',timeout=20).status)\""
+@'
+import urllib.request
+print("CONTROL PASS: http status", urllib.request.urlopen("https://example.com", timeout=20).status)
+'@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_http.py
+
+npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_http.py"
 npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py $PORT"
 ```
 
@@ -870,10 +908,16 @@ host, same config, one flag apart, so a failure that is not about revocation
 would take both down and be visible as such.
 
 ```powershell
-npx srt -c "C:\Windows\System32\curl.exe -sS -o NUL -w %%{http_code} https://example.com"; "curl-plain exit=$LASTEXITCODE"
-npx srt -c "C:\Windows\System32\curl.exe --ssl-no-revoke -sS -o NUL -w %%{http_code} https://example.com"; "curl-norevoke exit=$LASTEXITCODE"
-npx srt -c "C:\srt-spike\py\python.exe -c \"import urllib.request;print('py status', urllib.request.urlopen('https://example.com',timeout=20).status)\""; "python exit=$LASTEXITCODE"
+npx srt -c "C:\Windows\System32\curl.exe -sS -o NUL -w '%{http_code}' https://example.com"; "curl-plain exit=$LASTEXITCODE"
+npx srt -c "C:\Windows\System32\curl.exe --ssl-no-revoke -sS -o NUL -w '%{http_code}' https://example.com"; "curl-norevoke exit=$LASTEXITCODE"
+npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_http.py"; "python exit=$LASTEXITCODE"
 ```
+
+> `-w` takes a **single** `%` here. `%%` is curl's own escape for a literal
+> percent, so `-w %%{http_code}` makes curl print the text `%{http_code}`
+> instead of the status — the doubled form is cmd/batch escaping and is wrong
+> in this position. The `t_http.py` script from 6.3-control is reused rather
+> than a nested `python -c`, for the quoting reason in §6.A.
 
 > Reading the result:
 > - plain **fails** (expect `CRYPT_E_REVOCATION_OFFLINE` / `0x80092013`, curl
@@ -893,9 +937,14 @@ absolute path; the unexpanded `%LOCALAPPDATA%` token would resolve against the
 that looks like a DACL denial.
 
 ```powershell
-$perUser = Join-Path $env:LOCALAPPDATA 'Programs\py'
+# A UNIQUE directory that must not already exist — `Programs\py` could be a real
+# per-user Python install, and Copy-Item would merge into it (and §6.9 would
+# then delete it).
+$perUser = Join-Path $env:LOCALAPPDATA "Programs\bst1068-py-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+if (Test-Path $perUser) { throw "pick another name — $perUser exists" }
 $perUserExe = Join-Path $perUser 'python.exe'
 Copy-Item -Recurse C:\srt-spike\py $perUser
+[void]$CREATED.Add($perUser)             # so teardown deletes only what we made
 Test-Path $perUserExe    # must be True before continuing
 
 # CONTROL — the copy runs fine as you, so a fenced failure is about identity.
@@ -924,9 +973,14 @@ npx srt -c "`"$perUserExe`" -c `"print('reached')`""
 covering PyPI:
 
 ```powershell
+@'
+import requests
+print("requests at", requests.__file__)
+'@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_req.py
+
 npx srt -c "C:\srt-spike\py\python.exe -m pip install --user --no-input requests"
 "pip exit=$LASTEXITCODE"   # must be 0, else the next line proves nothing
-npx srt -c "C:\srt-spike\py\python.exe -c \"import requests;print('requests at', requests.__file__)\""
+npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_req.py"
 Test-Path (Join-Path $env:APPDATA 'Python')   # expect False — it did NOT land in YOUR profile
 ```
 
@@ -1089,16 +1143,48 @@ process.exit(rc);
 
 ### 6.9 Teardown
 
+Run in the **same session** as §6.0, so `$CREATED`, `$SETTINGS`, and `$BACKUP`
+are still set. Order matters: the account and filters come out **before** any
+local state, and nothing is deleted unless uninstall actually succeeded.
+
 ```powershell
+$ErrorActionPreference = 'Stop'
+
+# 1. Uninstall FIRST, and verify. A cancelled UAC prompt exits without removing
+#    anything, and deleting state.db then would strand a provisioned account and
+#    live WFP filters with no credential store — worse than not cleaning up.
 npx @anthropic-ai/sandbox-runtime windows-uninstall
-Remove-Item -Recurse -Force "$env:LOCALAPPDATA\sandbox-runtime"   # state.db is NOT removed by uninstall
-Remove-Item -Recurse -Force C:\srt-spike, "$env:USERPROFILE\.srt-settings.json", (Join-Path $env:LOCALAPPDATA 'Programs\py')
+if ($LASTEXITCODE -ne 0) { throw "windows-uninstall exited $LASTEXITCODE — STOP. Do not delete local state; re-run uninstall (accept the UAC prompt) first." }
+
+node --input-type=module -e @'
+import {checkWindowsSandboxStatusAsync,resolveSrtWin,VENDORED_SRT_WIN_EXE} from "@anthropic-ai/sandbox-runtime";
+const s = await checkWindowsSandboxStatusAsync({srtWin: resolveSrtWin({path: VENDORED_SRT_WIN_EXE})});
+console.log("post-uninstall provisioned =", s.user.provisioned);
+process.exit(s.user.provisioned ? 1 : 0);
+'@
+if ($LASTEXITCODE -ne 0) { throw "sandbox user still provisioned — STOP, do not delete state.db." }
+
+# 2. Only now is srt's own state safe to remove (uninstall leaves state.db).
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\sandbox-runtime" -ErrorAction SilentlyContinue
+
+# 3. Delete ONLY the paths §6.0/d2 recorded creating.
+foreach ($p in $CREATED) { if (Test-Path $p) { "removing $p"; Remove-Item -Recurse -Force $p } }
+
+# 4. Restore the caller's settings file rather than deleting it.
+if (Test-Path $BACKUP) { Move-Item -Force $BACKUP $SETTINGS; "restored $SETTINGS" }
+elseif (Test-Path $SETTINGS) { Remove-Item $SETTINGS; "removed the settings file this run created" }
 ```
 
-> Then re-run the §6.0 status probe: expect `provisioned: false` (the probe will
-> print `FAIL:` — here that is the *desired* result, confirming removal). If an
-> unclean run left ACEs behind, `srt-win acl recover` sweeps by trustee SID
-> (§1.4). Spot-check with `icacls C:\srt-spike` before deleting it.
+> The `provisioned: false` check is the *desired* outcome here — it confirms
+> removal. It is asserted rather than eyeballed precisely because
+> `windows-uninstall` treats a dismissed UAC prompt as a user choice, not an
+> error (§1.2), so "it printed something and exited" is not evidence.
+> If an unclean run left ACEs behind, `srt-win acl recover` sweeps by trustee
+> SID (§1.4); spot-check with `icacls C:\srt-spike` before step 3.
+>
+> **If the session was lost**, do not run this block — `$CREATED` would be empty
+> and `$BACKUP` unknown. Uninstall, then delete each path by hand after checking
+> what is in it.
 
 ### 6.10 Reporting back
 
