@@ -35,6 +35,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 
 /** Animation duration in ms for refresh button visual feedback */
@@ -573,7 +574,11 @@ export function SystemDiagnosticsPanel({
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const databaseQuerySnapshot = databaseQueryTelemetry.snapshot();
+  const databaseQuerySnapshot = useSyncExternalStore(
+    databaseQueryTelemetry.subscribe,
+    databaseQueryTelemetry.getSnapshot,
+    databaseQueryTelemetry.getSnapshot
+  );
 
   // Cleanup timeout on unmount to prevent memory leaks
   useEffect(() => {

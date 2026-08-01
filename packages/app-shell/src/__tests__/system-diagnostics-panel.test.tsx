@@ -7,7 +7,7 @@ import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
 } from '@brainstrike/preferences/stores/database-status-store';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -91,6 +91,19 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('Token estimation')).toBeInTheDocument();
       expect(screen.getByText('75% cache hit')).toBeInTheDocument();
       expect(screen.getByText('1 active')).toBeInTheDocument();
+    });
+
+    it('updates database query telemetry while diagnostics remains open', () => {
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('0 queries')).toBeInTheDocument();
+
+      act(() => {
+        databaseQueryTelemetry.recordQuery({ durationMs: 9, feature: 'file-tree' });
+      });
+
+      expect(screen.getByText('1 query')).toBeInTheDocument();
+      expect(screen.getByText('File tree')).toBeInTheDocument();
     });
 
     it('renders queue diagnostics panel', () => {

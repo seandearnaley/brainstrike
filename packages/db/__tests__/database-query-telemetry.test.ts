@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DatabaseQueryTelemetry } from '../src/database-query-telemetry';
 
 describe('DatabaseQueryTelemetry', () => {
@@ -72,5 +72,31 @@ describe('DatabaseQueryTelemetry', () => {
       hitCount: 4,
       lookupCount: 6,
     });
+  });
+
+  it('publishes stable external-store snapshots for every telemetry transition', () => {
+    const telemetry = new DatabaseQueryTelemetry();
+    const listener = vi.fn();
+    const unsubscribe = telemetry.subscribe(listener);
+    const initialSnapshot = telemetry.getSnapshot();
+
+    expect(telemetry.getSnapshot()).toBe(initialSnapshot);
+
+    telemetry.recordQuery({ durationMs: 7, feature: 'file-tree' });
+    telemetry.recordLiveSubscriptionStarted();
+    telemetry.recordLiveUpdate();
+    telemetry.recordLiveSubscriptionEnded();
+
+    expect(listener).toHaveBeenCalledTimes(4);
+    expect(telemetry.getSnapshot()).not.toBe(initialSnapshot);
+    expect(telemetry.getSnapshot()).toMatchObject({
+      activeLiveSubscriptions: 0,
+      liveUpdateCount: 1,
+      sampleCount: 1,
+    });
+
+    unsubscribe();
+    telemetry.reset();
+    expect(listener).toHaveBeenCalledTimes(4);
   });
 });

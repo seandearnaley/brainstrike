@@ -81,10 +81,13 @@ function featureSnapshot(
 
 export class DatabaseQueryTelemetry {
   private activeLiveSubscriptions = 0;
+  private currentSnapshot: DatabaseQueryTelemetrySnapshot;
   private readonly liveUpdateTimestamps: number[] = [];
+  private readonly listeners = new Set<() => void>();
   private readonly maxSamples: number;
   private readonly now: () => number;
   private readonly querySamples: QuerySample[] = [];
+  private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private readonly windowMs: number;
 
   constructor(options: DatabaseQueryTelemetryOptions = {}) {
@@ -93,22 +96,28 @@ export class DatabaseQueryTelemetry {
     this.now = options.now ?? Date.now;
     assertPositiveInteger(this.maxSamples, 'Database query telemetry maxSamples');
     assertPositiveInteger(this.windowMs, 'Database query telemetry windowMs');
+    this.currentSnapshot = this.snapshot();
   }
+
+  readonly getSnapshot = (): DatabaseQueryTelemetrySnapshot => this.currentSnapshot;
 
   recordLiveSubscriptionEnded(): void {
     if (this.activeLiveSubscriptions === 0) {
       throw new Error('Database query telemetry live subscription count is already zero');
     }
     this.activeLiveSubscriptions -= 1;
+    this.publish();
   }
 
   recordLiveSubscriptionStarted(): void {
     this.activeLiveSubscriptions += 1;
+    this.publish();
   }
 
   recordLiveUpdate(): void {
     this.liveUpdateTimestamps.push(this.now());
     this.trimBound(this.liveUpdateTimestamps);
+    this.publish();
   }
 
   recordQuery(record: DatabaseQueryTelemetryRecord): void {
@@ -129,13 +138,33 @@ export class DatabaseQueryTelemetry {
       recordedAt: this.now(),
     });
     this.trimBound(this.querySamples);
+    this.publish();
   }
 
   reset(): void {
     this.activeLiveSubscriptions = 0;
     this.liveUpdateTimestamps.length = 0;
     this.querySamples.length = 0;
+    this.publish();
   }
+
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    if (this.refreshInterval === null) {
+      this.refreshInterval = setInterval(() => {
+        if (this.trimExpired()) {
+          this.publish();
+        }
+      }, 1000);
+    }
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0 && this.refreshInterval !== null) {
+        clearInterval(this.refreshInterval);
+        this.refreshInterval = null;
+      }
+    };
+  };
 
   snapshot(): DatabaseQueryTelemetrySnapshot {
     const snapshotAt = this.now();
@@ -174,6 +203,29 @@ export class DatabaseQueryTelemetry {
       return;
     }
     samples.splice(0, samples.length - this.maxSamples);
+  }
+
+  private trimExpired(): boolean {
+    const cutoff = this.now() - this.windowMs;
+    const queryCount = this.querySamples.length;
+    const liveUpdateCount = this.liveUpdateTimestamps.length;
+    while ((this.querySamples[0]?.recordedAt ?? cutoff) < cutoff) {
+      this.querySamples.shift();
+    }
+    while ((this.liveUpdateTimestamps[0] ?? cutoff) < cutoff) {
+      this.liveUpdateTimestamps.shift();
+    }
+    return (
+      queryCount !== this.querySamples.length ||
+      liveUpdateCount !== this.liveUpdateTimestamps.length
+    );
+  }
+
+  private publish(): void {
+    this.currentSnapshot = this.snapshot();
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 }
 
