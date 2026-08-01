@@ -222,7 +222,7 @@ function gateInvocations(text) {
   return found;
 }
 
-/** @returns {{ key: string, run: string }[]} every `run:` step in test.yml */
+/** @returns {{ env: Record<string, unknown>, key: string, run: string }[]} every `run:` step in test.yml */
 function ciRunSteps(source = workflowSource()) {
   const workflow = parseYaml(source);
   assert.ok(workflow?.jobs, 'test.yml must parse to a workflow with jobs');
@@ -235,7 +235,11 @@ function ciRunSteps(source = workflowSource()) {
           typeof step.name === 'string' && step.name.length > 0,
           `every run: step needs a name; ${jobId} has an unnamed one`
         );
-        steps.push({ key: `${jobId} › ${step.name}`, run: step.run });
+        steps.push({
+          env: step.env && typeof step.env === 'object' ? step.env : {},
+          key: `${jobId} › ${step.name}`,
+          run: step.run,
+        });
       }
     }
   }
@@ -245,10 +249,47 @@ function ciRunSteps(source = workflowSource()) {
   return steps;
 }
 
-function ciRunStep(key) {
+function ciStep(key) {
   const found = ciRunSteps().find((step) => step.key === key);
   assert.ok(found, `test.yml no longer has the step "${key}"`);
-  return found.run;
+  return found;
+}
+
+function ciRunStep(key) {
+  return ciStep(key).run;
+}
+
+function rootTurboTaskSource(source, taskName) {
+  const taskStarts = [...source.matchAll(/^ {4}"([^"]+)": \{/gm)];
+  assert.ok(
+    taskStarts.length >= 10,
+    `expected the root turbo task graph, found only ${taskStarts.length} task blocks`
+  );
+  const taskIndex = taskStarts.findIndex((match) => match[1] === taskName);
+  assert.notEqual(taskIndex, -1, `turbo.jsonc no longer declares the ${taskName} task`);
+  const start = taskStarts[taskIndex].index;
+  assert.notEqual(start, undefined, `could not locate the ${taskName} task`);
+  const end = taskStarts[taskIndex + 1]?.index ?? source.length;
+  return source.slice(start, end);
+}
+
+function assertTimeoutMultiplierIsHashed(source) {
+  for (const taskName of ['test', 'test:integration']) {
+    const taskSource = rootTurboTaskSource(source, taskName);
+    const env = taskSource.match(/"env"\s*:\s*\[([\s\S]*?)\]/);
+    assert.ok(env, `turbo ${taskName} must declare its result-affecting environment`);
+    assert.match(
+      env[1],
+      /"TEST_TIMEOUT_MULTIPLIER"/,
+      `turbo ${taskName} must hash TEST_TIMEOUT_MULTIPLIER in env`
+    );
+    const passThroughEnv = taskSource.match(/"passThroughEnv"\s*:\s*\[([\s\S]*?)\]/);
+    assert.doesNotMatch(
+      passThroughEnv?.[1] ?? '',
+      /"TEST_TIMEOUT_MULTIPLIER"/,
+      `turbo ${taskName} must not leave the result-affecting multiplier unhashed`
+    );
+  }
 }
 
 /**
@@ -493,6 +534,7 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
     'web-e2e-full-regression',
     'desktop-e2e-full-regression',
   ]);
+  const timeoutMatchedIds = new Set(['unit-tests', 'integration-tests']);
 
   for (const step of plan) {
     if (playwrightIds.has(step.id)) {
@@ -500,16 +542,30 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
       // false, so a stray `test.only` passes the lane while the required Web
       // E2E job rejects the same source.
       assert.match(step.command, /\bCI=true\b/, `${step.id} must mirror CI's environment`);
-      continue;
+    } else {
+      // BST-1050: `CI` must NOT leak into the unit/integration/build steps —
+      // vector-management's vitest config switches on a 70% line-coverage
+      // threshold when CI === 'true'.
+      assert.doesNotMatch(
+        step.command,
+        /\bCI=true\b/,
+        `${step.id} must not run under CI semantics; it would change the workload, not just the env`
+      );
     }
-    // BST-1050: `CI` must NOT leak into the unit/integration/build steps —
-    // getTimeoutMultiplier() doubles under it and vector-management's vitest
-    // config switches on a 70% line-coverage threshold when CI === 'true'.
-    assert.doesNotMatch(
-      step.command,
-      /\bCI=true\b/,
-      `${step.id} must not run under CI semantics; it would change the workload, not just the env`
-    );
+
+    if (timeoutMatchedIds.has(step.id)) {
+      assert.match(
+        step.command,
+        /\bTEST_TIMEOUT_MULTIPLIER=2\b/,
+        `${step.id} must match CI timeout budgets without setting CI`
+      );
+    } else {
+      assert.doesNotMatch(
+        step.command,
+        /\bTEST_TIMEOUT_MULTIPLIER=/,
+        `${step.id} is not a Vitest Unit phase and must not inherit its timeout policy`
+      );
+    }
   }
 
   // And the unit lanes still assert the uninstrumented CI workload.
@@ -517,6 +573,47 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
     plan.find((step) => step.id === 'unit-tests').command,
     /COVERAGE=false/,
     "the unit lane must stay uninstrumented, as CI's Unit shards are"
+  );
+});
+
+test('the Unit workflow, root test script, and pnpm check share one hashed timeout policy', () => {
+  const unitStepKeys = [
+    'unit-shard › Pull request affected unit tests',
+    'unit-shard › Pull request affected integration tests',
+    'unit-shard › Push and manual unit tests',
+    'unit-shard › Push and manual integration tests',
+  ];
+  assert.equal(unitStepKeys.length, 4, 'the Unit phase discovery floor changed unexpectedly');
+  for (const key of unitStepKeys) {
+    assert.equal(
+      ciStep(key).env['TEST_TIMEOUT_MULTIPLIER'],
+      '2',
+      `${key} must use the same explicit timeout policy as local gates`
+    );
+  }
+
+  const rootPackage = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(
+    rootPackage.scripts.test,
+    /\bTEST_TIMEOUT_MULTIPLIER=2\b/,
+    'the root pnpm test battery must match the CI timeout policy'
+  );
+
+  const turboSource = readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8');
+  assertTimeoutMultiplierIsHashed(turboSource);
+
+  const testTaskSource = rootTurboTaskSource(turboSource, 'test');
+  const mutatedTaskSource = testTaskSource.replace(/\s*"TEST_TIMEOUT_MULTIPLIER",?/, '');
+  assert.notEqual(
+    mutatedTaskSource,
+    testTaskSource,
+    'the timeout-hash control mutation matched nothing and would be vacuous'
+  );
+  const mutatedTurboSource = turboSource.replace(testTaskSource, mutatedTaskSource);
+  assert.throws(
+    () => assertTimeoutMultiplierIsHashed(mutatedTurboSource),
+    /test must hash TEST_TIMEOUT_MULTIPLIER/,
+    'CONTROL: removing the hashed multiplier from test must turn the contract red'
   );
 });
 

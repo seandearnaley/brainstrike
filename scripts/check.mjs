@@ -177,11 +177,11 @@ export function uncoveredCiGates(plan) {
  *
  * SCOPE IS LOAD-BEARING — do not hoist this to the whole run (BST-1050). A
  * process-wide `CI` would change the workload of the unit/integration steps,
- * not just their environment: `getTimeoutMultiplier()` returns 2 under `CI`,
- * and `packages/vector-management`'s base vitest config turns on coverage with
- * a 70% line threshold when `CI === 'true'`. Those steps must stay exactly as
- * CI's Unit shards run them (`COVERAGE=false`), so `CI` belongs to these
- * Playwright invocations and nothing else.
+ * not just their environment: `packages/vector-management`'s base vitest
+ * config turns on coverage with a 70% line threshold when `CI === 'true'`.
+ * Those steps use the dedicated `TEST_TIMEOUT_MULTIPLIER` to match CI's
+ * timeout policy without inheriting its other behavior, so `CI` belongs to
+ * these Playwright invocations and nothing else.
  */
 function playwrightLane(pkg, script) {
   return `node scripts/run-env.mjs CI=true -- pnpm -s --filter ${pkg} run ${script}`;
@@ -339,13 +339,13 @@ export function buildPlan(options = {}) {
   // split with the same concurrency caps mirrors the CI phase split.
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
     id: 'unit-tests',
     label: 'test',
   });
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
     id: 'integration-tests',
     label: 'test:integration',
   });

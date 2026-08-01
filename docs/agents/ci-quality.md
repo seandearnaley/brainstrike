@@ -417,6 +417,16 @@ survive future edits:
   `packages/vector-management`'s base vitest config switches on a 70% line
   threshold when `CI === 'true'`. It belongs to the four Playwright
   invocations and nowhere else; the parity test asserts both halves.
+- **Vitest timeout parity uses `TEST_TIMEOUT_MULTIPLIER=2`, not `CI=true`.** The
+  four Unit workflow steps, the root `pnpm test` script, and `pnpm check`'s
+  unit/integration steps all set the dedicated variable explicitly. Turbo
+  declares it in the test tasks' `env` rather than `passThroughEnv`: timeouts
+  can change pass/fail, so the value must be part of the cache key. Using `2`
+  everywhere preserves local/CI cache sharing while avoiding CI-conditioned
+  coverage and worker changes. `getTimeoutMultiplier()` gives the explicit
+  variable precedence, accepts only a positive plain decimal, and throws on a
+  malformed value; with no explicit value, the existing CI=2 and DEBUG=5
+  defaults remain.
 - **`--full` is additive**, not a swap: the required-check mirror plus
   `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
   `--fast` drops only the lanes CI fans out to separate runners (Browser tests,
