@@ -42,8 +42,13 @@ install.** Revisit when the gate in §5 is cleared.
   **required** on `ExecInput`, with backends obliged to terminate the process
   tree when it fires — which promotes §6.7 from a nicety to a contract
   requirement.
-- **PR #2190** (`bst-1062-build-the-fenceexecutor-on-anthropic-aisandbox-runtime`,
-  unmerged at the time of writing) is the FenceExecutor under review.
+- **The FenceExecutor has since MERGED** (**5277afc**, PR #2190), so §2 and §4
+  were re-checked against shipped code rather than the pre-merge draft. The
+  outcome is in §2.5: the shipped gate matches this spike's recommendation, and
+  the merged design makes the expressibility finding sharper, not softer.
+  `docs/agents/code-execution.md` also gained a normative
+  **"Backends MUST resolve before asking"** section in that window; the Windows
+  wrinkles it raises are §1.9.
 
 ---
 
@@ -231,6 +236,66 @@ no-op the filesystem policy and the second would throw. See §4.
 | A **non-elevated readiness probe exists** | `checkWindowsSandboxStatusAsync`, `checkWindowsDependenciesAsync` (both exported) | This is what makes the capability model in §2 possible at all |
 | `verifyWindowsWfpEgress` is **once per process**, never cleared by `reset()` | `sandbox-manager.js:391-403`; `:1526` comment "`windowsWfpVerified` is NOT cleared — per-process, not per-session" | Good news for a reset/initialize-per-policy lifecycle: the expensive `CreateProcessWithLogonW` probe is not repeated |
 
+### 1.9 Path containment on Windows — three wrinkles the seam's new rule does not yet cover
+
+`docs/agents/code-execution.md` gained a normative **"Backends MUST resolve
+before asking"** section (realpath both operands before `isPathCoveredBy`; an
+unresolved operand is a security bug; do NOT case-fold on darwin, because case
+sensitivity is a *filesystem* property and folding errs toward a false PERMIT).
+The reasoning is right and it transfers to Windows — but Windows has strictly
+more aliasing than APFS, and one of its consequences is that the seam already
+does on Windows-shaped paths the exact thing the section forbids on darwin.
+
+All three are **latent, not live**: no Windows backend exists, so nothing
+Windows-shaped reaches `isPathCoveredBy` from a real host today. They are
+recorded here because whoever builds one inherits them.
+
+**a. NTFS aliases a path more ways than a symlink.** 8.3 short names
+(`C:\PROGRA~1\x` ≡ `C:\Program Files\x`), trailing dots and spaces (Win32
+strips them, so `C:\scratch\evil.` opens `evil`), alternate data streams
+(`file.txt:hidden`), reserved device names (`CON`, `NUL`, `COM1`), and the
+`\\?\` extended-length prefix — which bypasses Win32 path normalization
+entirely, and which srt is aware of, since it exports
+`stripExtendedPathPrefix`. Short names in particular are the same dodge class
+as the symlink the section exists to close: a textual comparison sees
+`C:\PROGRA~1` and `C:\Program Files` as unrelated, and the filesystem does not.
+
+`realpath` should still be the whole answer — libuv's `uv_fs_realpath`
+implements Windows realpath via `GetFinalPathNameByHandleW`, which returns the
+long canonical form and so expands short names and normalizes case. **I could
+not verify that on Windows and it is the one place in this section where the
+recommendation rests on reading libuv's documented behaviour rather than
+observing it** — §6.8 is the test that settles it, and it is cheap.
+
+**b. `isPathCoveredBy` case-folds the whole path on Windows-shaped operands,
+and that is the guess the new section rejects.** The predicate folds case
+whenever `isWindowsShapedPath(target) || isWindowsShapedPath(root)`
+(`packages/agent/src/code-execution.ts`), but its stated justification is
+narrower than its behaviour: *"drive-letter case is not stable across Node
+APIs."* Folding every segment to fix the drive letter is the same
+platform-shaped guess in the same dangerous direction the section calls out —
+NTFS is case-insensitive **by default** but supports **per-directory** case
+sensitivity (`fsutil file setCaseSensitiveInfo`, which WSL sets on directories
+it creates), so a false PERMIT is reachable on a real volume.
+
+Recommendation for the Windows backend: **fold the drive letter only.** Once
+both operands are resolved, the path body already carries the canonical on-disk
+spelling, so folding it buys nothing and costs the exact safety property the
+section is protecting. This is a note for a future backend, not a change made
+here — the code is unreachable today and rewriting a seam predicate on a
+platform none of us can test would be the wrong trade.
+
+**c. A mapped network drive cannot be resolved by the sandbox at all.** srt
+fails such a launch with a typed `mapped_drive_cwd` error (`srt-win exec` exit
+**16**, surfaced via `parseWindowsSandboxError`, carrying the failing root on
+`.drive`), and the reason is the separate-account model itself: *"per-user
+drive mappings don't exist under the sandbox logon."* A `Z:\` that resolves
+perfectly for the caller is not a path at all for `srt-sandbox`. This has no
+macOS or Linux analogue — it is a case where a path is canonical, existent, and
+readable for the broker while being meaningless to the sandboxed process — and
+any Windows fence must surface it as a typed refusal rather than a confusing
+access error.
+
 ---
 
 ## 2. Capability-model specification (the deliverable that feeds BST-1062)
@@ -382,6 +447,71 @@ const windowsFenceCapabilities: ExecutorCapabilities = {
 means "can honour a non-empty `allowedDomains`", and connect-time enforcement is
 kernel-level. The DNS hole is identical on macOS, which we already ship.
 
+### 2.5 Checked against the shipped FenceExecutor (5277afc)
+
+§2.1–§2.4 were written before BST-1062 merged, from the PR diff. Now that it is
+on main, here is the same recommendation checked against real symbols in
+`packages/agent/src/fence/fence-executor.ts` rather than inferred shapes.
+
+**The shipped gate matches the recommendation exactly.**
+
+```ts
+export function isFenceSupported(): boolean {
+  return (platform === 'darwin' || platform === 'linux') && SandboxManager.isSupportedPlatform();
+}
+
+export function createFenceExecutorFactory(
+  options: FenceExecutorOptions
+): CodeExecutorFactory | undefined {
+  if (!isFenceSupported()) {
+    return;                       // absent factory → ExecutorKindUnavailableError
+  }
+  return () => createFenceExecutor(options);
+}
+```
+
+That is §2.1's "absent factory, not present-and-throwing", implemented. Nothing
+in this spike needs to change on that point, and `createFenceExecutor()` throws
+`FenceUnsupportedPlatformError` if called directly on an unsupported host —
+belt and braces, with a message that names the rule ("The host must not offer a
+fence factory here").
+
+Three details the shipped code makes concrete, which the pre-merge draft could
+only assert:
+
+1. **The explicit platform allow-list is the entire gate, and it is one line
+   from being flipped.** `SandboxManager.isSupportedPlatform()` returns **true**
+   on Windows (§1.1), so the `&&` is not what excludes it — the literal
+   `platform === 'darwin' || platform === 'linux'` is. And
+   `currentExecPlatform()` **already accepts `'win32'`** and returns it, so the
+   `ExecPlatform` plumbing is Windows-ready end to end. A well-meaning cleanup
+   that "simplifies" `isFenceSupported()` to just srt's own probe would enable
+   Windows silently, with a `capabilities()` that reports `os-fence` and a
+   filesystem policy that is quietly wrong from the second execution onward.
+   That is why the *reason* for the gate has to live next to the line; I have
+   added it to `docs/agents/code-execution.md`.
+2. **`createFenceExecutorFactory` is synchronous**, as is `isFenceSupported()`.
+   §2.2's argument was that a Windows readiness probe (two `srt-win.exe`
+   spawns, seconds under a Defender cold scan) cannot fit inside a sync
+   factory and must move up to host-capability assembly. That is now a fact
+   about shipped signatures, not a prediction.
+3. **The merged design makes the expressibility finding SHARPER.** The shipped
+   lifecycle is "initialize ONCE per process, `updateConfig` per execution,"
+   with the per-execution `customConfig` override applied *as well* — the doc is
+   explicit that the override alone "would leave the proxy filtering on a stale
+   allow-list; both are applied." On Windows those are precisely the two
+   mechanisms that fail (§1.7): `updateConfig()` warns and keeps the previous
+   file-access set, and the `customConfig` carrying `filesystem.allowWrite`
+   throws outright. So the shipped executor does not merely *happen* to be
+   darwin/linux-shaped — **the specific mechanism it relies on for per-execution
+   policy is the one Windows srt refuses.** Widening `isFenceSupported()`
+   without the §2.4 lifecycle rework would not be "alpha but probably fine"; it
+   would throw on every execution, and if that throw were removed, silently
+   pin every run to the first run's filesystem policy.
+
+The corollary for the gate (§5) is unchanged but better grounded: enabling
+Windows is a lifecycle rework, not a platform-flag change.
+
 ---
 
 ## 3. Onboarding recommendation
@@ -416,29 +546,25 @@ Why this and not the alternatives:
 
 ---
 
-## 4. What PR #2190 should change (nothing structural)
+## 4. The correction applied to the merged FenceExecutor (nothing structural)
 
-PR #2190's `createFenceExecutorFactory()` already returns `undefined` on
-`win32`, which is the recommendation. The only correction is to the **stated
-reason**. Its doc currently says:
+BST-1062 shipped `createFenceExecutorFactory()` returning `undefined` on
+`win32`, which is this spike's recommendation (§2.5). No code change was needed
+or made. The only thing that needed correcting was the **stated reason**, which
+read:
 
 > Windows is srt-alpha (needs a provisioned sandbox user + WFP fence) and its
 > process-tree kill is unverified here — deliberately NOT offered rather than
 > shipped untested.
 
-The process-tree kill is real but secondary. The primary reason is §2.4: the
-executor's per-execution policy model is **not expressible** on Windows srt —
-`updateConfig()` would silently drop the filesystem half and the `customConfig`
-override would throw. Suggested replacement wording, to be applied on #2190's
-own branch (this spike deliberately does not edit that PR's files):
-
-> Windows is deliberately NOT offered. srt's Windows fence is a real OS-kernel
-> fence (separate `srt-sandbox` user SID + WFP + NTFS DACLs) but its filesystem
-> scope is **session-level**: `updateConfig()` warns and keeps the previous
-> access set, and a per-exec `filesystem.allowRead/allowWrite` throws. This
-> executor's per-execution policy model therefore cannot be honoured there.
-> Process-tree kill (`process.kill(-pid)`) is POSIX-only and also unported. See
-> `docs/agents/research/bst-1068-srt-windows-fence-spike.md`.
+That is true but ranks the causes wrongly, and "unverified, so not shipped
+untested" invites the reading that Windows just needs someone to test it —
+when in fact the shipped per-execution policy mechanism is the one Windows srt
+refuses (§2.5.3). This change rewrites that bullet in
+`docs/agents/code-execution.md` to lead with the expressibility blocker, keep
+the process-tree kill as the secondary problem it is, and pin the
+`isFenceSupported()` allow-list as load-bearing so a future cleanup does not
+delete the gate by accident.
 
 ---
 
@@ -462,7 +588,7 @@ One sitting, ~90 min. Nothing below has been executed.
 
 **Host:** Windows 11, x64 or arm64 (no 32-bit — §1.1), an account that can
 elevate, Node ≥ 20.11. Prefer a VM, or a machine you are willing to leave a
-local account on; §6.8 removes it.
+local account on; §6.9 removes it.
 
 ### 6.A How not to fool yourself — read before running anything
 
@@ -912,7 +1038,56 @@ and re-measure over 5 s.
 > addon (already built and tested in CI, currently dev-tooling-only) rather than
 > add a third kill path.
 
-### 6.8 Teardown
+### 6.8 (h) Does `realpath` actually de-alias Windows paths?
+
+§1.9a's recommendation — that `realpath` alone closes short-name and case
+aliasing, so a Windows backend needs no extra normalization — rests on libuv
+using `GetFinalPathNameByHandleW`, which I read but could not run. It is cheap
+to settle, needs **no fence and no install**, and can be run first.
+
+```powershell
+mkdir "C:\srt-spike\Program Files Test" -ErrorAction SilentlyContinue
+node -e @'
+const fs = require("node:fs");
+const long = "C:\\srt-spike\\Program Files Test";
+let rc = 0;
+const short = require("node:child_process")
+  .execSync(`cmd /c for %I in ("${long}") do @echo %~sI`).toString().trim();
+console.log("short name:", short || "(none — 8.3 generation may be disabled)");
+if (short && short.toLowerCase() !== long.toLowerCase()) {
+  const r = fs.realpathSync(short);
+  console.log("realpath(short) ->", r);
+  if (r.toLowerCase() === long.toLowerCase()) console.log("PASS: short name expanded to long form");
+  else { console.log("FAIL: short name NOT expanded — a Windows backend must normalize before comparing"); rc = 1; }
+} else {
+  console.log("INCONCLUSIVE: no distinct 8.3 alias on this volume (fsutil 8dot3name query). "
+            + "Re-run on a volume with 8.3 generation enabled, or record as untested.");
+  rc = 2;
+}
+const r2 = fs.realpathSync(long.toUpperCase());
+console.log("realpath(UPPERCASE) ->", r2);
+console.log(r2 === long ? "PASS: case normalized to on-disk spelling"
+                        : `OBSERVED: realpath preserved input case (${r2}) — case-fold cannot be dropped blindly`);
+process.exit(rc);
+'@
+```
+
+> Reading the result:
+> - short name expands **and** case normalizes ⇒ §1.9a holds; a Windows backend
+>   inherits the seam's "resolve before asking" rule with no additions, and
+>   §1.9b's "fold the drive letter only" is safe.
+> - short name does **not** expand ⇒ `realpath` is insufficient on Windows and a
+>   backend must canonicalize explicitly before `isPathCoveredBy`. That is a
+>   containment-correctness finding and should be recorded prominently.
+> - `INCONCLUSIVE` (no 8.3 alias) is a real outcome: many modern volumes have
+>   8.3 generation disabled. Check with `fsutil 8dot3name query C:` and record
+>   it rather than reporting the step as a pass.
+>
+> Also worth one line while you are here: `fsutil file queryCaseSensitiveInfo
+> C:\srt-spike` — if per-directory case sensitivity is available on the test
+> volume, §1.9b's false-PERMIT concern is reachable rather than theoretical.
+
+### 6.9 Teardown
 
 ```powershell
 npx @anthropic-ai/sandbox-runtime windows-uninstall
@@ -925,7 +1100,7 @@ Remove-Item -Recurse -Force C:\srt-spike, "$env:USERPROFILE\.srt-settings.json",
 > unclean run left ACEs behind, `srt-win acl recover` sweeps by trustee SID
 > (§1.4). Spot-check with `icacls C:\srt-spike` before deleting it.
 
-### 6.9 Reporting back
+### 6.10 Reporting back
 
 Paste the recorded output into this doc under a new `## 7. Windows run <date>`
 section — every step as PASS / FAIL / INCONCLUSIVE with its exit code, and the

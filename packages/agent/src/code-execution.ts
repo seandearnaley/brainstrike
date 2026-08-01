@@ -359,6 +359,56 @@ export function resolveCodeExecutor(
   return executor;
 }
 
+/**
+ * The run was cancelled via `ExecInput.signal`.
+ *
+ * Thrown for BOTH positions — aborted while queued behind another execution,
+ * and aborted mid-run — because `ExecResult` describes a run that COMPLETED,
+ * normally or by timeout. Encoding an abort as a result would make it
+ * distinguishable from a timeout only by the ABSENCE of a flag
+ * (`exitCode: null, timedOut: false`), forcing every consumer to
+ * reverse-engineer the intent. Backends throw this instead, so callers write
+ * one `catch`.
+ *
+ * Whatever the process managed to produce before it was killed rides on the
+ * error rather than being discarded — a debug bundle can still show it —
+ * without pretending the run finished. `processStarted` distinguishes "nothing
+ * ever spawned" from "killed mid-run", which is the difference between no side
+ * effects and possible partial ones.
+ */
+export class ExecAbortedError extends Error {
+  readonly code = 'exec_aborted' as const;
+  readonly partialStderr: string;
+  readonly partialStdout: string;
+  readonly processStarted: boolean;
+  readonly stderrOmittedBytes: number;
+  readonly stdoutOmittedBytes: number;
+
+  constructor(options: {
+    readonly partialStderr?: string;
+    readonly partialStdout?: string;
+    readonly processStarted: boolean;
+    readonly stderrOmittedBytes?: number;
+    readonly stdoutOmittedBytes?: number;
+  }) {
+    super(
+      options.processStarted
+        ? 'The execution was aborted and its process tree was terminated; any output it had already produced is on this error.'
+        : 'The execution was aborted before any process started, so no code ran.'
+    );
+    this.name = 'ExecAbortedError';
+    this.partialStderr = options.partialStderr ?? '';
+    this.partialStdout = options.partialStdout ?? '';
+    this.processStarted = options.processStarted;
+    this.stderrOmittedBytes = options.stderrOmittedBytes ?? 0;
+    this.stdoutOmittedBytes = options.stdoutOmittedBytes ?? 0;
+  }
+}
+
+export function isExecAbortedError(value: unknown): value is ExecAbortedError {
+  return value instanceof ExecAbortedError;
+}
+
 export type ExecCapabilityMismatchReason = 'language_unsupported' | 'network_unsupported';
 
 export class ExecCapabilityMismatchError extends Error {
