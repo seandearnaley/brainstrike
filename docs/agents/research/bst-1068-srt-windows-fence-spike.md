@@ -10,23 +10,38 @@ no `fence` factory, so `resolveCodeExecutor('fence', host)` throws
 `ExecutorKindUnavailableError`. Do not prompt Windows users for the elevated
 install.** Revisit when the gate in §5 is cleared.
 
-> ## Scope honesty — read this before citing anything below
+**Unchanged after the hardware run (§7) — but now on four independent legs
+instead of one (§2.6), three of them measured.** The fence itself worked: Python
+ran under it, and the WFP kernel egress fence held against a process that
+stripped every proxy variable. What did not hold is our ability to drive it
+through this seam's contract: the correct lifecycle costs **1559 ms per policy
+change**, `allowRead` is **not read-only** on Windows, and path canonicalization
+**does not work the way this document assumed**. Those are design problems, not
+maturity problems.
+
+> ## Provenance — read this before citing anything below
 >
-> **No part of this spike was executed on Windows.** It was produced on macOS
-> (darwin/arm64). srt's Windows fence requires a one-time ELEVATED install on
-> real Windows hardware (`npx @anthropic-ai/sandbox-runtime windows-install`)
-> that creates the `srt-sandbox` local account and machine-wide WFP filters —
-> not reproducible, not simulable, and not inferable from here.
+> **§1–§5 were written on macOS (darwin/arm64) from srt 0.0.67's shipped
+> source, type declarations, and README.** They are a code-reading, and every
+> claim carries its evidence.
 >
-> Everything in §1–§5 is derived from **reading srt 0.0.67's shipped source,
-> type declarations, and README**, plus the PR #2190 implementation. Every
-> claim carries its evidence. Claims about **runtime behaviour on Windows are
-> srt's own documented claims, not observations of ours** — they are labelled
-> as such.
+> **§6 has since been executed on a real, provisioned Windows 11 x64 host
+> (Node 24.14.0, CPython 3.10.10). The results are §7.** BST-1068's acceptance
+> criterion — *fenced Python verified on a real Windows host* — is therefore
+> **MET**: Python ran under the fence as the `srt-sandbox` account, the WFP
+> egress fence was proven at the kernel with `WSAEACCES`, and `pip --user`
+> was proven to land in the sandbox account's profile.
 >
-> §6 is the hands-on half: a runnable plan for a Windows box, in one sitting.
-> Until someone runs it, BST-1068's acceptance criterion "fenced Python
-> verified on a real Windows host" is **NOT met**.
+> **Where §7 contradicts §1–§5, §7 wins and the section is marked.** The run
+> refuted one of this document's own premises (§1.9a: `fs.realpath` does NOT
+> canonicalize on Windows), invalidated one of its test fixtures (§6.2 ran
+> against a directory the sandbox could already write), failed to reproduce
+> one of srt's documented limitations (§1.5 cert revocation), and **crossed
+> the affordability threshold this document set for itself** (§6.6: 1559 ms
+> median, against a ≥1500 ms "not affordable" line).
+>
+> Claims still resting on srt's documentation rather than observation are
+> labelled *(doc claim, not observed)* in place.
 
 ### Repo state this was written against
 
@@ -101,7 +116,13 @@ Refinements:
   `docs/agents/code-execution.md` currently describes the Windows backend as
   just "Windows restricted token" — an understatement, corrected in this change.
 
-### 1.3 "Network fence = WFP kernel filters (permit loopback-to-proxy only), enforced even if the process unsets proxy env vars" — **CONFIRMED, with one documented hole**
+### 1.3 "Network fence = WFP kernel filters (permit loopback-to-proxy only), enforced even if the process unsets proxy env vars" — **CONFIRMED ON HARDWARE (§7.1), with one documented hole**
+
+> **Measured 2026-08-01.** A fenced CPython that popped every proxy variable
+> from `os.environ` and connected direct to a caller-owned loopback listener
+> outside the permit range was refused at `connect()` with **`WSAEACCES`
+> (10013)**. With `example.com` allow-listed, HTTP succeeded *and* the raw
+> connect was still refused. This is no longer a doc claim.
 
 | Evidence | What it shows |
 | --- | --- |
@@ -142,6 +163,25 @@ readable data. The upside is that the calling user's profile is closed by
 default with no enumeration required. The downside is that "deny by omission"
 only covers paths whose ACLs are already user-scoped.
 
+> **⚠️ MEASURED (§7.3c) — and sharper than the paragraph above admits.** A
+> directory created directly under the host's default `C:\` ACL inherited
+> `Authenticated Users:(OI)(CI)(M)`. Because srt **only adds** ACEs and never
+> removes existing ones, the sandbox account — itself an authenticated user —
+> **wrote into a path listed only in `allowRead`.**
+>
+> **On Windows, `filesystem.allowRead` does not mean read-only.** It means "add
+> a read ACE for the sandbox SID." Where the existing ACL already grants write
+> to a group the sandbox account belongs to, the sandboxed process can still
+> write. On macOS Seatbelt and Linux bubblewrap the identical `ExecPolicy`
+> genuinely constrains — the profile and the bind mount are the whole access
+> set, not an addition to one.
+>
+> This makes `ExecPolicy` **weaker on Windows for the same input**, with nothing
+> in `ExecutorCapabilities` able to express it (§2.6, gap 3). A Windows backend
+> would have to either verify the baseline ACL of every `allowRead` path and
+> refuse when it is already writable by the sandbox principal, or stop
+> advertising `allowRead` as a read-only guarantee.
+
 ### 1.5 Known limit: "certificate-revocation checks fail (CRL/OCSP get WFP-blocked)" — **CONFIRMED, and it does NOT hit our primary workload**
 
 README known limitation 1: "CryptoAPI's CRL/OCSP fetch goes out via WinHTTP
@@ -157,9 +197,25 @@ default and are unaffected."
 to **schannel** TLS backends. CPython links OpenSSL, not schannel, so `urllib`,
 `requests`, `httpx`, and `pip` take the env-var trust path (`README.md:543`:
 `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, …, with the bundle
-path auto-added to the session `allowRead` grant). Agent Python runs should be
-unaffected. This is a **prediction from srt's documentation, not an
-observation** — §6.4/d1 is the test that settles it.
+path auto-added to the session `allowRead` grant).
+
+> **Measured 2026-08-01 (§7.3b) — split verdict.**
+>
+> - **The part that matters to us is SUPPORTED by observation.** The fenced
+>   CPython/OpenSSL request returned **HTTP 200**. Agent Python runs are
+>   unaffected, which was the decisive question.
+> - **The schannel limitation itself did NOT reproduce.** On a genuinely
+>   Schannel-backed `curl 8.21.0`, *both* the plain and the `--ssl-no-revoke`
+>   fenced requests returned **200, exit 0**.
+>
+> That is neither confirmation nor refutation: the documented mechanism is real
+> (it is quoted above from srt's README) but did not fire on this host. The
+> most likely reason is **valid cached revocation data** — CryptoAPI only makes
+> the CRL/OCSP fetch that WFP blocks on a cache miss, and any prior unfenced
+> visit to that host populates it. `certutil -URLCache CRL delete` before the
+> run would make it decisive; §6.4/d1 now says so and carries an explicit
+> "both succeed" branch so this outcome is no longer forced into a category
+> that does not fit it.
 
 ### 1.6 Known limit: "per-user tool installs unreachable because the sandbox runs as a DIFFERENT account" — **CONFIRMED, and this one is directly in our path**
 
@@ -183,6 +239,11 @@ halves.
 Corollary: `pip install --user` inside the fence writes into the **sandbox
 account's** profile, not the user's, and is invisible afterwards. Any "install a
 package then use it" agent workflow needs an explicit scratch-scoped venv.
+
+> **Measured 2026-08-01 (§7.1) — CONFIRMED.** A fenced `pip install --user
+> requests` succeeded, and `requests.__file__` resolved under
+> `C:\Users\srt-sandbox\AppData\Roaming\Python\…`. The package is real, usable
+> inside the fence, and invisible to the caller.
 
 ### 1.7 Known limit: "filesystem overrides are session-level, not per-exec" — **CONFIRMED, and stronger than stated**
 
@@ -246,9 +307,11 @@ The reasoning is right and it transfers to Windows — but Windows has strictly
 more aliasing than APFS, and one of its consequences is that the seam already
 does on Windows-shaped paths the exact thing the section forbids on darwin.
 
-All three are **latent, not live**: no Windows backend exists, so nothing
-Windows-shaped reaches `isPathCoveredBy` from a real host today. They are
-recorded here because whoever builds one inherits them.
+Status after the Windows run and BST-1074: **(a) was measured and REFUTED — the
+premise this section rested on was wrong**; **(b) is FIXED on main**; **(c)
+stands as read.** No Windows backend exists, so none of this was ever live in
+production, but (a) is not a latent Windows-only concern — the same JS-vs-native
+`realpath` gap it exposed was reachable on darwin, and BST-1074 fixed it there.
 
 **a. NTFS aliases a path more ways than a symlink.** 8.3 short names
 (`C:\PROGRA~1\x` ≡ `C:\Program Files\x`), trailing dots and spaces (Win32
@@ -260,12 +323,34 @@ entirely, and which srt is aware of, since it exports
 as the symlink the section exists to close: a textual comparison sees
 `C:\PROGRA~1` and `C:\Program Files` as unrelated, and the filesystem does not.
 
-`realpath` should still be the whole answer — libuv's `uv_fs_realpath`
-implements Windows realpath via `GetFinalPathNameByHandleW`, which returns the
-long canonical form and so expands short names and normalizes case. **I could
-not verify that on Windows and it is the one place in this section where the
-recommendation rests on reading libuv's documented behaviour rather than
-observing it** — §6.8 is the test that settles it, and it is cheap.
+**⚠️ MEASURED AND REFUTED (§7.3a). The original claim here was wrong.** This
+paragraph read: *"`realpath` should still be the whole answer — libuv's
+`uv_fs_realpath` implements Windows realpath via `GetFinalPathNameByHandleW`."*
+On Windows 11 x64 / Node 24.14.0, `fs.realpathSync` returned the 8.3 short
+spelling `C:\SRT-SP~1\PROGRA~1` unchanged, and returned an uppercased path
+unchanged. It canonicalized **neither** the short name nor the case.
+
+The cause is a Node API distinction the original claim missed: `fs.realpath` is
+Node's **JavaScript** implementation, which resolves symlinks but copies
+non-symlink components **verbatim from the input string**. Only
+`fs.realpath.native` calls into libuv. BST-1074 hit the same gap from the other
+side and switched `fence-policy`'s default resolver to `realpath.native` after
+measuring on darwin that JS returns `mixedcase` where native returns
+`MixedCase` — so the seam's "resolve before asking" requirement is only
+actually satisfied by the native binding.
+
+**What is still unverified: whether `realpath.native` expands 8.3 short names
+on Windows.** Case canonicalization and short-name expansion are different
+Win32 behaviours, and `.native` being right about case on darwin says nothing
+about short names on NTFS. Assuming otherwise would repeat the exact mistake
+this paragraph is a correction of. §6.8 now tests **both bindings** against
+**both** aliases.
+
+Until that is measured, treat this as the operative rule: **a Windows backend
+must canonicalize explicitly and verify it before comparing coverage** —
+`GetFinalPathNameByHandleW` / `GetLongPathNameW`, or a file-identity comparison
+(`FILE_ID_INFO` / `BY_HANDLE_FILE_INFORMATION`) that sidesteps spelling
+entirely. Carried into §5 as a hard prerequisite.
 
 **b. `isPathCoveredBy` case-folds the whole path on Windows-shaped operands,
 and that is the guess the new section rejects.** The predicate folds case
@@ -278,12 +363,23 @@ NTFS is case-insensitive **by default** but supports **per-directory** case
 sensitivity (`fsutil file setCaseSensitiveInfo`, which WSL sets on directories
 it creates), so a false PERMIT is reachable on a real volume.
 
-Recommendation for the Windows backend: **fold the drive letter only.** Once
-both operands are resolved, the path body already carries the canonical on-disk
-spelling, so folding it buys nothing and costs the exact safety property the
-section is protecting. This is a note for a future backend, not a change made
-here — the code is unreachable today and rewriting a seam predicate on a
-platform none of us can test would be the wrong trade.
+Recommendation was: **fold the drive letter only.**
+
+**✅ FIXED ON MAIN — BST-1074 (`ae67943`, PR #2195)** picked this up from an
+earlier draft of this section and narrowed the fold to the volume prefix, with
+one correction to the recommendation as written: **UNC paths have TWO
+case-insensitive volume segments**, the host *and* the share, both
+case-insensitive at the SMB protocol level, so folding index 0 alone would have
+left the share comparing case-sensitively. `isPathCoveredBy` now folds
+`windowsVolumeSegmentCount(target, root)` segments — 1 for a drive letter, 2
+for UNC — and has UNC assertions, which it had none of before.
+
+Note the dependency between (a) and (b): narrowing the fold is only safe
+*because* resolution is supposed to deliver canonical on-disk spelling for the
+path body. §7.3a showed that guarantee did not hold with the JS `realpath`, so
+the two changes have to land together — which is why BST-1074 also switched the
+default resolver to `realpath.native`. On Windows, per (a), even that is not yet
+proven sufficient.
 
 **c. A mapped network drive cannot be resolved by the sandbox at all.** srt
 fails such a launch with a typed `mapped_drive_cwd` error (`srt-win exec` exit
@@ -430,7 +526,7 @@ any future Windows fence:
 | Replace the POSIX quoter | `shellQuote()`'s `'…'` form is not quoting to `cmd.exe` |
 | Replace the process-tree kill | `process.kill(-pid, …)` is POSIX process-group semantics; `detached: true` on Windows opens a new console, not a group. The real sandboxed child is a grandchild under srt-win's job object. **Unverified** — §6.7. Note the repo already has a Windows Job Object addon, `packages/windows-job-native` (`initialize()` / `terminateOtherProcesses()` / `activeProcessCount()`), today wired only into `apps/desktop/scripts/start-agent-devtools-session.mjs` for dev process trees — if §6.7 shows srt-win's own job object does not suffice, extend that rather than writing a third kill path |
 | Set `windows.srtWin.path` (asar-unpacked) and `windows.proxyPortRange` matching the install | no ambient default; a range mismatch is a total egress outage (§1.3, §1.8) |
-| Budget the reset/initialize round trip | it re-stamps every ACE. If it costs more than a fraction of a second, per-exec policy is unaffordable on Windows and the design needs a per-workspace session model. **Unmeasured** — §6.6 |
+| Budget the reset/initialize round trip | it re-stamps every ACE. **MEASURED (§7.2): median 1559 ms over ten cycles, fastest 1531 ms.** That crosses the >=1500 ms line this document set in advance, so per-exec policy is NOT affordable on Windows and the design needs a per-workspace session model or a seam-level policy-epoch concept |
 
 **Target capabilities for that future executor**, so the shape is settled now:
 
@@ -512,6 +608,30 @@ only assert:
 The corollary for the gate (§5) is unchanged but better grounded: enabling
 Windows is a lifecycle rework, not a platform-flag change.
 
+### 2.6 The recommendation after the hardware run — UNCHANGED, on four legs instead of one
+
+The Windows run (§7) did not move the capability call. It moved the *basis* for
+it: what was one argument from code-reading is now four, three of them measured
+on real hardware, and they are independent — fixing any one leaves the others
+standing.
+
+| # | Leg | Status | Consequence if a Windows fence shipped anyway |
+| --- | --- | --- | --- |
+| 1 | **Correctness** — per-execution filesystem policy is inexpressible; `updateConfig()` warns and keeps the previous set, per-exec grants throw | Read from `sandbox-manager.js`; **§6.5 not run**, so still unobserved (§7.4) | Every run after the first silently uses the first run's policy |
+| 2 | **Affordability** — the only correct lifecycle costs **1559 ms median** per policy change (§7.2) | **MEASURED** | ~1.6 s of setup before every `run_python`, against a standing latency constraint |
+| 3 | **Policy fidelity** — `allowRead` is not read-only when the baseline ACL already grants write to the sandbox principal (§7.3c) | **MEASURED** | The same `ExecPolicy` yields materially weaker isolation on Windows, unadvertisable |
+| 4 | **Containment** — path canonicalization does not work as assumed; `fs.realpath` de-aliases neither short names nor case, and `.native` is unproven for short names on NTFS (§7.3a) | **MEASURED (refutation)**; `.native` behaviour still open | Coverage comparisons can be dodged by spelling |
+
+Legs 2, 3, and 4 are all *new since the pre-merge draft*, and none of them is a
+maturity complaint — they would each be true of a Windows fence built on a
+post-alpha srt. That is the substantive update: **the case for gating Windows
+got stronger, not weaker, when we finally ran it.**
+
+What would change the call: leg 2 is answered by a per-workspace session model
+(or a seam policy-epoch concept), leg 3 by baseline-ACL verification at
+`initialize()`, leg 4 by a verified explicit canonicalizer. Those are three
+design changes and one measurement — a project, not a flag. §5 carries them.
+
 ---
 
 ## 3. Onboarding recommendation
@@ -570,19 +690,39 @@ delete the gate by accident.
 
 ## 5. Gate — what would have to be true to revisit
 
-1. srt Windows leaves alpha, **or** we accept alpha explicitly with the §6 plan
-   run green on our own hardware.
-2. The lifecycle rework in §2.4 is specified as its own ticket, with §6.6's
-   measured reset/initialize cost deciding between per-exec policy and a
-   per-workspace session model.
+Rewritten after the Windows run. Item 2 is **decided**, not open; items 5–7 are
+new, and every one of them came from running the thing.
+
+1. srt Windows leaves alpha. (The §6 plan has now been run — §7 — so "accept
+   alpha explicitly with evidence" is no longer hypothetical; the evidence
+   argues against shipping, not for it.)
+2. ~~Decide per-exec vs per-workspace policy from §6.6.~~ **DECIDED by
+   measurement: 1559 ms median ⇒ per-exec policy is not affordable.** What
+   remains is to *design* the replacement — a per-workspace session model with
+   a typed refusal when a request's policy differs from the session's, or an
+   explicit seam-level policy-epoch concept. Own ticket.
 3. BST-1061's interpreter placement is resolved against §1.6 (machine-wide
    install location, or a tested `allowRead` grant on the app's own install
    directory).
 4. Electron packaging unpacks `srt-win.exe` from asar and threads its path.
+5. **NEW — a verified path canonicalizer exists for Windows.** §7.3a refuted
+   the `realpath` premise. A backend needs `GetFinalPathNameByHandleW` /
+   `GetLongPathNameW`, or file-identity comparison, with a Windows test proving
+   it de-aliases **both** 8.3 short names and case. `realpath.native` is a
+   candidate, not an answer, until §6.8 is run against it.
+6. **NEW — `allowRead` baseline-ACL verification.** §7.3c showed additive ACEs
+   let the sandbox write a read-only path whose existing ACL already grants
+   write to `Authenticated Users`. Either verify each `allowRead` path's
+   baseline at `initialize()` and refuse when it is already writable by the
+   sandbox principal, or stop advertising `allowRead` as read-only on Windows.
+7. **NEW — process-tree kill is demonstrated** (§6.7, still unrun). `ExecInput`
+   requires `signal` and the seam obliges backends to take the tree down; on
+   Windows `process.kill(-pid)` cannot, so srt-win's job object has to be shown
+   to do it, or `packages/windows-job-native` extended to.
 
 ---
 
-## 6. Runnable Windows test plan (BLOCKED ON WINDOWS HARDWARE)
+## 6. Runnable Windows test plan (EXECUTED 2026-08-01 — results in §7)
 
 One sitting, ~90 min. Nothing below has been executed.
 
@@ -759,6 +899,33 @@ $outside | Out-File -Encoding ascii C:\srt-spike\scratch\target.txt
 > If the CONTROL fails, fix it before continuing — a denial against a path you
 > could not write anyway proves nothing.
 
+**PREFLIGHT for the `allowRead`-only fixture — this one invalidated the
+original run (§7.3c).** `C:\srt-spike\py` was created under the default `C:\`
+ACL and inherited `Authenticated Users:(OI)(CI)(M)`. srt only **adds** ACEs, so
+the sandbox account could write it regardless of the policy, and the probe
+proved nothing. The fixture has to start caller-private, and that has to be
+**verified rather than assumed**:
+
+```powershell
+# Break inheritance and give only the caller + SYSTEM + Administrators access.
+icacls C:\srt-spike\py /inheritance:r /grant:r "$env:USERNAME:(OI)(CI)(F)" `
+  "SYSTEM:(OI)(CI)(F)" "Administrators:(OI)(CI)(F)" | Out-Null
+
+# It must NOT mention a group the sandbox account belongs to.
+icacls C:\srt-spike\py
+$acl = (icacls C:\srt-spike\py) -join "`n"
+if ($acl -match 'Authenticated Users|BUILTIN\\Users|Everyone') {
+  throw "baseline ACL still grants a group srt-sandbox belongs to — the allowRead assertion would be vacuous"
+}
+"PREFLIGHT PASS: py fixture is caller-private"
+```
+
+> Then confirm behaviourally, which is the only real proof: **before** adding
+> `py` to `allowRead`, run the fenced probe below with `py` absent from the
+> policy entirely and require the write to be **denied**. If it is denied only
+> then, the later `allowRead` run is testing what it claims. If it is allowed,
+> the baseline ACL is still too broad — fix it before continuing.
+
 ```powershell
 @'
 import sys, pathlib
@@ -772,20 +939,25 @@ except OSError as e:
     print(f"FAIL: scratch is in allowWrite but write failed: {e}"); rc = 1
 
 def probe(label, path):
+    # Branch on the EXCEPTION CLASS, not winerror. CPython 3.10 on Windows
+    # reports a real access denial as PermissionError errno=13 with
+    # winerror=None (measured, §7.3e), so requiring winerror==5 reported a
+    # genuine control-backed denial as INCONCLUSIVE. The discrimination that
+    # matters — denied vs never-consulted — survives, because
+    # FileNotFoundError/NotADirectoryError are distinct classes.
     global rc
     try:
         open(path, "w").write("x")
         print(f"FAIL[{label}]: wrote {path} — no DACL denial"); rc = 1
+    except PermissionError as e:
+        print(f"PASS[{label}]: {path} denied (PermissionError errno={e.errno} "
+              f"winerror={getattr(e, 'winerror', None)})")
+    except (FileNotFoundError, NotADirectoryError) as e:
+        print(f"INCONCLUSIVE[{label}]: {path} {type(e).__name__} — path/parent missing, "
+              f"the DACL was never consulted; NOT a pass"); rc = max(rc, 2)
     except OSError as e:
-        code = getattr(e, "winerror", None)
-        if code == 5:
-            print(f"PASS[{label}]: {path} denied with ERROR_ACCESS_DENIED (5)")
-        elif code in (2, 3):
-            print(f"INCONCLUSIVE[{label}]: {path} winerror={code} (path/parent missing) — "
-                  f"the DACL was never consulted; NOT a pass"); rc = max(rc, 2)
-        else:
-            print(f"INCONCLUSIVE[{label}]: {path} {type(e).__name__} winerror={code} — "
-                  f"NOT a pass"); rc = max(rc, 2)
+        print(f"INCONCLUSIVE[{label}]: {path} {type(e).__name__} errno={e.errno} "
+              f"winerror={getattr(e, 'winerror', None)} — NOT a pass"); rc = max(rc, 2)
 
 probe("caller-profile", target)          # absolute path from the CONTROL above
 probe("allowRead-only", r"C:\srt-spike\py\srt-escape.txt")
@@ -843,14 +1015,27 @@ C:\srt-spike\py\python.exe -c "import socket;socket.create_connection(('127.0.0.
 @'
 import os, socket, sys, urllib.request
 PORT = int(sys.argv[1])
+# The HTTP expectation is a PARAMETER, because this same script is rerun as the
+# allow-listed control where success is REQUIRED. Hard-coding "HTTP success =
+# FAIL" made the control exit 1 while the fence was working perfectly (§7.3d).
+EXPECT = sys.argv[2]                      # "block" | "allow"
+assert EXPECT in ("block", "allow"), f"expected block|allow, got {EXPECT!r}"
 rc = 0
 
-# 1. Proxy-mediated HTTP under an empty allow-list.
+# 1. Proxy-mediated HTTP, judged against the policy actually in force.
 try:
-    urllib.request.urlopen("https://example.com", timeout=15)
-    print("FAIL: HTTP reached example.com under allowedDomains: []"); rc = 1
+    status = urllib.request.urlopen("https://example.com", timeout=15).status
+    if EXPECT == "allow":
+        print(f"PASS: HTTP reached example.com (status {status}) with it allow-listed")
+    else:
+        print("FAIL: HTTP reached example.com under allowedDomains: []"); rc = 1
 except Exception as e:
-    print(f"observed: HTTP failed ({type(e).__name__}) — expected, but see 6.3-control below")
+    if EXPECT == "block":
+        print(f"PASS: HTTP blocked under allowedDomains: [] ({type(e).__name__})")
+    else:
+        print(f"FAIL: HTTP blocked even though example.com is allow-listed "
+              f"({type(e).__name__}: {e}) — the proxy path is broken, so the "
+              f"empty-list run proves nothing"); rc = 1
 
 # 2. DNS is documented as UNFENCED. Record it; it is not a pass/fail.
 try:
@@ -877,7 +1062,7 @@ except OSError as e:
 sys.exit(rc)
 '@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_c.py
 
-npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py $PORT"
+npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py $PORT block"
 echo "exit=$LASTEXITCODE"
 ```
 
@@ -892,7 +1077,7 @@ print("CONTROL PASS: http status", urllib.request.urlopen("https://example.com",
 '@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_http.py
 
 npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_http.py"
-npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py $PORT"
+npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py $PORT allow"
 ```
 
 > Required results: HTTP now **succeeds** (proving the earlier block was the
@@ -919,16 +1104,39 @@ npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_http.py"; "python 
 > in this position. The `t_http.py` script from 6.3-control is reused rather
 > than a nested `python -c`, for the quoting reason in §6.A.
 
-> Reading the result:
+**Clear the revocation cache first, or the test cannot fire.** CryptoAPI only
+fetches a CRL/OCSP response on a cache **miss**, and the WFP fence only blocks
+that fetch — so a host that has recently validated this chain unfenced will pass
+both runs and tell you nothing. This is what happened on the first real run
+(§7.3b):
+
+```powershell
+certutil -URLCache CRL delete | Out-Null
+certutil -URLCache OCSP delete | Out-Null
+"revocation cache cleared"
+```
+
+> Reading the result — **four** outcomes, not two:
 > - plain **fails** (expect `CRYPT_E_REVOCATION_OFFLINE` / `0x80092013`, curl
 >   exit 35 or 60) **and** `--ssl-no-revoke` **succeeds** ⇒ the documented
 >   revocation limitation is confirmed.
-> - **both** curl runs fail ⇒ INCONCLUSIVE, not a revocation finding —
+> - **both** curl runs **fail** ⇒ INCONCLUSIVE, not a revocation finding —
 >   something else (allow-list, proxy) is broken. Fix it and re-run.
-> - **The Python leg is the one that matters to us.** Success ⇒ §1.5's
->   "low impact" assessment holds (CPython uses OpenSSL, not schannel).
->   Failure ⇒ the assessment is **wrong** and every agent HTTP call breaks on
->   Windows; record it prominently and re-open §1.5.
+> - **both** curl runs **succeed** ⇒ **NOT REPRODUCED on this host — which is
+>   NOT evidence the limitation is absent.** This is the observed outcome
+>   (§7.3b: both returned 200 on a Schannel curl). The mechanism srt documents
+>   is real; it simply did not fire, most likely because cached revocation data
+>   satisfied the check. Record it as "not reproduced", say whether the cache
+>   was cleared first, and do **not** promote it to either "confirmed" or
+>   "refuted".
+> - the two disagree in the *other* direction (plain succeeds, `--ssl-no-revoke`
+>   fails) ⇒ something is wrong with the invocation itself; re-check quoting.
+>
+> **The Python leg is the one that matters to us**, and it is independent of
+> which branch above lands. Success ⇒ §1.5's "low impact" assessment holds
+> (CPython uses OpenSSL, not schannel) — this is what was observed. Failure ⇒
+> the assessment is **wrong** and every agent HTTP call breaks on Windows;
+> record it prominently and re-open §1.5.
 
 **d2 — per-user tool install unreachable (our packaging risk).** `$env:LOCALAPPDATA`
 is expanded in the **outer PowerShell** so the fenced command receives an
@@ -974,21 +1182,31 @@ covering PyPI:
 
 ```powershell
 @'
-import requests
-print("requests at", requests.__file__)
+import sys, requests
+p = requests.__file__
+print("requests at", p)
+# Assert POSITIVELY that the module is rooted in the SANDBOX profile. The
+# earlier form asserted a caller directory was absent, which is unreliable —
+# %APPDATA%\Python already existed on the real host (§7.3f), so it could not
+# establish anything.
+if "srt-sandbox" in p.lower():
+    print("PASS: installed into the sandbox account's profile"); sys.exit(0)
+print("FAIL: not rooted in the sandbox profile — check where pip actually wrote"); sys.exit(1)
 '@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_req.py
 
 npx srt -c "C:\srt-spike\py\python.exe -m pip install --user --no-input requests"
 "pip exit=$LASTEXITCODE"   # must be 0, else the next line proves nothing
 npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_req.py"
-Test-Path (Join-Path $env:APPDATA 'Python')   # expect False — it did NOT land in YOUR profile
+"import exit=$LASTEXITCODE"
 ```
 
 > The install must succeed first; a failed install followed by a failed import
-> tells you nothing. Expect the path to sit under the **sandbox account's**
-> profile and the caller-profile check to be `False`. Then record whether a
-> scratch-scoped venv (`python -m venv C:\srt-spike\scratch\venv`) is a working
-> substitute — that is the pattern a real agent workflow needs.
+> tells you nothing. The assertion is that `requests.__file__` is rooted in the
+> **sandbox** profile — a positive claim about where it went, rather than a
+> negative claim about a caller directory that may well have pre-existed for
+> unrelated reasons. Then record whether a scratch-scoped venv
+> (`python -m venv C:\srt-spike\scratch\venv`) is a working substitute — that
+> is the pattern a real agent workflow needs.
 
 ### 6.5 (e) The seam blocker, on hardware
 
@@ -1092,54 +1310,76 @@ and re-measure over 5 s.
 > addon (already built and tested in CI, currently dev-tooling-only) rather than
 > add a third kill path.
 
-### 6.8 (h) Does `realpath` actually de-alias Windows paths?
+### 6.8 (h) Which `realpath` binding de-aliases Windows paths — if either?
 
-§1.9a's recommendation — that `realpath` alone closes short-name and case
-aliasing, so a Windows backend needs no extra normalization — rests on libuv
-using `GetFinalPathNameByHandleW`, which I read but could not run. It is cheap
-to settle, needs **no fence and no install**, and can be run first.
+**Round one refuted the premise (§7.3a) and, in doing so, exposed that the test
+asked the wrong API.** `fs.realpathSync` is Node's **JavaScript** resolver: it
+follows symlinks but copies non-symlink components verbatim from the input, so
+it can never expand a short name or restore case. Only `fs.realpathSync.native`
+reaches libuv / `GetFinalPathNameByHandleW`.
+
+So this now tests **both bindings** against **both** alias forms. Note what it
+deliberately does not assume: that `.native` fixing case on darwin (which
+BST-1074 measured) implies it expands 8.3 short names on NTFS. Those are
+different Win32 behaviours, and inferring the second from the first is the same
+shortcut that produced the original wrong premise.
+
+No fence and no install needed — run it first, it takes seconds.
 
 ```powershell
 mkdir "C:\srt-spike\Program Files Test" -ErrorAction SilentlyContinue
 node -e @'
 const fs = require("node:fs");
+const cp = require("node:child_process");
 const long = "C:\\srt-spike\\Program Files Test";
 let rc = 0;
-const short = require("node:child_process")
-  .execSync(`cmd /c for %I in ("${long}") do @echo %~sI`).toString().trim();
-console.log("short name:", short || "(none — 8.3 generation may be disabled)");
-if (short && short.toLowerCase() !== long.toLowerCase()) {
-  const r = fs.realpathSync(short);
-  console.log("realpath(short) ->", r);
-  if (r.toLowerCase() === long.toLowerCase()) console.log("PASS: short name expanded to long form");
-  else { console.log("FAIL: short name NOT expanded — a Windows backend must normalize before comparing"); rc = 1; }
-} else {
-  console.log("INCONCLUSIVE: no distinct 8.3 alias on this volume (fsutil 8dot3name query). "
-            + "Re-run on a volume with 8.3 generation enabled, or record as untested.");
-  rc = 2;
+
+const short = cp.execSync(`cmd /c for %I in ("${long}") do @echo %~sI`).toString().trim();
+console.log("8.3 alias:", short || "(none)");
+
+for (const [name, fn] of Object.entries({ js: fs.realpathSync, native: fs.realpathSync.native })) {
+  if (short && short.toLowerCase() !== long.toLowerCase()) {
+    let r; try { r = fn(short); } catch (e) { r = `<threw ${e.code}>`; }
+    const ok = r === long;                       // exact spelling, never folded
+    console.log(`${name}: realpath(8.3)  -> ${r}  ${ok ? "PASS expands" : "FAIL does NOT expand"}`);
+    if (!ok) rc = Math.max(rc, 1);
+  } else {
+    console.log(`${name}: 8.3 alias unavailable — INCONCLUSIVE for short names`);
+    rc = Math.max(rc, 2);
+  }
+  let r2; try { r2 = fn(long.toUpperCase()); } catch (e) { r2 = `<threw ${e.code}>`; }
+  const ok2 = r2 === long;
+  console.log(`${name}: realpath(UPPER) -> ${r2}  ${ok2 ? "PASS restores case" : "FAIL keeps input case"}`);
+  if (!ok2) rc = Math.max(rc, 1);
 }
-const r2 = fs.realpathSync(long.toUpperCase());
-console.log("realpath(UPPERCASE) ->", r2);
-console.log(r2 === long ? "PASS: case normalized to on-disk spelling"
-                        : `OBSERVED: realpath preserved input case (${r2}) — case-fold cannot be dropped blindly`);
 process.exit(rc);
 '@
+
+fsutil 8dot3name query C:
+fsutil file queryCaseSensitiveInfo C:\srt-spike
 ```
 
-> Reading the result:
-> - short name expands **and** case normalizes ⇒ §1.9a holds; a Windows backend
->   inherits the seam's "resolve before asking" rule with no additions, and
->   §1.9b's "fold the drive letter only" is safe.
-> - short name does **not** expand ⇒ `realpath` is insufficient on Windows and a
->   backend must canonicalize explicitly before `isPathCoveredBy`. That is a
->   containment-correctness finding and should be recorded prominently.
-> - `INCONCLUSIVE` (no 8.3 alias) is a real outcome: many modern volumes have
->   8.3 generation disabled. Check with `fsutil 8dot3name query C:` and record
->   it rather than reporting the step as a pass.
+> Comparison is **exact-spelling** on purpose: the question is whether the
+> resolver returns the canonical on-disk form, and a case-insensitive compare
+> would paper over precisely the failure being measured.
 >
-> Also worth one line while you are here: `fsutil file queryCaseSensitiveInfo
-> C:\srt-spike` — if per-directory case sensitivity is available on the test
-> volume, §1.9b's false-PERMIT concern is reachable rather than theoretical.
+> Reading the result:
+> - **`native` passes both** ⇒ the seam's `realpath.native` default (BST-1074)
+>   is sufficient on Windows too, and §1.9b's volume-only fold is safe. Record
+>   it and close gate item 5.
+> - **`native` expands short names but not case, or vice versa** ⇒ partial; a
+>   Windows backend still needs an explicit canonicalizer for the other half.
+> - **`native` fails both** (as `js` already did) ⇒ gate item 5 stands in full:
+>   `GetFinalPathNameByHandleW` / `GetLongPathNameW`, or file-identity
+>   comparison, each with its own test.
+> - **`INCONCLUSIVE` on short names** is a real outcome — many volumes have 8.3
+>   generation disabled, which `fsutil 8dot3name query C:` reports. Record it as
+>   untested rather than as a pass; the containment question is unanswered
+>   either way.
+>
+> `fsutil file queryCaseSensitiveInfo` is worth capturing too: if per-directory
+> case sensitivity is enabled anywhere on the volume, §1.9b's false-PERMIT
+> concern is reachable in practice rather than theoretical.
 
 ### 6.9 Teardown
 
@@ -1201,3 +1441,165 @@ Three results change the recommendation:
 | 6.4/d1 Python leg | fails | §1.5 is wrong — every agent HTTP call breaks on Windows, not just schannel tools |
 | 6.6 median | ≥ ~1500 ms | per-exec policy is unaffordable; the Windows fence needs a per-workspace session model, or the seam needs a policy-epoch concept |
 | 6.3 raw TCP | connects, or is anything other than WSAEACCES 10013 | the fence is not what srt documents (or was not proven) — §1.3 must be re-opened before anything ships |
+
+---
+
+## 7. Windows run — 2026-08-01 (real hardware)
+
+**Host:** Windows 11 x64, provisioned via `windows-install`, Node 24.14.0,
+CPython 3.10.10, `curl 8.21.0` (Schannel), srt 0.0.67.
+**Run by:** a human reviewer on #2191, not by the author of §1–§6.
+
+This section is authoritative over §1–§5 wherever they disagree.
+
+### 7.1 What the fence proved
+
+| Assertion | Result | Evidence |
+| --- | --- | --- |
+| Fenced Python runs as the sandbox account | **PASS** | CPython 3.10.10 executed under the fence; `pip` and imports resolved against `C:\Users\srt-sandbox\...` |
+| Write into the caller's profile is denied | **PASS** | denial observed, with the control proving the same absolute path writable unfenced (shape correction in §7.3/e) |
+| **Raw TCP blocked at the kernel after stripping every proxy env var** | **PASS** | `WSAEACCES (10013)` — the decisive assertion of the whole plan |
+| HTTP succeeds once the domain is allow-listed | **PASS** | proves the empty-allow-list block was policy, not a dead proxy |
+| `pip install --user` writes to the SANDBOX profile, not the caller's | **PASS** | `requests.__file__` resolved under `C:\Users\srt-sandbox\AppData\Roaming\Python\…` |
+
+**§1.3 (WFP kernel egress fence) is now CONFIRMED ON HARDWARE, not just from
+srt's docs.** A process that strips `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` and
+connects direct to a loopback listener outside the permit range is refused at
+`connect()` with `WSAEACCES`. That is the single most important thing this run
+establishes, and it holds.
+
+**§1.6 (per-user installs unreachable / wrong profile) is CONFIRMED**, via the
+`pip --user` result: packages installed inside the fence are invisible to the
+caller. The scratch-scoped venv remains the pattern a real agent workflow needs.
+
+### 7.2 The decision-changing result: per-exec policy is NOT affordable
+
+Ten real `initialize()` / `reset()` cycles over pre-existing `p0`…`p9`:
+
+```
+[1531, 1535, 1538, 1548, 1551, 1559, 1570, 1607, 1642, 1689] ms   median 1559 ms
+```
+
+§6.6 set the threshold in advance: `≥ ~1500 ms` ⇒ **"per-exec policy is NOT
+affordable — needs a per-workspace session model."** 1559 ms clears it, and not
+marginally: the *fastest* of ten cycles (1531 ms) is already over the line, so
+this is not a tail-latency artefact. The distribution is tight (1531–1689),
+which is what a real fixed cost looks like rather than noise.
+
+What it means concretely: on Windows, the only lifecycle that applies filesystem
+policy **correctly** (§2.4 — `reset()` then `initialize()`, because
+`updateConfig()` warns and keeps the previous access set) costs ~1.6 s **per
+policy change**. Under this seam's contract, where `ExecPolicy` is a property of
+every `ExecInput`, that is ~1.6 s of pure setup on every `run_python` call
+before any user code executes. Against the project's standing "latency-critical
+paths" constraint, that is not a tuning problem; it is a design verdict.
+
+**Consequence, carried through:** a Windows fence cannot honour per-execution
+policy. It needs a **per-workspace session model** — policy fixed for the
+lifetime of a workspace session, with a typed refusal when a request's policy
+differs from the session's — or the seam needs an explicit **policy-epoch**
+concept that makes "this executor changes policy only at epoch boundaries" a
+first-class, advertisable property rather than an invisible difference. Either
+is a design change, not a platform-flag flip. This is now the second independent
+reason the gate holds (§2.6).
+
+### 7.3 Where the run contradicted this document
+
+**a. §1.9a premise REFUTED — `fs.realpath` does not canonicalize on Windows.**
+`cmd` produced the 8.3 alias `C:\SRT-SP~1\PROGRA~1`; `fs.realpathSync(short)`
+returned **that same short spelling**, and `fs.realpathSync(long.toUpperCase())`
+returned **the uppercase input**. So neither short-name expansion nor case
+restoration happened. §1.9a is corrected in place — the cause is that
+`fs.realpath` is Node's **JS** implementation, which resolves symlinks but
+copies non-symlink components verbatim from the input; only
+`fs.realpath.native` reaches libuv's `GetFinalPathNameByHandleW`. The §6.8 test
+asked the wrong binding. This is the same gap BST-1074 found and fixed for the
+fence (it switched `fence-policy`'s default resolver to `realpath.native` after
+measuring, on darwin, that JS returns `mixedcase` where native returns
+`MixedCase`).
+
+**§6.8 has been rewritten to test BOTH bindings**, because `.native` fixing
+*case* on darwin does not establish that it expands *8.3 short names* on
+Windows — a different Win32 behaviour, and precisely the kind of assumption
+that produced this finding in the first place. Until that is measured, a
+Windows backend must canonicalize explicitly (`GetFinalPathNameByHandleW` /
+`GetLongPathNameW`, or a file-identity comparison via
+`FILE_ID_INFO`/`BY_HANDLE_FILE_INFORMATION`) and **verify** it before comparing
+coverage. Recorded as a hard prerequisite in §5.
+
+**b. §1.5 cert revocation NOT reproduced.** Both the plain and
+`--ssl-no-revoke` fenced curl requests returned **HTTP 200, exit 0**, on a curl
+that is genuinely Schannel-backed (`curl 8.21.0 … Schannel`). The CPython leg
+also returned 200.
+
+Reading this honestly: **this is neither a confirmation nor a refutation.** srt
+documents the limitation (§1.5 cites it) and the mechanism is real, but it did
+not fire here. The most likely explanation is that CryptoAPI had **valid cached
+revocation data** for that chain — the CRL/OCSP fetch the WFP fence blocks only
+happens on a cache miss, and any prior unfenced browse to that host populates
+it. `certutil -URLCache CRL delete` before the run would make the test
+decisive; §6.4/d1 now says so and carries a third "both succeed" branch.
+
+**What this run DID establish for our purposes is the part that mattered:** the
+CPython/OpenSSL leg returned 200, so **§1.5's "low impact on agent Python"
+assessment is supported by observation**, independent of whether the schannel
+limitation reproduces. That was the decisive question; the schannel behaviour is
+context for tools we do not ship.
+
+**c. The §6.2 fixture was insecurely permissioned — and the finding is about
+the product, not just the test.** `C:\srt-spike`, created directly under the
+host's default `C:\` ACL, inherited `Authenticated Users:(OI)(CI)(M)`. Because
+srt **only adds** grants and never removes existing ACEs, `srt-sandbox` — an
+authenticated user — could write `C:\srt-spike\py\srt-escape.txt` even though
+`py` appeared **only in `allowRead`**. The documented run exited 1.
+
+That is the DACL model working exactly as §1.4 describes, so it is not a fence
+failure. But it is the concrete, measured instance of §1.4's abstract warning,
+and it is sharp enough to state as a product-level rule:
+
+> **On Windows, `filesystem.allowRead` does not mean read-only.** It means "add
+> a read ACE for the sandbox SID." If the path's existing ACL already grants
+> write to a group the sandbox account belongs to (`Authenticated Users`,
+> `Users`, `Everyone` — true by default for anything created off the `C:\`
+> root), the sandboxed process can still write there. On macOS Seatbelt and
+> Linux bubblewrap the same `ExecPolicy` genuinely constrains.
+
+This is a **third** expressibility gap (§2.6): the identical `ExecPolicy`
+produces materially weaker isolation on Windows, and nothing in
+`ExecutorCapabilities` can say so. §6.2 now builds its fixture under a
+caller-private ACL and **preflights that the sandbox account cannot write it**
+before treating the `allowRead` assertion as meaningful.
+
+**d. A control was reused as an assertion — one survived the §6.A sweep.**
+`t_c.py` unconditionally treated successful HTTP as `FAIL`, but §6.3-control
+reruns that same script *after* allow-listing `example.com`, where HTTP success
+is the required outcome. The live run did exactly the wrong thing: HTTP
+succeeded, raw TCP was still correctly blocked with `WSAEACCES`, and the command
+still exited 1 printing `FAIL: HTTP reached example.com under allowedDomains:
+[]`. The script is now parameterized (`t_c.py <PORT> <block|allow>`) so the
+paired control can pass. Noted plainly because §6.A exists to catch exactly
+this and did not.
+
+**e. CPython's access-denied shape is `PermissionError errno=13 winerror=None`.**
+§6.2 required `winerror == 5`, so a genuine, control-backed denial was reported
+`INCONCLUSIVE`. Corrected to branch on the exception **class** — `PermissionError`
+(errno `EACCES`) is denied, `FileNotFoundError` is the inconclusive
+missing-parent case — which preserves the discrimination that mattered without
+depending on a `winerror` CPython does not always populate.
+
+**f. `%APPDATA%\Python` already existed**, so §6.4/d3's `expect False`
+precondition could not establish where `pip --user` wrote. Replaced with the
+assertion the run showed to be reliable: `requests.__file__` must be rooted in
+the **sandbox** profile.
+
+### 7.4 What the run did NOT cover
+
+- **§6.5 (the per-exec `filesystem.allowRead/allowWrite` throw) was not
+  reported.** The expressibility argument's *correctness* leg therefore still
+  rests on reading `sandbox-manager.js`, not on observation — though §7.2's
+  affordability result now carries the recommendation on its own.
+- **§6.7 (process-tree kill / job-object behaviour) was not reported.** Whether
+  srt-win's job object takes a grandchild down remains open, and `ExecInput`'s
+  required `signal` makes it a contract obligation for any Windows backend.
+- **§6.8 as re-written** (both `realpath` bindings, short name *and* case) has
+  not been run; only the original single-binding version was.

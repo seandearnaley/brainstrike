@@ -132,19 +132,27 @@ Corollaries:
     (`C:\PROGRA~1` ≡ `C:\Program Files`), trailing dots/spaces, alternate data
     streams, the `\\?\` extended-length prefix (which bypasses Win32
     normalization outright — srt ships `stripExtendedPathPrefix` for it), and
-    reserved device names. `realpath` is still the answer: libuv's
-    `uv_fs_realpath` uses `GetFinalPathNameByHandleW`, which returns the long
-    canonical form. **Unverified on Windows** — §6.8 of the spike is the test.
-  - `isPathCoveredBy` folds case whenever **either** operand is Windows-shaped,
-    but its stated reason is only that *drive-letter* case is unstable across
-    Node APIs. Folding the whole path is the same platform-shaped guess in the
-    same dangerous direction this section rejects for darwin: NTFS is
-    case-insensitive *by default* but supports **per-directory** case
-    sensitivity (`fsutil file setCaseSensitiveInfo`, which WSL sets on
-    directories it creates), so a false PERMIT is reachable. After resolving
-    both operands the path body is already canonically spelled, so a Windows
-    backend should fold **the drive letter only** — which is all the stated
-    justification ever needed.
+    reserved device names. **MEASURED on Windows 11 x64 / Node 24.14.0
+    (BST-1068 §7.3a): `fs.realpath` canonicalized NEITHER — it returned the 8.3
+    short spelling unchanged and an uppercased path unchanged.** That is the JS
+    resolver copying non-symlink components verbatim; only `realpath.native`
+    reaches libuv, which is why `fence-policy` defaults to it (BST-1074).
+    Whether `.native` expands 8.3 short names on NTFS is a *different* Win32
+    behaviour and is **still unproven** — do not assume it from its darwin case
+    behaviour. Until measured, a Windows backend must canonicalize explicitly
+    (`GetFinalPathNameByHandleW`/`GetLongPathNameW`, or file-identity
+    comparison) and verify it before comparing coverage.
+  - `isPathCoveredBy` folds case on the **volume prefix only** (1 segment for a
+    drive letter, 2 for UNC — host *and* share are both case-insensitive at the
+    SMB level). It previously folded every segment while its justification
+    covered only the drive letter, which is the same platform-shaped guess this
+    section rejects for darwin: NTFS supports **per-directory** case sensitivity
+    (`fsutil file setCaseSensitiveInfo`, which WSL sets on directories it
+    creates), so a false PERMIT was reachable. Narrowed in BST-1074 — and note
+    the dependency: the narrowing is only safe **because** resolution is
+    supposed to deliver canonical on-disk spelling for the path body, which is
+    exactly the guarantee the bullet above shows is not yet established on
+    Windows. The two must move together.
   - **A mapped network drive is not a path the sandbox can resolve at all.**
     srt fails such a launch with a typed `mapped_drive_cwd` error (exit 16)
     because per-user drive mappings do not exist under the sandbox account's
@@ -336,8 +344,25 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
     bullets down is therefore inexpressible there — it would silently apply the
     FIRST run's filesystem policy to every later run — and no
     `ExecutorCapabilities` field can advertise that gap. Process-tree kill is a
-    real secondary problem (`process.kill(-pid)` is POSIX-only). Full
-    assessment, capability spec, and a runnable Windows verification plan:
+    real secondary problem (`process.kill(-pid)` is POSIX-only).
+  - **Confirmed on real Windows hardware, 2026-08-01.** The plan in the spike
+    was executed on a provisioned Windows 11 x64 host. The fence itself works —
+    Python ran as `srt-sandbox`, and a process that stripped every proxy env var
+    was refused at `connect()` with `WSAEACCES`. Three measured results
+    nonetheless keep the gate shut, and none of them is a maturity complaint:
+    - **`reset()`+`initialize()` costs 1559 ms median** (ten cycles, fastest
+      1531 ms). That is the only lifecycle that applies filesystem policy
+      correctly on Windows, so per-execution `ExecPolicy` would add ~1.6 s of
+      setup to every `run_python`.
+    - **`filesystem.allowRead` is not read-only on Windows.** srt only ADDS
+      ACEs, so a path whose existing ACL already grants write to a group the
+      sandbox account belongs to (`Authenticated Users` — the default for
+      anything created off `C:\`) stays writable. The same `ExecPolicy` is
+      therefore weaker on Windows than under Seatbelt or bubblewrap.
+    - **Path canonicalization did not behave as assumed** — see the Windows
+      bullet under "resolve before asking" above.
+
+    Full assessment, capability spec, the test plan, and the hardware results:
     `docs/agents/research/bst-1068-srt-windows-fence-spike.md`.
 - **Interpreters are injected** (`interpreters: { python: { command, args?,
   scriptExtension } }`). This module never guesses a binary path; BST-1061
