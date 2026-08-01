@@ -850,10 +850,13 @@ anti-vacuity floors, checks the installed package/bin identities, and executes
 both compilers. API-consumer discovery comes from `git ls-files`, so ignored
 build/coverage output cannot change the census between a developer tree and CI;
 an unresolvable consumer is reported as a violation instead of crashing test
-module initialization. Its mutation controls prove a swapped major, a native
-API consumer, an unresolvable consumer, a compiler patch bump without renewed
-parity evidence, or a compatibility package shadowing `tsc` all fail loudly.
-The complete wiring file costs about 1.2 seconds locally (six tests, including
+module initialization, and workspace-state collection is lazy so failures occur
+inside a named test. Package-manager subprocesses use the repository's
+cross-platform spawn helper; do not call extensionless `.bin` shims directly.
+Its mutation controls prove a swapped major, a native API consumer, an
+unresolvable consumer, a compiler patch bump without renewed parity evidence,
+editor TSDK drift, or a compatibility package shadowing `tsc` all fail loudly.
+The complete wiring file costs about 1.4 seconds locally (seven tests, including
 three compiler-version subprocesses) inside the roughly 14-second script-test
 phase; keep that cost explicit if more process probes are added.
 

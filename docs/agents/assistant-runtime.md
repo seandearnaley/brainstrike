@@ -918,6 +918,10 @@ capability-gated, no `isElectron()`).
   Electron Builder packages the `@typescript/typescript6` wrapper but does not
   retain that wrapper's private dependency by inference. The build-config
   contract has a mutation control for both the dependency and unpack rule.
+  The root also owns that exact alias so `.vscode/settings.json` can point
+  `typescript.tsdk` at `node_modules/@typescript/old/lib`; the compiler-wiring
+  guard requires both the path and its `tsserver.js`, preventing VS Code from
+  silently falling back to its bundled compiler.
   Python/Go/Rust discovery + the config surface are the remaining Phase B work.
 - **`lspInspect` tool (Phase B).** A read-risk native tool for semantic
   navigation: `{path, line (1-based), match}`. Prefer a markerless single

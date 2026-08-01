@@ -6,13 +6,15 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { createSpawnInvocation } from '../spawn-command.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const editorSettingsPath = path.join(repoRoot, '.vscode/settings.json');
 const rootPackagePath = path.join(repoRoot, 'package.json');
 const workspacePath = path.join(repoRoot, 'pnpm-workspace.yaml');
 const sourceExtensions = new Set(['.cjs', '.js', '.mjs', '.ts', '.tsx']);
 const typescriptImport = /(?:from\s+|require\(\s*|import\(\s*)['"]typescript['"]/u;
-// Exact patches are load-bearing: changing either compiler invalidates the
+// Exact patches are load-bearing: changing any compiler invalidates the
 // diagnostic/timing evidence in docs/series-c-ts7-parity-findings.md. The
 // guard must stay red until that parity sweep is rerun and these pins move with
 // the recorded baseline.
@@ -20,8 +22,17 @@ const EXPECTED_COMPAT_CATALOG = 'npm:@typescript/typescript6@6.0.2';
 const EXPECTED_LSP_CATALOG = 'npm:typescript@6.0.3';
 const EXPECTED_NATIVE_CATALOG = 'npm:typescript@7.0.2';
 
+function runCommand(command, args, cwd = repoRoot) {
+  const invocation = createSpawnInvocation(command, args);
+  return spawnSync(invocation.command, invocation.args, {
+    cwd,
+    encoding: 'utf8',
+    shell: invocation.shell,
+  });
+}
+
 function readMajor(command, args, cwd = repoRoot) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  const result = runCommand(command, args, cwd);
   assert.ifError(result.error);
   assert.equal(
     result.status,
@@ -55,10 +66,7 @@ function workspaceManifests() {
 }
 
 function trackedSourceFiles() {
-  const result = spawnSync('git', ['ls-files', '-z', '--', 'apps', 'packages', 'scripts'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
+  const result = runCommand('git', ['ls-files', '-z', '--', 'apps', 'packages', 'scripts']);
   assert.ifError(result.error);
   assert.equal(result.status, 0, `git ls-files failed: ${result.stderr.trim()}`);
   return result.stdout
@@ -93,6 +101,11 @@ function collectViolations(state) {
   if (state.rootPackage.devDependencies?.['@typescript/native'] !== 'catalog:') {
     violations.push('root must depend on the native compiler through @typescript/native: catalog:');
   }
+  if (state.rootPackage.devDependencies?.['@typescript/old'] !== 'catalog:') {
+    violations.push(
+      'root must depend on @typescript/old through the catalog for a stable editor TSDK'
+    );
+  }
   if (state.nativeCatalog !== EXPECTED_NATIVE_CATALOG) {
     violations.push(
       `native compiler catalog pin changed from ${EXPECTED_NATIVE_CATALOG}; ` +
@@ -111,12 +124,15 @@ function collectViolations(state) {
         'rerun TS6/TS7 parity and the real-LSP controls before accepting the new patch'
     );
   }
-  if (state.nativePackage.name !== 'typescript' || state.nativePackage.bin?.tsc !== './bin/tsc') {
+  if (
+    state.nativePackage.name !== 'typescript' ||
+    normalizeBinEntry(state.nativePackage.bin?.tsc) !== 'bin/tsc'
+  ) {
     violations.push('the native package must expose the tsc bin');
   }
   if (
     state.compatPackage.name !== '@typescript/typescript6' ||
-    state.compatPackage.bin?.tsc6 !== './bin/tsc6' ||
+    normalizeBinEntry(state.compatPackage.bin?.tsc6) !== 'bin/tsc6' ||
     'tsc' in (state.compatPackage.bin ?? {})
   ) {
     violations.push('the compatibility package must expose tsc6 without shadowing tsc');
@@ -126,6 +142,12 @@ function collectViolations(state) {
   }
   if (state.compatMajor !== 6) {
     violations.push('compatibility tsc6 must report major 6');
+  }
+  if (state.editorTsdk !== 'node_modules/@typescript/old/lib') {
+    violations.push('VS Code TSDK must point to node_modules/@typescript/old/lib');
+  }
+  if (!state.editorTsserverExists) {
+    violations.push('VS Code TSDK must contain a resolvable tsserver.js');
   }
   if (state.typeCheckPackageCount < 40) {
     violations.push('type-check package discovery fell below the anti-vacuity floor of 40');
@@ -148,41 +170,57 @@ function collectViolations(state) {
   return violations;
 }
 
-const rootPackage = JSON.parse(readFileSync(rootPackagePath, 'utf8'));
-const workspace = readFileSync(workspacePath, 'utf8');
-const workspaceCatalog = parseYaml(workspace).catalog;
-const nativePackage = JSON.parse(
-  readFileSync(path.join(repoRoot, 'node_modules/@typescript/native/package.json'), 'utf8')
-);
-const compatPackage = JSON.parse(
-  readFileSync(path.join(repoRoot, 'node_modules/typescript/package.json'), 'utf8')
-);
-const manifests = workspaceManifests();
-const actualState = {
-  compatCatalog: workspaceCatalog?.typescript,
-  compatMajor: readMajor(path.join(repoRoot, 'node_modules/.bin/tsc6'), ['--version']),
-  compatPackage,
-  consumers: classicApiConsumers(),
-  leafNativeMajor: readMajor(
-    'pnpm',
-    ['exec', 'tsc', '--version'],
-    path.join(repoRoot, 'packages/ui')
-  ),
-  lspCatalog: workspaceCatalog?.['@typescript/old'],
-  nativeCatalog: workspaceCatalog?.['@typescript/native'],
-  nativeMajor: readMajor(path.join(repoRoot, 'node_modules/.bin/tsc'), ['--version']),
-  nativePackage,
-  rootPackage,
-  typeCheckPackageCount: manifests.filter((manifest) =>
-    /\btsc\b/u.test(manifest.json.scripts?.['type-check'] ?? '')
-  ).length,
-};
+function normalizeBinEntry(value) {
+  return typeof value === 'string' ? value.replaceAll('\\', '/').replace(/^\.\//u, '') : null;
+}
+
+let cachedActualState;
+function loadActualState() {
+  if (cachedActualState) {
+    return cachedActualState;
+  }
+
+  const editorSettings = JSON.parse(readFileSync(editorSettingsPath, 'utf8'));
+  const editorTsdk = editorSettings['typescript.tsdk'];
+  const rootPackage = JSON.parse(readFileSync(rootPackagePath, 'utf8'));
+  const workspaceCatalog = parseYaml(readFileSync(workspacePath, 'utf8')).catalog;
+  const manifests = workspaceManifests();
+  cachedActualState = {
+    compatCatalog: workspaceCatalog?.typescript,
+    compatMajor: readMajor('pnpm', ['exec', 'tsc6', '--version']),
+    compatPackage: JSON.parse(
+      readFileSync(path.join(repoRoot, 'node_modules/typescript/package.json'), 'utf8')
+    ),
+    consumers: classicApiConsumers(),
+    editorTsdk,
+    editorTsserverExists:
+      typeof editorTsdk === 'string' &&
+      existsSync(path.resolve(repoRoot, editorTsdk, 'tsserver.js')),
+    leafNativeMajor: readMajor(
+      'pnpm',
+      ['exec', 'tsc', '--version'],
+      path.join(repoRoot, 'packages/ui')
+    ),
+    lspCatalog: workspaceCatalog?.['@typescript/old'],
+    nativeCatalog: workspaceCatalog?.['@typescript/native'],
+    nativeMajor: readMajor('pnpm', ['exec', 'tsc', '--version']),
+    nativePackage: JSON.parse(
+      readFileSync(path.join(repoRoot, 'node_modules/@typescript/native/package.json'), 'utf8')
+    ),
+    rootPackage,
+    typeCheckPackageCount: manifests.filter((manifest) =>
+      /\btsc\b/u.test(manifest.json.scripts?.['type-check'] ?? '')
+    ).length,
+  };
+  return cachedActualState;
+}
 
 test('real workspace uses the official TS7/TS6 side-by-side compiler wiring', () => {
-  assert.deepEqual(collectViolations(actualState), []);
+  assert.deepEqual(collectViolations(loadActualState()), []);
 });
 
 test('money test: a TS6 API consumer resolving to the native compiler fails loudly', () => {
+  const actualState = loadActualState();
   const consumers = actualState.consumers.map((consumer, index) =>
     index === 0 ? { ...consumer, major: 7 } : consumer
   );
@@ -193,6 +231,7 @@ test('money test: a TS6 API consumer resolving to the native compiler fails loud
 });
 
 test('money test: a compatibility package that shadows tsc fails loudly', () => {
+  const actualState = loadActualState();
   const compatPackage = {
     ...actualState.compatPackage,
     bin: { ...actualState.compatPackage.bin, tsc: './bin/tsc' },
@@ -204,6 +243,7 @@ test('money test: a compatibility package that shadows tsc fails loudly', () => 
 });
 
 test('money test: swapped compiler majors cannot report a valid installation', () => {
+  const actualState = loadActualState();
   assert.match(
     collectViolations({ ...actualState, nativeMajor: 6 }).join('\n'),
     /native tsc must report major 7/u
@@ -215,6 +255,7 @@ test('money test: swapped compiler majors cannot report a valid installation', (
 });
 
 test('money test: an unresolved classic API consumer is a readable violation', () => {
+  const actualState = loadActualState();
   const consumers = actualState.consumers.map((consumer, index) =>
     index === 0
       ? { ...consumer, major: null, resolutionError: 'MODULE_NOT_FOUND: typescript' }
@@ -226,6 +267,7 @@ test('money test: an unresolved classic API consumer is a readable violation', (
 });
 
 test('money test: compiler patch bumps require renewed parity evidence', () => {
+  const actualState = loadActualState();
   assert.match(
     collectViolations({ ...actualState, nativeCatalog: 'npm:typescript@7.0.3' }).join('\n'),
     /rerun TS6\/TS7 parity/u
@@ -234,4 +276,15 @@ test('money test: compiler patch bumps require renewed parity evidence', () => {
     collectViolations({ ...actualState, lspCatalog: 'npm:typescript@6.0.4' }).join('\n'),
     /real-LSP controls/u
   );
+});
+
+test('money test: editor TSDK drift cannot silently fall back to a bundled compiler', () => {
+  const actualState = loadActualState();
+  const report = collectViolations({
+    ...actualState,
+    editorTsdk: 'node_modules/typescript/lib',
+    editorTsserverExists: false,
+  }).join('\n');
+  assert.match(report, /VS Code TSDK must point to node_modules\/@typescript\/old\/lib/u);
+  assert.match(report, /VS Code TSDK must contain a resolvable tsserver\.js/u);
 });
