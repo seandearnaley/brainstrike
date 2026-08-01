@@ -12,30 +12,40 @@ import {
 
 describe('layout-helpers (unit)', () => {
   async function withCiEnv<T>(isCI: boolean, callback: () => Promise<T> | T): Promise<T> {
-    const originalCI = process.env['CI'];
-    const originalGitHubActions = process.env['GITHUB_ACTIONS'];
-    const hadCI = Object.hasOwn(process.env, 'CI');
-    const hadGitHubActions = Object.hasOwn(process.env, 'GITHUB_ACTIONS');
-
-    process.env['CI'] = isCI ? 'true' : 'false';
-    process.env['GITHUB_ACTIONS'] = isCI ? 'true' : 'false';
+    const value = isCI ? 'true' : 'false';
+    vi.stubEnv('CI', value);
+    vi.stubEnv('GITHUB_ACTIONS', value);
 
     try {
       return await callback();
     } finally {
-      if (hadCI) {
-        process.env['CI'] = originalCI;
-      } else {
-        Reflect.deleteProperty(process.env, 'CI');
-      }
-
-      if (hadGitHubActions) {
-        process.env['GITHUB_ACTIONS'] = originalGitHubActions;
-      } else {
-        Reflect.deleteProperty(process.env, 'GITHUB_ACTIONS');
-      }
+      vi.unstubAllEnvs();
     }
   }
+
+  it('restores environment stubs when the callback throws', async () => {
+    const originalHadCI = Object.hasOwn(process.env, 'CI');
+    const originalHadGitHubActions = Object.hasOwn(process.env, 'GITHUB_ACTIONS');
+    const originalCI = process.env['CI'];
+    const originalGitHubActions = process.env['GITHUB_ACTIONS'];
+    let observedCI: string | undefined;
+    let observedGitHubActions: string | undefined;
+
+    await expect(
+      withCiEnv(false, () => {
+        observedCI = process.env['CI'];
+        observedGitHubActions = process.env['GITHUB_ACTIONS'];
+        throw new Error('callback failed');
+      })
+    ).rejects.toThrow('callback failed');
+
+    expect(observedCI).toBe('false');
+    expect(observedGitHubActions).toBe('false');
+    expect(process.env['CI']).toBe(originalCI);
+    expect(process.env['GITHUB_ACTIONS']).toBe(originalGitHubActions);
+    expect(Object.hasOwn(process.env, 'CI')).toBe(originalHadCI);
+    expect(Object.hasOwn(process.env, 'GITHUB_ACTIONS')).toBe(originalHadGitHubActions);
+  });
 
   it('getPanelElements returns expected locators', () => {
     const locator = vi.fn((sel: string) => ({ sel }));
