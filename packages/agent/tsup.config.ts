@@ -8,6 +8,7 @@ const broadEntries = [
   'src/index.ts',
   'src/client.ts',
   'src/code-execution.ts',
+  'src/fence-executor.ts',
   'src/mcp-client.ts',
   'src/local-llm.ts',
   'src/browser-safe.ts',
@@ -21,6 +22,9 @@ const broadEntries = [
 ];
 const sharedExternal = [
   modelContextProtocolSdkExternal,
+  // Node-only: spawns platform sandbox tooling and proxy servers. Bundling it
+  // would drag that into every consumer, including browser entries.
+  '@anthropic-ai/sandbox-runtime',
   '@brainstrike/types',
   '@electric-sql/pglite',
   '@mastra/core',

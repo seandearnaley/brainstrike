@@ -6,6 +6,7 @@
     "@ai-sdk/google": "^4.0.8",
     "@ai-sdk/openai": "^4.0.8",
     "@ai-sdk/provider": "4.0.2",
+    "@anthropic-ai/sandbox-runtime": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/db": "workspace:*",
@@ -52,6 +53,11 @@
       "types": "./dist/code-execution.d.ts",
       "import": "./dist/code-execution.mjs",
       "require": "./dist/code-execution.js"
+    },
+    "./fence-executor": {
+      "types": "./dist/fence-executor.d.ts",
+      "import": "./dist/fence-executor.mjs",
+      "require": "./dist/fence-executor.js"
     },
     "./mcp-client": {
       "types": "./dist/mcp-client.d.ts",
