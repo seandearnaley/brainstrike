@@ -40,6 +40,10 @@ Sensitive data:
 
 Testing:
 - Use addLogListener instead of mocking console.
+- Unit suites that disable transport output use `configureLogger({ console: false })`.
+  In Node, an empty transport set creates a disabled Pino instance instead of
+  falling back to Pino's implicit stdout destination. Log listeners remain
+  active so tests can assert records without emitting them to the test runner.
 
 ---
 

@@ -545,9 +545,17 @@ function createRootLogger(): PinoLogger {
     }
   }
 
-  const logger = destination ? pino(baseOptions, destination) : pino(baseOptions);
+  const transportEnabled = destination !== undefined || isBrowserEnvironment;
+  const logger = destination
+    ? pino(baseOptions, destination)
+    : pino({
+        ...baseOptions,
+        enabled: transportEnabled,
+      });
   activeNodeDestination = destination ? requireManagedNodeDestination(destination) : undefined;
-  logger.level = resolvedLevel;
+  if (transportEnabled) {
+    logger.level = resolvedLevel;
+  }
   return logger;
 }
 
@@ -939,6 +947,7 @@ export function addLogListener(listener: LogListener): () => void {
 
 export const __loggerTesting = {
   createBrowserWrite,
+  createRootLogger,
   drainNodeDestination,
   formatBrowserConsoleMessage,
   normalizePinoLogArgs,

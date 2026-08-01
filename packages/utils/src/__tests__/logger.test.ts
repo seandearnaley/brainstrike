@@ -281,6 +281,19 @@ describe('logger', () => {
   });
 
   describe('transport lifecycle', () => {
+    it('disables node transport output without disabling log listeners', () => {
+      configureLogger({ console: false });
+
+      const transportLogger = __loggerTesting.createRootLogger();
+      expect(transportLogger.isLevelEnabled(LogLevel.INFO)).toBe(false);
+
+      const records = collectLogs(() => {
+        info('listener-only record');
+      });
+
+      expect(records.map((record) => record.message)).toEqual(['listener-only record']);
+    });
+
     it('synchronously drains an old transport before ending it', () => {
       const lifecycle: string[] = [];
 
