@@ -43,7 +43,7 @@ believing they asked for the stronger one.
 | --- | --- |
 | Writes outside `scratchDir`, including via `..` traversal and via a symlink planted inside `scratchDir` | Containment is resolved (`realpath`), so links and traversal do not dodge it |
 | Reads of the always-denied credential stores (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.config/gh`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`) | Holds even under the widest `allowRead` the policy still accepts (`$HOME`) |
-| Reads of any path the policy names in `denyRead` | Holds even when `allowRead` names the parent directory |
+| Reads of any path the policy names in `denyRead` | Holds when `allowRead` names a *parent* directory. A policy that names the **same** path in both lists is **refused** — see non-guarantee 8 |
 | All direct network egress — a raw `socket.connect()` that ignores `HTTP(S)_PROXY` gets nothing | True even when the domain **is** allow-listed: the allow-list is enforced at srt's proxy, not in the kernel |
 | DNS: the sandboxed process has **no resolver at all**, so hostname-encoded exfiltration cannot leave | Even allow-listed names do not resolve in-process; resolution is proxy-side |
 | HTTP(S) to a host outside `allowedDomains` | The proxy refuses the CONNECT |
@@ -80,10 +80,23 @@ how people get hurt.
    seccomp/`bpf` bypass, a user-namespace escape, or a kernel LPE defeats the
    fence completely. Shared-kernel isolation cannot defend against this class.
    ADR-0003 is the answer, not a stronger profile here.
-5. **There is no always-deny list for WRITES.** `ALWAYS_DENY_READ_PATHS` is
-   read-scoped by design. A policy that puts `/` (or `$HOME`) in `allowWrite`
-   really does grant writes there, credential directories included. Write
-   grants are the caller's explicit decision and are not second-guessed.
+5. **Write grants are broad, and a write grant is also a READ grant on Linux.**
+   `ALWAYS_DENY_READ_PATHS` is read-scoped by design, and a policy that puts
+   `/` or `$HOME` in `allowWrite` really does grant writes across the machine.
+   Write grants are the caller's explicit decision and are not second-guessed.
+
+   The one place that is *not* left to the caller: an `allowWrite` **at or
+   under** an always-denied credential store is now **refused**
+   (`FencePolicyError`). bubblewrap masks a denied directory with `--tmpfs`,
+   then re-binds every allowed write path at or under it with a read-**write**
+   `--bind` — and there is no write bind you cannot read. So `allowWrite:
+   ['~/.ssh']` would have re-opened the store for READING on Linux, through a
+   channel the `allowRead` containment check never looks at. macOS keeps write
+   and read authority separate and would not have leaked. That is the
+   root-`allowRead` finding with the platforms swapped, which is exactly why
+   the refusal lives in the policy layer instead of trusting whichever platform
+   the run lands on. (Raised in review of the BST-1071 PR; derived from srt
+   0.0.67's `pushReadDenyDirMounts`, and covered by mutation M12.)
 6. **A hard crash of the host process leaks the run.** Live process groups are
    reaped on `process exit`, but a `SIGKILL` of the Electron/node host cannot
    run that handler. The sandboxed process keeps going — still inside its
@@ -91,6 +104,15 @@ how people get hurt.
    (Pre-existing; recorded in `docs/agents/code-execution.md`.)
 7. **Covert channels are not considered.** Timing, filesystem metadata, and
    similar side channels are not modelled or tested.
+8. **`allowRead` beats `denyRead`, so an exact collision is refused.** srt
+   documents `allowRead` as taking precedence. A nested deny survives a broader
+   allow only because srt re-emits it when `denied.startsWith(allowed + '/')` —
+   which is false when the two paths are **equal**. `allowRead: [X]` +
+   `denyRead: [X]` would therefore let the allow stand and drop the deny
+   silently. That collision is now a `FencePolicyError`: the caller wrote a
+   contradiction and gets told, rather than getting a config that does not mean
+   what it says. A deny strictly *nested* inside an allow is the supported
+   shape and still works. (Raised in review of the BST-1071 PR; mutation M13.)
 
 ---
 

@@ -137,6 +137,45 @@ describe('buildSandboxRuntimeConfig', () => {
     );
   });
 
+  it('REJECTS an allowWrite at or under an always-denied store — a write bind re-opens the READ', async () => {
+    // BST-1071 review finding. bubblewrap masks a denied directory with
+    // `--tmpfs`, then re-binds allowed write paths at or under it with a
+    // read-WRITE `--bind`, and no write bind is unreadable — so a write grant
+    // here would hand back the store the always-deny list exists to keep out.
+    // macOS keeps write and read authority separate; refusing in the policy
+    // layer is what stops the guarantee from depending on the platform.
+    await expect(
+      build({ allowedDomains: [], allowWrite: [join(homedir(), '.ssh')] })
+    ).rejects.toBeInstanceOf(FencePolicyError);
+    await expect(
+      build({ allowedDomains: [], allowWrite: [join(homedir(), '.aws', 'nested')] })
+    ).rejects.toThrow(/always-denied credential store/);
+  });
+
+  it('REJECTS a policy that allows and denies EXACTLY the same path', async () => {
+    // srt re-emits a nested deny when `denied.startsWith(allowed + '/')`, which
+    // is false when the two are equal — the allow wins and the deny is dropped
+    // silently. A policy that does not mean what it says is refused.
+    await expect(
+      build({
+        allowedDomains: [],
+        allowRead: ['/opt/data'],
+        allowWrite: [],
+        denyRead: ['/opt/data'],
+      })
+    ).rejects.toThrow(/denyRead/);
+  });
+
+  it('still allows a denyRead NESTED inside an allowRead — srt re-emits that one', async () => {
+    const config = await build({
+      allowedDomains: [],
+      allowRead: ['/opt/data'],
+      allowWrite: [],
+      denyRead: ['/opt/data/secret'],
+    });
+    expect(config.filesystem.denyRead).toContain('/opt/data/secret');
+  });
+
   it('still allows an allowRead one level BELOW the root', async () => {
     // The refusal is the root specifically, not "broad grants" in general —
     // every ancestor short of it re-emits the nested deny correctly.

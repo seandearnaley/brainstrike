@@ -164,7 +164,18 @@ function runUnsandboxed(code: string): { ok: boolean; output: string } {
       }),
     };
   } catch (error) {
-    return { ok: false, output: error instanceof Error ? error.message : String(error) };
+    // KEEP the partial stdout. `execFileSync` throws on any non-zero exit, and
+    // python exits on the FIRST failing precondition — so without the output it
+    // already produced, a probe that got two checks in before failing the third
+    // is indistinguishable from one that failed the first. That is how a skip
+    // ends up naming the wrong cause and sending a reader after the one thing
+    // that was working.
+    const stdout = (error as { stdout?: unknown }).stdout;
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      output: `${typeof stdout === 'string' ? stdout : ''}\n${message}`,
+    };
   }
 }
 
@@ -209,7 +220,12 @@ async function describeHostSkipReason(): Promise<string | undefined> {
 function describeNetworkSkipReason(): string | undefined {
   const probe = runUnsandboxed(NETWORK_PRECONDITION_PROBE);
   const detail = probe.output.trim().slice(0, 200);
-  if (!(probe.ok && probe.output.includes('RAW-OK'))) {
+  // Each marker is checked INDEPENDENTLY against whatever the probe managed to
+  // print, never against `probe.ok`: the probe exits non-zero on its first
+  // failure, so gating every branch on the exit status would report a later
+  // check's failure as the first one's. These gates decide whether security
+  // tests run at all — a skip that names the wrong cause is worse than useless.
+  if (!probe.output.includes('RAW-OK')) {
     return `${PROBE_HOST}:443 is not reachable by an UNSANDBOXED socket from this host, so a blocked socket inside the fence would be indistinguishable from a dead network (${detail})`;
   }
   if (!probe.output.includes('ALLOWED-STATUS 200')) {
@@ -520,6 +536,57 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
       // it green on Linux; that asymmetry is documented in the README.
       const error = await expectRefused({ allowRead: ['/'] }, 'root-allowread-marker.txt');
       expect(error.message).toContain('filesystem root');
+    });
+
+    it('REFUSES an allowWrite on an always-denied store — a write bind re-opens it for READING on Linux', async () => {
+      // The mirror image of the root-allowRead finding, and the reason it is
+      // refused rather than left to the platform. bubblewrap masks a denied
+      // directory with `--tmpfs`, then re-binds every allowed write path at or
+      // under it with a read-WRITE `--bind`; there is no write bind you cannot
+      // read, so `allowWrite: ['~/.ssh']` hands back the store the always-deny
+      // list exists to keep out. macOS keeps write and read authority separate
+      // and would NOT leak — so on this platform the refusal is what makes the
+      // guarantee platform-independent rather than what makes it true.
+      const sshDir = join(homedir(), '.ssh');
+      const error = await expectRefused(
+        { allowWrite: [scratchDir, sshDir] },
+        'ssh-allowwrite-marker.txt'
+      );
+      if (existsSync(sshDir)) {
+        expect(error.message).toContain('always-denied credential store');
+      } else {
+        console.warn(
+          '[fence-escape-resistance] ~/.ssh does not exist on this host, so the allowWrite containment refusal was proven only as "refused".'
+        );
+      }
+    });
+
+    it('REFUSES a policy that both allows and denies the SAME path, instead of silently dropping the deny', async () => {
+      // The same off-by-one as the root case, one row over. srt keeps a nested
+      // deny alive by re-emitting it when `denied.startsWith(allowed + '/')` —
+      // false when the two are EQUAL. So `allowRead: [X], denyRead: [X]` lets
+      // the last-match-wins allow stand and discards the deny without a word.
+      // The caller wrote a contradiction; they get an error, not a coin flip.
+      const error = await expectRefused(
+        { allowRead: [vaultDir], denyRead: [vaultDir] },
+        'collision-marker.txt'
+      );
+      expect(error.message).toContain('denyRead');
+    });
+
+    it('still permits a denyRead NESTED inside an allowRead — the supported shape', async () => {
+      // The positive control for the refusal above: srt DOES re-emit a deny
+      // that is strictly under the allow, so that policy is honoured and stays
+      // legal. Refusing the exact collision must not swallow this case too.
+      const result = await run(
+        [
+          tryRead(join(vaultDir, 'credentials'), 'VAULT'),
+          tryRead(join(openDir, 'notes.txt'), 'OPEN'),
+        ].join('\n'),
+        { allowRead: [secretsRoot], denyRead: [vaultDir] }
+      );
+      expect(result.stdout).toContain('VAULT-DENIED');
+      expect(result.stdout).toContain(OPEN_CANARY);
     });
 
     it('REFUSES an allowRead that sits directly on an always-denied store', async () => {
@@ -962,6 +1029,23 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
     /** Long enough to cover many ticks; deliberately not a tight bound. */
     const OBSERVATION_MS = 3000;
 
+    /**
+     * Python that blocks until `path` appears, or a generous deadline passes.
+     *
+     * Used instead of a fixed sleep before the parent returns. The survival
+     * checks below are only meaningful once the descendant has demonstrably
+     * run, and interpreter startup inside a Seatbelt/bubblewrap profile on a
+     * loaded runner has no upper bound — a fixed window that occasionally
+     * expires first would turn these RED claiming a teardown regression that
+     * did not happen. Waiting for the event keeps the non-vacuity check and
+     * removes the clock from the assertion.
+     */
+    const waitForFile = (path: string): string[] => [
+      '__deadline = time.time() + 20',
+      `while not os.path.exists(${JSON.stringify(path)}) and time.time() < __deadline:`,
+      '    time.sleep(0.02)',
+    ];
+
     it('leaves no ticking descendant alive when execute() settles normally', async () => {
       const counter = join(scratchDir, 'normal-heartbeat.txt');
       rmSync(counter, { force: true });
@@ -971,8 +1055,8 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
           'import os, subprocess, sys, time',
           'devnull = os.open(os.devnull, os.O_RDWR)',
           `subprocess.Popen([sys.executable, "-c", ${JSON.stringify(heartbeatDescendant(counter))}], stdin=devnull, stdout=devnull, stderr=devnull)`,
-          // Let the descendant tick a few times so its survival is observable.
-          'time.sleep(0.8)',
+          // Wait for the descendant's FIRST tick, not a fixed duration.
+          ...waitForFile(counter),
           'print("PARENT-DONE")',
         ].join('\n')
       );
@@ -1095,7 +1179,10 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
             'import os, subprocess, sys, time',
             'devnull = os.open(os.devnull, os.O_RDWR)',
             `subprocess.Popen([sys.executable, "-c", ${JSON.stringify(leftover)}], stdin=devnull, stdout=devnull, stderr=devnull)`,
-            'time.sleep(0.8)',
+            // Same reason as above, and it matters more here: this is the P1
+            // regression guard, so a startup spike must not fail it for the
+            // wrong reason.
+            ...waitForFile(started),
             'print("RUN-A-DONE")',
           ].join('\n')
         );
@@ -1124,18 +1211,26 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
       60_000
     );
   });
+});
 
-  // -------------------------------------------------------------------------
-  // Regression guard
-  // -------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Regression guard — deliberately OUTSIDE the host gate
+// ---------------------------------------------------------------------------
 
-  describe('regression guard', () => {
-    it(`is proven only against @anthropic-ai/sandbox-runtime ${PINNED_SRT_VERSION}`, () => {
-      expect(installedSrtVersion()).toBe(PINNED_SRT_VERSION);
-      // If this fails, srt moved. Do NOT just update the constant: the fence's
-      // guarantees are srt's guarantees, and this suite is the evidence for
-      // them. Re-run it in full on macOS AND Linux, re-check the README's
-      // non-guarantee list against the new srt README, and only then re-pin.
-    });
+/**
+ * Not inside `describe.skipIf(hostSkipReason)` above, and that placement is the
+ * whole point: this assertion is about the installed dependency graph, not
+ * about the host's sandboxing ability. Gated, an srt bump would stay green on
+ * every machine without bwrap/ripgrep/python — silently voiding the promise in
+ * docs/agents/code-execution.md that a bump turns this suite red. Ungated, the
+ * pin is checked wherever the integration lane runs at all.
+ */
+describe('fence escape resistance — srt version pin', () => {
+  it(`is proven only against @anthropic-ai/sandbox-runtime ${PINNED_SRT_VERSION}`, () => {
+    expect(installedSrtVersion()).toBe(PINNED_SRT_VERSION);
+    // If this fails, srt moved. Do NOT just update the constant: the fence's
+    // guarantees are srt's guarantees, and this suite is the evidence for
+    // them. Re-run it in full on macOS AND Linux, re-check the README's
+    // non-guarantee list against the new srt README, and only then re-pin.
   });
 });
