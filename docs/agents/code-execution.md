@@ -65,8 +65,8 @@ should use, including on runtime-computed paths. Its rules:
 
 - **An unresolved `..` in either operand returns false.** It never claims
   coverage it cannot prove — a segment-prefix compare would report
-  `/tmp/scratch/../../etc/passwd` as covered by `/tmp/scratch`. Resolve paths
-  (`realpath`) before asking.
+  `/tmp/scratch/../../etc/passwd` as covered by `/tmp/scratch`. Resolving
+  first is a requirement, not just the fix for this case; see below.
 - **Separators follow the path's own shape.** A backslash is a separator only
   in a Windows-shaped path; on POSIX it is a legal filename character, so
   `/tmp/scratch\run` is a sibling directory named `scratch\run`, not a
@@ -74,6 +74,47 @@ should use, including on runtime-computed paths. Its rules:
 - **Case is folded only when an operand is Windows-shaped**, because
   drive-letter case is not stable across Node APIs. POSIX comparison stays
   case-sensitive.
+
+### Backends MUST resolve before asking (requirement, not advice)
+
+`realpath` BOTH operands before calling `isPathCoveredBy`. An unresolved
+operand is a security bug, not a style choice, because resolution is what
+closes two concrete dodges that no textual comparison can:
+
+- **A symlink into a denied store.** `allowRead: ['/opt/innocent']` compares
+  as unrelated to `~/.ssh` — and then srt follows the link. Only the resolved
+  path reveals it.
+- **A case variant on a case-insensitive volume.** `~/.SSH` is textually
+  unequal to `~/.ssh`, but APFS hands back the same directory.
+
+**Do NOT "fix" the case problem by folding case on darwin.** Case sensitivity
+is a filesystem property, not a platform one — APFS is case-insensitive by
+default but can be formatted case-sensitive — so `platform === 'darwin'` is a
+guess. It is also a guess in the DANGEROUS direction: folding makes containment
+MORE permissive, producing a false PERMIT at validation that then fails
+opaquely once srt applies the real policy. Not folding can only produce a false
+reject: confusing, never unsafe. `realpath` is correct on both volume types
+with no platform sniffing.
+
+Corollaries:
+
+- **A path with no canonical form is a typed error, never a guess.** A
+  nonexistent `scratchDir`/`allowWrite`/`allowRead` entry raises the backend's
+  typed policy error rather than being assumed.
+- **Deny rules canonicalize BEST-EFFORT.** A host that legitimately lacks
+  `~/.gnupg` is normal, not an error, and an absent path has nothing to
+  re-open; keep the literal so the rule still reaches the sandbox.
+- **macOS canonicalizes `/var/folders/…` → `/private/var/folders/…`** (`/var`
+  is a symlink to `/private/var`), so anything derived from `os.tmpdir()` —
+  which is where scratch dirs come from — changes spelling on resolution.
+  Expect the resolved path, not the one you passed, in the config handed to
+  the sandbox.
+
+The FenceExecutor (`packages/agent/src/fence/fence-policy.ts`) is the reference
+implementation, including the injected resolver that keeps this unit-testable.
+**If a third backend appears, move this duty into the seam as a helper** —
+deliberately not extracted at one consumer, where the shape would be a guess
+derived from a single call site.
 
 Windows path forms are accepted by the schema, but no Windows backend exists
 yet — the fence's Windows story is BST-1068.
@@ -245,24 +286,10 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   would silently re-open `~/.config/gcloud`. A RELATIVE path is rejected (srt
   resolves it against the Node process cwd, not `scratchDir`), as is a `..`
   segment and a `~` (never expanded — see the seam's rule).
-- **Containment compares `realpath` output, and NEVER folds case.** Case
-  sensitivity is a filesystem property, not a platform one: APFS is
-  case-insensitive by default but can be formatted case-sensitive, so
-  `platform === 'darwin'` does not imply it. `realpath` returns the canonical
-  on-disk spelling, so a case-insensitive volume resolves `~/.SSH` to `~/.ssh`
-  naturally while a case-sensitive volume correctly keeps them distinct —
-  correct on both, no platform guessing. It also catches a symlink pointing
-  into a denied store, which no textual comparison can. The failure directions
-  are why: folding case makes containment MORE permissive, i.e. a false PERMIT
-  at validation that then fails opaquely when srt applies the real policy;
-  not folding can only produce a false reject, which is confusing but never
-  unsafe.
-- **`scratchDir`, `allowWrite` and `allowRead` entries MUST exist.** A path
-  that does not exist has no canonical form, so it raises `FencePolicyError`
-  rather than being guessed at. Deny rules are the deliberate exception —
-  they canonicalize best-effort, because a host without `~/.gnupg` is normal,
-  not an error, and there is nothing there to re-open.
-- The resolver is injected (`FencePathResolver`, defaulting to
+- **Containment compares `realpath` output** — the reference implementation of
+  the seam's "resolve before asking" requirement above, including the
+  nonexistent-path error and the best-effort deny canonicalization. The
+  resolver is injected (`FencePathResolver`, defaulting to
   `fs.promises.realpath`) so the mapping stays in the cacheable unit lane;
   the real-filesystem behaviour is proven in the integration lane.
 - **The sandboxed process environment is an ALLOW-LIST, never a pass-through**
