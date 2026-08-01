@@ -162,7 +162,7 @@ function createCollectorFixture(
   writeFixtureFile(repo, 'pnpm-workspace.yaml', 'packages: []\n');
   writeFixtureFile(repo, 'pnpm-lock.yaml', "lockfileVersion: '9.0'\nimporters: {}\n");
   writeFixtureFile(repo, '.night-shift/PROTOCOL.md', '# Protocol\n');
-  writeFixtureFile(repo, '.night-shift/charters/pruner.md', '# Pruner\n');
+  writeFixtureFile(repo, '.night-shift/charters/groundskeeper.md', '# Pruner\n');
   git(repo, ['add', '.']);
   git(repo, ['commit', '-m', 'fixture']);
   git(repo, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);

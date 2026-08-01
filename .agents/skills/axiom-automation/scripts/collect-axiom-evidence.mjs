@@ -12,7 +12,7 @@ const REQUIRED_PATHS = [
   'package.json',
   '.night-shift/PROTOCOL.md',
   '.night-shift/charters/README.md',
-  '.night-shift/charters/axiom.md',
+  '.night-shift/charters/keeper.md',
   'docs/agents',
   'scripts',
 ];
@@ -283,7 +283,7 @@ export function collectAxiomEvidence({ repo: repoInput, watermark, fullSweep = f
   const sourceReference = delta.originMainSha;
   assertRequiredPaths(repo, sourceReference);
   const charterMetadata = parseCharterMetadata(
-    readGitFile(repo, sourceReference, '.night-shift/charters/axiom.md')
+    readGitFile(repo, sourceReference, '.night-shift/charters/keeper.md')
   );
   if (charterMetadata.NAME !== 'Axiom') {
     throw new Error(`unexpected Axiom charter identity: ${charterMetadata.NAME ?? 'missing'}`);
@@ -333,7 +333,7 @@ export function collectAxiomEvidence({ repo: repoInput, watermark, fullSweep = f
     charter: {
       learningsFile: charterMetadata.LEARNINGS_FILE ?? null,
       name: charterMetadata.NAME,
-      path: '.night-shift/charters/axiom.md',
+      path: '.night-shift/charters/keeper.md',
       role: charterMetadata.ROLE ?? null,
       stateIssue: charterMetadata.STATE_ISSUE ?? null,
       version: charterMetadata.CHARTER_VERSION,

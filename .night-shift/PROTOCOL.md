@@ -4,7 +4,7 @@ Every scheduled maintainer reads this file at wake. It overrides your charter
 where they conflict. Repository instructions (AGENTS.md, docs/agents/*)
 override both.
 
-All loops — including the migrated bolt, sentinel, and palette — follow this
+All loops — including the migrated bolt and sentinel — follow this
 protocol; their charters in charters/ are the deployed source of truth.
 
 ## Identity & state
@@ -42,9 +42,14 @@ protocol; their charters in charters/ are the deployed source of truth.
   `sha:<40-hex>` (MAIN-DIFF loops), `hash:<64-hex>` (EXTERNAL-STATE loops:
   sha256 of your sorted, serialized watched set), or `none` (first run
   only) — never a bare untyped value, never multi-line, never JSON.
-  Before posting, validate the composed line with
-  `node .agents/skills/night-shift-checkpoint/scripts/validate-checkpoint.mjs "<line>"`
-  ($night-shift-checkpoint); a rejected line is never posted. If this run
+  NEVER hand-write the line. Compose it with
+  `node .agents/skills/night-shift-checkpoint/scripts/compose-checkpoint.mjs
+  --watermark <kind:value> --status <STATUS> --message "<one line>"`
+  ($night-shift-checkpoint) — it formats, validates, and prints the line
+  to post, and exits non-zero on any grammar violation. The first scored
+  week measured 38 of 88 hand-written Assay checkpoints malformed; a
+  validator behind hand composition catches the error after the reasoning
+  that produced it, so composition itself is now the rule. If this run
   has ALREADY posted a checkpoint, pass `--posted-this-run <that-UTC-ISO>`
   too — see "Run boundaries". Checkpoints predating this grammar are
   legacy — read them, never rewrite them.
@@ -55,19 +60,20 @@ protocol; their charters in charters/ are the deployed source of truth.
 - Watermark discipline. Every loop records what it last processed and, at
   wake, does the cheapest check that proves there is nothing new before doing
   real work. The watermark's SHAPE depends on where your work comes from:
-  - MAIN-DIFF loops (axiom, scribe, ledger, warden, pruner, quartermaster,
-    bolt, sentinel, palette) watch the code on `main`. Watermark = last main
+  - MAIN-DIFF loops (keeper, groundskeeper, bolt, sentinel — plus
+    editor's doc-freshness component) watch the code on `main`. Watermark = last main
     SHA fully swept, recorded as `sha:<sha>`. At wake, diff
     `<watermark>..origin/main`; empty range + no open PR of yours + no
     reopened ticket of yours → NOOP checkpoint and exit.
   - EXTERNAL-STATE loops watch something other than the main diff and must
     NOT exit just because `main` didn't advance — their inputs change on a
-    different clock. Assay/Magnify/Porter watch open-PR heads (watched set
-    = the `<pr,head-sha>` pairs already processed); Watch watches
-    workflow-run IDs; Sweep, Forge, and Vigil watch ticket/advisory sets;
+    different clock. Reviewer/Porter watch open-PR heads (watched set
+    = the `<pr,head-sha>` pairs already processed); Watchman watches
+    workflow-run IDs plus the nightly ticket set; Forge watches its
+    label queue; Sentinel's Beat 0 watches the advisory set;
     Gauntlet watches processed failure sources plus the eval-suite hash;
-    Librarian watches pending-learnings; Curator watches the upstream model
-    catalog; Chronicle and Auditor watch the fleet's own state issues. The
+    Editor watches pending-learnings; Curator watches the upstream model
+    catalog; Overseer watches the fleet's own state issues. The
     watermark is always
     `hash:<sha256>` of the sorted, serialized watched set — per-item state
     (which run, which ticket, which head) lives where the work lives (the
@@ -89,7 +95,7 @@ protocol; their charters in charters/ are the deployed source of truth.
   complete sweep never. Never carry an unbounded delta into a bounded budget.
   UNCHANGED IS NOT THE SAME AS DONE. Hash equality is the cheap test, and
   for a watched set whose items are either processed or gone it is also the
-  correct one. But a loop that CAPS how much it processes per run (Magnify:
+  correct one. But a loop that CAPS how much it processes per run (Reviewer Phase B:
   2 PRs) leaves items it did not process inside a set whose watermark hashes
   the whole snapshot — so for that loop an unchanged hash can equally mean
   "nothing moved AND work is still pending", and exiting on it turns the cap
@@ -117,8 +123,8 @@ gains exactly one line at the end. Both halves are load-bearing.
 - ONE TERMINAL CHECKPOINT. Post exactly one checkpoint per run, last,
   describing that snapshot. A run that emits four checkpoints because the
   world moved underneath it has not recorded four facts; it has recorded
-  one fact and three races. Downstream loops (Chronicle's wake accounting,
-  Auditor's scoreboard) read the checkpoint stream as one-line-per-run;
+  one fact and three races. Downstream loops (Overseer's wake accounting
+  and scoreboard) read the checkpoint stream as one-line-per-run;
   amplification silently corrupts every metric derived from it.
 - CORRECTIONS ARE FOR FACTS, NOT FOR TIME. A second checkpoint inside one
   run is legitimate only when the first was WRONG WHEN POSTED — malformed
@@ -177,7 +183,7 @@ costs the human triage time and poisons trust in every other loop's PRs.
   On a steward wake you run THIS SECTION and nothing else: no discovery,
   no new PRs, no ticket sweeps — even if your watermark shows new work;
   discovery stays on your charter cadence.
-  Steward wakes are FREQUENT (every 15 minutes, charters/README.md) and
+  Steward wakes are FREQUENT (every 30 minutes, charters/README.md) and
   therefore must be CHEAP by default. Their first act is a deterministic
   probe, before any reasoning about the PR:
   1. No open PR of yours → exit silently. No checkpoint, no digest, no
@@ -207,7 +213,7 @@ costs the human triage time and poisons trust in every other loop's PRs.
   Only when the probe reports an actual change do you spend the wake.
   A steward wake that acts checkpoints once (Run boundaries); a steward
   wake that exits on the probe never checkpoints — silent exits are not
-  events and must not appear in Chronicle's wake accounting.
+  events and must not appear in Overseer's wake accounting.
 
 ## Felt-value doctrine
 
@@ -219,7 +225,7 @@ ticket spawns a fix, the fix spawns a review round — and nothing in the
 old doctrine ever asked a loop's output to name its beneficiary. These
 rules make that spend measurable and capped. They change no cadence and
 no authority level; enforcement moves the way all fleet authority moves —
-Auditor measures, proposes with evidence, and the human merges.
+Overseer measures, proposes with evidence, and the human merges.
 
 - FELT-BY LINE. Every fleet-authored PR body carries exactly one line:
   `Felt-by: <who notices this change, and how>` — the product user or the
@@ -231,8 +237,8 @@ Auditor measures, proposes with evidence, and the human merges.
   Felt-by line on your own open PR is itself an actionable change, so the
   steward probe's "nothing changed" exit does not apply until the line
   exists. The line
-  is a measurement surface, not prose: Auditor keys felt-yield on it and
-  Chronicle's SHIPPED lines carry it. An honest `fleet-internal` is
+  is a measurement surface, not prose: Overseer keys felt-yield on it
+  and its SHIPPED digest lines carry it. An honest `fleet-internal` is
   correct and costs you nothing this week; a decorated one corrupts the
   only metric that justifies your cadence, which costs you everything at
   review time.
@@ -243,12 +249,12 @@ Auditor measures, proposes with evidence, and the human merges.
   so the number falls as behavior improves, not as output shrinks. Loops
   do NOT self-throttle against this: you cannot cheaply see global merge
   flow at wake, and a loop that suppresses real findings to look frugal
-  hides defects. The budget binds through Auditor — it measures the
+  hides defects. The budget binds through Overseer — it measures the
   share weekly and, on sustained breach, proposes cadence demotions for
   the lowest felt-yield loops (operational definitions and thresholds in
-  auditor.md); the human merges the charter PR.
+  overseer.md); the human merges the charter PR.
 - CHURN IS NOT OUTPUT. A fix-forward or revert touching your own merged
-  diff within 72h of merge counts against your yield (Auditor already
+  diff within 72h of merge counts against your yield (Overseer already
   traces these), never as fresh output. When you open a fix-forward to
   your own recently merged PR, say so in the body and link the causing
   PR — an owned mistake is cheap, a discovered one is not.
@@ -296,11 +302,11 @@ the re-probe than on re-narration.
   no run logs, no timestamps-as-content, no generic advice.
 - Hard cap 120 lines per learnings file. At cap, consolidate before you
   append — merge duplicates, delete entries invalidated by code changes
-  (the Librarian enforces this on its sweep). Every loop reads every
+  (the Editor enforces this on its sweep). Every loop reads every
   learnings file at every wake; an unbounded file taxes the whole fleet.
 - A learning lands in the same PR that established it. Loops without PR
   authority append learnings to their state issue under `## pending-learnings`;
-  the Librarian loop (charters/librarian.md) verifies and migrates those into
+  the Editor loop (charters/editor.md) verifies and migrates those into
   the tracked `.night-shift/*.md` files on its weekly sweep, marking migrated
   entries with a reply on the state issue. Between sweeps, pending entries
   living only on Linear is expected, not a bug; a human or any PR-authoring
@@ -360,8 +366,9 @@ the re-probe than on re-narration.
   when it genuinely has none. The ticket id is the fleet's JOIN KEY. Linear
   links a PR to its issue through the branch name or a closing keyword, so a
   branch carrying neither leaves the ticket and the code permanently
-  unlinked — and every downstream measure computed over that link (Sweep's
-  close rule, Chronicle's digest, Auditor's scoreboard) is silently summing
+  unlinked — and every downstream measure computed over that link
+  (Watchman's close rule, Overseer's digest and scoreboard) is silently
+  summing
   over a join that does not exist. Your PR body therefore carries
   `Closes BST-<id>`, or an explicit `No ticket: <reason>` line. Neither is
   optional; a PR with no ticket and no stated reason is incomplete.
@@ -371,7 +378,7 @@ the re-probe than on re-narration.
   keyword links it without a rename. The branch shape binds new branches only.
 - Re-derive every command, path, and enumeration from the repo at wake.
   Anything memorized in a charter or learning is a hint, not a fact.
-- Labels on GitHub PRs: only the `review/*` namespace (owned by Assay) and
+- Labels on GitHub PRs: only the `review/*` namespace (owned by Reviewer) and
   never the functional `coverage` label. No workflow may ever consume a
   `review/*` label — docs/agents/ci-quality.md forbids CI routing labels.
 - Budget: note UTC time at wake; check it only at phase boundaries. On

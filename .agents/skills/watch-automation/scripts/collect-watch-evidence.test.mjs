@@ -60,10 +60,10 @@ watch:<workflow>:<test-title-slug>:<error-class>
 // the loop actually reads at wake.
 test('deriveCharter parses the committed Watch charter on disk', () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-  const live = readFileSync(path.join(repoRoot, '.night-shift/charters/watch.md'), 'utf8');
+  const live = readFileSync(path.join(repoRoot, '.night-shift/charters/watchman.md'), 'utf8');
   const derived = deriveCharter(live);
-  assert.equal(derived.name, 'Watch');
-  assert.match(derived.autonomy, /^diagnose-only\b/);
+  assert.equal(derived.name, 'Watchman');
+  assert.match(derived.autonomy, /^diagnose \+ auto-close/);
   assert.equal(derived.fingerprintShape, 'watch:<workflow>:<test-title-slug>:<error-class>');
 });
 

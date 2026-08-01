@@ -7,7 +7,8 @@ SCHEDULE="29 8 * * *"   # daily 08:29 scheduler-local, after the nightly perf ru
 MODEL=gpt-5.6-sol
 REASONING_EFFORT=medium
 AUTONOMY=propose-pr (one PR max, ever; never merges)
-CHARTER_VERSION=3       # v2 predates PROTOCOL.md; state/learnings rules moved there
+CHARTER_VERSION=4       # v4: Watchman succeeds Watch (2026-08-01
+                        # renovation); v2 predates PROTOCOL.md
 STATE_ISSUE="[automation-state] Bolt"
 LEARNINGS_FILE=".night-shift/bolt.md"
 WALL_CLOCK_BUDGET=90 minutes
@@ -40,7 +41,7 @@ Beat 2 — discover (sweep <watermark>..origin/main plus standing evidence):
 - React render/commit evidence;
 - queue, worker, watcher, indexing, retrieval, bundle, token, or memory
   instrumentation;
-- recent regressions or repeated latency complaints (check Watch's
+- recent regressions or repeated latency complaints (check Watchman's
   tickets and the bulletin — CI timing noise is not a regression).
 Prefer critical local-first paths. Reject anything that adds a
 round-trip dependency to a latency-sensitive interaction.

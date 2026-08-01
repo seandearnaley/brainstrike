@@ -9,7 +9,7 @@ const MAX_BUFFER_BYTES = 128 * 1024 * 1024;
 const REQUIRED_FILES = [
   'AGENTS.md',
   '.night-shift/PROTOCOL.md',
-  '.night-shift/charters/magnify.md',
+  '.night-shift/charters/reviewer.md',
 ];
 
 function usage() {
@@ -452,7 +452,7 @@ function listInstructionFiles(repo) {
 function main() {
   const { pretty, repo: repoInput } = parseArgs(process.argv.slice(2));
   const repo = assertRepository(repoInput);
-  const charterPath = join(repo, '.night-shift/charters/magnify.md');
+  const charterPath = join(repo, '.night-shift/charters/reviewer.md');
   const charter = deriveCharter(readFileSync(charterPath, 'utf8'));
   const repository = runJson('gh', ['repo', 'view', '--json', 'nameWithOwner'], repo).nameWithOwner;
   if (typeof repository !== 'string' || !repository.includes('/')) {
@@ -514,7 +514,7 @@ function main() {
     repo,
     repository,
     requiredReads: {
-      charter: '.night-shift/charters/magnify.md',
+      charter: '.night-shift/charters/reviewer.md',
       contractInventory: listMarkdownFiles(join(repo, 'docs/agents')).map(
         (name) => `docs/agents/${name}`
       ),
