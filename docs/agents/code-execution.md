@@ -63,8 +63,21 @@ error to a model-visible structured failure; it must never fabricate an
 
 - **FenceExecutor (BST-1062)**: wraps a bundled pinned CPython
   (python-build-standalone, BST-1061) with `@anthropic-ai/sandbox-runtime`
-  (Seatbelt / bubblewrap / Windows restricted token). srt is a beta — pin the
-  exact version, no caret.
+  (Seatbelt on macOS, bubblewrap on Linux). srt is a beta — pin the exact
+  version, no caret.
+  - **Windows is gated OFF (BST-1068, settled).** A Windows host advertises no
+    `fence` factory, so `resolveCodeExecutor('fence', host)` throws
+    `ExecutorKindUnavailableError` — never a factory that exists only to fail,
+    and never an unsandboxed fallback. srt's Windows backend is a real
+    OS-kernel fence (a dedicated `srt-sandbox` user SID + WFP egress filters +
+    additive NTFS DACLs — not merely a restricted token), but it is alpha and,
+    decisively, its filesystem scope is **session-level**: `updateConfig()`
+    warns and keeps the previous access set, and a per-exec
+    `filesystem.allowRead`/`allowWrite` throws. This seam's per-execution
+    `ExecPolicy` therefore cannot be honoured there, and no
+    `ExecutorCapabilities` field can express that gap. Assessment, capability
+    spec, and the runnable Windows verification plan:
+    `docs/agents/research/bst-1068-srt-windows-fence-spike.md`.
 - **VM executor (mode two)**: design-only ADR (BST-1069);
   Virtualization.framework, macOS-first. No implementation yet — do not
   design other code against a VM backend existing.
