@@ -87,7 +87,7 @@ half-finished branch you have to reconstruct intent from.
 
 | Ticket | PR | State on handoff |
 | --- | --- | --- |
-| BST-1061 | #2205 draft | hardened manifest + verified checksums. No implementation code yet; punch list in the PR body |
+| BST-1061 | #2205 **ready** | **fully implemented** (~1350 lines: fetch script, resolver, factory-reset wiring, notices, 6 test files). 3 review findings open — see below |
 | BST-1063 | #2206 **DO NOT MERGE** | bump works for greenfield only. [BST-1081](https://linear.app/brainstrike/issue/BST-1081) Urgent + [BST-1080](https://linear.app/brainstrike/issue/BST-1080) filed. Both obvious fixes ruled out — read below |
 | BST-1064 | #2207 draft | harness fixed and re-measured (stdev 295 ms → 18 ms), premise disproved, baseline still owed |
 | BST-1068 | #2191 open | human hardware run complete; recommendation survived and is now numeric |
@@ -121,11 +121,36 @@ established (they are in the ticket, repeated here because they are easy to miss
   its own for supply-chain reasons; match that posture).
 - Wire the unpacked dir into **factory reset**.
 
-**Salvaged before the lane was lost — PR #2205 (draft), branch
-`seandearnaley/bst-1061-bundle-a-pinned-cpython-...`.** It contains only
-`apps/desktop/resources/python-runtime/manifest.json` plus a `.gitignore` rule,
-but it carries the expensive part: the pinned release, **independently verified
-by downloading both tarballs and hashing them**.
+**PR #2205 is now FULLY IMPLEMENTED and out of draft** (~1350 lines): the
+checksum-verified fetch script, `resolvePythonBinary()`, `runSkillScript`
+wiring, factory-reset integration, third-party notices, and six test files.
+This section previously said implementation had not started — that was true at
+salvage time and is no longer.
+
+> **Three open review findings before it can merge**, the third being the
+> silent one:
+> 1. `extraResources` is top-level, so **both macOS tarballs ship inside the
+>    Windows and Linux installers** (~50 MB of dead weight where
+>    `resolvePythonBinary` always throws `python_unsupported_platform`, and
+>    those artifacts then carry a PSF component the notices file frames as
+>    macOS-only). Even the mac build ships both triples while
+>    `resolveTargetTriple` picks one.
+> 2. The fetch is wired into `build`, so a **mandatory GitHub Releases download
+>    now sits on CI's critical path** — `type-check` and the required E2E smoke
+>    both `dependsOn: ["build"]`, on platforms that never use the artifact. No
+>    `AbortSignal`, no timeout, no retry, so a stall hangs to the job timeout.
+>    Moving the hook to `dist`/`pack`/`start` covers every packaging path and
+>    takes the network off the build graph.
+> 3. **The success memo outlives factory reset.** Resolve → memoize → user
+>    resets (deleting `userData/python-runtime`, as the new test pins) → the
+>    next `python3` script in the same process hits the memo, returns the
+>    deleted path, and gets a raw spawn `ENOENT` — **no re-unpack and no typed
+>    `python_*` error**, the exact untyped failure this error family exists to
+>    prevent. There is no relaunch after reset, so it is reachable in one
+>    session. Make the memo self-validating.
+
+The pinned release, **independently verified by downloading both tarballs and
+hashing them**:
 
 | Field | Value |
 | --- | --- |
