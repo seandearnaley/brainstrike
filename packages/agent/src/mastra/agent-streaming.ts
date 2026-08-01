@@ -1,11 +1,22 @@
 /**
  * Mastra agent streaming (BST-742): the stream entry points
  * (`streamMastraAgent`, `streamMastraToolApprovalAction`,
- * `streamMastraToolResumeAction`, `listSuspendedMastraRuns`) plus the private
- * stream-part mapping, provider-error termination, and tool-loop option
- * machinery they share. Runtime ASSEMBLY (the factory + tool pipeline) lives
- * in `agent-runtime.ts` / `runtime-assembly/`; this module depends on it,
- * never the reverse. See docs/agents/assistant-runtime.md.
+ * `streamMastraToolResumeAction`, `listSuspendedMastraRuns`), the R6 stream-part
+ * dispatch, and the tool-loop option machinery they share. Runtime ASSEMBLY
+ * (the factory + tool pipeline) lives in `agent-runtime.ts` /
+ * `runtime-assembly/`; this module depends on it, never the reverse.
+ *
+ * The mapping concerns the dispatch delegates to (BST-986): run-event minting in
+ * `stream-run-event-chunks.ts`, tool-lifecycle state + tool/delegation mapping in
+ * `tool-lifecycle-processors.ts`, approval/suspend pauses in
+ * `tool-approval-chunks.ts`, and abnormal-ending policy in
+ * `stream-termination.ts`. The pure decoders live in `mastra-chunk-decoding.ts`
+ * (BST-985). What stays HERE is pinned by path in
+ * `scripts/mastra-stream-chunk-contract.mjs`: the `ChunkType` import, the static
+ * disposition inventory, `processMastraStreamPart`, and
+ * `warnForUnrecognizedMastraStreamPart`.
+ *
+ * See docs/agents/assistant-runtime.md and docs/agents/mastra-boundary.md R6.
  */
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import {
@@ -13,47 +24,26 @@ import {
   resolveOpenRouterCodingMaxOutputTokens,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
-import {
-  hasRegisteredSuspendResumeUi,
-  REGISTERED_SUSPEND_RESUME_TOOL_IDS,
-  UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
-} from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
-import { type ProviderRunError, providerRunErrorToEventMetadata } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
 import { getDefaultModel } from '../providers/provider-factory';
-import type {
-  AssistantRunEventKind,
-  AssistantRunEventMetadata,
-  AssistantRunEventStatus,
-} from '../run-events';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
-import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
-import {
-  ToolCallInputStreamingTimeoutError,
-  withToolCallInputTimeout,
-} from '../stream/with-tool-call-input-timeout';
+import { withInactivityTimeout } from '../stream/with-inactivity-timeout';
+import { withToolCallInputTimeout } from '../stream/with-tool-call-input-timeout';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
-import type {
-  AgentMessage,
-  RuntimeData,
-  StreamChunk,
-  StreamChunkTool,
-  StreamIterator,
-} from '../types';
+import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
 import {
   convertMessagesToMastra,
   createMastraAgentRuntime,
@@ -65,18 +55,11 @@ import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import {
   asMastraStreamPart,
-  buildProviderErrorDiagnosticCode,
-  buildProviderErrorDiagnosticCorrelation,
   getDeltaText,
-  getToolCallIdFromToolEvent,
   isObservationalMemoryDataChunkType,
-  MAX_VISIBLE_PROVIDER_ERROR_CHARS,
   type MastraStreamPart,
   makeStepMetadata,
-  makeToolEventMetadata,
   OM_FAILURE_DETAIL_MAX_CHARS,
-  type ResolvedTripwire,
-  readFinishReason,
   readOmTokenCount,
   resolveProviderError,
   resolveTripwire,
@@ -84,14 +67,13 @@ import {
 } from './mastra-chunk-decoding';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
 import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
-import { type PermissionAskToolMetadata, resolveAskToolMetadata } from './permission-tool-gate';
+import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
 import type { ProjectionSafeToolCallFilter } from './projection-safe-tool-call-filter';
 import { computePromptBreakdown } from './prompt-breakdown';
 import { createAssistantMessageIdGenerator } from './runtime-assembly/assistant-message-id';
 import {
   accumulateSteppedUsage,
-  readCacheTokenCount,
   readOpenRouterBilledCost,
   readStreamPartUsage,
 } from './runtime-assembly/usage-metering';
@@ -100,18 +82,31 @@ import {
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
 import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
+import { makeRunEventChunk, makeSyntheticFinishChunk } from './stream-run-event-chunks';
 import {
-  createDelegationConfig,
-  createDelegationLifecycleTracker,
-  type DelegationLifecycleTracker,
-  type SubagentChildUsageReport,
-} from './subagent-delegation';
+  isStreamWatchdogError,
+  makeProviderErrorTermination,
+  makeStreamWatchdogTermination,
+  makeTripwireTermination,
+} from './stream-termination';
+import { createDelegationConfig, createDelegationLifecycleTracker } from './subagent-delegation';
+import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
 import {
-  mapMastraToolEvent,
-  readMastraStreamPartString,
-  readMastraStreamPartValue,
-  readNestedToolOutputChunk,
-} from './tool-event-mapper';
+  createDelegationUsageCapture,
+  type DelegationUsageCapture,
+  makeCancelledDelegationRunEventChunks,
+  makeFinishChunk,
+  makeLifecycleStepMetadata,
+  makePendingToolOutputRunEventChunks,
+  makeTerminalRunEvent,
+  mapDelegationToolOutput,
+  mapGenericToolEvent,
+  mapToolLifecyclePart,
+  type ProcessStreamPartResult,
+  recordFirstTextLatency,
+  resolveDelegationPersona,
+  type ToolLifecycleState,
+} from './tool-lifecycle-processors';
 import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
@@ -221,191 +216,6 @@ function readStaticMastraChunkDisposition(type: string): MastraStaticChunkDispos
   return MASTRA_STATIC_CHUNK_DISPOSITIONS[type as keyof typeof MASTRA_STATIC_CHUNK_DISPOSITIONS];
 }
 
-function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
-  const p = asMastraStreamPart(part);
-  const usage = readStreamPartUsage(p) ?? {};
-  const promptTokensRaw = usage.promptTokens ?? usage.inputTokens;
-  const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
-  const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
-  const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
-  const contextInputTokens = lifecycleState.latestStepPromptTokens ?? promptTokens;
-  const contextOutputTokens = lifecycleState.latestStepCompletionTokens ?? completionTokens;
-  const finishCost = readOpenRouterBilledCost(p);
-  if (lifecycleState.requiresBilledCost && lifecycleState.sawStepWithoutBilledCost) {
-    // Mastra makes terminal token usage cumulative, but copies providerMetadata
-    // from only the final model step. A terminal cost therefore cannot repair a
-    // missing earlier step without silently undercounting the provider bill.
-    throw new Error('OpenRouter model step omitted required provider-reported billed cost.');
-  }
-  if (
-    lifecycleState.requiresBilledCost &&
-    !lifecycleState.sawStepBilledCost &&
-    finishCost === undefined
-  ) {
-    throw new Error('OpenRouter completion omitted required provider-reported billed cost.');
-  }
-  const billedCostUsd = lifecycleState.sawStepBilledCost
-    ? lifecycleState.stepBilledCostUsd
-    : finishCost;
-  const cacheReadInputTokens = lifecycleState.includeCacheTokenClasses
-    ? readCacheTokenCount(usage.cachedInputTokens)
-    : undefined;
-  const cacheCreationInputTokens = lifecycleState.includeCacheTokenClasses
-    ? readCacheTokenCount(usage.cacheCreationInputTokens)
-    : undefined;
-  return {
-    ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
-    finishReason: readFinishReason(part),
-    path: [],
-    type: 'message-finish',
-    usage: {
-      completionTokens,
-      contextInputTokens,
-      contextOutputTokens,
-      promptTokens,
-      ...(cacheCreationInputTokens === undefined ? {} : { cacheCreationInputTokens }),
-      ...(cacheReadInputTokens === undefined ? {} : { cacheReadInputTokens }),
-    },
-  };
-}
-
-function makeSyntheticFinishChunk(): StreamChunk {
-  return {
-    finishReason: 'other',
-    path: [],
-    type: 'message-finish',
-    usage: { completionTokens: 0, promptTokens: 0 },
-  };
-}
-
-function makeErrorFinishChunk(): StreamChunk {
-  return {
-    finishReason: 'error',
-    path: [],
-    type: 'message-finish',
-    usage: { completionTokens: 0, promptTokens: 0 },
-  };
-}
-
-function makeToolCallsFinishChunk(): StreamChunk {
-  return {
-    finishReason: 'tool-calls',
-    path: [],
-    type: 'message-finish',
-    usage: { completionTokens: 0, promptTokens: 0 },
-  };
-}
-
-function makeRunEventChunk(
-  kind: AssistantRunEventKind,
-  status: AssistantRunEventStatus,
-  label: string,
-  metadata?: AssistantRunEventMetadata,
-  timestamp?: string
-): StreamChunk {
-  return {
-    event: {
-      id: `run-event-${generateUUID()}`,
-      kind,
-      label,
-      status,
-      timestamp: timestamp ?? new Date().toISOString(),
-      ...(metadata ? { metadata } : {}),
-    },
-    type: 'run-event',
-  };
-}
-
-/**
- * A `run.failed` chunk that also carries a SPECIFIC `detail`.
- *
- * The three stream terminations all use the same generic label ("Assistant run
- * failed"), which is fine for the run-event timeline but useless as durable
- * failure text: `data-stream-mapper` derives `thread_runs.error` from this
- * event, so without a detail every provider failure, stall, and tool-input
- * timeout persists the same signal-free string, and the debug bundle's Failure
- * summary cannot say WHY a run failed.
- *
- * Deliberately a separate helper rather than another optional parameter on
- * `makeRunEventChunk`: that function's trailing optionals are `metadata` and
- * `timestamp`, and `detail`/`timestamp` are both `string`, so a positional
- * mistake between them would type-check cleanly while silently writing a
- * timestamp into the detail field.
- */
-function makeRunFailedChunk(
-  label: string,
-  detail: string,
-  metadata?: AssistantRunEventMetadata
-): StreamChunk {
-  // Built directly rather than by spreading `makeRunEventChunk(...)`: its return
-  // type is the `StreamChunk` union, so `chunk.event` is not accessible without
-  // narrowing and the spread widens the result off the union. The small overlap
-  // with that function's body is the price of staying type-safe here.
-  return {
-    event: {
-      detail,
-      id: `run-event-${generateUUID()}`,
-      kind: 'run.failed',
-      label,
-      status: 'failed',
-      timestamp: new Date().toISOString(),
-      ...(metadata ? { metadata } : {}),
-    },
-    type: 'run-event',
-  };
-}
-
-type TerminalToolCallState = 'completed' | 'failed';
-
-interface OutputOnlyToolEvent {
-  timestamp: string;
-  toolEvent: StreamChunkTool;
-}
-
-interface ToolLifecycleState {
-  delegationLifecycle: DelegationLifecycleTracker;
-  firstTextLatencyMs?: number;
-  /**
-   * Cache token classes are an Anthropic pricing contract (read 0.1×,
-   * write 1.25×). Other providers report auto-discounted cached tokens whose
-   * rates we do not model — dropping the classes keeps their estimates on the
-   * documented conservative full-rate path instead of mispricing them.
-   * Keyed off the PARENT run's provider: Mastra does not fold a delegated
-   * subagent's model-step usage into the parent finish counter, so a child
-   * pinned to a different provider cannot leak foreign cache classes here
-   * (review nit, BST-587).
-   */
-  includeCacheTokenClasses: boolean;
-  /** Provider usage for the latest completed step, kept separate from billed sums. */
-  latestStepCompletionTokens?: number;
-  latestStepPromptTokens?: number;
-  outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
-  /** Actual provider/Mastra prompt usage, absent when the stream never reported it. */
-  providerReportedPromptTokens?: number;
-  requiresBilledCost: boolean;
-  sawStepBilledCost: boolean;
-  sawStepWithoutBilledCost: boolean;
-  /**
-   * Mid-run steering (BST-588): polled at each step boundary. When true after
-   * a step-finish, the run ends gracefully (run.steered + run.finished events
-   * + normal finish) so the queued steer message dispatches as the next turn.
-   * Absent control = steering not offered for this run.
-   */
-  steering?: { stopRequested(): boolean } | undefined;
-  stepBilledCostUsd: number;
-  /**
-   * Per-step token usage accumulated across step-finish parts (mirrors
-   * stepBilledCostUsd). A steered run's finish reports THIS sum — the
-   * boundary step's own usage alone would under-count every earlier step
-   * (Mastra's natural terminal usage is the same cross-step sum).
-   */
-  steppedCompletionTokens: number;
-  steppedPromptTokens: number;
-  streamStartedAtMs: number;
-  terminalToolCallStates: Map<string, TerminalToolCallState>;
-  warnedUnknownChunkTypes: Set<string>;
-}
-
 function warnForUnrecognizedMastraStreamPart(
   type: string,
   lifecycleState: ToolLifecycleState
@@ -421,638 +231,6 @@ function warnForUnrecognizedMastraStreamPart(
     chunkType: formatDiagnosticChunkType(type),
     code: 'mastra_agent_unrecognized_stream_chunk',
   });
-}
-
-function makeLifecycleStepMetadata(
-  part: unknown,
-  lifecycleState: ToolLifecycleState
-): AssistantRunEventMetadata | undefined {
-  const metadata: AssistantRunEventMetadata = {
-    ...(makeStepMetadata(part) ?? {}),
-    ...(lifecycleState.firstTextLatencyMs === undefined
-      ? {}
-      : { firstTextLatencyMs: lifecycleState.firstTextLatencyMs }),
-  };
-  return Object.keys(metadata).length > 0 ? metadata : undefined;
-}
-
-function recordFirstTextLatency(delta: string, lifecycleState: ToolLifecycleState): void {
-  if (delta.length === 0 || lifecycleState.firstTextLatencyMs !== undefined) {
-    return;
-  }
-  lifecycleState.firstTextLatencyMs = Math.max(0, Date.now() - lifecycleState.streamStartedAtMs);
-}
-
-function makeTerminalRunEvent(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
-  const finishReason = readFinishReason(part);
-  const terminalMetadata: AssistantRunEventMetadata = {
-    ...(makeLifecycleStepMetadata(part, lifecycleState) ?? {}),
-    finishReason,
-  };
-  if (
-    finishReason === 'absent' ||
-    finishReason === 'stop' ||
-    finishReason === 'tool-calls' ||
-    finishReason === 'unknown'
-  ) {
-    return makeRunEventChunk(
-      'run.finished',
-      'completed',
-      'Assistant run completed',
-      terminalMetadata
-    );
-  }
-  const label =
-    finishReason === 'length'
-      ? 'Assistant run reached the model output token limit'
-      : `Assistant run ended abnormally (${finishReason})`;
-  return makeRunEventChunk('run.failed', 'failed', label, terminalMetadata);
-}
-
-/**
- * Terminal `subagent.failed` (cancelled) chunks for every delegation still in
- * flight when the parent run aborts — so a cancelled parent never leaves an
- * orphaned `subagent.started` with no counterpart.
- */
-function makeCancelledDelegationRunEventChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
-  return lifecycleState.delegationLifecycle
-    .drainInFlight()
-    .map((metadata) =>
-      makeRunEventChunk('subagent.failed', 'cancelled', 'Subagent cancelled', metadata)
-    );
-}
-
-function makeToolLifecycleRunEventChunk(
-  toolEvent: StreamChunkTool,
-  mastraPartType: string | undefined,
-  lifecycleState: ToolLifecycleState
-): StreamChunk | undefined {
-  const toolCallId = getToolCallIdFromToolEvent(toolEvent);
-  const metadata = makeToolEventMetadata(toolEvent);
-
-  switch (toolEvent.status) {
-    case 'start':
-      if (!toolCallId) {
-        return;
-      }
-      return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
-    case 'success': {
-      if (!toolCallId) {
-        // Mastra terminal tool parts must carry the same stable call id as their
-        // start part. Name-based matching would be ambiguous for concurrent
-        // same-name tool calls, so durable terminal events are not guessed.
-        return;
-      }
-      if (mastraPartType === 'tool-output') {
-        if (!lifecycleState.terminalToolCallStates.has(toolCallId)) {
-          lifecycleState.outputOnlyToolEvents.set(toolCallId, {
-            timestamp: new Date().toISOString(),
-            toolEvent,
-          });
-        }
-        return;
-      }
-      if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
-        return;
-      }
-      lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
-      lifecycleState.outputOnlyToolEvents.delete(toolCallId);
-      return makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata);
-    }
-    case 'error': {
-      if (!toolCallId) {
-        return;
-      }
-      if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
-        return;
-      }
-      lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
-      lifecycleState.outputOnlyToolEvents.delete(toolCallId);
-      return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
-    }
-    case 'progress':
-      return;
-  }
-}
-
-function makePendingToolOutputRunEventChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
-  const chunks: StreamChunk[] = [];
-  for (const [toolCallId, outputOnlyToolEvent] of lifecycleState.outputOnlyToolEvents) {
-    if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
-      continue;
-    }
-    lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
-    // Sequence remains the ordering source of truth; this timestamp preserves
-    // when the output-only terminal observation happened for duration metrics.
-    chunks.push(
-      makeRunEventChunk(
-        'tool.completed',
-        'completed',
-        'Tool completed',
-        makeToolEventMetadata(outputOnlyToolEvent.toolEvent),
-        outputOnlyToolEvent.timestamp
-      )
-    );
-  }
-  lifecycleState.outputOnlyToolEvents.clear();
-  return chunks;
-}
-
-function getUnsupportedApprovalDetail(
-  isSuspended: boolean,
-  missingToolCallId: boolean,
-  missingRunId: boolean
-): string {
-  if (missingToolCallId) {
-    return `Mastra ${isSuspended ? 'suspended a tool call' : 'requires tool approval'} without a tool call id, so Brainstrike cannot safely resume it.`;
-  }
-  if (missingRunId && !isSuspended) {
-    return 'Mastra requires tool approval without a run id, so Brainstrike cannot safely approve or decline it.';
-  }
-  if (isSuspended) {
-    return 'Mastra suspended a tool call, but this Brainstrike client cannot resume suspended tool calls yet.';
-  }
-  return 'Mastra requires tool approval, but this Brainstrike client cannot approve or decline tool calls yet.';
-}
-
-function makeUnsupportedApprovalChunks(
-  part: unknown,
-  toolNames: Map<string, string>,
-  sanitizedNameMap: Map<string, string> | undefined,
-  eventType: 'tool-call-approval' | 'tool-call-suspended'
-): StreamChunk[] {
-  const upstreamToolCallId =
-    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
-  const missingToolCallId = upstreamToolCallId === undefined;
-  const toolCallId = upstreamToolCallId ?? `mastra-${eventType}-missing-tool-call-id`;
-  const rawToolName =
-    readMastraStreamPartString(part, 'toolName') ??
-    readMastraStreamPartString(part, 'name') ??
-    (upstreamToolCallId ? toolNames.get(upstreamToolCallId) : undefined) ??
-    'unknown-tool';
-  // NAME-FORM CONTRACT: the runtime `toolNameMap` is AUTHORITATIVE (it is the only
-  // layer that can bridge MCP names) and the static native reverse map is only the
-  // fallback for a route whose runtime registered no natives. Order matters: a
-  // mapped original may ITSELF be a sanitized native id (`sanitizeTools` records
-  // an identity mapping for a tool registered as `brainstrike_executeCommand`), so
-  // denormalizing a successful hit would rewrite an authoritative name.
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? denormalizeNativeToolName(rawToolName);
-  const runId = readMastraStreamPartString(part, 'runId');
-  const missingRunId = runId === undefined;
-  const args = readMastraStreamPartValue(part, 'args');
-  const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
-  const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
-  const isSuspended = eventType === 'tool-call-suspended';
-  const detail = getUnsupportedApprovalDetail(isSuspended, missingToolCallId, missingRunId);
-  const label = isSuspended ? 'Tool resume required' : 'Tool approval required';
-
-  logger.warn('mastra tool approval pause requires unsupported client action', {
-    code: 'mastra_agent_tool_action_required',
-    eventType,
-    missingRunId,
-    missingToolCallId,
-    ...(runId ? { runId } : {}),
-    toolCallId,
-    toolName,
-  });
-
-  return [
-    {
-      name: toolName,
-      payload: {
-        actionRequired: true,
-        approvalRequired: !isSuspended,
-        callId: toolCallId,
-        detail,
-        error: detail,
-        ...(missingToolCallId ? { missingToolCallId: true } : {}),
-        ...(missingRunId ? { missingRunId: true } : {}),
-        toolCallId,
-        ...(args === undefined ? {} : { args, input: args }),
-        ...(runId ? { runId } : {}),
-        ...(resumeSchema === undefined ? {} : { resumeSchema }),
-        ...(suspendPayload === undefined ? {} : { suspendPayload }),
-        suspended: isSuspended,
-      },
-      status: 'error',
-      type: 'tool-event',
-    },
-    makeRunEventChunk('run.failed', 'failed', label, {
-      actionRequired: true,
-      approvalRequired: !isSuspended,
-      resumeSupported: false,
-      ...(runId ? { runId } : {}),
-      ...(isSuspended ? { suspended: true } : {}),
-      ...(missingToolCallId ? { missingToolCallId: true } : {}),
-      ...(missingRunId ? { missingRunId: true } : {}),
-      toolCallId,
-      toolName,
-    }),
-    makeErrorFinishChunk(),
-  ];
-}
-
-/**
- * VISIBLE, NON-TERMINAL rejection notice for a well-formed suspend pause whose
- * tool has NO registered typed resume UI (`REGISTERED_SUSPEND_RESUME_TOOL_IDS`):
- * a single DURABLE {@link UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND} run event plus
- * a coded error log.
- *
- * The kind is `tool.resume.unsupported`, never `tool.failed`: no tool ran and
- * none failed. `tool.failed` is consumed as a METRIC — the Task Ledger counts it
- * as both a tool call and a failed tool call, and `collectToolDurations` /
- * the timeline's `tool.started` resolution close a call out on it. Because the
- * run deliberately stays suspended, a build that later registers the tool
- * resumes the SAME toolCallId and emits the real `tool.completed`, so reusing
- * `tool.failed` would double-count that one call forever and would close out a
- * tool that is still suspended (contradicting `runStillSuspended: true` in this
- * very event's metadata). The new kind is in `isAlwaysVisibleRunEvent`, so the
- * row shows at the DEFAULT detail level and survives a thread reload — the
- * transient `brainstrike.tool-suspend` notice does not.
- *
- * Deliberately NOT the {@link makeUnsupportedApprovalChunks} idiom (`run.failed`
- * + error finish). That idiom is right for a MALFORMED pause, which really is
- * unrecoverable — this pause is not. Mastra persists the suspended workflow
- * snapshot BEFORE this stream part is mapped, so terminating the client stream
- * removes nothing: `listSuspendedRuns()` still returns the run and a later
- * resume can still revive it. A durable `run.failed` claiming the run "was
- * stopped" would therefore be FALSE.
- *
- * Leaving the run suspended server-side is INTENTIONAL, not a leak: a user who
- * upgrades to a build that registers this tool's resume UI can still answer the
- * very same pause. What this build owes them is honesty — this run event states
- * that THIS build cannot answer the pause, and says nothing about the run's
- * server-side state. The pause itself still reaches the renderer (carrying
- * `resumeSupported: false`, which makes the mapper SETTLE the tool card so a
- * dismissed notice cannot strand a permanently Running one), where
- * `UnsupportedSuspendNotice` explains it and offers a dismiss action.
- *
- * The tool-defined `suspendPayload` is deliberately EXCLUDED from the durable
- * metadata (it is arbitrary tool content; run-event metadata is
- * allowlist-by-denial, not a content channel). It travels only on the transient
- * `tool-suspend-required` chunk, which is never persisted.
- */
-function makeUnregisteredSuspendResumeNoticeChunk(input: {
-  runId: string;
-  toolCallId: string;
-  toolName: string;
-}): StreamChunk {
-  logger.error('suspending tool has no registered resume UI', {
-    code: 'mastra_agent_suspend_resume_schema_unregistered',
-    registeredSuspendResumeTools: [...REGISTERED_SUSPEND_RESUME_TOOL_IDS],
-    runId: input.runId,
-    toolCallId: input.toolCallId,
-    toolName: input.toolName,
-  });
-
-  return makeRunEventChunk(
-    UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
-    'failed',
-    'Tool pause cannot be answered by this build (no registered resume UI)',
-    {
-      resumeSupportedByClient: false,
-      runId: input.runId,
-      runStillSuspended: true,
-      suspended: true,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      unregisteredResumeSchema: true,
-    }
-  );
-}
-
-function makeApprovalRequiredChunks(
-  part: unknown,
-  toolNames: Map<string, string>,
-  sanitizedNameMap: Map<string, string> | undefined,
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata> | undefined
-): StreamChunk[] {
-  const toolCallId =
-    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
-  const runId = readMastraStreamPartString(part, 'runId');
-  if (!(toolCallId && runId)) {
-    return makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, 'tool-call-approval');
-  }
-
-  const rawToolName =
-    readMastraStreamPartString(part, 'toolName') ??
-    readMastraStreamPartString(part, 'name') ??
-    toolNames.get(toolCallId) ??
-    'unknown-tool';
-  // Same map-wins order as the unsupported branch (and as
-  // `resolveDiscoveredApprovalToolName` / `ProjectionSafeToolCallFilter`): the
-  // emitted `toolName` is the label the approval notice shows and the id
-  // per-tool grant handling submits, so a mapped original is never rewritten.
-  const toolName = sanitizedNameMap?.get(rawToolName) ?? denormalizeNativeToolName(rawToolName);
-  const args = readMastraStreamPartValue(part, 'args');
-  const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
-  // The Mastra approval part names the tool by its registered (sanitized) id
-  // today, which is how `askTools` is keyed by the permission gate — but the
-  // lookup accepts EITHER name form (sanitized key or originalName) so a part
-  // carrying the original dotted name still resolves. When the pause was driven
-  // by a permission 'ask', surface the risk reason so the UI can say WHY.
-  const askMetadata = askTools ? resolveAskToolMetadata(askTools, rawToolName) : undefined;
-  if (!askMetadata && askTools && askTools.size > 0) {
-    // Policy-driven run (non-empty ask set) with an approval pause we cannot
-    // attribute: surface the pause WITHOUT metadata (never fabricate a
-    // riskCategory) and log LOUDLY — a silent drop here removes the notice's
-    // reason line and grant actions with no trace (no-silent-fallbacks).
-    logger.error('approval pause tool not found in ask-tool metadata under either name form', {
-      code: 'mastra_agent_approval_metadata_unresolved',
-      knownAskTools: Array.from(askTools.keys()),
-      rawToolName,
-      runId,
-      toolCallId,
-      toolName,
-    });
-  }
-
-  logger.info('mastra tool approval pause surfaced for client approval', {
-    code: 'mastra_agent_tool_approval_required',
-    runId,
-    toolCallId,
-    toolName,
-    ...(askMetadata ? { riskCategory: askMetadata.riskCategory } : {}),
-  });
-
-  return [
-    {
-      runId,
-      toolCallId,
-      toolName,
-      type: 'tool-approval-required',
-      ...(askMetadata ? { policyDecision: 'ask', riskCategory: askMetadata.riskCategory } : {}),
-      ...(args === undefined ? {} : { args }),
-      ...(resumeSchema === undefined ? {} : { resumeSchema }),
-    },
-    makeToolCallsFinishChunk(),
-  ];
-}
-
-/**
- * Turn a `tool-call-suspended` stream part (emitted when a suspending tool calls
- * `suspend()`) into the resumable `tool-suspend-required` chunk + a tool-calls
- * finish. Mirrors {@link makeApprovalRequiredChunks} but carries the tool-defined
- * `suspendPayload` (plan body / question) instead of approval-risk metadata. When
- * the pause is malformed (missing toolCallId/runId) we fall back to the existing
- * unsupported-termination so a bad pause fails visibly rather than silently, and
- * when the tool has no registered typed resume UI we prepend the NON-terminal
- * {@link makeUnregisteredSuspendResumeNoticeChunk} so the rejection is visible
- * and durable without falsely claiming the run was stopped.
- */
-function makeToolSuspendRequiredChunks(
-  part: unknown,
-  toolNames: Map<string, string>,
-  sanitizedNameMap: Map<string, string> | undefined
-): StreamChunk[] {
-  const toolCallId =
-    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
-  const runId = readMastraStreamPartString(part, 'runId');
-  if (!(toolCallId && runId)) {
-    return makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, 'tool-call-suspended');
-  }
-
-  const rawToolName =
-    readMastraStreamPartString(part, 'toolName') ??
-    readMastraStreamPartString(part, 'name') ??
-    toolNames.get(toolCallId) ??
-    'unknown-tool';
-  // Resolve the CLIENT-FACING (dotted) name the same way the approval side does
-  // in `resolveDiscoveredApprovalToolName`: the runtime's sanitized→original map
-  // first, then the STATIC native reverse map. The real stream part carries the
-  // Mastra-registered id (`brainstrike_askUser`), and `sanitizedNameMap` is
-  // optional — spread conditionally at every call site — so a missing map must
-  // not decide whether a pause is resumable. `denormalizeNativeToolName` is a
-  // no-op for already-dotted and non-native names.
-  const toolName = denormalizeNativeToolName(sanitizedNameMap?.get(rawToolName) ?? rawToolName);
-  const unregisteredNotice = hasRegisteredSuspendResumeUi(toolName)
-    ? undefined
-    : makeUnregisteredSuspendResumeNoticeChunk({ runId, toolCallId, toolName });
-  const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
-  const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
-
-  if (!unregisteredNotice) {
-    logger.info('mastra tool suspend pause surfaced for client resume', {
-      code: 'mastra_agent_tool_suspend_required',
-      runId,
-      toolCallId,
-      toolName,
-    });
-  }
-
-  return [
-    ...(unregisteredNotice ? [unregisteredNotice] : []),
-    {
-      runId,
-      toolCallId,
-      toolName,
-      type: 'tool-suspend-required',
-      ...(suspendPayload === undefined ? {} : { suspendPayload }),
-      ...(resumeSchema === undefined ? {} : { resumeSchema }),
-      // Only ever narrowed to false — a registered pause omits the flag so its
-      // tool card stays open, which is exactly what "waiting on you" means.
-      ...(unregisteredNotice ? { resumeSupported: false as const } : {}),
-    },
-    makeToolCallsFinishChunk(),
-  ];
-}
-
-interface ProcessStreamPartResult {
-  chunks: StreamChunk[];
-  finished: boolean;
-}
-
-/**
- * Resolve the delegation persona id for a parent `tool-call`/`tool-result`/
- * `tool-error` part whose tool is an `agent-<key>` delegation tool, or undefined
- * when it is an ordinary tool. Delegation tool names are Mastra-constructed
- * (`agent-<personaId>`) and never enter the sanitized name map, so the raw
- * toolName equals the key we look up.
- */
-function resolveDelegationPersona(
-  part: unknown,
-  toolNames: Map<string, string>,
-  delegationToolPersonas: ReadonlyMap<string, string>
-): { parentToolCallId: string | undefined; personaId: string; toolName: string } | undefined {
-  if (delegationToolPersonas.size === 0) {
-    return;
-  }
-  const callId =
-    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
-  const rawToolName =
-    readMastraStreamPartString(part, 'toolName') ??
-    readMastraStreamPartString(part, 'name') ??
-    (callId ? toolNames.get(callId) : undefined);
-  if (!rawToolName) {
-    return;
-  }
-  const personaId = delegationToolPersonas.get(rawToolName);
-  if (!personaId) {
-    return;
-  }
-  return { parentToolCallId: callId, personaId, toolName: rawToolName };
-}
-
-/**
- * Map a delegation `tool-output` part (nested child chunk forwarded on the parent
- * stream, §2.5) into `subagent.tool.*` run events. The generic `mapMastraToolEvent`
- * path is deliberately BYPASSED for these parts (it would emit a bogus
- * successful tool event + `toolCallResult` frame per nested chunk). Child
- * text/reasoning/step/finish chunks produce NOTHING.
- */
-function mapDelegationToolOutput(
-  part: unknown,
-  parentToolCallId: string | undefined,
-  personaId: string,
-  delegationToolName: string
-): StreamChunk[] {
-  const nested = readNestedToolOutputChunk(part);
-  if (!nested) {
-    return [];
-  }
-  const baseMetadata: AssistantRunEventMetadata = {
-    personaId,
-    ...(parentToolCallId ? { parentToolCallId } : {}),
-    toolName: delegationToolName,
-  };
-  const childMetadata: AssistantRunEventMetadata = {
-    ...baseMetadata,
-    ...(nested.toolCallId ? { toolCallId: nested.toolCallId } : {}),
-    ...(nested.toolName ? { childToolName: nested.toolName } : {}),
-  };
-  if (nested.type === 'tool-call') {
-    return [
-      makeRunEventChunk('subagent.tool.started', 'running', 'Subagent tool started', childMetadata),
-    ];
-  }
-  if (nested.type === 'tool-result') {
-    return [
-      nested.isError
-        ? makeRunEventChunk('subagent.tool.failed', 'failed', 'Subagent tool failed', childMetadata)
-        : makeRunEventChunk(
-            'subagent.tool.completed',
-            'completed',
-            'Subagent tool completed',
-            childMetadata
-          ),
-    ];
-  }
-  if (nested.type === 'tool-error') {
-    return [
-      makeRunEventChunk('subagent.tool.failed', 'failed', 'Subagent tool failed', childMetadata),
-    ];
-  }
-  return [];
-}
-
-/** The generic (non-delegation) tool-event mapping shared by every tool part. */
-function mapGenericToolEvent(
-  part: unknown,
-  toolNames: Map<string, string>,
-  lifecycleState: ToolLifecycleState,
-  partType: string,
-  sanitizedNameMap?: Map<string, string>
-): ProcessStreamPartResult {
-  const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
-  if (!(evt && evt.type === 'tool-event')) {
-    return { chunks: [], finished: false };
-  }
-  const runEvent = makeToolLifecycleRunEventChunk(evt, partType, lifecycleState);
-  return {
-    chunks: runEvent ? [evt, runEvent] : [evt],
-    finished: false,
-  };
-}
-
-/**
- * Per-leg bridge from `onDelegationComplete` (a Mastra callback OUTSIDE the
- * chunk loop) to the stream: completed child usage queues here and the
- * generator drains it into `child-run-usage` chunks on the next loop
- * iteration (the delegation tool-result part always follows the completion
- * callback) with a post-loop drain as the backstop. Model attribution is the
- * persona's model pin when present, else the parent run's model — the same
- * resolution the child actually executed with (never a guess).
- */
-interface DelegationUsageCapture {
-  drain: () => StreamChunk[];
-  onChildUsage: (report: SubagentChildUsageReport) => void;
-}
-
-function createDelegationUsageCapture(
-  personasById: ReadonlyMap<string, AssistantPersonaDefinition>,
-  runtimeData: RuntimeData | undefined
-): DelegationUsageCapture {
-  const pending: StreamChunk[] = [];
-  return {
-    drain: () => pending.splice(0, pending.length),
-    onChildUsage: (report) => {
-      const pin = personasById.get(report.personaId)?.model;
-      const model = pin?.modelId ?? runtimeData?.model;
-      const provider = pin?.provider ?? runtimeData?.provider;
-      pending.push({
-        type: 'child-run-usage',
-        value: {
-          estimated: false,
-          inputTokens: report.inputTokens,
-          ...(model ? { model } : {}),
-          outputTokens: report.outputTokens,
-          personaId: report.personaId,
-          ...(provider ? { provider } : {}),
-          source: 'subagent',
-        },
-      });
-    },
-  };
-}
-
-/** The subagent.* run event that mirrors a delegation tool-call/result/error. */
-function makeSubagentLifecycleChunk(
-  partType: 'tool-call' | 'tool-error' | 'tool-result',
-  metadata: AssistantRunEventMetadata
-): StreamChunk {
-  if (partType === 'tool-call') {
-    return makeRunEventChunk('subagent.started', 'running', 'Subagent started', metadata);
-  }
-  if (partType === 'tool-error') {
-    return makeRunEventChunk('subagent.failed', 'failed', 'Subagent failed', metadata);
-  }
-  return makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
-}
-
-/**
- * A delegation tool-call/result/error part: the generic tool event PLUS a
- * mirrored subagent.* run event, while tracking the delegation's in-flight
- * lifecycle so an aborted run can emit a terminal event for orphans.
- */
-function mapToolLifecyclePart(
-  part: unknown,
-  toolNames: Map<string, string>,
-  lifecycleState: ToolLifecycleState,
-  partType: 'tool-call' | 'tool-error' | 'tool-result',
-  sanitizedNameMap: Map<string, string> | undefined,
-  delegationToolPersonas: ReadonlyMap<string, string>
-): ProcessStreamPartResult {
-  const delegation = resolveDelegationPersona(part, toolNames, delegationToolPersonas);
-  const generic = mapGenericToolEvent(part, toolNames, lifecycleState, partType, sanitizedNameMap);
-  if (!delegation) {
-    return generic;
-  }
-  const metadata: AssistantRunEventMetadata = {
-    personaId: delegation.personaId,
-    toolName: delegation.toolName,
-    ...(delegation.parentToolCallId ? { parentToolCallId: delegation.parentToolCallId } : {}),
-  };
-  if (delegation.parentToolCallId) {
-    if (partType === 'tool-call') {
-      lifecycleState.delegationLifecycle.started(delegation.parentToolCallId, metadata);
-    } else {
-      lifecycleState.delegationLifecycle.settled(delegation.parentToolCallId);
-    }
-  }
-  return {
-    chunks: [...generic.chunks, makeSubagentLifecycleChunk(partType, metadata)],
-    finished: false,
-  };
 }
 
 function processMastraStreamPart(
@@ -1400,189 +578,6 @@ function mapObservationalMemoryDataPart(part: MastraStreamPart): {
     ],
     finished: false,
   };
-}
-
-/**
- * Terminate a run gracefully after a provider/model error part.
- *
- * Emits a user-visible assistant message with the reason, flushes any pending
- * tool-output run-events, marks the run `run.failed` (which clears in-flight
- * "started" spinners in the renderer), and finishes with reason `error`. This
- * replaces throwing on the error part: the throw surfaced a data-stream error
- * frame the renderer never rendered, leaving the thread hung on a spinner.
- */
-function makeProviderErrorTermination(
-  detail: string,
-  lifecycleState: ToolLifecycleState,
-  part: unknown,
-  runtimeData: RuntimeData | undefined,
-  runError: ProviderRunError
-): ProcessStreamPartResult {
-  // Preserve the server-side breadcrumb. We terminate the run gracefully here
-  // (visible message + run.failed) instead of throwing through
-  // handleStreamFailure, so without this log the provider failure would be
-  // invisible server-side — the `mastra_agent_stream_finished` success line in
-  // the finally block would be the only record. Log at error level with a
-  // distinct code so these stay diagnosable even though the user sees a clean
-  // message. (Per AGENTS.md's observability working rule.) The FULL detail goes to
-  // the log; the visible message is clamped below.
-  logger.error('mastra stream terminated by provider error', {
-    code: buildProviderErrorDiagnosticCode(runError),
-    detail,
-    ...buildProviderErrorDiagnosticCorrelation(runtimeData),
-  });
-  return makeVisibleRunFailureTermination(
-    detail,
-    lifecycleState,
-    {
-      ...makeStepMetadata(part),
-      ...providerRunErrorToEventMetadata(runError),
-    },
-    'The model request failed'
-  );
-}
-
-function makeTripwireTermination(
-  tripwire: ResolvedTripwire,
-  lifecycleState: ToolLifecycleState,
-  part: unknown,
-  runtimeData: RuntimeData | undefined
-): ProcessStreamPartResult {
-  // Unlike provider error bodies, processor tripwire reasons and metadata are
-  // bounded before both logging and persistence. They may contain selected
-  // policy-triggering content, so the diagnostic breadcrumb must stay safe.
-  logger.error('mastra stream terminated by tripwire', {
-    code: 'mastra_agent_stream_tripwire',
-    detail: tripwire.detail,
-    tripwire: tripwire.diagnostic,
-    ...buildProviderErrorDiagnosticCorrelation(runtimeData),
-  });
-  return makeVisibleRunFailureTermination(
-    tripwire.detail,
-    lifecycleState,
-    {
-      ...makeStepMetadata(part),
-      tripwire: tripwire.diagnostic,
-    },
-    'The request was stopped'
-  );
-}
-
-function makeVisibleRunFailureTermination(
-  detail: string,
-  lifecycleState: ToolLifecycleState,
-  runMetadata: AssistantRunEventMetadata | undefined,
-  messagePrefix: string
-): ProcessStreamPartResult {
-  // Clamp the user-visible detail: provider error bodies can be arbitrarily long
-  // (and occasionally echo request context), which reads poorly as persisted
-  // assistant text. Provider errors retain their full detail in the breadcrumb;
-  // tripwire reasons arrive here already bounded by their privacy contract.
-  const visibleDetail = truncateStreamDetail(detail, MAX_VISIBLE_PROVIDER_ERROR_CHARS);
-  return {
-    chunks: [
-      ...makePendingToolOutputRunEventChunks(lifecycleState),
-      { type: 'text-delta', value: `${messagePrefix}: ${visibleDetail}` },
-      makeRunFailedChunk('Assistant run failed', visibleDetail, runMetadata),
-      makeErrorFinishChunk(),
-    ],
-    finished: true,
-  };
-}
-
-function makeStreamStalledTermination(
-  error: StreamStalledError,
-  lifecycleState: ToolLifecycleState,
-  runtimeData: RuntimeData | undefined
-): StreamChunk[] {
-  const provider = runtimeData?.provider?.trim().toLowerCase();
-  const model = runtimeData?.model?.trim();
-  const localRuntimeName =
-    provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
-  const diagnosticContext = {
-    inactivityMs: error.inactivityMs,
-    ...(model ? { model } : {}),
-    ...(provider ? { provider } : {}),
-  };
-  logger.error(
-    {
-      code: 'mastra_agent_stream_inactivity_timeout',
-      ...diagnosticContext,
-    },
-    'mastra stream stalled by inactivity timeout'
-  );
-  const visibleMessage =
-    localRuntimeName && model
-      ? `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`
-      : `The model stream stalled after ${error.inactivityMs}ms without output.`;
-  return [
-    // A stall mid-delegation must never leave an orphaned `subagent.started`
-    // with no terminal counterpart — mirror the abort branches' drain.
-    ...makeCancelledDelegationRunEventChunks(lifecycleState),
-    ...makePendingToolOutputRunEventChunks(lifecycleState),
-    {
-      type: 'text-delta',
-      value: visibleMessage,
-    },
-    makeRunFailedChunk('Assistant run failed', visibleMessage, {
-      code: error.code,
-      ...diagnosticContext,
-    }),
-    makeErrorFinishChunk(),
-  ];
-}
-
-function makeToolCallInputTimeoutTermination(
-  error: ToolCallInputStreamingTimeoutError,
-  lifecycleState: ToolLifecycleState,
-  runtimeData: RuntimeData | undefined
-): StreamChunk[] {
-  const provider = runtimeData?.provider?.trim().toLowerCase();
-  const model = runtimeData?.model?.trim();
-  const diagnosticContext = {
-    timeoutMs: error.timeoutMs,
-    toolCallId: error.toolCallId,
-    ...(model ? { model } : {}),
-    ...(provider ? { provider } : {}),
-  };
-  logger.error(
-    {
-      code: 'mastra_agent_tool_call_input_streaming_timeout',
-      ...diagnosticContext,
-    },
-    'mastra tool call input exceeded its streaming deadline'
-  );
-  return [
-    ...makeCancelledDelegationRunEventChunks(lifecycleState),
-    ...makePendingToolOutputRunEventChunks(lifecycleState),
-    {
-      type: 'text-delta',
-      value: `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms. The incomplete tool call was cancelled before execution.`,
-    },
-    makeRunFailedChunk(
-      'Assistant run failed',
-      `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms.`,
-      { code: error.code, ...diagnosticContext }
-    ),
-    makeErrorFinishChunk(),
-  ];
-}
-
-type StreamWatchdogError = StreamStalledError | ToolCallInputStreamingTimeoutError;
-
-function isStreamWatchdogError(error: unknown): error is StreamWatchdogError {
-  return error instanceof StreamStalledError || error instanceof ToolCallInputStreamingTimeoutError;
-}
-
-function makeStreamWatchdogTermination(
-  error: StreamWatchdogError,
-  lifecycleState: ToolLifecycleState,
-  runtimeData: RuntimeData | undefined
-): StreamChunk[] {
-  if (error instanceof ToolCallInputStreamingTimeoutError) {
-    return makeToolCallInputTimeoutTermination(error, lifecycleState, runtimeData);
-  }
-  return makeStreamStalledTermination(error, lifecycleState, runtimeData);
 }
 
 interface RuntimeInitializationResult {

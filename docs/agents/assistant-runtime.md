@@ -195,7 +195,9 @@ run outcome.
 **EVERY error finish is a failed durable outcome, not just `length`.** All three
 parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
 by `makeProviderErrorTermination`, `makeStreamStalledTermination`, and
-`makeToolCallInputTimeoutTermination`. This was NOT true until 2026-07-25:
+`makeToolCallInputTimeoutTermination` (all four abnormal-ending policies live in
+`packages/agent/src/mastra/stream-termination.ts` since BST-986; the watchdog
+MECHANISM stays in `../stream/with-*-timeout.ts`). This was NOT true until 2026-07-25:
 `getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the
 termination helpers already emit the human detail as a visible text-delta, so a
 message here would double-report it), and `terminalFailureText` was only ever
@@ -1650,7 +1652,8 @@ Contract types + guards live in `@brainstrike/assistant-contract/tool-suspend`
 (`readToolResumeRunConfigAction` returns `{invalid:true}` on a malformed action —
 surfaced as a 400, never coerced).
 
-**Stream path** (agent-streaming.ts): Mastra emits `tool-call-suspended` when a
+**Stream path** (`mastra/tool-approval-chunks.ts`, dispatched from
+`agent-streaming.ts`): Mastra emits `tool-call-suspended` when a
 suspending tool calls `suspend()`. `makeToolSuspendRequiredChunks` turns it into
 a resumable `tool-suspend-required` chunk + a tool-calls finish and STOPS at the
 pause (this replaced the old `makeUnsupportedApprovalChunks` dead-end at ~936).
