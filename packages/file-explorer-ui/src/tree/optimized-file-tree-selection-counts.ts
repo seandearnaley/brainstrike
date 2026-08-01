@@ -252,12 +252,13 @@ function computeAncestorDirectoryPaths(filePath: string, folderId: string): stri
 /**
  * Builds a resolver around a caller-owned ancestor cache.
  *
- * Cache identity is deliberately opaque to consumers: when no path is
- * resolved, `getResolvedCache` returns the input map. The first cache hit or
- * miss makes a lazy working clone so hit order can be refreshed and misses can
- * be inserted without mutating the input. Once created, that clone is mutated
- * in place for the resolver's lifetime and returned by every later
- * `getResolvedCache` call.
+ * Cache identity is deliberately opaque to consumers. When no path is
+ * resolved, `getResolvedCache` returns the input map. A miss lazily creates a
+ * working clone; that clone is mutated in place for the resolver's lifetime
+ * and returned by every later `getResolvedCache` call. If resolution contains
+ * hits but no misses, the input remains the source cache and each
+ * `getResolvedCache` call returns a fresh clone with hit insertion order
+ * refreshed.
  *
  * Callers must always adopt the returned map and must not use map identity as a
  * signal that cache contents changed.

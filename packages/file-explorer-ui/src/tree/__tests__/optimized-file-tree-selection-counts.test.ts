@@ -68,9 +68,12 @@ describe('optimized file tree selection counts', () => {
       expect(resolver.getAncestorPaths('src/index.ts')).toBe(firstAncestors);
 
       const resolvedCache = resolver.getResolvedCache();
+      const secondResolvedCache = resolver.getResolvedCache();
       expect(resolvedCache).not.toBe(inputCache);
+      expect(secondResolvedCache).not.toBe(resolvedCache);
       expect([...inputCache.keys()]).toEqual(['src/index.ts', 'docs/guide.md']);
       expect([...resolvedCache.keys()]).toEqual(['docs/guide.md', 'src/index.ts']);
+      expect([...secondResolvedCache.keys()]).toEqual(['docs/guide.md', 'src/index.ts']);
     });
 
     it('keeps one cloned working cache identity across misses', () => {
