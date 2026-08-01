@@ -440,9 +440,13 @@ export interface RunPythonNetworkDecision {
 
 ### 3.2 Three changes this forces elsewhere (do not skip)
 
-**(a) The plan-mode gate must be fixed first — this is a real hole.**
-`filterToolsForPlanMode` (`packages/agent/src/mastra/plan-mode-tool-gate.ts:84`)
-short-circuits on `hasSuspendSchema(tool)` **before** it looks at risk:
+**(a) The plan-mode gate was a real hole — FIXED in BST-1073 (PR #2194), no
+longer this ticket's work.** Recorded here because it is the reason Gate B is
+safe to build on the suspension channel at all, and because anyone reading this
+design against an older tree needs to know the fix is a prerequisite.
+
+`filterToolsForPlanMode` (`packages/agent/src/mastra/plan-mode-tool-gate.ts`)
+used to short-circuit on `hasSuspendSchema(tool)` **before** it looked at risk:
 
 ```ts
 for (const [sanitizedId, tool] of Object.entries(tools)) {
@@ -460,8 +464,8 @@ model can investigate but cannot act. The escape hatch is only safe today
 because both registered suspending tools (`submitPlan`, `askUser`) are
 classified `riskCategory: 'read'`.
 
-**Fix:** gate the short-circuit on risk, so a suspending tool is kept only if
-it would have been kept anyway.
+**The fix (shipped in #2194):** the short-circuit is gone; a suspending tool is
+kept only if its risk would have kept it anyway.
 
 ```ts
 const risk = riskForTool(riskByTool, originalName, sanitizedId);
@@ -472,10 +476,16 @@ if (PLAN_MODE_KEPT_RISK.has(risk)) {
 // hasSuspendSchema no longer widens the plan-mode set
 ```
 
-Behaviour for `submitPlan`/`askUser` is unchanged (both are `read`). Add a
-plan-mode-gate spec case: *"omits a suspending EXECUTE-risk tool in plan
-mode"*. This is worth landing as its own small PR **before** BST-1067, so the
-hole is closed before anything can fall into it.
+Behaviour for `submitPlan`/`askUser` is unchanged (both are `read`), and
+`plan-mode-tool-gate.spec.ts` now pins *"omits an execute-risk suspending
+tool"* using `brainstrike.runPython` itself as the fixture — so the guard is
+armed before the tool exists.
+
+**One coupling this introduces, which BST-1067 must not break.**
+`submitPlan`/`askUser` now survive plan mode *only* because the catalog
+classifies them `read`. Reclassifying either would silently remove plan mode's
+only exit path. #2194 adds a guard test for that direction too; do not
+reclassify a suspending tool without reading it.
 
 **(b) No workflow storage ⇒ `run_python` disappears entirely.** With storage
 absent, `resolveAskToolsForRun` fail-safe-omits ask tools *and*
@@ -1074,11 +1084,11 @@ and individually revocable in Settings.
 
 ## 10. Implementation checklist
 
-Ordered by dependency. Items 1–2 are safe to land before BST-1067.
+Ordered by dependency. Item 2 is safe to land before BST-1067.
 
 | # | Change | File |
 | --- | --- | --- |
-| 1 | Risk-gate the plan-mode suspend short-circuit + spec case | `packages/agent/src/mastra/plan-mode-tool-gate.ts` |
+| ~~1~~ | ~~Risk-gate the plan-mode suspend short-circuit + spec case~~ — **DONE, BST-1073 / PR #2194** | `packages/agent/src/mastra/plan-mode-tool-gate.ts` |
 | 2 | Reword `RISK_CATEGORY_REASON.execute` | `packages/ui/src/assistant-ui-panel/assistant-tool-approval-notice.tsx` |
 | 3 | `NATIVE_TOOL_ID.runPython`; add to `WebNativeToolId`'s `Exclude<…>` | `packages/assistant-contract/src/native-tool-catalog.ts` |
 | 4 | `CodeExecutionApprovalContext` (incl. `policyFingerprint`) + `executionContext?` field | `packages/assistant-contract/src/tool-approval.ts` |
@@ -1094,7 +1104,8 @@ Ordered by dependency. Items 1–2 are safe to land before BST-1067.
 
 Tests that must exist before this is called done:
 
-- plan mode omits a suspending **execute**-risk tool (regression guard for §3.2a);
+- ~~plan mode omits a suspending **execute**-risk tool~~ — already landed in
+  #2194, using `brainstrike.runPython` as the fixture; BST-1067 inherits it;
 - `hasSuspendSchema` is **true** for the registered `run_python` entry — the only
   guard against the silent Gate-B bypass in §3.2, since the existing warning is a
   comment in another package;
