@@ -286,7 +286,10 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   in the workspace catalog (`catalogMode: strict` means every package
   references the catalog; the catalog entry itself carries no caret). It is a
   fast-moving beta — re-derive the boundary from its README/`.d.ts` before
-  bumping, never from memory.
+  bumping, never from memory. The escape-resistance suite (BST-1071) ASSERTS
+  this version, so a bump goes red until the suite is re-greened on macOS AND
+  Linux; see `packages/agent/src/__tests__/fence-escape-resistance.README.md`
+  for the required procedure and the guarantee/non-guarantee list.
 - **Platforms: darwin + linux only.** `isFenceSupported()` is the probe and
   `createFenceExecutorFactory()` returns `undefined` on anything else, so an
   unsupported host simply has no `fence` capability and `resolveCodeExecutor`
@@ -313,6 +316,16 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   would silently re-open `~/.config/gcloud`. A RELATIVE path is rejected (srt
   resolves it against the Node process cwd, not `scratchDir`), as is a `..`
   segment and a `~` (never expanded — see the seam's rule).
+- **A ROOT-WIDE `allowRead` is refused** (`FencePolicyError`), even though it is
+  a mere ancestor of the always-denied stores. Ancestors are normally safe
+  because srt re-emits the nested deny after the broader allow — but at 0.0.67
+  that re-emission tests `denied.startsWith(allowed + '/')`, which for
+  `allowed === '/'` compares against `'//'` and never matches. **Measured on
+  macOS (BST-1071): `allowRead: ['/']` made `~/.ssh/*` and the contents of
+  `~/.config/gh/hosts.yml` readable from sandboxed code.** Linux was unaffected
+  (bubblewrap masks denied directories with tmpfs), so CI alone would not have
+  caught it — which is why the refusal lives in the policy layer, not a
+  platform branch. Every ancestor SHORT of the root is still accepted.
 - **Containment compares `realpath` output** — the reference implementation of
   the seam's "resolve before asking" requirement above, including the
   nonexistent-path error and the best-effort deny canonicalization. The
@@ -390,6 +403,25 @@ the probe URL) — never by weakening an assertion. The reachability guard
 matters in both directions: without it the allow-list test fails RED on a host
 with restricted egress, AND its sibling network-deny test would pass
 VACUOUSLY, asserting a leak guard it never actually exercised.
+
+#### Escape-resistance suite (BST-1071, LIVE)
+
+`packages/agent/src/__tests__/fence-escape-resistance.integration.spec.ts`, with
+`fence-escape-resistance.README.md` beside it. The contract suite above proves
+the executor behaves; this one attacks it — traversal, symlink escape, fork /
+multiprocessing / depth-2 grandchild inheritance, raw sockets that ignore the
+proxy, DNS as an exfil channel, resource exhaustion shape, host-env exfiltration,
+descendant survival across a policy change, and cancellation in both positions.
+
+**Read the README before changing either file.** It is the honest statement of
+what the fence does and does NOT guarantee (reads are permissive by default;
+exfiltration via an allow-listed domain is unaddressed; CPU/memory are bounded
+only by the timeout; kernel-level attacks defeat it entirely; there is no
+always-deny list for WRITES), it carries the mutation-kill table proving each
+security assertion actually detects the hole it names, and it records the srt
+re-green procedure. srt is an OS fence, not a VM — mode two (ADR-0003) is the
+answer for adversarial code, and this suite must not be read as claiming
+otherwise.
 
 ### VM executor (mode two)
 

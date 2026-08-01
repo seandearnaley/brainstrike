@@ -120,6 +120,31 @@ describe('buildSandboxRuntimeConfig', () => {
     ).resolves.toBeDefined();
   });
 
+  it('REJECTS a root-wide allowRead, the one ancestor srt does not re-deny under', async () => {
+    // BST-1071. The ancestor rule above holds because srt re-emits the nested
+    // deny after the broader allow — but at 0.0.67 that re-emission tests
+    // `denied.startsWith(allowed + '/')`, which for the root compares against
+    // '//' and never matches. Measured on macOS: `allowRead: ['/']` made
+    // ~/.ssh/* and ~/.config/gh/hosts.yml readable from sandboxed code. Linux
+    // was unaffected, so this refusal has to live here rather than in a
+    // platform branch. Proven end-to-end in
+    // fence-escape-resistance.integration.spec.ts.
+    await expect(
+      build({ allowedDomains: [], allowRead: ['/'], allowWrite: [] })
+    ).rejects.toBeInstanceOf(FencePolicyError);
+    await expect(build({ allowedDomains: [], allowRead: ['/'], allowWrite: [] })).rejects.toThrow(
+      /filesystem root/
+    );
+  });
+
+  it('still allows an allowRead one level BELOW the root', async () => {
+    // The refusal is the root specifically, not "broad grants" in general —
+    // every ancestor short of it re-emits the nested deny correctly.
+    await expect(
+      build({ allowedDomains: [], allowRead: ['/opt'], allowWrite: [] })
+    ).resolves.toBeDefined();
+  });
+
   it('catches a re-open that only a RESOLVED path reveals (symlink into the store)', async () => {
     // The written path is innocent; realpath is what exposes it. A textual
     // comparison would have permitted this.

@@ -89,8 +89,18 @@ const OS_READDED_ENV_KEYS: readonly string[] = [
 
 const PROBE_URL = 'https://example.com';
 const PROBE_HOST = 'example.com';
-/** A host the allow-list test deliberately does NOT name. */
-const OFF_LIST_URL = 'https://example.org';
+/**
+ * A host the allow-list test deliberately does NOT name.
+ *
+ * It must return a real 200 UNSANDBOXED, which is why it is not `example.org`:
+ * that host answers 403 to python's default user agent from some networks, and
+ * `urlopen` raises on a 403 exactly like it raises on a refused proxy tunnel.
+ * An earlier revision of this suite used it and passed while the allow-list was
+ * mutated wide open — the deny it was "proving" was an upstream 403. The
+ * reachability gate below plus the HTTPError/URLError split in the test are the
+ * two guards that stop that from recurring.
+ */
+const OFF_LIST_URL = 'https://www.iana.org';
 
 const require_ = createRequire(import.meta.url);
 
@@ -158,11 +168,23 @@ function runUnsandboxed(code: string): { ok: boolean; output: string } {
   }
 }
 
-const RAW_SOCKET_PROBE = [
-  'import socket',
+/**
+ * Everything the network cases need to be attributable to the fence, checked
+ * with NO fence in the way:
+ *
+ * - a raw socket to the probe host, or the raw-socket denials below prove only
+ *   that this machine has no egress;
+ * - a 200 from the allow-listed URL, or the positive control cannot fire;
+ * - a 200 from the OFF-LIST URL, or "blocked" inside the fence is
+ *   indistinguishable from a host that was answering 403 all along.
+ */
+const NETWORK_PRECONDITION_PROBE = [
+  'import socket, urllib.request',
   `s = socket.create_connection((${JSON.stringify(PROBE_HOST)}, 443), timeout=10)`,
   's.close()',
   'print("RAW-OK")',
+  `print("ALLOWED-STATUS", urllib.request.urlopen(${JSON.stringify(PROBE_URL)}, timeout=20).status)`,
+  `print("OFFLIST-STATUS", urllib.request.urlopen(${JSON.stringify(OFF_LIST_URL)}, timeout=20).status)`,
 ].join('\n');
 
 async function describeHostSkipReason(): Promise<string | undefined> {
@@ -185,9 +207,16 @@ async function describeHostSkipReason(): Promise<string | undefined> {
  * environment and teardown proofs rather than skipping the whole suite.
  */
 function describeNetworkSkipReason(): string | undefined {
-  const raw = runUnsandboxed(RAW_SOCKET_PROBE);
-  if (!(raw.ok && raw.output.includes('RAW-OK'))) {
-    return `${PROBE_HOST}:443 is not reachable by an UNSANDBOXED socket from this host, so a blocked socket inside the fence would be indistinguishable from a dead network (${raw.output.trim().slice(0, 160)})`;
+  const probe = runUnsandboxed(NETWORK_PRECONDITION_PROBE);
+  const detail = probe.output.trim().slice(0, 200);
+  if (!(probe.ok && probe.output.includes('RAW-OK'))) {
+    return `${PROBE_HOST}:443 is not reachable by an UNSANDBOXED socket from this host, so a blocked socket inside the fence would be indistinguishable from a dead network (${detail})`;
+  }
+  if (!probe.output.includes('ALLOWED-STATUS 200')) {
+    return `${PROBE_URL} does not return 200 UNSANDBOXED, so the allow-list positive control cannot fire (${detail})`;
+  }
+  if (!probe.output.includes('OFFLIST-STATUS 200')) {
+    return `${OFF_LIST_URL} does not return 200 UNSANDBOXED, so a "blocked" result inside the fence could not be attributed to the allow-list (${detail})`;
   }
   return;
 }
@@ -567,48 +596,67 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
       expect(result.stdout).not.toContain('RAW-CONNECTED');
     });
 
-    it('DENIES DNS resolution used as an exfiltration channel', async () => {
+    it('gives the sandboxed process NO resolver at all, closing DNS as an exfiltration channel', async () => {
       // Encoding data into a hostname and resolving it leaks without ever
-      // completing a connection, so a connect-only guard would miss it.
+      // completing a connection, so a connect-only guard would miss it. What
+      // shuts that channel is stronger and simpler than a name filter: the
+      // sandboxed process cannot resolve ANY name, because resolution happens
+      // proxy-side. Both hosts below are ones the suite has already proven
+      // resolve UNSANDBOXED (the precondition probe fetched both), so a
+      // gaierror here is the fence and not an unregistered name.
+      //
+      // Deliberately NOT asserted with a made-up `<canary>.example.org` label:
+      // that returns NXDOMAIN — the very same gaierror — with no fence in
+      // sight, which would be a test that passes for the wrong reason.
       const result = await run(
         [
           'import socket',
-          'for host in ("bst-1071-exfil-canary.example.org", "example.com"):',
+          `for host in (${JSON.stringify(PROBE_HOST)}, ${JSON.stringify(new URL(OFF_LIST_URL).hostname)}):`,
           '    try:',
           '        socket.getaddrinfo(host, 80)',
           '        print("DNS-RESOLVED", host)',
           '    except Exception as e:',
           '        print("DNS-BLOCKED", host, type(e).__name__)',
         ].join('\n'),
+        // Even with the domain ALLOW-LISTED, no resolver is handed over.
         { allowedDomains: [PROBE_HOST] }
       );
 
-      expect(result.stdout).toContain('DNS-BLOCKED bst-1071-exfil-canary.example.org');
       expect(result.stdout).not.toContain('DNS-RESOLVED');
-      // Even the ALLOW-LISTED host does not resolve directly: name resolution
-      // happens proxy-side, so the sandboxed process never gets a resolver.
-      expect(result.stdout).toContain('DNS-BLOCKED example.com');
+      expect(result.stdout).toContain(`DNS-BLOCKED ${PROBE_HOST}`);
+      expect(result.stdout).toContain(`DNS-BLOCKED ${new URL(OFF_LIST_URL).hostname}`);
     });
 
     it('DENIES a non-allow-listed host while the allow-listed one succeeds in the SAME run', async () => {
       // Both halves in one execution, so the deny cannot be blamed on a
       // transient network fault: the 200 proves egress worked at that instant.
+      //
+      // The HTTPError branch is load-bearing, not tidiness. `urlopen` raises
+      // for an upstream 4xx exactly as it raises for a proxy that refused the
+      // CONNECT, so a bare `except Exception` reports "blocked" for a host that
+      // was reached and answered 403. Splitting them means only a genuine
+      // tunnel refusal can satisfy the assertion below.
       const result = await run(
         [
-          'import urllib.request',
+          'import urllib.error, urllib.request',
           `for url in (${JSON.stringify(PROBE_URL)}, ${JSON.stringify(OFF_LIST_URL)}):`,
           '    try:',
           '        r = urllib.request.urlopen(url, timeout=20)',
           '        print("REACHED", url, r.status)',
+          '    except urllib.error.HTTPError as e:',
+          '        print("UPSTREAM-ANSWERED", url, e.code)',
           '    except Exception as e:',
-          '        print("BLOCKED", url, type(e).__name__)',
+          '        print("TUNNEL-REFUSED", url, type(e).__name__)',
         ].join('\n'),
         { allowedDomains: [PROBE_HOST] }
       );
 
       expect(result.stdout).toContain(`REACHED ${PROBE_URL} 200`);
-      expect(result.stdout).toContain(`BLOCKED ${OFF_LIST_URL}`);
+      expect(result.stdout).toContain(`TUNNEL-REFUSED ${OFF_LIST_URL}`);
       expect(result.stdout).not.toContain(`REACHED ${OFF_LIST_URL}`);
+      // The off-list host never got to answer at all — if it had, the request
+      // left the fence and the allow-list did nothing.
+      expect(result.stdout).not.toContain(`UPSTREAM-ANSWERED ${OFF_LIST_URL}`);
     });
   });
 

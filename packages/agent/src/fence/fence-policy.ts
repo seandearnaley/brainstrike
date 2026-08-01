@@ -188,10 +188,11 @@ async function resolveOptional(path: string, resolvePath: FencePathResolver): Pr
  * An `allowRead` entry that sits AT or UNDER an always-denied credential store
  * throws instead of being dropped: on Linux such an entry is re-bound inside
  * the deny's tmpfs and really would re-open the store, and silently discarding
- * it would be exactly the quiet degradation this codebase forbids. An
- * ANCESTOR entry is fine — srt re-applies the nested deny on top of it on both
- * platforms. The comparison runs on canonical paths, so it cannot be dodged by
- * a symlink or a case variant on a case-insensitive volume.
+ * it would be exactly the quiet degradation this codebase forbids. An ANCESTOR
+ * entry is fine — srt re-applies the nested deny on top of it — with ONE
+ * measured exception, the filesystem ROOT, which is refused outright; see the
+ * comment on that check. The comparison runs on canonical paths, so it cannot
+ * be dodged by a symlink or a case variant on a case-insensitive volume.
  */
 export async function buildSandboxRuntimeConfig(
   policy: ExecPolicy,
