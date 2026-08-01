@@ -157,7 +157,8 @@ platforms.
 
 A green security test that stays green when its guard is removed is decoration.
 Every mechanism below was weakened, the named test was re-run, and it had to go
-red. Reproduce with the harness recorded in the BST-1071 PR description.
+red. **16/16 killed.** Reproduce with the harness recorded in the BST-1071 PR
+description.
 
 | # | Mechanism weakened | Test that must go red | Result |
 | --- | --- | --- | --- |
@@ -168,6 +169,8 @@ red. Reproduce with the harness recorded in the BST-1071 PR description.
 | M5 | policy `denyRead` dropped from the srt config | `DENIES a read through a symlink into a denied store…` | KILLED |
 | M6 | `allowWrite` gains the filesystem root | `DENIES a write that traverses out of scratchDir…` | KILLED |
 | M7 | `allowedDomains` widened behind the policy | `DENIES a non-allow-listed host while the allow-listed one succeeds…` | KILLED |
+| M12 | `allowWrite` containment against the always-denied stores removed | `REFUSES an allowWrite on an always-denied store…` | KILLED |
+| M13 | `allowRead`/`denyRead` exact-collision refusal removed | `REFUSES a policy that both allows and denies the SAME path…` | KILLED |
 | M8 | process-GROUP kill reverted to single-pid (`-pid` → `pid`) | `leaves no ticking descendant alive when execute() settles normally` | KILLED |
 | M8b | same | `leaves no ticking descendant alive when the run is ABORTED` | KILLED |
 | M8c | same | `does not let a leftover descendant of run A inherit run B's egress` | KILLED |
