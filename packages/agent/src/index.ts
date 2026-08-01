@@ -511,6 +511,16 @@ export {
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
 export {
+  createRunPythonTool,
+  projectRunPythonStreams,
+  RUN_PYTHON_DEFAULT_TIMEOUT_MS,
+  RUN_PYTHON_TOOL_ID,
+  type RunPythonResult,
+  type RunPythonToolOptions,
+  type RunPythonUnavailableReason,
+  toRunPythonResult,
+} from './tools/run-python-tool';
+export {
   type AskUserInput,
   AskUserInputSchema,
   type DeleteWorkspaceFileInput,
@@ -554,6 +564,8 @@ export {
   RenameWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
+  type RunPythonInput,
+  RunPythonInputSchema,
   type RunSkillScriptInput,
   RunSkillScriptInputSchema,
   type SelectRootTreeFilesInput,
