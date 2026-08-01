@@ -2,8 +2,12 @@
   "extends": ["//"],
   "tasks": {
     "test": {
-      // @brainstrike/db tests are env-sensitive serialized PGlite lanes; never
-      // let them replay from cache.
+      // @brainstrike/db tests are env-sensitive PGlite lanes; never let them
+      // replay from cache. (They are no longer "serialized lanes" — PR #1807
+      // replaced the sequential per-lane runs with one fork-parallel `unit`
+      // project. The carve-out survives that change for the reason the
+      // WHEN TO ADD block below derives: heavy WASM-PGlite work is sensitive
+      // to un-hashed CPU contention regardless of how it is scheduled.)
       //
       // WHEN TO ADD A `cache: false` CARVE-OUT (the invariant this file anchors):
       // the root `test` task caches with `outputs: []`, so a cache HIT replays a
