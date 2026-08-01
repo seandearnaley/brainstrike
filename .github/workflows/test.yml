@@ -471,7 +471,30 @@ jobs:
           turbo-cache: 'true'
 
       - name: Build
-        run: TAILWIND_DEBUG=1 pnpm run build
+        # Invoked as `pnpm turbo` DIRECTLY rather than through the root
+        # `pnpm run build` script, and that is load-bearing for any flag added
+        # here: `pnpm run build -- <flags>` preserves the `--`, so turbo reads
+        # them as PASS-THROUGH args and appends them to every package's own
+        # build script, where pnpm tacks them onto the last command of the `&&`
+        # chain. Measured on the first run of BST-1005: `tsup ...
+        # --continue=dependencies-successful` and a node-gyp build both died
+        # that way. The Unit shards already call `pnpm turbo run test` directly
+        # for the same reason. Mirrors the root script's own turbo flags.
+        #
+        # `--continue=dependencies-successful` reports every independent
+        # failure in one run instead of cancelling siblings at the first error
+        # — the point of a build gate is to show all of what is broken.
+        #
+        # NOT affected-filtered (BST-1005, measured): both E2E smoke jobs run
+        # on EVERY PR (AGENTS.md CI contract, and audit-bolt-readiness.mjs
+        # counts a skipped required check as not-ready), so this job must
+        # always produce the web and desktop bundles they consume. Those two
+        # apps' dependency closure is 46 of 47 workspace packages, so a
+        # `...[origin/$BASE_REF]` filter here can skip at most ONE package
+        # (@brainstrike/tsconfig) while turbo's cache already replays the rest.
+        env:
+          TAILWIND_DEBUG: '1'
+        run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful
 
       - name: Validate CSS bundle
         run: |
