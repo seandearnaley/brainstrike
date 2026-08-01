@@ -188,7 +188,33 @@ Current recommendation: **absent factory on win32**, no elevated-install prompt.
 The blocker is *expressibility*, not maturity — Windows srt fixes filesystem
 scope at `initialize()`, so a per-execution `ExecPolicy` cannot be honoured.
 
-### BST-1063 — PGlite 0.5.4 · **draft PR #2206, one question open**
+### BST-1063 — PGlite 0.5.4 · **draft PR #2206 · DO NOT MERGE**
+
+> **🛑 Blocking correctness issue, found in review and verified against the tree.**
+> **The migration-066 guard protects only GREENFIELD databases. Every existing
+> install is unguarded and lands in the exact mixed-version state that caused the
+> original corruption.**
+>
+> `customMigration(hash, ...)` in `drizzle/migrate.ts` takes `hash` as a fixed
+> string **literal**, not a content digest. Rewriting 066's SQL changes what a
+> *fresh* database runs and **nothing** about what an existing one does. An
+> install that already recorded migration 66 skips it forever: its catalog still
+> reads `extversion = '1.2.0'`, its BM25 index was built by the **1.2.0** engine,
+> and after this merge the **1.3.1 binary reads and writes that index**. No
+> `ALTER EXTENSION UPDATE` fires, and nothing at runtime asserts catalog-vs-binary
+> agreement — `QUALIFIED_PG_TEXTSEARCH_VERSION` is referenced only by migration
+> 066 and two tests.
+>
+> That 1.3.1-into-a-1.2.0-built-index path is **precisely** where the migration-065
+> corruption lived. The 6/6 durability runs below were all greenfield and do not
+> exercise it; the only upgrade-path evidence was an uncommitted 3-trial scratch
+> script.
+>
+> **The change is qualified for new users and unqualified for every existing one —
+> and existing users are the ones carrying data.** The fix is not more greenfield
+> testing: it needs a runtime catalog-vs-binary check that fails visibly, or an
+> explicit upgrade migration that runs `ALTER EXTENSION UPDATE` and re-qualifies,
+> or a documented refusal to ship until a **committed** upgrade-path test exists.
 
 Salvaged with real evidence on branch
 `seandearnaley/bst-1063-bump-pglite-to-054-...`. The BM25 fear that made this
