@@ -54,7 +54,7 @@ async function collectCspDiagnostics(
 }
 
 test.describe('Production CSP qualification', () => {
-  test('runs PGlite search and a real local embedding without policy violations @stateful', async ({
+  test('runs PGlite search and a real local embedding without policy violations @stateful @web-production-csp', async ({
     baseURL,
     page,
   }) => {
