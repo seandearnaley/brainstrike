@@ -35,6 +35,9 @@
       "path": "../context-actions"
     },
     {
+      "path": "../hooks"
+    },
+    {
       "path": "../../packages/types"
     },
     {

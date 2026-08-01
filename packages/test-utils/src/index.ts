@@ -1,4 +1,5 @@
 export * from './async';
+export * from './console-error-probe';
 export * from './electron';
 export * from './factories/file-node';
 export * from './render-with-providers';
