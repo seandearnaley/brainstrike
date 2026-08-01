@@ -58,7 +58,7 @@ work**, not planned tickets. All three were the kind that fail silently.
 
 ```mermaid
 graph TD
-  A["BST-1061 bundled CPython<br/>HIGH · restart from scratch"] --> B
+  A["BST-1061 bundled CPython<br/>HIGH · implemented in #2205"] --> B
   B["BST-1067 run_python E2E<br/>URGENT · the milestone"] --> C["BST-1070 approval UX<br/>impl only, design merged"]
   B --> D["Luna CDT manual passes"]
   E["BST-1068 Windows assess<br/>PR #2191 · awaiting human"]
@@ -75,15 +75,17 @@ else is parallel and independent.
 
 ---
 
-## 3. Salvaged in-flight work — three draft PRs to pick up
+## 3. Salvaged in-flight work — PR states to pick up
 
 BST-1061, BST-1063 and BST-1064 were being worked in agent worktrees that had
 **never been pushed** and would have died with the session. All three were
-salvaged at the end into draft PRs:
+salvaged at the end. #2205 has since completed implementation and is ready;
+#2206 and #2207 remain draft:
 
-All four lane PRs finished their review cycles before handoff — **every thread on
-every one is resolved** (#2191 12/12, #2205 3/3, #2206 5/5, #2207 6/6). None is a
-half-finished branch you have to reconstruct intent from.
+Before handoff, all four lane PRs completed their then-current review cycles
+(#2191 12/12, #2205 3/3, #2206 5/5, #2207 6/6). A later review pass on #2205
+raised the three open findings documented below. None is a half-finished branch
+you have to reconstruct intent from.
 
 | Ticket | PR | State on handoff |
 | --- | --- | --- |
@@ -102,8 +104,9 @@ even asking for.
 
 ### BST-1061 — Bundle a pinned CPython · **HIGH · start here**
 
-Blocks the milestone. Restart from scratch, but with these constraints already
-established (they are in the ticket, repeated here because they are easy to miss):
+Blocks the milestone. **Implemented in #2205 — do not restart.** The constraints
+below remain relevant to its review (they are in the ticket, repeated here
+because they are easy to miss):
 
 - `resolvePythonBinary()` **must return an absolute path**. `ExecPolicy` paths are
   absolute-only and a literal `~` is *rejected*, not expanded.
@@ -164,13 +167,14 @@ Re-verify if you want, but these were hashed from the real downloads, not copied
 Two further notes from that lane: `app.getPath('userData')` is a **sibling of, not
 a descendant of**, the fence's always-deny credential paths — reasoned-safe, but
 verify it against the now-merged `ALWAYS_DENY_READ_PATHS` rather than trusting the
-reasoning. And the planned error family (`python_unsupported_platform`,
-`python_checksum_mismatch`, `python_unpack_failed`) was chosen to stay clear of
-the seam's four typed errors; keep that separation.
+reasoning. And the implemented error family (`python_unsupported_platform`,
+`python_manifest_invalid`, `python_archive_missing`, `python_checksum_mismatch`,
+`python_unpack_failed`) stays clear of the seam's four typed errors; keep that
+separation.
 
-The remaining checklist — fetch script, `resolvePythonBinary()`, call-site wiring,
-factory-reset, `code-execution.md` note, third-party notices — is itemised in
-#2205's body.
+The previously remaining checklist — fetch script, `resolvePythonBinary()`,
+call-site wiring, factory-reset, `code-execution.md` note, third-party notices —
+is complete in #2205. The outstanding items are the three review findings above.
 
 ### BST-1067 — Ship `run_python` · **URGENT · the milestone**
 
