@@ -12,6 +12,6 @@ test('root coverage scripts keep DB out of the normal workspace coverage path', 
   assert.match(baseCoverageScript, /--filter ['"]?!@brainstrike\/db['"]?/);
 });
 
-test('root coverage split keeps DB on explicit dedicated coverage lanes', () => {
+test('root coverage split leaves DB to the dedicated native nightly shards', () => {
   assert.doesNotMatch(packageJson.scripts['test:coverage:split'], /test:coverage:db:/);
 });

@@ -369,6 +369,18 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   owns resolving the bundled CPython. `capabilities().languages` is exactly
   the injected key set, and an un-injected language throws
   `FenceUnsupportedLanguageError`.
+  - **The bundled-CPython resolver (BST-1061, LIVE) is
+    `resolveDesktopPythonExecutable()` in `apps/desktop/src/python-runtime/`**
+    — the desktop composition root resolves once and INJECTS the resulting
+    absolute path; this package never imports it. It unpacks under
+    `userData/python-runtime/` (a SIBLING of every always-deny store below,
+    never a descendant, so the interpreter stays fence-readable) and fails
+    with a typed `python_*` error family (`python_unsupported_platform`,
+    `python_manifest_invalid`, `python_archive_missing`,
+    `python_checksum_mismatch`, `python_unpack_failed`) kept disjoint from
+    the seam's and fence's codes, so `run_python` can distinguish "no
+    interpreter" from "no sandbox". There is no PATH-python fallback in any
+    state.
 - **Always-deny-read** (`ALWAYS_DENY_READ_PATHS`, applied on top of every
   policy): `.ssh`, `.aws`, `.gnupg`, `.config/gcloud`, `.config/gh`, `.kube`,
   `.docker`, `.netrc`, `.npmrc`, `.pypirc` — resolved to ABSOLUTE paths from

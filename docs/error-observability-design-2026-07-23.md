@@ -186,7 +186,7 @@ Deliberate choices:
   user-configurable in settings. Purge is a bounded batch, never `DELETE` without
   a limit.
 - **Factory reset**: added to both direct-PGlite reset and desktop `db:clearAll`
-  (platform contract), and to the `db-test-lane-manifest.mjs` regex for its tests.
+  (platform contract); its tests are discovered by the recursive DB unit project.
 
 ### 4.3 The writer (`DiagnosticEventWriter`)
 

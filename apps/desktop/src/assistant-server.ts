@@ -85,6 +85,7 @@ import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-re
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
+import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
 
@@ -184,7 +185,39 @@ const desktopRunPersistencePort = {
 
 export { desktopAssistantServerLogger };
 
+/**
+ * Best-effort warm-up for the bundled-CPython capability (BST-1061, PR #2205
+ * review): unpacking a ~250MB CPython tree is the only slow part of
+ * `resolveDesktopPythonExecutable`, and doing it here — once, at server
+ * start — means the first real `python3` skill-script call almost always
+ * hits the cheap already-unpacked path instead of paying that cost inline
+ * (where it used to run before `startedAt` and outside any timeout bound).
+ * This is a PERFORMANCE optimization, not a correctness dependency:
+ * `run-skill-script-tool.ts` still bounds a cold resolve by the caller's own
+ * timeout/Stop regardless of whether this warm-up won the race. Failure is
+ * logged, never thrown — an unsupported platform (win/linux) or a missing
+ * archive (dev checkout that hasn't run `fetch:python-runtime`) must not
+ * block the assistant server from starting.
+ */
+function warmBundledPythonRuntime(): void {
+  const logWarmupFailure = (error: unknown) => {
+    logger.warn(
+      'Bundled Python runtime warm-up failed; the first python3 skill script will pay for it',
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+  };
+  try {
+    resolveDesktopPythonExecutable().catch(logWarmupFailure);
+  } catch (error) {
+    // Defensive: resolveDesktopPythonExecutable's synchronous prelude reads
+    // `app.getPath`/`app.getAppPath` before it starts returning a Promise —
+    // a `.catch()` alone cannot see a throw that happens before that.
+    logWarmupFailure(error);
+  }
+}
+
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
+  warmBundledPythonRuntime();
   const auth: AssistantServerAuth = options.auth ?? { token: mintAssistantServerAuthToken() };
   const authToken = auth === 'disabled' ? undefined : auth.token;
   const requestOptions: AssistantServerOptions = { ...options, auth };

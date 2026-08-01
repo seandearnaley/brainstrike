@@ -1,6 +1,6 @@
 ---
 name: ledger-automation
-description: Execute Brainstrike's Ledger migration-registration parity automation from `.night-shift/charters/ledger.md`. Use when running, dry-running, debugging, or maintaining the Ledger loop; auditing numbered database migrations across the test and production runners; checking DB test-lane, factory-reset, or runtime-baseline implications; or preparing Ledger-only registration parity PRs and checkpoints.
+description: Execute Brainstrike's Keeper migration-registration parity beat from `.night-shift/charters/keeper.md`. Use when running, dry-running, debugging, or maintaining the Ledger-derived collector; auditing numbered database migrations across the test and production runners; checking factory-reset or runtime-baseline implications; or preparing Keeper registration-parity evidence.
 ---
 
 # Ledger Automation
@@ -9,10 +9,10 @@ Keep the live charter and contracts authoritative. This skill makes mechanical e
 
 ## Establish authority and state
 
-1. Work from the Brainstrike repository root. Read `AGENTS.md`, `.night-shift/PROTOCOL.md`, `.night-shift/charters/ledger.md`, and every top-level `.night-shift/*.md` file completely.
+1. Work from the Brainstrike repository root. Read `AGENTS.md`, `.night-shift/PROTOCOL.md`, `.night-shift/charters/keeper.md`, and every top-level `.night-shift/*.md` file completely.
 2. Read `docs/agents/database.md` completely before inspecting a migration. If a changed migration creates a table, read the applicable factory-reset rules in `docs/agents/platform-contracts.md` before classifying it.
 3. Resolve automation memory when an Automation ID is present. Treat it as an execution aid, never as authority over the repository, GitHub, or Linear.
-4. Record the UTC start time and charter budget. Fetch `origin/main`, then resolve an open `night-shift/ledger/*` PR, the current repository state, and the exact Linear state issue/checkpoint in the protocol's trust order.
+4. Record the UTC start time and charter budget. Fetch `origin/main`, then resolve any open Keeper PR, the current repository state, and the exact Linear state issue/checkpoint in the protocol's trust order.
 5. Require a proven main-SHA watermark. On a first run, establish the eligible range by inspecting the history that introduced the live Ledger charter; never substitute the current branch, a date, or automation memory. Create a missing state issue only as the live protocol requires.
 6. Resume Ledger's one open PR before creating work. Stop and surface a protocol violation if more than one exists.
 
@@ -30,7 +30,7 @@ node .agents/skills/ledger-automation/scripts/collect-ledger-evidence.mjs \
   --pretty > /tmp/ledger-evidence.json
 ```
 
-The collector fails closed on unreadable revisions, an unproven watermark, unparseable runner ledgers, missing hardcoded contract paths (runtime baseline, factory-reset files, runner ledgers, lane manifest), or incomplete test-lane assignment. It performs no network or repository writes. Exit codes follow the Axiom convention: `1` means collection failed (treat as an error, collect nothing from stdout); `2` means evidence was emitted but contains a blocking `db-test-lane-unassigned` or `db-test-lane-ambiguous` gap — resolve the lane assignment before treating the run as clean.
+The collector fails closed on unreadable revisions, an unproven watermark, unparseable runner ledgers, or missing hardcoded contract paths (runtime baseline, factory-reset files, and runner ledgers). It performs no network or repository writes. Exit code `1` means collection failed: treat it as an error and collect nothing from stdout. Successful evidence exits `0`; classification remains a Keeper responsibility.
 
 Treat its output as evidence, not permission:
 
@@ -38,7 +38,7 @@ Treat its output as evidence, not permission:
 - `modifiedExistingMigrations` and `removedMigrations` list migrations changed, renamed, or deleted after the watermark. These are never mechanical gaps: route them through the charter's human/semantic review. Never "fix" them with registration lines — that would execute old DDL on every user database.
 - `semanticReviewCandidates` identifies exact migration statements (plus modified/removed migrations) that require the charter's human route; inspect the full changed migration and diff before filing or editing.
 - `factoryResetReview` and `runtimeBaselineReview` name affected tables/DDL and source references but never assert that a reset or baseline change is required.
-- `testLaneAssignments` mechanically checks every newly added or renamed DB test against the live manifest, grouping regexes by lane exactly as `buildDbUnitLaneMap` does: a test matching several regexes in ONE lane is assigned; only matches across distinct lanes are ambiguous.
+- New DB tests need no collector-side assignment. The recursive Vitest unit-project discovery and root script contracts prove they are collected; required Unit and nightly coverage shard that one native project without a per-file registry.
 
 If `noMigrationDelta` is true, separately prove no Ledger-owned open PR or reopened ticket requires continuation, then take the protocol's NOOP path. Do not run unrelated expensive checks to manufacture activity.
 
@@ -48,16 +48,15 @@ Never author, alter, reorder, or renumber migration bodies. Do not resolve a sem
 
 For any divergent SQL, ordering anomaly, catalog upsert involving `ON CONFLICT`, or destructive statement, search Linear by the protocol fingerprint before writing. Update an open match or create the deduplicated `needs-human` ticket with the exact diff, then checkpoint BLOCKED as required. Factory-reset omissions belong to Axiom: route them rather than editing reset code.
 
-Only a confirmed missing registration line is Ledger work. Before editing, add or extend a focused regression test that starts from a fresh DB and demonstrates equivalent schema through both runners. Change only the import/ledger registration and that test. Keep the one PR title, branch, scope, and learning rules from the live charter.
+Only a confirmed missing registration line is Keeper migration-parity work. Before editing, add or extend a focused regression test that starts from a fresh DB and demonstrates equivalent schema through both runners. Change only the import/ledger registration and that test. Keep the one PR title, branch, scope, and learning rules from the live charter.
 
 ## Verify, checkpoint, and finish
 
-For a Ledger change, run these in one final command sequence from `packages/db`:
+For a Keeper migration-registration change, run these in one final command sequence from the repository root:
 
 ```bash
-pnpm --filter @brainstrike/db test:db:check-lanes
-pnpm --filter @brainstrike/db test:coverage:db:check-lanes
-pnpm test
+pnpm test:scripts
+pnpm --filter @brainstrike/db test
 ```
 
 Re-fetch `origin/main` before a remote write. If it moved, re-collect the delta and re-evaluate the classification. Never merge, deploy, migrate a live schema, or touch live data.
