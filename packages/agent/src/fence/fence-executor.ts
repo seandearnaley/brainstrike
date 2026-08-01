@@ -105,6 +105,16 @@ export class FenceExecutorDisposedError extends Error {
   }
 }
 
+/** A request or construction the fence refuses outright — never coerced. */
+export class FenceInvalidRequestError extends Error {
+  readonly code = 'fence_invalid_request' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'FenceInvalidRequestError';
+  }
+}
+
 export function isFenceSupported(): boolean {
   return (platform === 'darwin' || platform === 'linux') && SandboxManager.isSupportedPlatform();
 }
@@ -156,6 +166,32 @@ function killTree(pid: number, signal: NodeJS.Signals): void {
   } catch {
     // ESRCH: the group is already gone. Nothing to kill.
   }
+}
+
+/**
+ * Process groups with a live sandboxed run in them.
+ *
+ * `detached: true` is what makes the group kill possible, but it also means a
+ * sandboxed process outlives this one — the per-run timeout is enforced by a
+ * timer that dies with us. Reaping the groups on exit closes the normal
+ * shutdown case. A hard crash (SIGKILL of the host) still cannot run this;
+ * such a process stays inside its fence but keeps running, which is the
+ * residual risk documented in docs/agents/code-execution.md.
+ */
+const liveProcessGroups = new Set<number>();
+let exitReaperRegistered = false;
+
+function registerExitReaper(): void {
+  if (exitReaperRegistered) {
+    return;
+  }
+  exitReaperRegistered = true;
+  process.once('exit', () => {
+    for (const pid of liveProcessGroups) {
+      killTree(pid, 'SIGKILL');
+    }
+    liveProcessGroups.clear();
+  });
 }
 
 function toExitCode(code: number | null, signal: NodeJS.Signals | null): number {
@@ -257,6 +293,9 @@ function spawnFenced(
       }
       settled = true;
       clearTimers();
+      if (child.pid !== undefined) {
+        liveProcessGroups.delete(child.pid);
+      }
       resolvePromise({
         exitCode: toExitCode(exitCode, exitSignal),
         stderr: stderr.text(),
@@ -275,6 +314,9 @@ function spawnFenced(
       }
       settled = true;
       clearTimers();
+      if (child.pid !== undefined) {
+        liveProcessGroups.delete(child.pid);
+      }
       rejectPromise(error);
     });
 
@@ -299,6 +341,8 @@ function spawnFenced(
       // spawn() failed to produce a pid; the 'error' handler settles this.
       return;
     }
+    registerExitReaper();
+    liveProcessGroups.add(pid);
 
     later(timeoutMs, () => {
       timedOut = true;
@@ -338,7 +382,7 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
 
   const languages = Object.keys(options.interpreters) as ExecLanguage[];
   if (languages.length === 0) {
-    throw new Error(
+    throw new FenceInvalidRequestError(
       'A fence executor needs at least one injected interpreter; an executor that can run nothing must not be offered as a capability.'
     );
   }
@@ -361,8 +405,8 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
       throw new FenceExecutorDisposedError();
     }
     if (!(Number.isFinite(input.timeoutMs) && input.timeoutMs > 0)) {
-      throw new Error(
-        `timeoutMs must be a positive finite number of milliseconds; received ${JSON.stringify(input.timeoutMs)}.`
+      throw new FenceInvalidRequestError(
+        `timeoutMs must be a positive finite number of milliseconds; received ${JSON.stringify(input.timeoutMs)}. The fence never runs code unbounded.`
       );
     }
     const interpreter = options.interpreters[input.language];

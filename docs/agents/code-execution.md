@@ -112,7 +112,12 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   signals the negative pid: SIGTERM, then SIGKILL after 500 ms. `timedOut` is
   set; the exit code is `128 + signum` when no code is available. A proven
   test asserts a grandchild spawned by the sandboxed code does not outlive
-  the kill.
+  the kill. Live groups are also reaped on the host's `process exit` event —
+  `detached` means a run would otherwise outlive the timer that bounds it.
+  **Residual risk**: a hard crash of the host process (SIGKILL) cannot run
+  that reaper, so a sandboxed run would keep going — still inside its fence,
+  but unbounded. Removing that needs an out-of-process supervisor, not a
+  change here.
 - **Capture cap: 1 MiB per stream** (`FENCE_MAX_STREAM_BYTES`). Beyond it
   bytes are dropped and `truncated` is set, while the pipes keep draining so
   the sandboxed process never blocks. The tool layer still owes its own model

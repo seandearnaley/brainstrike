@@ -5,6 +5,7 @@ import {
   createFenceExecutor,
   createFenceExecutorFactory,
   FENCE_MAX_STREAM_BYTES,
+  FenceInvalidRequestError,
   FenceUnsupportedLanguageError,
   FenceUnsupportedPlatformError,
   isFenceSupported,
@@ -118,10 +119,14 @@ describe('createFenceExecutor', () => {
           scratchDir: '/tmp',
           timeoutMs: 0,
         })
-      ).rejects.toThrowError(/timeoutMs/);
+      ).rejects.toBeInstanceOf(FenceInvalidRequestError);
     } finally {
       await executor.dispose();
     }
+  });
+
+  it.runIf(supported)('refuses an executor that was given no interpreters at all', () => {
+    expect(() => createFenceExecutor({ interpreters: {} })).toThrowError(FenceInvalidRequestError);
   });
 });
 
