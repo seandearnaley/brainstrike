@@ -351,7 +351,7 @@ function DatabaseQueryTelemetrySection({
     <DiagnosticCard
       description="Rolling one-minute coarse query histograms"
       icon={<Database className="h-4 w-4 text-primary" />}
-      status={failures > 0 ? 'warning' : 'success'}
+      status={failures > 0 || snapshot.droppedSampleCount > 0 ? 'warning' : 'success'}
       statusLabel={formatCount(snapshot.sampleCount, 'query', 'queries')}
       title="Database Queries"
     >
@@ -377,6 +377,12 @@ function DatabaseQueryTelemetrySection({
             {formatCount(snapshot.activeLiveSubscriptions, 'active', 'active')}
           </span>
         </div>
+        {snapshot.droppedSampleCount > 0 ? (
+          <div className="flex items-center justify-between text-warning">
+            <span>Retention overflow</span>
+            <span>{formatCount(snapshot.droppedSampleCount, 'sample', 'samples')} dropped</span>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Live updates</span>
           <span className="font-mono text-[10px]">

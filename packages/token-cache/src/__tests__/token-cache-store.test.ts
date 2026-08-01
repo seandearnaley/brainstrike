@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockLoggerWarn, mockLoggerInfo } = vi.hoisted(() => ({
+const { mockLoggerError, mockLoggerWarn, mockLoggerInfo } = vi.hoisted(() => ({
+  mockLoggerError: vi.fn(),
   mockLoggerInfo: vi.fn(),
   mockLoggerWarn: vi.fn(),
 }));
@@ -11,7 +12,7 @@ vi.mock('@brainstrike/utils', async () => {
     ...actual,
     createLogger: vi.fn(() => ({
       debug: vi.fn(),
-      error: vi.fn(),
+      error: mockLoggerError,
       info: mockLoggerInfo,
       warn: mockLoggerWarn,
     })),
@@ -221,6 +222,7 @@ describe('TokenCacheStore', () => {
   let mockDb: ReturnType<typeof createMockDb>;
 
   beforeEach(() => {
+    mockLoggerError.mockClear();
     mockLoggerWarn.mockClear();
     mockLoggerInfo.mockClear();
     mockDb = createMockDb();
@@ -241,6 +243,47 @@ describe('TokenCacheStore', () => {
   });
 
   describe('set and get', () => {
+    it('reports lookup counts, hits, and duration for production get paths', async () => {
+      const recordLookup = vi.fn();
+      const instrumentedStore = new TokenCacheStore(mockDb as any, {
+        telemetry: { recordLookup },
+      });
+      await instrumentedStore.set(createEntry());
+
+      await instrumentedStore.get('folder-1', 'src/index.ts');
+      await instrumentedStore.getBatch('folder-1', ['src/index.ts', 'src/missing.ts']);
+
+      expect(recordLookup).toHaveBeenNthCalledWith(1, {
+        durationMs: expect.any(Number),
+        hitCount: 1,
+        lookupCount: 1,
+      });
+      expect(recordLookup).toHaveBeenNthCalledWith(2, {
+        durationMs: expect.any(Number),
+        hitCount: 1,
+        lookupCount: 2,
+      });
+    });
+
+    it('surfaces telemetry sink failures without changing successful lookups', async () => {
+      const instrumentedStore = new TokenCacheStore(mockDb as any, {
+        telemetry: {
+          recordLookup: () => {
+            throw new Error('telemetry sink unavailable');
+          },
+        },
+      });
+      await instrumentedStore.set(createEntry());
+
+      await expect(instrumentedStore.get('folder-1', 'src/index.ts')).resolves.toMatchObject({
+        filePath: 'src/index.ts',
+      });
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        'Token cache lookup telemetry recording failed',
+        { error: 'telemetry sink unavailable' }
+      );
+    });
+
     it('stores and retrieves a single entry', async () => {
       const entry = createEntry();
       await store.set(entry);

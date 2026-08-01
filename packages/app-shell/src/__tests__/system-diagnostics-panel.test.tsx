@@ -33,13 +33,11 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 describe('SystemDiagnosticsPanel', () => {
   beforeEach(() => {
     __resetDatabaseStatusStoreForTests();
-    databaseQueryTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
-    databaseQueryTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
@@ -91,19 +89,30 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('Token estimation')).toBeInTheDocument();
       expect(screen.getByText('75% cache hit')).toBeInTheDocument();
       expect(screen.getByText('1 active')).toBeInTheDocument();
+      databaseQueryTelemetry.recordLiveSubscriptionEnded();
     });
 
-    it('updates database query telemetry while diagnostics remains open', () => {
-      render(<SystemDiagnosticsPanel />);
+    it('updates database query telemetry while diagnostics remains open', async () => {
+      vi.useFakeTimers();
+      try {
+        render(<SystemDiagnosticsPanel />);
+        const sampleCountBefore = databaseQueryTelemetry.getSnapshot().sampleCount;
 
-      expect(screen.getByText('0 queries')).toBeInTheDocument();
+        act(() => {
+          databaseQueryTelemetry.recordQuery({ durationMs: 9, feature: 'file-tree' });
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1000);
+        });
 
-      act(() => {
-        databaseQueryTelemetry.recordQuery({ durationMs: 9, feature: 'file-tree' });
-      });
-
-      expect(screen.getByText('1 query')).toBeInTheDocument();
-      expect(screen.getByText('File tree')).toBeInTheDocument();
+        const expectedCount = sampleCountBefore + 1;
+        expect(
+          screen.getByText(`${expectedCount} ${expectedCount === 1 ? 'query' : 'queries'}`)
+        ).toBeInTheDocument();
+        expect(screen.getByText('File tree')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('renders queue diagnostics panel', () => {

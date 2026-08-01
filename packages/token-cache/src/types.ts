@@ -112,10 +112,23 @@ export interface TokenCacheStats {
 export interface TokenCacheStoreOptions {
   /** Whether to log debug information */
   debug?: boolean;
+  /** Optional composition-layer telemetry sink for persistent cache lookups. */
+  telemetry?: TokenCacheStoreTelemetry;
   /** Base delay for retrying transient batch transaction failures, in milliseconds. */
   transactionRetryBaseDelayMs?: number;
   /** Maximum number of attempts for transient batch transaction failures. */
   transactionRetryMaxAttempts?: number;
+}
+
+export interface TokenCacheLookupTelemetryRecord {
+  readonly durationMs: number;
+  readonly failed?: boolean;
+  readonly hitCount: number;
+  readonly lookupCount: number;
+}
+
+export interface TokenCacheStoreTelemetry {
+  readonly recordLookup: (record: TokenCacheLookupTelemetryRecord) => void;
 }
 
 /**

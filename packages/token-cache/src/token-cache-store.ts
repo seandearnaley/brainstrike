@@ -9,8 +9,10 @@ import { createLogger, validateRelativeFilePath } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type {
   TokenCacheEntry,
+  TokenCacheLookupTelemetryRecord,
   TokenCacheStats,
   TokenCacheStoreOptions,
+  TokenCacheStoreTelemetry,
   TokenCountingMode,
 } from './types';
 
@@ -127,6 +129,7 @@ export class TokenCacheStore {
   private readonly db: PGlite;
   private readonly transactionRetryBaseDelayMs: number;
   private readonly transactionRetryMaxAttempts: number;
+  private readonly telemetry: TokenCacheStoreTelemetry | null;
 
   constructor(db: PGlite, options: TokenCacheStoreOptions = {}) {
     this.db = db;
@@ -138,6 +141,20 @@ export class TokenCacheStore {
       options.transactionRetryMaxAttempts,
       DEFAULT_TRANSACTION_RETRY_MAX_ATTEMPTS
     );
+    this.telemetry = options.telemetry ?? null;
+  }
+
+  private recordLookupTelemetry(record: TokenCacheLookupTelemetryRecord): void {
+    if (!this.telemetry) {
+      return;
+    }
+    try {
+      this.telemetry.recordLookup(record);
+    } catch (error) {
+      logger.error('Token cache lookup telemetry recording failed', {
+        error: getErrorMessage(error),
+      });
+    }
   }
 
   private validateFilePath(filePath: string): string {
@@ -197,13 +214,30 @@ export class TokenCacheStore {
    */
   async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
     const validatedPath = this.validateFilePath(filePath);
-    const result = await this.db.query<TokenCacheRow>(
-      `SELECT * FROM file_token_cache
-       WHERE folder_id = $1 AND file_path = $2`,
-      [folderId, validatedPath]
-    );
+    const startedAt = performance.now();
+    let result: { rows: TokenCacheRow[] };
+    try {
+      result = await this.db.query<TokenCacheRow>(
+        `SELECT * FROM file_token_cache
+         WHERE folder_id = $1 AND file_path = $2`,
+        [folderId, validatedPath]
+      );
+    } catch (error) {
+      this.recordLookupTelemetry({
+        durationMs: performance.now() - startedAt,
+        failed: true,
+        hitCount: 0,
+        lookupCount: 1,
+      });
+      throw error;
+    }
 
     const row = result.rows[0];
+    this.recordLookupTelemetry({
+      durationMs: performance.now() - startedAt,
+      hitCount: row ? 1 : 0,
+      lookupCount: 1,
+    });
     if (!row) {
       return null;
     }
@@ -223,16 +257,38 @@ export class TokenCacheStore {
 
     // Build parameterized query with placeholder array
     const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
-    const result = await this.db.query<TokenCacheRow>(
-      `SELECT * FROM file_token_cache
-       WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-      [folderId, ...validatedPaths]
-    );
+    const startedAt = performance.now();
+    let result: { rows: TokenCacheRow[] };
+    try {
+      result = await this.db.query<TokenCacheRow>(
+        `SELECT * FROM file_token_cache
+         WHERE folder_id = $1 AND file_path IN (${placeholders})`,
+        [folderId, ...validatedPaths]
+      );
+    } catch (error) {
+      this.recordLookupTelemetry({
+        durationMs: performance.now() - startedAt,
+        failed: true,
+        hitCount: 0,
+        lookupCount: validatedPaths.length,
+      });
+      throw error;
+    }
 
     const map = new Map<string, TokenCacheEntry>();
     for (const row of result.rows) {
       map.set(row.file_path, rowToEntry(row));
     }
+
+    const hitCount = validatedPaths.reduce(
+      (count, validatedPath) => count + (map.has(validatedPath) ? 1 : 0),
+      0
+    );
+    this.recordLookupTelemetry({
+      durationMs: performance.now() - startedAt,
+      hitCount,
+      lookupCount: validatedPaths.length,
+    });
 
     return map;
   }

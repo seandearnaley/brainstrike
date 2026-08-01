@@ -13,8 +13,9 @@ import {
   useTokenCacheContext,
 } from '../indexing/token-cache-context';
 
-const { tokenCacheStoreInstances } = vi.hoisted(() => ({
+const { tokenCacheStoreInstances, tokenCacheStoreOptions } = vi.hoisted(() => ({
   tokenCacheStoreInstances: [] as { clearAll: ReturnType<typeof vi.fn> }[],
+  tokenCacheStoreOptions: [] as unknown[],
 }));
 
 // Mock dependencies
@@ -39,8 +40,9 @@ vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
     get = vi.fn().mockResolvedValue(null);
     set = vi.fn().mockResolvedValue(undefined);
 
-    constructor() {
+    constructor(_db: unknown, options: unknown) {
       tokenCacheStoreInstances.push(this as unknown as { clearAll: ReturnType<typeof vi.fn> });
+      tokenCacheStoreOptions.push(options);
     }
   },
   useTokenCache: vi.fn(() => ({
@@ -163,6 +165,9 @@ describe('TokenCacheContext', () => {
     });
     // Wait for effects to run and set isReady to true
     await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(tokenCacheStoreOptions.at(-1)).toMatchObject({
+      telemetry: { recordLookup: expect.any(Function) },
+    });
   });
 
   it('provides a working countTextTokens function', async () => {

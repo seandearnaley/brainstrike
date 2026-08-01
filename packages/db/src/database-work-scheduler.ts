@@ -1,4 +1,9 @@
-import { databaseQueryTelemetry, measureDatabaseQuery } from './database-query-telemetry.js';
+import {
+  measureDatabaseQuery,
+  recordDatabaseLiveSubscriptionEnded,
+  recordDatabaseLiveSubscriptionStarted,
+  recordDatabaseLiveUpdate,
+} from './database-query-telemetry.js';
 
 export type DatabaseWorkPriority = 'foreground' | 'normal' | 'background';
 
@@ -733,13 +738,13 @@ function createScheduledLiveQueryHandle<THandle extends object>(
           if (existing) {
             return Reflect.apply(subscribe as CallableUnknown, target, [existing]);
           }
-          const wrappedListener = (...args: unknown[]) => {
-            databaseQueryTelemetry.recordLiveUpdate();
-            return Reflect.apply(listener, undefined, args) as unknown;
+          const wrappedListener = function (this: unknown, ...args: unknown[]) {
+            recordDatabaseLiveUpdate();
+            return Reflect.apply(listener, this, args) as unknown;
           };
           const result = Reflect.apply(subscribe as CallableUnknown, target, [wrappedListener]);
           subscribedListeners.set(listener, wrappedListener);
-          databaseQueryTelemetry.recordLiveSubscriptionStarted();
+          recordDatabaseLiveSubscriptionStarted();
           return result;
         };
       }
@@ -757,7 +762,7 @@ function createScheduledLiveQueryHandle<THandle extends object>(
             wrappedListener,
           ]);
           subscribedListeners.delete(listener);
-          databaseQueryTelemetry.recordLiveSubscriptionEnded();
+          recordDatabaseLiveSubscriptionEnded();
           return result;
         };
       }

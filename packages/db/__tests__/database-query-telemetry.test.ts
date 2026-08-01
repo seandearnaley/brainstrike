@@ -1,5 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
-import { DatabaseQueryTelemetry } from '../src/database-query-telemetry';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  DatabaseQueryTelemetry,
+  databaseQueryTelemetry,
+  measureDatabaseQuery,
+} from '../src/database-query-telemetry';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 describe('DatabaseQueryTelemetry', () => {
   it('keeps bounded rolling query histograms by explicit feature area', () => {
@@ -19,8 +28,8 @@ describe('DatabaseQueryTelemetry', () => {
     telemetry.recordQuery({ durationMs: 40, failed: true, feature: 'queue-stats' });
 
     const snapshot = telemetry.snapshot();
-    expect(snapshot.sampleCount).toBe(3);
-    expect(snapshot.features['file-tree'].queryCount).toBe(0);
+    expect(snapshot.sampleCount).toBe(4);
+    expect(snapshot.features['file-tree'].queryCount).toBe(1);
     expect(snapshot.features['queue-stats']).toMatchObject({
       durationP50Ms: 30,
       durationP95Ms: 40,
@@ -31,6 +40,24 @@ describe('DatabaseQueryTelemetry', () => {
 
     now = 1200;
     expect(telemetry.snapshot().sampleCount).toBe(0);
+  });
+
+  it('bounds each feature independently and reports retained-sample overflow', () => {
+    const telemetry = new DatabaseQueryTelemetry({ maxSamples: 2 });
+
+    telemetry.recordQuery({ durationMs: 1, feature: 'file-tree' });
+    telemetry.recordQuery({ durationMs: 2, feature: 'file-tree' });
+    telemetry.recordQuery({ durationMs: 3, feature: 'file-tree' });
+    telemetry.recordQuery({ durationMs: 4, feature: 'queue-stats' });
+
+    expect(telemetry.snapshot()).toMatchObject({
+      droppedSampleCount: 1,
+      features: {
+        'file-tree': { droppedSampleCount: 1, queryCount: 2 },
+        'queue-stats': { droppedSampleCount: 0, queryCount: 1 },
+      },
+      sampleCount: 3,
+    });
   });
 
   it('tracks live subscriptions and rolling update frequency without query text', () => {
@@ -74,8 +101,10 @@ describe('DatabaseQueryTelemetry', () => {
     });
   });
 
-  it('publishes stable external-store snapshots for every telemetry transition', () => {
-    const telemetry = new DatabaseQueryTelemetry();
+  it('coalesces external-store notifications without rebuilding snapshots on record', async () => {
+    vi.useFakeTimers();
+    const now = vi.fn(() => 3000);
+    const telemetry = new DatabaseQueryTelemetry({ now });
     const listener = vi.fn();
     const unsubscribe = telemetry.subscribe(listener);
     const initialSnapshot = telemetry.getSnapshot();
@@ -87,7 +116,11 @@ describe('DatabaseQueryTelemetry', () => {
     telemetry.recordLiveUpdate();
     telemetry.recordLiveSubscriptionEnded();
 
-    expect(listener).toHaveBeenCalledTimes(4);
+    expect(listener).not.toHaveBeenCalled();
+    expect(now).toHaveBeenCalledTimes(5);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(listener).toHaveBeenCalledTimes(1);
     expect(telemetry.getSnapshot()).not.toBe(initialSnapshot);
     expect(telemetry.getSnapshot()).toMatchObject({
       activeLiveSubscriptions: 0,
@@ -96,7 +129,41 @@ describe('DatabaseQueryTelemetry', () => {
     });
 
     unsubscribe();
-    telemetry.reset();
-    expect(listener).toHaveBeenCalledTimes(4);
+    telemetry.recordQuery({ durationMs: 8, feature: 'file-tree' });
+    const callsAfterUnsubscribedRecord = now.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(now).toHaveBeenCalledTimes(callsAfterUnsubscribedRecord);
+  });
+
+  it('does not expose a reset that can invalidate active subscription ownership', () => {
+    const telemetry = new DatabaseQueryTelemetry();
+
+    expect('reset' in telemetry).toBe(false);
+  });
+
+  it('uses a monotonic duration clock when the wall clock moves backwards', async () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(2000).mockReturnValueOnce(1000);
+    vi.spyOn(performance, 'now').mockReturnValueOnce(10).mockReturnValueOnce(25);
+    const recordQuery = vi.spyOn(databaseQueryTelemetry, 'recordQuery');
+
+    await expect(measureDatabaseQuery('queue-stats', async () => 'ok')).resolves.toBe('ok');
+
+    expect(recordQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ durationMs: 15, feature: 'queue-stats' })
+    );
+  });
+
+  it('never changes successful query results when telemetry collection fails', async () => {
+    vi.spyOn(databaseQueryTelemetry, 'recordQuery').mockImplementation(() => {
+      throw new Error('telemetry unavailable');
+    });
+
+    await expect(
+      measureDatabaseQuery('token-estimation', async () => 'result', {
+        hitCount: () => 1,
+        lookupCount: 1,
+      })
+    ).resolves.toBe('result');
   });
 });

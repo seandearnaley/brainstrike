@@ -587,18 +587,24 @@ LIVE REFRESH").
 `packages/db/src/database-query-telemetry.ts` is the privacy boundary for
 BST-403. Producers must choose one fixed feature area (`file-tree`,
 `live-query`, `queue-stats`, or `token-estimation`) at the typed call site. Do
-not infer feature ownership from SQL text or labels. The collector keeps at
-most 512 samples in a rolling one-minute window and exposes counts, failures,
-p50/p95/max duration, live subscription/update frequency, and token-cache hit
-rate to System Diagnostics.
+not infer feature ownership from SQL text or labels. The collector keeps an
+independent rolling one-minute buffer of at most 512 samples **per feature** and
+exposes counts, failures, p50/p95/max duration, live subscription/update
+frequency, token-cache hit rate, and an explicit retained-sample overflow count
+to System Diagnostics. External-store notifications are coalesced to one-second
+updates; producers do not sort or rebuild snapshots on every query.
 
 The collector is memory-only and deliberately process-local. It retains no SQL,
 parameters, rows, paths, filenames, queue names, or content, and requires no
-factory-reset wiring. Instrumentation failures are not swallowed: the wrapped
-database operation preserves its original success or rejection, and malformed
-telemetry inputs throw. Paired coverage lives in
+factory-reset wiring. Query duration uses the monotonic performance clock.
+Malformed collector inputs throw when called directly; production wrappers log
+telemetry failures at error level while preserving the database operation's
+original success or rejection. There is deliberately no public reset: clearing
+the singleton could invalidate live-subscription ownership held by active
+proxies. Paired coverage lives in
 `packages/db/__tests__/database-query-telemetry.test.ts`,
-`database-work-scheduler.test.ts`, the Drizzle token/file repository tests, and
+`database-work-scheduler.test.ts`, `use-live-query.test.tsx`, the token-cache and
+Drizzle token/file repository tests, and
 `packages/app-shell/src/__tests__/system-diagnostics-panel.test.tsx`.
 
 ---

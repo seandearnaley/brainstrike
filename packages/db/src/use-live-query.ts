@@ -6,6 +6,12 @@ import type {
   PGliteWithLive,
 } from '@electric-sql/pglite/live';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  measureDatabaseQuery,
+  recordDatabaseLiveSubscriptionEnded,
+  recordDatabaseLiveSubscriptionStarted,
+  recordDatabaseLiveUpdate,
+} from './database-query-telemetry.js';
 import { usePGliteDatabase } from './db-provider.js';
 import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
@@ -356,14 +362,19 @@ async function subscribeViaElectron<T>(
     startPayload.limit = options.limit;
   }
 
-  const startResult = await bridge.start<T>(startPayload);
+  const startResult = await measureDatabaseQuery(
+    'live-query',
+    async () => await bridge.start<T>(startPayload)
+  );
 
   const unsubscribeUpdates = bridge.onUpdate((payload) => {
     if (payload.id !== startResult.id) {
       return;
     }
+    recordDatabaseLiveUpdate();
     onUpdate(payload.results as LiveQueryResults<T>);
   });
+  recordDatabaseLiveSubscriptionStarted();
 
   return {
     initialResults: startResult.initialResults,
@@ -375,11 +386,19 @@ async function subscribeViaElectron<T>(
       if (refreshOptions?.limit !== undefined) {
         refreshPayload.limit = refreshOptions.limit;
       }
-      await bridge.refresh(refreshPayload);
+      await measureDatabaseQuery('live-query', async () => {
+        await bridge.refresh(refreshPayload);
+      });
     },
     unsubscribe: async () => {
-      unsubscribeUpdates();
-      await bridge.stop(startResult.id);
+      await measureDatabaseQuery('live-query', async () => {
+        await bridge.stop(startResult.id);
+      });
+      try {
+        unsubscribeUpdates();
+      } finally {
+        recordDatabaseLiveSubscriptionEnded();
+      }
     },
   };
 }

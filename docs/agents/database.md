@@ -12,11 +12,13 @@ lookup/hit totals only. SQL, parameters, rows, paths, filenames, queue names,
 and content are prohibited. `docs/diagnostics-privacy-contract.md` is the
 cross-cutting privacy authority.
 
-The live-query scheduler wraps creation/refresh and listener lifecycle; the
-single embedding queue poller wraps its stats read; token-cache reads report
-lookup/hit counts; file-record read methods report the coarse `file-tree`
-feature. Keep these seams and their paired tests aligned when a query path
-moves.
+The in-renderer live-query scheduler and Electron live-query bridge both wrap
+creation/refresh and listener lifecycle; the single embedding queue poller wraps
+its stats read. The production `@brainstrike/token-cache` store exposes a narrow
+lookup telemetry port that the file-explorer composition layer wires to this
+collector, avoiding a package dependency back to `@brainstrike/db`. File-record
+read methods report the coarse `file-tree` feature. Keep these seams and their
+paired tests aligned when a query path moves.
 
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 

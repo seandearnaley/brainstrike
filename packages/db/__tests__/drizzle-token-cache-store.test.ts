@@ -39,7 +39,6 @@ describe('DrizzleTokenCacheStore', () => {
   }
 
   beforeEach(async () => {
-    databaseQueryTelemetry.reset();
     client = await createMigratedTestDb();
     db = drizzle(client, { schema });
     store = new DrizzleTokenCacheStore(db);
@@ -54,17 +53,16 @@ describe('DrizzleTokenCacheStore', () => {
       const entry = createEntry({ filePath: 'src/file1.ts' });
 
       await store.set(entry);
+      const telemetryBefore = databaseQueryTelemetry.snapshot().tokenEstimation;
       const found = await store.get(testFolderId, 'src/file1.ts');
 
       expect(found).toBeDefined();
       expect(found?.filePath).toBe('src/file1.ts');
       expect(found?.tokenCount).toBe(100);
       expect(found?.countingMode).toBe('accurate');
-      expect(databaseQueryTelemetry.snapshot().tokenEstimation).toMatchObject({
-        cacheHitRate: 1,
-        hitCount: 1,
-        lookupCount: 1,
-      });
+      const telemetryAfter = databaseQueryTelemetry.snapshot().tokenEstimation;
+      expect(telemetryAfter.hitCount - telemetryBefore.hitCount).toBe(1);
+      expect(telemetryAfter.lookupCount - telemetryBefore.lookupCount).toBe(1);
     });
 
     it('should return null for non-existent entry', async () => {
@@ -178,16 +176,15 @@ describe('DrizzleTokenCacheStore', () => {
       await store.set(createEntry({ filePath: 'src/file2.ts', tokenCount: 200 }));
       await store.set(createEntry({ filePath: 'src/file3.ts', tokenCount: 300 }));
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().tokenEstimation;
       const result = await store.getBatch(testFolderId, ['src/file1.ts', 'src/file3.ts']);
 
       expect(result.size).toBe(2);
       expect(result.get('src/file1.ts')?.tokenCount).toBe(100);
       expect(result.get('src/file3.ts')?.tokenCount).toBe(300);
-      expect(databaseQueryTelemetry.snapshot().tokenEstimation).toMatchObject({
-        cacheHitRate: 1,
-        hitCount: 2,
-        lookupCount: 2,
-      });
+      const telemetryAfter = databaseQueryTelemetry.snapshot().tokenEstimation;
+      expect(telemetryAfter.hitCount - telemetryBefore.hitCount).toBe(2);
+      expect(telemetryAfter.lookupCount - telemetryBefore.lookupCount).toBe(2);
     });
 
     it('should return empty map for empty paths', async () => {

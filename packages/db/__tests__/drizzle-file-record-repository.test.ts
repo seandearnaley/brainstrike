@@ -23,7 +23,6 @@ describe('DrizzleFileRecordRepository', () => {
   let repository: DrizzleFileRecordRepository;
 
   beforeEach(async () => {
-    databaseQueryTelemetry.reset();
     client = await createMigratedTestDb();
 
     // Create Drizzle instance
@@ -596,6 +595,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootId: 'root-a',
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const results = await repository.findByNameSubstring('read', 50);
 
       // Only the two 'read*' rows match; 'readme.md' (9 chars) sorts before
@@ -603,7 +603,9 @@ describe('DrizzleFileRecordRepository', () => {
       expect(results.map((row) => row.name)).toEqual(['readme.md', 'read-stream.ts']);
       expect(results[0]?.display_name).toBe('Alpha');
       expect(results[0]?.root_id).toBe('root-a');
-      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(1);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 1
+      );
     });
 
     it('returns TWO distinct rows for the same relative path in two roots', async () => {
