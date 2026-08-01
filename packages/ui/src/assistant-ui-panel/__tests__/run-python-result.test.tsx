@@ -202,6 +202,65 @@ describe('run_python result surface', () => {
     expect(note).toHaveTextContent('/tmp/brainstrike-run-python-abc');
   });
 
+  it('is not "silent" when everything printed was omitted by truncation', () => {
+    renderRunPython({
+      ...streams,
+      exitCode: 0,
+      kind: 'completed',
+      stdoutOmittedBytes: 2048,
+    });
+    // Empty displayed streams + positive omitted bytes: the script DID print.
+    expect(screen.getByTestId('run-python-result-header')).not.toHaveTextContent(
+      /didn't print anything/i
+    );
+    expect(screen.getByTestId('run-python-stdout-omitted')).toHaveTextContent(/wasn't captured/i);
+  });
+
+  it('a running status keeps the generic card — no structured surface, thinking indicator intact', () => {
+    const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
+    render(
+      <TooltipProvider>
+        <Comp
+          args={{ code: 'print(1)' }}
+          result={{ ...streams, exitCode: 0, kind: 'completed', stdout: 'partial echo' }}
+          status={{ type: 'running' }}
+          toolCallId="call-py-running"
+          toolName="brainstrike.runPython"
+        />
+      </TooltipProvider>
+    );
+    expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
+    expect(screen.queryByTestId('run-python-result-header')).not.toBeInTheDocument();
+  });
+
+  it('an incomplete status wins over a narrowable result so transport errors stay visible', () => {
+    const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
+    render(
+      <TooltipProvider>
+        <Comp
+          args={{ code: 'print(1)' }}
+          result={{ ...streams, exitCode: 0, kind: 'completed', stdout: '42' }}
+          status={{ error: 'stream aborted by transport', type: 'incomplete' }}
+          toolCallId="call-py-incomplete"
+          toolName="brainstrike.runPython"
+        />
+      </TooltipProvider>
+    );
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(screen.getByText('stream aborted by transport')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-python-result-header')).not.toBeInTheDocument();
+  });
+
+  it('a cancelled result without omitted-byte fields fails narrowing — no bare-label surface', () => {
+    renderRunPython({
+      kind: 'cancelled',
+      partialStderr: '',
+      partialStdout: '',
+      processStarted: false,
+    });
+    expect(screen.queryByTestId('run-python-result-header')).not.toBeInTheDocument();
+  });
+
   it('leaves non-run_python results and malformed shapes on the generic pane', () => {
     const Comp = ToolFallback as unknown as (p: Record<string, unknown>) => ReactElement;
     render(

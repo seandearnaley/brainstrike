@@ -28,11 +28,11 @@ import {
   useCheckpointForToolCall,
 } from './edit-checkpoint-context';
 import { LiveShellOutputPane } from './live-shell-output-pane';
+import { RunPythonResultSurface } from './run-python-result';
 import {
   narrowRunPythonDisplayResult,
   type RunPythonDisplayResult,
-  RunPythonResultSurface,
-} from './run-python-result';
+} from './run-python-result-model';
 import { useShellOutput } from './shell-output-context';
 import { useRememberedToolArguments } from './tool-argument-context';
 import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
@@ -88,6 +88,11 @@ function runPythonDisplayStatus(result: RunPythonDisplayResult): DisplayStatus {
  * place (kept out of ToolFallback for cognitive-complexity budget). A shape
  * that fails narrowing (malformed or future) stays on the generic path with
  * the generic status — never an invented surface.
+ *
+ * The structured mapping only ever OVERRIDES a generic `success`: `running`
+ * and `incomplete` must keep winning, or a transport abort's `status.error`
+ * would vanish behind a Completed/Stopped card and a still-running call would
+ * lose its thinking indicator.
  */
 function resolveCardStatus(
   toolName: string,
@@ -100,10 +105,14 @@ function resolveCardStatus(
     toolName === NATIVE_TOOL_ID.runPython && hasResult
       ? narrowRunPythonDisplayResult(result)
       : null;
+  const generic = resolveDisplayStatus(status, hasResult, result, isErrorResult);
+  if (!(runPythonResult && generic === 'success')) {
+    // Generic path owns the card (running / incomplete / error-shaped): no
+    // structured surface either, or it would render under Failed chrome.
+    return { displayStatus: generic, runPythonResult: null };
+  }
   return {
-    displayStatus: runPythonResult
-      ? runPythonDisplayStatus(runPythonResult)
-      : resolveDisplayStatus(status, hasResult, result, isErrorResult),
+    displayStatus: runPythonDisplayStatus(runPythonResult),
     runPythonResult,
   };
 }

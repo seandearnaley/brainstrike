@@ -154,6 +154,20 @@ describe('run_python approval card — fact rows', () => {
     );
   });
 
+  it('renders a sub-second time limit exactly, never rounded to a false statement', () => {
+    renderNotice(
+      {
+        ...baseApproval,
+        args: { code: 'print(1)', timeoutMs: 400 },
+        executionContext: { ...executionContext, timeoutMs: 400 },
+      },
+      null
+    );
+    expect(screen.getByTestId('approval-run-python-time')).toHaveTextContent(
+      'Stops after 0.4 seconds'
+    );
+  });
+
   it('renders a VM sandbox row for executorKind vm and lists allowRead under a none read default', () => {
     renderNotice(
       {
@@ -210,6 +224,10 @@ describe('run_python approval card — fact rows', () => {
     );
     expect(screen.getByText(/this script is empty/i)).toBeInTheDocument();
     expect(screen.queryByTestId('approval-run-python-code')).not.toBeInTheDocument();
+    // An empty script provably does nothing — the missing-context alarm would
+    // cry wolf, so it is exempt (grants stay suppressed regardless).
+    expect(screen.queryByTestId('approval-run-python-context-missing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('approval-grant-tool-always')).not.toBeInTheDocument();
   });
 });
 
@@ -219,6 +237,11 @@ describe('run_python approval card — fail-safe paths', () => {
 
     expect(screen.getByTestId('approval-run-python-context-missing')).toHaveTextContent(
       /couldn't confirm what this script is allowed to touch/i
+    );
+    // The disappearing grant buttons come with a visible reason, same as the
+    // unreadable-args path.
+    expect(screen.getByTestId('approval-run-python-grants-suppressed-note')).toHaveTextContent(
+      /won't offer "always allow"/i
     );
     expect(screen.queryByTestId('approval-run-python-internet')).not.toBeInTheDocument();
     expect(screen.queryByTestId('approval-run-python-write')).not.toBeInTheDocument();

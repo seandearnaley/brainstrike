@@ -27,6 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../dropdown-menu';
+import { formatRunDuration } from './run-python-result-model';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
 const logger = createLogger('AssistantToolApprovalNotice');
@@ -318,14 +319,13 @@ function resolveApprovalPreviewPolicy(
   return { suppressGrants };
 }
 
-/** "Stops after 30 seconds" / "Stops after 5 minutes" — never raw milliseconds. */
+/**
+ * "Stops after 30 seconds" / "Stops after 0.4 seconds" — the shared
+ * `formatRunDuration` keeps this card and the result surface agreeing, and
+ * never rounds a sub-second limit into a false statement on a security card.
+ */
 function formatRunPythonTimeLimit(timeoutMs: number): string {
-  if (timeoutMs >= 60_000 && timeoutMs % 60_000 === 0) {
-    const minutes = timeoutMs / 60_000;
-    return `Stops after ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
-  }
-  const seconds = Math.round(timeoutMs / 1000);
-  return `Stops after ${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
+  return `Stops after ${formatRunDuration(timeoutMs)}`;
 }
 
 function RunPythonFactRow({
@@ -469,17 +469,29 @@ function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest
         </div>
       )}
       {codePreview.truncated ? <PreviewTruncatedNote preview={codePreview} /> : null}
-      {context ? (
-        <RunPythonFactRows context={context} />
-      ) : (
-        <p
-          className="mt-2 text-amber-700 text-xs dark:text-amber-400"
-          data-testid="approval-run-python-context-missing"
-        >
-          We couldn't confirm what this script is allowed to touch. Check the raw arguments below
-          before approving.
-        </p>
-      )}
+      {context ? <RunPythonFactRows context={context} /> : null}
+      {/* Missing-context path: state the degradation AND why the grant
+          buttons are gone. An EMPTY script is exempt from the alarm — it
+          provably does nothing (the agent schema rejects it at execute time),
+          so the empty-script line above says everything true; grants stay
+          suppressed either way. */}
+      {!context && parsed.code.length > 0 ? (
+        <>
+          <p
+            className="mt-2 text-amber-700 text-xs dark:text-amber-400"
+            data-testid="approval-run-python-context-missing"
+          >
+            We couldn't confirm what this script is allowed to touch. Check the raw arguments below
+            before approving.
+          </p>
+          <p
+            className="mt-1 text-amber-700 text-xs dark:text-amber-400"
+            data-testid="approval-run-python-grants-suppressed-note"
+          >
+            Because this tool runs code, we won't offer "always allow" for a call we can't confirm.
+          </p>
+        </>
+      ) : null}
     </div>
   );
 }

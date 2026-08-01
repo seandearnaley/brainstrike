@@ -19,53 +19,17 @@
  * wrong one for a finished result — a traceback would open with its first
  * line hidden above the fold. `RunPythonStreamPane` keeps the same class
  * vocabulary but reads top-down as a labelled `<section>` (no longer live).
+ *
+ * Narrowing and formatters live in `run-python-result-model.ts` so this file
+ * exports only components (react-doctor `only-export-components`).
  */
 import { AlertCircle, CheckCircle, CircleSlash, Timer } from 'lucide-react';
 import type { ReactElement } from 'react';
-
-/**
- * Display-side mirror of the agent package's `RunPythonResult` union
- * (`packages/agent/src/tools/run-python-tool.ts`). The UI package does not
- * depend on `@brainstrike/agent`, so the shape is narrowed structurally —
- * the same trade the approval-card narrowers make. Unknown EXTRA fields are
- * tolerated (results are display data, additive evolution must not blank the
- * card), but a missing required field fails the arm: a surface that guessed
- * at absent streams would be inventing output.
- */
-export type RunPythonDisplayResult =
-  | {
-      readonly exitCode: number;
-      readonly kind: 'completed';
-      readonly stderr: string;
-      readonly stderrOmittedBytes: number;
-      readonly stdout: string;
-      readonly stdoutOmittedBytes: number;
-    }
-  | {
-      readonly kind: 'timed_out';
-      readonly signal: string | null;
-      readonly stderr: string;
-      readonly stderrOmittedBytes: number;
-      readonly stdout: string;
-      readonly stdoutOmittedBytes: number;
-      readonly timeoutMs: number;
-    }
-  | {
-      readonly kind: 'killed';
-      readonly signal: string | null;
-      readonly stderr: string;
-      readonly stderrOmittedBytes: number;
-      readonly stdout: string;
-      readonly stdoutOmittedBytes: number;
-    }
-  | {
-      readonly kind: 'cancelled';
-      readonly partialStderr: string;
-      readonly partialStdout: string;
-      readonly stderrOmittedBytes: number;
-      readonly stdoutOmittedBytes: number;
-    }
-  | { readonly detail: string; readonly kind: 'unavailable'; readonly reason: string };
+import {
+  formatOmittedBytes,
+  formatRunDuration,
+  type RunPythonDisplayResult,
+} from './run-python-result-model';
 
 /**
  * The optional cleanup note that rides every arm: present ONLY when the tool
@@ -75,82 +39,6 @@ export type RunPythonDisplayResult =
 interface RunPythonCleanupDisplay {
   readonly scratchCleanupFailed?: unknown;
   readonly scratchDir?: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function hasStreamFields(value: Record<string, unknown>): boolean {
-  return (
-    typeof value['stdout'] === 'string' &&
-    typeof value['stderr'] === 'string' &&
-    typeof value['stdoutOmittedBytes'] === 'number' &&
-    typeof value['stderrOmittedBytes'] === 'number'
-  );
-}
-
-function isSignalField(value: unknown): value is string | null {
-  return value === null || typeof value === 'string';
-}
-
-export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayResult | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  switch (value['kind']) {
-    case 'completed':
-      return typeof value['exitCode'] === 'number' && hasStreamFields(value)
-        ? (value as unknown as RunPythonDisplayResult)
-        : null;
-    case 'timed_out':
-      return typeof value['timeoutMs'] === 'number' &&
-        isSignalField(value['signal']) &&
-        hasStreamFields(value)
-        ? (value as unknown as RunPythonDisplayResult)
-        : null;
-    case 'killed':
-      return isSignalField(value['signal']) && hasStreamFields(value)
-        ? (value as unknown as RunPythonDisplayResult)
-        : null;
-    case 'cancelled':
-      return typeof value['partialStdout'] === 'string' &&
-        typeof value['partialStderr'] === 'string'
-        ? (value as unknown as RunPythonDisplayResult)
-        : null;
-    case 'unavailable':
-      return typeof value['reason'] === 'string' && typeof value['detail'] === 'string'
-        ? (value as unknown as RunPythonDisplayResult)
-        : null;
-    default:
-      return null;
-  }
-}
-
-/**
- * `812 bytes` / `41.0 KB` / `4.4 MB` at one decimal for KB/MB. DECIMAL units
- * (1000-based), matching what macOS Finder and every consumer OS shows users —
- * a byte count on a user-facing card should agree with the number they would
- * see in their file manager.
- */
-export function formatOmittedBytes(bytes: number): string {
-  if (bytes >= 1_000_000) {
-    return `${(bytes / 1_000_000).toFixed(1)} MB`;
-  }
-  if (bytes >= 1000) {
-    return `${(bytes / 1000).toFixed(1)} KB`;
-  }
-  return `${bytes} ${bytes === 1 ? 'byte' : 'bytes'}`;
-}
-
-/** "30 seconds" / "1 minute" / "5 minutes" — never raw milliseconds. */
-function formatDurationForHeader(timeoutMs: number): string {
-  if (timeoutMs >= 60_000 && timeoutMs % 60_000 === 0) {
-    const minutes = timeoutMs / 60_000;
-    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
-  }
-  const seconds = Math.round(timeoutMs / 1000);
-  return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
 }
 
 /**
@@ -274,7 +162,11 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
           text: `Finished with an error (exit code ${result.exitCode}).`,
         };
       }
-      const silent = result.stdout.length === 0 && result.stderr.length === 0;
+      const silent =
+        result.stdout.length === 0 &&
+        result.stderr.length === 0 &&
+        result.stdoutOmittedBytes === 0 &&
+        result.stderrOmittedBytes === 0;
       return {
         icon: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
         state: 'completed',
@@ -285,7 +177,7 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
       return {
         icon: <Timer className={amber} />,
         state: 'timed_out',
-        text: `Stopped after ${formatDurationForHeader(result.timeoutMs)} — the script was still running.`,
+        text: `Stopped after ${formatRunDuration(result.timeoutMs)} — the script was still running.`,
       };
     case 'killed':
       return {
@@ -294,7 +186,11 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         text: 'The script was stopped by the system before it finished.',
       };
     case 'cancelled': {
-      const silent = result.partialStdout.length === 0 && result.partialStderr.length === 0;
+      const silent =
+        result.partialStdout.length === 0 &&
+        result.partialStderr.length === 0 &&
+        result.stdoutOmittedBytes === 0 &&
+        result.stderrOmittedBytes === 0;
       return {
         icon: <CircleSlash className="size-4 text-muted-foreground" />,
         state: 'cancelled',
