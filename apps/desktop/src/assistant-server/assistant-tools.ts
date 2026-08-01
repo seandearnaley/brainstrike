@@ -42,6 +42,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { resolveDesktopPythonExecutable } from '../python-runtime';
 import type { CommandSessionManager } from './command-session-manager';
 import {
   INSPECT_COMMAND_SESSIONS_TRANSFORM,
@@ -113,6 +114,12 @@ export interface DesktopAssistantToolDependencies {
   commandSessionManager?: CommandSessionManager | undefined;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   readWorkspaceFileCursorRegistry?: ReadWorkspaceFileCursorRegistry | undefined;
+  /**
+   * BST-1061: test seam for the bundled-CPython capability used by the
+   * `python3` skill-script runtime. Production omits it and gets the real
+   * `resolveDesktopPythonExecutable`; there is never a PATH-python fallback.
+   */
+  resolvePythonExecutable?: (() => Promise<string>) | undefined;
   skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
   /**
@@ -734,6 +741,8 @@ export function buildDesktopAssistantTools(
         });
         try {
           return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
+            resolvePythonExecutable:
+              dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable,
             signal: options?.abortSignal,
             ...(stream ? { stream } : {}),
           });

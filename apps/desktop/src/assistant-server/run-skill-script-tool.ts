@@ -76,10 +76,13 @@ async function resolveWorkingDirectory(
   return { cwd: canonicalCwd, rootName: root.displayName };
 }
 
-function resolveRuntime(runtime: RunSkillScriptInput['runtime']): {
+async function resolveRuntime(
+  runtime: RunSkillScriptInput['runtime'],
+  resolvePythonExecutable: (() => Promise<string>) | undefined
+): Promise<{
   env?: NodeJS.ProcessEnv;
   executable: string;
-} {
+}> {
   if (runtime === 'node') {
     return {
       env: {
@@ -90,7 +93,16 @@ function resolveRuntime(runtime: RunSkillScriptInput['runtime']): {
     };
   }
   if (runtime === 'python3') {
-    return { executable: process.platform === 'win32' ? 'python' : 'python3' };
+    // BST-1061: python3 means the BUNDLED CPython, resolved through the
+    // injected capability — never a PATH `python`/`python3` fallback. An
+    // unusable bundled runtime surfaces as a typed PythonRuntimeError from
+    // the resolver.
+    if (!resolvePythonExecutable) {
+      throw new Error(
+        'The python3 skill-script runtime requires the bundled-Python resolver, and none was injected.'
+      );
+    }
+    return { executable: await resolvePythonExecutable() };
   }
   if (process.platform === 'win32') {
     throw new ToolInputError('The bash skill-script runtime is unavailable on Windows.');
@@ -122,7 +134,11 @@ export async function runSkillScript(
   input: RunSkillScriptInput,
   runtimeData: RuntimeData | undefined,
   resolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'>,
-  options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
+  options?: {
+    resolvePythonExecutable?: (() => Promise<string>) | undefined;
+    signal?: AbortSignal | undefined;
+    stream?: ShellOutputStreamer | undefined;
+  }
 ): Promise<RunSkillScriptToolResult> {
   const resolved = await resolver.resolveScriptExecution({
     ...(input.args ? { args: input.args } : {}),
@@ -131,7 +147,7 @@ export async function runSkillScript(
     skillName: input.skillName,
   });
   const { cwd, rootName } = await resolveWorkingDirectory(runtimeData, input, resolved);
-  const runtime = resolveRuntime(input.runtime);
+  const runtime = await resolveRuntime(input.runtime, options?.resolvePythonExecutable);
   const startedAt = Date.now();
   const outcome = await runDetachedProcess({
     argv: [resolved.absolutePath, ...(input.args ?? [])],

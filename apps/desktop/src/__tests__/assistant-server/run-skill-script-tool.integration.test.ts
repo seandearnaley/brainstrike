@@ -143,6 +143,50 @@ describe('brainstrike.runSkillScript', () => {
     ).rejects.toThrow(/belongs to root id "root-a".*"root-b"/i);
   });
 
+  it('runs the python3 runtime through the injected bundled-Python resolver', async () => {
+    const fixture = await createFixture();
+    // /bin/echo stands in for the interpreter: its stdout is the argv it was
+    // handed, which proves the spawned executable came from the resolver
+    // rather than a PATH `python3`.
+    const resolvePythonExecutable = async () => '/bin/echo';
+    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      resolvePythonExecutable,
+      skillScriptResolver: fixture.resolver,
+    })['brainstrike.runSkillScript'];
+    const result = await tool.execute({
+      cwd: '.',
+      root: 'root-a',
+      runtime: 'python3',
+      scriptPath: 'scripts/inspect.mjs',
+      skillName: 'site-design',
+    });
+    expect(result).toMatchObject({ exitCode: 0, runtime: 'python3', timedOut: false });
+    expect(result.stdout.trim()).toContain(path.join('scripts', 'inspect.mjs'));
+  });
+
+  it('propagates a typed bundled-Python failure instead of falling back to PATH python3', async () => {
+    const fixture = await createFixture();
+    const failure = Object.assign(
+      new Error('The bundled Python runtime does not support linux/x64'),
+      {
+        code: 'python_unsupported_platform',
+      }
+    );
+    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      resolvePythonExecutable: () => Promise.reject(failure),
+      skillScriptResolver: fixture.resolver,
+    })['brainstrike.runSkillScript'];
+    await expect(
+      tool.execute({
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'python3',
+        scriptPath: 'scripts/inspect.mjs',
+        skillName: 'site-design',
+      })
+    ).rejects.toBe(failure);
+  });
+
   it('rejects absolute and traversal working directories in the strict schema', async () => {
     const fixture = await createFixture();
     const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {

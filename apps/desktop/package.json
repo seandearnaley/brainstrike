@@ -12,6 +12,16 @@
       "public/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "resources/python-runtime",
+        "to": "python-runtime",
+        "filter": [
+          "manifest.json",
+          "*.tar.gz"
+        ]
+      }
+    ],
     "npmRebuild": true,
     "asarUnpack": [
       "dist/main-log-transport.js",
@@ -157,7 +167,7 @@
   "main": "dist/main.js",
   "private": true,
   "scripts": {
-    "build": "pnpm build:renderer && pnpm build:main",
+    "build": "pnpm build:renderer && pnpm build:main && node scripts/fetch-python-runtime.mjs",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
