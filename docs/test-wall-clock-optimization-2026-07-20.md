@@ -61,7 +61,8 @@ worst-case "toolchain patch batch" PR where every package was affected — plus 
 - No `--shard`, no job matrix; everything funnels into one Unit job.
 - `db#test` is `cache: false` (`packages/db/turbo.json:47`) and always rebuilds
   `@brainstrike/utils` first — the heaviest lane never benefits from turbo caching.
-- `globalDependencies` (`turbo.jsonc`) include `pnpm-lock.yaml`, `biome.json`, `turbo.jsonc`,
+- Global cache inputs (`global.inputs` in `turbo.jsonc` since BST-1013) include
+  `pnpm-lock.yaml`, `biome.json`, `turbo.jsonc`,
   root tsconfigs — any single edit busts **every** package's `test` cache.
 - `topo` inputs deliberately don't exclude `**/*.test.*` — a test-only edit upstream
   invalidates all downstream dependents' cached tests (acknowledged in the comment).
@@ -115,7 +116,7 @@ worst-case "toolchain patch batch" PR where every package was affected — plus 
    files), agent, file-explorer(-hooks) `maxWorkers:1` (Tinypool workaround — Tinypool no
    longer exists in Vitest 4), embeddings/vector-management forks→threads.
 8. **Turbo cache hygiene + remote cache.** Re-enable caching for `db#test` once lanes are
-   deterministic-fast; narrow `globalDependencies` (biome.json should not bust test caches);
+   deterministic-fast; narrow `global.inputs` (biome.json should not bust test caches);
    exclude `**/*.test.*` from `topo` inputs; wire TURBO_TOKEN/TURBO_TEAM remote caching (or
    `rharkor/caching-for-turbo` to stay on GH cache).
 9. **Modern Vitest levers.** `isolate: false` for hygienic node-env packages;

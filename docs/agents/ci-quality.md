@@ -874,6 +874,58 @@ must be verified in a clean isolated worktree so one compiler's declarations
 cannot affect the other. The adoption evidence and reproduction commands live
 in `docs/series-c-ts7-parity-findings.md`.
 
+### Turbo 2.10 configuration audit and 3.0 preparation (BST-1013)
+
+The root config opts into Turbo 2.10's `futureFlags.globalConfiguration` and
+uses the Turbo 3.0 `global.concurrency` / `global.inputs` shape. This is a
+mechanical config migration: a before/after `turbo run build type-check lint
+test --dry=json` selected the same 47 packages and 235 task nodes. Under this
+future flag, Turbo no longer reports these files in `globalCacheInputs.files`;
+it injects them into each executable task's resolved inputs instead.
+`scripts/__tests__/turbo-global-configuration.test.mjs` therefore expands the
+configured globs, runs the pinned Turbo binary, and checks every executable
+task at that actual boundary. Its floors require at least 10 matched global
+files, 47 packages, 230 total task nodes, and 160 executable tasks. Mutation
+controls remove one real input from one task and empty the task selection, and
+prove both cases fail visibly. The structural tsconfig contract separately
+proves the future flag/layout, calibrated concurrency, and load-bearing
+tsconfig globs; its controls reject the legacy layout and a missing preset
+input. Keep both controls when editing the global block. On the same machine
+and base revision, the complete script-test phase moved from 14.23 seconds / 781
+tests to 15.00 seconds / 784 tests: +0.77 seconds (+5.4%). The Turbo dry-run is
+memoized within the test file so the money controls do not spawn it twice.
+
+The same audit found no active repository use of Turbo 2.9's deprecated
+`turbo-ignore`, `turbo scan`, `--parallel`, Turbo's `--no-cache`, daemon flags,
+non-HTML `--graph` output, legacy remote-cache flags/environment variables, or
+`prune --scope`. The only `--no-cache` match is Alpine's unrelated
+`apk add --no-cache` in `scripts/setup-headless-display.sh`. Do not enable the
+remaining 3.0 future flags speculatively: `filterUsingTasks` would change the
+settled explicit affected filters in `test.yml`; the affected/watch/prune flags
+have no adopted call site; `longerSignatureKey` needs the real remote-cache
+signing setup to validate; and the diagnostic-only flag has no CI benefit.
+
+Package-config composition was evaluated and deliberately not adopted. The ten
+package `turbo.json` files now represent seven behavior classes; five are
+unique cache-safety or cross-input contracts. Only app-shell/db-explorer/
+vector-management and secure-fs-native/windows-job-native repeat behavior.
+Introducing a config micro-package for groups of three and two would add graph
+and ownership surface, while extending an operational package would couple
+unrelated owners. Turbo's native `extends` is still the required mechanism if
+a stable repeated policy grows large enough to justify a shared owner; do not
+invent a merger or config registry.
+
+Turbo 2.9's stable `query affected` was also evaluated but is not a CI planner.
+Against `origin/main..HEAD` with no package change it correctly returned zero;
+against the BST-1011 root/lockfile change it returned 48 package nodes including
+the workspace root, or 46 with `--tasks test`. That offers no saving over the
+Unit job's explicit `...[origin/$BASE_REF]` filters, cannot weaken the always-on
+web/desktop smoke checks, and would create a second selection/reconciliation
+seam. `scripts/run-turbo-command.mjs` also appends `--cache-dir`, which run
+commands accept but `turbo query affected` rejects. Because no repository query
+entrypoint was adopted, the bounded run wrapper was not broadened for an
+unsupported command.
+
 ### Root clean orchestration
 
 The root `pnpm clean` command stays on the shared Turbo command wrapper so it
@@ -934,7 +986,7 @@ scripts only: `type-check`'s emitting `tsc --build --force` (apps/web) cannot
 create orphans or archives — only `build` has `dist/**` outputs, and the prune
 before every snapshot-producing build launders dist before archiving. The
 wiring contract, pruner behavior, entrypoint controls, and the `turbo.jsonc`
-`globalDependencies` hash entry for the pruner (editing it must invalidate
+`global.inputs` hash entry for the pruner (editing it must invalidate
 cached builds) are guarded by `scripts/__tests__/prune-stale-dist.test.mjs`.
 
 ### Agent declaration build split
