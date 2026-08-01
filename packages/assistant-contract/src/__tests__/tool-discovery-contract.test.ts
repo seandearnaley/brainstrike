@@ -31,19 +31,14 @@ const EXPECTED_DEFERRED_NAMESPACES = {
   ],
   database: ['brainstrike.queryDiagnostics', 'brainstrike.querySelf'],
   embeddings: ['brainstrike.listEmbeddingSpaces', 'brainstrike.queryEmbeddingSpace'],
+  execution: ['brainstrike.runPython'],
   semantics: [
     'brainstrike.findWorkspaceSymbol',
     'brainstrike.hybridSearch',
     'brainstrike.lspInspect',
   ],
   sessions: ['brainstrike.inspectCommandSessions', 'brainstrike.manageCommandSession'],
-  skills: [
-    'brainstrike.runPython',
-    'brainstrike.runSkillScript',
-    'skill',
-    'skill_read',
-    'skill_search',
-  ],
+  skills: ['brainstrike.runSkillScript', 'skill', 'skill_read', 'skill_search'],
   web: ['brainstrike.webExtract', 'brainstrike.webSearch'],
   workspace: [
     'brainstrike.deleteWorkspaceFile',

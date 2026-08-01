@@ -12,6 +12,7 @@ export type NativeToolDiscoveryNamespace =
   | 'context'
   | 'database'
   | 'embeddings'
+  | 'execution'
   | 'semantics'
   | 'sessions'
   | 'skills'
@@ -52,6 +53,11 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
     summary: 'Inspect and query configured embedding spaces.',
     toolIds: [NATIVE_TOOL_ID.listEmbeddingSpaces, NATIVE_TOOL_ID.queryEmbeddingSpace],
   },
+  execution: {
+    summary:
+      'Run code the assistant writes inside an OS sandbox: Python with no network access and writes confined to a temporary scratch directory. Use for computation, parsing, and data wrangling.',
+    toolIds: [NATIVE_TOOL_ID.runPython],
+  },
   semantics: {
     summary: 'Search indexed code and inspect language-server symbols and diagnostics.',
     toolIds: [
@@ -67,7 +73,6 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
   skills: {
     summary: 'Discover, activate, read, and run bundled scripts from installed Agent Skills.',
     toolIds: [
-      NATIVE_TOOL_ID.runPython,
       NATIVE_TOOL_ID.runSkillScript,
       NATIVE_TOOL_ID.skill,
       NATIVE_TOOL_ID.skillRead,
