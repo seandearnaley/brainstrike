@@ -163,22 +163,36 @@ Current recommendation: **absent factory on win32**, no elevated-install prompt.
 The blocker is *expressibility*, not maturity — Windows srt fixes filesystem
 scope at `initialize()`, so a per-execution `ExecPolicy` cannot be honoured.
 
-### BST-1063 — PGlite 0.5.4 · **likely BLOCKED, needs a decision**
+### BST-1063 — PGlite 0.5.4 · **draft PR #2206, one question open**
 
-Two findings from the lost lane:
+Salvaged with real evidence on branch
+`seandearnaley/bst-1063-bump-pglite-to-054-...`. The BM25 fear that made this
+look blocked has been **retired empirically**:
 
-1. **The bump drags pg_textsearch to 1.3.1** — the exact version
-   `docs/agents/database.md` records as producing invalid BM25 page chains, which
-   is why migration 066 hard-checks `extversion = '1.2.0'`. The extension family
-   is peer-locked, so it may not be splittable.
-2. **A vitest worker crash on 0.5.4 solo that did not occur on 0.5.3 solo.**
-   Contention timeouts were discarded as noise; the solo crash is the real signal
-   and was not yet reproduced enough times to be conclusive.
+1. **The extension family cannot be split** — verified, not assumed: core 0.5.4
+   paired with pg_textsearch held at 0.0.4 fails with `PGlite failed to
+   initialize properly`. So 1.3.1 comes along or nothing does.
+2. **pg_textsearch 1.3.1 re-qualified: 6/6 durability-gate runs clean, plus 3/3
+   upgrade-path trials.** This is *correctness* evidence, not timing, so machine
+   contention cannot fake a pass — which is exactly why it is trustworthy from
+   this host. Migration 066's guard was moved to require `1.3.1` accordingly.
+3. **The `process.type` audit is a no-op for us** — the fix is entirely inside
+   pglite (`IN_NODE`, upstream PR #1033); every construction site uses bare
+   imports so the bump propagates automatically. Nothing to remove.
 
-**Do not move migration 066's guard off its exact-version check without ≥5
-consecutive clean runs of `pg-textsearch-durability-gate.integration.test.ts` on
-an idle machine.** A well-evidenced "blocked, here's why" is the correct outcome
-if that evidence can't be obtained.
+**The one open question, explicitly unresolved:** 0.5.4 solo runs hit 1 worker
+crash in 2 attempts, versus 0 in a single 0.5.3 solo control; the tie-breaker
+came back clean. That is 2 short of the protocol (2 more solo runs each way).
+The lane's read — labelled as judgement, not fact — is machine noise rather than
+a regression. **Confirm or refute that before merging.**
+
+Also **not done**: full type-check sweep across other PGlite consumers, lint,
+react-doctor, and a real desktop launch smoke test.
+
+**Unscoped finding, deliberately untouched:** `packages/build-utils/src/vite.ts`'s
+CSP eval-warning allowlist now silently stops suppressing 2 EVAL warnings (build
+still exits 0). That wants a real BST-573/594 security re-qualification, not a
+quiet allowlist edit.
 
 ### BST-1064 — Electron 43 · needs an idle machine
 
@@ -232,7 +246,20 @@ Escalate rather than ship mediocre output. Never Haiku.
      registered. Assert `Unit (rest)`, `Unit (db)`, `Static`, `Build` exist **by
      name** — otherwise Vercel resolving first looks identical to success.
 
-Merge only after several green rounds. Commit and push freely; let the bots review.
+Merge only after several green rounds.
+
+**On pushing — read this, do not skim it.** AGENTS.md requires explicit
+confirmation before pushing to a remote, and the only *standing* exception is a
+chartered Night Shift loop. This project has a **separate, explicit grant from
+Sean** (2026-08-01): commit regularly, push to PRs when ready, let bot review and
+PR checks drive the repair loops, and merge only after several rounds of
+automated tests pass.
+
+That grant is what authorises the workflow above. It is **scoped to this
+project's tickets** and does not generalise: it is not licence to push
+unrelated branches, to force-push, to push to `main`, or to merge on a first
+green. If you are working outside this project's ticket graph, the ordinary
+AGENTS.md confirmation rule applies and you ask first.
 
 ### Testing
 
@@ -245,8 +272,25 @@ for the wrong reason in the escape suite itself.
 say so; if it is flaky, diagnose the flake. "Passed on re-run" is not a diagnosis.
 
 **Lane placement:** real OS primitives, PGlite, native binaries, or wall-clock
-timing ⇒ `*.integration.spec.ts` and the integration lane. Everything else stays
-in the cacheable unit lane. **Do not move tests between lanes to make CI green** —
+timing ⇒ the integration lane. Everything else stays in the cacheable unit lane.
+
+**The integration suffix is PER-PACKAGE — check the package's own
+`vitest.integration.config.mts` before naming a file.** They genuinely differ,
+and getting it wrong silently runs environment-sensitive coverage in the
+cacheable unit lane:
+
+| Package | Suffix |
+| --- | --- |
+| `packages/agent` | `*.integration.spec.ts` |
+| `apps/desktop`, `packages/embeddings`, `packages/db` | `*.integration.test.ts` |
+
+(The PGlite durability gate is `packages/db/__tests__/pg-textsearch-durability-gate.integration.test.ts`.)
+New `packages/db` tests must also register a regex in `dbUnitLaneDefinitions` in
+`db-test-lane-manifest.mjs` — `test-lanes.mjs` and `coverage-lanes.mjs` both
+derive from that single manifest, so lane and coverage assignment follow
+automatically.
+
+**Do not move tests between lanes to make CI green** —
 that is relaxing a test with extra steps. If a lane is genuinely misassigned, say
 so and fix the assignment deliberately, with the reasoning recorded. Note PR
 #2203 (native Vitest DB shards) is in flight from another session and touches
