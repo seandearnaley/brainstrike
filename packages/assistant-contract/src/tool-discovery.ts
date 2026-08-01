@@ -67,6 +67,7 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
   skills: {
     summary: 'Discover, activate, read, and run bundled scripts from installed Agent Skills.',
     toolIds: [
+      NATIVE_TOOL_ID.runPython,
       NATIVE_TOOL_ID.runSkillScript,
       NATIVE_TOOL_ID.skill,
       NATIVE_TOOL_ID.skillRead,

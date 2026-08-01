@@ -37,7 +37,13 @@ const EXPECTED_DEFERRED_NAMESPACES = {
     'brainstrike.lspInspect',
   ],
   sessions: ['brainstrike.inspectCommandSessions', 'brainstrike.manageCommandSession'],
-  skills: ['brainstrike.runSkillScript', 'skill', 'skill_read', 'skill_search'],
+  skills: [
+    'brainstrike.runPython',
+    'brainstrike.runSkillScript',
+    'skill',
+    'skill_read',
+    'skill_search',
+  ],
   web: ['brainstrike.webExtract', 'brainstrike.webSearch'],
   workspace: [
     'brainstrike.deleteWorkspaceFile',

@@ -116,6 +116,7 @@ describe('resolveToolRiskCategory', () => {
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
         'brainstrike.manageCommandSession',
+        'brainstrike.runPython',
         'brainstrike.runSkillScript',
       ]);
       const readTools = entries.filter(([id]) => !explicitlyNonRead.has(id));
@@ -166,11 +167,13 @@ describe('buildNativeToolRiskMap', () => {
     expect(riskByTool['brainstrike.executeCommand']).toBe('execute');
     expect(riskByTool['brainstrike.manageCommandSession']).toBe('execute');
     expect(riskByTool['brainstrike.runSkillScript']).toBe('execute');
+    expect(riskByTool['brainstrike.runPython']).toBe('execute');
 
     const nonRead = new Set<string>([
       ...EDIT_TOOLS,
       'brainstrike.executeCommand',
       'brainstrike.manageCommandSession',
+      'brainstrike.runPython',
       'brainstrike.runSkillScript',
     ]);
     const readTools = Object.keys(riskByTool).filter((id) => !nonRead.has(id));
