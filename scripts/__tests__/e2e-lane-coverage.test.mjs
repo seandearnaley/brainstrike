@@ -50,20 +50,26 @@ const LANE_FLAGS =
  * `test:e2e:lane:*` scripts, a workflow that invokes them, and specs under
  * `e2e/`. `webExtras` injects the violations under test.
  */
-function createFixtureRepo({ extraWorkflowSteps = [], webExtras = {}, webLanes = {} } = {}) {
+function createFixtureRepo({
+  extraWorkflowSteps = [],
+  webExtras = {},
+  webLanes = {},
+  webScripts = {},
+} = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'bst1010-lane-fixture-'));
   temporaryRoots.push(root);
 
-  const lanes = {
+  const scripts = {
     'test:e2e:lane:covered': `pnpm exec playwright test e2e/covered.test.ts ${LANE_FLAGS} --grep "@web-covered"`,
     'test:e2e:lane:full-regression': `pnpm exec playwright test ${LANE_FLAGS} --workers=2 --grep-invert "@destructive|@stateful" && pnpm run test:e2e:lane:covered`,
     ...webLanes,
+    ...webScripts,
   };
 
   write(
     root,
     'apps/web/package.json',
-    JSON.stringify({ name: '@brainstrike/web', scripts: lanes }, null, 2)
+    JSON.stringify({ name: '@brainstrike/web', scripts }, null, 2)
   );
   write(
     root,
@@ -119,8 +125,8 @@ function createFixtureRepo({ extraWorkflowSteps = [], webExtras = {}, webLanes =
 // floors would reject it. Analysing it with floors of 1 keeps the fixture legible
 // while leaving the real floors doing their job in the real run.
 const FIXTURE_MINIMUMS = {
-  desktop: { lanes: 1, laneTags: 0, specs: 1, titles: 1 },
-  web: { lanes: 1, laneTags: 1, specs: 2, titles: 2 },
+  desktop: { e2eScripts: 1, lanes: 1, laneTags: 0, specs: 1, titles: 1 },
+  web: { e2eScripts: 2, lanes: 1, laneTags: 1, specs: 2, titles: 2 },
 };
 
 function analyzeFixture(root, knownUnreachableSpecs = {}) {
@@ -464,9 +470,34 @@ test('MONEY TEST: a lane file list naming a file that no longer exists is caught
     })
   );
   assert.ok(
-    kinds(report).includes('missing-lane-file'),
-    `expected a missing-lane-file violation, got ${JSON.stringify(kinds(report))}`
+    kinds(report).includes('missing-e2e-file'),
+    `expected a missing-e2e-file violation, got ${JSON.stringify(kinds(report))}`
   );
+});
+
+test('MONEY TEST: the same dangling file is caught in a non-lane E2E script', async () => {
+  const report = await analyzeFixture(
+    createFixtureRepo({
+      webScripts: {
+        'test:e2e:diagnostic': `pnpm exec playwright test e2e/deleted-by-a-rename.test.ts ${LANE_FLAGS} --grep "@web-covered"`,
+      },
+    })
+  );
+  assert.ok(
+    kinds(report).includes('missing-e2e-file'),
+    `expected a missing-e2e-file violation, got ${JSON.stringify(kinds(report))}`
+  );
+});
+
+test('control: a targeted non-lane E2E script with a live selector is accepted', async () => {
+  const report = await analyzeFixture(
+    createFixtureRepo({
+      webScripts: {
+        'test:e2e:diagnostic': `pnpm exec playwright test e2e/covered.test.ts ${LANE_FLAGS} --grep "@web-covered"`,
+      },
+    })
+  );
+  assert.deepEqual(report.violations, []);
 });
 
 test('MONEY TEST: a lane whose grep matches nothing is caught', async () => {
@@ -478,8 +509,8 @@ test('MONEY TEST: a lane whose grep matches nothing is caught', async () => {
     })
   );
   assert.ok(
-    kinds(report).includes('empty-lane'),
-    `expected an empty-lane violation, got ${JSON.stringify(kinds(report))}`
+    kinds(report).includes('empty-e2e-selection'),
+    `expected an empty-e2e-selection violation, got ${JSON.stringify(kinds(report))}`
   );
 });
 
@@ -526,6 +557,21 @@ test('anti-vacuity: discovery floors refuse to report a green on an empty sweep'
     () => analyzeE2eLaneCoverage({ repoRoot: root }),
     /Anti-vacuity floor/,
     'the real floors must reject the miniature fixture instead of passing it'
+  );
+});
+
+test('anti-vacuity: the E2E package-script floor protects the widened assertion', async () => {
+  await assert.rejects(
+    () =>
+      analyzeE2eLaneCoverage({
+        knownUnreachableSpecs: {},
+        minimums: {
+          ...FIXTURE_MINIMUMS,
+          web: { ...FIXTURE_MINIMUMS.web, e2eScripts: 5000 },
+        },
+        repoRoot: createFixtureRepo(),
+      }),
+    /Anti-vacuity floor: found \d+ web package script\(s\) named test:e2e\*/
   );
 });
 

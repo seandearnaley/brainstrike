@@ -207,6 +207,7 @@ jobs:
             e2e/embedding-worker-renderer.memory.desktop.test.ts \
             e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
             e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
+            e2e/embedding-worker-renderer.crash-b.desktop.test.ts \
             --project=regression \
             --workers=1 \
             --retries=0 \
