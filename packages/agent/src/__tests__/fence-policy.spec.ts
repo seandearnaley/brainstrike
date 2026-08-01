@@ -167,6 +167,12 @@ describe('buildSandboxRuntimeConfig', () => {
     ).rejects.toBeInstanceOf(FencePolicyError);
   });
 
+  // The seam's `policyPathSchema` now rejects relative / `..` / `~` entries
+  // before this module sees them, so these assert only that the request is
+  // refused — by whichever layer gets there first. The equivalent checks are
+  // kept in `assertPolicyPathShape` deliberately: this module hands paths to a
+  // security boundary and should assert its own preconditions rather than
+  // assume an upstream validator ran.
   it.each([
     'allowWrite',
     'allowRead',
@@ -174,25 +180,21 @@ describe('buildSandboxRuntimeConfig', () => {
   ] as const)('rejects a relative %s entry rather than letting srt resolve it against this process cwd', async (field) => {
     await expect(
       build({ allowedDomains: [], allowWrite: [], [field]: ['../out'] })
-    ).rejects.toBeInstanceOf(FencePolicyError);
+    ).rejects.toThrow();
   });
 
   it('rejects a .. segment so the written policy and the effective policy agree', async () => {
     await expect(
       // Written as a raw string: path.join would collapse the `..` itself.
       build({ allowedDomains: [], allowWrite: [`${homedir()}/a/../b`] })
-    ).rejects.toBeInstanceOf(FencePolicyError);
+    ).rejects.toThrow();
   });
 
   it('REJECTS a home-relative path instead of expanding it', async () => {
     // srt resolves against its own process context, so a tilde that reached it
     // unexpanded would be a rule that silently grants or protects nothing.
-    await expect(
-      build({ allowedDomains: [], allowWrite: ['~/projects/out'] })
-    ).rejects.toBeInstanceOf(FencePolicyError);
-    await expect(build({ allowedDomains: [], allowWrite: ['~'] })).rejects.toBeInstanceOf(
-      FencePolicyError
-    );
+    await expect(build({ allowedDomains: [], allowWrite: ['~/projects/out'] })).rejects.toThrow();
+    await expect(build({ allowedDomains: [], allowWrite: ['~'] })).rejects.toThrow();
   });
 
   it('rejects an allowWrite entry that does not exist rather than guessing what it grants', async () => {

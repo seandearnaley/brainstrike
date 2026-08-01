@@ -9,7 +9,6 @@
 export {
   createFenceExecutor,
   createFenceExecutorFactory,
-  FENCE_MAX_STREAM_BYTES,
   FenceExecutorDisposedError,
   type FenceExecutorOptions,
   type FenceInterpreter,

@@ -24,30 +24,23 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
-import { constants } from 'node:os';
 import { join } from 'node:path';
 import { platform } from 'node:process';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
-import type {
-  CodeExecutor,
-  CodeExecutorFactory,
-  ExecInput,
-  ExecLanguage,
-  ExecPlatform,
-  ExecResult,
-  ExecutorCapabilities,
+import {
+  assertExecRequestSatisfiable,
+  type CodeExecutor,
+  type CodeExecutorFactory,
+  ExecAbortedError,
+  type ExecInput,
+  type ExecLanguage,
+  type ExecPlatform,
+  type ExecResult,
+  type ExecutorCapabilities,
+  execInputSchema,
 } from '../code-execution';
 import { buildSandboxRuntimeConfig } from './fence-policy';
-
-/**
- * Per-stream capture cap. 1 MiB is far above any sane tool-output budget (the
- * model projection in docs/agents/assistant-providers.md clips much smaller)
- * while staying small enough that a runaway loop cannot exhaust memory. Output
- * beyond the cap is dropped and `truncated` is set — the stream keeps draining
- * so the sandboxed process never blocks on a full pipe.
- */
-export const FENCE_MAX_STREAM_BYTES = 1024 * 1024;
 
 /** Grace period between the SIGTERM and the SIGKILL sent to the process tree. */
 const KILL_GRACE_MS = 500;
@@ -273,55 +266,46 @@ export function buildSandboxEnv(
   return { ...inherited, ...interpreterEnv, ...addedBySrt };
 }
 
-function toExitCode(code: number | null, signal: NodeJS.Signals | null): number {
-  if (code !== null) {
-    return code;
-  }
-  if (signal) {
-    const signalNumber: number | undefined = constants.signals[signal];
-    return typeof signalNumber === 'number' ? 128 + signalNumber : 1;
-  }
-  return 1;
-}
-
 interface StreamCapture {
+  /** Bytes the process produced beyond the cap, which were dropped. */
+  omittedBytes: number;
   push(chunk: Buffer): void;
   text(): string;
-  truncated: boolean;
 }
 
-function createStreamCapture(): StreamCapture {
+/**
+ * Captures up to `maxBytes` and COUNTS what it drops — the seam reports
+ * omitted bytes per stream rather than one boolean, so the model can tell 1 KB
+ * of loss from 100 MB. Dropping rather than buffering keeps a runaway loop from
+ * exhausting memory; the stream keeps draining either way so the sandboxed
+ * process never blocks on a full pipe.
+ */
+function createStreamCapture(maxBytes: number): StreamCapture {
   const chunks: Buffer[] = [];
   let bytes = 0;
   const capture: StreamCapture = {
+    omittedBytes: 0,
     push(chunk: Buffer): void {
-      if (bytes >= FENCE_MAX_STREAM_BYTES) {
-        capture.truncated = true;
+      const remaining = maxBytes - bytes;
+      if (remaining <= 0) {
+        capture.omittedBytes += chunk.length;
         return;
       }
-      const remaining = FENCE_MAX_STREAM_BYTES - bytes;
       if (chunk.length > remaining) {
         chunks.push(chunk.subarray(0, remaining));
-        bytes = FENCE_MAX_STREAM_BYTES;
-        capture.truncated = true;
+        bytes = maxBytes;
+        capture.omittedBytes += chunk.length - remaining;
         return;
       }
       chunks.push(chunk);
       bytes += chunk.length;
     },
     text: () => Buffer.concat(chunks).toString('utf8'),
-    truncated: false,
   };
   return capture;
 }
 
-interface SpawnOutcome {
-  readonly exitCode: number;
-  readonly stderr: string;
-  readonly stdout: string;
-  readonly timedOut: boolean;
-  readonly truncated: boolean;
-}
+type SpawnOutcome = ExecResult;
 
 /**
  * Seams for the teardown state machine's unit tests. The close/exit/timeout
@@ -362,13 +346,18 @@ const realSpawnDeps: FenceSpawnDeps = {
     }),
 };
 
-export function spawnFenced(
-  argv: readonly string[],
-  env: NodeJS.ProcessEnv,
-  cwd: string,
-  timeoutMs: number,
-  deps: FenceSpawnDeps = realSpawnDeps
-): Promise<SpawnOutcome> {
+export interface SpawnFencedOptions {
+  readonly argv: readonly string[];
+  readonly cwd: string;
+  readonly deps?: FenceSpawnDeps;
+  readonly env: NodeJS.ProcessEnv;
+  readonly maxOutputBytes: number;
+  readonly signal: AbortSignal;
+  readonly timeoutMs: number;
+}
+
+export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> {
+  const { argv, cwd, deps = realSpawnDeps, env, maxOutputBytes, signal, timeoutMs } = options;
   return new Promise<SpawnOutcome>((resolvePromise, rejectPromise) => {
     const [command, ...args] = argv;
     if (!command) {
@@ -378,8 +367,8 @@ export function spawnFenced(
 
     const child = deps.spawnProcess(command, args, { cwd, env });
 
-    const stdout = createStreamCapture();
-    const stderr = createStreamCapture();
+    const stdout = createStreamCapture(maxOutputBytes);
+    const stderr = createStreamCapture(maxOutputBytes);
     let timedOut = false;
     let settled = false;
     let exitCode: number | null = null;
@@ -400,12 +389,10 @@ export function spawnFenced(
       timers.clear();
     };
 
-    const finish = (): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
+    /** Runs on every settle path: tear the group down, stop tracking it. */
+    const teardown = (): void => {
       clearTimers();
+      abortSubscription?.();
       // Tear the group down BEFORE settling, on every path. A descendant that
       // detached its stdio closes our pipes while still running, which fires
       // 'close' early — settling there would clear the pending SIGKILL and
@@ -415,14 +402,58 @@ export function spawnFenced(
         deps.killGroup(child.pid, 'SIGKILL');
         liveProcessGroups.delete(child.pid);
       }
+    };
+
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      teardown();
       resolvePromise({
-        exitCode: toExitCode(exitCode, exitSignal),
+        // The seam pins this: exitCode is null exactly when a signal killed
+        // the process, and `signal` names it — no per-backend 124/-1 convention.
+        exitCode,
+        signal: exitSignal,
         stderr: stderr.text(),
+        stderrOmittedBytes: stderr.omittedBytes,
         stdout: stdout.text(),
+        stdoutOmittedBytes: stdout.omittedBytes,
         timedOut,
-        truncated: stdout.truncated || stderr.truncated,
       });
     };
+
+    /**
+     * An abort is NOT a completed run, so it never resolves an ExecResult —
+     * `exitCode: null, timedOut: false` would be distinguishable from a
+     * timeout only by the absence of a flag. The partial output rides on the
+     * typed error instead, so a debug bundle keeps it without any consumer
+     * having to infer what happened.
+     */
+    const abortNow = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      teardown();
+      rejectPromise(
+        new ExecAbortedError({
+          partialStderr: stderr.text(),
+          partialStdout: stdout.text(),
+          processStarted: true,
+          stderrOmittedBytes: stderr.omittedBytes,
+          stdoutOmittedBytes: stdout.omittedBytes,
+        })
+      );
+    };
+
+    let abortSubscription: (() => void) | undefined;
+    if (signal.aborted) {
+      abortNow();
+      return;
+    }
+    signal.addEventListener('abort', abortNow, { once: true });
+    abortSubscription = () => signal.removeEventListener('abort', abortNow);
 
     child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
     child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
@@ -433,6 +464,7 @@ export function spawnFenced(
       }
       settled = true;
       clearTimers();
+      abortSubscription?.();
       if (child.pid !== undefined) {
         liveProcessGroups.delete(child.pid);
       }
@@ -524,13 +556,19 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
     if (disposed) {
       throw new FenceExecutorDisposedError();
     }
-    if (!(Number.isFinite(input.timeoutMs) && input.timeoutMs > 0)) {
-      throw new FenceInvalidRequestError(
-        `timeoutMs must be a positive finite number of milliseconds; received ${JSON.stringify(input.timeoutMs)}. The fence never runs code unbounded.`
-      );
-    }
+    // The seam owns request shape (timeout/output bounds, path rules,
+    // scratchDir ⊆ allowWrite, a real AbortSignal). Re-parsing here means a
+    // caller that bypassed it still cannot reach a spawn.
+    execInputSchema.parse(input);
+    // The seam owns capability reconciliation too, so `fence` and `vm` cannot
+    // answer it differently. Running a network-requesting script with the
+    // network quietly off would be a stronger sandbox but a WRONG result.
+    assertExecRequestSatisfiable(capabilities(), input);
+
     const interpreter = options.interpreters[input.language];
     if (!interpreter) {
+      // Unreachable via the assertion above (languages is the interpreter key
+      // set); kept so a future capabilities() edit cannot silently open a gap.
       throw new FenceUnsupportedLanguageError(input.language, languages);
     }
 
@@ -552,6 +590,11 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
     return await runExclusive(async () => {
       if (disposed) {
         throw new FenceExecutorDisposedError();
+      }
+      // An abort has to be honoured WHILE QUEUED, not only once spawned:
+      // pressing Stop behind two other runs must not wait for them.
+      if (input.signal.aborted) {
+        throw new ExecAbortedError({ processStarted: false });
       }
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
@@ -575,12 +618,14 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
           undefined,
           input.scratchDir
         );
-        return await spawnFenced(
+        return await spawnFenced({
           argv,
-          buildSandboxEnv(env, interpreter.env),
-          input.scratchDir,
-          Math.max(1, deadline - Date.now())
-        );
+          cwd: input.scratchDir,
+          env: buildSandboxEnv(env, interpreter.env),
+          maxOutputBytes: input.maxOutputBytes,
+          signal: input.signal,
+          timeoutMs: Math.max(1, deadline - Date.now()),
+        });
       } finally {
         // Linux-only in effect (it clears bwrap mount points), but calling it
         // unconditionally keeps one code path and is a no-op elsewhere.

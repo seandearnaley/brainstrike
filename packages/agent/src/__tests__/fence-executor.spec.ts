@@ -1,10 +1,10 @@
 import { platform } from 'node:process';
 import { describe, expect, it } from 'vitest';
 
+import { ExecCapabilityMismatchError, type ExecInput } from '../code-execution';
 import {
   createFenceExecutor,
   createFenceExecutorFactory,
-  FENCE_MAX_STREAM_BYTES,
   FenceExecutorDisposedError,
   FenceInvalidRequestError,
   FenceQueueTimeoutError,
@@ -18,6 +18,17 @@ const interpreters = {
 } as const;
 
 const supported = isFenceSupported();
+
+const request = (overrides: Partial<ExecInput> = {}): ExecInput => ({
+  code: 'print(1)',
+  language: 'python',
+  maxOutputBytes: 65_536,
+  policy: { allowedDomains: [], allowWrite: ['/tmp'] },
+  scratchDir: '/tmp',
+  signal: new AbortController().signal,
+  timeoutMs: 1000,
+  ...overrides,
+});
 
 describe('isFenceSupported', () => {
   it('agrees with the platforms this backend claims to fence', () => {
@@ -76,15 +87,12 @@ describe('createFenceExecutor', () => {
   it.runIf(supported)('rejects a language with no injected interpreter', async () => {
     const executor = createFenceExecutor({ interpreters });
     try {
+      // The seam's capability reconciliation refuses it first, so `fence` and
+      // `vm` cannot answer this differently; the fence's own guard stays as a
+      // backstop behind it.
       await expect(
-        executor.execute({
-          code: 'console.log(1)',
-          language: 'javascript',
-          policy: { allowedDomains: [], allowWrite: [] },
-          scratchDir: '/tmp',
-          timeoutMs: 1000,
-        })
-      ).rejects.toBeInstanceOf(FenceUnsupportedLanguageError);
+        executor.execute(request({ code: 'console.log(1)', language: 'javascript' }))
+      ).rejects.toBeInstanceOf(ExecCapabilityMismatchError);
     } finally {
       await executor.dispose();
     }
@@ -93,15 +101,7 @@ describe('createFenceExecutor', () => {
   it.runIf(supported)('rejects execute after dispose instead of silently re-arming', async () => {
     const executor = createFenceExecutor({ interpreters });
     await executor.dispose();
-    await expect(
-      executor.execute({
-        code: 'print(1)',
-        language: 'python',
-        policy: { allowedDomains: [], allowWrite: [] },
-        scratchDir: '/tmp',
-        timeoutMs: 1000,
-      })
-    ).rejects.toThrowError(/disposed/i);
+    await expect(executor.execute(request())).rejects.toThrowError(/disposed/i);
   });
 
   it.runIf(supported)('dispose is idempotent', async () => {
@@ -113,15 +113,9 @@ describe('createFenceExecutor', () => {
   it.runIf(supported)('rejects a non-positive timeout rather than running unbounded', async () => {
     const executor = createFenceExecutor({ interpreters });
     try {
-      await expect(
-        executor.execute({
-          code: 'print(1)',
-          language: 'python',
-          policy: { allowedDomains: [], allowWrite: [] },
-          scratchDir: '/tmp',
-          timeoutMs: 0,
-        })
-      ).rejects.toBeInstanceOf(FenceInvalidRequestError);
+      // Now owned by the seam's execInputSchema, which the fence re-parses so
+      // a caller that bypassed it still cannot reach a spawn.
+      await expect(executor.execute(request({ timeoutMs: 0 }))).rejects.toThrow();
     } finally {
       await executor.dispose();
     }
@@ -158,11 +152,5 @@ describe('typed fence errors', () => {
   it('says plainly that nothing ran when the budget was spent queueing', () => {
     expect(new FenceQueueTimeoutError(500).message).toMatch(/no code was run/i);
     expect(new FenceQueueTimeoutError(500).timeoutMs).toBe(500);
-  });
-});
-
-describe('FENCE_MAX_STREAM_BYTES', () => {
-  it('caps each captured stream at 1 MiB', () => {
-    expect(FENCE_MAX_STREAM_BYTES).toBe(1024 * 1024);
   });
 });

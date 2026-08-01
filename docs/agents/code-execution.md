@@ -12,21 +12,104 @@ backend plugs into. It sits between the tool-dispatch layer (Mastra runtime in
 Electron main) and the actual process spawn. Paired tests:
 `packages/agent/src/__tests__/code-execution.spec.ts`.
 
+**Everything two backends could disagree about is decided here, once.** That is
+the whole point of the module: a rule left to each backend (what `timeoutMs: 0`
+means, whether an unwritable `scratchDir` is an error, what happens when a
+policy exceeds an executor's capabilities) becomes drift between `fence` and
+`vm`, and drift is how silent degradation gets in.
+
 - `CodeExecutor { execute(ExecInput): Promise<ExecResult>; capabilities();
   dispose() }`.
-- `ExecPolicy` is a STRICT zod schema (`execPolicySchema`): unknown keys,
-  blank entries, and missing `allowWrite`/`allowedDomains` throw. It maps 1:1
-  onto sandbox-runtime's `SandboxRuntimeConfig`
-  (`allowWrite`/`allowRead`/`denyRead` → `filesystem.*`, `allowedDomains` →
-  `network.allowedDomains`). **`allowedDomains: []` means NO network** — srt's
-  proxy denies every connection matching no allowed domain; there is no
-  separate "network off" flag to drift out of sync.
-- `ExecResult { exitCode, stdout, stderr, timedOut, truncated }` —
-  stdout/stderr must already be executor-bounded; the tool layer's model
-  projection still owes the standard tool output budgets
-  (docs/agents/assistant-providers.md).
-- `ExecutorKind = 'fence' | 'vm'`. `parseExecutorKind` is the strict boundary
-  for persisted/workspace-supplied mode values; anything else throws.
+- `ExecutorKind = 'fence' | 'vm'`, derived from the exported `EXECUTOR_KINDS`
+  tuple — that tuple is the single source of truth. `parseExecutorKind` is the
+  strict boundary for persisted/workspace-supplied values; it renders rejected
+  values without `JSON.stringify` so a BigInt or circular object cannot make
+  the boundary throw a serialization `TypeError` instead of its contracted
+  error.
+
+## Validation is the whole request, not just the policy
+
+`execInputSchema` validates every field, strictly (unknown keys rejected):
+
+| Field | Rule |
+| --- | --- |
+| `code` | bounded by `MAX_EXEC_CODE_LENGTH` |
+| `language` | one of `python` / `javascript` / `bash` |
+| `timeoutMs` | positive finite integer, ≤ `MAX_EXEC_TIMEOUT_MS` |
+| `maxOutputBytes` | positive finite integer, ≤ `MAX_EXEC_OUTPUT_BYTES` |
+| `scratchDir` | absolute path, AND covered by `policy.allowWrite` |
+| `signal` | a real `AbortSignal` — **required** |
+| `policy` | `execPolicySchema` (below) |
+
+Two of these are deliberate, load-bearing choices:
+
+- **`signal` is required, not optional.** The desktop runtime aborts its
+  registered execution controller when the user presses Stop
+  (docs/agents/assistant-runtime.md), and native tools already receive that
+  signal. Without it at this seam, a cancelled assistant run leaves a spawned
+  process running and producing side effects until `timeoutMs` expires.
+  Backends MUST terminate the process tree when it fires. An `AbortSignal` is
+  trivially constructible, so requiring it costs a caller nothing and
+  guarantees the propagation path exists.
+- **`maxOutputBytes` is required**, so the capture bound is a property of the
+  request rather than a per-backend constant. Otherwise the same script could
+  return truncated output under one backend and complete output under another,
+  with no way for the caller to know why.
+
+`scratchDir ⊆ allowWrite` is enforced (`isPathCoveredBy`, segment-wise) because
+the alternative is an interpreter that cannot write its own scratch dir,
+failing as an opaque runtime error instead of a clear validation error.
+
+`isPathCoveredBy` is exported and is the ONLY containment predicate backends
+should use, including on runtime-computed paths. Its rules:
+
+- **An unresolved `..` in either operand returns false.** It never claims
+  coverage it cannot prove — a segment-prefix compare would report
+  `/tmp/scratch/../../etc/passwd` as covered by `/tmp/scratch`. Resolve paths
+  (`realpath`) before asking.
+- **Separators follow the path's own shape.** A backslash is a separator only
+  in a Windows-shaped path; on POSIX it is a legal filename character, so
+  `/tmp/scratch\run` is a sibling directory named `scratch\run`, not a
+  descendant of `/tmp/scratch`.
+- **Case is folded only when an operand is Windows-shaped**, because
+  drive-letter case is not stable across Node APIs. POSIX comparison stays
+  case-sensitive.
+
+Windows path forms are accepted by the schema, but no Windows backend exists
+yet — the fence's Windows story is BST-1068.
+
+## ExecPolicy shape rules (the seam owns these, not the backend)
+
+`ExecPolicy` maps 1:1 onto sandbox-runtime's `SandboxRuntimeConfig`
+(`allowWrite`/`allowRead`/`denyRead` → `filesystem.*`, `allowedDomains` →
+`network.allowedDomains`). For that mapping claim to actually hold, entries are
+shape-validated here:
+
+- **Paths must be absolute**, contain no `..` segment, and are length- and
+  count-bounded. A leading `~` is **rejected, never expanded**: srt resolves
+  paths against its own process context, so a `denyRead: ['~/.ssh']` that
+  reaches it unexpanded is a deny rule that silently protects nothing. Backends
+  build home-relative deny lists from their own resolved home directory — see
+  the FenceExecutor's always-deny list.
+- **Domains** must be a hostname or a `*.example.com` wildcard. A **bare `*` is
+  rejected**: `allowedDomains: []` meaning "no network" is this policy's
+  safety-critical invariant, and one wildcard entry would invert it.
+  Unrestricted egress is deliberately not expressible in `ExecPolicy`.
+
+## Capability reconciliation — backends MUST call it
+
+`assertExecRequestSatisfiable(capabilities, input)` throws typed
+`ExecCapabilityMismatchError` when the request exceeds what the executor
+advertises:
+
+- `input.language` not in `capabilities().languages` → `language_unsupported`.
+- `policy.allowedDomains` non-empty while `supportsNetwork` is false →
+  `network_unsupported`. Running that script with networking quietly off is a
+  *stronger* sandbox but a *wrong* result: it completes with exit code 0 and
+  missing data.
+
+Backends call this at the top of `execute()`. The rule lives here so `fence`
+and `vm` cannot answer it differently.
 
 ## Two-mode resolution — NO DOWNGRADE (settled, do not relitigate)
 
@@ -34,11 +117,70 @@ Electron main) and the actual process spawn. Paired tests:
 `CodeExecutorHostCapabilities { fence?: factory; vm?: factory }`. Capability
 gating is "does the factory exist?" — never `isElectron()`, never platform
 sniffing. A mode the host cannot satisfy throws the typed
-`ExecutorKindUnavailableError` (`requestedKind`, `availableKinds`,
-`code: 'executor_kind_unavailable'`) in BOTH directions: `vm` on a fence-only
-host AND `fence` on a bare host. There is deliberately no `vm`→`fence`
-fallback — silently weakening the isolation a workspace asked for is exactly
-the degradation the two-mode design forbids.
+`ExecutorKindUnavailableError` in BOTH directions: `vm` on a fence-only host
+AND `fence` on a bare host. There is deliberately no `vm`→`fence` fallback.
+
+**Factory presence is not evidence of isolation.** The resolver additionally
+asserts the returned executor's `capabilities().maxIsolationTier` equals
+`REQUIRED_ISOLATION_TIER[kind]` (`fence` → `'os-fence'`, `vm` → `'vm'`) and
+throws `ExecutorTierMismatchError` otherwise. Without that check, a backend
+that degraded internally (srt failing to apply Seatbelt/bubblewrap, a VM host
+falling back to a plain process) would be handed back under the requested kind
+and the workspace would silently get weaker isolation than it asked for — the
+exact thing the no-downgrade rule exists to prevent. A backend that cannot
+apply its platform sandbox MUST throw at construction rather than return a
+weaker executor.
+
+**Lifetime: the caller owns the returned executor.** Each `resolveCodeExecutor`
+call invokes the factory, so each call yields a NEW executor that the caller
+must `dispose()`. Free for the null stub; emphatically not free for a
+VM-backed or proxy-owning backend.
+
+## ExecResult semantics
+
+```ts
+{ exitCode: number | null; signal: string | null;
+  stdout: string; stdoutOmittedBytes: number;
+  stderr: string; stderrOmittedBytes: number;
+  timedOut: boolean }
+```
+
+- `exitCode` is `null` exactly when the process was terminated by a signal —
+  including a timeout kill — and `signal` names it. Pinning this here stops
+  each backend inventing its own convention (`-1`, `124`, the signal number)
+  that the tool layer would then have to normalize per-backend.
+- Per-stream omitted byte counts replace a single `truncated` boolean (the
+  shape the ticket originally named): one flag for two streams cannot say which
+  stream was cut, and a boolean cannot tell the model whether 1 KB or 100 MB
+  was dropped. `isExecResultTruncated(result)` is the convenience predicate.
+- stdout/stderr are executor-bounded by `maxOutputBytes`; the tool layer's
+  model projection still owes the standard tool output budgets
+  (docs/agents/assistant-providers.md).
+
+## Cancellation
+
+`ExecInput.signal` firing means the run is over. Backends MUST terminate the
+process tree, and MUST throw `ExecAbortedError` (`code: 'exec_aborted'`,
+predicate `isExecAbortedError`) — for BOTH positions: aborted while queued
+behind another execution, and aborted mid-run.
+
+**Why an error and not an `ExecResult`.** `ExecResult` describes a run that
+COMPLETED, normally or by timeout. Encoding an abort as a result would make it
+distinguishable from a timeout only by the ABSENCE of a flag
+(`exitCode: null, signal: 'SIGKILL', timedOut: false`), so every consumer would
+have to reverse-engineer "why is `exitCode` null while `timedOut` is false?" —
+exactly the implicit encoding this module exists to kill. One `catch` is the
+whole contract.
+
+Nothing is discarded: `partialStdout`, `partialStderr`, `stdoutOmittedBytes`
+and `stderrOmittedBytes` ride on the error, so a debug bundle still has whatever
+the process produced before it was killed, without pretending the run finished.
+`processStarted` separates "nothing ever spawned" (no side effects) from
+"killed mid-run" (possible partial ones).
+
+A backend that serializes executions must honour an abort WHILE QUEUED, not
+only once spawned — otherwise pressing Stop behind two other runs waits for
+them.
 
 ## Permission engine relationship
 
@@ -53,11 +195,14 @@ auto-approve or auto-decline anything.
 
 `createNullCodeExecutor({ platform })` lets tool code integrate against the
 seam before any backend lands. It spawns nothing: every `execute()` rejects
-with the typed `NoSandboxConfiguredError` (`code: 'no_sandbox_configured'`),
-and its capabilities are honest (`maxIsolationTier: 'none'`,
-`supportsNetwork: false`, `languages: []`). The tool layer maps the typed
-error to a model-visible structured failure; it must never fabricate an
-`ExecResult` for code that did not run.
+with the typed `NoSandboxConfiguredError`, and its capabilities are honest
+(`maxIsolationTier: 'none'`, `supportsNetwork: false`, `languages: []`).
+
+Because it reports tier `'none'`, it **cannot be registered as a host's
+`fence`/`vm` factory** — the resolver rejects it with
+`ExecutorTierMismatchError`. That is intentional: a stub masquerading as a real
+fence is precisely the confusion the tier check exists to catch. Tool code
+integrates with it directly.
 
 ## Backends
 
@@ -169,10 +314,21 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   that reaper, so a sandboxed run would keep going — still inside its fence,
   but unbounded. Removing that needs an out-of-process supervisor, not a
   change here.
-- **Capture cap: 1 MiB per stream** (`FENCE_MAX_STREAM_BYTES`). Beyond it
-  bytes are dropped and `truncated` is set, while the pipes keep draining so
-  the sandboxed process never blocks. The tool layer still owes its own model
-  projection budget (docs/agents/assistant-providers.md).
+- **Capture honours the request's `maxOutputBytes`**, not a backend constant,
+  and COUNTS what it drops into `stdoutOmittedBytes` / `stderrOmittedBytes` —
+  per stream, so 1 KB of loss is distinguishable from 100 MB. Bytes past the
+  cap are dropped rather than buffered (a runaway loop must not exhaust
+  memory) while the pipes keep draining so the sandboxed process never blocks.
+  The tool layer still owes its own model projection budget
+  (docs/agents/assistant-providers.md).
+- **Cancellation**: `input.signal` is honoured while QUEUED as well as while
+  running — pressing Stop behind two other executions must not wait for them.
+  Either position throws `ExecAbortedError`; the mid-run path kills the group
+  first and carries the partial output on the error. Both are tested, and the
+  real-fence test asserts a grandchild does not outlive the abort.
+- **Capability reconciliation**: `execute()` re-parses `execInputSchema` and
+  calls `assertExecRequestSatisfiable` before touching the filesystem, so a
+  caller that bypassed the seam still cannot reach a spawn.
 
 The integration suite skips only with a message naming exactly what is
 missing (platform, srt dependency, interpreter, or unsandboxed reachability of
@@ -183,8 +339,17 @@ VACUOUSLY, asserting a leak guard it never actually exercised.
 
 ### VM executor (mode two)
 
-Design-only ADR (BST-1069); Virtualization.framework, macOS-first. No
-implementation yet — do not design other code against a VM backend existing.
+Design settled in ADR-0003 (BST-1069) —
+`docs/adr/0003-mode-two-full-isolation-vm.md`, **Accepted 2026-08-01**. Embeds
+Virtualization.framework directly in a signed helper process, macOS/Apple
+silicon first; one warm VM per workspace (cap 1, LRU evict), a rootfs we own
+and fetch-verify on first enable, granted-folder VirtioFS shares only (never
+`/` or `$HOME`), no guest NIC at all (egress via a host-side deny-first proxy
+over vsock), plus a bubblewrap+seccomp fence inside the guest that is
+load-bearing for policy fidelity, not just defense in depth. Gating mode two on
+a user-installed Docker/OrbStack/Podman is **rejected** (ADR-0003 D9) — do not
+propose it as a shortcut. Still no implementation: do not design other code
+against a VM backend existing.
 
 When changing this flow, update this doc and the paired spec in the same
 change.

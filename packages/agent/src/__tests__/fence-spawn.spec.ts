@@ -13,14 +13,17 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
+import { isExecAbortedError } from '../code-execution';
 import {
   buildSandboxEnv,
   type ChildProcessLike,
-  FENCE_MAX_STREAM_BYTES,
   type FenceSpawnDeps,
   INHERITED_ENV_VARS,
   spawnFenced,
 } from '../fence/fence-executor';
+
+/** Stands in for the seam's per-request cap; small enough to overflow cheaply. */
+const CAP = 1024;
 
 interface FakeChild extends ChildProcessLike {
   emitClose(code?: number | null, signal?: NodeJS.Signals | null): void;
@@ -61,8 +64,21 @@ function harness(pid?: number): {
   };
 }
 
-const run = (deps: FenceSpawnDeps, timeoutMs = 10_000) =>
-  spawnFenced(['/bin/sh', '-c', 'true'], {}, '/tmp', timeoutMs, deps);
+const run = (
+  deps: FenceSpawnDeps,
+  timeoutMs = 10_000,
+  signal: AbortSignal = new AbortController().signal,
+  maxOutputBytes = CAP
+) =>
+  spawnFenced({
+    argv: ['/bin/sh', '-c', 'true'],
+    cwd: '/tmp',
+    deps,
+    env: {},
+    maxOutputBytes,
+    signal,
+    timeoutMs,
+  });
 
 describe('spawnFenced teardown', () => {
   it('does NOT settle when the pipes close before the root has exited', async () => {
@@ -112,8 +128,10 @@ describe('spawnFenced teardown', () => {
       const result = await pending;
 
       expect(result.timedOut).toBe(true);
-      // 128 + SIGKILL(9).
-      expect(result.exitCode).toBe(137);
+      // The seam pins this: a signal death reports exitCode null + the signal
+      // name, so the tool layer never has to normalize a per-backend code.
+      expect(result.exitCode).toBeNull();
+      expect(result.signal).toBe('SIGKILL');
     } finally {
       vi.useRealTimers();
     }
@@ -149,13 +167,25 @@ describe('spawnFenced teardown', () => {
     }
   });
 
-  it('maps a signal death with no exit code to 128 + signum', async () => {
+  it('reports a signal death as exitCode null plus the signal name', async () => {
     const { child, deps } = harness();
     const pending = run(deps);
     child.emitExit(null, 'SIGTERM');
     child.emitClose(null, 'SIGTERM');
     const result = await pending;
-    expect(result.exitCode).toBe(143);
+    expect(result.exitCode).toBeNull();
+    expect(result.signal).toBe('SIGTERM');
+    expect(result.timedOut).toBe(false);
+  });
+
+  it('reports a clean exit as exitCode 0 with no signal', async () => {
+    const { child, deps } = harness();
+    const pending = run(deps);
+    child.emitExit(0);
+    child.emitClose(0);
+    const result = await pending;
+    expect(result.exitCode).toBe(0);
+    expect(result.signal).toBeNull();
   });
 
   it('rejects on spawn error without settling an ExecResult', async () => {
@@ -167,7 +197,17 @@ describe('spawnFenced teardown', () => {
 
   it('rejects an empty command vector rather than spawning something implicit', async () => {
     const { deps } = harness();
-    await expect(spawnFenced([], {}, '/tmp', 1000, deps)).rejects.toThrowError(/empty command/i);
+    await expect(
+      spawnFenced({
+        argv: [],
+        cwd: '/tmp',
+        deps,
+        env: {},
+        maxOutputBytes: CAP,
+        signal: new AbortController().signal,
+        timeoutMs: 1000,
+      })
+    ).rejects.toThrowError(/empty command/i);
   });
 });
 
@@ -183,35 +223,99 @@ describe('spawnFenced capture', () => {
 
     expect(result.stdout).toBe('out');
     expect(result.stderr).toBe('err');
-    expect(result.truncated).toBe(false);
+    expect(result.stdoutOmittedBytes).toBe(0);
+    expect(result.stderrOmittedBytes).toBe(0);
   });
 
   it('clips at exactly the cap and keeps draining instead of blocking the pipe', async () => {
     const { child, deps } = harness();
     const pending = run(deps);
-    child.emitStdout(Buffer.alloc(FENCE_MAX_STREAM_BYTES - 1, 0x61));
-    // Straddles the boundary: partially kept, and marks truncation.
+    child.emitStdout(Buffer.alloc(CAP - 1, 0x61));
+    // Straddles the boundary: 1 byte kept, 9 counted as omitted.
     child.emitStdout(Buffer.alloc(10, 0x62));
-    // Arrives after the cap: dropped, but accepted without throwing.
+    // Arrives after the cap: all 1024 counted, accepted without throwing.
     child.emitStdout(Buffer.alloc(1024, 0x63));
     child.emitExit(0);
     child.emitClose(0);
     const result = await pending;
 
-    expect(Buffer.byteLength(result.stdout, 'utf8')).toBe(FENCE_MAX_STREAM_BYTES);
-    expect(result.truncated).toBe(true);
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBe(CAP);
+    // A boolean could not say this. 9 dropped from the straddling chunk plus
+    // the whole 1024 that arrived after the cap.
+    expect(result.stdoutOmittedBytes).toBe(9 + 1024);
     expect(result.stdout.endsWith('b')).toBe(true);
     expect(result.stdout).not.toContain('c');
   });
 
-  it('flags truncation when only stderr overflows', async () => {
+  it('counts omitted bytes per stream, never conflating the two', async () => {
     const { child, deps } = harness();
     const pending = run(deps);
-    child.emitStderr(Buffer.alloc(FENCE_MAX_STREAM_BYTES + 1, 0x61));
+    child.emitStderr(Buffer.alloc(CAP + 7, 0x61));
+    child.emitStdout(Buffer.from('short'));
     child.emitExit(0);
     child.emitClose(0);
     const result = await pending;
-    expect(result.truncated).toBe(true);
+    expect(result.stderrOmittedBytes).toBe(7);
+    expect(result.stdoutOmittedBytes).toBe(0);
+  });
+
+  it('honours the per-request cap rather than a backend constant', async () => {
+    const { child, deps } = harness();
+    const pending = run(deps, 10_000, new AbortController().signal, 16);
+    child.emitStdout(Buffer.alloc(20, 0x61));
+    child.emitExit(0);
+    child.emitClose(0);
+    const result = await pending;
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBe(16);
+    expect(result.stdoutOmittedBytes).toBe(4);
+  });
+});
+
+describe('spawnFenced cancellation', () => {
+  it('throws ExecAbortedError mid-run and kills the group, carrying partial output', async () => {
+    const controller = new AbortController();
+    const { child, deps, killGroup } = harness(31);
+    const pending = run(deps, 10_000, controller.signal);
+    child.emitStdout(Buffer.from('partial-out'));
+    child.emitStderr(Buffer.from('partial-err'));
+
+    controller.abort();
+    let caught: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isExecAbortedError(caught)).toBe(true);
+    if (!isExecAbortedError(caught)) {
+      throw new Error('unreachable');
+    }
+    // An abort is not a completed run, so it never resolves an ExecResult —
+    // but the output it did produce is not thrown away either.
+    expect(caught.processStarted).toBe(true);
+    expect(caught.partialStdout).toBe('partial-out');
+    expect(caught.partialStderr).toBe('partial-err');
+    expect(caught.code).toBe('exec_aborted');
+    expect(killGroup).toHaveBeenCalledWith(31, 'SIGKILL');
+  });
+
+  it('throws immediately when the signal is already aborted', async () => {
+    const { deps } = harness();
+    await expect(run(deps, 10_000, AbortSignal.abort())).rejects.toSatisfy((error: unknown) =>
+      isExecAbortedError(error)
+    );
+  });
+
+  it('does not abort a run that already settled', async () => {
+    const controller = new AbortController();
+    const { child, deps } = harness();
+    const pending = run(deps, 10_000, controller.signal);
+    child.emitExit(0);
+    child.emitClose(0);
+    const result = await pending;
+    controller.abort();
+    expect(result.exitCode).toBe(0);
   });
 });
 
