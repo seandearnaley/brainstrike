@@ -28,6 +28,13 @@ Telemetry names should describe product surfaces or subsystems, not user data.
 For example, `file-explorer.expand.duration_ms` is acceptable; a metric keyed by
 a specific local path is not.
 
+BST-403's database-query telemetry applies that boundary at the producer. It
+retains a bounded rolling minute of duration, failure, lookup, and hit counts
+under four fixed feature identifiers: `file-tree`, `live-query`, `queue-stats`,
+and `token-estimation`. It never retains SQL, parameters, query results, queue
+names, file paths, filenames, or content. The collector is process-local and
+memory-only; it is not written to the diagnostic event store or exported.
+
 ## Prohibited By Default
 
 Background telemetry must not collect these values by default:

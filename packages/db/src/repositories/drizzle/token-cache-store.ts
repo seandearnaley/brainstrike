@@ -8,6 +8,7 @@
 import { validateRelativeFilePath } from '@brainstrike/utils';
 import { and, count, eq, inArray, sql, sum } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import { measureDatabaseQuery } from '../../database-query-telemetry.js';
 import { fileTokenCache, textTimestampNow } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
@@ -65,14 +66,20 @@ export class DrizzleTokenCacheStore {
    */
   async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
     const validatedPath = this.validateFilePath(filePath);
-    const [row] = await this.db
-      .select()
-      .from(fileTokenCache)
-      .where(
-        and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.filePath, validatedPath))
-      );
+    return await measureDatabaseQuery(
+      'token-estimation',
+      async () => {
+        const [row] = await this.db
+          .select()
+          .from(fileTokenCache)
+          .where(
+            and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.filePath, validatedPath))
+          );
 
-    return row ? this.fromRow(row) : null;
+        return row ? this.fromRow(row) : null;
+      },
+      { hitCount: (result) => (result ? 1 : 0), lookupCount: 1 }
+    );
   }
 
   /**
@@ -85,19 +92,28 @@ export class DrizzleTokenCacheStore {
     }
     const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
-    const rows = await this.db
-      .select()
-      .from(fileTokenCache)
-      .where(
-        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, validatedPaths))
-      );
+    return await measureDatabaseQuery(
+      'token-estimation',
+      async () => {
+        const rows = await this.db
+          .select()
+          .from(fileTokenCache)
+          .where(
+            and(
+              eq(fileTokenCache.folderId, folderId),
+              inArray(fileTokenCache.filePath, validatedPaths)
+            )
+          );
 
-    const map = new Map<string, TokenCacheEntry>();
-    for (const row of rows) {
-      map.set(row.filePath, this.fromRow(row));
-    }
+        const map = new Map<string, TokenCacheEntry>();
+        for (const row of rows) {
+          map.set(row.filePath, this.fromRow(row));
+        }
 
-    return map;
+        return map;
+      },
+      { hitCount: (result) => result.size, lookupCount: validatedPaths.length }
+    );
   }
 
   /**

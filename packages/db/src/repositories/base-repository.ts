@@ -1,4 +1,5 @@
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
+import { measureDatabaseQuery } from '../database-query-telemetry.js';
 import type {
   FileImportRequest,
   FileImportResult,
@@ -156,15 +157,17 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async findById(id: string): Promise<FileRecord | null> {
-    const sql = `SELECT * FROM ${this.tableName} WHERE id = $1`;
-    const result = await this.db.query(sql, [id]);
-    const row = result.rows[0];
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT * FROM ${this.tableName} WHERE id = $1`;
+      const result = await this.db.query(sql, [id]);
+      const row = result.rows[0];
 
-    if (!row || typeof row !== 'object' || row === null) {
-      return null;
-    }
+      if (!row || typeof row !== 'object' || row === null) {
+        return null;
+      }
 
-    return this.fromRow(row as Record<string, unknown>);
+      return this.fromRow(row as Record<string, unknown>);
+    });
   }
 
   async findByIds(ids: readonly string[]): Promise<FileRecord[]> {
@@ -172,51 +175,59 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       return [];
     }
 
-    const uniqueIds = Array.from(new Set(ids));
-    // file_records.id is persisted as TEXT in existing migrations; cast both sides to text
-    // to keep lookup behavior stable across legacy/electron databases.
-    const sql = `SELECT * FROM ${this.tableName} WHERE id::text = ANY($1::text[])`;
-    const result = await this.db.query(sql, [uniqueIds]);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const uniqueIds = Array.from(new Set(ids));
+      // file_records.id is persisted as TEXT in existing migrations; cast both sides to text
+      // to keep lookup behavior stable across legacy/electron databases.
+      const sql = `SELECT * FROM ${this.tableName} WHERE id::text = ANY($1::text[])`;
+      const result = await this.db.query(sql, [uniqueIds]);
 
-    if (!Array.isArray(result.rows)) {
-      return [];
-    }
+      if (!Array.isArray(result.rows)) {
+        return [];
+      }
 
-    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+      return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+    });
   }
 
   async findByContentHash(contentHash: string): Promise<FileRecord | null> {
-    const sql = `SELECT * FROM ${this.tableName} WHERE content_hash = $1`;
-    const result = await this.db.query(sql, [contentHash]);
-    const row = result.rows[0];
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT * FROM ${this.tableName} WHERE content_hash = $1`;
+      const result = await this.db.query(sql, [contentHash]);
+      const row = result.rows[0];
 
-    if (!row || typeof row !== 'object' || row === null) {
-      return null;
-    }
+      if (!row || typeof row !== 'object' || row === null) {
+        return null;
+      }
 
-    return this.fromRow(row as Record<string, unknown>);
+      return this.fromRow(row as Record<string, unknown>);
+    });
   }
 
   async findAll(): Promise<FileRecord[]> {
-    const sql = `SELECT * FROM ${this.tableName} ORDER BY updated_at DESC`;
-    const result = await this.db.query(sql);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT * FROM ${this.tableName} ORDER BY updated_at DESC`;
+      const result = await this.db.query(sql);
 
-    if (!Array.isArray(result.rows)) {
-      return [];
-    }
+      if (!Array.isArray(result.rows)) {
+        return [];
+      }
 
-    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+      return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+    });
   }
 
   async findAllWithContent(): Promise<FileRecord[]> {
-    const sql = `SELECT * FROM ${this.tableName} WHERE content IS NOT NULL ORDER BY processed_at DESC, updated_at DESC`;
-    const result = await this.db.query(sql);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT * FROM ${this.tableName} WHERE content IS NOT NULL ORDER BY processed_at DESC, updated_at DESC`;
+      const result = await this.db.query(sql);
 
-    if (!Array.isArray(result.rows)) {
-      return [];
-    }
+      if (!Array.isArray(result.rows)) {
+        return [];
+      }
 
-    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+      return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+    });
   }
 
   async findByManagedCacheIdentity(
@@ -224,15 +235,17 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     rootId: string,
     relativePath: string
   ): Promise<FileRecord | null> {
-    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`;
-    const result = await this.db.query(sql, [embeddingSetId, rootId, relativePath]);
-    const row = result.rows[0];
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`;
+      const result = await this.db.query(sql, [embeddingSetId, rootId, relativePath]);
+      const row = result.rows[0];
 
-    if (!isFileRecordRow(row)) {
-      return null;
-    }
+      if (!isFileRecordRow(row)) {
+        return null;
+      }
 
-    return this.fromRow(row);
+      return this.fromRow(row);
+    });
   }
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {

@@ -1,3 +1,5 @@
+import { databaseQueryTelemetry, measureDatabaseQuery } from './database-query-telemetry.js';
+
 export type DatabaseWorkPriority = 'foreground' | 'normal' | 'background';
 
 export interface DatabaseWorkOptions {
@@ -703,6 +705,7 @@ function createScheduledLiveQueryHandle<THandle extends object>(
   scheduler: DatabaseWorkScheduler,
   refreshPriority: DatabaseWorkPriority
 ): THandle {
+  const subscribedListeners = new Map<CallableUnknown, CallableUnknown>();
   return new Proxy(handle, {
     get(target, property, receiver) {
       if (property === 'refresh') {
@@ -711,10 +714,52 @@ function createScheduledLiveQueryHandle<THandle extends object>(
           return refresh;
         }
         return async (...args: unknown[]) =>
-          await scheduler.run(
-            async () => await Reflect.apply(refresh as CallableUnknown, target, args),
-            { label: 'live query refresh', priority: refreshPriority }
+          await measureDatabaseQuery(
+            'live-query',
+            async () =>
+              await scheduler.run(
+                async () => await Reflect.apply(refresh as CallableUnknown, target, args),
+                { label: 'live query refresh', priority: refreshPriority }
+              )
           );
+      }
+      if (property === 'subscribe') {
+        const subscribe = Reflect.get(target, property, receiver);
+        if (typeof subscribe !== 'function') {
+          return subscribe;
+        }
+        return (listener: CallableUnknown) => {
+          const existing = subscribedListeners.get(listener);
+          if (existing) {
+            return Reflect.apply(subscribe as CallableUnknown, target, [existing]);
+          }
+          const wrappedListener = (...args: unknown[]) => {
+            databaseQueryTelemetry.recordLiveUpdate();
+            return Reflect.apply(listener, undefined, args) as unknown;
+          };
+          const result = Reflect.apply(subscribe as CallableUnknown, target, [wrappedListener]);
+          subscribedListeners.set(listener, wrappedListener);
+          databaseQueryTelemetry.recordLiveSubscriptionStarted();
+          return result;
+        };
+      }
+      if (property === 'unsubscribe') {
+        const unsubscribe = Reflect.get(target, property, receiver);
+        if (typeof unsubscribe !== 'function') {
+          return unsubscribe;
+        }
+        return async (listener: CallableUnknown) => {
+          const wrappedListener = subscribedListeners.get(listener);
+          if (!wrappedListener) {
+            return await Reflect.apply(unsubscribe as CallableUnknown, target, [listener]);
+          }
+          const result = await Reflect.apply(unsubscribe as CallableUnknown, target, [
+            wrappedListener,
+          ]);
+          subscribedListeners.delete(listener);
+          databaseQueryTelemetry.recordLiveSubscriptionEnded();
+          return result;
+        };
       }
       return Reflect.get(target, property, receiver);
     },
@@ -740,14 +785,22 @@ function createScheduledLiveNamespace<TLive extends object>(
         }
         const label = property === 'query' ? 'live query' : 'live incremental query';
         return async (...args: unknown[]) =>
-          await scheduler.run(
-            async () => {
-              const handle = await Reflect.apply(startLiveQuery as CallableUnknown, target, args);
-              return isObjectRecord(handle)
-                ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
-                : handle;
-            },
-            { label, priority: liveQueryPriority }
+          await measureDatabaseQuery(
+            'live-query',
+            async () =>
+              await scheduler.run(
+                async () => {
+                  const handle = await Reflect.apply(
+                    startLiveQuery as CallableUnknown,
+                    target,
+                    args
+                  );
+                  return isObjectRecord(handle)
+                    ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
+                    : handle;
+                },
+                { label, priority: liveQueryPriority }
+              )
           );
       }
       return Reflect.get(target, property, receiver);

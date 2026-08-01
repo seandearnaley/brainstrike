@@ -2,6 +2,22 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before adding migrations, models, PGlite construction sites, or touching browser bootstrap. Keep updated with the code.
 
+## QUERY TELEMETRY BOUNDARY
+
+Database performance instrumentation uses the typed, memory-only collector in
+`packages/db/src/database-query-telemetry.ts`. Feature ownership is declared at
+the call site; never classify queries by parsing SQL or parameters. Producers
+may record duration/failure counts, live subscription/update counts, and token
+lookup/hit totals only. SQL, parameters, rows, paths, filenames, queue names,
+and content are prohibited. `docs/diagnostics-privacy-contract.md` is the
+cross-cutting privacy authority.
+
+The live-query scheduler wraps creation/refresh and listener lifecycle; the
+single embedding queue poller wraps its stats read; token-cache reads report
+lookup/hit counts; file-record read methods report the coarse `file-tree`
+feature. Keep these seams and their paired tests aligned when a query path
+moves.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.

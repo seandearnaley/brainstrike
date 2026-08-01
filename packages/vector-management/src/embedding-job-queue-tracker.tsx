@@ -1,4 +1,4 @@
-import { JobQueue } from '@brainstrike/db';
+import { JobQueue, measureDatabaseQuery } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive } from '@brainstrike/hooks';
 import type { QueueStatsSnapshot } from '@brainstrike/preferences/stores/vector-status-ui-store';
@@ -83,7 +83,10 @@ export function EmbeddingJobQueueTracker({
     };
 
     const fetchStats = async (): Promise<QueueStatsSnapshot | null> => {
-      const rows = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE_NAME);
+      const rows = await measureDatabaseQuery(
+        'queue-stats',
+        async () => await jobQueue.getQueueStats(EMBEDDINGS_QUEUE_NAME)
+      );
       const s = rows?.[0];
       if (!s) {
         return {

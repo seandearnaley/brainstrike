@@ -7,6 +7,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { databaseQueryTelemetry } from '../src/database-query-telemetry.js';
 import { DrizzleFileRecordRepository } from '../src/repositories/drizzle/file-record-repository.js';
 import * as schema from '../src/schema/index.js';
 import {
@@ -22,6 +23,7 @@ describe('DrizzleFileRecordRepository', () => {
   let repository: DrizzleFileRecordRepository;
 
   beforeEach(async () => {
+    databaseQueryTelemetry.reset();
     client = await createMigratedTestDb();
 
     // Create Drizzle instance
@@ -601,6 +603,7 @@ describe('DrizzleFileRecordRepository', () => {
       expect(results.map((row) => row.name)).toEqual(['readme.md', 'read-stream.ts']);
       expect(results[0]?.display_name).toBe('Alpha');
       expect(results[0]?.root_id).toBe('root-a');
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(1);
     });
 
     it('returns TWO distinct rows for the same relative path in two roots', async () => {

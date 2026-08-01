@@ -2,6 +2,7 @@
  * Tests for SystemDiagnosticsPanel (BST-181)
  */
 
+import { databaseQueryTelemetry } from '@brainstrike/db';
 import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
@@ -32,11 +33,13 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 describe('SystemDiagnosticsPanel', () => {
   beforeEach(() => {
     __resetDatabaseStatusStoreForTests();
+    databaseQueryTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
+    databaseQueryTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
@@ -69,6 +72,25 @@ describe('SystemDiagnosticsPanel', () => {
 
       expect(screen.getByText('Token Cache Worker')).toBeInTheDocument();
       expect(screen.getByText('Token counting and indexing worker')).toBeInTheDocument();
+    });
+
+    it('renders coarse database query telemetry by feature area', () => {
+      databaseQueryTelemetry.recordQuery({ durationMs: 12, feature: 'queue-stats' });
+      databaseQueryTelemetry.recordQuery({
+        durationMs: 4,
+        feature: 'token-estimation',
+        hitCount: 3,
+        lookupCount: 4,
+      });
+      databaseQueryTelemetry.recordLiveSubscriptionStarted();
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Database Queries')).toBeInTheDocument();
+      expect(screen.getByText('Queue stats')).toBeInTheDocument();
+      expect(screen.getByText('Token estimation')).toBeInTheDocument();
+      expect(screen.getByText('75% cache hit')).toBeInTheDocument();
+      expect(screen.getByText('1 active')).toBeInTheDocument();
     });
 
     it('renders queue diagnostics panel', () => {

@@ -7,6 +7,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { databaseQueryTelemetry } from '../src/database-query-telemetry.js';
 import {
   DrizzleTokenCacheStore,
   type TokenCacheEntry,
@@ -38,6 +39,7 @@ describe('DrizzleTokenCacheStore', () => {
   }
 
   beforeEach(async () => {
+    databaseQueryTelemetry.reset();
     client = await createMigratedTestDb();
     db = drizzle(client, { schema });
     store = new DrizzleTokenCacheStore(db);
@@ -58,6 +60,11 @@ describe('DrizzleTokenCacheStore', () => {
       expect(found?.filePath).toBe('src/file1.ts');
       expect(found?.tokenCount).toBe(100);
       expect(found?.countingMode).toBe('accurate');
+      expect(databaseQueryTelemetry.snapshot().tokenEstimation).toMatchObject({
+        cacheHitRate: 1,
+        hitCount: 1,
+        lookupCount: 1,
+      });
     });
 
     it('should return null for non-existent entry', async () => {
@@ -176,6 +183,11 @@ describe('DrizzleTokenCacheStore', () => {
       expect(result.size).toBe(2);
       expect(result.get('src/file1.ts')?.tokenCount).toBe(100);
       expect(result.get('src/file3.ts')?.tokenCount).toBe(300);
+      expect(databaseQueryTelemetry.snapshot().tokenEstimation).toMatchObject({
+        cacheHitRate: 1,
+        hitCount: 2,
+        lookupCount: 2,
+      });
     });
 
     it('should return empty map for empty paths', async () => {

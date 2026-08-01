@@ -10,6 +10,7 @@
  * without navigating to multiple places.
  */
 
+import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import {
   databaseStatusSelectors,
@@ -324,6 +325,68 @@ function WorkerStatusSection({
   );
 }
 
+const DATABASE_QUERY_FEATURE_LABELS = {
+  'file-tree': 'File tree',
+  'live-query': 'Live queries',
+  'queue-stats': 'Queue stats',
+  'token-estimation': 'Token estimation',
+} as const;
+
+function DatabaseQueryTelemetrySection({
+  snapshot,
+}: {
+  readonly snapshot: DatabaseQueryTelemetrySnapshot;
+}): ReactElement {
+  const failures = Object.values(snapshot.features).reduce(
+    (total, feature) => total + feature.failureCount,
+    0
+  );
+  const cacheHitLabel =
+    snapshot.tokenEstimation.cacheHitRate === null
+      ? 'No lookups'
+      : `${Math.round(snapshot.tokenEstimation.cacheHitRate * 100)}% cache hit`;
+
+  return (
+    <DiagnosticCard
+      description="Rolling one-minute coarse query histograms"
+      icon={<Database className="h-4 w-4 text-primary" />}
+      status={failures > 0 ? 'warning' : 'success'}
+      statusLabel={formatCount(snapshot.sampleCount, 'query', 'queries')}
+      title="Database Queries"
+    >
+      <div className="space-y-2 text-xs">
+        {Object.entries(DATABASE_QUERY_FEATURE_LABELS).map(([feature, label]) => {
+          const metrics = snapshot.features[feature as keyof typeof snapshot.features];
+          return (
+            <div className="flex items-center justify-between" key={feature}>
+              <span className="text-muted-foreground">{label}</span>
+              <span className="font-mono text-[10px]">
+                {metrics.queryCount} / p95 {Math.round(metrics.durationP95Ms)} ms
+              </span>
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Token cache</span>
+          <span className="font-medium">{cacheHitLabel}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Live subscriptions</span>
+          <span className="font-medium">
+            {formatCount(snapshot.activeLiveSubscriptions, 'active', 'active')}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Live updates</span>
+          <span className="font-mono text-[10px]">
+            {Math.round(snapshot.liveUpdatesPerMinute)} / min
+          </span>
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 function getHostStatusVariant(state: RuntimeHostPlatformState): StatusVariant {
   if (state === 'active' || state === 'idle' || state === 'ready') {
     return 'success';
@@ -510,6 +573,7 @@ export function SystemDiagnosticsPanel({
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const databaseQuerySnapshot = databaseQueryTelemetry.snapshot();
 
   // Cleanup timeout on unmount to prevent memory leaks
   useEffect(() => {
@@ -598,6 +662,7 @@ export function SystemDiagnosticsPanel({
           tokenCacheOperational={tokenCacheOperational}
           tokenCachePersisted={tokenCachePersisted}
         />
+        <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
         {desktopDiagnosticsError && (
           <DiagnosticCard
