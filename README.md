@@ -102,11 +102,43 @@ Web UX notes:
 
 Scope to a package with `--filter`, e.g. `pnpm test --filter @brainstrike/utils`.
 
+### `pnpm check` — the local CI mirror
+
+`pnpm check` runs the same gates `.github/workflows/test.yml` requires on a PR,
+in the same order and through the same turbo invocations: the Static job's
+secret scan, `turbo boundaries`, `pnpm test:scripts`, both DB lane checks,
+read-only lint and type-check; the Build job's build and CSS-bundle validation;
+the Unit shards' `turbo run test` and `turbo run test:integration` (unfiltered,
+so `packages/db` really runs); the Browser tests lane; and the web + desktop
+E2E **smoke** lanes.
+
+- `--fast`: everything above except the runner-heavy lanes (Browser tests, E2E);
+  the banner explicitly names those omitted CI gates.
+- `--full`: the default plan **plus** the non-required gates —
+  `nightly-coverage.yml`'s `coverage:enforce` and the web/desktop full E2E
+  regression lanes. Additive, never a swap.
+- `--no-install`, `--no-e2e`, `--no-coverage` (only with `--full`, to opt out
+  of its coverage gate), `--headless`, `--verbose`.
+- `--fix-lint`: run the **writing** lint chain (`lint-all`) instead of CI's
+  read-only `lint:ci`. Opt-in on purpose — a gate must not rewrite the tree it
+  is judging.
+
+The install is `--frozen-lockfile` (as CI installs), and the Playwright lanes —
+and only those — run under `CI=true` so `forbidOnly`, retries, workers and the
+CI wait budgets match the required job.
+
+Every run prints the CI gates it does *not* cover — the two native jobs plus
+any gates deliberately omitted by its mode flags — with the reason, and
+`scripts/__tests__/check-ci-parity.test.mjs` compares the actual commands, not
+just step names, so a CI gate can never be neither covered nor explicitly
+declared uncovered.
+
 ### Performance Test Isolation
 
 Performance tests are separated from functional E2E tests to speed up development:
 
-- **Default behavior**: `pnpm check` and CI run functional tests only
+- **Default behavior**: `pnpm check` and CI run functional tests only (the web
+  smoke lane is `--project=functional`; the performance project is never in it)
 - **Performance tests**: Run on-demand via `pnpm test:e2e:perf` or scheduled daily
 - **PR performance testing**: Add `run-perf` label to any PR to trigger performance tests
 - **Manual execution**: GitHub Actions → "Performance E2E" → Run workflow
