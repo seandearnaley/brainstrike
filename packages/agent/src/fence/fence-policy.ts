@@ -8,7 +8,7 @@
  */
 import { realpath as realpathCallback } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, normalize, sep } from 'node:path';
+import { isAbsolute, join, normalize, parse, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
@@ -91,6 +91,11 @@ const GLOB_CHARACTERS = /[*?[\]{}]/;
 /** True when `candidate` is `parent` itself or lives beneath it. */
 function isAtOrUnder(candidate: string, parent: string): boolean {
   return candidate === parent || candidate.startsWith(parent + sep);
+}
+
+/** True when `path` is the filesystem root (`/` on POSIX). */
+function isFilesystemRoot(path: string): boolean {
+  return parse(path).root === path;
 }
 
 /**
@@ -223,10 +228,27 @@ export async function buildSandboxRuntimeConfig(
   );
 
   for (const [index, readable] of allowRead.entries()) {
+    const written = JSON.stringify(parsed.allowRead?.[index] ?? readable);
+    // A root-wide read grant is REFUSED, not narrowed. The always-denied
+    // stores survive an ANCESTOR allowRead only because srt re-emits the
+    // nested deny after the broader allow — and at srt 0.0.67 that re-emission
+    // tests `denied.startsWith(allowed + '/')`, which for `allowed === '/'`
+    // compares against `'//'` and never matches. Measured on macOS (BST-1071,
+    // fence-escape-resistance.integration.spec.ts): with `allowRead: ['/']`,
+    // sandboxed code read `~/.ssh/*` and the contents of `~/.config/gh/
+    // hosts.yml`. Linux masks denied directories with tmpfs and was not
+    // affected, which is exactly why this must be refused here rather than
+    // left to the platform. Any ancestor SHORT of the root re-emits correctly
+    // and stays allowed.
+    if (isFilesystemRoot(readable)) {
+      throw new FencePolicyError(
+        `allowRead entry ${written} resolves to the filesystem root ${readable}; a whole-filesystem read grant is not expressible, because it stops the always-denied credential stores from being re-applied on top of it. Name the directories the run actually needs.`
+      );
+    }
     const reopened = alwaysDenyRead.find((denied) => isAtOrUnder(readable, denied));
     if (reopened) {
       throw new FencePolicyError(
-        `allowRead entry ${JSON.stringify(parsed.allowRead?.[index] ?? readable)} resolves to ${readable}, which would re-open the always-denied credential store ${reopened}; remove it or narrow the policy.`
+        `allowRead entry ${written} resolves to ${readable}, which would re-open the always-denied credential store ${reopened}; remove it or narrow the policy.`
       );
     }
   }
