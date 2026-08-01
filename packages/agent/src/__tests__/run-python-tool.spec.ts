@@ -9,6 +9,7 @@ import {
   type ExecInput,
   type ExecResult,
   type ExecutorCapabilities,
+  NoSandboxConfiguredError,
 } from '../code-execution';
 import {
   createRunPythonTool,
@@ -289,6 +290,42 @@ describe('createRunPythonTool', () => {
     }
   });
 
+  it('maps a missing sandbox to no_sandbox_configured', async () => {
+    const stub = stubFence(async () => {
+      throw new NoSandboxConfiguredError();
+    });
+    const result = await runTool(hostWith(stub), { code: 'pass' });
+    expect(result).toMatchObject({ kind: 'unavailable', reason: 'no_sandbox_configured' });
+  });
+
+  it('still returns the run result when disposing the executor fails', async () => {
+    // A failing dispose is logged, not propagated: the script already ran and
+    // its output is what the caller asked for. Swallowing the RESULT here
+    // would turn a successful run into an error for a teardown problem.
+    const inputs: ExecInput[] = [];
+    const executor: CodeExecutor = {
+      capabilities: () => FENCE_CAPABILITIES,
+      dispose: async () => {
+        throw new Error('sandbox manager refused to reset');
+      },
+      execute: (input: ExecInput) => {
+        inputs.push(input);
+        return Promise.resolve(execResult({ exitCode: 0, stdout: 'ok' }));
+      },
+    };
+    const result = await runTool({ fence: () => executor }, { code: 'pass' });
+    expect(result).toMatchObject({ exitCode: 0, kind: 'completed', stdout: 'ok' });
+    expect(inputs).toHaveLength(1);
+  });
+
+  it('rethrows a non-Error throw rather than mistaking it for an interpreter failure', async () => {
+    const tool = createRunPythonTool({
+      // eslint-disable-next-line prefer-promise-reject-errors -- deliberately not an Error
+      resolveHost: () => Promise.reject('a bare string, not an Error'),
+    });
+    await expect(tool.execute({ code: 'pass' })).rejects.toBe('a bare string, not an Error');
+  });
+
   it('rethrows an unrecognised failure instead of labelling it unavailable', async () => {
     const stub = stubFence(async () => {
       throw new Error('something nobody has classified');
@@ -414,6 +451,37 @@ describe('projectRunPythonStreams', () => {
     expect(withoutStderr.stdout).toBe(stdout);
     expect(withStderr.stdout).toBe(stdout);
     expect(withStderr.stdoutOmittedBytes).toBe(0);
+  });
+
+  it("releases a small stderr's unused share back to a huge stdout", () => {
+    // Both streams over budget, but stderr wants less than its 40% share:
+    // the remainder belongs to stdout rather than being stranded.
+    const hugeStdout = 'x'.repeat(50_000);
+    const smallStderr = 'e'.repeat(500);
+    const { stderr, stdout } = projectRunPythonStreams({
+      stderr: smallStderr,
+      stderrOmittedBytes: 0,
+      stdout: hugeStdout,
+      stdoutOmittedBytes: 0,
+    });
+    expect(stderr).toBe(smallStderr);
+    // Well past the 60% share it would have received under a fixed split.
+    expect(stdout.length).toBeGreaterThan(Math.floor(9800 * 0.6));
+  });
+
+  it("releases a small stdout's unused share back to a huge stderr", () => {
+    // Mirror of the case above: a script that printed one line then blew up.
+    // The traceback must NOT be handed the smaller half.
+    const smallStdout = 'ok\n';
+    const hugeStderr = 'T'.repeat(50_000);
+    const { stderr, stdout } = projectRunPythonStreams({
+      stderr: hugeStderr,
+      stderrOmittedBytes: 0,
+      stdout: smallStdout,
+      stdoutOmittedBytes: 0,
+    });
+    expect(stdout).toBe(smallStdout);
+    expect(stderr.length).toBeGreaterThan(Math.floor(9800 * 0.4));
   });
 
   it('splits only a genuinely contested budget', () => {
