@@ -9,7 +9,11 @@ import { pathToFileURL } from 'node:url';
 const MAX_BUFFER_BYTES = 128 * 1024 * 1024;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: GitHub logs contain ANSI escapes.
 const ANSI_ESCAPE_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
-const REQUIRED_FILES = ['AGENTS.md', '.night-shift/PROTOCOL.md', '.night-shift/charters/watchman.md'];
+const REQUIRED_FILES = [
+  'AGENTS.md',
+  '.night-shift/PROTOCOL.md',
+  '.night-shift/charters/watchman.md',
+];
 const FAILURE_CONCLUSIONS = new Set([
   'action_required',
   'cancelled',

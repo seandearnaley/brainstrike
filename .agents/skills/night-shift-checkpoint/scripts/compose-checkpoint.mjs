@@ -16,8 +16,8 @@
 // violation exits non-zero via the validator, with its diagnostic.
 
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SCRIPT_NAME = 'compose-checkpoint';
 
@@ -27,7 +27,13 @@ function fail(message) {
 }
 
 const argv = process.argv.slice(2);
-const options = { message: null, postedThisRun: null, status: null, timestamp: null, watermark: null };
+const options = {
+  message: null,
+  postedThisRun: null,
+  status: null,
+  timestamp: null,
+  watermark: null,
+};
 const FLAGS = new Map([
   ['--message', 'message'],
   ['--posted-this-run', 'postedThisRun'],
@@ -63,7 +69,10 @@ if (/[\n\r|]/.test(options.message)) {
 const timestamp = options.timestamp ?? `${new Date().toISOString().slice(0, 19)}Z`;
 const line = `${timestamp} | watermark=${options.watermark} | status=${options.status} | ${options.message}`;
 
-const validator = path.join(path.dirname(fileURLToPath(import.meta.url)), 'validate-checkpoint.mjs');
+const validator = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'validate-checkpoint.mjs'
+);
 const validatorArgs = [validator, line];
 if (options.postedThisRun !== null) {
   validatorArgs.push('--posted-this-run', options.postedThisRun);

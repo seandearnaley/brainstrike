@@ -254,10 +254,7 @@ test('collects 24-hour roster, PR, paginated thread, check, and scheduled-workfl
     evidence.prs.merged.map((pr) => pr.number),
     [1]
   );
-  assert.equal(
-    evidence.prs.merged[0].feltBy,
-    'users — thread deletes stop leaving orphan rows'
-  );
+  assert.equal(evidence.prs.merged[0].feltBy, 'users — thread deletes stop leaving orphan rows');
   assert.deepEqual(
     evidence.prs.open.map((pr) => pr.feltBy),
     [null, 'fleet-internal — steward tooling only']

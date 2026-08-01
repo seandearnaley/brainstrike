@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'compose-checkpoint.mjs');
 const SHA = 'a'.repeat(40);
@@ -44,28 +44,14 @@ test('defaults the timestamp to second-precision UTC now', () => {
 });
 
 test('rejects a malformed watermark via the validator', () => {
-  const result = compose([
-    '--watermark',
-    'sha:not-a-sha',
-    '--status',
-    'NOOP',
-    '--message',
-    'x',
-  ]);
+  const result = compose(['--watermark', 'sha:not-a-sha', '--status', 'NOOP', '--message', 'x']);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /watermark/);
 });
 
 test('rejects a multi-line or pipe-carrying message before composing', () => {
   for (const message of ['two\nlines', 'has | pipe']) {
-    const result = compose([
-      '--watermark',
-      `sha:${SHA}`,
-      '--status',
-      'NOOP',
-      '--message',
-      message,
-    ]);
+    const result = compose(['--watermark', `sha:${SHA}`, '--status', 'NOOP', '--message', message]);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /one line/);
   }
