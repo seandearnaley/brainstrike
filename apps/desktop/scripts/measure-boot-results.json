@@ -1,4 +1,71 @@
 {
-  "labels": {},
+  "labels": {
+    "after-43.1.1": {
+      "appPath": "/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/worktrees/agent-a32ee50e745fdc690/apps/desktop",
+      "binaryPath": "/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/worktrees/agent-a32ee50e745fdc690/node_modules/.pnpm/electron@43.1.1_supports-color@10.2.2/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+      "capturedAt": "2026-08-01T16:13:41.883Z",
+      "n": 10,
+      "runs": [
+        {
+          "appReadyMs": 1848.779,
+          "assistantListeningMs": 1901.051
+        },
+        {
+          "appReadyMs": 873.059,
+          "assistantListeningMs": 893.781
+        },
+        {
+          "appReadyMs": 893.874,
+          "assistantListeningMs": 912.709
+        },
+        {
+          "appReadyMs": 852.89,
+          "assistantListeningMs": 872.406
+        },
+        {
+          "appReadyMs": 870.298,
+          "assistantListeningMs": 888.821
+        },
+        {
+          "appReadyMs": 859.026,
+          "assistantListeningMs": 877.768
+        },
+        {
+          "appReadyMs": 879.814,
+          "assistantListeningMs": 899.403
+        },
+        {
+          "appReadyMs": 862.772,
+          "assistantListeningMs": 881.53
+        },
+        {
+          "appReadyMs": 843.641,
+          "assistantListeningMs": 862.559
+        },
+        {
+          "appReadyMs": 865.069,
+          "assistantListeningMs": 884.146
+        }
+      ],
+      "summaries": {
+        "appReady": {
+          "maxMs": 1848.779,
+          "medianMs": 867.6835,
+          "minMs": 843.641,
+          "p10Ms": 843.641,
+          "p90Ms": 893.874,
+          "stdevMs": 294.9180149586661
+        },
+        "assistantListening": {
+          "maxMs": 1901.051,
+          "medianMs": 886.4835,
+          "minMs": 862.559,
+          "p10Ms": 862.559,
+          "p90Ms": 912.709,
+          "stdevMs": 304.8377628874743
+        }
+      }
+    }
+  },
   "schemaVersion": 1
 }
