@@ -1,11 +1,11 @@
 # ADR-0003: Mode two ("full isolation") — embed Virtualization.framework directly
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-08-01, decided by Sean Dearnaley)
 - **Date:** 2026-08-01
 - **Ticket:** BST-1069 (design only — no implementation lands with this ADR)
 - **Builds on:** BST-1060, the `CodeExecutor` seam (`packages/agent/src/code-execution.ts`,
-  contract in `docs/agents/code-execution.md`). This ADR designs the `vm` backend of that
-  seam and changes nothing about it.
+  contract in `docs/agents/code-execution.md`), merged to `main` as d809f0dc5. This ADR
+  designs the `vm` backend of that seam and changes nothing about it.
 - **Context source:** `docs/sandboxing-research-2026-07-25.html` (the report that established
   the two-mode path and rejected containers/hosted sandboxes as the *default*); Apple's
   Virtualization framework documentation, re-verified 2026-08-01; Anthropic's published Cowork
@@ -46,8 +46,8 @@ House constraints that bind this design:
 - **Local-first.** No hosted-microVM tier. The 2026-07-25 report already rejected
   E2B/Vercel/Daytona/Modal for the default path: they send the user's code to someone else's
   cloud, against the privacy wedge. Nothing here reopens that.
-- **No user-visible install step.** "Install Docker first" is the bar we are trying to clear,
-  not a design we are happy with (see Alternative C).
+- **No user-visible install step.** "Install Docker first" is the bar we are clearing, not a
+  compromise we are willing to make (D9; Alternative C is rejected, not deferred).
 - **Capability-based gating.** `vm` is available iff the host advertises a `vm` factory. Never
   `isElectron()`, never `process.platform` checks in shared code.
 - **No silent fallbacks.** Every unrepresentable policy, failed health check, and missing
@@ -67,10 +67,16 @@ the framework and owns the VM configuration.
 
 **D2. One warm VM per workspace root**, booted lazily on first `execute()`, reused across runs,
 torn down on an idle timer / workspace close / app quit. Cold-boot-per-run is not the default.
+**Isolation granularity is per workspace, not per session inside a shared VM** — two workspaces
+never share a guest kernel — with a **default cap of one warm VM** and LRU eviction on the idle
+timer. That cap is the answer to the memory ceiling in risk 2; raising it is a measured decision,
+not a default.
 
-**D3. A pinned, minimal ARM64 Linux rootfs that we build**, content-addressed by digest,
-fetched-and-verified on first enable rather than shipped in the app bundle, refreshed as part of
-an app release. Direct kernel boot (`VZLinuxBootLoader`) rather than EFI + full disk image.
+**D3. A pinned, minimal ARM64 Linux rootfs that we build and own**, content-addressed by digest,
+**fetched-and-verified on first enable** rather than shipped in the app bundle, refreshed as part
+of an app release. Direct kernel boot (`VZLinuxBootLoader`) rather than EFI + full disk image.
+Owning the rootfs and kernel pipeline is an accepted, funded obligation, not a fallback we take
+if something easier fails — see D9.
 
 **D4. VirtioFS exposes granted folders only. There is never a share rooted at `/`, `$HOME`, or
 any ancestor of them — not even one gated on guest-root.** This is the one place we knowingly
@@ -91,7 +97,17 @@ those is false the `vm` factory is simply absent and the seam's existing
 `ExecutorKindUnavailableError` fires. Nothing new is needed at the seam.
 
 **D8. macOS on Apple silicon only for v1.** Everything else is fence-only, with no stub and no
-"vm (unavailable)" ghost in shared code. Windows/Hyper-V is a later, separate ADR.
+"vm (unavailable)" ghost in shared code. Windows/Hyper-V is a later, separate ADR. Mode two is
+explicitly allowed to ship on one platform first rather than waiting for parity.
+
+**D9. No dependency on a user-installed container runtime, in any form.** Gating mode two on
+Docker, OrbStack, or Podman is rejected outright — not deferred, not held as a descope valve.
+The ruling on acceptance: *no other stuff like Docker is acceptable; follow canonical and modern
+idioms for 2026 — whatever folks like Claude Code, OpenCode, and oh-my-codex do.* Those tools
+converge on embedding the platform's own isolation primitives and shipping their own runtime,
+with no third-party daemon in the user's install path, and that is the idiom this design follows.
+Alternative C below remains documented as a **rejected** alternative so the reasoning survives;
+it is not a plan B.
 
 ---
 
@@ -314,7 +330,8 @@ equivalent), content-addressed by digest. The app pins exactly one digest per re
 
 **Updates.** A CVE in the guest kernel is our patch obligation: rebuild, re-pin, ship in the next
 app release, and the digest mismatch forces the refetch. This is the single largest ongoing cost
-of D1 and is the leading reason to descope to Alternative C.
+of D1, it was accepted with eyes open (D9), and it therefore needs a named owner and a
+CVE-watch routine at implementation time rather than good intentions in a doc.
 
 ---
 
@@ -457,24 +474,31 @@ network/mount surface is container-shaped, giving us less control than raw VZ ov
 two things (D4, D5) that justify mode two. **Reopen if** macOS 26 becomes our floor and
 measurement shows per-run VMs are cheap enough to drop warm reuse.
 
-**C. Require a user-installed container runtime (Docker / OrbStack / Podman) — the no-build
-fallback.** This is the OpenHands and Gemini CLI pattern: OpenHands runs the agent in a Docker
-container by design; Gemini CLI's sandbox requires Docker or Podman to be installed and running.
-Rejected as the **default** because it fails the no-user-install bar, drags in Docker Desktop
-licensing for commercial users, gives the agent a copied/mounted world rather than the user's
-real one, and on macOS pays for a VM anyway — someone else's, configured to someone else's
-defaults.
+**C. Require a user-installed container runtime (Docker / OrbStack / Podman).** This is the
+OpenHands and Gemini CLI pattern: OpenHands runs the agent in a Docker container by design;
+Gemini CLI's sandbox requires Docker or Podman to be installed and running. **Rejected outright
+by D9** — it was considered as a way to avoid owning a rootfs, and that trade was explicitly
+declined.
 
-**It is, however, the explicit descope path**, and that is why it is recorded here in detail
-rather than dismissed. If owning rootfs + boot proves too much for v1, mode two can ship as "vm
-via the user's container runtime" behind the *same* `vm` factory — the seam does not care what is
-behind it. What survives from this ADR on that path: the ExecPolicy→isolation mapping and its
-lossiness rulings, the host egress proxy, the deny-first domain model, the guest fence, and the
-capability-gating/UI design. What dies: the rootfs pipeline, the vsock control channel (replaced
-by the runtime's exec/attach streams), and the "no NIC" guarantee (replaced by a weaker
-network-mode configuration). The isolation claim also weakens from hypervisor to
-container-plus-vendor-VM, which means the UI copy must change too — mode two would no longer be
-honestly described as "full isolation" on Linux hosts.
+Why it loses, recorded so the reasoning survives rather than being relitigated:
+
+- It fails the no-user-install bar. A multi-gigabyte third-party install is the exact friction
+  mode two exists to avoid; "please install Docker Desktop first" is not a local-first product.
+- Docker Desktop licensing is a live problem for commercial users, and a licence term we do not
+  control sitting in the critical path of a security feature is not a dependency we want.
+- The agent gets a copied/mounted world rather than the user's real one.
+- On macOS you are paying for a VM regardless — someone else's, configured to someone else's
+  defaults, which surrenders precisely the mount and egress control (D4, D5) that justifies mode
+  two at all.
+- It would weaken the isolation claim from hypervisor to container-on-a-vendor-VM, so "full
+  isolation" would stop being an honest label.
+
+Recording what would have been lost is also what makes D9 concrete: on this path the rootfs
+pipeline, the vsock control channel, and the "no NIC" guarantee all disappear, replaced by the
+runtime's exec streams and a network mode we configure but do not own. The parts of this ADR
+that are runtime-independent — the `ExecPolicy` mapping and its lossiness rulings, the host
+egress proxy, the guest fence, the capability gating — are the parts worth keeping, and they are
+kept by D1 anyway.
 
 **D. Vendor Tart.** Tart is a mature Virtualization.framework wrapper with a guest agent and a
 gRPC-over-vsock exec path — an excellent *reference implementation* for D3 and the control
@@ -495,8 +519,11 @@ opt-in remote tier — never mode two.
    kernel pin, CVE tracking, image rebuilds, digest rollout. The escape chain cited above began
    with an unprivileged user namespace and a kernel-module autoload [INFERENCE]; both are our
    boot-args and our seccomp policy to get right. Mitigations: minimal image, unprivileged
-   userns off, module autoload off, per-release digest refresh, named owner. **If we cannot
-   commit to that ownership, take Alternative C instead of shipping a stale image.**
+   userns off, module autoload off, per-release digest refresh, named owner. **This burden was
+   accepted knowingly on 2026-08-01 (D9); the escape hatch of gating on someone else's container
+   runtime is closed.** The risk therefore converts from a decision into a standing obligation: a
+   rootfs whose kernel pin has gone stale is a shipped vulnerability, and D3's digest-mismatch
+   refusal must never be softened into a warning.
 
 2. **Warm-VM memory reclamation is advisory, not enforceable.** [APPLE]
    `VZVirtioTraditionalMemoryBalloonDevice.targetVirtualMachineMemorySize` asks the guest to
@@ -504,11 +531,12 @@ opt-in remote tier — never mode two.
    remains unchanged." The value must be a multiple of 1 MB and **cannot exceed the configured
    `memorySize`**, whose initial value it takes — so the ceiling is fixed at boot and ballooning
    only ever claws back downward, at the guest's discretion. Consequence: N warm VMs cost N
-   ceilings in the worst case. **Open question for review** (see below): one VM per workspace
-   (stronger isolation, more memory) versus one VM with per-workspace guest sessions (what
-   Cowork appears to do [INFERENCE] — cheaper, but two workspaces then share a kernel). This
-   ADR proposes per-workspace VMs with a **default cap of one warm VM** and LRU eviction on the
-   idle timer, which is a compromise that needs a human's opinion.
+   ceilings in the worst case. **Settled by D2**: per-workspace VMs (stronger isolation) rather
+   than one VM with per-workspace guest sessions (what Cowork appears to do [INFERENCE] —
+   cheaper, but two workspaces then share a kernel), with the memory consequence bounded by the
+   one-warm-VM cap and LRU eviction rather than by trusting the balloon. What remains open is
+   only the *tuning*: the memory ceiling per VM and the idle timeout, both of which need
+   measurement against real workspaces before defaults are fixed.
 
 3. **Signing and entitlement mechanics.** [APPLE] Creating a VM requires
    `com.apple.security.virtualization` (macOS 11.0+, a plain boolean, no Apple approval process
@@ -576,17 +604,27 @@ opt-in remote tier — never mode two.
 
 ---
 
-## Questions this ADR wants a human to answer
+## Resolved on acceptance (2026-08-01)
 
-1. **Isolation granularity vs memory** (risk 2): one VM per workspace, or one VM with
-   per-workspace guest sessions? Proposed: per-workspace, cap one warm VM. This is the single
-   design choice with the largest UX and memory consequence.
-2. **Do we accept becoming a rootfs/kernel maintainer** (risk 1)? If the honest answer is no,
-   Alternative C is the right v1 and should be chosen now, before any helper is written.
-3. **Is macOS-only acceptable for mode two's first release**, or does the feature need a
-   cross-platform story on day one (which effectively forces Alternative C)?
-4. **Rootfs distribution**: fetch-on-first-enable (proposed) versus shipping it in the app
-   bundle. This is a download-size-versus-first-run-latency call with a product dimension.
+Four questions were held open in the proposed draft. All four were decided by Sean Dearnaley on
+acceptance, and all four went the canonical route. They are recorded here so that reopening one
+is visibly a re-decision rather than a fresh question.
+
+| Question | Ruling | Folded into |
+| --- | --- | --- |
+| Isolation granularity vs memory: per-workspace VM, or one VM with per-workspace guest sessions? | **Per-workspace VM**, cap one warm VM, LRU evict on the idle timer. Two workspaces never share a guest kernel. | D2, risk 2 |
+| Do we accept owning the rootfs/kernel pipeline, or gate on a user-installed container runtime? | **We own it.** Docker/OrbStack/Podman gating is rejected as a v1 path: *no other stuff like Docker is acceptable; follow canonical and modern idioms for 2026 — whatever folks like Claude Code, OpenCode, and oh-my-codex do.* | D3, D9, Alternative C, risk 1 |
+| Is macOS-only acceptable for the first release? | **Yes** — ship one platform first rather than waiting for parity. | D8 |
+| Rootfs distribution: fetch-on-first-enable, or ship in the app bundle? | **Fetch-on-first-enable** with digest + signature verification, as the canonical pattern. | D3, "Rootfs build / update pipeline" |
+
+Two items flagged in the draft remain genuinely open, and they stay open because they are
+**implementation spikes, not decisions**:
+
+- Whether a configuration carrying VirtioFS shares and a vsock device passes
+  `validateSaveRestoreSupport()` [APPLE]. Snapshot fast-start is designed as optional for exactly
+  this reason.
+- Whether re-pointing `VZVirtioFileSystemDevice.share` (which is `{ get set }` [APPLE]) is
+  observed by the guest without a remount, or whether `mount.sync` must drive one.
 
 ---
 
@@ -596,6 +634,9 @@ opt-in remote tier — never mode two.
 - macOS 26 becoming our supported floor **and** Lima/Podman shipping Apple-container backends —
   reopens A and especially B.
 - Measurement showing warm-VM memory cost is unacceptable in real multi-workspace use and that
-  ballooning cannot recover it — pushes toward one shared VM, or toward Alternative C.
-- A decision that mode two must exist on Windows and Linux at parity — forces Alternative C as
-  the common denominator, with an honest downgrade of the isolation claim in the UI.
+  ballooning cannot recover it — reopens D2's granularity ruling (toward one shared VM with guest
+  sessions), not D9.
+- A demand that mode two exist on Windows and Linux at parity. The answer is a Hyper-V sibling
+  (and, if ever needed, a KVM one) written as its own ADR — **not** a retreat to a user-installed
+  container runtime. D9 does not bend for platform coverage; if a platform cannot be served
+  honestly, it stays fence-only.
