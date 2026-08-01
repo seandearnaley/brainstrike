@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { PROVIDER_RUN_ERROR_FALLBACK_CODE } from '../../provider-error-metadata';
@@ -227,6 +227,19 @@ describe('resolveTripwire', () => {
     const { detail } = resolveTripwire({ payload: { reason }, type: 'tripwire' });
     expect(detail).toHaveLength(MAX_VISIBLE_PROVIDER_ERROR_CHARS);
     expect(detail.endsWith(PROVIDER_ERROR_TRUNCATION_MARKER)).toBe(true);
+  });
+
+  it('never exceeds the cap, even when the cap is smaller than the marker', () => {
+    // Regression (review #2169): `slice(0, maxChars - 13)` with a small cap
+    // passes a NEGATIVE end index, which slice reads as an offset from the
+    // end — the old formula returned 105 chars for a cap of 5, longer than
+    // the input. A cap with no room for the marker drops the marker, never
+    // the guarantee.
+    for (const cap of [0, 1, 5, 13, 14, 40]) {
+      const out = truncateStreamDetail('x'.repeat(100), cap);
+      expect(out.length, `cap ${cap} produced ${out.length} chars`).toBeLessThanOrEqual(cap);
+    }
+    expect(truncateStreamDetail('x'.repeat(100), 40)).toMatch(/\[truncated\]$/u);
   });
 
   it('truncates an overlong processorId', () => {
@@ -581,5 +594,47 @@ describe('purity is structural, not just observed', () => {
     expect(impure).toMatch(/\bnew Date\s*\(|\bDate\.now\s*\(/u);
     expect(impure).toMatch(/\bgenerateUUID\s*\(|\brandomUUID\s*\(/u);
     expect(impure).toMatch(/\blogger\s*\.|\bconsole\s*\./u);
+  });
+
+  // The file-local probes above cannot see impurity that arrives through an
+  // IMPORT — adding a `logger.warn` to `sanitizeAssistantRunEventMetadata`
+  // would make every resolveTripwire call log while all these tests stayed
+  // green (review #2169). Purity is a property of the reachable graph, so the
+  // guard walks it.
+  function reachableModules(entry: string): string[] {
+    const importRe = /(?:import|export)[^'"]*from\s+['"](\.[^'"]+)['"]/gu;
+    const seen = new Set<string>();
+    const queue = [resolve(import.meta.dirname, entry)];
+    while (queue.length > 0) {
+      const file = queue.pop() as string;
+      if (seen.has(file)) {
+        continue;
+      }
+      seen.add(file);
+      const source = readFileSync(file, 'utf8');
+      for (const match of source.matchAll(importRe)) {
+        const spec = (match[1] as string).replace(/\.js$/u, '');
+        for (const candidate of [`${spec}.ts`, `${spec}/index.ts`]) {
+          const resolved = resolve(dirname(file), candidate);
+          if (existsSync(resolved)) {
+            queue.push(resolved);
+            break;
+          }
+        }
+      }
+    }
+    return [...seen];
+  }
+
+  it.each(IMPURE_CALL_PATTERNS)('nothing reachable from the module performs %s', (_l, pattern) => {
+    const modules = reachableModules('../mastra-chunk-decoding.ts');
+    // Anti-vacuity: a resolver that silently found nothing would pass forever.
+    expect(modules.length).toBeGreaterThan(3);
+    for (const modulePath of modules) {
+      const source = readFileSync(modulePath, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//gu, '')
+        .replace(/^\s*\/\/.*$/gmu, '');
+      expect(source, `${modulePath} breaks the decoder purity contract`).not.toMatch(pattern);
+    }
   });
 });

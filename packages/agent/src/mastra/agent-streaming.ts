@@ -1376,7 +1376,7 @@ function mapObservationalMemoryDataPart(part: MastraStreamPart): {
   const rawError = payload?.['error'];
   const errorText =
     typeof rawError === 'string' && rawError.length > 0
-      ? rawError.slice(0, OM_FAILURE_DETAIL_MAX_CHARS)
+      ? truncateStreamDetail(rawError, OM_FAILURE_DETAIL_MAX_CHARS)
       : 'Observation cycle failed without a reported reason.';
   const operationType =
     typeof payload?.['operationType'] === 'string' ? payload['operationType'] : undefined;

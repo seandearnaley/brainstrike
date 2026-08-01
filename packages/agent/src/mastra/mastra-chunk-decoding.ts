@@ -71,14 +71,25 @@ export const PROVIDER_ERROR_TRUNCATION_MARKER = '… [truncated]';
 
 /**
  * The one clamp used for every user-visible or persisted stream detail, so a
- * tripwire reason, a processor id, and a provider error body cannot drift into
- * three subtly different truncation rules.
+ * tripwire reason, a processor id, a provider error body, and an observational
+ * memory failure cannot drift into subtly different truncation rules.
+ *
+ * The result NEVER exceeds `maxChars`. That needs saying because the obvious
+ * implementation does not hold it: `slice(0, maxChars - marker.length)` with a
+ * cap smaller than the 13-char marker passes a negative end index, which
+ * `String.prototype.slice` reinterprets as an offset from the END — returning
+ * more characters than the input for a cap of 5 (review #2169). A cap with no
+ * room for the marker drops the marker rather than the guarantee.
  */
 export function truncateStreamDetail(value: string, maxChars: number): string {
   if (value.length <= maxChars) {
     return value;
   }
-  return `${value.slice(0, maxChars - PROVIDER_ERROR_TRUNCATION_MARKER.length)}${PROVIDER_ERROR_TRUNCATION_MARKER}`;
+  const room = maxChars - PROVIDER_ERROR_TRUNCATION_MARKER.length;
+  if (room <= 0) {
+    return value.slice(0, Math.max(0, maxChars));
+  }
+  return `${value.slice(0, room)}${PROVIDER_ERROR_TRUNCATION_MARKER}`;
 }
 
 function normalizeFinishReason(reason: string): StreamFinishReason {
@@ -163,9 +174,7 @@ export function makeStepMetadata(part: unknown): AssistantRunEventMetadata | und
 // Tool-event payload decoding
 // ---------------------------------------------------------------------------
 
-export function getToolEventPayload(
-  toolEvent: StreamChunkTool
-): AssistantRunEventMetadata | undefined {
+function getToolEventPayload(toolEvent: StreamChunkTool): AssistantRunEventMetadata | undefined {
   return isRunEventMetadata(toolEvent.payload) ? toolEvent.payload : undefined;
 }
 
