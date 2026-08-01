@@ -6,12 +6,31 @@
  * — is injected, so the mapping that decides what the fence actually permits
  * stays unit-testable without spawning or touching real directories.
  */
-import { realpath } from 'node:fs/promises';
+import { realpath as realpathCallback } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, normalize, sep } from 'node:path';
+import { promisify } from 'node:util';
 import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
 import { type ExecPolicy, execPolicySchema } from '../code-execution';
+
+/**
+ * `realpath.NATIVE`, not `fs/promises`' `realpath` (BST-1074).
+ *
+ * Node's JS implementation walks components with `lstat`/`readlink` and copies
+ * every non-symlink component VERBATIM from the input string: it resolves
+ * symlinks but does NOT return the OS-canonical case. Only the native binding
+ * (`realpath(3)` on macOS, `GetFinalPathNameByHandleW` on Windows) does.
+ * Measured on darwin: for an on-disk `MixedCase`, the JS version returns
+ * `mixedcase` while the native one returns `MixedCase`.
+ *
+ * The distinction is load-bearing. `isPathCoveredBy` compares directory
+ * segments case-SENSITIVELY, and the always-deny containment check resolves
+ * before comparing precisely so a case variant cannot dodge it. With the JS
+ * resolver both guarantees evaporate on a case-insensitive volume: `~/.SSH`
+ * would come back as `~/.SSH` and compare unequal to the denied `~/.ssh`.
+ */
+const realpathNative = promisify(realpathCallback.native);
 
 /**
  * Home-relative names of the credential stores sandboxed code may never read,
@@ -62,8 +81,7 @@ export function isFencePolicyError(value: unknown): value is FencePolicyError {
 
 /**
  * Resolves a path to its canonical on-disk form. Injected so unit tests can
- * exercise the mapping without a real filesystem; production passes
- * `fs.promises.realpath`.
+ * exercise the mapping without a real filesystem; production passes the NATIVE realpath (see above).
  */
 export type FencePathResolver = (path: string) => Promise<string>;
 
@@ -173,7 +191,7 @@ async function resolveOptional(path: string, resolvePath: FencePathResolver): Pr
 export async function buildSandboxRuntimeConfig(
   policy: ExecPolicy,
   scratchDir: string,
-  resolvePath: FencePathResolver = realpath
+  resolvePath: FencePathResolver = realpathNative
 ): Promise<SandboxRuntimeConfig> {
   const parsed = execPolicySchema.parse(policy);
 

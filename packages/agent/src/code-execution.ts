@@ -92,6 +92,22 @@ function isAbsolutePath(value: string): boolean {
 }
 
 /**
+ * Leading segments naming the VOLUME rather than a directory, across both
+ * operands. `C:\dir` contributes 1 (the drive letter); `\\server\share\dir`
+ * contributes 2 (host and share — SMB treats both case-insensitively). A
+ * POSIX path contributes 0, so nothing folds.
+ */
+function windowsVolumeSegmentCount(target: string, root: string): number {
+  const count = (value: string): number => {
+    if (WINDOWS_UNC_PATH.test(value)) {
+      return 2;
+    }
+    return WINDOWS_ABSOLUTE_PATH.test(value) ? 1 : 0;
+  };
+  return Math.max(count(target), count(root));
+}
+
+/**
  * Absolute, traversal-free, length-bounded paths only. A leading `~` is
  * REJECTED rather than expanded: sandbox-runtime resolves paths against its
  * own process context, so a `denyRead: ['~/.ssh']` that reaches it unexpanded
@@ -182,11 +198,14 @@ export function isPathCoveredBy(target: string, roots: readonly string[]): boole
     if (rootSegments.includes('..') || rootSegments.length > targetSegments.length) {
       return false;
     }
-    const foldDriveLetter = isWindowsShapedPath(target) || isWindowsShapedPath(root);
+    // How many leading segments name the VOLUME rather than a directory:
+    // `C:\dir` → 1 (the drive), `\\server\share\dir` → 2 (host + share, both
+    // case-insensitive at the SMB protocol level). Everything after that is a
+    // directory, which never folds.
+    const volumeSegments = windowsVolumeSegmentCount(target, root);
     return rootSegments.every((segment, index) => {
       const targetSegment = targetSegments[index] ?? '';
-      // Index 0 of a Windows-shaped path is the drive ("C:") or the UNC host.
-      return foldDriveLetter && index === 0
+      return index < volumeSegments
         ? segment.toLowerCase() === targetSegment.toLowerCase()
         : segment === targetSegment;
     });

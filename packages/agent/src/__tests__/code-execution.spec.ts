@@ -265,6 +265,15 @@ describe('isPathCoveredBy', () => {
     expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(false);
     expect(isPathCoveredBy('/tmp/Scratch', ['/tmp/scratch'])).toBe(false);
   });
+
+  it('folds both UNC volume segments (host AND share), but not directories', () => {
+    // SMB treats the host and the share name case-insensitively, so both fold;
+    // a share name is not a directory on a per-directory-case-sensitive volume.
+    expect(isPathCoveredBy('\\\\Server\\Share\\dir', ['\\\\server\\share'])).toBe(true);
+    expect(isPathCoveredBy('\\\\server\\share\\dir', ['\\\\SERVER\\SHARE'])).toBe(true);
+    // The directory after the share does not fold.
+    expect(isPathCoveredBy('\\\\server\\share\\Dir', ['\\\\server\\share\\dir'])).toBe(false);
+  });
 });
 
 describe('resolveCodeExecutor', () => {
