@@ -511,6 +511,10 @@ export {
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
 export {
+  computeExecutionContextFingerprint,
+  resolveRunPythonExecutionContext,
+} from './tools/run-python-approval-context';
+export {
   createRunPythonTool,
   projectRunPythonStreams,
   RUN_PYTHON_DEFAULT_TIMEOUT_MS,

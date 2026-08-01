@@ -489,6 +489,71 @@ describe('suspended-runs endpoint', () => {
     });
   });
 
+  it('GET /assistant/suspended-runs recomputes executionContext for a rediscovered run_python approval (BST-1070)', async () => {
+    // The live approval's executionContext is a transient stream field — it is
+    // never persisted. Rediscovery must RECOMPUTE it from the durable args
+    // (exactly where riskCategory is recomputed), or every reloaded run_python
+    // approval would render the degraded no-fact-rows card.
+    const { listSuspendedMastraRuns, resolveRunPythonExecutionContext } = await import(
+      '@brainstrike/agent'
+    );
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [
+        {
+          args: { code: 'print(1)', timeoutMs: 45_000 },
+          runId: 'run-python-restart-1',
+          suspendedAt: new Date().toISOString(),
+          toolCallId: 'call-python-restart-1',
+          toolName: 'brainstrike.runPython',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.approvals[0]).toMatchObject({
+      riskCategory: 'execute',
+      toolName: 'brainstrike.runPython',
+    });
+    // Byte-identical to the live derivation — the same helper, the same args.
+    expect(body.approvals[0].executionContext).toEqual(
+      JSON.parse(
+        JSON.stringify(resolveRunPythonExecutionContext({ code: 'print(1)', timeoutMs: 45_000 }))
+      )
+    );
+    expect(body.approvals[0].executionContext.timeoutMs).toBe(45_000);
+  });
+
+  it('GET /assistant/suspended-runs omits executionContext when rediscovered run_python args do not parse', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [
+        {
+          args: { allowedDomains: ['exfil.example.com'], code: 'print(1)' },
+          runId: 'run-python-restart-2',
+          suspendedAt: new Date().toISOString(),
+          toolCallId: 'call-python-restart-2',
+          toolName: 'brainstrike.runPython',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.approvals[0]).toMatchObject({ toolName: 'brainstrike.runPython' });
+    expect(body.approvals[0]).not.toHaveProperty('executionContext');
+  });
+
   it('GET /assistant/suspended-runs omits riskCategory for a tool absent from the risk map and warns LOUDLY', async () => {
     // An MCP (or no-longer-registered) tool has no entry in
     // buildNativeToolRiskMap(): the response must omit riskCategory /
