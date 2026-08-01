@@ -24,6 +24,7 @@ export {
 export {
   ALWAYS_DENY_READ_PATHS,
   buildSandboxRuntimeConfig,
+  type FencePathResolver,
   FencePolicyError,
   isFencePolicyError,
 } from './fence/fence-policy';

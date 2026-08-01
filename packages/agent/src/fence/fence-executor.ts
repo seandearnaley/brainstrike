@@ -535,8 +535,10 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
     }
 
     // Throws on a policy the fence cannot honour (e.g. an allowRead that would
-    // re-open a credential store) before anything is spawned.
-    const config = buildSandboxRuntimeConfig(input.policy, input.scratchDir);
+    // re-open a credential store) before anything is spawned. Resolves paths
+    // to their canonical on-disk form first, so containment cannot be dodged
+    // by a symlink or a case variant on a case-insensitive volume.
+    const config = await buildSandboxRuntimeConfig(input.policy, input.scratchDir);
     const scriptPath = join(
       input.scratchDir,
       `brainstrike-exec-${randomUUID()}.${interpreter.scriptExtension}`

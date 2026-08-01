@@ -94,15 +94,32 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   broader `allowRead`. An `allowRead` entry AT or UNDER one of these throws
   `FencePolicyError`; it is never silently dropped. An ANCESTOR entry is fine
   (srt re-emits the nested deny).
-- **Every policy path is normalized at this boundary, and anything ambiguous
+- **Every policy path is shape-checked, then RESOLVED, and anything ambiguous
   is refused.** A GLOB in `allowRead` is rejected — srt would expand it into
   paths the containment guard never compared, so `allowRead: ['~/.config/*']`
-  would silently re-open `~/.config/gcloud`. A RELATIVE path is rejected — srt
-  resolves it against the Node process cwd, not `scratchDir`. A `..` segment
-  is rejected so the written and effective policies are the same path. `~` is
-  expanded here so the guard and srt see identical bytes, and containment
-  compares case-insensitively on darwin/win32 (APFS would otherwise let
-  `~/.SSH` through).
+  would silently re-open `~/.config/gcloud`. A RELATIVE path is rejected (srt
+  resolves it against the Node process cwd, not `scratchDir`), as is a `..`
+  segment and a `~` (never expanded — see the seam's rule).
+- **Containment compares `realpath` output, and NEVER folds case.** Case
+  sensitivity is a filesystem property, not a platform one: APFS is
+  case-insensitive by default but can be formatted case-sensitive, so
+  `platform === 'darwin'` does not imply it. `realpath` returns the canonical
+  on-disk spelling, so a case-insensitive volume resolves `~/.SSH` to `~/.ssh`
+  naturally while a case-sensitive volume correctly keeps them distinct —
+  correct on both, no platform guessing. It also catches a symlink pointing
+  into a denied store, which no textual comparison can. The failure directions
+  are why: folding case makes containment MORE permissive, i.e. a false PERMIT
+  at validation that then fails opaquely when srt applies the real policy;
+  not folding can only produce a false reject, which is confusing but never
+  unsafe.
+- **`scratchDir`, `allowWrite` and `allowRead` entries MUST exist.** A path
+  that does not exist has no canonical form, so it raises `FencePolicyError`
+  rather than being guessed at. Deny rules are the deliberate exception —
+  they canonicalize best-effort, because a host without `~/.gnupg` is normal,
+  not an error, and there is nothing there to re-open.
+- The resolver is injected (`FencePathResolver`, defaulting to
+  `fs.promises.realpath`) so the mapping stays in the cacheable unit lane;
+  the real-filesystem behaviour is proven in the integration lane.
 - **The sandboxed process environment is an ALLOW-LIST, never a pass-through**
   (`INHERITED_ENV_VARS`: `HOME`, `LANG`, `LC_ALL`, `LC_CTYPE`, `PATH`,
   `TMPDIR`, `TZ`). Denying `~/.aws` on disk is pointless if
