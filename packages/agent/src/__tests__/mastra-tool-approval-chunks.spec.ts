@@ -1229,3 +1229,66 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     ]);
   });
 });
+
+describe('run_python approval executionContext stamping (BST-1070)', () => {
+  beforeEach(() => {
+    resetMastraStreamHarness();
+  });
+
+  async function collectApprovalChunk(args: unknown, toolName = 'brainstrike.runPython') {
+    setMockStreamParts([
+      {
+        payload: { args, toolCallId: 'approval-run-python-1', toolName },
+        runId: 'run-approval-run-python-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run some python', type: 'text' }], role: 'user' }],
+      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    return expectLeadingContextBreakdown(chunks).find(
+      (chunk) =>
+        typeof chunk === 'object' &&
+        chunk !== null &&
+        (chunk as { type?: unknown }).type === 'tool-approval-required'
+    ) as Record<string, unknown> | undefined;
+  }
+
+  it('stamps a server-computed executionContext for a well-formed run_python approval', async () => {
+    const approval = await collectApprovalChunk({ code: 'print(1)', timeoutMs: 60_000 });
+    expect(approval).toBeDefined();
+    expect(approval?.['executionContext']).toMatchObject({
+      allowedDomains: [],
+      defaultReadAccess: 'permissive',
+      executorKind: 'fence',
+      language: 'python',
+      timeoutMs: 60_000,
+    });
+    expect(
+      typeof (approval?.['executionContext'] as { policyFingerprint?: unknown })?.policyFingerprint
+    ).toBe('string');
+  });
+
+  it('omits executionContext when the args do not parse — the card falls to its fail-safe path', async () => {
+    const approval = await collectApprovalChunk({
+      allowedDomains: ['exfil.example.com'],
+      code: 'print(1)',
+    });
+    expect(approval).toBeDefined();
+    expect(approval && 'executionContext' in approval).toBe(false);
+  });
+
+  it('never stamps executionContext on a non-code-execution tool', async () => {
+    const approval = await collectApprovalChunk(
+      { command: 'echo hi' },
+      'brainstrike.executeCommand'
+    );
+    expect(approval).toBeDefined();
+    expect(approval && 'executionContext' in approval).toBe(false);
+  });
+});

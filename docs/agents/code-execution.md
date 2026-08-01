@@ -326,6 +326,20 @@ composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
   to the executor's `stdoutOmittedBytes`/`stderrOmittedBytes`, so the model can
   tell "the script produced 4 MB" from "we showed you the last 10 KB". The tail
   is kept — a traceback ends with the exception.
+- **The approval card's facts are server-computed (BST-1070 Gate A, LIVE).**
+  `run-python-approval-context.ts` derives a `CodeExecutionApprovalContext`
+  (tool-approval contract) from the SAME strict schema + constants execute()
+  uses — network `[]`, scratch under `os.tmpdir()` (only the PARENT is namable
+  pre-mkdtemp, hence `scratchParentDir`), `defaultReadAccess: 'permissive'`
+  (the fence's honest read semantics — see the escape-resistance README), the
+  shared timeout default (single-sourced with the tool via
+  `RUN_PYTHON_DEFAULT_TIMEOUT_MS`). `policyFingerprint` rides the context so
+  approval-time and execute-time terms are COMPARABLE; the execute-time
+  enforcement is deliberately deferred until workspace exec config introduces
+  a real drift input — today both sides are the same pure function of the
+  durable args in the same process, so a compare would be a guard whose
+  failure no test can provoke. Wire path + card behaviour:
+  docs/agents/assistant-runtime.md § PERMISSION ENGINE step 4.
 
 ## Permission engine relationship
 

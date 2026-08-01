@@ -3,8 +3,12 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolApprovalDecision,
   AssistantToolApprovalRequest,
+  CodeExecutionApprovalContext,
 } from '@brainstrike/assistant-contract/tool-approval';
-import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  isCodeExecutionApprovalContext,
+  TOOL_APPROVAL_RUN_CONFIG_KEY,
+} from '@brainstrike/assistant-contract/tool-approval';
 import {
   isToolRiskCategory,
   NATIVE_TOOL_ID,
@@ -13,6 +17,7 @@ import {
 import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, ShieldCheck, Timer, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { Badge } from '../badge';
 import { Button } from '../button';
 import { CodeSurface } from '../code-surface/code-surface';
 import { DiffView } from '../diff-view/diff-view';
@@ -22,6 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../dropdown-menu';
+import { formatRunDuration } from './run-python-result-model';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
 const logger = createLogger('AssistantToolApprovalNotice');
@@ -45,10 +51,18 @@ export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
  * the model-facing names.
  */
 const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
+const RUN_PYTHON_TOOL_ID = NATIVE_TOOL_ID.runPython;
 const RUN_SKILL_SCRIPT_TOOL_ID = NATIVE_TOOL_ID.runSkillScript;
 const STRING_REPLACE_TOOL_ID = NATIVE_TOOL_ID.stringReplaceWorkspaceFile;
 const WRITE_FILE_TOOL_ID = NATIVE_TOOL_ID.writeWorkspaceFile;
 const EXECUTE_COMMAND_ARG_KEYS = new Set(['command', 'cwd', 'root', 'timeoutMs']);
+const RUN_PYTHON_ARG_KEYS = new Set(['code', 'timeoutMs']);
+// Local literals mirroring the agent seam's MAX_EXEC_CODE_LENGTH /
+// MAX_EXEC_TIMEOUT_MS (packages/agent/src/code-execution.ts). The UI package
+// does not depend on @brainstrike/agent — the same trade the other narrowers
+// in this file make.
+const RUN_PYTHON_MAX_CODE_CHARS = 1_000_000;
+const RUN_PYTHON_MAX_TIMEOUT_MS = 600_000;
 const RUN_SKILL_SCRIPT_ARG_KEYS = new Set([
   'args',
   'cwd',
@@ -239,6 +253,249 @@ function narrowWriteFileArgs(value: unknown): WriteFileApprovalArgs | null {
   return { content, path, ...(typeof root === 'string' ? { root } : {}) };
 }
 
+interface RunPythonApprovalArgs {
+  readonly code: string;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * Structural guard mirroring the agent-package `RunPythonInputSchema`
+ * (strict: `code` + optional `timeoutMs`, nothing else). One deliberate
+ * display-side difference: an EMPTY `code` passes here so the card can say
+ * "this script is empty" instead of a parse error — the agent schema still
+ * rejects it at execute time. An unknown key (e.g. a future `allowedDomains`
+ * from a newer build) fails narrowing: a call carrying a field this build
+ * does not understand must not be described as if it were understood.
+ */
+function narrowRunPythonArgs(value: unknown): RunPythonApprovalArgs | null {
+  if (!isRecord(value) || Object.keys(value).some((key) => !RUN_PYTHON_ARG_KEYS.has(key))) {
+    return null;
+  }
+  const { code, timeoutMs } = value;
+  if (typeof code !== 'string' || code.length > RUN_PYTHON_MAX_CODE_CHARS) {
+    return null;
+  }
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs <= 0 ||
+      timeoutMs > RUN_PYTHON_MAX_TIMEOUT_MS)
+  ) {
+    return null;
+  }
+  return { code, ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}) };
+}
+
+/**
+ * The validated execution context for a code-execution approval, or `null`.
+ * The wire value is untrusted `unknown`; a shape the exact guard does not
+ * fully understand falls to the absent-context path (no fact rows, grants
+ * suppressed) rather than rendering partially.
+ */
+function readRunPythonExecutionContext(
+  approval: AssistantToolApprovalRequest
+): CodeExecutionApprovalContext | null {
+  const context: unknown = approval.executionContext;
+  return isCodeExecutionApprovalContext(context) ? context : null;
+}
+
+/**
+ * Whether the parent should suppress the grant buttons for this approval, or
+ * `null` for tools with no preview-policy opinion (every non-code-execution
+ * tool — completely unaffected). Decided in the PARENT, from the same inputs
+ * the preview narrows, because the suppression has to reach the button row the
+ * parent renders — a preview that returned `{ node, suppressGrants }` would be
+ * easy to ignore (BST-1070 design §2.1).
+ */
+function resolveApprovalPreviewPolicy(
+  approval: AssistantToolApprovalRequest
+): { readonly suppressGrants: boolean } | null {
+  if (approval.toolName !== RUN_PYTHON_TOOL_ID) {
+    return null;
+  }
+  const suppressGrants =
+    narrowRunPythonArgs(approval.args) === null || readRunPythonExecutionContext(approval) === null;
+  return { suppressGrants };
+}
+
+/**
+ * "Stops after 30 seconds" / "Stops after 0.4 seconds" — the shared
+ * `formatRunDuration` keeps this card and the result surface agreeing, and
+ * never rounds a sub-second limit into a false statement on a security card.
+ */
+function formatRunPythonTimeLimit(timeoutMs: number): string {
+  return `Stops after ${formatRunDuration(timeoutMs)}`;
+}
+
+function RunPythonFactRow({
+  label,
+  testId,
+  children,
+}: {
+  label: string;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 gap-2">
+      <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
+      <dd
+        className="min-w-0 break-words text-foreground/90 [overflow-wrap:anywhere]"
+        data-testid={testId}
+      >
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * Fact rows for the run_python approval card. Field order is deliberate:
+ * reach first (internet → write → read, most-dangerous-first), then limits.
+ * EVERY row always renders — "No internet access" is an explicit row because
+ * a missing row is ambiguous and an explicit negative is not (the single most
+ * important copy rule on this card). Paths and domains are never truncated
+ * with an ellipsis: `pypi.org.evil.com` clipped to `pypi.org…` is a lie.
+ */
+function RunPythonFactRows({ context }: { context: CodeExecutionApprovalContext }) {
+  const domainCount = context.allowedDomains.length;
+  return (
+    <>
+      <dl className="mt-3 space-y-1 text-xs">
+        <RunPythonFactRow label="Internet" testId="approval-run-python-internet">
+          {domainCount === 0 ? (
+            <Badge variant="secondary">No internet access</Badge>
+          ) : (
+            <span>
+              Wants to reach {domainCount} {domainCount === 1 ? 'domain' : 'domains'}
+            </span>
+          )}
+        </RunPythonFactRow>
+        <RunPythonFactRow label="Can write to" testId="approval-run-python-write">
+          <span>A fresh private folder created for this run</span>{' '}
+          <span className="font-mono">inside {context.scratchParentDir}</span>
+          {context.allowWrite.map((path) => (
+            <span className="block font-mono" key={path}>
+              {path}
+            </span>
+          ))}
+          <span className="block">and nowhere else.</span>
+        </RunPythonFactRow>
+        <RunPythonFactRow label="Can read" testId="approval-run-python-read">
+          {context.defaultReadAccess === 'permissive' ? (
+            // The fence's reads are PERMISSIVE by default (credential stores
+            // excepted) — an empty allowRead means "most files", and claiming
+            // otherwise would be a lie on a security surface.
+            <span>
+              Most files on this computer. Credential folders (SSH keys, cloud sign-ins) are always
+              blocked.
+            </span>
+          ) : context.allowRead.length === 0 ? (
+            <span>Nothing — it can't read your files.</span>
+          ) : (
+            context.allowRead.map((path) => (
+              <span className="block font-mono" key={path}>
+                {path}
+              </span>
+            ))
+          )}
+        </RunPythonFactRow>
+        <RunPythonFactRow label="Time limit" testId="approval-run-python-time">
+          {formatRunPythonTimeLimit(context.timeoutMs)}
+        </RunPythonFactRow>
+        <RunPythonFactRow label="Sandbox" testId="approval-run-python-sandbox">
+          {context.executorKind === 'fence'
+            ? 'Isolated sandbox on this machine'
+            : 'Virtual machine'}
+        </RunPythonFactRow>
+      </dl>
+      {domainCount > 0 ? (
+        <p
+          className="mt-2 text-amber-700 text-xs dark:text-amber-400"
+          data-testid="approval-run-python-forewarning"
+        >
+          You'll be asked about internet access separately, right before it runs.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The run_python pre-run approval card (BST-1070 Gate A): the code first
+ * (what will happen), then the fact rows (what it can touch). Degradations
+ * are visible, never guessed: unreadable args keep the raw-JSON view with a
+ * parse error, and a missing/invalid execution context renders no fact rows —
+ * in both cases the parent has already suppressed the grant buttons via
+ * `resolveApprovalPreviewPolicy`.
+ */
+function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest }) {
+  const parsed = narrowRunPythonArgs(approval.args);
+  const context = readRunPythonExecutionContext(approval);
+  if (!parsed) {
+    return (
+      <>
+        <PreviewParseError />
+        <p
+          className="mt-1 text-amber-700 text-xs dark:text-amber-400"
+          data-testid="approval-run-python-grants-suppressed-note"
+        >
+          Because this tool runs code, we won't offer "always allow" for a call we can't read.
+        </p>
+      </>
+    );
+  }
+  const codePreview = truncatePreviewText(parsed.code);
+  return (
+    <div className="mt-3 text-xs">
+      <p className="font-medium text-foreground/90">
+        Run this Python code on your computer, in a sandbox.
+      </p>
+      {parsed.code.length === 0 ? (
+        <p className="mt-1.5 text-muted-foreground" data-testid="approval-run-python-empty">
+          This script is empty — it won't do anything.
+        </p>
+      ) : (
+        <div className="mt-1.5 h-64 overflow-hidden rounded-md border border-border">
+          <CodeSurface
+            ariaLabel="Python code to run"
+            language="python"
+            lineWrapping
+            testId="approval-run-python-code"
+            truncated={codePreview.truncated}
+            value={codePreview.text}
+          />
+        </div>
+      )}
+      {codePreview.truncated ? <PreviewTruncatedNote preview={codePreview} /> : null}
+      {context ? <RunPythonFactRows context={context} /> : null}
+      {/* Missing-context path: state the degradation AND why the grant
+          buttons are gone. An EMPTY script is exempt from the alarm — it
+          provably does nothing (the agent schema rejects it at execute time),
+          so the empty-script line above says everything true; grants stay
+          suppressed either way. */}
+      {!context && parsed.code.length > 0 ? (
+        <>
+          <p
+            className="mt-2 text-amber-700 text-xs dark:text-amber-400"
+            data-testid="approval-run-python-context-missing"
+          >
+            We couldn't confirm what this script is allowed to touch. Check the raw arguments below
+            before approving.
+          </p>
+          <p
+            className="mt-1 text-amber-700 text-xs dark:text-amber-400"
+            data-testid="approval-run-python-grants-suppressed-note"
+          >
+            Because this tool runs code, we won't offer "always allow" for a call we can't confirm.
+          </p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function RootLabel({ root }: { root: string }) {
   return (
     <span className="ml-2 rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
@@ -414,9 +671,15 @@ function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
  * Every other tool renders `null`. Known preview tools whose args fail strict
  * narrowing show a visible parse error and keep the raw-JSON view.
  */
-function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }) {
+function ApprovalPreview({ approval }: { approval: AssistantToolApprovalRequest }) {
+  const { args, toolName } = approval;
   if (toolName === EXECUTE_COMMAND_TOOL_ID) {
     return <ExecuteCommandPreview args={args} />;
+  }
+  if (toolName === RUN_PYTHON_TOOL_ID) {
+    // Needs the whole approval, not just args: the fact rows come from the
+    // server-computed executionContext (§2.2), which args cannot carry.
+    return <RunPythonPreview approval={approval} />;
   }
   if (toolName === RUN_SKILL_SCRIPT_TOOL_ID) {
     return <RunSkillScriptPreview args={args} />;
@@ -499,7 +762,9 @@ function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolA
  */
 const RISK_CATEGORY_REASON: Record<string, string> = {
   edit: 'edit (modifies files or state)',
-  execute: 'execute (runs a command)',
+  // "commands or code": run_python is execute-risk and runs code, not a
+  // command — and the wider phrasing reads better for executeCommand too.
+  execute: 'execute (runs commands or code on your computer)',
   mcp: 'external MCP tool',
   read: 'read',
 };
@@ -848,7 +1113,15 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   const detailsId = useId();
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
   const approvalReason = approval ? resolveApprovalReason(approval) : null;
-  const grantCategory = approval ? resolveGrantCategory(approval) : null;
+  // BST-1070: a code-execution approval whose args fail strict narrowing or
+  // whose execution context is absent/invalid keeps Approve/Decline (the raw
+  // JSON is right there) but suppresses the GRANT buttons — no "always allow"
+  // for a call we can't read. Suppression reuses the existing null-category
+  // capability-gating path in ApprovalGrantButtons rather than adding a
+  // second one. Every other tool's previewPolicy is null and unaffected.
+  const previewPolicy = approval ? resolveApprovalPreviewPolicy(approval) : null;
+  const grantCategory =
+    approval && !previewPolicy?.suppressGrants ? resolveGrantCategory(approval) : null;
   const rediscovered = approval ? readRediscoveredDisplay(data) : null;
   const approvalRunOutcomeKey = useAuiState((state) =>
     toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
@@ -961,7 +1234,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
             </p>
           ) : null}
           <RediscoveredApprovalLines display={rediscovered} />
-          <ApprovalPreview args={approval.args} toolName={approval.toolName} />
+          <ApprovalPreview approval={approval} />
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               aria-label={`Approve ${approval.toolName}`}

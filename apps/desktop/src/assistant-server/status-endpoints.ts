@@ -4,8 +4,10 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   listSuspendedMastraRuns,
   type RediscoveredToolApproval,
+  RUN_PYTHON_TOOL_ID,
   type RuntimeAssistantMemorySettings,
   resolveApprovalStaleMs,
+  resolveRunPythonExecutionContext,
   type SuspendedApprovalsResponse,
 } from '@brainstrike/agent';
 import { respondJson } from '@brainstrike/assistant-service/http';
@@ -221,6 +223,15 @@ export async function handleSuspendedRunsRequest(
           toolName: approval.toolName,
         });
       }
+      // BST-1070: the live approval's executionContext is a transient stream
+      // field, so a rediscovered run_python approval RECOMPUTES it from the
+      // durable args — the same helper the live chunk uses, exactly where
+      // riskCategory is recomputed. Unparseable args yield no context, and the
+      // card falls to its fail-safe (no fact rows, grants suppressed).
+      const executionContext =
+        approval.toolName === RUN_PYTHON_TOOL_ID
+          ? resolveRunPythonExecutionContext(approval.args)
+          : undefined;
       return {
         runId: approval.runId,
         stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
@@ -229,6 +240,7 @@ export async function handleSuspendedRunsRequest(
         toolName: approval.toolName,
         ...(approval.args === undefined ? {} : { args: approval.args }),
         ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
+        ...(executionContext === undefined ? {} : { executionContext }),
       };
     });
 

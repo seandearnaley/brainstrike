@@ -1,11 +1,13 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   AlertCircle,
   CheckCircle,
   ChevronDown,
   ChevronUp,
   CircleDashed,
+  CircleSlash,
   Undo2,
 } from 'lucide-react';
 import {
@@ -26,6 +28,11 @@ import {
   useCheckpointForToolCall,
 } from './edit-checkpoint-context';
 import { LiveShellOutputPane } from './live-shell-output-pane';
+import { RunPythonResultSurface } from './run-python-result';
+import {
+  narrowRunPythonDisplayResult,
+  type RunPythonDisplayResult,
+} from './run-python-result-model';
 import { useShellOutput } from './shell-output-context';
 import { useRememberedToolArguments } from './tool-argument-context';
 import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
@@ -38,11 +45,12 @@ type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
 type ToolStatus = ToolFallbackProps['status'];
 type ToolResult = ToolFallbackProps['result'];
 
-type DisplayStatus = 'running' | 'error' | 'success' | 'unknown';
+type DisplayStatus = 'running' | 'error' | 'stopped' | 'success' | 'unknown';
 
 const STATUS_LABELS: Record<DisplayStatus, string> = {
   error: 'Failed',
   running: 'Running',
+  stopped: 'Stopped',
   success: 'Completed',
   unknown: 'Unknown',
 };
@@ -50,9 +58,64 @@ const STATUS_LABELS: Record<DisplayStatus, string> = {
 const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
   error: <AlertCircle className="size-4 text-destructive" />,
   running: <CircleDashed className="size-4 text-muted-foreground" />,
+  stopped: <CircleSlash className="size-4 text-muted-foreground" />,
   success: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
   unknown: <CheckCircle className="size-4 text-muted-foreground" />,
 };
+
+/**
+ * BST-1070: the CARD-level status for a settled `run_python` result. The
+ * generic path renders a green check for any error-free result, which would
+ * lie for three of this tool's five states: cancelled/timed-out/killed runs
+ * did not complete (design rule: cancelled NEVER renders as success) and an
+ * `unavailable` result means nothing ran at all (destructive). A non-zero
+ * exit stays `success` at the card level — the tool call completed; the
+ * result surface right below carries the amber "finished with an error".
+ */
+function runPythonDisplayStatus(result: RunPythonDisplayResult): DisplayStatus {
+  switch (result.kind) {
+    case 'completed':
+      return 'success';
+    case 'unavailable':
+      return 'error';
+    default:
+      return 'stopped';
+  }
+}
+
+/**
+ * Narrows a settled `run_python` result and resolves the card status in one
+ * place (kept out of ToolFallback for cognitive-complexity budget). A shape
+ * that fails narrowing (malformed or future) stays on the generic path with
+ * the generic status — never an invented surface.
+ *
+ * The structured mapping only ever OVERRIDES a generic `success`: `running`
+ * and `incomplete` must keep winning, or a transport abort's `status.error`
+ * would vanish behind a Completed/Stopped card and a still-running call would
+ * lose its thinking indicator.
+ */
+function resolveCardStatus(
+  toolName: string,
+  status: ToolStatus,
+  result: ToolResult,
+  isErrorResult: boolean
+): { displayStatus: DisplayStatus; runPythonResult: RunPythonDisplayResult | null } {
+  const hasResult = result !== undefined;
+  const runPythonResult =
+    toolName === NATIVE_TOOL_ID.runPython && hasResult
+      ? narrowRunPythonDisplayResult(result)
+      : null;
+  const generic = resolveDisplayStatus(status, hasResult, result, isErrorResult);
+  if (!(runPythonResult && generic === 'success')) {
+    // Generic path owns the card (running / incomplete / error-shaped): no
+    // structured surface either, or it would render under Failed chrome.
+    return { displayStatus: generic, runPythonResult: null };
+  }
+  return {
+    displayStatus: runPythonDisplayStatus(runPythonResult),
+    runPythonResult,
+  };
+}
 
 const isIncompleteStatus = (
   status: ToolStatus
@@ -208,7 +271,12 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const displayStatus = resolveDisplayStatus(status, hasResult, result, isErrorResult);
+  const { displayStatus, runPythonResult } = resolveCardStatus(
+    toolName,
+    status,
+    result,
+    isErrorResult
+  );
   const statusIcon = STATUS_ICONS[displayStatus];
   const statusText = STATUS_LABELS[displayStatus];
   const isRunning = displayStatus === 'running';
@@ -317,6 +385,10 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           only shows during execution (transient — absent on a reloaded thread). */}
       <LiveShellOutputRegion isRunning={isRunning} toolCallId={toolCallId} />
 
+      {/* Structured run_python result (BST-1070): state-honest header + output
+          panes. The raw result object stays available in the details pane. */}
+      <RunPythonResultRegion isRunning={isRunning} result={runPythonResult} />
+
       {showDetails && !isCollapsed ? (
         <ToolDetailsPane
           argsText={displayArgsText}
@@ -334,6 +406,23 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 };
 
 ToolFallback.displayName = 'ToolFallback';
+
+/**
+ * Structured run_python result region (BST-1070). Split out of ToolFallback
+ * for the same cognitive-complexity reason as LiveShellOutputRegion below.
+ */
+function RunPythonResultRegion({
+  isRunning,
+  result,
+}: {
+  isRunning: boolean;
+  result: RunPythonDisplayResult | null;
+}): ReactNode {
+  if (!result || isRunning) {
+    return null;
+  }
+  return <RunPythonResultSurface result={result} />;
+}
 
 /**
  * Live incremental output while a shell command runs. Once it finishes, the
