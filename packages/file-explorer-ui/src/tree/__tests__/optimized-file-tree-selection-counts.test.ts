@@ -7,14 +7,12 @@ import {
   type SelectionQueryDescriptor,
 } from '@brainstrike/types';
 import { renderHook } from '@testing-library/react';
-import { createElement, type PropsWithChildren, StrictMode } from 'react';
 import { describe, expect, it } from 'vitest';
 import {
   collectTreePaths,
   getWorkspaceSelectionPathCandidates,
   isSameOrDescendantSelectionPath,
   isWorkspacePathSelected,
-  resetSelectedDirectoryCountSnapshot,
   useSelectedDirectoryCounts,
 } from '../optimized-file-tree-selection-counts';
 
@@ -49,17 +47,6 @@ function createQueryDescriptor(
 }
 
 describe('optimized file tree selection counts', () => {
-  it('resets every snapshot field while preserving the active folder after a switch', () => {
-    const resetSnapshot = resetSelectedDirectoryCountSnapshot('/workspace/next-project');
-
-    expect(resetSnapshot).toEqual({
-      folderId: '/workspace/next-project',
-      selectedDirectoryCounts: new Map(),
-      selectedFilePaths: null,
-      selectedPathAncestorCache: new Map(),
-    });
-  });
-
   it('returns absolute, rooted-relative, and bare-relative selection candidates', () => {
     expect(
       getWorkspaceSelectionPathCandidates(folderId, '/workspace/project/src/index.ts')
@@ -190,28 +177,34 @@ describe('optimized file tree selection counts', () => {
     expect(result.current.size).toBe(0);
   });
 
-  it('unmounts deterministically in StrictMode after switching folders', () => {
+  it('rebuilds observable counts when the active folder changes', () => {
     const selectionModel = createExplicitSelectionModel();
     const firstFolderId = '/workspace/first-project';
     const nextFolderId = '/workspace/next-project';
-    const { rerender, unmount } = renderHook(
+    const firstSelectedFilePaths = new Set([`${firstFolderId}|@|src/first.ts`]);
+    const nextSelectedFilePaths = new Set([`${nextFolderId}|@|docs/next.md`]);
+    const { result, rerender } = renderHook(
       ({ currentFolderId, selectedFilePaths }) =>
         useSelectedDirectoryCounts(selectedFilePaths, currentFolderId, selectionModel, null),
       {
         initialProps: {
           currentFolderId: firstFolderId,
-          selectedFilePaths: new Set([`${firstFolderId}|@|src/first.ts`]),
+          selectedFilePaths: firstSelectedFilePaths,
         },
-        wrapper: ({ children }: PropsWithChildren) => createElement(StrictMode, null, children),
       }
     );
 
+    expect(result.current.get('src')).toBe(1);
+
     rerender({
       currentFolderId: nextFolderId,
-      selectedFilePaths: new Set([`${nextFolderId}|@|src/next.ts`]),
+      selectedFilePaths: nextSelectedFilePaths,
     });
 
-    expect(() => unmount()).not.toThrow();
+    expect(result.current.get('src')).toBeUndefined();
+    expect(result.current.get('docs')).toBe(1);
+    expect(result.current.get(nextFolderId)).toBe(1);
+    expect(result.current.get(firstFolderId)).toBeUndefined();
   });
 
   it('returns query manifest directory counts in query selection mode', () => {
