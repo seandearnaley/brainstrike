@@ -31,14 +31,19 @@ install.** Revisit when the gate in §5 is cleared.
 ### Repo state this was written against
 
 - `docs/agents/code-execution.md` and `packages/agent/src/code-execution.ts` at
-  `origin/main` (856767a8c).
-- **PR #2189** (`bst-1060-followup-seam-review-hardening`, unmerged) adds
-  `REQUIRED_ISOLATION_TIER`, `ExecutorTierMismatchError`, and the
-  `resolveCodeExecutor` assertion that a `fence` executor reports
-  `maxIsolationTier: 'os-fence'`. §2 is written against that hardened contract
-  because it is the contract BST-1062 will land onto.
+  `origin/main` **57756e1**, which includes the BST-1060 seam hardening
+  (**8448ffd**, PR #2189) and ADR-0003 (**29aab71**, PR #2185). §2 was drafted
+  against the hardened contract before it merged and re-checked against it
+  after; three of its details are load-bearing and did ship as described:
+  `REQUIRED_ISOLATION_TIER` + `ExecutorTierMismatchError` and the
+  `resolveCodeExecutor` tier assertion; `CodeExecutorFactory` is still
+  **synchronous** (`() => CodeExecutor`), which is what forces the Windows
+  readiness probe up into host-capability assembly (§2.2); and `signal` is now
+  **required** on `ExecInput`, with backends obliged to terminate the process
+  tree when it fires — which promotes §6.7 from a nicety to a contract
+  requirement.
 - **PR #2190** (`bst-1062-build-the-fenceexecutor-on-anthropic-aisandbox-runtime`,
-  unmerged) is the FenceExecutor under review.
+  unmerged at the time of writing) is the FenceExecutor under review.
 
 ---
 
@@ -312,7 +317,7 @@ Two consequences for host wiring:
    If the user runs `windows-uninstall` after we probed, the next
    `SandboxManager.initialize()` throws `WindowsSandboxError('not_provisioned')`
    or `verifyWindowsWfpEgress()` throws — srt fails closed, so the worst case is
-   a construction-time error, never a weaker sandbox. That satisfies PR #2189's
+   a construction-time error, never a weaker sandbox. That satisfies the seam's
    rule that "a backend that cannot apply its platform sandbox MUST throw at
    construction rather than return a weaker executor."
 
@@ -453,15 +458,51 @@ own branch (this spike deliberately does not edit that PR's files):
 
 ## 6. Runnable Windows test plan (BLOCKED ON WINDOWS HARDWARE)
 
-One sitting, ~60–90 min. Nothing below has been executed.
+One sitting, ~90 min. Nothing below has been executed.
 
 **Host:** Windows 11, x64 or arm64 (no 32-bit — §1.1), an account that can
 elevate, Node ≥ 20.11. Prefer a VM, or a machine you are willing to leave a
 local account on; §6.8 removes it.
 
-**Record for every step:** the exact command, exit code, and stdout/stderr.
-Where a step's expectation is srt's documented claim rather than an established
-fact, it is marked *(doc claim under test)*.
+### 6.A How not to fool yourself — read before running anything
+
+Nobody on this team can run this plan. Someone else will run it once and report
+the result as fact, and that report will decide whether we ship a security
+boundary. **A step that can print "pass" while the mechanism under test is
+entirely absent is worse than no step at all**, because it manufactures
+confidence rather than merely lacking it.
+
+Two such steps were caught in review of this document (a `%LOCALAPPDATA%` that
+does not expand in PowerShell and so resolved against the wrong profile, turning
+a file-not-found into a recorded DACL denial; and a bare `except OSError` that
+declared "blocked" for a timeout, a refused connection, or an unreachable host —
+on the plan's single most important assertion). Assume the same class is still
+lurking. Three rules close it:
+
+1. **Every isolation assertion needs a negative control.** Before claiming the
+   fence denied an operation, run the *same operation outside the fence as
+   yourself* and require it to **succeed**. A denial only means something if the
+   thing would otherwise have worked. Controls below are labelled `CONTROL` and
+   are not optional.
+2. **Assert the specific Windows error code, never the exception class.**
+   `ERROR_ACCESS_DENIED` (5) is the DACL fence. `WSAEACCES` (10013) is the WFP
+   fence. `ERROR_FILE_NOT_FOUND` (2) / `ERROR_PATH_NOT_FOUND` (3) / `ETIMEDOUT`
+   / `ECONNREFUSED` are **inconclusive** — they mean the mechanism was never
+   consulted, and they must be recorded as INCONCLUSIVE, never as a pass.
+3. **Scripts exit non-zero on anything but the expected outcome**, so a result
+   cannot be mis-eyeballed from a wall of output. Every script below prints
+   exactly one of `PASS:`, `FAIL:`, or `INCONCLUSIVE:` and sets an exit code to
+   match (`0` / `1` / `2`).
+
+**Expand host paths in the OUTER PowerShell, never inside the `srt -c` string.**
+The command string is handed to an inner `cmd.exe` running as `srt-sandbox`, so
+`%LOCALAPPDATA%`, `%USERPROFILE%`, and `%TEMP%` resolve against the **sandbox
+account's** profile there — silently pointing at a different directory than you
+meant. Build the absolute path with `$env:…` in PowerShell and interpolate it.
+
+Report every step as PASS / FAIL / INCONCLUSIVE with its exit code and full
+output. An INCONCLUSIVE is a perfectly good result and must not be smoothed into
+a pass.
 
 ### 6.0 Setup
 
@@ -486,17 +527,28 @@ npx @anthropic-ai/sandbox-runtime windows-install
 > Expected: exit 0. Idempotent — running it twice is safe and rotates the
 > sandbox account password.
 
-Unelevated status probe:
+Unelevated status probe — **this one gates everything after it**:
 
 ```powershell
-node --input-type=module -e "import {checkWindowsSandboxStatusAsync,resolveSrtWin,VENDORED_SRT_WIN_EXE} from '@anthropic-ai/sandbox-runtime'; const srtWin=resolveSrtWin({path:VENDORED_SRT_WIN_EXE}); console.log(JSON.stringify(await checkWindowsSandboxStatusAsync({srtWin}),null,2));"
+node --input-type=module -e @'
+import {checkWindowsSandboxStatusAsync,resolveSrtWin,VENDORED_SRT_WIN_EXE} from "@anthropic-ai/sandbox-runtime";
+const srtWin = resolveSrtWin({path: VENDORED_SRT_WIN_EXE});
+const s = await checkWindowsSandboxStatusAsync({srtWin});
+console.log(JSON.stringify(s, null, 2));
+if (!s.user.provisioned || !s.user.credPresent) {
+  console.log("FAIL: sandbox user not provisioned/credential unreadable — every later step is meaningless. Re-run windows-install.");
+  process.exit(1);
+}
+if (!/^S-1-5-21-/.test(s.user.sid ?? "")) { console.log("FAIL: no sandbox user SID"); process.exit(1); }
+console.log(`PASS: sandbox user provisioned, sid=${s.user.sid}; wfp.state=${s.wfp.state}`);
+'@
 ```
 
-> Expected: `user.provisioned: true`, `user.credPresent: true`, `user.sid`
-> matching `S-1-5-21-…`, `user.groupExists: true`.
-> `wfp.state` is `"cannot-read"` **with a `hint`** from a non-elevated shell and
-> `"installed"` from an elevated one — both are pass. **A `cannot-read` here is
-> not a failure**; it is exactly the admin-gating described in §2.2.
+> `wfp.state` is `"cannot-read"` from a non-elevated shell and `"installed"` from
+> an elevated one — **both are a pass**, because BFE enumeration is admin-gated
+> (§2.2). `cannot-read` is *not* evidence the filters are absent, and it is *not*
+> evidence they are present either; §6.3 is the only thing that settles that.
+> A `FAIL:` here stops the run.
 
 Settings file at `%USERPROFILE%\.srt-settings.json` (the CLI supplies
 `VENDORED_SRT_WIN_EXE` itself, `cli.js:145-155`, so `windows.srtWin.path` may be
@@ -516,164 +568,313 @@ omitted for CLI runs):
 ```powershell
 @'
 import sys, getpass, os
-print("hello from the fence")
-print(sys.version)
-print("user:", getpass.getuser())
-print("profile:", os.environ.get("USERPROFILE"))
+who = getpass.getuser()
+print("python:", sys.version.split()[0], "| user:", who, "| profile:", os.environ.get("USERPROFILE"))
+if who.lower().startswith("srt-sandbox"):
+    print("PASS: running as the sandbox account"); sys.exit(0)
+print(f"FAIL: ran as '{who}', not srt-sandbox — the code executed OUTSIDE the fence"); sys.exit(1)
 '@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_a.py
 
 npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_a.py"
+echo "exit=$LASTEXITCODE"
 ```
 
-> Expected: exit 0; greeting and version print.
-> **The load-bearing assertion is `user: srt-sandbox`** — proof it ran under the
-> separate account and not as you. `USERPROFILE` should point at the sandbox
-> account's profile, not yours.
-> Fail ⇒ §1.2 is refuted; stop and re-open the assessment.
+> This step is self-controlling: an unfenced run prints your own username and
+> fails. `USERPROFILE` should also point at the sandbox account's profile.
+> A `FAIL:` here refutes §1.2 — stop and re-open the assessment.
 
 ### 6.2 (b) Write outside scratch is DACL-denied
 
+**CONTROL first** — prove the target is writable by *you*, so a later denial is
+attributable to the fence and not to a missing directory (the failure caught in
+review). Note `$env:USERPROFILE` is expanded **here**, in the outer shell:
+
+```powershell
+$outside = Join-Path $env:USERPROFILE 'Documents\srt-escape.txt'
+Set-Content -Path $outside -Value 'control' -ErrorAction Stop
+Remove-Item $outside
+"CONTROL PASS: $outside is writable by me"
+$outside | Out-File -Encoding ascii C:\srt-spike\scratch\target.txt
+```
+
+> If the CONTROL fails, fix it before continuing — a denial against a path you
+> could not write anyway proves nothing.
+
 ```powershell
 @'
-import os, pathlib
-pathlib.Path(r"C:\srt-spike\scratch\ok.txt").write_text("in-scratch write")
-print("scratch write: OK")
-for target in (r"C:\Users\<YOU>\Documents\srt-escape.txt",
-               os.path.expanduser(r"~\Documents\srt-escape.txt"),
-               r"C:\srt-spike\py\srt-escape.txt",
-               r"C:\Windows\Temp\srt-escape.txt"):
+import sys, pathlib
+target = pathlib.Path(r"C:\srt-spike\scratch\target.txt").read_text().strip()
+rc = 0
+
+try:
+    pathlib.Path(r"C:\srt-spike\scratch\ok.txt").write_text("in-scratch write")
+    print("PASS: write inside scratch succeeded")
+except OSError as e:
+    print(f"FAIL: scratch is in allowWrite but write failed: {e}"); rc = 1
+
+def probe(label, path):
+    global rc
     try:
-        open(target, "w").write("x"); print("WROTE (check):", target)
+        open(path, "w").write("x")
+        print(f"FAIL[{label}]: wrote {path} — no DACL denial"); rc = 1
     except OSError as e:
-        print("denied:", target, type(e).__name__, getattr(e, "winerror", e.errno))
+        code = getattr(e, "winerror", None)
+        if code == 5:
+            print(f"PASS[{label}]: {path} denied with ERROR_ACCESS_DENIED (5)")
+        elif code in (2, 3):
+            print(f"INCONCLUSIVE[{label}]: {path} winerror={code} (path/parent missing) — "
+                  f"the DACL was never consulted; NOT a pass"); rc = max(rc, 2)
+        else:
+            print(f"INCONCLUSIVE[{label}]: {path} {type(e).__name__} winerror={code} — "
+                  f"NOT a pass"); rc = max(rc, 2)
+
+probe("caller-profile", target)          # absolute path from the CONTROL above
+probe("allowRead-only", r"C:\srt-spike\py\srt-escape.txt")
+sys.exit(rc)
 '@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_b.py
 
 npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_b.py"
+echo "exit=$LASTEXITCODE"
 ```
 
-> Substitute your real username for `<YOU>` — note that `~` **inside** the
-> sandbox is the *sandbox account's* profile, which is why the literal path is
-> tested too.
-> Expected: `scratch write: OK`; your real `Documents` path **denied**
-> (`PermissionError`, `winerror 5`); `C:\srt-spike\py` is `allowRead` only ⇒
-> **denied** for write. `C:\Windows\Temp` is world-writable by ACL and **may
-> succeed** — that is the §1.4 model difference, not a defect. Record which.
-> Also confirm afterwards that `ok.txt` exists and is readable by you (the ACEs
-> are additive; your own rights are untouched).
+> The caller-profile probe reads its target from the file the CONTROL wrote, so
+> the fenced run and the control test **the same absolute path** — no `~` (which
+> is the sandbox account's profile inside the fence) and no unexpanded token.
+> `C:\srt-spike\py` is `allowRead` only, so it must deny writes too.
+> Afterwards, confirm from your own shell that `C:\srt-spike\scratch\ok.txt`
+> exists and is readable by you — the ACEs are additive, so your rights are
+> untouched.
+>
+> Not tested as a pass/fail: `C:\Windows\Temp` is world-writable by its own ACL
+> and the sandbox account may legitimately write there. That is the §1.4 model
+> difference (DACL fence, not a namespace), and it is worth recording as an
+> observation.
 
-### 6.3 (c) Network blocked with `allowedDomains: []`
+### 6.3 (c) Network blocked with `allowedDomains: []` — the decisive step
+
+The earlier draft connected to a hard-coded public IP and accepted any `OSError`
+as proof. Both are wrong: a dead route or a timeout would have been recorded as
+a working kernel fence. This version connects to **a listener we own on
+loopback**, so an absent fence produces an immediate successful connect rather
+than a slow ambiguous failure — the same technique srt's own
+`verifyWindowsWfpEgress` uses. No DNS, no internet, no timeouts.
+
+**Terminal 1 — bind a listener outside the WFP loopback-permit range and leave
+it running:**
+
+```powershell
+node -e "const s=require('net').createServer(c=>c.end()); s.listen(0,'127.0.0.1',()=>console.log('PORT', s.address().port))"
+```
+
+> Note the port. If it happens to land inside `60080-60089`, Ctrl-C and re-run —
+> that range is *permitted* by the WFP filter and would invert the test.
+
+**Terminal 2 — CONTROL: the listener must be reachable unfenced.**
+
+```powershell
+$PORT = <port from Terminal 1>
+C:\srt-spike\py\python.exe -c "import socket;socket.create_connection(('127.0.0.1',$PORT),5);print('CONTROL PASS: listener reachable unfenced')"
+```
+
+> If the CONTROL fails, the listener is wrong and every result below is void.
+
+**Terminal 2 — the fenced run:**
 
 ```powershell
 @'
-import os, socket, urllib.request
+import os, socket, sys, urllib.request
+PORT = int(sys.argv[1])
+rc = 0
+
+# 1. Proxy-mediated HTTP under an empty allow-list.
 try:
     urllib.request.urlopen("https://example.com", timeout=15)
-    print("HTTP: REACHED (UNEXPECTED)")
+    print("FAIL: HTTP reached example.com under allowedDomains: []"); rc = 1
 except Exception as e:
-    print("HTTP blocked:", type(e).__name__, e)
+    print(f"observed: HTTP failed ({type(e).__name__}) — expected, but see 6.3-control below")
 
-print("dns:", socket.gethostbyname("example.com"))   # documented to SUCCEED
+# 2. DNS is documented as UNFENCED. Record it; it is not a pass/fail.
+try:
+    print("observed: dns example.com ->", socket.gethostbyname("example.com"))
+except OSError as e:
+    print(f"observed: dns failed ({type(e).__name__} winerror={getattr(e,'winerror',None)})")
 
+# 3. THE assertion: strip every proxy hint, then connect direct to our listener.
 for k in ("HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","http_proxy","https_proxy","all_proxy","NO_PROXY"):
     os.environ.pop(k, None)
 try:
-    socket.create_connection(("93.184.216.34", 443), 15)
-    print("RAW TCP: CONNECTED (FENCE BREACH)")
+    socket.create_connection(("127.0.0.1", PORT), 5)
+    print(f"FAIL: raw TCP to 127.0.0.1:{PORT} CONNECTED — the WFP egress fence is NOT active")
+    sys.exit(1)
 except OSError as e:
-    print("raw tcp blocked:", type(e).__name__, getattr(e, "winerror", e.errno))
+    code = getattr(e, "winerror", None)
+    if code == 10013:
+        print("PASS: raw TCP blocked at connect with WSAEACCES (10013) — kernel WFP filter")
+    else:
+        print(f"INCONCLUSIVE: raw TCP failed with {type(e).__name__} winerror={code}. "
+              f"Only 10013 proves the fence; a timeout/refusal/unreachable means the "
+              f"connect never reached the filter. NOT a pass.")
+        rc = max(rc, 2)
+sys.exit(rc)
 '@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_c.py
 
-npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py"
+npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py $PORT"
+echo "exit=$LASTEXITCODE"
 ```
 
-> Expected:
-> - `HTTP blocked` — the proxy refuses every domain under an empty allow-list.
-> - `dns:` **prints an address**. This is the documented unfenced-resolver
->   limitation (§1.3) and is a **pass**, not a failure. A literal IP is used
->   below precisely so DNS is irrelevant to the real assertion.
-> - `raw tcp blocked` with **WinError 10013 (WSAEACCES)** after the proxy env
->   vars are stripped. *(doc claim under test — the single most important
->   assertion in the plan: this is the kernel WFP filter, not an env
->   convention.)* A `CONNECTED` here means the fence is not installed or the
->   filters are absent; re-run the §6.0 probe from an elevated shell.
->
-> Then set `allowedDomains` to `["example.com"]` and re-run: HTTP should succeed
-> and raw TCP should **still** be blocked.
+**6.3-control — prove the HTTP leg's failure was policy, not plumbing.** A
+blocked HTTP request means nothing on its own; the proxy could simply be down.
+Set `allowedDomains` to `["example.com"]` and re-run:
+
+```powershell
+npx srt -c "C:\srt-spike\py\python.exe -c \"import urllib.request;print('CONTROL PASS: http status', urllib.request.urlopen('https://example.com',timeout=20).status)\""
+npx srt -c "C:\srt-spike\py\python.exe C:\srt-spike\scratch\t_c.py $PORT"
+```
+
+> Required results: HTTP now **succeeds** (proving the earlier block was the
+> allow-list, not a broken proxy) **and** raw TCP is **still** blocked with
+> 10013 (proving the kernel fence is independent of the allow-list). Only both
+> together make step (c) a pass. Restore `allowedDomains: []` afterwards.
 
 ### 6.4 (d) Documented failure modes
 
 **d1 — certificate revocation (schannel vs OpenSSL).** With
-`allowedDomains: ["example.com"]`:
+`allowedDomains: ["example.com"]`. The two curl runs are a differential: same
+host, same config, one flag apart, so a failure that is not about revocation
+would take both down and be visible as such.
 
 ```powershell
-npx srt -c "C:\Windows\System32\curl.exe -sS -o NUL -w %%{http_code} https://example.com"
-npx srt -c "C:\Windows\System32\curl.exe --ssl-no-revoke -sS -o NUL -w %%{http_code} https://example.com"
-npx srt -c "C:\srt-spike\py\python.exe -c \"import urllib.request;print(urllib.request.urlopen('https://example.com',timeout=20).status)\""
+npx srt -c "C:\Windows\System32\curl.exe -sS -o NUL -w %%{http_code} https://example.com"; "curl-plain exit=$LASTEXITCODE"
+npx srt -c "C:\Windows\System32\curl.exe --ssl-no-revoke -sS -o NUL -w %%{http_code} https://example.com"; "curl-norevoke exit=$LASTEXITCODE"
+npx srt -c "C:\srt-spike\py\python.exe -c \"import urllib.request;print('py status', urllib.request.urlopen('https://example.com',timeout=20).status)\""; "python exit=$LASTEXITCODE"
 ```
 
-> Expected *(doc claim under test)*: the first fails with a schannel revocation
-> error (`CRYPT_E_REVOCATION_OFFLINE` / `0x80092013`, curl exit 35 or 60); the
-> second succeeds; **the Python one succeeds** because CPython uses OpenSSL.
-> **This is the decisive one for us**: if Python also fails, §1.5's "low impact"
-> assessment is wrong and every agent HTTP call on Windows breaks.
+> Reading the result:
+> - plain **fails** (expect `CRYPT_E_REVOCATION_OFFLINE` / `0x80092013`, curl
+>   exit 35 or 60) **and** `--ssl-no-revoke` **succeeds** ⇒ the documented
+>   revocation limitation is confirmed.
+> - **both** curl runs fail ⇒ INCONCLUSIVE, not a revocation finding —
+>   something else (allow-list, proxy) is broken. Fix it and re-run.
+> - **The Python leg is the one that matters to us.** Success ⇒ §1.5's
+>   "low impact" assessment holds (CPython uses OpenSSL, not schannel).
+>   Failure ⇒ the assessment is **wrong** and every agent HTTP call breaks on
+>   Windows; record it prominently and re-open §1.5.
 
-**d2 — per-user tool install unreachable (our packaging risk).**
+**d2 — per-user tool install unreachable (our packaging risk).** `$env:LOCALAPPDATA`
+is expanded in the **outer PowerShell** so the fenced command receives an
+absolute path; the unexpanded `%LOCALAPPDATA%` token would resolve against the
+`srt-sandbox` profile inside the fence and turn this into a file-not-found test
+that looks like a DACL denial.
 
 ```powershell
-Copy-Item -Recurse C:\srt-spike\py "$env:LOCALAPPDATA\Programs\py"
-npx srt -c "%LOCALAPPDATA%\Programs\py\python.exe -c \"print('reached')\""
+$perUser = Join-Path $env:LOCALAPPDATA 'Programs\py'
+$perUserExe = Join-Path $perUser 'python.exe'
+Copy-Item -Recurse C:\srt-spike\py $perUser
+Test-Path $perUserExe    # must be True before continuing
+
+# CONTROL — the copy runs fine as you, so a fenced failure is about identity.
+& $perUserExe -c "print('CONTROL PASS: per-user interpreter runs unfenced')"
+
+# FENCED — expect a failure, and check WHICH failure.
+npx srt -c "`"$perUserExe`" -c `"print('reached')`""
+"fenced exit=$LASTEXITCODE"
 ```
 
-> Expected *(doc claim under test)*: **fails** — access denied launching the
-> interpreter, because it sits in the calling user's profile and the sandbox
-> account has no rights there. Then add the expanded absolute path to
-> `filesystem.allowRead`, re-run, and expect **success**.
-> This settles where BST-1061's bundled CPython may live, and whether granting a
-> persistent `READ|EXECUTE` ACE on the app's own install directory is the
-> mitigation we ship.
+> Reading the result:
+> - stderr says **access is denied** ⇒ PASS, the documented limitation is
+>   confirmed and BST-1061 cannot ship CPython to a per-user directory unaided.
+> - stderr says **cannot find the path/file** ⇒ **INCONCLUSIVE**, not a pass —
+>   the ACL was never consulted. Re-check `Test-Path` and the quoting.
+> - it prints `reached` ⇒ the limitation does not apply as documented; record it,
+>   it would simplify our packaging story.
+>
+> Then add the **expanded absolute** `$perUser` path to `filesystem.allowRead`
+> in the settings file (a literal path — srt expands globs at `initialize()`
+> only, and never expands `%…%`), re-run the fenced command, and require
+> `reached`. That second half is what proves the `allowRead` grant is the
+> mitigation; without it the step only shows a failure, not a fix.
 
-**d3 — `pip install --user` lands in the wrong profile.**
+**d3 — `pip install --user` lands in the wrong profile.** With `allowedDomains`
+covering PyPI:
 
 ```powershell
 npx srt -c "C:\srt-spike\py\python.exe -m pip install --user --no-input requests"
-npx srt -c "C:\srt-spike\py\python.exe -c \"import requests;print(requests.__file__)\""
+"pip exit=$LASTEXITCODE"   # must be 0, else the next line proves nothing
+npx srt -c "C:\srt-spike\py\python.exe -c \"import requests;print('requests at', requests.__file__)\""
+Test-Path (Join-Path $env:APPDATA 'Python')   # expect False — it did NOT land in YOUR profile
 ```
 
-> With `allowedDomains` covering PyPI, expect the install to write into the
-> **sandbox account's** profile — invisible to the user and unmanaged by us.
-> Record whether a scratch-scoped venv
-> (`python -m venv C:\srt-spike\scratch\venv`) is a working substitute; that is
-> the pattern a real agent workflow would need.
+> The install must succeed first; a failed install followed by a failed import
+> tells you nothing. Expect the path to sit under the **sandbox account's**
+> profile and the caller-profile check to be `False`. Then record whether a
+> scratch-scoped venv (`python -m venv C:\srt-spike\scratch\venv`) is a working
+> substitute — that is the pattern a real agent workflow needs.
 
 ### 6.5 (e) The seam blocker, on hardware
 
 ```powershell
-node --input-type=module -e "import {SandboxManager,VENDORED_SRT_WIN_EXE} from '@anthropic-ai/sandbox-runtime'; const base={network:{allowedDomains:[]},filesystem:{allowRead:['C:\\srt-spike\\py'],allowWrite:['C:\\srt-spike\\scratch'],denyRead:[],denyWrite:[]},windows:{srtWin:{path:VENDORED_SRT_WIN_EXE}}}; await SandboxManager.initialize(base); try { await SandboxManager.wrapWithSandboxArgv('C:\\srt-spike\\py\\python.exe -c \"pass\"', undefined, base, undefined, 'C:\\srt-spike\\scratch'); console.log('NO THROW (unexpected)'); } catch (e) { console.log('threw:', e.message); } await SandboxManager.reset();"
+node --input-type=module -e @'
+import {SandboxManager, VENDORED_SRT_WIN_EXE} from "@anthropic-ai/sandbox-runtime";
+const base = {network:{allowedDomains:[]},
+              filesystem:{allowRead:["C:\\srt-spike\\py"],allowWrite:["C:\\srt-spike\\scratch"],denyRead:[],denyWrite:[]},
+              windows:{srtWin:{path: VENDORED_SRT_WIN_EXE}}};
+await SandboxManager.initialize(base);
+let rc = 0;
+try {
+  await SandboxManager.wrapWithSandboxArgv("C:\\srt-spike\\py\\python.exe -c \"pass\"", undefined, base, undefined, "C:\\srt-spike\\scratch");
+  console.log("FAIL: per-exec filesystem grants did NOT throw — §1.7.1 refuted"); rc = 1;
+} catch (e) {
+  const m = e instanceof Error ? e.message : String(e);
+  if (/Per-exec filesystem\.allowRead\/allowWrite is not supported/.test(m)) {
+    console.log("PASS: threw the documented per-exec grant error");
+  } else {
+    console.log(`INCONCLUSIVE: threw something else — ${m}`); rc = 2;
+  }
+}
+await SandboxManager.reset();
+process.exit(rc);
+'@
 ```
 
-> Expected: throws *"Per-exec filesystem.allowRead/allowWrite is not supported on
-> Windows"*. This reproduces §1.7.1 — i.e. PR #2190's FenceExecutor, run
-> unmodified on Windows, would throw on **every** execution. Confirming it on
-> hardware converts §2.4 from a code reading into a measured fact.
+> The message is matched, not merely caught: any other throw (a bad path, a
+> missing binary) would otherwise read as confirmation. A PASS means PR #2190's
+> FenceExecutor, run unmodified on Windows, throws on **every** execution —
+> converting §2.4 from a code reading into a measured fact.
 
 ### 6.6 (f) Cost of the only correct lifecycle
 
 Create `C:\srt-spike\scratch\p0` … `p9` first, then:
 
 ```powershell
-node --input-type=module -e "import {SandboxManager,VENDORED_SRT_WIN_EXE} from '@anthropic-ai/sandbox-runtime'; const mk=(n)=>({network:{allowedDomains:[]},filesystem:{allowRead:['C:\\srt-spike\\py'],allowWrite:['C:\\srt-spike\\scratch\\p'+n],denyRead:[],denyWrite:[]},windows:{srtWin:{path:VENDORED_SRT_WIN_EXE}}}); const t=[]; for (let i=0;i<10;i++){ const s=Date.now(); await SandboxManager.initialize(mk(i)); await SandboxManager.reset(); t.push(Date.now()-s);} t.sort((a,b)=>a-b); console.log('ms:',t,'median',t[5]);"
+node --input-type=module -e @'
+import {SandboxManager, VENDORED_SRT_WIN_EXE} from "@anthropic-ai/sandbox-runtime";
+import fs from "node:fs";
+const mk = n => ({network:{allowedDomains:[]},
+  filesystem:{allowRead:["C:\\srt-spike\\py"],allowWrite:[`C:\\srt-spike\\scratch\\p${n}`],denyRead:[],denyWrite:[]},
+  windows:{srtWin:{path: VENDORED_SRT_WIN_EXE}}});
+for (let i=0;i<10;i++) if (!fs.existsSync(`C:\\srt-spike\\scratch\\p${i}`)) { console.log(`FAIL: p${i} missing — ACLs would be stamped on nothing`); process.exit(1); }
+const t = [];
+for (let i=0;i<10;i++){ const s=Date.now(); await SandboxManager.initialize(mk(i)); await SandboxManager.reset(); t.push(Date.now()-s); }
+t.sort((a,b)=>a-b);
+const median = t[5];
+console.log("ms:", t, "median", median);
+if (median < 5) { console.log("INCONCLUSIVE: implausibly fast — verify ACEs are actually being stamped/revoked (icacls the p* dirs mid-run)"); process.exit(2); }
+console.log(median <= 250 ? "RESULT: per-exec policy is affordable" : median >= 1500 ? "RESULT: per-exec policy is NOT affordable — needs a per-workspace session model" : "RESULT: middle ground — judgement call, report the number");
+'@
 ```
 
-> Records the per-policy-change cost of `reset()` + `initialize()` — the only
-> lifecycle that applies filesystem policy correctly on Windows (§2.4).
-> **Decision rule:** median under ~250 ms ⇒ per-exec policy is affordable and a
-> Windows fence can keep the seam's contract as-is. Median over ~1.5 s ⇒ it is
-> not, and the Windows fence needs a per-workspace session model (or the seam
-> needs an explicit policy-epoch concept). The first iteration includes the
-> once-per-process `verifyWindowsWfpEgress` logon and will be an outlier — hence
-> the median.
+> The directories are checked first because stamping ACEs onto paths that do not
+> exist would be fast *and* meaningless. The first iteration includes the
+> once-per-process `verifyWindowsWfpEgress` logon and will be an outlier, hence
+> the median. Sanity-check with `icacls C:\srt-spike\scratch\p3` while a run is
+> in flight: the `srt-sandbox` ACE should appear and disappear.
 
 ### 6.7 (g) Cancellation / process-tree kill — the unported piece
+
+The seam requires this: `ExecInput.signal` is mandatory and
+`docs/agents/code-execution.md` states backends MUST terminate the process tree
+when it fires. So this is a contract requirement on a Windows fence, not a
+nicety.
 
 ```powershell
 @'
@@ -687,36 +888,55 @@ time.sleep(300)
 '@ | Out-File -Encoding ascii C:\srt-spike\scratch\t_g.py
 ```
 
-Run it under `npx srt -c …`, confirm `grandchild.log` is growing, then kill the
-broker (Ctrl-C, and separately `Stop-Process` on the direct child) and watch the
-log for 5 s.
+Run under `npx srt -c …`. Then, **before killing anything**, confirm the log is
+actually growing — otherwise "it stopped" is vacuous because it never started:
+
+```powershell
+Remove-Item C:\srt-spike\scratch\grandchild.log -ErrorAction SilentlyContinue
+# ... start the fenced run in another terminal ...
+$a = (Get-Item C:\srt-spike\scratch\grandchild.log).Length; Start-Sleep 2
+$b = (Get-Item C:\srt-spike\scratch\grandchild.log).Length
+if ($b -le $a) { "INCONCLUSIVE: grandchild is not writing — the kill test proves nothing"; }
+else { "control ok: log growing ($a -> $b)" }
+```
+
+Now kill the broker (Ctrl-C, and separately `Stop-Process` on the direct child)
+and re-measure over 5 s.
 
 > Expected: **UNKNOWN — that is the point of the test.** srt-win places the child
 > in a job object (§1.2), which *should* take the tree down when the job handle
 > closes; PR #2190's `process.kill(-pid)` definitely will not, since POSIX
-> process groups do not exist on Windows. Record whether the log stops growing
-> within 2 s. If the job object does the work, a Windows fence needs no kill
-> logic of its own beyond closing the broker's child; if it does not,
-> cancellation needs a Windows-specific implementation and that is a ticket —
-> and it should extend the existing `packages/windows-job-native` addon (already
-> built and tested in CI, currently dev-tooling-only) rather than add a third
-> kill path.
+> process groups do not exist on Windows. PASS = the log stops growing within
+> 2 s of the kill. If it keeps growing, cancellation needs a Windows-specific
+> implementation — and it should extend the existing `packages/windows-job-native`
+> addon (already built and tested in CI, currently dev-tooling-only) rather than
+> add a third kill path.
 
 ### 6.8 Teardown
 
 ```powershell
 npx @anthropic-ai/sandbox-runtime windows-uninstall
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\sandbox-runtime"   # state.db is NOT removed by uninstall
-Remove-Item -Recurse -Force C:\srt-spike, "$env:USERPROFILE\.srt-settings.json", "$env:LOCALAPPDATA\Programs\py"
+Remove-Item -Recurse -Force C:\srt-spike, "$env:USERPROFILE\.srt-settings.json", (Join-Path $env:LOCALAPPDATA 'Programs\py')
 ```
 
-> Then re-run the §6.0 status probe: expect `provisioned: false`. If an unclean
-> run left ACEs behind, `srt-win acl recover` sweeps by trustee SID (§1.4).
+> Then re-run the §6.0 status probe: expect `provisioned: false` (the probe will
+> print `FAIL:` — here that is the *desired* result, confirming removal). If an
+> unclean run left ACEs behind, `srt-win acl recover` sweeps by trustee SID
+> (§1.4). Spot-check with `icacls C:\srt-spike` before deleting it.
 
 ### 6.9 Reporting back
 
 Paste the recorded output into this doc under a new `## 7. Windows run <date>`
-section and update §5's gate. The three results that change the recommendation
-are **6.4/d1 Python** (breaks the low-impact assessment if it fails), **6.6
-median** (decides per-exec vs per-session policy), and **6.3 raw tcp** (if it
-connects, the fence is not what srt documents).
+section — every step as PASS / FAIL / INCONCLUSIVE with its exit code, and the
+CONTROL result alongside each. **Report INCONCLUSIVE as INCONCLUSIVE**; a step
+whose control did not pass has produced no evidence, and writing it up as a pass
+is the specific failure this section is built to prevent.
+
+Three results change the recommendation:
+
+| Step | If it comes back… | Consequence |
+| --- | --- | --- |
+| 6.4/d1 Python leg | fails | §1.5 is wrong — every agent HTTP call breaks on Windows, not just schannel tools |
+| 6.6 median | ≥ ~1500 ms | per-exec policy is unaffordable; the Windows fence needs a per-workspace session model, or the seam needs a policy-epoch concept |
+| 6.3 raw TCP | connects, or is anything other than WSAEACCES 10013 | the fence is not what srt documents (or was not proven) — §1.3 must be re-opened before anything ships |
