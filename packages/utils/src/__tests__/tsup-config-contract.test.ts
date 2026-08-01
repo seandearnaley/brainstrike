@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 interface PackageJson {
@@ -9,32 +8,29 @@ interface PackageJson {
     {
       readonly import?: string;
       readonly require?: string;
+      readonly types?: string;
     }
   >;
   readonly scripts: {
     readonly build?: string;
   };
+  readonly type?: string;
 }
 
-interface TsupConfig {
-  readonly entry?: unknown;
-  readonly splitting?: boolean;
+interface Tsconfig {
+  readonly compilerOptions?: {
+    readonly emitDeclarationOnly?: boolean;
+  };
+  readonly extends?: string;
 }
 
 const packageRoot = path.resolve(import.meta.dirname, '..', '..');
 const packageJson = JSON.parse(
   readFileSync(path.join(packageRoot, 'package.json'), 'utf8')
 ) as PackageJson;
-
-async function loadTsupConfig(): Promise<TsupConfig> {
-  const configModule = (await import(
-    pathToFileURL(path.join(packageRoot, 'tsup.config.ts')).href
-  )) as {
-    readonly default: unknown;
-  };
-
-  return configModule.default as TsupConfig;
-}
+const tsconfig = JSON.parse(
+  readFileSync(path.join(packageRoot, 'tsconfig.json'), 'utf8')
+) as Tsconfig;
 
 function runtimeSubpathExportNames(): string[] {
   return Object.entries(packageJson.exports)
@@ -46,45 +42,27 @@ function runtimeSubpathExportNames(): string[] {
     .sort();
 }
 
-describe('utils tsup build contract', () => {
-  it('builds every runtime package subpath from source entries', async () => {
-    const config = await loadTsupConfig();
-    const entry = config.entry;
-
-    expect(entry).toBeTypeOf('object');
-    expect(Array.isArray(entry)).toBe(false);
-
-    const entryMap = entry as Record<string, string>;
+describe('utils TypeScript build contract', () => {
+  it('emits every runtime package subpath declared by the export map', () => {
     for (const exportName of runtimeSubpathExportNames()) {
-      expect(entryMap, `missing tsup entry for package export "./${exportName}"`).toHaveProperty(
-        exportName
-      );
+      const exportConfig = packageJson.exports[`./${exportName}`];
+      expect(exportConfig?.import).toBe(`./dist/${exportName}.js`);
+      expect(exportConfig?.require).toBe(exportConfig?.import);
+      expect(exportConfig?.types).toBe(`./dist/${exportName}.d.ts`);
+      expect(existsSync(path.resolve(packageRoot, exportConfig?.import ?? ''))).toBe(true);
+      expect(existsSync(path.resolve(packageRoot, exportConfig?.types ?? ''))).toBe(true);
     }
   });
 
-  it('uses public wrapper files for subpath entries when they exist', async () => {
-    const config = await loadTsupConfig();
-    const entryMap = config.entry as Record<string, string>;
-
-    for (const exportName of runtimeSubpathExportNames()) {
-      const wrapperEntry = `src/${exportName}.ts`;
-      if (!existsSync(path.join(packageRoot, wrapperEntry))) {
-        continue;
-      }
-
-      expect(entryMap[exportName], `entry for "./${exportName}" must use ${wrapperEntry}`).toBe(
-        wrapperEntry
-      );
-    }
+  it('uses the canonical tsc-only Node ESM library shape', () => {
+    expect(packageJson.scripts.build).toBe('pnpm run clean && tsc -b .');
+    expect(packageJson.type).toBe('module');
+    expect(tsconfig.extends).toBe('../../packages/config/tsconfig/node-library.json');
+    expect(tsconfig.compilerOptions?.emitDeclarationOnly).toBeUndefined();
   });
 
-  it('uses tsup config as the single source for build entries', () => {
-    expect(packageJson.scripts.build).toBe('pnpm run clean && tsc -b . && tsup');
-  });
-
-  it('does not emit split chunks for package subpath exports', async () => {
-    const config = await loadTsupConfig();
-
-    expect(config.splitting).toBe(false);
+  it('emits per-source modules without bundler split chunks', () => {
+    const distEntries = readdirSync(path.join(packageRoot, 'dist'));
+    expect(distEntries.filter((entry) => /^chunk-.+\.js$/u.test(entry))).toEqual([]);
   });
 });

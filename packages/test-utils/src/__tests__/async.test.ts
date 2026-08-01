@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushAllTimersAndMicrotasks, flushMicrotasks } from '../async';
+import { flushAllTimersAndMicrotasks, flushMicrotasks } from '../async.js';
 
 describe('async utilities', () => {
   beforeEach(() => {

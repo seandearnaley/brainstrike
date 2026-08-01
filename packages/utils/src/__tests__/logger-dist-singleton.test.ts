@@ -8,10 +8,10 @@ function resolveDistModule(moduleName: string): string {
 
 describe('built logger modules', () => {
   it('shares logger state between root exports and logging initializer', async () => {
-    const rootUtils = await import(pathToFileURL(resolveDistModule('index.mjs')).href);
-    const loggerModule = await import(pathToFileURL(resolveDistModule('logger.mjs')).href);
+    const rootUtils = await import(pathToFileURL(resolveDistModule('index.js')).href);
+    const loggerModule = await import(pathToFileURL(resolveDistModule('logger.js')).href);
     const loggingInitializerModule = await import(
-      pathToFileURL(resolveDistModule('logging-initializer.mjs')).href
+      pathToFileURL(resolveDistModule('logging-initializer.js')).href
     );
 
     loggerModule.resetLogger();
@@ -40,10 +40,10 @@ describe('built logger modules', () => {
   });
 
   it('shares logger state between root exports and logging preferences', async () => {
-    const rootUtils = await import(pathToFileURL(resolveDistModule('index.mjs')).href);
-    const loggerModule = await import(pathToFileURL(resolveDistModule('logger.mjs')).href);
+    const rootUtils = await import(pathToFileURL(resolveDistModule('index.js')).href);
+    const loggerModule = await import(pathToFileURL(resolveDistModule('logger.js')).href);
     const loggingPreferencesModule = await import(
-      pathToFileURL(resolveDistModule('logging-preferences.mjs')).href
+      pathToFileURL(resolveDistModule('logging-preferences.js')).href
     );
 
     loggerModule.resetLogger();

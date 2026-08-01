@@ -7,7 +7,7 @@ import {
   isAbortError,
   ProgressEmitter,
   supportsWorkers,
-} from '../util';
+} from '../util.js';
 
 describe('ProgressEmitter', () => {
   interface TestEvent {

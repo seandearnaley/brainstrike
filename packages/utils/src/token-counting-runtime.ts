@@ -12,7 +12,7 @@ import { countTokensHeuristic, formatTokenCount } from './token-counting-heurist
 
 export { countTokensHeuristic, formatTokenCount };
 
-type TokenUtilsModule = typeof import('./token-utils');
+type TokenUtilsModule = typeof import('./token-utils.js');
 
 let tokenUtilsModulePromise: Promise<TokenUtilsModule> | null = null;
 

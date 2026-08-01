@@ -5,7 +5,7 @@ import {
   calculateL2Distance,
   magnitude,
   normalize,
-} from '../embedding-math';
+} from '../embedding-math.js';
 
 describe('embedding-math', () => {
   it('computes magnitudes and normalization', () => {

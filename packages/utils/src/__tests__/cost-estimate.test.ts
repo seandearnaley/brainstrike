@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeCost, formatUsdCost } from '../token-counting-heuristics';
+import { computeCost, formatUsdCost } from '../token-counting-heuristics.js';
 
 describe('computeCost with Anthropic cache tokens', () => {
   it('prices cache reads and writes at their own rates, remainder at the base input rate', () => {

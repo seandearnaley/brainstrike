@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { startEmbeddingWorker } from '../index.js';
 
 describe('embedding-worker disabled mode', () => {
   it('returns a no-op controller when disabled', async () => {

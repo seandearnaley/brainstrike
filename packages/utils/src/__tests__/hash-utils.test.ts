@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { stableHash } from '../hash-utils';
+import { stableHash } from '../hash-utils.js';
 
 describe('hash-utils', () => {
   describe('stableHash', () => {

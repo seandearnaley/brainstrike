@@ -4,7 +4,7 @@ import {
   countTokensAccurate,
   countTokensHeuristic,
   formatTokenCount,
-} from '../token-utils';
+} from '../token-utils.js';
 
 describe('Token Utilities', () => {
   describe('countTokensAccurate', () => {

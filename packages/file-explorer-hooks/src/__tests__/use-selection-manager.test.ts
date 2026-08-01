@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSelectionManager } from '../use-selection-manager';
+import { useSelectionManager } from '../use-selection-manager.js';
 
 type UseSelectionManagerArgs = Parameters<typeof useSelectionManager>[0];
 

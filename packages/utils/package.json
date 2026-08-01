@@ -251,10 +251,7 @@
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "sideEffects": [
-    "./dist/chunk-*.mjs",
-    "./dist/chunk-*.js"
-  ],
+  "sideEffects": false,
   "turbo": {
     "outputs": [
       "dist/**"

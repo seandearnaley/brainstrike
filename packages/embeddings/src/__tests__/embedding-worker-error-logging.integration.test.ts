@@ -1,7 +1,7 @@
 import { type IDatabase, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { startEmbeddingWorker } from '../index.js';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -10,8 +10,8 @@ import type {
   EmbeddingStatus,
   ModelConfig,
   SimilarityResult,
-} from '../types';
-import { clearModelConfigCache } from '../worker/embedding-worker';
+} from '../types.js';
+import { clearModelConfigCache } from '../worker/embedding-worker.js';
 
 const PGLITE_SETUP_TIMEOUT_MS = 90_000;
 const EMBEDDING_WORKER_TEST_TIMEOUT_MS = 30_000;

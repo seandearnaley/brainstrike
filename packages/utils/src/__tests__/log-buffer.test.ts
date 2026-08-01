@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LogBuffer } from '../../src/log-buffer';
-import { LogLevel } from '../../src/logger';
+import { LogBuffer } from '../../src/log-buffer.js';
+import { LogLevel } from '../../src/logger.js';
 
 const createRecord = (level: LogLevel, scope: string, message: string, args: unknown[] = []) => ({
   args,

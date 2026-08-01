@@ -4,7 +4,7 @@ import {
   LogLevel,
 } from '@brainstrike/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { initializeLogging } from '../logging-initializer';
+import { initializeLogging } from '../logging-initializer.js';
 
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();

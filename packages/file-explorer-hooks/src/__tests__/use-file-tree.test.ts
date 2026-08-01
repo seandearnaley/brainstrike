@@ -6,8 +6,8 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileTree } from '../use-file-tree';
-import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
+import { useFileTree } from '../use-file-tree.js';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
 
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;

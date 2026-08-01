@@ -5,9 +5,9 @@ import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DirectFileContentProcessor } from '../file-content-processor';
-import { useFileContentLoading } from '../use-file-content-loading';
-import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
+import { DirectFileContentProcessor } from '../file-content-processor.js';
+import { useFileContentLoading } from '../use-file-content-loading.js';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
 
 // Define mock implementations
 vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {

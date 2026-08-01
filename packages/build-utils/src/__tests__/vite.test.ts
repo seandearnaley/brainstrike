@@ -19,7 +19,7 @@ const {
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
-} = await import('../vite');
+} = await import('../vite.js');
 
 afterEach(() => {
   vi.resetAllMocks();

@@ -2,7 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { formatProviderModelKey, startEmbeddingWorker } from '../index';
+import { formatProviderModelKey, startEmbeddingWorker } from '../index.js';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -11,10 +11,10 @@ import type {
   EmbeddingStatus,
   EmbeddingStreamOptions,
   SimilarityResult,
-} from '../types';
-import type { EmbeddingCacheInterface } from '../worker/embedding-cache-types';
-import type { EmbeddingStatsRefreshController } from '../worker/embedding-worker';
-import { createEmbeddingStatsRefreshController } from '../worker/embedding-worker';
+} from '../types.js';
+import type { EmbeddingCacheInterface } from '../worker/embedding-cache-types.js';
+import type { EmbeddingStatsRefreshController } from '../worker/embedding-worker.js';
+import { createEmbeddingStatsRefreshController } from '../worker/embedding-worker.js';
 
 class FakeEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';

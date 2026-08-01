@@ -4,7 +4,7 @@ import {
   normalizeWorkspaceIndexingIdleState,
   normalizeWorkspaceIndexingThermalState,
   type WorkspaceIndexingPowerSnapshot,
-} from '../workspace-indexing-power-snapshot';
+} from '../workspace-indexing-power-snapshot.js';
 
 describe('workspace-indexing power snapshot helpers', () => {
   it('accepts a valid workspace-indexing power snapshot', () => {

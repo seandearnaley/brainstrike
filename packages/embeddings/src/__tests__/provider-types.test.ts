@@ -3,8 +3,8 @@ import {
   type EmbeddingProviderType,
   hostedProviderRequiresApiKey,
   isLocalProviderType,
-} from '../provider-types';
-import { isHostedProvider } from '../provider-utils';
+} from '../provider-types.js';
+import { isHostedProvider } from '../provider-utils.js';
 
 describe('provider-types', () => {
   it('classifies local providers', () => {

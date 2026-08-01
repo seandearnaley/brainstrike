@@ -4,7 +4,7 @@ import {
   type ReportGenerationRequest,
   type ReportProgressEvent,
   useReportGeneration,
-} from '../use-report-generation';
+} from '../use-report-generation.js';
 
 const generateReport = vi.fn();
 const createReportGenerator = vi.fn(

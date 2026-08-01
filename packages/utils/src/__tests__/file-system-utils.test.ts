@@ -1,4 +1,4 @@
-import { readFullFileTree } from '../file-system-utils';
+import { readFullFileTree } from '../file-system-utils.js';
 
 // --- Mocking Strategy ---
 interface MockFileHandle {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fileSystem } from '../file-system';
-import { stableHash } from '../hash-utils';
+import { fileSystem } from '../file-system.js';
+import { stableHash } from '../hash-utils.js';
 
 // Mock the hash utility
 vi.mock('../hash-utils', () => ({

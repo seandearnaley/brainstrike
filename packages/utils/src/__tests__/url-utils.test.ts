@@ -5,7 +5,7 @@ import {
   joinUrlParts,
   parseQueryParams,
   removeTrailingSlash,
-} from '../url-utils';
+} from '../url-utils.js';
 
 describe('url-utils', () => {
   describe('removeTrailingSlash', () => {

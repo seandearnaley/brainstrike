@@ -23,7 +23,7 @@ import {
   createWorkerTransport,
   deserializeRuntimeError,
   serializeRuntimeError,
-} from '../index';
+} from '../index.js';
 
 describe('@brainstrike/worker-runtime', () => {
   it('creates runtime ids with the runtime kind prefix', () => {

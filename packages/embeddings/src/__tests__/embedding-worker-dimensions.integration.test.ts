@@ -7,8 +7,11 @@ import type {
   EmbeddingService,
   EmbeddingStatus,
   SimilarityResult,
-} from '../types';
-import { type EmbeddingWorkerController, startEmbeddingWorker } from '../worker/embedding-worker';
+} from '../types.js';
+import {
+  type EmbeddingWorkerController,
+  startEmbeddingWorker,
+} from '../worker/embedding-worker.js';
 
 /**
  * Mock EmbeddingService that returns 1536-dimensional embeddings

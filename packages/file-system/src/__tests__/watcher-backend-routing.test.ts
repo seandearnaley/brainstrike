@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DirectoryHandle } from '../types';
+import type { DirectoryHandle } from '../types.js';
 
 vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn() },
@@ -22,7 +22,7 @@ vi.mock('../adapters/parcel-watchers', () => ({
   startParcelWatch: startParcelWatchMock,
 }));
 
-import { ElectronFileSystemAdapter, resolveWatcherBackend } from '../adapters/electron-adapter';
+import { ElectronFileSystemAdapter, resolveWatcherBackend } from '../adapters/electron-adapter.js';
 
 describe('resolveWatcherBackend', () => {
   it('defaults to parcel when unset or empty', () => {

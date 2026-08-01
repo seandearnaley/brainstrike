@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { installMockWorkers } from '../worker';
+import { installMockWorkers } from '../worker.js';
 
 const originalWindow = (globalThis as { window?: unknown }).window;
 const originalWorker = globalThis.Worker;

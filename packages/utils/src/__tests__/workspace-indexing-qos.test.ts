@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { addLogListener, configureLogger, LogLevel, type LogRecord, setLogLevel } from '../logger';
+import {
+  addLogListener,
+  configureLogger,
+  LogLevel,
+  type LogRecord,
+  setLogLevel,
+} from '../logger.js';
 import {
   createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingQosInputs,
-} from '../workspace-indexing-qos';
+} from '../workspace-indexing-qos.js';
 
 const baseInputs: WorkspaceIndexingQosInputs = {
   dbPressure: {

@@ -4,7 +4,7 @@ import type {
   EmbeddingExecutionOptions,
   EmbeddingProgress,
   ModelConfig,
-} from '../types';
+} from '../types.js';
 
 const setTargetDimensionsMock = vi.fn<(dim: number | null) => void>();
 const generateEmbeddingMock =
@@ -103,7 +103,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('throws when initializeWithModel receives no config', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await expect(svc.initializeWithModel(null as unknown as ModelConfig)).rejects.toThrow(
@@ -112,7 +112,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('returns early when already initializing', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     const deferred: { resolve: () => void; promise: Promise<void> } = (() => {
@@ -139,7 +139,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('throws when switching models without disposing', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initialize();
@@ -150,7 +150,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('throws when generating embeddings before initialization', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     backendInitialized = false;
@@ -161,7 +161,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
     // BGE-base and other non-M3 BGE models require query/passage prefixes
     // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
     // https://huggingface.co/BAAI/bge-m3/discussions/35
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initializeWithModel(BGE_BASE_MODEL);
@@ -177,7 +177,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   it('does not prefix query embeddings for BGE-M3', async () => {
     // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
     // https://huggingface.co/BAAI/bge-m3/discussions/35
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initializeWithModel(BGE_M3_MODEL);
@@ -193,7 +193,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('passes query execution options to the backend', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
     const controller = new AbortController();
 
@@ -206,7 +206,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('applies Jina code retrieval prompt for document embeddings', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initializeWithModel(JINA_CODE_MODEL);
@@ -218,7 +218,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('applies Jina code retrieval prompt for query embeddings', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initializeWithModel(JINA_CODE_MODEL);
@@ -230,7 +230,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('sets target dimensions when initializing with model config', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initializeWithModel(BGE_M3_MODEL);
@@ -239,7 +239,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('stores and returns current model config after initialization', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     expect(svc.getCurrentModelConfig()).toBeNull();
@@ -252,7 +252,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
   });
 
   it('clears model config after disposal', async () => {
-    const svcModule = await import('../bge-m3-service');
+    const svcModule = await import('../bge-m3-service.js');
     const svc = new svcModule.SimpleEmbeddingService();
 
     await svc.initializeWithModel(BGE_BASE_MODEL);

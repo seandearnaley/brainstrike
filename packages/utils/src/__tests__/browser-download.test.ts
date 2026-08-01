@@ -3,7 +3,7 @@
 // (anchor click, deferred vs immediate revoke) is covered in a DOM
 // environment by packages/ui/src/__tests__/debug-bundle-download.test.ts.
 import { describe, expect, it } from 'vitest';
-import { formatTimestampedDownloadFilename, sanitizeFilenameSegment } from '../browser-download';
+import { formatTimestampedDownloadFilename, sanitizeFilenameSegment } from '../browser-download.js';
 
 const AT = new Date('2026-07-27T14:32:05.123Z');
 

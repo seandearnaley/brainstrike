@@ -12,9 +12,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SimpleEmbeddingService } from '../bge-m3-service';
-import type { EmbeddingProgress } from '../types';
-import { JINA_CODE_MODEL, MINILM_MODEL } from './fixtures/model-configs';
+import { SimpleEmbeddingService } from '../bge-m3-service.js';
+import type { EmbeddingProgress } from '../types.js';
+import { JINA_CODE_MODEL, MINILM_MODEL } from './fixtures/model-configs.js';
 
 // Test timeout for model downloading
 const LONG_TIMEOUT = 120_000; // 2 minutes

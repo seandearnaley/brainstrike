@@ -5,7 +5,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { renderHook } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_TOAST_DURATION_MS, useToastManager } from '../use-toast-manager';
+import { DEFAULT_TOAST_DURATION_MS, useToastManager } from '../use-toast-manager.js';
 
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;

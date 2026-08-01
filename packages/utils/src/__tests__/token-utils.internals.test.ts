@@ -38,7 +38,7 @@ describe('Token Utils - Internal Functions Coverage', () => {
       getGlobal()['window'] = {};
       vi.resetModules();
 
-      const { supportsAccurateTokenCounting } = await import('../token-utils');
+      const { supportsAccurateTokenCounting } = await import('../token-utils.js');
       // In test environment, it falls back to Node encoder regardless
       const result = await supportsAccurateTokenCounting();
       expect(typeof result).toBe('boolean');
@@ -49,7 +49,7 @@ describe('Token Utils - Internal Functions Coverage', () => {
       getGlobal()['self'] = { importScripts: () => {} };
       vi.resetModules();
 
-      const { supportsAccurateTokenCounting } = await import('../token-utils');
+      const { supportsAccurateTokenCounting } = await import('../token-utils.js');
       const result = await supportsAccurateTokenCounting();
       expect(typeof result).toBe('boolean');
     });
@@ -59,7 +59,7 @@ describe('Token Utils - Internal Functions Coverage', () => {
     it('should return null when factory is undefined', async () => {
       // This is tested implicitly through module behavior
       // When tiktoken provides partial exports
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       // Heuristic should always work
       expect(countTokensHeuristic('test')).toBe(1);
     });
@@ -78,27 +78,27 @@ describe('Token Utils - Internal Functions Coverage', () => {
 
     it('should handle absolute URLs', async () => {
       // Import to exercise the module
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('test')).toBe(1);
     });
 
     it('should handle http URLs', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('http://example.com')).toBeGreaterThan(0);
     });
 
     it('should handle https URLs', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('https://example.com')).toBeGreaterThan(0);
     });
 
     it('should handle file URLs', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('file:///path')).toBeGreaterThan(0);
     });
 
     it('should handle data URLs', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('data:text/plain;base64,SGVsbG8=')).toBeGreaterThan(0);
     });
 
@@ -109,7 +109,7 @@ describe('Token Utils - Internal Functions Coverage', () => {
       };
       vi.resetModules();
 
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('relative/path')).toBeGreaterThan(0);
     });
 
@@ -117,43 +117,43 @@ describe('Token Utils - Internal Functions Coverage', () => {
       getGlobal()['self'] = undefined;
       vi.resetModules();
 
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('./relative')).toBeGreaterThan(0);
     });
   });
 
   describe('extractEncoderConfig validation', () => {
     it('should handle missing bpe_ranks', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       // Invalid config should cause fallback to heuristic
       expect(countTokensHeuristic('test')).toBe(1);
     });
 
     it('should handle missing pat_str', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('test')).toBe(1);
     });
 
     it('should handle null special_tokens', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('test')).toBe(1);
     });
 
     it('should handle non-object special_tokens', async () => {
-      const { countTokensHeuristic } = await import('../token-utils');
+      const { countTokensHeuristic } = await import('../token-utils.js');
       expect(countTokensHeuristic('test')).toBe(1);
     });
   });
 
   describe('createNodeEncoder fallbacks', () => {
     it('should try encoding_for_model first', async () => {
-      const { supportsAccurateTokenCounting } = await import('../token-utils');
+      const { supportsAccurateTokenCounting } = await import('../token-utils.js');
       const result = await supportsAccurateTokenCounting();
       expect(typeof result).toBe('boolean');
     });
 
     it('should fallback to get_encoding if encoding_for_model fails', async () => {
-      const { supportsAccurateTokenCounting } = await import('../token-utils');
+      const { supportsAccurateTokenCounting } = await import('../token-utils.js');
       const result = await supportsAccurateTokenCounting();
       expect(typeof result).toBe('boolean');
     });
@@ -162,7 +162,7 @@ describe('Token Utils - Internal Functions Coverage', () => {
   describe('Error logging behavior', () => {
     it('should only log failure once (loadFailureLogged flag)', async () => {
       vi.resetModules();
-      const { countTokensAccurate } = await import('../token-utils');
+      const { countTokensAccurate } = await import('../token-utils.js');
 
       // Multiple calls should only log once
       await countTokensAccurate('test1');
@@ -201,7 +201,7 @@ describe('Token Utils - Internal Functions Coverage', () => {
       process.env['NODE_ENV'] = 'test';
       vi.resetModules();
 
-      const { supportsAccurateTokenCounting } = await import('../token-utils');
+      const { supportsAccurateTokenCounting } = await import('../token-utils.js');
       const result = await supportsAccurateTokenCounting();
       expect(typeof result).toBe('boolean');
     });
@@ -210,7 +210,7 @@ describe('Token Utils - Internal Functions Coverage', () => {
       process.env['VITEST'] = 'true';
       vi.resetModules();
 
-      const { supportsAccurateTokenCounting } = await import('../token-utils');
+      const { supportsAccurateTokenCounting } = await import('../token-utils.js');
       const result = await supportsAccurateTokenCounting();
       expect(typeof result).toBe('boolean');
     });
@@ -227,13 +227,13 @@ describe('Token Utils - Encoder Resolution', () => {
   });
 
   it('should use Node encoder in test runtime', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
     const result = await countTokensAccurate('hello world');
     expect(result).toBeGreaterThan(0);
   });
 
   it('should cache encoder promise between calls', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const result1 = await countTokensAccurate('first');
     const result2 = await countTokensAccurate('second');
@@ -243,7 +243,7 @@ describe('Token Utils - Encoder Resolution', () => {
   });
 
   it('should fall back to heuristic when encoder unavailable', async () => {
-    const { countTokensHeuristic } = await import('../token-utils');
+    const { countTokensHeuristic } = await import('../token-utils.js');
 
     // Heuristic is always available
     const result = countTokensHeuristic('test text');
@@ -261,7 +261,7 @@ describe('Token Utils - calculateGroupTokens error handling', () => {
   });
 
   it('should handle arrays with null-ish values gracefully', async () => {
-    const { calculateGroupTokens } = await import('../token-utils');
+    const { calculateGroupTokens } = await import('../token-utils.js');
 
     // TypeScript would prevent this, but testing runtime behavior
     const result = await calculateGroupTokens(['valid', '', 'also valid']);
@@ -269,7 +269,7 @@ describe('Token Utils - calculateGroupTokens error handling', () => {
   });
 
   it('should accumulate tokens correctly across many texts', async () => {
-    const { calculateGroupTokens, countTokensAccurate } = await import('../token-utils');
+    const { calculateGroupTokens, countTokensAccurate } = await import('../token-utils.js');
 
     const texts = ['one', 'two', 'three', 'four', 'five'];
     const groupResult = await calculateGroupTokens(texts);
@@ -287,7 +287,7 @@ describe('Token Utils - calculateGroupTokens error handling', () => {
     const performanceNowSpy = vi.spyOn(performance, 'now');
     performanceNowSpy.mockReturnValueOnce(0).mockReturnValueOnce(10).mockReturnValue(10);
 
-    const { calculateGroupTokens, countTokensAccurate } = await import('../token-utils');
+    const { calculateGroupTokens, countTokensAccurate } = await import('../token-utils.js');
 
     const initialTexts = Array.from({ length: 21 }, (_value, index) => `token-text-${index}`);
     const mutableTexts = [...initialTexts];
@@ -321,7 +321,7 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   });
 
   it('should handle null input by returning 0', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     // Testing runtime null handling (TypeScript wouldn't allow this)
     const result = await countTokensAccurate(null as unknown as string);
@@ -329,7 +329,7 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   });
 
   it('should handle undefined input by returning 0', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     // Testing runtime undefined handling
     const result = await countTokensAccurate(undefined as unknown as string);
@@ -337,7 +337,7 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   });
 
   it('should handle very long strings without crashing', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     // 10,000 chars is sufficient to test long string handling without CI timeout
     const longText = 'a'.repeat(10_000);
@@ -346,7 +346,7 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   });
 
   it('should handle strings with only special characters', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const specialChars = '!@#$%^&*()_+-=[]{}|;:\'",.<>?/\\`~';
     const result = await countTokensAccurate(specialChars);
@@ -354,7 +354,7 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   });
 
   it('should handle strings with control characters', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const controlChars = '\x00\x01\x02\x03\x04\x05';
     const result = await countTokensAccurate(controlChars);
@@ -362,7 +362,7 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   });
 
   it('should handle emoji sequences correctly', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const emojis = '👨‍👩‍👧‍👦 🏳️‍🌈 👩🏽‍💻';
     const result = await countTokensAccurate(emojis);
@@ -370,7 +370,7 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   });
 
   it('should handle mixed RTL and LTR text', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const mixedText = 'Hello مرحبا World עולם';
     const result = await countTokensAccurate(mixedText);
@@ -388,7 +388,7 @@ describe('Token Utils - Module Loading Edge Cases', () => {
   });
 
   it('should handle repeated calls during initial load', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     // Fire multiple parallel requests
     const promises = [
@@ -408,7 +408,7 @@ describe('Token Utils - Module Loading Edge Cases', () => {
   });
 
   it('should maintain consistency across parallel calls', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const text = 'consistent text';
     const promises = Array.from({ length: 10 }, () => countTokensAccurate(text));

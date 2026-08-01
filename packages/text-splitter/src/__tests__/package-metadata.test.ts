@@ -19,11 +19,11 @@ function getRelativeRuntimeSpecifiers(source: string): string[] {
 }
 
 describe('@brainstrike/text-splitter package metadata', () => {
-  it('marks generated ESM chunks as side-effectful for bundlers', async () => {
+  it('does not advertise bundler chunks after the tsc-only migration', async () => {
     const packageJsonUrl = new URL('../../package.json', import.meta.url);
     const packageJson = JSON.parse(await readFile(packageJsonUrl, 'utf8')) as PackageMetadata;
 
-    expect(packageJson.sideEffects).toEqual(['dist/chunk-*.js']);
+    expect(packageJson.sideEffects).toBe(false);
   });
 
   it('keeps package entrypoint relative imports valid for Node ESM', async () => {

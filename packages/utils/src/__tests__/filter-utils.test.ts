@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertSafeRegexSource, createPathFilterMatcher, processFilter } from '../filter-utils';
+import { assertSafeRegexSource, createPathFilterMatcher, processFilter } from '../filter-utils.js';
 
 describe('filter-utils', () => {
   describe('processFilter', () => {

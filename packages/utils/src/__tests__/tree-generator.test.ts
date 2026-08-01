@@ -1,8 +1,8 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Minimatch } from 'minimatch';
 import { describe, expect, it } from 'vitest';
-import { calculatePathDepth } from '../path-utils';
-import { compilePatterns, generateProjectTreeText, traverseFileTree } from '../tree-generator';
+import { calculatePathDepth } from '../path-utils.js';
+import { compilePatterns, generateProjectTreeText, traverseFileTree } from '../tree-generator.js';
 
 const createMockFileHandle = (): FileSystemFileHandle => ({
   createWritable: async () => {

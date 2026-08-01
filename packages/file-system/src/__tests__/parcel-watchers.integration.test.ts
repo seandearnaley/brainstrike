@@ -4,8 +4,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startParcelWatch } from '../adapters/parcel-watchers';
-import type { DirectoryHandle, FileSystemChange } from '../types';
+import { startParcelWatch } from '../adapters/parcel-watchers.js';
+import type { DirectoryHandle, FileSystemChange } from '../types.js';
 
 function makeHandle(path: string): DirectoryHandle {
   return { kind: 'directory', name: 'root', path } as DirectoryHandle;

@@ -7,8 +7,8 @@ import {
   resetBulkOperationState,
   withBulkOperation,
   withBulkOperationSync,
-} from '../../src/bulk-operation-context';
-import { LogLevel } from '../../src/logger';
+} from '../../src/bulk-operation-context.js';
+import { LogLevel } from '../../src/logger.js';
 
 describe('bulk-operation-context', () => {
   afterEach(() => {

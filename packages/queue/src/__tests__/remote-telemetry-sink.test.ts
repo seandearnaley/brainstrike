@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initializeQueueTelemetrySink } from '../remote-telemetry-sink';
-import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
+import { initializeQueueTelemetrySink } from '../remote-telemetry-sink.js';
+import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry.js';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({

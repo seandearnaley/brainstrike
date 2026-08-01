@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   installRendererErrorHooks,
   type RendererErrorEventPayload,
-} from '../logging/install-renderer-error-hooks';
+} from '../logging/install-renderer-error-hooks.js';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({

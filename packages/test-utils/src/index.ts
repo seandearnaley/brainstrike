@@ -5,5 +5,5 @@ export * from './factories/file-node.js';
 export * from './render-with-providers.js';
 export * from './test-timeouts.js';
 export * from './test-utils.js';
-export * from './vitest.base';
+export * from './vitest.base.js';
 export * from './worker.js';
