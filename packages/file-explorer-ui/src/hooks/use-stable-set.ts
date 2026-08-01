@@ -1,23 +1,16 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useState } from 'react';
 import { setsEqual } from '../utils/sets-equal';
 
 /**
- * Retains the last committed Set when a new instance has equal membership.
- * A membership change advances the identity after the component commits.
+ * Retains the previous Set when a new instance has equal membership.
+ * Membership changes advance the identity before children render.
  */
 export function useStableSet<T>(value: Set<T>): Set<T> {
-  const previousValueRef = useRef<Set<T> | null>(null);
-  const stableValue = useMemo(() => {
-    const previousValue = previousValueRef.current;
-    if (previousValue && setsEqual(previousValue, value)) {
-      return previousValue;
-    }
-    return value;
-  }, [value]);
+  const [stableValue, setStableValue] = useState(value);
+  if (setsEqual(stableValue, value)) {
+    return stableValue;
+  }
 
-  useEffect(() => {
-    previousValueRef.current = stableValue;
-  }, [stableValue]);
-
-  return stableValue;
+  setStableValue(value);
+  return value;
 }
