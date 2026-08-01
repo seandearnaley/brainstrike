@@ -68,9 +68,20 @@ function riskForTool(
 }
 
 /**
- * Keep only tools that are safe to expose while planning: risk ∈ {read, mcp} OR
- * a suspending tool (`submitPlan`/`askUser`). Every edit/execute tool is omitted
- * (logged). PURE — never mutates inputs; insertion order preserved.
+ * Keep only tools that are safe to expose while planning: risk ∈ {read, mcp}.
+ * Every edit/execute tool is omitted (logged). PURE — never mutates inputs;
+ * insertion order preserved.
+ *
+ * A SUSPEND SCHEMA IS NOT AN ADMISSION TICKET (BST-1073). This function used to
+ * keep any suspending tool before consulting its risk, which was safe only by
+ * accident: the two tools carrying a suspend schema (`submitPlan`/`askUser`)
+ * are both classified `read`, so the branch never actually admitted anything
+ * the risk check would have rejected. It becomes a real hole the moment a
+ * mutation tool needs to suspend — `run_python` requires one for its per-call
+ * network escalation, and admitting an execute-risk arbitrary-code tool into
+ * plan mode defeats the purpose of plan mode. Suspending tools are still kept
+ * when their risk allows it (an unclassified tool falls to `mcp`, which is
+ * kept), so `submitPlan`/`askUser` are unaffected.
  */
 export function filterToolsForPlanMode<TMap extends Record<string, unknown>>(
   tools: TMap,
@@ -81,10 +92,6 @@ export function filterToolsForPlanMode<TMap extends Record<string, unknown>>(
   const kept: Record<string, unknown> = {};
   let omittedCount = 0;
   for (const [sanitizedId, tool] of Object.entries(tools)) {
-    if (hasSuspendSchema(tool)) {
-      kept[sanitizedId] = tool;
-      continue;
-    }
     const originalName = toolNameMap.get(sanitizedId) ?? sanitizedId;
     const risk = riskForTool(riskByTool, originalName, sanitizedId);
     if (PLAN_MODE_KEPT_RISK.has(risk)) {

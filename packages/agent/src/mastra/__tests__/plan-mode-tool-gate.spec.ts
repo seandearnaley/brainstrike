@@ -103,6 +103,42 @@ describe('filterToolsForPlanMode', () => {
     const result = filterToolsForPlanMode(tools, new Map(), {}, makeLogger());
     expect(result).toHaveProperty('brainstrike_submitPlan');
   });
+
+  // A suspend schema is NOT a plan-mode admission ticket. Both tools that carry
+  // one today (submitPlan/askUser) are riskCategory 'read', so this was latent
+  // — but run_python needs a suspend schema for its per-call network
+  // escalation, and admitting an execute-risk arbitrary-code tool into plan
+  // mode would defeat the entire point of plan mode.
+  it('omits an execute-risk suspending tool', () => {
+    const logger = makeLogger();
+    const tools = {
+      brainstrike_runPython: { id: 'brainstrike.runPython', suspendSchema: {} },
+    };
+    const result = filterToolsForPlanMode(
+      tools,
+      new Map([['brainstrike_runPython', 'brainstrike.runPython']]),
+      { 'brainstrike.runPython': 'execute' },
+      logger
+    );
+    expect(result).not.toHaveProperty('brainstrike_runPython');
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'plan_mode_tool_omitted', riskCategory: 'execute' })
+    );
+  });
+
+  it('omits an edit-risk suspending tool', () => {
+    const tools = {
+      brainstrike_editThing: { id: 'brainstrike.editThing', suspendSchema: {} },
+    };
+    const result = filterToolsForPlanMode(
+      tools,
+      new Map([['brainstrike_editThing', 'brainstrike.editThing']]),
+      { 'brainstrike.editThing': 'edit' },
+      makeLogger()
+    );
+    expect(result).not.toHaveProperty('brainstrike_editThing');
+  });
 });
 
 describe('resolveSuspendToolsForRun', () => {
