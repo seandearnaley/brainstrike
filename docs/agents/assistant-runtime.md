@@ -696,7 +696,7 @@ When changing this flow, update this section and the related tests.
 
 `packages/agent/src/__tests__/mastra-streaming.spec.ts` was a single 4,246-line
 file covering the whole stream boundary. BST-986 split `agent-streaming.ts` into
-modules; the spec is now split to match. Four files share ONE fake-Mastra harness
+modules; the spec is now split to match. Five files share ONE fake-Mastra harness
 (`packages/agent/src/__tests__/fixtures/mastra-stream-harness.ts` — the mocked
 `Agent`/`Mastra`/MCP classes plus the mutable stream-part queue they read):
 
@@ -704,7 +704,8 @@ modules; the spec is now split to match. Four files share ONE fake-Mastra harnes
 | --- | --- |
 | `mastra-tool-lifecycle.spec.ts` | `mastra/tool-lifecycle-processors.ts` — `ToolLifecycleState`, `mapToolLifecyclePart`, `mapGenericToolEvent`, `makePendingToolOutputRunEventChunks`, `makeLifecycleStepMetadata` |
 | `mastra-tool-approval-chunks.spec.ts` | `mastra/tool-approval-chunks.ts` (`makeApprovalRequiredChunks`, `makeToolSuspendRequiredChunks`) **paired with** `streamMastraToolApprovalAction` / `streamMastraToolResumeAction` — a pause that cannot be resumed is a bug in the PAIR, so splitting these across two files would let either side stay green while the contract broke |
-| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`, `makeStreamWatchdogTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
+| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
+| `mastra-stream-watchdogs.integration.spec.ts` | `makeStreamWatchdogTermination` through the real elapsed-time behavior of the inactivity and tool-call-input watchdogs; the suffix keeps these wall-clock-sensitive cases in the uncached integration lane |
 | `mastra-streaming.spec.ts` | What no single module owns: the async-iterator contract, the R6 unknown-chunk diagnostic, token measurement, cross-step usage/cost accumulation, steering, observational-memory chunks, and everything reached through `createMastraAgentRuntime` |
 
 **These are integration specs, not unit specs — deliberately.** They drive
