@@ -118,8 +118,8 @@ function createFixtureRepo({ webExtras = {}, webLanes = {} } = {}) {
 // floors would reject it. Analysing it with floors of 1 keeps the fixture legible
 // while leaving the real floors doing their job in the real run.
 const FIXTURE_MINIMUMS = {
-  desktop: { lanes: 1, laneTags: 0, specs: 1 },
-  web: { lanes: 1, laneTags: 1, specs: 2 },
+  desktop: { lanes: 1, laneTags: 0, specs: 1, titles: 1 },
+  web: { lanes: 1, laneTags: 1, specs: 2, titles: 2 },
 };
 
 function analyzeFixture(root, knownUnreachableSpecs = {}) {
@@ -239,6 +239,130 @@ test('an exemption that is no longer true fails instead of rotting', async () =>
   assert.match(deleted.violations[0].detail, /not a spec in the swept universe/);
 });
 
+test('a whole-file exemption fails once the file is only PARTLY dark', async () => {
+  // The per-title upgrade gives exemptions a new way to rot: a spec exempted as
+  // a whole-file orphan that later has some titles picked up would silently keep
+  // hiding the titles that are still dark. Only a fully dark file may be
+  // exempted.
+  const partiallyDark = await analyzeFixture(
+    createFixtureRepo({
+      webExtras: {
+        'apps/web/e2e/half-dark.test.ts':
+          "test.describe('Half dark', () => {\n" +
+          "  test('sibling the broad pass runs', async () => {});\n" +
+          "  test('sibling that runs nowhere @stateful', async () => {});\n" +
+          '});\n',
+      },
+    }),
+    { 'apps/web/e2e/half-dark.test.ts': 'claims the whole file is dark' }
+  );
+  assert.ok(
+    kinds(partiallyDark).includes('stale-exemption'),
+    `expected the partial exemption to be rejected, got ${JSON.stringify(kinds(partiallyDark))}`
+  );
+  assert.match(
+    partiallyDark.violations.find((violation) => violation.kind === 'stale-exemption').detail,
+    /1 of its 2 title\(s\) are now reachable/
+  );
+});
+
+test('anti-vacuity: the title floor rejects a sweep that found no test titles', async () => {
+  // The spec-file floor cannot catch this: a parser regression returning zero
+  // titles per file leaves the file count healthy while every reachability
+  // question becomes vacuous.
+  await assert.rejects(
+    () =>
+      analyzeE2eLaneCoverage({
+        knownUnreachableSpecs: {},
+        minimums: {
+          ...FIXTURE_MINIMUMS,
+          web: { ...FIXTURE_MINIMUMS.web, titles: 5000 },
+        },
+        repoRoot: createFixtureRepo(),
+      }),
+    /Anti-vacuity floor: found \d+ web E2E test title\(s\)/
+  );
+});
+
+test('MONEY TEST: a dark test beside a covered sibling in the SAME file is caught', async () => {
+  // The review finding this test exists for: reachability answered per FILE
+  // marks the whole spec covered as soon as ONE title is selected. Here the
+  // first test is picked up by the broad pass and the second — untagged
+  // `@stateful`, so grep-inverted out of the broad pass and greppable by no lane
+  // — runs in no CI job. A file-granular guard reports this file as clean, which
+  // is the guard's own bug class (BST-891/816/817) one level down.
+  //
+  // The other fixtures in this file would ALL have passed before the per-title
+  // fix, so without this case the fix is unverified.
+  const root = createFixtureRepo({
+    webExtras: {
+      'apps/web/e2e/half-dark.test.ts':
+        "test.describe('Half dark', () => {\n" +
+        "  test('sibling the broad pass runs', async () => {});\n" +
+        "  test('sibling that runs nowhere @stateful', async () => {});\n" +
+        '});\n',
+    },
+  });
+
+  const report = await analyzeFixture(root);
+  assert.deepEqual(
+    kinds(report),
+    ['orphan-title'],
+    'a partially dark file must report the dark TITLE, not the whole file and not nothing'
+  );
+
+  // Naming the file is not enough — the author has to be told WHICH test is dark.
+  const [violation] = report.violations;
+  assert.match(violation.detail, /half-dark\.test\.ts:3/);
+  assert.match(violation.detail, /Half dark sibling that runs nowhere @stateful/);
+  assert.doesNotMatch(
+    violation.detail,
+    /sibling the broad pass runs/,
+    'the covered sibling must not be reported as dark'
+  );
+
+  const previousExitCode = process.exitCode;
+  const errors = [];
+  try {
+    process.exitCode = 0;
+    await main({
+      knownUnreachableSpecs: {},
+      logger: { error: (line) => errors.push(line), log: () => {} },
+      minimums: FIXTURE_MINIMUMS,
+      repoRoot: root,
+    });
+    assert.notEqual(
+      process.exitCode,
+      0,
+      'main() reported success on a file with a dark test beside a covered sibling.'
+    );
+  } finally {
+    process.exitCode = previousExitCode;
+  }
+  assert.match(errors.join('\n'), /runs in no CI job/);
+});
+
+test('control: the same file is clean once a lane picks the dark test up', async () => {
+  // Proves the finding above tracks real selection rather than merely the
+  // presence of `@stateful`: same file, plus a lane that greps it.
+  const report = await analyzeFixture(
+    createFixtureRepo({
+      webExtras: {
+        'apps/web/e2e/half-dark.test.ts':
+          "test.describe('Half dark', () => {\n" +
+          "  test('sibling the broad pass runs', async () => {});\n" +
+          "  test('sibling rescued by a lane @stateful @web-rescued', async () => {});\n" +
+          '});\n',
+      },
+      webLanes: {
+        'test:e2e:lane:full-regression': `pnpm exec playwright test ${LANE_FLAGS} --workers=2 --grep-invert "@destructive|@stateful" && pnpm run test:e2e:lane:covered && pnpm run test:e2e:lane:rescued`,
+        'test:e2e:lane:rescued': `pnpm exec playwright test e2e/half-dark.test.ts ${LANE_FLAGS} --grep "@web-rescued"`,
+      },
+    })
+  );
+  assert.deepEqual(report.violations, []);
+});
+
 test('MONEY TEST: a lane file list naming a file that no longer exists is caught', async () => {
   const report = await analyzeFixture(
     createFixtureRepo({
@@ -322,7 +446,7 @@ test('anti-vacuity: an unmodelled --project throws instead of assuming no filter
   await assert.rejects(() => analyzeFixture(root), /PLAYWRIGHT_PROJECT_FILTERS/);
 });
 
-test('REAL REPO: every E2E spec is reachable from a CI-invoked lane', async () => {
+test('REAL REPO: every E2E TEST is reachable from a CI-invoked lane', async () => {
   const report = await analyzeE2eLaneCoverage({ repoRoot: REPO_ROOT });
   assert.deepEqual(
     report.violations,

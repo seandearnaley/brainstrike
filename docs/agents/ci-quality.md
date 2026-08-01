@@ -417,8 +417,24 @@ wrong, since one writes to the DB and the other runs PGlite search plus a real
 local embedding.
 
 Three assertions, over both apps: every `@web-*`/`@desktop-*` tag routes at
-least one title somewhere; every spec is reachable from at least one lane; every
+least one title somewhere; every TEST is reachable from at least one lane; every
 lane's explicit file list names files that exist and selects a non-empty set.
+
+**Reachability is resolved per test title, not per spec file** (review finding on
+PR #2180). A file-granular answer marks a whole spec covered as soon as any ONE
+of its titles is selected, so an untagged `@stateful` test sitting beside an
+ordinary test the broad pass picks up reads as fully covered while running in no
+CI job — the guard's own bug class, one level down. The failure output names the
+dark `file:line` and title, because naming the file alone does not tell the
+author which test is dark. The shape is not hypothetical: 11 real spec files
+currently mix tag sets within one file (e.g. `git-panel.desktop.test.ts` has one
+`@smoke` test that only the smoke lane can reach plus six the regression project
+covers, and `embedding-worker-renderer.memory.desktop.test.ts` has one untagged
+test that only full-regression reaches among eight `@desktop-embedding-*`
+siblings). All are currently covered; the per-title check is what keeps them
+honest. A whole-file `KNOWN_UNREACHABLE_SPECS` exemption is valid only while
+EVERY title in the file is dark — partial coverage fails the entry rather than
+letting it hide the titles still dark.
 
 What holds it honest:
 
@@ -443,17 +459,22 @@ What holds it honest:
   `local-desktop-e2e.yml` is a dispatch-only whole-suite shard run, and counting
   it would mark every desktop spec reachable and make the sweep vacuous.
 - **Floors and self-cleaning exemptions.** `MINIMUMS` refuses to report a green
-  when discovery collapses. `KNOWN_UNREACHABLE_SPECS` entries fail if the listed
-  spec becomes reachable or stops existing, so an exemption cannot rot into a
-  permanent hole. It currently holds one entry:
-  `embedding-worker-renderer.crash-b.desktop.test.ts`, a long-standing orphan
-  (the inline embedding job's file list names crash-a but not crash-b) whose fix
-  is a one-line workflow edit.
+  when discovery collapses, and floors BOTH spec files and test titles — a parser
+  regression returning zero titles per file would leave the file count healthy
+  while every reachability question went vacuous. `KNOWN_UNREACHABLE_SPECS`
+  entries fail if the listed spec becomes reachable, becomes only partly dark, or
+  stops existing, so an exemption cannot rot into a permanent hole. It currently
+  holds one entry: `embedding-worker-renderer.crash-b.desktop.test.ts`, a
+  long-standing orphan (the inline embedding job's file list names crash-a but
+  not crash-b) whose fix is a one-line workflow edit.
 - **The money test.** Per the BST-836 lesson below, the paired test drives the
   checker against a synthetic fixture repo carrying a planted orphan tag and
   orphan spec and asserts a non-zero exit, plus a clean control fixture, plus
-  failure paths for a dangling lane file, a grep that matches nothing, and a lane
-  no CI entrypoint reaches.
+  failure paths for a dangling lane file, a grep that matches nothing, a lane no
+  CI entrypoint reaches, and — the case that verifies per-title granularity — a
+  file holding one covered test and one dark sibling. That last case was
+  control-tested against the pre-fix per-file logic and goes red there, which the
+  other fixtures do not.
 
 **What a green does NOT prove:** that a spec ran. `full-regression` is an
 `&&`-sequential chain, so a failing lane short-circuits every lane after it —

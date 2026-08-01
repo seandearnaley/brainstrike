@@ -97,9 +97,12 @@ const LANE_WORKFLOW_FILES = ['desktop-e2e.yml', 'test.yml', 'web-e2e.yml'];
  * script naming convention, or a broken glob turns the whole sweep into a no-op
  * that passes forever.
  */
+// Reachability is decided per TEST TITLE, so a spec-file floor alone is not
+// enough: a parser regression that returned zero titles per file would keep the
+// file count healthy while every reachability question became vacuous.
 const MINIMUMS = {
-  desktop: { lanes: 3, laneTags: 12, specs: 35 },
-  web: { lanes: 8, laneTags: 8, specs: 30 },
+  desktop: { lanes: 3, laneTags: 12, specs: 35, titles: 100 },
+  web: { lanes: 8, laneTags: 8, specs: 30, titles: 120 },
 };
 
 /**
@@ -431,13 +434,13 @@ async function collectSpecs(app, appRoot, repoRoot) {
       continue;
     }
     const source = await readFile(file, 'utf8');
-    const titlePaths = listPlaywrightTitleEntries(source, file)
+    const titles = listPlaywrightTitleEntries(source, file)
       .filter((entry) => entry.kind === 'test')
-      .map((entry) => entry.titlePath);
+      .map((entry) => ({ line: entry.line, titlePath: entry.titlePath }));
     specs.push({
       relativeToApp,
       relativeToRepo: toPosix(path.relative(repoRoot, file)),
-      titlePaths,
+      titles,
     });
   }
   return specs;
@@ -548,23 +551,30 @@ export async function analyzeE2eLaneCoverage({
     assertFloor(lanes.length, minimums.lanes, `${app} CI-invoked E2E lane invocation(s)`);
     assertFloor(allSpecs.length, minimums.specs, `${app} E2E spec file(s)`);
 
-    const unreachable = new Set(
-      allSpecs
-        .filter(
-          (spec) =>
-            !spec.titlePaths.some((titlePath) =>
-              lanes.some((lane) => selectsTitle(lane, spec.relativeToApp, titlePath))
-            )
-        )
-        .map((spec) => spec.relativeToRepo)
-    );
+    // Reachability is resolved PER TITLE, not per file. A file-granular answer
+    // cannot see a test-granular hole: one ordinary test picked up by the broad
+    // pass would mark the whole file covered while an untagged `@stateful`
+    // sibling in the same file runs in no CI job — the guard's own bug class,
+    // one level down.
+    for (const spec of allSpecs) {
+      spec.darkTitles = spec.titles.filter(
+        ({ titlePath }) => !lanes.some((lane) => selectsTitle(lane, spec.relativeToApp, titlePath))
+      );
+      spec.fullyDark = spec.titles.length > 0 && spec.darkTitles.length === spec.titles.length;
+    }
+    const titleCount = allSpecs.reduce((total, spec) => total + spec.titles.length, 0);
+    assertFloor(titleCount, minimums.titles, `${app} E2E test title(s)`);
 
-    // Self-cleaning exemptions, checked BEFORE they are applied.
+    // Self-cleaning exemptions, checked BEFORE they are applied. An entry is
+    // valid only while EVERY title in the spec is dark: if a lane later picks up
+    // part of the file, the whole-file exemption has become a lie that would
+    // hide the remaining dark titles, so it fails instead.
     const appExemptions = Object.entries(knownUnreachableSpecs).filter(([specPath]) =>
       specPath.startsWith(`${directory}/`)
     );
     for (const [specPath, reason] of appExemptions) {
-      if (!allSpecs.some((spec) => spec.relativeToRepo === specPath)) {
+      const spec = allSpecs.find((candidate) => candidate.relativeToRepo === specPath);
+      if (!spec) {
         violations.push({
           app,
           detail: `${specPath} is exempted in KNOWN_UNREACHABLE_SPECS but is not a spec in the swept universe. Delete the stale entry.`,
@@ -572,10 +582,14 @@ export async function analyzeE2eLaneCoverage({
         });
         continue;
       }
-      if (!unreachable.has(specPath)) {
+      if (!spec.fullyDark) {
         violations.push({
           app,
-          detail: `${specPath} is exempted in KNOWN_UNREACHABLE_SPECS but is now reachable from a lane. Delete the entry — the exemption is no longer true.`,
+          detail:
+            `${specPath} is exempted in KNOWN_UNREACHABLE_SPECS as a whole-file orphan, but ` +
+            `${spec.titles.length - spec.darkTitles.length} of its ${spec.titles.length} title(s) ` +
+            'are now reachable. Delete the entry — a whole-file exemption would hide the titles ' +
+            'that are still dark.',
           kind: 'stale-exemption',
         });
         continue;
@@ -589,7 +603,7 @@ export async function analyzeE2eLaneCoverage({
     const tagPrefix = APP_TAG_PREFIXES[app];
     const titlePathsByTag = new Map();
     for (const spec of specs) {
-      for (const titlePath of spec.titlePaths) {
+      for (const { titlePath } of spec.titles) {
         for (const match of titlePath.matchAll(/@[\w-]+/g)) {
           if (!match[0].startsWith(tagPrefix)) {
             continue;
@@ -617,9 +631,12 @@ export async function analyzeE2eLaneCoverage({
       }
     }
 
-    // Assertion 2: every spec is reachable from at least one lane.
+    // Assertion 2: every TEST is reachable from at least one lane. A whole-file
+    // orphan reports once as `orphan-spec`; a file with only some dark tests
+    // reports each dark title, because naming the file alone would not tell the
+    // author which test is the one that never runs.
     for (const spec of specs) {
-      if (spec.titlePaths.length === 0) {
+      if (spec.titles.length === 0) {
         violations.push({
           app,
           detail: `${spec.relativeToRepo} declares no Playwright test titles, so no lane can run it.`,
@@ -627,14 +644,24 @@ export async function analyzeE2eLaneCoverage({
         });
         continue;
       }
-      if (unreachable.has(spec.relativeToRepo)) {
+      if (spec.fullyDark) {
         violations.push({
           app,
           detail:
             `${spec.relativeToRepo} is selected by NO lane: it is in no lane's explicit file ` +
             'list, carries no tag a lane greps, and every one of its titles is filtered out of ' +
-            'the broad passes.',
+            `the broad passes (all ${spec.titles.length} test(s) dark).`,
           kind: 'orphan-spec',
+        });
+        continue;
+      }
+      for (const { line, titlePath } of spec.darkTitles) {
+        violations.push({
+          app,
+          detail:
+            `${spec.relativeToRepo}:${line} runs in no CI job: "${titlePath}". Sibling tests in ` +
+            'this file ARE selected, so the file looks covered while this test is dark.',
+          kind: 'orphan-title',
         });
       }
     }
@@ -653,7 +680,7 @@ export async function analyzeE2eLaneCoverage({
         }
       }
       const selectsAnything = allSpecs.some((spec) =>
-        spec.titlePaths.some((titlePath) => selectsTitle(lane, spec.relativeToApp, titlePath))
+        spec.titles.some(({ titlePath }) => selectsTitle(lane, spec.relativeToApp, titlePath))
       );
       if (!selectsAnything) {
         violations.push({
@@ -669,6 +696,7 @@ export async function analyzeE2eLaneCoverage({
       laneNames: lanes.map((lane) => lane.name).sort(),
       laneTagCount: titlePathsByTag.size,
       specCount: allSpecs.length,
+      titleCount,
       uninvokedLaneNames: allLanes
         .filter((lane) => !lane.ciInvoked)
         .map((lane) => lane.name)
@@ -683,7 +711,7 @@ export function formatReport(report) {
   const lines = [];
   for (const app of report.apps) {
     lines.push(
-      `${app.app}: examined ${app.specCount} spec file(s), ${app.laneNames.length} CI-invoked lane invocation(s), ${app.laneTagCount} lane tag(s)`
+      `${app.app}: examined ${app.titleCount} test title(s) across ${app.specCount} spec file(s), ${app.laneNames.length} CI-invoked lane invocation(s), ${app.laneTagCount} lane tag(s)`
     );
     for (const laneName of app.laneNames) {
       lines.push(`    lane: ${laneName}`);
