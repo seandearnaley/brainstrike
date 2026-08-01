@@ -5,7 +5,9 @@ import {
   createFenceExecutor,
   createFenceExecutorFactory,
   FENCE_MAX_STREAM_BYTES,
+  FenceExecutorDisposedError,
   FenceInvalidRequestError,
+  FenceQueueTimeoutError,
   FenceUnsupportedLanguageError,
   FenceUnsupportedPlatformError,
   isFenceSupported,
@@ -127,6 +129,35 @@ describe('createFenceExecutor', () => {
 
   it.runIf(supported)('refuses an executor that was given no interpreters at all', () => {
     expect(() => createFenceExecutor({ interpreters: {} })).toThrowError(FenceInvalidRequestError);
+  });
+});
+
+describe('typed fence errors', () => {
+  // The tool layer maps these to model-visible structured failures, so the
+  // discriminant and the operator-facing text are contract, not decoration.
+  it.each([
+    [new FenceUnsupportedPlatformError('sunos'), 'fence_unsupported_platform', /sunos/],
+    [new FenceUnsupportedLanguageError('python', ['bash']), 'fence_unsupported_language', /bash/],
+    [new FenceExecutorDisposedError(), 'fence_executor_disposed', /disposed/i],
+    [new FenceInvalidRequestError('nope'), 'fence_invalid_request', /nope/],
+    [new FenceQueueTimeoutError(1234), 'fence_queue_timeout', /1234ms/],
+  ])('%s carries a stable code and an actionable message', (error, code, messagePattern) => {
+    expect(error).toBeInstanceOf(Error);
+    expect(error.code).toBe(code);
+    expect(error.name).toBe(error.constructor.name);
+    expect(error.message).toMatch(messagePattern);
+  });
+
+  it('names the requested language and what the fence can actually run', () => {
+    const error = new FenceUnsupportedLanguageError('javascript', ['python']);
+    expect(error.language).toBe('javascript');
+    expect(error.message).toContain('javascript');
+    expect(error.message).toContain('python');
+  });
+
+  it('says plainly that nothing ran when the budget was spent queueing', () => {
+    expect(new FenceQueueTimeoutError(500).message).toMatch(/no code was run/i);
+    expect(new FenceQueueTimeoutError(500).timeoutMs).toBe(500);
   });
 });
 

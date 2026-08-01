@@ -253,7 +253,7 @@ function registerExitReaper(): void {
  * that starts returning them in `env` keeps working, while host secrets still
  * never cross, because only keys srt CHANGED are carried over.
  */
-function buildSandboxEnv(
+export function buildSandboxEnv(
   srtEnv: NodeJS.ProcessEnv,
   interpreterEnv: Readonly<Record<string, string>> | undefined
 ): NodeJS.ProcessEnv {
@@ -323,11 +323,51 @@ interface SpawnOutcome {
   readonly truncated: boolean;
 }
 
-function spawnFenced(
+/**
+ * Seams for the teardown state machine's unit tests. The close/exit/timeout
+ * interleavings decide whether a process group can outlive its policy, and an
+ * integration test cannot reproduce "descendant detaches stdio, root exits
+ * later" on demand — so they are injectable and driven by a fake child.
+ */
+export interface FenceSpawnDeps {
+  readonly killGroup: (pid: number, signal: NodeJS.Signals) => void;
+  readonly spawnProcess: (
+    command: string,
+    args: readonly string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv }
+  ) => ChildProcessLike;
+}
+
+/** The slice of ChildProcess this module uses. */
+export interface ChildProcessLike {
+  on(event: 'error', listener: (error: Error) => void): unknown;
+  on(
+    event: 'exit' | 'close',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void
+  ): unknown;
+  readonly pid?: number | undefined;
+  readonly stderr: { on(event: 'data', listener: (chunk: Buffer) => void): unknown } | null;
+  readonly stdout: { on(event: 'data', listener: (chunk: Buffer) => void): unknown } | null;
+}
+
+const realSpawnDeps: FenceSpawnDeps = {
+  killGroup: killTree,
+  spawnProcess: (command, args, { cwd, env }) =>
+    spawn(command, [...args], {
+      cwd,
+      detached: true,
+      env,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }),
+};
+
+export function spawnFenced(
   argv: readonly string[],
   env: NodeJS.ProcessEnv,
   cwd: string,
-  timeoutMs: number
+  timeoutMs: number,
+  deps: FenceSpawnDeps = realSpawnDeps
 ): Promise<SpawnOutcome> {
   return new Promise<SpawnOutcome>((resolvePromise, rejectPromise) => {
     const [command, ...args] = argv;
@@ -336,13 +376,7 @@ function spawnFenced(
       return;
     }
 
-    const child = spawn(command, args, {
-      cwd,
-      detached: true,
-      env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = deps.spawnProcess(command, args, { cwd, env });
 
     const stdout = createStreamCapture();
     const stderr = createStreamCapture();
@@ -378,7 +412,7 @@ function spawnFenced(
       // return with the descendant alive, free to outlive the policy this run
       // was granted. Killing here means no exit path can leak the group.
       if (child.pid !== undefined) {
-        killTree(child.pid, 'SIGKILL');
+        deps.killGroup(child.pid, 'SIGKILL');
         liveProcessGroups.delete(child.pid);
       }
       resolvePromise({
@@ -432,9 +466,9 @@ function spawnFenced(
 
     later(timeoutMs, () => {
       timedOut = true;
-      killTree(pid, 'SIGTERM');
+      deps.killGroup(pid, 'SIGTERM');
       later(KILL_GRACE_MS, () => {
-        killTree(pid, 'SIGKILL');
+        deps.killGroup(pid, 'SIGKILL');
         // Hard backstop: if even SIGKILL leaves a pipe holder we cannot see,
         // report the timeout rather than hang the tool call forever.
         later(KILL_GRACE_MS, finish);
