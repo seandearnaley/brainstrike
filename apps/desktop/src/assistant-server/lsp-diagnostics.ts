@@ -24,6 +24,7 @@
  * thrown error that would fail the underlying (already-successful) edit.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -144,17 +145,52 @@ export function languageIdForPath(absolutePath: string): string | undefined {
  * a broken install degrades to an honest note.
  */
 let cachedServer: ResolvedServer | null | undefined;
+
+type ModuleResolver = (id: string, options?: { paths?: string[] }) => string;
+
+/**
+ * Resolve the JavaScript TypeScript server bundled for LSP use.
+ *
+ * The native TypeScript 7 package owns the workspace `tsc` binary, while the
+ * official `@typescript/typescript6` compatibility package owns the
+ * `typescript` module/API. That compatibility package re-exports its real JS
+ * implementation from the private `@typescript/old` dependency, so its own
+ * `lib/typescript.js` deliberately has no adjacent `tsserver.js`.
+ */
+export function resolveBundledTsserverPath(
+  resolveModule: ModuleResolver = require.resolve,
+  fileExists: (candidate: string) => boolean = existsSync
+): string {
+  const typescriptEntry = resolveModule('typescript');
+  const adjacentTsserver = path.join(path.dirname(typescriptEntry), 'tsserver.js');
+  if (fileExists(adjacentTsserver)) {
+    return adjacentTsserver;
+  }
+
+  // Resolve from the wrapper's module scope, not the application scope: pnpm
+  // keeps @typescript/old beside the wrapper in its isolated dependency graph.
+  const compatibilityEntry = resolveModule('@typescript/old', {
+    paths: [path.dirname(typescriptEntry)],
+  });
+  const compatibilityTsserver = path.join(path.dirname(compatibilityEntry), 'tsserver.js');
+  if (!fileExists(compatibilityTsserver)) {
+    throw new Error(
+      `Bundled TypeScript server is missing at ${compatibilityTsserver}; ` +
+        'the @typescript/typescript6 compatibility package is incomplete.'
+    );
+  }
+  return compatibilityTsserver;
+}
+
 function resolveTypescriptServer(): ResolvedServer | null {
   if (cachedServer !== undefined) {
     return cachedServer;
   }
   try {
     const cliPath = require.resolve('typescript-language-server/lib/cli.mjs');
-    // `require.resolve('typescript')` → typescript/lib/typescript.js; tsserver
-    // lives beside it. Pinning it makes analysis deterministic (OUR bundled TS,
-    // not whatever the user's project resolves) and is what makes diagnostics
-    // fire reliably (verified).
-    const tsserverPath = path.join(path.dirname(require.resolve('typescript')), 'tsserver.js');
+    // Pinning the concrete JS server makes analysis deterministic (OUR bundled
+    // TS6 compatibility compiler, not whatever the user's project resolves).
+    const tsserverPath = resolveBundledTsserverPath();
     cachedServer = {
       args: ['--stdio'],
       cliPath,

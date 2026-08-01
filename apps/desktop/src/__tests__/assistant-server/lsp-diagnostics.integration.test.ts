@@ -39,6 +39,7 @@ import {
   evictLspServersForRoot,
   getEditDiagnostics,
   getLspInspection,
+  resolveBundledTsserverPath,
 } from '../../assistant-server/lsp-diagnostics';
 
 async function makeRoot(): Promise<string> {
@@ -372,5 +373,39 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       { cwd: path.resolve(import.meta.dirname, '../../..'), encoding: 'utf8' }
     );
     expect(check.status).toBe(0);
+    expect(resolveBundledTsserverPath()).toMatch(/[/\\]typescript[/\\]lib[/\\]tsserver\.js$/);
+  });
+
+  it('follows the TypeScript 6 compatibility wrapper to its real server and fails if absent', () => {
+    const wrapperEntry = path.join(
+      path.sep,
+      'bundle',
+      '@typescript',
+      'typescript6',
+      'lib',
+      'typescript.js'
+    );
+    const compatibilityEntry = path.join(path.sep, 'bundle', 'typescript', 'lib', 'typescript.js');
+    const compatibilityServer = path.join(path.dirname(compatibilityEntry), 'tsserver.js');
+    const resolveModule = (id: string, options?: { paths?: string[] }): string => {
+      if (id === 'typescript') {
+        return wrapperEntry;
+      }
+      if (id === '@typescript/old') {
+        expect(options?.paths).toEqual([path.dirname(wrapperEntry)]);
+        return compatibilityEntry;
+      }
+      throw new Error(`Unexpected module resolution: ${id}`);
+    };
+
+    expect(
+      resolveBundledTsserverPath(resolveModule, (candidate) => candidate === compatibilityServer)
+    ).toBe(compatibilityServer);
+
+    // Money test: deleting the forwarded server must make the resolver fail
+    // loudly rather than returning the wrapper-adjacent path or disabling LSP.
+    expect(() => resolveBundledTsserverPath(resolveModule, () => false)).toThrow(
+      /Bundled TypeScript server is missing/
+    );
   });
 });

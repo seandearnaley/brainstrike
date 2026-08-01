@@ -892,12 +892,18 @@ capability-gated, no `isElectron()`).
   the WIRE PROTOCOL (standard `vscode-jsonrpc` + `vscode-languageserver-
   protocol`, both bundled desktop deps), not the class.
 - **Bundled flagship server.** Phase A ships TypeScript/JavaScript only, via a
-  BUNDLED `typescript-language-server` + `typescript` (desktop `dependencies`,
-  so it works out-of-box). Reliability recipe (all three required, verified):
+  BUNDLED `typescript-language-server` + the JavaScript TypeScript 6
+  compatibility API (desktop `dependencies`, so it works out-of-box).
+  TypeScript 7's native compiler owns the workspace `tsc` binary, while the
+  official `@typescript/typescript6` package re-exports the JS API from its
+  `@typescript/old` dependency. The LSP resolver therefore follows that
+  package-scoped forwarding dependency to the real `tsserver.js`; it must not
+  assume the server is adjacent to the compatibility wrapper's
+  `lib/typescript.js`. Reliability recipe (all three required, verified):
   spawn the server's `cli.mjs` through `process.execPath` +
   `ELECTRON_RUN_AS_NODE=1` (packaged apps have no standalone `node`); pin
-  `initializationOptions.tsserver.path` to the bundled `typescript/lib/
-  tsserver.js` (deterministic — OUR TS version); and advertise the
+  `initializationOptions.tsserver.path` to the bundled real TypeScript 6
+  `tsserver.js` (deterministic — OUR TS version); and advertise the
   `textDocument.publishDiagnostics` client capability (without it the server
   stays silent). Diagnostics land as two pushes (`[]` then the real set), so a
   settle-window is mandatory — an empty publish is polled a little longer
