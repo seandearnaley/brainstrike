@@ -11,8 +11,10 @@ REASONING_EFFORT=high
 AUTONOMY=report-only (one Linear digest + anomaly tickets, including
          closing its OWN disproven anomaly tickets; never a PR, never
          code, never labels outside Linear, never another loop's ticket)
-CHARTER_VERSION=2   # v2: anomalies self-close on disproof; needs-human
-                    # only after three consecutive windows (Beat 3)
+CHARTER_VERSION=3   # v3: SHIPPED digest lines carry the Felt-by tag
+                    # (PROTOCOL.md "Felt-value doctrine"); v2: anomalies
+                    # self-close on disproof; needs-human only after
+                    # three consecutive windows (Beat 3)
 STATE_ISSUE="[automation-state] Chronicle"
 LEARNINGS_FILE=".night-shift/chronicle.md"   # via pending-learnings;
                                              # the Librarian migrates them
@@ -122,7 +124,10 @@ ticket or PR for the underlying work; a second ticket is noise.
 Beat 4 — write the digest: maintain ONE Linear issue
 "[shift-report] Chronicle digest" whose description you fully overwrite
 each run (marked generated), max ~50 lines:
-1. SHIPPED: night-shift PRs merged in the window, one line each.
+1. SHIPPED: night-shift PRs merged in the window, one line each, each
+   ending with the PR's `Felt-by:` tag (PROTOCOL.md "Felt-value
+   doctrine") so the felt/internal split reads at a glance; a PR with
+   no tag shows `Felt-by: MISSING`.
 2. WAITING ON YOU: open needs-human tickets and READY PRs, oldest
    first, each with a one-line "what deciding unblocks".
 3. FLEET: one status line per rostered loop (last checkpoint status +

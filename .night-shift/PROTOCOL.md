@@ -209,6 +209,43 @@ costs the human triage time and poisons trust in every other loop's PRs.
   wake that exits on the probe never checkpoints — silent exits are not
   events and must not appear in Chronicle's wake accounting.
 
+## Felt-value doctrine
+
+The fleet exists to serve the product, and the 2026-08-01 spend review
+measured the failure mode: of 328 repo merges in the July 21 – August 1
+window, 38 were fleet self-upkeep and only 33 were product changes the
+human can feel. Upkeep breeds upkeep — a report spawns a ticket, the
+ticket spawns a fix, the fix spawns a review round — and nothing in the
+old doctrine ever asked a loop's output to name its beneficiary. These
+rules make that spend measurable and capped. They change no cadence and
+no authority level; enforcement moves the way all fleet authority moves —
+Auditor measures, proposes with evidence, and the human merges.
+
+- FELT-BY LINE. Every fleet-authored PR body carries exactly one line:
+  `Felt-by: <who notices this change, and how>` — the product user or the
+  human maintainer, in concrete terms ("thread deletes stop leaving
+  orphan rows behind"), or
+  `Felt-by: fleet-internal — <one-line justification>` when only the
+  fleet itself benefits. Add the line before opening the PR; on a steward
+  wake, add it to any of your open PRs that predate this rule. The line
+  is a measurement surface, not prose: Auditor keys felt-yield on it and
+  Chronicle's SHIPPED lines carry it. An honest `fleet-internal` is
+  correct and costs you nothing this week; a decorated one corrupts the
+  only metric that justifies your cadence, which costs you everything at
+  review time.
+- FLEET BUDGET. Fleet-authored merges target at most 10% of ALL repo
+  merges over any trailing 7 days. Loops do NOT self-throttle against
+  this: you cannot cheaply see global merge flow at wake, and a loop that
+  suppresses real findings to look frugal hides defects. The budget binds
+  through Auditor — it measures the share weekly and, on sustained
+  breach, proposes cadence demotions for the lowest felt-yield loops
+  (thresholds in auditor.md); the human merges the charter PR.
+- CHURN IS NOT OUTPUT. A fix-forward or revert touching your own merged
+  diff within 72h of merge counts against your yield (Auditor already
+  traces these), never as fresh output. When you open a fix-forward to
+  your own recently merged PR, say so in the body and link the causing
+  PR — an owned mistake is cheap, a discovered one is not.
+
 ## Findings & tickets (Linear)
 
 - Every finding gets a stable fingerprint: `<loop>:<subsystem>:<symbol-or-

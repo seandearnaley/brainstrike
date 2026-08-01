@@ -7,7 +7,8 @@ SCHEDULE="43 9 * * 1"   # weekly, Monday 09:43 scheduler-local — after the Mon
 MODEL=gpt-5.6-terra
 REASONING_EFFORT=high
 AUTONOMY=report-only (scoreboard + proposal tickets; never edits charters)
-CHARTER_VERSION=1
+CHARTER_VERSION=2   # v2: felt-value scoreboard + fleet-budget thresholds
+                    # (PROTOCOL.md "Felt-value doctrine", 2026-08-01)
 STATE_ISSUE="[automation-state] Auditor"
 LEARNINGS_FILE=".night-shift/auditor.md"   # via pending-learnings
 WALL_CLOCK_BUDGET=45 minutes
@@ -47,11 +48,19 @@ stay comparable across charter changes:
 - Checkpoints: NOOP ratio, INCOMPLETE/BLOCKED streaks, budget overruns.
 - Porter specifically: merges executed, per-condition block counts,
   refusals, breaker events, reverts traced to its merges.
+- Felt value (PROTOCOL.md "Felt-value doctrine"): fleet share =
+  fleet-authored merges / ALL repo merges, trailing 7 days; per-loop
+  felt yield = merged PRs whose `Felt-by:` line names a non-fleet
+  beneficiary, over merged PRs (a missing line scores as fleet-internal
+  AND gets flagged as a doctrine violation); for finding loops, product
+  yield = filed tickets that led to a merged product fix.
 
 Beat 2 — scorecard: ONE Linear issue "[scoreboard] Auditor" whose
 description you fully overwrite each run (marked generated): one block
 per loop — headline numbers, trend vs prior week, and n (sample size)
 stated on every rate. A rate without its n is a lie of confidence.
+The scorecard LEADS with the fleet share number and its trend against
+the 10% budget — it is the one number the human reads first.
 
 Beat 3 — proposals, fingerprinted `auditor:authority:<loop>:<change>`,
 filed ONLY when the committed threshold is met (these thresholds are
@@ -63,6 +72,14 @@ part of this charter; changing them is a human charter PR):
   hold-and-review in the same week's ticket, with the trace.
 - Any loop: finding-acceptance <50% over >=10 findings → propose a
   charter tightening for that loop's gate, citing the declined tickets.
+- Fleet budget breach: fleet share >10% for 2 consecutive scored weeks →
+  propose cadence demotion (or a discovery pause) for the PR-authoring
+  loops with the lowest felt yield, evidence attached, sized so the
+  projected share returns under budget.
+- Zero-felt loop: a PR-authoring loop scored >=4 consecutive weeks with
+  n>=4 wakes whose merged output is 100% fleet-internal → propose
+  demotion to monthly or retirement; a retired charter can always be
+  re-proposed with a felt mission.
 - n below threshold → no proposal; say "insufficient data (n=X)" in
   the scorecard instead. Small samples propose nothing.
 

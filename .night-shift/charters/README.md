@@ -156,6 +156,14 @@ checkpoint-grammar validator; run it before posting any checkpoint).
   one-off audit against the v2 bar, which is a separate change from this
   charter lift.
 
+- FELT-VALUE DOCTRINE (2026-08-01, PROTOCOL.md). Every fleet PR body
+  carries a `Felt-by:` line naming who notices the change (or an honest
+  `fleet-internal`), fleet-authored merges target ≤10% of all repo merges
+  over any trailing 7 days, and self-churn counts against yield. Auditor
+  (v2) measures the share weekly and proposes demotions on sustained
+  breach; Chronicle (v3) surfaces the tag in SHIPPED lines. No cadence,
+  scheduler, or authority changes — enforcement moves through Auditor
+  proposals and human-merged charter PRs, per the fleet's authority model.
 - Assay owns the `review/*` label namespace; magnify owns findings comments;
   neither may approve, block, or merge — a bot that gates merges rebuilds the
   CI planner this repo explicitly retired (docs/agents/ci-quality.md).
