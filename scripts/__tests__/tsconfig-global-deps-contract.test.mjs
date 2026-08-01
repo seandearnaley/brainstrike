@@ -345,6 +345,8 @@ test('money controls: legacy layout and a missing global input both fail the con
   missingPresetInput.global.inputs = missingPresetInput.global.inputs.filter(
     (input) => input !== 'packages/*/tsconfig/*.json'
   );
+  // Keep the entry-count floor satisfied so this control reaches the specific
+  // load-bearing-input assertion it is intended to prove can fail.
   missingPresetInput.global.inputs.push('control-only-nonexistent-input');
   assert.throws(
     () => assertRequiredGlobalInput(missingPresetInput, 'packages/*/tsconfig/*.json'),

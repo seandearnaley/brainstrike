@@ -53,18 +53,27 @@ function turboDryRun() {
   return memoizedTurboDryRun;
 }
 
-async function configuredGlobalFiles() {
-  const config = readTurboConfig();
+async function configuredGlobalFiles(config = readTurboConfig()) {
   assert.ok(
     Array.isArray(config.global?.inputs),
     'turbo.jsonc must expose the configured cross-package cache inputs at global.inputs'
   );
 
-  const files = await glob(config.global.inputs, {
-    cwd: repoRoot,
-    dot: true,
-    nodir: true,
-  });
+  const filesByPattern = await Promise.all(
+    config.global.inputs.map(async (pattern) => {
+      const matches = await glob(pattern, {
+        cwd: repoRoot,
+        dot: true,
+        nodir: true,
+      });
+      assert.ok(
+        matches.length > 0,
+        `turbo.jsonc global.inputs entry "${pattern}" matches no file — an invisible cache input is not a contract.`
+      );
+      return matches;
+    })
+  );
+  const files = [...new Set(filesByPattern.flat())];
   assert.ok(
     files.length >= 10,
     `Only ${files.length} file(s) matched turbo.jsonc global.inputs (expected >= 10) — the cache-input sweep collapsed.`
@@ -108,16 +117,34 @@ function assertEveryTaskReceivesGlobalFiles(plan, expectedFiles) {
 test('Turbo 2.10 applies every 3.0-style global input to every executable task', async () => {
   const expectedFiles = await configuredGlobalFiles();
   const plan = turboDryRun();
+  const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  const pinnedTurboVersion = packageJson.devDependencies?.turbo;
+
+  assert.equal(
+    typeof pinnedTurboVersion,
+    'string',
+    'root package.json must declare a pinned Turbo devDependency'
+  );
 
   assert.equal(
     plan.turboVersion,
-    '2.10.5',
-    'This migration control is calibrated against the repository-pinned Turbo version'
+    pinnedTurboVersion,
+    `Turbo binary ${plan.turboVersion} does not match the root package.json pin ${pinnedTurboVersion}`
   );
   assertEveryTaskReceivesGlobalFiles(plan, expectedFiles);
 });
 
-test('money controls: a missing task input and an empty task sweep both fail visibly', async () => {
+test('money controls: unmatched config, a missing task input, and an empty task sweep fail visibly', async () => {
+  const unmatchedInputConfig = structuredClone(readTurboConfig());
+  unmatchedInputConfig.global.inputs.push(
+    'scripts/__tests__/control-only-missing-global-input.mjs'
+  );
+  await assert.rejects(
+    () => configuredGlobalFiles(unmatchedInputConfig),
+    /global\.inputs entry "scripts\/__tests__\/control-only-missing-global-input\.mjs" matches no file/,
+    'control failed: a configured pattern that matches nothing must make the guard red'
+  );
+
   const expectedFiles = await configuredGlobalFiles();
   const plan = turboDryRun();
   const missingInputPlan = structuredClone(plan);
@@ -136,7 +163,9 @@ test('money controls: a missing task input and an empty task sweep both fail vis
   Reflect.deleteProperty(firstTask.inputs, inputToDelete);
   assert.throws(
     () => assertEveryTaskReceivesGlobalFiles(missingInputPlan, expectedFiles),
-    new RegExp(`${firstTask.taskId} is missing configured global input`),
+    (error) =>
+      error instanceof Error &&
+      error.message.includes(`${firstTask.taskId} is missing configured global input`),
     'control failed: removing one global input from one task must make the guard red'
   );
 
@@ -144,7 +173,7 @@ test('money controls: a missing task input and an empty task sweep both fail vis
   emptyTaskPlan.tasks = [];
   assert.throws(
     () => assertEveryTaskReceivesGlobalFiles(emptyTaskPlan, expectedFiles),
-    /task sweep collapsed/,
+    /Turbo planned only 0 task\(s\).*task sweep collapsed/,
     'control failed: an empty Turbo task selection must make the guard red'
   );
 });
