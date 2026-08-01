@@ -8,6 +8,7 @@ import {
   type ScannedSkill,
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
+import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -383,7 +384,12 @@ function expectProviderSurfaceWithinBudget(args: {
   ).toBeGreaterThanOrEqual(args.floor);
 }
 
-describe('desktop native tool provider prompt budget', () => {
+// This suite loads the o200k tokenizer and constructs the full desktop native
+// tool registry. It is computationally heavy, not a UI-component test, and its
+// measured wall time is contention-sensitive (BST-1050).
+describe('desktop native tool provider prompt budget', {
+  timeout: getAdjustedTimeout('heavy'),
+}, () => {
   it('records the eager baseline and proposed critical-only definition footprint', () => {
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

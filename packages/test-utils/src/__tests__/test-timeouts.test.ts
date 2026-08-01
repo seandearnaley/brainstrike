@@ -13,6 +13,7 @@ describe('test timeouts', () => {
     // Clear relevant env vars
     Reflect.deleteProperty(process.env, 'CI');
     Reflect.deleteProperty(process.env, 'DEBUG');
+    Reflect.deleteProperty(process.env, 'TEST_TIMEOUT_MULTIPLIER');
   });
 
   afterEach(() => {
@@ -77,6 +78,36 @@ describe('test timeouts', () => {
       expect(getTimeoutMultiplier()).toBe(5);
     });
 
+    it('should use an explicit timeout multiplier without enabling CI behavior', () => {
+      process.env['TEST_TIMEOUT_MULTIPLIER'] = '1.5';
+      expect(getTimeoutMultiplier()).toBe(1.5);
+    });
+
+    it('should prioritize the explicit multiplier over CI and DEBUG defaults', () => {
+      process.env['CI'] = 'true';
+      process.env['DEBUG'] = 'true';
+      process.env['TEST_TIMEOUT_MULTIPLIER'] = '3';
+      expect(getTimeoutMultiplier()).toBe(3);
+    });
+
+    it.each([
+      '',
+      '0',
+      '-1',
+      ' 2',
+      '2 ',
+      '01',
+      '1e2',
+      'Infinity',
+      'NaN',
+      'two',
+    ])('should fail loudly for malformed explicit multiplier %j', (configuredMultiplier) => {
+      process.env['TEST_TIMEOUT_MULTIPLIER'] = configuredMultiplier;
+      expect(() => getTimeoutMultiplier()).toThrowError(
+        `Invalid TEST_TIMEOUT_MULTIPLIER ${JSON.stringify(configuredMultiplier)}; expected a positive decimal number.`
+      );
+    });
+
     it('should prioritize CI over DEBUG', () => {
       process.env['CI'] = 'true';
       process.env['DEBUG'] = 'true';
@@ -120,6 +151,13 @@ describe('test timeouts', () => {
       expect(getAdjustedTimeout('uiComponent')).toBe(TEST_TIMEOUTS.uiComponent * 2);
       expect(getAdjustedTimeout('e2e')).toBe(TEST_TIMEOUTS.e2e * 2);
       expect(getAdjustedTimeout('performance')).toBe(TEST_TIMEOUTS.performance * 2);
+      expect(getAdjustedTimeout('heavy')).toBe(TEST_TIMEOUTS.heavy * 2);
+    });
+
+    it('should apply the dedicated multiplier without setting CI', () => {
+      process.env['TEST_TIMEOUT_MULTIPLIER'] = '2';
+      expect(process.env['CI']).toBeUndefined();
+      expect(getAdjustedTimeout('uiComponent')).toBe(TEST_TIMEOUTS.uiComponent * 2);
       expect(getAdjustedTimeout('heavy')).toBe(TEST_TIMEOUTS.heavy * 2);
     });
   });
