@@ -442,10 +442,33 @@ What holds it honest:
   Playwright semantics (explicit file list, project `grep`/`grepInvert`,
   command-line `--grep`/`--grep-invert`) to the real title paths parsed from each
   spec's AST via `listPlaywrightTitleEntries` in the shared
-  `e2e-playwright-title-tags.mjs`. Title-path inheritance matters: a tag on a
-  describe routes the tests nested inside it. Anything unmodellable — an unknown
+  `e2e-playwright-title-tags.mjs`. Anything unmodellable — an unknown
   `--project`, a positional that is not a spec path, a `--flag value` form the
-  parser does not know — THROWS rather than being assumed benign.
+  parser does not know, a `tag` that is not a literal — THROWS rather than being
+  assumed benign.
+
+  `titlePath` reproduces `TestCase._grepTitleWithTags()` exactly: for each
+  ancestor suite its title THEN its tags, then the node's own title, then its own
+  tags, space-joined. Two things that are easy to get wrong and were verified
+  against real Playwright 1.61 `--list` rather than assumed:
+
+  - **Tags inherit.** A tag on a describe routes every test nested inside it.
+  - **`{ tag: '@x' }` counts.** Playwright's options form is NOT part of any
+    title string, but it IS in the grep string. Reading title literals only made
+    the guard wrong in both directions and hid three real desktop orphans
+    (`agent-devtools`, `local-runtime-probe`, `secrets-settings` — each a
+    `test.describe(..., { tag: '@smoke' }, …)` that the `regression` project
+    grep-inverts and the smoke lane's file list omitted). There are 23
+    options-form tag usages across `apps/*/e2e`; the array form
+    (`tag: ['@a', '@b']`) is supported too.
+
+  Both sibling consumers of this parser — `check-e2e-destructive-tags.mjs` and
+  `check-e2e-readiness-contracts.mjs` — were silently affected by the same gap: a
+  `{ tag: '@destructive' }` or `{ tag: '@stateful' }` describe was invisible to
+  them, so each would have reported a FALSE POSITIVE on it (over-strict, not
+  under-strict). No spec uses those two tags in options form today, so both
+  scripts' real-repo verdicts are unchanged — but they are now correct for that
+  shape rather than accidentally unexercised.
 - **Only CI-invoked lanes supply coverage.** A lane is CI-invoked if a scoped
   workflow runs it or the `full-regression` `&&` chain reaches it. Desktop's
   `db-storage`, `ipc-reset` and `runtime-hosts` lane scripts are reached by
@@ -475,6 +498,18 @@ What holds it honest:
   file holding one covered test and one dark sibling. That last case was
   control-tested against the pre-fix per-file logic and goes red there, which the
   other fixtures do not.
+
+**Chain position: the two rescued web lanes run LAST, deliberately.** Head
+position was tried and reverted on review. The tail-is-starved-first argument is
+real in isolation, but it loses to the budget: `web-e2e.yml` caps the job at
+`timeout-minutes: 45`, every lane restarts `webServer` from scratch
+(`reuseExistingServer: false`), and `production-csp` sets
+`test.setTimeout(180_000)` for a real local embedding. These two lanes have never
+executed in CI even once, so at the head one first-run flake blinds the eight
+downstream lanes that currently work; at the tail a failure costs only itself,
+and they run 0% of the time today, so tail is still a strict improvement.
+Revisit once they have a green track record. The position is pinned by a test
+whose message carries this reasoning.
 
 **What a green does NOT prove:** that a spec ran. `full-regression` is an
 `&&`-sequential chain, so a failing lane short-circuits every lane after it —

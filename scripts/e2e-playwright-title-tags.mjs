@@ -73,13 +73,87 @@ function isPlaywrightDescribeCall(expression) {
 }
 
 /**
- * Every `test(...)` / `test.describe(...)` title literal in a spec, in source
- * order, each carrying the enclosing describe titles it inherits.
+ * Tags from Playwright's options form: `test(title, { tag: '@x' }, body)` and
+ * `test.describe(title, { tag: ['@x', '@y'] }, body)`.
  *
- * `titlePath` is what Playwright's `--grep` / `--grep-invert` and a project's
- * `grep` are matched against, so a caller modelling lane selection must filter
- * on `titlePath`, not on the leaf `title` — a tag written on a describe applies
- * to every test inside it.
+ * These are NOT part of the title string, but Playwright appends them to the
+ * string that `--grep` / `--grep-invert` / a project's `grep` are matched
+ * against (`TestCase._grepTitleWithTags()` → `[...titlePath, ...tags]`), so a
+ * caller that reads only title literals sees `{ tag: '@smoke' }` as untagged and
+ * is wrong in both directions.
+ *
+ * `unresolved` is true when a details argument exists but its tags cannot be
+ * read statically (an identifier instead of an object literal, a spread, a
+ * computed value). Callers that need a sound answer must treat that as unknown
+ * rather than as "no tags" — this module deliberately reports it instead of
+ * throwing, so the tag-range consumers keep working.
+ */
+function getOwnTagsFromDetails(node) {
+  const detailsArgument = node.arguments[1];
+  if (!detailsArgument) {
+    return { tags: [], unresolved: false };
+  }
+  if (ts.isArrowFunction(detailsArgument) || ts.isFunctionExpression(detailsArgument)) {
+    return { tags: [], unresolved: false };
+  }
+  if (!ts.isObjectLiteralExpression(detailsArgument)) {
+    // e.g. `test('t', SHARED_DETAILS, body)` — a details object exists but its
+    // contents are elsewhere.
+    return { tags: [], unresolved: true };
+  }
+
+  const tags = [];
+  let unresolved = false;
+  for (const property of detailsArgument.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      // A spread can inject `tag` from anywhere.
+      unresolved = true;
+      continue;
+    }
+    if (!ts.isPropertyAssignment(property)) {
+      continue;
+    }
+    const name = property.name;
+    const isTagKey = (ts.isIdentifier(name) || ts.isStringLiteral(name)) && name.text === 'tag';
+    if (!isTagKey) {
+      continue;
+    }
+    const initializer = property.initializer;
+    const literal = getLiteralText(initializer);
+    if (literal !== null) {
+      tags.push(literal);
+      continue;
+    }
+    if (ts.isArrayLiteralExpression(initializer)) {
+      for (const element of initializer.elements) {
+        const elementText = getLiteralText(element);
+        if (elementText === null) {
+          unresolved = true;
+        } else {
+          tags.push(elementText);
+        }
+      }
+      continue;
+    }
+    unresolved = true;
+  }
+  return { tags, unresolved };
+}
+
+/**
+ * Every `test(...)` / `test.describe(...)` title literal in a spec, in source
+ * order, each carrying the enclosing describe titles and tags it inherits.
+ *
+ * `titlePath` reproduces Playwright's `TestCase._grepTitleWithTags()` exactly —
+ * for each ancestor suite its title THEN its tags, then this node's own title,
+ * then its own tags, space-joined. That is the string `--grep`,
+ * `--grep-invert` and a project's `grep` are matched against, so a caller
+ * modelling lane selection must filter on `titlePath`: a tag written on a
+ * describe (in the title OR in the `{ tag }` options form) applies to every test
+ * inside it.
+ *
+ * `tags` holds only this node's OWN options-form tags. `tagsUnresolved` marks a
+ * node whose details argument could not be read statically.
  */
 export function listPlaywrightTitleEntries(source, fileName) {
   const sourceFile = ts.createSourceFile(
@@ -91,37 +165,55 @@ export function listPlaywrightTitleEntries(source, fileName) {
   );
   const entries = [];
 
-  function visit(node, ancestorTitles) {
-    let childAncestorTitles = ancestorTitles;
+  // `inherited` mirrors Playwright's `_collectGrepTitlePath`: each ancestor
+  // suite contributes its title followed immediately by its own tags.
+  function visit(node, inherited, inheritedUnresolved) {
+    let childInherited = inherited;
+    let childUnresolved = inheritedUnresolved;
 
     if (ts.isCallExpression(node) && isPlaywrightTitleCall(node.expression)) {
       const title = node.arguments[0] ? getLiteralText(node.arguments[0]) : null;
       if (title !== null) {
         const isDescribe = isPlaywrightDescribeCall(node.expression);
+        const { tags, unresolved } = getOwnTagsFromDetails(node);
+        const ownSegments = [title, ...tags];
         entries.push({
           end: getCallbackRangeEnd(node),
           kind: isDescribe ? 'describe' : 'test',
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
           start: node.getStart(sourceFile),
+          tags,
+          tagsUnresolved: unresolved || inheritedUnresolved,
           title,
-          titlePath: [...ancestorTitles, title].join(' '),
+          titlePath: [...inherited, ...ownSegments].join(' '),
         });
         if (isDescribe) {
-          childAncestorTitles = [...ancestorTitles, title];
+          childInherited = [...inherited, ...ownSegments];
+          childUnresolved = unresolved || inheritedUnresolved;
         }
       }
     }
 
-    ts.forEachChild(node, (child) => visit(child, childAncestorTitles));
+    ts.forEachChild(node, (child) => visit(child, childInherited, childUnresolved));
   }
 
-  visit(sourceFile, []);
+  visit(sourceFile, [], false);
   return entries;
 }
 
+/**
+ * Source ranges of title calls tagged `tag`, for "is this code inside a tagged
+ * block" questions.
+ *
+ * Matches the node's OWN title or OWN options-form tags — inheritance needs no
+ * special handling because an enclosing describe's range already contains every
+ * descendant's source positions.
+ */
 export function findTaggedPlaywrightTitleRanges(source, fileName, tag) {
   return listPlaywrightTitleEntries(source, fileName)
-    .filter((entry) => entry.title.includes(tag))
+    .filter(
+      (entry) => entry.title.includes(tag) || entry.tags.some((ownTag) => ownTag.includes(tag))
+    )
     .map((entry) => ({ end: entry.end, start: entry.start }));
 }
 

@@ -50,7 +50,7 @@ const LANE_FLAGS =
  * `test:e2e:lane:*` scripts, a workflow that invokes them, and specs under
  * `e2e/`. `webExtras` injects the violations under test.
  */
-function createFixtureRepo({ webExtras = {}, webLanes = {} } = {}) {
+function createFixtureRepo({ extraWorkflowSteps = [], webExtras = {}, webLanes = {} } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'bst1010-lane-fixture-'));
   temporaryRoots.push(root);
 
@@ -94,6 +94,7 @@ function createFixtureRepo({ webExtras = {}, webLanes = {} } = {}) {
       '      - name: Run desktop regression',
       '        working-directory: apps/desktop',
       '        run: pnpm run test:e2e:lane:full-regression',
+      ...extraWorkflowSteps,
       '',
     ].join('\n')
   );
@@ -363,6 +364,97 @@ test('control: the same file is clean once a lane picks the dark test up', async
   assert.deepEqual(report.violations, []);
 });
 
+test('MONEY TEST: options-form tags are modelled, not read as untagged', async () => {
+  // Playwright greps against `[...titlePath, ...tags]` (`_grepTitleWithTags`),
+  // and tags include the `{ tag: '@x' }` options form — which is NOT part of any
+  // title string. Reading title literals only made the guard wrong in both
+  // directions; it missed three real desktop orphans whose whole `@smoke` tag
+  // lives in an options object.
+  //
+  // Here the tag is grep-inverted out of the broad pass and greppable by no
+  // lane, so the spec runs nowhere — invisible to a title-literals-only parser.
+  const optionTagOrphan = await analyzeFixture(
+    createFixtureRepo({
+      webExtras: {
+        'apps/web/e2e/option-tagged.test.ts':
+          "test.describe('Option tagged', { tag: '@stateful' }, () => {\n" +
+          "  test('runs nowhere', async () => {});\n" +
+          '});\n',
+      },
+    })
+  );
+  assert.ok(
+    kinds(optionTagOrphan).includes('orphan-spec'),
+    `an options-form tag must affect selection, got ${JSON.stringify(kinds(optionTagOrphan))}`
+  );
+
+  // Control, and the half that proves the tag is genuinely being applied rather
+  // than the file being broken: the same spec with the tag moved into a lane's
+  // grep is clean. Array form too, since Playwright accepts `tag: [...]`.
+  const rescued = await analyzeFixture(
+    createFixtureRepo({
+      webExtras: {
+        'apps/web/e2e/option-tagged.test.ts':
+          "test.describe('Option tagged', { tag: ['@stateful', '@web-covered'] }, () => {\n" +
+          "  test('runs in the covered lane', async () => {});\n" +
+          '});\n',
+      },
+      webLanes: {
+        'test:e2e:lane:covered': `pnpm exec playwright test e2e/covered.test.ts e2e/option-tagged.test.ts ${LANE_FLAGS} --grep "@web-covered"`,
+      },
+    })
+  );
+  assert.deepEqual(rescued.violations, []);
+});
+
+test('a tag that cannot be read statically is refused, not assumed absent', async () => {
+  // `{ tag: SOME_CONST }` makes every selection answer for that test a guess.
+  // Treating it as untagged is the silent-fallback failure mode.
+  await assert.rejects(
+    () =>
+      analyzeFixture(
+        createFixtureRepo({
+          webExtras: {
+            'apps/web/e2e/dynamic-tag.test.ts':
+              "const LANE = '@web-covered';\n" +
+              "test('dynamic', { tag: LANE }, async () => {});\n",
+          },
+        })
+      ),
+    /cannot be read statically/
+  );
+});
+
+test('an apostrophe in an unrelated workflow step does not break the sweep', async () => {
+  // `splitCommandSegments` is quote-aware, so before the line-oriented split a
+  // single `'` in any `run:` block of the three scanned workflows swallowed
+  // newlines, merged unrelated segments, and failed the whole Static job with
+  // "unterminated quote in playwright command" — naming Playwright for a step
+  // that never mentions it. test.yml is large and frequently edited.
+  const report = await analyzeFixture(
+    createFixtureRepo({
+      extraWorkflowSteps: [
+        '  unrelated:',
+        '    steps:',
+        '      - name: Cache note',
+        '        run: |',
+        "          # don't reuse the cache here",
+        '          echo "can\'t find it"',
+        '      - name: Sibling of a real lane',
+        '        working-directory: apps/desktop',
+        '        run: |',
+        "          # we don't want stale state",
+        '          pnpm run test:e2e:lane:full-regression',
+      ],
+    })
+  );
+  assert.deepEqual(
+    report.violations,
+    [],
+    'an apostrophe in an unrelated step (or above a real lane invocation) must not fail the sweep'
+  );
+});
+
 test('MONEY TEST: a lane file list naming a file that no longer exists is caught', async () => {
   const report = await analyzeFixture(
     createFixtureRepo({
@@ -473,16 +565,31 @@ test('REAL REPO: the two BST-1010 orphans are wired into full-regression', async
     assert.ok(webScripts[lane].includes('--workers=1'), `${lane} must stay serialized`);
   }
 
-  // Placement, not just presence. `full-regression` is an `&&` chain, so a lane
-  // at the tail is skipped whenever anything upstream fails — the worst spot for
-  // specs whose entire defect was never running (BST-1032 blind windows).
+  // Placement, not just presence — and TAIL is deliberate. Do not "fix" this to
+  // head position; that was tried and reverted on PR #2180 review.
+  //
+  // `full-regression` is an `&&` chain, so a failing lane skips everything after
+  // it. The tempting argument is that a tail lane is therefore the first thing
+  // starved, which is the worst spot for specs whose entire defect was never
+  // running (BST-1032 blind windows). That reasoning loses to the concrete
+  // budget: `web-e2e.yml` caps the job at `timeout-minutes: 45`, every lane
+  // restarts `webServer` from scratch (`reuseExistingServer: false`), and
+  // production-csp sets `test.setTimeout(180_000)` for a real local embedding.
+  //
+  // These two lanes have never executed in CI even once — that is this PR's
+  // entire premise. At the head, one flake in a never-run lane blinds all eight
+  // downstream lanes that currently work. At the tail, a failure costs only
+  // itself, and since these specs run 0% of the time today, tail is still a
+  // strict improvement over the status quo. Revisit only once they have a green
+  // track record.
   const laneOrder = [...chain.matchAll(/pnpm run (test:e2e:lane:[\w-]+)/g)].map(
     (match) => match[1]
   );
   assert.deepEqual(
-    laneOrder.slice(0, 2),
+    laneOrder.slice(-2),
     ['test:e2e:lane:indexing', 'test:e2e:lane:production-csp'],
-    'the two newly rescued lanes must run first in the chain, not last'
+    'the two newly rescued lanes must run LAST in the chain so a first-run flake cannot ' +
+      'starve the eight lanes that already work — see the comment above before changing this'
   );
 });
 

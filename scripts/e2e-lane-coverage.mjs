@@ -128,8 +128,28 @@ function toPosix(value) {
   return value.split(path.sep).join('/');
 }
 
-/** Split on top-level `&&`, `;` and newlines, ignoring separators inside quotes. */
+/**
+ * Split a shell command into separately-runnable segments.
+ *
+ * Newlines separate UNCONDITIONALLY, before any quote tracking, and that is a
+ * correctness property rather than a shortcut. Quote state must not bleed across
+ * lines: a lone apostrophe in one line — `# don't reuse the cache`,
+ * `echo "can't find it"` — would otherwise open a quote that swallows the
+ * newline, merge that line with the real command below it, and make the merged
+ * text fail to tokenize. Line-continuations (`\` + newline) are joined by the
+ * caller before this runs, so a genuinely multi-line command still arrives as one
+ * line.
+ */
 function splitCommandSegments(command) {
+  return command
+    .split('\n')
+    .flatMap((line) => splitLineSegments(line))
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+/** Split one line on top-level `&&` and `;`, ignoring separators inside quotes. */
+function splitLineSegments(command) {
   const segments = [];
   let current = '';
   let quote = null;
@@ -154,7 +174,7 @@ function splitCommandSegments(command) {
       index += 1;
       continue;
     }
-    if (character === ';' || character === '\n') {
+    if (character === ';') {
       segments.push(current);
       current = '';
       continue;
@@ -162,7 +182,7 @@ function splitCommandSegments(command) {
     current += character;
   }
   segments.push(current);
-  return segments.map((segment) => segment.trim()).filter((segment) => segment.length > 0);
+  return segments;
 }
 
 function tokenize(segment, origin) {
@@ -290,6 +310,18 @@ function parsePlaywrightInvocation(segment, origin) {
   return invocation;
 }
 
+/**
+ * Could this shell text possibly declare or invoke a lane? Deliberately a plain
+ * substring test on the raw text: it must be decidable BEFORE quote-aware
+ * tokenizing, since tokenizing is the step that can throw on stray apostrophes.
+ * Over-matching is harmless (the segment is then parsed normally); under-
+ * matching is impossible for any real invocation, because a playwright run
+ * contains the word `playwright` and a lane hand-off contains the lane prefix.
+ */
+function isPossiblyLaneRelated(text) {
+  return text.includes('playwright') || text.includes(LANE_SCRIPT_PREFIX);
+}
+
 /** Lane scripts a command chain hands off to (`pnpm run test:e2e:lane:x`). */
 function findLaneScriptReferences(command) {
   const references = new Set();
@@ -367,7 +399,24 @@ function collectWorkflowEntrypoints(workflowFile, workflow, appPackageNames) {
       const origin = `.github/workflows/${workflowFile} ${jobName}/${step.name ?? 'run'}`;
       const workingDirectory = stepWorkingDirectory(workflow, job, step);
 
+      // Relevance pre-filter, and it is load-bearing rather than an
+      // optimisation. `splitCommandSegments` tracks quotes so it can keep an
+      // `&&` inside a string from splitting a command; the cost is that ONE
+      // unbalanced apostrophe anywhere in a `run:` block — `# don't reuse the
+      // cache`, `echo "can't find it"` — swallows newlines, merges unrelated
+      // segments, and fails the whole Static job with "unterminated quote in
+      // playwright command", pointing a maintainer at Playwright for a step that
+      // never mentions it. test.yml is large and edited often. Steps that name
+      // neither `playwright` nor a lane script cannot contribute a lane, so they
+      // are skipped before tokenizing rather than parsed and thrown on.
+      if (!isPossiblyLaneRelated(command)) {
+        continue;
+      }
+
       for (const segment of splitCommandSegments(command)) {
+        if (!isPossiblyLaneRelated(segment)) {
+          continue;
+        }
         const tokens = tokenize(segment, origin);
         const invocation = parsePlaywrightInvocation(segment, origin);
         if (invocation) {
@@ -434,9 +483,22 @@ async function collectSpecs(app, appRoot, repoRoot) {
       continue;
     }
     const source = await readFile(file, 'utf8');
-    const titles = listPlaywrightTitleEntries(source, file)
-      .filter((entry) => entry.kind === 'test')
-      .map((entry) => ({ line: entry.line, titlePath: entry.titlePath }));
+    const entries = listPlaywrightTitleEntries(source, file).filter(
+      (entry) => entry.kind === 'test'
+    );
+    // Playwright greps against the title path PLUS options-form tags, so a tag
+    // this parser cannot read statically makes every selection answer for that
+    // test a guess. Refuse rather than treat it as untagged.
+    const unresolved = entries.filter((entry) => entry.tagsUnresolved);
+    if (unresolved.length > 0) {
+      throw new Error(
+        `${toPosix(path.relative(repoRoot, file))}: ${unresolved.length} test(s) declare Playwright ` +
+          'details whose `tag` cannot be read statically (line(s) ' +
+          `${unresolved.map((entry) => entry.line).join(', ')}). Lane selection for them is ` +
+          'undecidable — inline the tag as a literal, or teach the parser this shape.'
+      );
+    }
+    const titles = entries.map((entry) => ({ line: entry.line, titlePath: entry.titlePath }));
     specs.push({
       relativeToApp,
       relativeToRepo: toPosix(path.relative(repoRoot, file)),
