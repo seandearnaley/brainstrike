@@ -237,10 +237,33 @@ new evidence is the open question — read the PR, not this paragraph.**
 > script.
 >
 > **The change is qualified for new users and unqualified for every existing one —
-> and existing users are the ones carrying data.** The fix is not more greenfield
-> testing: it needs a runtime catalog-vs-binary check that fails visibly, or an
-> explicit upgrade migration that runs `ALTER EXTENSION UPDATE` and re-qualifies,
-> or a documented refusal to ship until a **committed** upgrade-path test exists.
+> and existing users are the ones carrying data.**
+>
+> **Filed as [BST-1081](https://linear.app/brainstrike/issue/BST-1081) (Urgent).
+> PR retitled `DO NOT MERGE`, kept draft, all 5 threads resolved.** Two results
+> from that investigation change what the remediation can be:
+>
+> - **`ALTER EXTENSION UPDATE` alone is NOT a fix.** The real
+>   `pg_textsearch--1.2.0--1.3.0.sql` (read from the actual npm tarball) is
+>   catalog/function-only — `CREATE/DROP/ALTER FUNCTION`, `REVOKE`. It never
+>   touches index pages, so it would **relabel** `extversion` while leaving the
+>   physical BM25 index exactly as the 1.2.0 engine wrote it.
+> - **A bare runtime fail-fast would brick every existing install.** Migration
+>   066 never re-runs for them, so there is no recovery path; an agreement check
+>   must ship *with* a remediation, not ahead of one. The lane deliberately did
+>   not implement one for that reason, and flagged it as judgement rather than
+>   quietly skipping it — that call was correct.
+>
+> So the live options are an upgrade migration that **rebuilds** the index under
+> 1.3.1 (not just relabels), and/or a committed existing-install upgrade test
+> exercising the real `file_chunks` path — which likely needs a second, aliased
+> pglite/pg_textsearch pair pinned as a scoped devDependency to construct an
+> old-format index repeatably. BST-1081 has the full analysis.
+>
+> Mitigating but insufficient: an uncommitted 3-trial script drove a 1.2.0-built
+> index through 20 read/write/VACUUM cycles under 1.3.1 and came back clean 3/3.
+> One platform, synthetic table, not reproducible by anyone else. Suggestive, not
+> qualifying.
 
 Salvaged with real evidence on branch
 `seandearnaley/bst-1063-bump-pglite-to-054-...`. The BM25 fear that made this
