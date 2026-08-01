@@ -201,11 +201,16 @@ jobs:
     # docs/test-wall-clock-optimization-2026-07-20.md): on whole-repo-selection
     # PRs the single Unit job was the entire workflow critical path (measured
     # run 29718029263-era worst case 29718226412: Unit 42m, every other job done
-    # by ~9m), and `db#test`'s 5 sequential lanes alone accounted for ~30m of
-    # it. The matrix splits the package graph across three runners so the heavy
-    # lanes stop queuing behind each other:
-    #   db    — @brainstrike/db only (whole-task-uncached, 5 serial lanes; the
-    #           single longest turbo task by far).
+    # by ~9m), and `db#test` alone accounted for ~30m of it. HISTORICAL DETAIL,
+    # kept because it explains the ~30m figure: at audit time `db#test` was
+    # `test-lanes.mjs run all`, i.e. five SEQUENTIAL per-lane vitest boots. PR
+    # #1807 replaced that with a single `vitest run --project unit` over a
+    # migrate-once PGlite snapshot, so db#test is now ONE invocation whose files
+    # parallelize across forks. It remains the longest turbo task, which is what
+    # still earns it a dedicated shard. The matrix splits the package graph
+    # across three runners so the heavy suites stop queuing behind each other:
+    #   db    — @brainstrike/db only (whole-task-uncached, one parallel-fork
+    #           vitest run; the single longest turbo task by far).
     #   heavy — the four biggest remaining suites by measured vitest duration
     #           (desktop, ui, file-explorer-ui, app-shell).
     #   rest  — affected-set minus the five packages above (negation filters).
