@@ -249,7 +249,22 @@ function computeAncestorDirectoryPaths(filePath: string, folderId: string): stri
   return ancestorPaths;
 }
 
-function createSelectedPathAncestorResolver(
+/**
+ * Builds a resolver around a caller-owned ancestor cache.
+ *
+ * Cache identity is deliberately opaque to consumers: when no path is
+ * resolved, `getResolvedCache` returns the input map. The first cache hit or
+ * miss makes a lazy working clone so hit order can be refreshed and misses can
+ * be inserted without mutating the input. Once created, that clone is mutated
+ * in place for the resolver's lifetime and returned by every later
+ * `getResolvedCache` call.
+ *
+ * Callers must always adopt the returned map and must not use map identity as a
+ * signal that cache contents changed.
+ *
+ * @internal
+ */
+export function createSelectedPathAncestorResolver(
   folderId: string,
   selectedPathAncestorCache: Map<string, string[]>
 ): SelectedPathAncestorResolver {
