@@ -1,7 +1,8 @@
 {
-  "description": "BST-1065 vector-parity regression fixture. Captured from @huggingface/transformers 4.2.0 (the version already in use on main at capture time) using the feature-extraction pipeline on the CPU/fp32 execution provider under plain Node (no WebGPU in Node; the browser build calls this EP wasm, the Node build calls it cpu). Verified byte-for-byte-equivalent (cosine similarity 1.000000 on every item) against a fresh isolated install of @huggingface/transformers 3.8.1, the last pre-v4 version this repo ran (see docs in the PR description for how that comparison was performed). This fixture guards against silent embedding-quality regressions on future major-version bumps of the library.",
+  "description": "BST-1065 vector-parity regression fixture. Captured from @huggingface/transformers 4.2.0 (the version already in use on main at capture time) using the feature-extraction pipeline on the CPU/fp32 execution provider under plain Node (no WebGPU in Node; the browser build calls this EP wasm, the Node build calls it cpu), with the model revision pinned to an explicit commit SHA (not the mutable main ref) so this fixture isolates the library-version variable from upstream model changes. Verified cosine-similarity ~1.0 (min 0.9999999999999998) on every item against a fresh isolated install of @huggingface/transformers 3.8.1, the last pre-v4 version this repo ran, using the SAME pinned revision (see PR #2188 description for how that comparison was performed). This fixture guards against silent embedding-quality regressions on future major-version bumps of the library.",
   "libraryVersion": "4.2.0",
   "model": "Xenova/all-MiniLM-L6-v2",
+  "revision": "751bff37182d3f1213fa05d7196b954e230abad9",
   "device": "cpu",
   "dtype": "fp32",
   "dimensions": 384,

@@ -35,13 +35,18 @@
  * WebGPU-path behavior is verified separately (manual CDT smoke, scheduled by
  * the orchestrator).
  *
+ * The model revision is PINNED (not the mutable `main` ref) so this test
+ * isolates the one variable it exists to check: a future upstream re-export
+ * or retag of the model on the Hub must not be able to move the numbers out
+ * from under a transformers.js version comparison (PR #2188 review feedback).
+ *
  * Tolerance: 0.999 cosine similarity per vector. A pure runtime/library-version
  * comparison on IDENTICAL model weights should be extremely close to 1.0; the
  * measured value when this fixture was captured (v3.8.1 vs v4.2.0, same model,
- * same corpus, CPU/fp32) was 1.000000 on every item (see PR description for
- * the full comparison). 0.999 leaves headroom for legitimate numerical
- * differences from a future runtime change while still catching a real
- * regression.
+ * same pinned revision, same corpus, CPU/fp32) was ~1.0 (min 0.9999999999999998)
+ * on every item (see PR description for the full comparison). 0.999 leaves
+ * headroom for legitimate numerical differences from a future runtime change
+ * while still catching a real regression.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -50,20 +55,89 @@ import { describe, expect, it } from 'vitest';
 
 const LONG_TIMEOUT = 120_000; // 2 minutes — matches sibling .models.test.ts files.
 
+const SUPPORTED_DEVICES = ['cpu', 'wasm'] as const;
+type SupportedDevice = (typeof SUPPORTED_DEVICES)[number];
+
+const SUPPORTED_DTYPES = ['fp32', 'fp16'] as const;
+type SupportedDtype = (typeof SUPPORTED_DTYPES)[number];
+
 interface ParityFixture {
   readonly corpus: readonly string[];
-  readonly device: string;
+  readonly device: SupportedDevice;
   readonly dimensions: number;
-  readonly dtype: string;
+  readonly dtype: SupportedDtype;
   readonly libraryVersion: string;
   readonly model: string;
+  readonly revision: string;
   readonly vectors: readonly (readonly number[])[];
+}
+
+/**
+ * Narrow an `unknown` JSON.parse result into ParityFixture, validating the
+ * literal-union fields (`device`/`dtype`) rather than asserting them via
+ * `as`. A bad `dtype`/`device` would otherwise throw an opaque error deep
+ * inside `pipeline()` instead of a clear "fixture metadata is invalid"
+ * failure (PR #2188 review feedback).
+ */
+function parseParityFixture(raw: unknown): ParityFixture {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Parity fixture is not an object.');
+  }
+  const value = raw as Record<string, unknown>;
+
+  const { corpus, device, dimensions, dtype, libraryVersion, model, revision, vectors } = value;
+
+  if (!(Array.isArray(corpus) && corpus.every((entry) => typeof entry === 'string'))) {
+    throw new Error('Parity fixture "corpus" must be a string array.');
+  }
+  if (typeof device !== 'string' || !SUPPORTED_DEVICES.includes(device as SupportedDevice)) {
+    throw new Error(
+      `Parity fixture "device" must be one of ${SUPPORTED_DEVICES.join(', ')}, got ${JSON.stringify(device)}.`
+    );
+  }
+  if (typeof dimensions !== 'number') {
+    throw new Error('Parity fixture "dimensions" must be a number.');
+  }
+  if (typeof dtype !== 'string' || !SUPPORTED_DTYPES.includes(dtype as SupportedDtype)) {
+    throw new Error(
+      `Parity fixture "dtype" must be one of ${SUPPORTED_DTYPES.join(', ')}, got ${JSON.stringify(dtype)}.`
+    );
+  }
+  if (typeof libraryVersion !== 'string') {
+    throw new Error('Parity fixture "libraryVersion" must be a string.');
+  }
+  if (typeof model !== 'string') {
+    throw new Error('Parity fixture "model" must be a string.');
+  }
+  if (typeof revision !== 'string' || revision.length === 0) {
+    throw new Error('Parity fixture "revision" must be a non-empty string.');
+  }
+  if (
+    !(
+      Array.isArray(vectors) &&
+      vectors.every((v) => Array.isArray(v) && v.every((n) => typeof n === 'number'))
+    )
+  ) {
+    throw new Error('Parity fixture "vectors" must be an array of number arrays.');
+  }
+
+  return {
+    corpus,
+    device: device as SupportedDevice,
+    dimensions,
+    dtype: dtype as SupportedDtype,
+    libraryVersion,
+    model,
+    revision,
+    vectors: vectors as readonly (readonly number[])[],
+  };
 }
 
 const fixturePath = fileURLToPath(
   new URL('./fixtures/embedding-vector-parity-baseline.json', import.meta.url)
 );
-const fixture: ParityFixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
+const fixtureRaw: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
+const fixture = parseParityFixture(fixtureRaw);
 
 const SIMILARITY_TOLERANCE = 0.999;
 
@@ -91,9 +165,16 @@ describe('embedding vector parity (BST-1065)', () => {
   it(
     'stays within tolerance of the committed baseline for the currently installed transformers.js',
     async () => {
+      // Guard against a fixture that lost its corpus/vectors: an empty corpus
+      // would otherwise let Math.min(...[]) === Infinity pass vacuously below
+      // (PR #2188 review feedback).
+      expect(fixture.corpus.length).toBeGreaterThan(0);
+      expect(fixture.vectors).toHaveLength(fixture.corpus.length);
+
       const extractor = await pipeline('feature-extraction', fixture.model, {
-        device: fixture.device as 'cpu',
-        dtype: fixture.dtype as 'fp32',
+        device: fixture.device,
+        dtype: fixture.dtype,
+        revision: fixture.revision,
       });
 
       const output = await extractor([...fixture.corpus], {
@@ -106,6 +187,16 @@ describe('embedding vector parity (BST-1065)', () => {
       expect(perVectorLength).toBe(fixture.dimensions);
 
       const flat = Array.from(output.data as ArrayLike<number>);
+      // Bounds-check the flattened output shape explicitly: if pooling ever
+      // stopped collapsing the sequence dimension (e.g. token-level output
+      // instead of the pooled [batch, hidden] shape), `dims.at(-1)` alone
+      // would still read `dimensions` while `flat` is far longer than
+      // `corpus.length * perVectorLength` — that's a pooling-contract break,
+      // not a numerics regression, and should fail with its own message
+      // rather than surfacing as a misleading similarity-tolerance failure
+      // (PR #2188 review feedback).
+      expect(flat).toHaveLength(fixture.corpus.length * perVectorLength);
+
       const similarities: number[] = [];
       for (let i = 0; i < fixture.corpus.length; i++) {
         const current = flat.slice(i * perVectorLength, (i + 1) * perVectorLength);
