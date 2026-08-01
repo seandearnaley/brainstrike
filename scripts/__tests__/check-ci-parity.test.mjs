@@ -6,7 +6,7 @@
  * `test:coverage:split` step resolves to
  * `pnpm -r --filter '!@brainstrike/db' … run test:coverage`, so a green
  * `pnpm check` had never executed `packages/db` at all — while also skipping
- * `secrets:scan`, `turbo boundaries`, the two db lane checks, and
+ * `secrets:scan`, `turbo boundaries`, the former db lane checks, and
  * `test:scripts` (the guard-script gate that exists to catch exactly this).
  *
  * This contract parses `.github/workflows/test.yml` — the source of truth —
@@ -244,7 +244,7 @@ function pnpmInvocations(command) {
       continue;
     }
     if (!PNPM_NON_SCRIPT_SUBCOMMANDS.has(subcommand)) {
-      // Script shorthand: `pnpm --filter @brainstrike/db test:db:check-lanes`.
+      // Script shorthand: `pnpm --filter @brainstrike/db test:coverage`.
       found.add(`pnpm-script:${subcommand}`);
     }
   }
@@ -338,11 +338,11 @@ function timeoutSensitiveTurboTaskNames(config) {
   const taskNames = Object.keys(config.tasks).filter(
     (taskName) =>
       ['test', 'test:browser', 'test:coverage', 'test:integration'].includes(taskName) ||
-      (/^test:coverage:db:/.test(taskName) && taskName !== 'test:coverage:db:check-lanes')
+      /^test:coverage:db:/.test(taskName)
   );
   assert.ok(
-    taskNames.length >= 11,
-    `expected at least 11 Vitest task families to hash timeout policy, found ${taskNames.length}`
+    taskNames.length >= 5,
+    `expected at least 5 Vitest task families to hash timeout policy, found ${taskNames.length}`
   );
   return taskNames;
 }
@@ -372,6 +372,22 @@ function assertCacheableTestWorkerModeIsHashed(config) {
   assert.ok(
     !task.passThroughEnv?.includes('CI'),
     'turbo test must not pass CI through without hashing its result-affecting workload'
+  );
+}
+
+function assertDbTestShardEnvIsScoped(rootConfig, dbConfig) {
+  assert.ok(
+    !rootConfig.tasks.test.env?.includes('DB_TEST_SHARD'),
+    'root turbo test must not hash DB_TEST_SHARD for every package in the filter closure'
+  );
+  assert.deepEqual(
+    dbConfig.tasks.test.env,
+    ['$TURBO_EXTENDS$', 'DB_TEST_SHARD'],
+    'packages/db test must append DB_TEST_SHARD to the inherited hashed environment'
+  );
+  assert.ok(
+    rootConfig.tasks['test:coverage:db:shard'].env?.includes('DB_TEST_SHARD'),
+    'the DB coverage shard task must hash DB_TEST_SHARD'
   );
 }
 
@@ -424,7 +440,7 @@ function assertNightlyCoverageTimeoutPolicy(
   }).filter((step) => /\bpnpm\s+turbo\s+run\s+test:coverage(?:\s|:)/.test(step.run));
   assert.equal(
     steps.length,
-    3,
+    2,
     'the Nightly Coverage Vitest step count changed; re-audit timeout policy'
   );
   for (const step of steps) {
@@ -621,10 +637,6 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
   // command comparison above would pass vacuously.
   assert.deepEqual([...gateInvocations('pnpm secrets:scan')], ['pnpm-script:secrets:scan']);
   assert.deepEqual([...gateInvocations('pnpm -s run secrets:scan')], ['pnpm-script:secrets:scan']);
-  assert.deepEqual(
-    [...gateInvocations('pnpm --filter @brainstrike/db test:db:check-lanes')],
-    ['pnpm-script:test:db:check-lanes']
-  );
   assert.deepEqual([...gateInvocations('pnpm exec turbo boundaries')], ['turbo:boundaries']);
 
   // Read from the real workflow rather than retyped here: these two carry the
@@ -747,10 +759,14 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
   assertRootTestPhaseParity(rootPackage);
 
   const turboConfig = parseJsonc(readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8'));
+  const dbTurboConfig = parseJsonc(
+    readFileSync(path.join(repoRoot, 'packages/db/turbo.json'), 'utf8')
+  );
   assertTimeoutMultiplierIsHashed(turboConfig);
   assertCacheableTestWorkerModeIsHashed(turboConfig);
+  assertDbTestShardEnvIsScoped(turboConfig, dbTurboConfig);
 
-  for (const taskName of ['test', 'test:browser', 'test:coverage', 'test:coverage:db:runtime']) {
+  for (const taskName of ['test', 'test:browser', 'test:coverage', 'test:coverage:db:shard']) {
     const mutatedTurboConfig = structuredClone(turboConfig);
     mutatedTurboConfig.tasks[taskName].env = mutatedTurboConfig.tasks[taskName].env.filter(
       (name) => name !== 'TEST_TIMEOUT_MULTIPLIER'
@@ -774,6 +790,22 @@ test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout
     () => assertCacheableTestWorkerModeIsHashed(unhashedWorkerMode),
     /turbo test must hash CI/,
     'CONTROL: moving CI back to passThroughEnv must expose the cache false-green'
+  );
+
+  const globallyHashedShard = structuredClone(turboConfig);
+  globallyHashedShard.tasks.test.env.push('DB_TEST_SHARD');
+  assert.throws(
+    () => assertDbTestShardEnvIsScoped(globallyHashedShard, dbTurboConfig),
+    /must not hash DB_TEST_SHARD for every package/,
+    'CONTROL: leaking the shard environment into every unit task must turn the guard red'
+  );
+
+  const unscopedDbShard = structuredClone(dbTurboConfig);
+  unscopedDbShard.tasks.test.env = ['$TURBO_EXTENDS$'];
+  assert.throws(
+    () => assertDbTestShardEnvIsScoped(turboConfig, unscopedDbShard),
+    /must append DB_TEST_SHARD/,
+    'CONTROL: removing the package-local shard hash must turn the guard red'
   );
 
   const mismatchedRootPhases = structuredClone(rootPackage);
@@ -861,8 +893,8 @@ test('packages/db is tested by a green pnpm check', () => {
     );
   }
 
-  // Unfiltered turbo selection is the union of CI's three Unit shards, and
-  // `@brainstrike/db` is a shard of its own there.
+  // Unfiltered turbo selection is the union of CI's three logical Unit
+  // partitions (four physical rows because DB uses two native Vitest shards).
   assert.match(unit.command, /run-turbo-command\.mjs .*run test\b/);
   assert.doesNotMatch(unit.command, /--filter/);
 });

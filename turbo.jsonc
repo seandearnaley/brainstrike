@@ -387,145 +387,29 @@
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-    "test:coverage:db:check-lanes": {
-      "dependsOn": [],
-      "env": [
-        "NODE_ENV",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [],
-      "outputLogs": "new-only"
-    },
-    // The db coverage lanes below run the SAME db test files as db#test, split
-    // across coverage buckets (coverage-lanes.mjs). Like `test`, they resolve
-    // workspace imports from SOURCE, so `^build` becomes `topo` (B4). They keep
-    // the explicit `@brainstrike/utils#build` edge because one of these lanes
-    // runs migration-runner-types.test.ts, whose nested `ts.createProgram`
-    // resolves @brainstrike/utils types from dist (see db/turbo.json). The edge
-    // is applied uniformly to all lanes for parity (utils builds cheaply and is
-    // a real db dependency) rather than tracking which bucket owns that file.
-    "test:coverage:db:architecture": {
+    // Nightly DB coverage uses Vitest's native file sharding and blob report
+    // merge. This task is the one package-local invocation shared by both
+    // shards. It imports workspace dependencies from source through `topo`,
+    // and keeps db#test's exact @brainstrike/utils build exception because
+    // migration-runner-types.test.ts launches a nested TypeScript compiler.
+    // Heavy PGlite coverage is environment-sensitive, so a cached green may
+    // never replace execution. Blob and per-shard coverage directories are
+    // artifacts for Vitest's native merge, not a bespoke reconciliation map.
+    "test:coverage:db:shard": {
+      "cache": false,
       "dependsOn": [
         "topo",
-        "@brainstrike/utils#build",
-        "test:coverage:db:check-lanes"
+        "@brainstrike/utils#build"
       ],
       "env": [
         "COVERAGE",
+        "DB_TEST_SHARD",
         "NODE_ENV",
         "TEST_TIMEOUT_MULTIPLIER",
         "TURBO_TEST_MODE"
       ],
       "outputs": [
-        "coverage-db-architecture/**",
-        "test-results/**"
-      ],
-      "outputLogs": "new-only"
-    },
-    "test:coverage:db:chunking": {
-      "dependsOn": [
-        "topo",
-        "@brainstrike/utils#build",
-        "test:coverage:db:check-lanes"
-      ],
-      "env": [
-        "COVERAGE",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [
-        "coverage-db-chunking/**",
-        "test-results/**"
-      ],
-      "outputLogs": "new-only"
-    },
-    "test:coverage:db:migrations": {
-      "dependsOn": [
-        "topo",
-        "@brainstrike/utils#build",
-        "test:coverage:db:check-lanes"
-      ],
-      "env": [
-        "COVERAGE",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [
-        "coverage-db-migrations/**",
-        "test-results/**"
-      ],
-      "outputLogs": "new-only"
-    },
-    "test:coverage:db:queue": {
-      "dependsOn": [
-        "topo",
-        "@brainstrike/utils#build",
-        "test:coverage:db:check-lanes"
-      ],
-      "env": [
-        "COVERAGE",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [
-        "coverage-db-queue/**",
-        "test-results/**"
-      ],
-      "outputLogs": "new-only"
-    },
-    "test:coverage:db:repositories": {
-      "dependsOn": [
-        "topo",
-        "@brainstrike/utils#build",
-        "test:coverage:db:check-lanes"
-      ],
-      "env": [
-        "COVERAGE",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [
-        "coverage-db-repositories/**",
-        "test-results/**"
-      ],
-      "outputLogs": "new-only"
-    },
-    "test:coverage:db:runtime": {
-      "dependsOn": [
-        "topo",
-        "@brainstrike/utils#build",
-        "test:coverage:db:check-lanes"
-      ],
-      "env": [
-        "COVERAGE",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [
-        "coverage-db-runtime/**",
-        "test-results/**"
-      ],
-      "outputLogs": "new-only"
-    },
-    "test:coverage:db:search": {
-      "dependsOn": [
-        "topo",
-        "@brainstrike/utils#build",
-        "test:coverage:db:check-lanes"
-      ],
-      "env": [
-        "COVERAGE",
-        "NODE_ENV",
-        "TEST_TIMEOUT_MULTIPLIER",
-        "TURBO_TEST_MODE"
-      ],
-      "outputs": [
-        "coverage-db-search/**",
+        ".vitest-reports/**",
         "test-results/**"
       ],
       "outputLogs": "new-only"

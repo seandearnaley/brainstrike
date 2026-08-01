@@ -202,7 +202,8 @@ deliberate:
 
 - quiet-head admission remains on GitHub `ubuntu-slim`
 - Static and the Unit fan-in remain on GitHub ARM
-- all three Unit shards use one fixed Ubicloud runner class
+- all four physical Unit rows use one fixed Ubicloud runner class (two DB
+  native shards plus the heavy and rest rows)
 - Native Windows remains on GitHub Windows
 - coverage, scheduled, review, and auxiliary workflows are unchanged
 
@@ -212,6 +213,18 @@ across two exact PR heads (runs 30158896583 and 30175303301 on 2026-07-25).
 Do not route individual shards to different providers: keeping one fixed
 runner contract avoids a provider-selection layer while preserving the exact
 partition, integration concurrency, and required `Unit` fan-in.
+
+The four physical rows still form three logical package partitions:
+`db`, `heavy`, and `rest`. Only `db` repeats its Turbo package filter; its two
+rows supply `DB_TEST_SHARD=1/2` and `DB_TEST_SHARD=2/2` to the single
+`@brainstrike/db#test` invocation, whose Vitest config applies the native
+shard. The variable is appended only to the package-level DB Turbo task:
+Turbo CLI passthrough is forbidden here because it also reaches dependency
+and transit tasks. `scripts/unit-shard-partition.mjs` rejects
+missing, duplicate, mixed-count, or divergent-filter rows, so duplicating the
+DB package cannot become a double-run or an empty half silently. Do not apply
+this pattern across packages: it is valid here because DB is one package and
+one Vitest project.
 
 Do not add a provider-selection layer or an automatic GitHub fallback. An
 Ubicloud provisioning failure must queue or fail visibly; rollback is an
@@ -266,6 +279,15 @@ per PR lifecycle: it runs on non-draft `opened`, `ready_for_review`, non-draft
 `reopened`, or an explicit `coverage` label add. It does NOT run on
 `synchronize`. `nightly-coverage.yml` remains the authoritative threshold gate;
 per-PR coverage is advisory Codecov patch signal only.
+
+When DB is directly changed, the advisory workflow isolates its coverage from
+the recursive package runner. It executes the same native Vitest `1/2` + `2/2`
+shard set as required Unit and nightly coverage, sequentially on the single
+2-vCPU host, then uses `--merge-reports`. Other affected packages retain
+`--workspace-concurrency=4` and explicitly exclude DB. This boundary is
+load-bearing: run 30704747207 let DB share the host with another package and a
+10-second type-contract test timed out after 24 minutes. Do not widen that test
+or serialize every package; keep only the PGlite-heavy DB task isolated.
 
 #### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
 
@@ -325,17 +347,22 @@ effective config.
 context must be added to the ruleset. Doing one without the other re-creates the
 contradiction.
 
-Nightly package coverage uses six static GitHub Actions matrix shards plus a
-separate DB job. Five package shards isolate the measured heavyweight lanes;
-the sixth is a negative-filter remainder, so a new package with a
-`test:coverage` task is covered automatically instead of requiring registry
-maintenance. Each job uploads its raw JSON in a tar archive. The final
-`coverage` job fails closed unless all seven archives are present, restores
-them into one workspace, and is the only job that runs
+Nightly package coverage uses six static GitHub Actions matrix shards plus two
+native Vitest DB shards and a DB merge job. Five package shards isolate the
+measured heavyweight lanes; the sixth is a negative-filter remainder, so a new
+package with a `test:coverage` task is covered automatically instead of
+requiring registry maintenance. Each DB row uploads Vitest's blob report under
+its native `1/2` or `2/2` identity. The merge job requires exactly two blobs,
+runs Vitest's own `--merge-reports` coverage union, and uploads one DB JSON tar
+archive. The final `coverage` job still fails closed unless all seven package
+archives (six general plus the one natively merged DB archive) are present,
+restores them into one workspace, and is the only job that runs
 `coverage:prepare-workspace`, `coverage:enforce`, the merged report, and
-Codecov. Do not replace this with a generated planner or raise the original
-shared timeout: the split preserves one authoritative threshold decision while
-giving slow packages independent failure and timeout domains.
+Codecov. Each shard emits its blob plus a text summary; it does not render the
+unused HTML/Clover report tree. Do not replace this with a generated planner
+or raise the original shared timeout: the split preserves one authoritative
+threshold decision while giving slow packages independent failure and timeout
+domains.
 
 Native packages may retain a `test:coverage` alias that deliberately runs their
 real addon tests without instrumentation. The artifact-completeness check
@@ -379,8 +406,8 @@ CI whose divergences were silent:
   `pnpm -r --filter '!@brainstrike/db' --filter '!@brainstrike/embeddings' run test:coverage`.
   **A green `pnpm check` had never run `packages/db`** — the largest suite in
   the repo and the one turbo task that can never be replayed from a cache hit.
-- It omitted four Static gates: `pnpm secrets:scan`, `pnpm exec turbo
-  boundaries`, the two db lane checks, and **`pnpm test:scripts`** — i.e. the
+- It omitted three Static gates: `pnpm secrets:scan`, `pnpm exec turbo
+  boundaries`, and **`pnpm test:scripts`** — i.e. the
   gate that runs the guard-script tests did not run in the local gate that
   guard scripts exist to protect (BST-836 again, one level up).
 - `lint-all` = `pnpm lint && pnpm format`, which **writes** (`biome check .

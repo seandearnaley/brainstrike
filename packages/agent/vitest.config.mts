@@ -24,6 +24,7 @@ export default defineConfig({
     environment: 'node',
     hookTimeout: 15_000,
     include: ['src/**/__tests__/*.spec.ts'],
+    setupFiles: ['./vitest.setup.ts'],
     // Longer timeout for MCP/Mastra integration tests under parallel load
     testTimeout: 30_000,
   },

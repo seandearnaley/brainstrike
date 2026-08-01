@@ -42,7 +42,7 @@ Detailed subsystem contracts live in `docs/agents/`. **Before changing one of th
 Cross-cutting invariants (full detail + rationale in the docs):
 
 - Local inference (embeddings + local LLM) runs ONLY in hidden renderer hosts — never in Electron main.
-- Schema/catalog changes register in BOTH migration runners (numbered + drizzle `customMigrations`); new `packages/db` tests add a regex to `dbUnitLaneDefinitions` in `db-test-lane-manifest.mjs` — `test-lanes.mjs` and `coverage-lanes.mjs` both derive from that single manifest, so coverage lane assignment is automatic (only add a `coverageOverridesByLane` entry to override the default).
+- Schema/catalog changes register in BOTH migration runners (numbered + drizzle `customMigrations`). New `packages/db` tests need no lane registration: the recursive Vitest unit-project glob discovers them, and required Unit plus nightly coverage split that one project with the same native `--shard` set. `scripts/__tests__/db-test-discovery-contract.test.mjs` guards the recursive glob and a minimum file floor.
 - Every PGlite construction site loads the full engine-extension set.
 - Feature gating is capability-based (does the bridge exist?) — never `isElectron()` checks in shared code. Web omits desktop-only capabilities rather than stubbing them.
 - Any new persistent store/state must be wired into factory reset.
