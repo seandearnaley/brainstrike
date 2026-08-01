@@ -53,7 +53,17 @@ export default defineConfig({
       testMatch: '**/webgpu-ready.test.ts',
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: { args: ['--enable-unsafe-webgpu'] },
+        // Chromium's legacy headless shell cannot create the WebGPU swap-chain shared image in
+        // our GPU-less Linux CI container. A real headed Chromium surface under Xvfb exercises
+        // the same production renderer against SwiftShader without weakening the ready contract.
+        headless: false,
+        launchOptions: {
+          args: [
+            '--enable-unsafe-webgpu',
+            '--use-webgpu-adapter=swiftshader',
+            '--use-gpu-in-tests',
+          ],
+        },
         viewport: { height: 900, width: 1440 },
       },
     },

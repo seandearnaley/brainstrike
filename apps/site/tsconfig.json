@@ -1,11 +1,19 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "composite": true,
     "incremental": true,
     "noEmit": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["e2e", "playwright.config.ts", "src", "vite.config.mts", "vitest.config.mts"],
+  "include": [
+    "e2e",
+    "playwright.config.ts",
+    "src",
+    "vite.config.mts",
+    "vitest.config.mts",
+    "vitest.integration.config.mts"
+  ],
   "exclude": ["node_modules", "dist", "coverage"]
 }

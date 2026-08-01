@@ -5,7 +5,11 @@ import type { ReleaseManifest } from './release-manifest';
 export type ReleaseManifestState =
   | { readonly status: 'loading' }
   | { readonly error: string; readonly status: 'error' }
-  | { readonly manifest: ReleaseManifest; readonly status: 'ready' };
+  | {
+      readonly manifest: ReleaseManifest;
+      readonly status: 'ready';
+      readonly warning?: string | undefined;
+    };
 
 export interface ReleaseManifestController {
   readonly refresh: () => void;
@@ -30,6 +34,18 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function manifestRequestFailureState(
+  currentState: ReleaseManifestState,
+  error: unknown,
+  showLoading: boolean
+): ReleaseManifestState {
+  const message = errorMessage(error);
+  if (!showLoading && currentState.status === 'ready') {
+    return { ...currentState, warning: `Release refresh failed: ${message}` };
+  }
+  return { error: message, status: 'error' };
+}
+
 function runRequest(request: Promise<ReleaseManifest>, showLoading = true): void {
   requestStarted = true;
   requestSequence += 1;
@@ -45,7 +61,7 @@ function runRequest(request: Promise<ReleaseManifest>, showLoading = true): void
     },
     (error: unknown) => {
       if (sequence === requestSequence) {
-        publish({ error: errorMessage(error), status: 'error' });
+        publish(manifestRequestFailureState(releaseState, error, showLoading));
       }
     }
   );
@@ -59,7 +75,7 @@ function startManifestRequest(): void {
 }
 
 function retry(): void {
-  runRequest(client.retry());
+  runRequest(client.retry(), releaseState.status !== 'ready');
 }
 
 function refresh(): void {

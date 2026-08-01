@@ -133,6 +133,7 @@ export const CI_GATE_PLAN_IDS = new Map([
   ['build › Validate CSS bundle', ['validate-css-bundle']],
   ['browser-tests › Run browser tests', ['browser-tests']],
   ['web-e2e › Run web smoke', ['web-e2e-smoke']],
+  ['web-e2e › Run product site browser suite', ['product-site-e2e']],
   ['desktop-e2e › Run desktop smoke', ['desktop-e2e-smoke']],
 ]);
 
@@ -368,6 +369,11 @@ export function buildPlan(options = {}) {
       command: playwrightLane('@brainstrike/web', 'test:e2e:lane:smoke'),
       id: 'web-e2e-smoke',
       label: 'web e2e smoke',
+    });
+    plan.push({
+      command: playwrightLane('@brainstrike/site', 'test:e2e'),
+      id: 'product-site-e2e',
+      label: 'product site e2e',
     });
     plan.push({
       // CI wraps this in `dbus-run-session` purely to silence Chromium's

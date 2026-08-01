@@ -7,19 +7,27 @@ import {
 } from './download-view-model';
 import { type DocumentScrollLock, lockDocumentScroll } from './modal-scroll-lock';
 
-interface DownloadChooserProps {
+interface DownloadChooserBaseProps {
   readonly manifestState: ReleaseManifestState;
-  readonly onOpenFull?: (() => void) | undefined;
   readonly onRetry?: (() => void) | undefined;
-  readonly presentation?: 'full' | 'terminal';
 }
+
+type DownloadChooserProps =
+  | (DownloadChooserBaseProps & {
+      readonly onOpenFull: () => void;
+      readonly presentation: 'terminal';
+    })
+  | (DownloadChooserBaseProps & {
+      readonly onOpenFull?: never;
+      readonly presentation?: 'full';
+    });
 
 function FullDownloadActions({ platform }: { readonly platform: DownloadPlatformView }) {
   if (platform.actions.length === 0) {
     return <span className="platform-pending">Not published</span>;
   }
   return platform.actions.map((action) => (
-    <a href={action.asset.url} key={action.asset.name} rel="noreferrer">
+    <a href={action.asset.url} key={action.asset.name} rel="noreferrer" target="_blank">
       <span>
         {action.label} <span aria-hidden="true">↓</span>
       </span>
@@ -36,9 +44,9 @@ function TerminalDownloadAction({
 }: {
   readonly action: DownloadActionView | undefined;
   readonly actionCount: number;
-  readonly onOpenFull: (() => void) | undefined;
+  readonly onOpenFull: () => void;
 }) {
-  if (actionCount > 1 && onOpenFull) {
+  if (actionCount > 1) {
     return (
       <button
         onClick={(event) => {
@@ -53,7 +61,12 @@ function TerminalDownloadAction({
   }
   if (action) {
     return (
-      <a aria-label={`Download ${action.label}`} href={action.asset.url} rel="noreferrer">
+      <a
+        aria-label={`Download ${action.label}`}
+        href={action.asset.url}
+        rel="noreferrer"
+        target="_blank"
+      >
         Download <span aria-hidden="true">↓</span>
       </a>
     );
@@ -61,14 +74,12 @@ function TerminalDownloadAction({
   return <span className="platform-pending">Pending</span>;
 }
 
-export function DownloadChooser({
-  manifestState,
-  onOpenFull,
-  onRetry,
-  presentation = 'full',
-}: DownloadChooserProps) {
+export function DownloadChooser(props: DownloadChooserProps) {
+  const { manifestState, onRetry } = props;
+  const presentation = props.presentation ?? 'full';
   const view = buildDownloadViewModel(manifestState);
-  const statusRole = view.status.kind === 'error' ? 'alert' : 'status';
+  const statusRole =
+    view.status.kind === 'error' || view.status.kind === 'warning' ? 'alert' : 'status';
 
   return (
     <section
@@ -82,7 +93,7 @@ export function DownloadChooser({
           className={`status-dot ${view.status.kind === 'live' ? 'status-dot-live' : ''}`}
         />
         <span>{view.status.message}</span>
-        {view.status.kind === 'error' && onRetry ? (
+        {(view.status.kind === 'error' || view.status.kind === 'warning') && onRetry ? (
           <button className="manifest-retry" onClick={onRetry} type="button">
             Retry
           </button>
@@ -100,11 +111,11 @@ export function DownloadChooser({
               <p>{platform.summary}</p>
             </div>
             <div className="platform-action">
-              {presentation === 'terminal' ? (
+              {props.presentation === 'terminal' ? (
                 <TerminalDownloadAction
                   action={platform.actions[0]}
                   actionCount={platform.actions.length}
-                  onOpenFull={onOpenFull}
+                  onOpenFull={props.onOpenFull}
                 />
               ) : (
                 <FullDownloadActions platform={platform} />
@@ -129,7 +140,7 @@ export function DownloadChooser({
   );
 }
 
-interface DownloadDialogProps extends DownloadChooserProps {
+interface DownloadDialogProps extends DownloadChooserBaseProps {
   readonly onClose: () => void;
   readonly open: boolean;
 }

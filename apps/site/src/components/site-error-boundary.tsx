@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { BrainstrikeMark } from './brainstrike-mark';
 
 interface SiteErrorBoundaryProps {
@@ -9,12 +9,19 @@ interface SiteErrorBoundaryState {
   readonly error: string | null;
 }
 
-// biome-ignore lint/style/useReactFunctionComponents: React exposes error-boundary lifecycle APIs only to class components.
 export class SiteErrorBoundary extends Component<SiteErrorBoundaryProps, SiteErrorBoundaryState> {
   override state: SiteErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: unknown): SiteErrorBoundaryState {
     return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
+    // biome-ignore lint/suspicious/noConsole: A fatal render failure must leave a visible diagnostic trail.
+    console.error('Brainstrike site render failure', {
+      componentStack: info.componentStack,
+      error,
+    });
   }
 
   override render(): ReactNode {

@@ -67,7 +67,8 @@ export type DownloadStatusView =
   | { readonly kind: 'error'; readonly message: string }
   | { readonly kind: 'live'; readonly message: string }
   | { readonly kind: 'loading'; readonly message: string }
-  | { readonly kind: 'pending'; readonly message: string };
+  | { readonly kind: 'pending'; readonly message: string }
+  | { readonly kind: 'warning'; readonly message: string };
 
 export interface DownloadViewModel {
   readonly platforms: readonly DownloadPlatformView[];
@@ -186,6 +187,9 @@ function statusView(state: ReleaseManifestState): DownloadStatusView {
   }
   if (state.status === 'error') {
     return { kind: 'error', message: `Manifest error: ${state.error}` };
+  }
+  if (state.warning) {
+    return { kind: 'warning', message: state.warning };
   }
   if (!state.manifest.latest) {
     return {

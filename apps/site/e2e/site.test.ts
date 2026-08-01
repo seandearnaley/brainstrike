@@ -81,6 +81,20 @@ async function waitForSettledScroll(page: Page): Promise<void> {
   );
 }
 
+test('production assets load without content security policy violations', async ({ page }) => {
+  const policyViolations: string[] = [];
+  page.on('console', (message) => {
+    if (/content[- ]security[- ]policy/i.test(message.text())) {
+      policyViolations.push(message.text());
+    }
+  });
+
+  await page.goto('/');
+  await page.evaluate(async () => document.fonts.ready);
+
+  expect(policyViolations).toEqual([]);
+});
+
 test('renders the complete product journey without horizontal overflow', async ({ page }) => {
   await page.goto('/');
 
@@ -315,7 +329,7 @@ test('retries a visible manifest error and reaches the validated ready state', a
   let attempts = 0;
   await page.route('**/release-manifest.json', async (route) => {
     attempts += 1;
-    if (attempts === 1) {
+    if (attempts !== 2) {
       await route.fulfill({ body: 'unavailable', status: 503 });
       return;
     }
@@ -366,4 +380,32 @@ test('revalidates an expired unpublished manifest when the chooser opens', async
     'Latest stable build: v1.0.0'
   );
   expect(attempts).toBe(2);
+});
+
+test('preserves validated downloads and surfaces a failed background refresh', async ({ page }) => {
+  await page.clock.install();
+  let attempts = 0;
+  await page.route('**/release-manifest.json', async (route) => {
+    attempts += 1;
+    if (attempts !== 2) {
+      await route.fulfill({
+        body: JSON.stringify(PUBLISHED_MANIFEST),
+        contentType: 'application/json',
+      });
+      return;
+    }
+    await route.fulfill({ body: 'unavailable', status: 503 });
+  });
+  await page.goto('/#download');
+  await expect(page.locator('#download').getByText('Latest stable build: v1.0.0')).toBeVisible();
+
+  await page.clock.fastForward(60_001);
+  await page.getByRole('button', { name: 'Download' }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('alert')).toContainText('Release refresh failed');
+  await expect(dialog.locator(`.platform-action a[href^="${RELEASE_BASE}"]`)).toHaveCount(4);
+  await dialog.getByRole('button', { name: 'Retry' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Latest stable build: v1.0.0');
+  expect(attempts).toBe(3);
 });

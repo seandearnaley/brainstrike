@@ -788,7 +788,7 @@ jobs:
         run: pnpm --filter @brainstrike/web run test:e2e:lane:smoke
 
       - name: Run product site browser suite
-        run: pnpm --filter @brainstrike/site run test:e2e
+        run: xvfb-run -a pnpm --filter @brainstrike/site run test:e2e
 
       - name: Upload web smoke traces
         if: failure()

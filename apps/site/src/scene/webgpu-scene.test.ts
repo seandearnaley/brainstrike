@@ -4,6 +4,7 @@ import { WebGPUScene } from './webgpu-scene';
 type Listener = (event: unknown) => void;
 
 interface BrowserHarness {
+  readonly boundingRectReads: ReturnType<typeof vi.fn>;
   readonly cancelFrame: ReturnType<typeof vi.fn>;
   readonly destroyDevice: ReturnType<typeof vi.fn>;
   readonly dispatchDocument: (type: string, event?: unknown) => void;
@@ -140,10 +141,11 @@ function installBrowserHarness(
     configure: vi.fn(),
     getCurrentTexture: vi.fn(() => ({ createView: vi.fn(() => ({})) })),
   };
+  const boundingRectReads = vi.fn(() => ({ height: 600, left: 0, top: 0, width: 800 }));
   const canvas = {
     clientHeight: 600,
     clientWidth: 800,
-    getBoundingClientRect: () => ({ height: 600, left: 0, top: 0, width: 800 }),
+    getBoundingClientRect: boundingRectReads,
     getContext: () => (options.contextAvailable === false ? null : context),
     height: 0,
     width: 0,
@@ -195,6 +197,7 @@ function installBrowserHarness(
   return {
     canvas,
     harness: {
+      boundingRectReads,
       cancelFrame,
       destroyDevice,
       dispatchDocument: (type, event = new Event(type)) => dispatch(documentListeners, type, event),
@@ -303,6 +306,27 @@ describe('WebGPUScene lifecycle', () => {
     harness.dispatchWindow('pointercancel');
     harness.runNextFrame(48);
     expect(harness.uniformWrites.at(-1)?.[8]).toBe(0);
+    scene.stop();
+  });
+
+  it('reuses resize-time bounds instead of forcing layout on pointer movement', async () => {
+    const { canvas, harness } = installBrowserHarness();
+    const scene = createScene(canvas);
+    await scene.initialize();
+
+    expect(harness.boundingRectReads).toHaveBeenCalledOnce();
+    harness.dispatchWindow('pointermove', {
+      clientX: 700,
+      clientY: 100,
+      pointerType: 'mouse',
+    });
+    harness.dispatchWindow('pointermove', {
+      clientX: 650,
+      clientY: 150,
+      pointerType: 'mouse',
+    });
+
+    expect(harness.boundingRectReads).toHaveBeenCalledOnce();
     scene.stop();
   });
 });

@@ -110,4 +110,18 @@ describe('buildDownloadViewModel', () => {
     expect(loading.platforms.every((platform) => platform.actions.length === 0)).toBe(true);
     expect(error.platforms.every((platform) => platform.actions.length === 0)).toBe(true);
   });
+
+  it('preserves published actions while surfacing a background refresh warning', () => {
+    const view = buildDownloadViewModel({
+      ...PUBLISHED_STATE,
+      warning: 'Release refresh failed: HTTP 503',
+    });
+
+    expect(view.status).toEqual({
+      kind: 'warning',
+      message: 'Release refresh failed: HTTP 503',
+    });
+    expect(view.platforms[0]?.actions).toHaveLength(2);
+    expect(view.releasesHubUrl).toBe('https://downloads.example.com/brainstrike/releases');
+  });
 });

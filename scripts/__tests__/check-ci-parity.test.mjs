@@ -489,6 +489,7 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
   const plan = buildPlan(parseFlags(['--full']));
   const playwrightIds = new Set([
     'web-e2e-smoke',
+    'product-site-e2e',
     'desktop-e2e-smoke',
     'web-e2e-full-regression',
     'desktop-e2e-full-regression',
@@ -672,7 +673,7 @@ test('the documented flags stay coherent', () => {
   assert.ok(ids([]).includes('install'));
   assert.ok(!ids(['--no-install']).includes('install'));
 
-  for (const id of ['web-e2e-smoke', 'desktop-e2e-smoke']) {
+  for (const id of ['web-e2e-smoke', 'product-site-e2e', 'desktop-e2e-smoke']) {
     assert.ok(ids([]).includes(id));
     assert.ok(!ids(['--no-e2e']).includes(id));
   }
@@ -722,6 +723,7 @@ test('mode flags report every required gate they omit', () => {
   for (const step of [
     'browser-tests › Run browser tests',
     'web-e2e › Run web smoke',
+    'web-e2e › Run product site browser suite',
     'desktop-e2e › Run desktop smoke',
   ]) {
     assert.ok(omittedByFast.has(step), `--fast must disclose that it omits ${step}`);
@@ -730,7 +732,11 @@ test('mode flags report every required gate they omit', () => {
   const omittedByNoE2E = new Set(
     uncoveredCiGates(buildPlan(parseFlags(['--no-e2e']))).map((gate) => gate.step)
   );
-  for (const step of ['web-e2e › Run web smoke', 'desktop-e2e › Run desktop smoke']) {
+  for (const step of [
+    'web-e2e › Run web smoke',
+    'web-e2e › Run product site browser suite',
+    'desktop-e2e › Run desktop smoke',
+  ]) {
     assert.ok(omittedByNoE2E.has(step), `--no-e2e must disclose that it omits ${step}`);
   }
 });

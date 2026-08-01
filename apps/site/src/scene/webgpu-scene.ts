@@ -68,6 +68,7 @@ export class WebGPUScene {
   private readonly motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly onError: (error: Error) => void;
   private particleCount = 0;
+  private pointerBounds: DOMRectReadOnly | null = null;
   private pointerTarget = { x: 0, y: 0 };
   private readonly pointer = { x: 0, y: 0 };
   private readonly canvas: HTMLCanvasElement;
@@ -110,6 +111,8 @@ export class WebGPUScene {
 
       this.context = context;
       this.format = navigator.gpu.getPreferredCanvasFormat();
+      // Particle buffers are intentionally sized once per device lifetime; viewport changes only
+      // update projection and cached interaction bounds, avoiding mid-scene GPU reallocations.
       this.particleCount = resolveParticleCount(window.innerWidth);
       await this.createResources();
       this.startRendering();
@@ -155,6 +158,7 @@ export class WebGPUScene {
     document.documentElement.removeEventListener('pointerleave', this.handlePointerLoss);
     this.motionQuery.removeEventListener('change', this.handleMotionPreferenceChange);
     this.pointerQuery.removeEventListener('change', this.handlePointerCapabilityChange);
+    this.pointerBounds = null;
     this.device?.destroy();
   }
 
@@ -305,7 +309,11 @@ export class WebGPUScene {
       this.resetPointer();
       return;
     }
-    const bounds = this.canvas.getBoundingClientRect();
+    const bounds = this.pointerBounds;
+    if (!bounds) {
+      this.resetPointer();
+      return;
+    }
     if (bounds.width <= 0 || bounds.height <= 0) {
       this.resetPointer();
       return;
@@ -364,6 +372,7 @@ export class WebGPUScene {
   }
 
   private resize(): void {
+    this.pointerBounds = this.canvas.getBoundingClientRect();
     const context = this.context;
     const device = this.device;
     const format = this.format;
