@@ -42,7 +42,12 @@ export interface CodeExecutionApprovalContext {
   readonly allowedDomains: readonly string[];
   /** Explicit `ExecPolicy.allowRead` entries (absent in the policy ⇒ empty here). */
   readonly allowRead: readonly string[];
-  /** Effective `ExecPolicy.allowWrite`. Always contains the scratch location. */
+  /**
+   * Writable entries BEYOND the per-call scratch folder (today always empty).
+   * The scratch folder itself is minted by mkdtemp at execute time, after
+   * approval, so its location travels as {@link scratchParentDir} rather than
+   * as a fabricated not-yet-existing path in this list.
+   */
   readonly allowWrite: readonly string[];
   /**
    * How the sandbox treats reads OUTSIDE `allowRead`. The OS fence is

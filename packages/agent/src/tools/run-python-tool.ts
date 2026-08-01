@@ -18,14 +18,17 @@ import {
   resolveCodeExecutor,
 } from '../code-execution';
 import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
+// Single source with the approval-context derivation (BST-1070): the timeout
+// the card displays and the timeout this tool enforces must be the same
+// constant, or the approval card would state terms the run does not honour.
+import { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
 import { RunPythonInputSchema } from './schemas';
 
 const logger = createLogger('RunPythonTool');
 
 export const RUN_PYTHON_TOOL_ID = NATIVE_TOOL_ID.runPython;
 
-/** Matches the display schema's documented default; the seam caps at MAX_EXEC_TIMEOUT_MS. */
-export const RUN_PYTHON_DEFAULT_TIMEOUT_MS = 30_000;
+export { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
 
 /**
  * Room reserved for the result envelope (kind, exit code, omitted-byte counts)

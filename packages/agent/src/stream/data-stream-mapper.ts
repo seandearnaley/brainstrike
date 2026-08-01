@@ -771,6 +771,12 @@ export class DataStreamMapper {
       ...(chunk.policyDecision === undefined ? {} : { policyDecision: chunk.policyDecision }),
       ...(args === undefined ? {} : { args: toJsonSafe(args) }),
       ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
+      // BST-1070: this rebuild is field-by-field, so anything not explicitly
+      // spread is DROPPED — omitting this line would starve every LIVE
+      // approval of its execution context while rediscovered ones (which
+      // recompute server-side) kept working, precisely backwards. Pinned by
+      // the live-transport test in data-stream-session.spec.ts.
+      ...(chunk.executionContext === undefined ? {} : { executionContext: chunk.executionContext }),
     };
     yield {
       code: DataStreamCode.auiDataPart,
