@@ -82,9 +82,10 @@ export function extractPrimaryArg(
 function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSummary {
   const full = value.replaceAll(/\s+/g, ' ').trim();
   // Cut on CODE POINTS, not UTF-16 units — a slice landing inside a
-  // surrogate pair would render U+FFFD at the truncation seam.
-  const codePoints = [...full];
-  if (codePoints.length <= MAX_PRIMARY_ARG_LENGTH) {
+  // surrogate pair would render U+FFFD at the truncation seam. Scans are
+  // bounded by the cap so long values never expand into a code-point array.
+  const capEnd = advanceCodePoints(full, MAX_PRIMARY_ARG_LENGTH);
+  if (capEnd === full.length) {
     return { display: full, full };
   }
   // Paths lose their identity when the END is cut (the basename is the part
@@ -93,11 +94,44 @@ function summarizePrimaryArg(value: string, isPathKey: boolean): PrimaryArgSumma
   // are still paths); the separator heuristic only covers untyped keys.
   const isPathLike = isPathKey || (!full.includes(' ') && /[/\\]/.test(full));
   if (isPathLike) {
-    const head = codePoints.slice(0, PATH_HEAD_LENGTH).join('');
-    const tail = codePoints.slice(-PATH_TAIL_LENGTH).join('');
+    const head = full.slice(0, advanceCodePoints(full, PATH_HEAD_LENGTH));
+    const tail = full.slice(retreatCodePoints(full, PATH_TAIL_LENGTH));
     return { display: `${head}…${tail}`, full };
   }
-  return { display: `${codePoints.slice(0, MAX_PRIMARY_ARG_LENGTH - 1).join('')}…`, full };
+  const displayEnd = advanceCodePoints(full, MAX_PRIMARY_ARG_LENGTH - 1);
+  return { display: `${full.slice(0, displayEnd)}…`, full };
+}
+
+/** Advance by Unicode code points without materializing the complete string. */
+function advanceCodePoints(value: string, count: number): number {
+  let index = 0;
+  for (let seen = 0; seen < count && index < value.length; seen++) {
+    const codeUnit = value.charCodeAt(index);
+    index++;
+    if (codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff && index < value.length) {
+      const nextCodeUnit = value.charCodeAt(index);
+      if (nextCodeUnit >= 0xdc_00 && nextCodeUnit <= 0xdf_ff) {
+        index++;
+      }
+    }
+  }
+  return index;
+}
+
+/** Retreat by Unicode code points without materializing the complete string. */
+function retreatCodePoints(value: string, count: number): number {
+  let index = value.length;
+  for (let seen = 0; seen < count && index > 0; seen++) {
+    index--;
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xdc_00 && codeUnit <= 0xdf_ff && index > 0) {
+      const previousCodeUnit = value.charCodeAt(index - 1);
+      if (previousCodeUnit >= 0xd8_00 && previousCodeUnit <= 0xdb_ff) {
+        index--;
+      }
+    }
+  }
+  return index;
 }
 
 /**
