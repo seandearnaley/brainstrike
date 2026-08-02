@@ -342,7 +342,7 @@ async function subscribeViaPGlite<T>(
   };
 }
 
-async function subscribeViaElectron<T>(
+export async function subscribeViaElectron<T>(
   bridge: ElectronLiveBridge,
   options: InternalLiveQueryOptions,
   onUpdate: (results: LiveQueryResults<T>) => void
@@ -375,6 +375,7 @@ async function subscribeViaElectron<T>(
     onUpdate(payload.results as LiveQueryResults<T>);
   });
   recordDatabaseLiveSubscriptionStarted();
+  let released = false;
 
   return {
     initialResults: startResult.initialResults,
@@ -391,6 +392,10 @@ async function subscribeViaElectron<T>(
       });
     },
     unsubscribe: async () => {
+      if (released) {
+        return;
+      }
+      released = true;
       try {
         await bridge.stop(startResult.id);
       } finally {

@@ -6,7 +6,12 @@ import { databaseQueryTelemetry } from '../src/database-query-telemetry.js';
 // longer re-exports it (BST-990 — engine helpers stay out of the React
 // module's export chain).
 import { escapePGliteLiveQueryFormatPercents } from '../src/pglite-live-query-format.js';
-import { deepEqual, makeLiveQueryKey, usePGliteLiveQuery } from '../src/use-live-query.js';
+import {
+  deepEqual,
+  makeLiveQueryKey,
+  subscribeViaElectron,
+  usePGliteLiveQuery,
+} from '../src/use-live-query.js';
 
 // Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
@@ -244,6 +249,28 @@ describe('Electron Live Query', () => {
         telemetryBefore.activeLiveSubscriptions
       );
     });
+  });
+
+  it('releases Electron subscription ownership exactly once', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const subscription = await subscribeViaElectron(
+      mockBridge,
+      { mode: 'query', query: 'SELECT * FROM test' },
+      vi.fn()
+    );
+
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions + 1
+    );
+
+    await subscription.unsubscribe();
+    await subscription.unsubscribe();
+
+    expect(mockBridge.stop).toHaveBeenCalledTimes(1);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
   });
 
   it('tracks Electron live updates and refresh queries', async () => {

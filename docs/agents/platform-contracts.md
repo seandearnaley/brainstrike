@@ -616,10 +616,15 @@ duration and failure data with zero lookup and hit counts. Live-query histogram
 samples represent start and refresh query executions on both renderer and
 Electron paths; subscription lifecycle, update delivery, and teardown are
 tracked separately. A rejected direct unsubscribe retains its registered
-wrapper and active-subscription ownership until a retry succeeds. Production
-wrappers log telemetry failures at error level while preserving the database
-operation's original success or rejection. There is deliberately no public reset: clearing the singleton could
-invalidate live-subscription ownership held by active proxies. Paired coverage
+wrapper for a possible cleanup retry, but releases local subscription ownership
+exactly once on the first teardown attempt and suppresses later update accounting;
+a retry cannot double-decrement the counter. Electron teardown has the same
+idempotent counter ownership. Production wrappers log telemetry failures,
+including an unavailable timing clock, at error level while preserving and always
+executing the database operation's original success or rejection. The clock-free
+package regression imports the public database package entrypoint. There is
+deliberately no public reset: clearing the singleton could invalidate
+live-subscription ownership held by active proxies. Paired coverage
 lives in
 `packages/db/__tests__/database-query-telemetry.test.ts`,
 `database-work-scheduler.test.ts`, `use-live-query.test.tsx`, the token-cache and

@@ -235,7 +235,7 @@ describe('DatabaseQueryTelemetry', () => {
     vi.resetModules();
     vi.stubGlobal('performance', undefined);
 
-    const telemetryModule = await import('../src/database-query-telemetry');
+    const telemetryModule = await import('../src/index');
 
     expect(() => telemetryModule.databaseQueryTelemetry.snapshot()).toThrow(
       'Database query telemetry requires the Performance monotonic clock'
@@ -330,5 +330,16 @@ describe('DatabaseQueryTelemetry', () => {
         lookupCount: 1,
       })
     ).resolves.toBe('result');
+  });
+
+  it('runs the database operation when the measurement clock is unavailable', async () => {
+    vi.stubGlobal('performance', undefined);
+    const work = vi.fn(async () => 'query result');
+    const recordQuery = vi.spyOn(databaseQueryTelemetry, 'recordQuery');
+
+    await expect(measureDatabaseQuery('file-tree', work)).resolves.toBe('query result');
+
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(recordQuery).not.toHaveBeenCalled();
   });
 });

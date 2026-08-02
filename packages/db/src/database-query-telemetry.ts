@@ -196,6 +196,18 @@ function safelyRecordTelemetry(operation: string, record: () => void): void {
   }
 }
 
+function readQueryMeasurementStart(feature: DatabaseQueryFeature): number | null {
+  try {
+    return readMonotonicTime();
+  } catch (error) {
+    logger.error('Database query telemetry timing unavailable; query will continue', {
+      error: getErrorMessage(error),
+      operation: `${feature}-query`,
+    });
+    return null;
+  }
+}
+
 export class DatabaseQueryTelemetry {
   private activeLiveSubscriptions = 0;
   private currentSnapshot: DatabaseQueryTelemetrySnapshot;
@@ -517,27 +529,31 @@ export async function measureDatabaseQuery<T>(
   work: () => Promise<T>,
   counts?: { readonly hitCount: (result: T) => number; readonly lookupCount: number }
 ): Promise<T> {
-  const startedAt = readMonotonicTime();
+  const startedAt = readQueryMeasurementStart(feature);
   try {
     const result = await work();
-    safelyRecordTelemetry(`${feature}-query`, () => {
-      databaseQueryTelemetry.recordQuery({
-        durationMs: readMonotonicTime() - startedAt,
-        feature,
-        ...(counts
-          ? { hitCount: counts.hitCount(result), lookupCount: counts.lookupCount }
-          : undefined),
+    if (startedAt !== null) {
+      safelyRecordTelemetry(`${feature}-query`, () => {
+        databaseQueryTelemetry.recordQuery({
+          durationMs: readMonotonicTime() - startedAt,
+          feature,
+          ...(counts
+            ? { hitCount: counts.hitCount(result), lookupCount: counts.lookupCount }
+            : undefined),
+        });
       });
-    });
+    }
     return result;
   } catch (error) {
-    safelyRecordTelemetry(`${feature}-query-failed`, () => {
-      databaseQueryTelemetry.recordQuery({
-        durationMs: readMonotonicTime() - startedAt,
-        failed: true,
-        feature,
+    if (startedAt !== null) {
+      safelyRecordTelemetry(`${feature}-query-failed`, () => {
+        databaseQueryTelemetry.recordQuery({
+          durationMs: readMonotonicTime() - startedAt,
+          failed: true,
+          feature,
+        });
       });
-    });
+    }
     throw error;
   }
 }

@@ -635,7 +635,7 @@ describe('DatabaseWorkScheduler', () => {
     );
   });
 
-  it('retains the wrapped listener and subscription ownership until unsubscribe succeeds', async () => {
+  it('retains the wrapped listener for retry but releases subscription ownership once', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     let subscribedListener: ((...args: unknown[]) => unknown) | null = null;
     let unsubscribeAttempt = 0;
@@ -670,9 +670,12 @@ describe('DatabaseWorkScheduler', () => {
     await expect(handle.unsubscribe(listener)).rejects.toThrow('database is closing');
 
     expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
-      telemetryBefore.activeLiveSubscriptions + 1
+      telemetryBefore.activeLiveSubscriptions
     );
     expect(liveHandle.unsubscribe).toHaveBeenNthCalledWith(1, subscribedListener);
+    const liveUpdatesAfterFailedCleanup = databaseQueryTelemetry.snapshot().liveUpdateCount;
+    subscribedListener?.({ rows: [] });
+    expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(liveUpdatesAfterFailedCleanup);
 
     await expect(handle.unsubscribe(listener)).resolves.toBeUndefined();
 

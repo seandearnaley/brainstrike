@@ -157,6 +157,54 @@ export class TokenCacheStore {
     }
   }
 
+  private readLookupTelemetryClock(): number | null {
+    try {
+      if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
+        throw new Error('Token cache telemetry requires the Performance monotonic clock');
+      }
+      const timestamp = performance.now();
+      if (!Number.isFinite(timestamp)) {
+        throw new Error('Token cache telemetry Performance clock returned a non-finite value');
+      }
+      return timestamp;
+    } catch (error) {
+      logger.error('Token cache telemetry timing unavailable; lookup will continue', {
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  private recordTimedLookup(
+    startedAt: number | null,
+    record: Omit<TokenCacheLookupTelemetryRecord, 'durationMs'>
+  ): void {
+    if (startedAt === null) {
+      return;
+    }
+    const completedAt = this.readLookupTelemetryClock();
+    if (completedAt === null) {
+      return;
+    }
+    this.recordLookupTelemetry({ ...record, durationMs: completedAt - startedAt });
+  }
+
+  private async measureLookup<T>(
+    work: () => Promise<T>,
+    summarize: (result: T) => { readonly hitCount: number; readonly lookupCount: number },
+    failureCounts: { readonly hitCount: number; readonly lookupCount: number }
+  ): Promise<T> {
+    const startedAt = this.readLookupTelemetryClock();
+    try {
+      const result = await work();
+      this.recordTimedLookup(startedAt, summarize(result));
+      return result;
+    } catch (error) {
+      this.recordTimedLookup(startedAt, { ...failureCounts, failed: true });
+      throw error;
+    }
+  }
+
   private validateFilePath(filePath: string): string {
     try {
       const validatedPath = validateRelativeFilePath(filePath, {
@@ -214,30 +262,18 @@ export class TokenCacheStore {
    */
   async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
     const validatedPath = this.validateFilePath(filePath);
-    const startedAt = performance.now();
-    let result: { rows: TokenCacheRow[] };
-    try {
-      result = await this.db.query<TokenCacheRow>(
-        `SELECT * FROM file_token_cache
+    const result = await this.measureLookup(
+      async () =>
+        await this.db.query<TokenCacheRow>(
+          `SELECT * FROM file_token_cache
          WHERE folder_id = $1 AND file_path = $2`,
-        [folderId, validatedPath]
-      );
-    } catch (error) {
-      this.recordLookupTelemetry({
-        durationMs: performance.now() - startedAt,
-        failed: true,
-        hitCount: 0,
-        lookupCount: 1,
-      });
-      throw error;
-    }
+          [folderId, validatedPath]
+        ),
+      (queryResult) => ({ hitCount: queryResult.rows[0] ? 1 : 0, lookupCount: 1 }),
+      { hitCount: 0, lookupCount: 1 }
+    );
 
     const row = result.rows[0];
-    this.recordLookupTelemetry({
-      durationMs: performance.now() - startedAt,
-      hitCount: row ? 1 : 0,
-      lookupCount: 1,
-    });
     if (!row) {
       return null;
     }
@@ -257,40 +293,28 @@ export class TokenCacheStore {
 
     // Build parameterized query with placeholder array
     const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
-    const startedAt = performance.now();
-    let result: { rows: TokenCacheRow[] };
-    try {
-      result = await this.db.query<TokenCacheRow>(
-        `SELECT * FROM file_token_cache
-         WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-        [folderId, ...validatedPaths]
-      );
-    } catch (error) {
-      this.recordLookupTelemetry({
-        durationMs: performance.now() - startedAt,
-        failed: true,
-        hitCount: 0,
+    return await this.measureLookup(
+      async () => {
+        const result = await this.db.query<TokenCacheRow>(
+          `SELECT * FROM file_token_cache
+           WHERE folder_id = $1 AND file_path IN (${placeholders})`,
+          [folderId, ...validatedPaths]
+        );
+        const entries = new Map<string, TokenCacheEntry>();
+        for (const row of result.rows) {
+          entries.set(row.file_path, rowToEntry(row));
+        }
+        return entries;
+      },
+      (entries) => ({
+        hitCount: validatedPaths.reduce(
+          (count, validatedPath) => count + (entries.has(validatedPath) ? 1 : 0),
+          0
+        ),
         lookupCount: validatedPaths.length,
-      });
-      throw error;
-    }
-
-    const map = new Map<string, TokenCacheEntry>();
-    for (const row of result.rows) {
-      map.set(row.file_path, rowToEntry(row));
-    }
-
-    const hitCount = validatedPaths.reduce(
-      (count, validatedPath) => count + (map.has(validatedPath) ? 1 : 0),
-      0
+      }),
+      { hitCount: 0, lookupCount: validatedPaths.length }
     );
-    this.recordLookupTelemetry({
-      durationMs: performance.now() - startedAt,
-      hitCount,
-      lookupCount: validatedPaths.length,
-    });
-
-    return map;
   }
 
   /**
@@ -420,32 +444,19 @@ export class TokenCacheStore {
     const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
     const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
-    const startedAt = performance.now();
-    let result: { rows: { total: string }[] };
-    try {
-      result = await this.db.query<{ total: string }>(
-        `SELECT COALESCE(SUM(token_count), 0) as total
-         FROM file_token_cache
-         WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-        [folderId, ...validatedPaths]
-      );
-    } catch (error) {
-      this.recordLookupTelemetry({
-        durationMs: performance.now() - startedAt,
-        failed: true,
-        hitCount: 0,
-        lookupCount: 0,
-      });
-      throw error;
-    }
-
-    this.recordLookupTelemetry({
-      durationMs: performance.now() - startedAt,
-      hitCount: 0,
-      lookupCount: 0,
-    });
-
-    return Number(result.rows[0]?.total ?? 0);
+    return await this.measureLookup(
+      async () => {
+        const result = await this.db.query<{ total: string }>(
+          `SELECT COALESCE(SUM(token_count), 0) as total
+           FROM file_token_cache
+           WHERE folder_id = $1 AND file_path IN (${placeholders})`,
+          [folderId, ...validatedPaths]
+        );
+        return Number(result.rows[0]?.total ?? 0);
+      },
+      () => ({ hitCount: 0, lookupCount: 0 }),
+      { hitCount: 0, lookupCount: 0 }
+    );
   }
 
   /**

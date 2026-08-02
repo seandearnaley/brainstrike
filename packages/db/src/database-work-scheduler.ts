@@ -710,7 +710,10 @@ function createScheduledLiveQueryHandle<THandle extends object>(
   scheduler: DatabaseWorkScheduler,
   refreshPriority: DatabaseWorkPriority
 ): THandle {
-  const subscribedListeners = new Map<CallableUnknown, CallableUnknown>();
+  const subscribedListeners = new Map<
+    CallableUnknown,
+    { counted: boolean; wrappedListener: CallableUnknown }
+  >();
   return new Proxy(handle, {
     get(target, property, receiver) {
       if (property === 'refresh') {
@@ -736,14 +739,22 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         return (listener: CallableUnknown) => {
           const existing = subscribedListeners.get(listener);
           if (existing) {
-            return Reflect.apply(subscribe as CallableUnknown, target, [existing]);
+            return Reflect.apply(subscribe as CallableUnknown, target, [existing.wrappedListener]);
           }
           const wrappedListener = function (this: unknown, ...args: unknown[]) {
-            recordDatabaseLiveUpdate();
+            if (entry.counted) {
+              recordDatabaseLiveUpdate();
+            }
             return Reflect.apply(listener, this, args) as unknown;
           };
-          const result = Reflect.apply(subscribe as CallableUnknown, target, [wrappedListener]);
-          subscribedListeners.set(listener, wrappedListener);
+          const entry = {
+            counted: true,
+            wrappedListener,
+          };
+          const result = Reflect.apply(subscribe as CallableUnknown, target, [
+            entry.wrappedListener,
+          ]);
+          subscribedListeners.set(listener, entry);
           recordDatabaseLiveSubscriptionStarted();
           return result;
         };
@@ -754,16 +765,22 @@ function createScheduledLiveQueryHandle<THandle extends object>(
           return unsubscribe;
         }
         return async (listener: CallableUnknown) => {
-          const wrappedListener = subscribedListeners.get(listener);
-          if (!wrappedListener) {
+          const entry = subscribedListeners.get(listener);
+          if (!entry) {
             return await Reflect.apply(unsubscribe as CallableUnknown, target, [listener]);
           }
-          const result = await Reflect.apply(unsubscribe as CallableUnknown, target, [
-            wrappedListener,
-          ]);
-          subscribedListeners.delete(listener);
-          recordDatabaseLiveSubscriptionEnded();
-          return result;
+          try {
+            const result = await Reflect.apply(unsubscribe as CallableUnknown, target, [
+              entry.wrappedListener,
+            ]);
+            subscribedListeners.delete(listener);
+            return result;
+          } finally {
+            if (entry.counted) {
+              entry.counted = false;
+              recordDatabaseLiveSubscriptionEnded();
+            }
+          }
         };
       }
       return Reflect.get(target, property, receiver);

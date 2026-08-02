@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockLoggerError, mockLoggerWarn, mockLoggerInfo } = vi.hoisted(() => ({
   mockLoggerError: vi.fn(),
@@ -230,6 +230,10 @@ describe('TokenCacheStore', () => {
     store = new TokenCacheStore(mockDb as any);
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   const createEntry = (overrides: Partial<TokenCacheEntry> = {}): TokenCacheEntry => ({
     contentHash: 'abc123def456',
     countingMode: 'accurate',
@@ -282,6 +286,33 @@ describe('TokenCacheStore', () => {
         'Token cache lookup telemetry recording failed',
         { error: 'telemetry sink unavailable' }
       );
+    });
+
+    it('keeps lookup operations working when the telemetry clock is unavailable', async () => {
+      const recordLookup = vi.fn();
+      const instrumentedStore = new TokenCacheStore(mockDb as any, {
+        telemetry: { recordLookup },
+      });
+      await instrumentedStore.set(createEntry());
+      vi.stubGlobal('performance', undefined);
+
+      await expect(instrumentedStore.get('folder-1', 'src/index.ts')).resolves.toMatchObject({
+        filePath: 'src/index.ts',
+      });
+      await expect(instrumentedStore.getBatch('folder-1', ['src/index.ts'])).resolves.toEqual(
+        new Map([
+          [
+            'src/index.ts',
+            expect.objectContaining({ filePath: 'src/index.ts' }) as TokenCacheEntry,
+          ],
+        ])
+      );
+      await expect(instrumentedStore.getTotalTokens('folder-1', ['src/index.ts'])).resolves.toBe(
+        250
+      );
+
+      expect(recordLookup).not.toHaveBeenCalled();
+      expect(mockLoggerError).toHaveBeenCalledTimes(3);
     });
 
     it('stores and retrieves a single entry', async () => {

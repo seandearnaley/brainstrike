@@ -41,6 +41,10 @@ the collector captures each caller field once and
 copies only explicit allowlisted fields into each sample. Selected-file aggregate token queries
 record duration and failure only, with zero lookup and hit counts; live-query
 histograms count start and refresh query executions rather than teardown.
+Direct and Electron teardown release local subscription ownership exactly once,
+even when remote cleanup rejects or callers invoke unsubscribe repeatedly. A
+missing telemetry clock is logged visibly but never prevents the wrapped database
+or token-cache operation from running.
 
 ## Prohibited By Default
 
