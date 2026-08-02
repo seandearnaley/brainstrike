@@ -36,12 +36,16 @@ describe('SystemDiagnosticsPanel', () => {
     __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
+    (window as Window & { embeddingHost?: unknown }).embeddingHost = {
+      onStatus: vi.fn(() => () => undefined),
+    };
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
+    (window as Window & { embeddingHost?: unknown }).embeddingHost = undefined;
     vi.unstubAllGlobals();
   });
 
@@ -146,6 +150,85 @@ describe('SystemDiagnosticsPanel', () => {
       expect(consoleError.mock.calls.flat().join(' ')).not.toContain(
         'Encountered two children with the same key'
       );
+    });
+
+    it('refreshes desktop embedding telemetry when the hidden host reports status', async () => {
+      const createSnapshot = (totalBytes: number) => {
+        const telemetry = {
+          batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
+          cache: {
+            entries: [],
+            estimatedGpuBytes: 0,
+            estimatedHeapBytes: 0,
+            memoryEstimateUnavailableCount: 0,
+            residentCount: 0,
+          },
+          health: { failureCount: 0, lastFailure: null },
+          lastUpdatedAt: null,
+          peakVectorsInFlight: 0,
+        } as const;
+        return {
+          collectedAt: '2026-08-01T00:00:00.000Z',
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          indexing: { activeBackfills: [] },
+          llmHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'llm-host:idle',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          reset: { userDataPath: '/tmp/brainstrike-user-data' },
+          telemetry: {
+            backgroundRuntimeMetrics: [],
+            embedding: {
+              ...telemetry,
+              batchTransfer: { ...telemetry.batchTransfer, totalBytes },
+              lastUpdatedAt: totalBytes === 0 ? null : 1000,
+            },
+          },
+        };
+      };
+      const getSnapshot = vi
+        .fn()
+        .mockResolvedValueOnce(createSnapshot(0))
+        .mockResolvedValueOnce(createSnapshot(8 * 1024));
+      const statusListenerRef: { current: (() => void) | null } = { current: null };
+      const unsubscribe = vi.fn();
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = { getSnapshot };
+      (window as Window & { embeddingHost?: unknown }).embeddingHost = {
+        onStatus: vi.fn((listener: () => void) => {
+          statusListenerRef.current = listener;
+          return unsubscribe;
+        }),
+      };
+
+      const { unmount } = render(<SystemDiagnosticsPanel />);
+
+      await waitFor(() => expect(getSnapshot).toHaveBeenCalledTimes(1));
+      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
+      const statusListener = statusListenerRef.current;
+      if (!statusListener) {
+        throw new Error('Expected the diagnostics panel to subscribe to embedding host status.');
+      }
+      act(() => statusListener());
+
+      await waitFor(() => {
+        expect(getSnapshot).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
+      });
+      unmount();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
     });
 
     it('renders header with title and description', () => {

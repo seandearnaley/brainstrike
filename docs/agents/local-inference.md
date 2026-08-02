@@ -131,10 +131,11 @@ Embedding runtime telemetry (BST-402):
   diagnostics emitted during `runEmbedding`. Worker-global diagnostics that occur after
   an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
   `BroadcastChannel`; its name is carried in the managed worker script fragment. The
-  adapter requires that capability, validates that channel traffic is an id-less cache
-  diagnostic, terminates the affected pool on malformed traffic, and closes the channel
-  during pool teardown. Streaming workers without that fragment deliver worker-global
-  diagnostics over their direct worker message transport. Each pool worker receives a unique
+  adapter requires that capability, validates the complete discriminated cache diagnostic
+  and every cache-entry/memory field, requires worker-lifetime channel traffic to be id-less,
+  terminates the affected pool on malformed traffic, and closes the channel during pool
+  teardown. Streaming workers without that fragment deliver worker-global diagnostics over
+  their direct worker message transport. Each pool worker receives a unique
   `WorkerOptions.name`; that identity is emitted with cache diagnostics. The same UUID is
   carried in a fragment on that worker's script URL because workerpool 10.0.3 omits
   `workerOpts` from its runtime termination callback despite declaring it in the public
@@ -155,8 +156,10 @@ Embedding runtime telemetry (BST-402):
   a validated snapshot through the existing typed host-status bridge; Electron main
   stores/relays that snapshot but never observes or runs inference. Stopped host reports
   retain the current renderer-session snapshot so a latched telemetry-health failure
-  remains visible after an explicit worker stop. Web diagnostics read the same
-  renderer-local store directly.
+  remains visible after an explicit worker stop. While desktop System Diagnostics is open,
+  it subscribes to embedding-host status events and refetches the platform snapshot with
+  stale-request suppression so live telemetry never remains pinned to the initial read. Web
+  diagnostics read the same renderer-local store directly.
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts
   to be revisited explicitly.

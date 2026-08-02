@@ -439,6 +439,36 @@ describe('createWorkerpoolAdapter', () => {
     expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a pipeline-cache diagnostic with malformed cache entries', async () => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        options?.on?.({
+          cacheSize: 1,
+          diagnostic: 'pipeline-cache',
+          emittedAt: 100,
+          entries: [{ cacheKey: 'incomplete-cache-entry' }],
+          event: 'loaded',
+          id: 'task-malformed-entry',
+          type: 'diagnostic',
+          workerInstanceId: 'worker-malformed-entry',
+        });
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('task-malformed-entry'));
+    resolve(createResult('task-malformed-entry'));
+
+    await expect(addPromise).rejects.toThrow(
+      'Embedding worker pipeline-cache diagnostic entries[0].createdAt must be a non-negative finite number.'
+    );
+    expect(promise.cancel).toHaveBeenCalledTimes(1);
+    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+  });
+
   it('removes only the telemetry source for the workerpool worker that terminates', async () => {
     const executions = [
       createCancelablePromise<QueueResult>(),

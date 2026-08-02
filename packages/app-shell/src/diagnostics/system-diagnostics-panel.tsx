@@ -136,6 +136,10 @@ interface DesktopDiagnosticsBridge {
   readonly getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
 }
 
+interface EmbeddingHostStatusSubscriptionBridge {
+  readonly onStatus: (callback: () => void) => () => void;
+}
+
 function getDesktopDiagnosticsBridge(): DesktopDiagnosticsBridge | null {
   if (typeof window === 'undefined') {
     return null;
@@ -148,6 +152,22 @@ function getDesktopDiagnosticsBridge(): DesktopDiagnosticsBridge | null {
     typeof candidate.getSnapshot === 'function'
   ) {
     return candidate as DesktopDiagnosticsBridge;
+  }
+  return null;
+}
+
+function getEmbeddingHostStatusSubscriptionBridge(): EmbeddingHostStatusSubscriptionBridge | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const candidate = (window as Window & { embeddingHost?: unknown }).embeddingHost;
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    'onStatus' in candidate &&
+    typeof candidate.onStatus === 'function'
+  ) {
+    return candidate as EmbeddingHostStatusSubscriptionBridge;
   }
   return null;
 }
@@ -830,22 +850,39 @@ export function SystemDiagnosticsPanel({
         cancelled = true;
       };
     }
-    void bridge.getSnapshot().then(
-      (snapshot) => {
-        if (!cancelled) {
-          setDesktopSnapshot(snapshot);
-          setDesktopDiagnosticsError(null);
+    const hostStatusBridge = getEmbeddingHostStatusSubscriptionBridge();
+    if (!hostStatusBridge) {
+      setDesktopSnapshot(null);
+      setDesktopDiagnosticsError('Desktop embedding host status bridge is unavailable.');
+      return () => {
+        cancelled = true;
+      };
+    }
+    let snapshotRequestId = 0;
+    const refreshDesktopSnapshot = (): void => {
+      snapshotRequestId += 1;
+      const currentRequestId = snapshotRequestId;
+      void bridge.getSnapshot().then(
+        (snapshot) => {
+          if (!(cancelled || currentRequestId !== snapshotRequestId)) {
+            setDesktopSnapshot(snapshot);
+            setDesktopDiagnosticsError(null);
+          }
+        },
+        (error: unknown) => {
+          if (!(cancelled || currentRequestId !== snapshotRequestId)) {
+            setDesktopSnapshot(null);
+            setDesktopDiagnosticsError(error instanceof Error ? error.message : String(error));
+          }
         }
-      },
-      (error: unknown) => {
-        if (!cancelled) {
-          setDesktopSnapshot(null);
-          setDesktopDiagnosticsError(error instanceof Error ? error.message : String(error));
-        }
-      }
-    );
+      );
+    };
+    const unsubscribe = hostStatusBridge.onStatus(refreshDesktopSnapshot);
+    refreshDesktopSnapshot();
     return () => {
       cancelled = true;
+      snapshotRequestId += 1;
+      unsubscribe();
     };
   }, [refreshKey]);
 
