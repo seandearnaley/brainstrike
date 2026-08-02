@@ -101,8 +101,11 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'without a diagnostics subscriber',
     'external-store read',
     'occurrence timestamp',
+    'sample-cap eviction',
     'delivery-time route and feature-flag context',
     'single monotonic epoch clock',
+    'Module construction is clock-free',
+    'failed in-memory snapshot',
   ]) {
     assertContractIncludes(term);
   }

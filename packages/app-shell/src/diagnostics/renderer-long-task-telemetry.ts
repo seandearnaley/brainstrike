@@ -116,7 +116,11 @@ export function createRendererLongTaskTelemetry(
   > = 'unavailable';
   const listeners = new Set<() => void>();
   let observationGeneration = 0;
-  const performanceEntryKeys = new Set<string>();
+  const maxPerformanceEntryKeys = Math.max(
+    maxSamples,
+    Math.ceil(windowMs / LONG_TASK_MIN_DURATION_MS) + 1
+  );
+  const performanceEntryKeys = new Map<string, number>();
   let retentionTimer: ReturnType<typeof setTimeout> | null = null;
   let samples: RendererLongTaskSample[] = [];
   let unavailableReason: string | null = null;
@@ -128,11 +132,13 @@ export function createRendererLongTaskTelemetry(
       if (sample.observedAt >= threshold) {
         return true;
       }
-      if (sample.performanceEntryKey !== undefined) {
-        performanceEntryKeys.delete(sample.performanceEntryKey);
-      }
       return false;
     });
+    for (const [key, observedAt] of performanceEntryKeys) {
+      if (observedAt < threshold) {
+        performanceEntryKeys.delete(key);
+      }
+    }
     return samples.length !== sampleCountBeforePrune;
   };
 
@@ -185,14 +191,17 @@ export function createRendererLongTaskTelemetry(
     };
   };
 
-  let currentSnapshot = buildSnapshot(now());
-  let snapshotDirty = false;
+  // Module construction must not turn a missing timing capability into a shell
+  // import failure. The first collection/read validates the clock instead.
+  let currentSnapshot = buildSnapshot(0);
+  let snapshotDirty = true;
 
   const releaseCachedSampleContext = (snapshotAt: number): void => {
     currentSnapshot = {
       ...currentSnapshot,
       durationP50Ms: null,
       durationP95Ms: null,
+      featureFlagContextAvailability: currentFeatureFlagContextAvailability,
       featureFlags: [],
       maxDurationMs: null,
       routes: [],
@@ -208,6 +217,30 @@ export function createRendererLongTaskTelemetry(
     for (const listener of listeners) {
       listener();
     }
+  };
+
+  const publishFailedSnapshot = (error: unknown): void => {
+    availability = 'failed';
+    unavailableReason = error instanceof Error ? error.message : String(error);
+    let snapshotAt: number;
+    try {
+      snapshotAt = now();
+    } catch (clockError) {
+      if (retentionTimer !== null) {
+        clearTimeout(retentionTimer);
+        retentionTimer = null;
+      }
+      samples = [];
+      performanceEntryKeys.clear();
+      unavailableReason = clockError instanceof Error ? clockError.message : String(clockError);
+      currentSnapshot = buildSnapshot(0);
+      snapshotDirty = false;
+      for (const listener of listeners) {
+        listener();
+      }
+      return;
+    }
+    publishSnapshot(snapshotAt);
   };
 
   const publish = (): void => {
@@ -236,10 +269,11 @@ export function createRendererLongTaskTelemetry(
       if (!pruned) {
         return;
       }
-      releaseCachedSampleContext(snapshotAt);
-      if (listeners.size > 0) {
-        publishSnapshot(snapshotAt);
+      if (listeners.size === 0) {
+        releaseCachedSampleContext(snapshotAt);
+        return;
       }
+      publishSnapshot(snapshotAt);
     }, delayMs);
   };
 
@@ -253,7 +287,8 @@ export function createRendererLongTaskTelemetry(
       (retainedSample) => retainedSample.observedAt > sample.observedAt
     );
     if (insertionIndex < 0) {
-      throw new Error('Renderer long-task telemetry sample ordering invariant failed.');
+      samples.push(sample);
+      return;
     }
     samples.splice(insertionIndex, 0, sample);
   };
@@ -263,12 +298,7 @@ export function createRendererLongTaskTelemetry(
     if (overflowCount <= 0) {
       return false;
     }
-    const evictedSamples = samples.splice(0, overflowCount);
-    for (const evictedSample of evictedSamples) {
-      if (evictedSample.performanceEntryKey !== undefined) {
-        performanceEntryKeys.delete(evictedSample.performanceEntryKey);
-      }
-    }
+    samples.splice(0, overflowCount);
     return true;
   };
 
@@ -293,12 +323,19 @@ export function createRendererLongTaskTelemetry(
     };
     insertSample(sample);
     if (performanceEntryKey !== undefined) {
-      performanceEntryKeys.add(performanceEntryKey);
+      performanceEntryKeys.set(performanceEntryKey, observedAt);
+      if (performanceEntryKeys.size > maxPerformanceEntryKeys) {
+        const oldestKey = performanceEntryKeys.keys().next().value;
+        if (oldestKey === undefined) {
+          throw new Error('Renderer long-task telemetry dedupe-key invariant failed.');
+        }
+        performanceEntryKeys.delete(oldestKey);
+      }
     }
 
     const pruned = prune(scheduledAt);
     const sampleCapEvicted = evictSamplesOverCap();
-    if (pruned || sampleCapEvicted) {
+    if ((pruned || sampleCapEvicted) && listeners.size === 0) {
       // Releasing cached identifiers is O(1); the next read rebuilds the full
       // snapshot lazily, while an observed store rebuilds once in publish().
       releaseCachedSampleContext(scheduledAt);
@@ -343,16 +380,22 @@ export function createRendererLongTaskTelemetry(
     list: PerformanceObserverEntryList,
     getContext: () => RendererLongTaskContext
   ): void => {
+    const deliveredAt = now();
+    if (typeof performance === 'undefined') {
+      throw new Error('Renderer long-task telemetry requires the Performance timing API.');
+    }
+    const elapsedMs = performance.now();
+    if (!Number.isFinite(elapsedMs)) {
+      throw new Error('PerformanceObserver longtask entry timing is unavailable.');
+    }
     for (const entry of list.getEntries()) {
       if (entry.entryType !== 'longtask' || !isLongTaskDuration(entry.duration)) {
         continue;
       }
-      const deliveredAt = now();
-      const timeOrigin = performance.timeOrigin;
-      if (!(Number.isFinite(timeOrigin) && Number.isFinite(entry.startTime))) {
+      if (!Number.isFinite(entry.startTime)) {
         throw new Error('PerformanceObserver longtask entry timing is unavailable.');
       }
-      const observedAt = timeOrigin + entry.startTime;
+      const observedAt = deliveredAt - (elapsedMs - entry.startTime);
       if (observedAt < deliveredAt - windowMs) {
         continue;
       }
@@ -385,19 +428,20 @@ export function createRendererLongTaskTelemetry(
         unavailableReason = null;
         publish();
       };
-    if (typeof PerformanceObserver === 'undefined') {
-      availability = 'unsupported';
-      unavailableReason = 'PerformanceObserver is unavailable in this renderer.';
-      publish();
-      return disposeInactiveObservation('unsupported');
-    }
     let observer: PerformanceObserver | null = null;
     try {
+      const observationStartedAt = now();
+      if (typeof PerformanceObserver === 'undefined') {
+        availability = 'unsupported';
+        unavailableReason = 'PerformanceObserver is unavailable in this renderer.';
+        publishSnapshot(observationStartedAt);
+        return disposeInactiveObservation('unsupported');
+      }
       const supportedEntryTypes = PerformanceObserver.supportedEntryTypes;
       if (!(Array.isArray(supportedEntryTypes) && supportedEntryTypes.includes('longtask'))) {
         availability = 'unsupported';
         unavailableReason = 'This renderer does not support PerformanceObserver longtask entries.';
-        publish();
+        publishSnapshot(observationStartedAt);
         return disposeInactiveObservation('unsupported');
       }
 
@@ -413,9 +457,7 @@ export function createRendererLongTaskTelemetry(
           if (activeObserver === createdObserver) {
             activeObserver = null;
           }
-          availability = 'failed';
-          unavailableReason = error instanceof Error ? error.message : String(error);
-          publish();
+          publishFailedSnapshot(error);
         }
       });
       observer = createdObserver;
@@ -423,7 +465,7 @@ export function createRendererLongTaskTelemetry(
       createdObserver.observe({ buffered: true, type: 'longtask' });
       availability = 'active';
       unavailableReason = null;
-      publish();
+      publishSnapshot(observationStartedAt);
       return () => {
         if (observationGeneration !== currentObservationGeneration) {
           return;
@@ -447,9 +489,7 @@ export function createRendererLongTaskTelemetry(
       if (activeObserver === observer) {
         activeObserver = null;
       }
-      availability = 'failed';
-      unavailableReason = error instanceof Error ? error.message : String(error);
-      publish();
+      publishFailedSnapshot(error);
       return disposeInactiveObservation('failed');
     }
   };

@@ -97,10 +97,15 @@ The telemetry store owns expiry and cap eviction: stale context is removed
 without a diagnostics subscriber and released no later than the next
 external-store read. Buffered long-task entries use
 their occurrence timestamp for the rolling window and are deduplicated across
-observer replay. Performance Observer does not preserve historical app
-context, so buffered samples carry delivery-time route and feature-flag context
-and diagnostics labels them as delivery-time context rather than stall-time
-attribution. Occurrence timestamps and the one-minute retention boundary use a
-single monotonic epoch clock, never the adjustable wall clock.
+observer replay, including after an in-window sample-cap eviction. Performance
+Observer does not preserve historical app context, so buffered
+samples carry delivery-time route and feature-flag context and diagnostics
+labels them as delivery-time context rather than stall-time attribution.
+Occurrence timestamps and the one-minute retention boundary use
+a single monotonic epoch clock, never the adjustable wall clock.
+Module construction is clock-free; collection validates timing, and a missing
+timing capability is
+reported through a failed in-memory snapshot instead of breaking app-shell
+module evaluation.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.

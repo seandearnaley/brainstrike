@@ -16,6 +16,31 @@ describe('renderer-long-task-telemetry', () => {
     vi.unstubAllGlobals();
   });
 
+  it('defers the Performance clock read until collection and surfaces a missing clock', async () => {
+    vi.resetModules();
+    vi.stubGlobal('performance', undefined);
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      observe(): void {}
+
+      disconnect(): void {}
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+
+    const telemetryModule = await import('../diagnostics/renderer-long-task-telemetry');
+    const telemetry = telemetryModule.createRendererLongTaskTelemetry();
+
+    telemetry.observe(() => ({ enabledFeatureFlags: [], route: 'explorer' }));
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      availability: 'failed',
+      sampleCount: 0,
+      snapshotAt: 0,
+      unavailableReason: 'Renderer long-task telemetry requires the Performance timing API.',
+    });
+  });
+
   it('aggregates a bounded rolling window by coarse route and surface', () => {
     let now = 1000;
     const telemetry = createRendererLongTaskTelemetry({
@@ -138,6 +163,98 @@ describe('renderer-long-task-telemetry', () => {
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
 
+  it('maps observer entry age into the injected retention-clock domain', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {}
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+    vi.stubGlobal('performance', {
+      now: vi.fn(() => 2000),
+      timeOrigin: 1000,
+    });
+    const telemetry = createRendererLongTaskTelemetry({
+      now: () => 500_000,
+      windowMs: 1000,
+    });
+    telemetry.observe(() => ({ enabledFeatureFlags: [], route: 'explorer' }));
+    const callback = callbacks.at(0);
+    if (!callback) {
+      throw new Error('Expected PerformanceObserver callback to be registered.');
+    }
+
+    callback(
+      {
+        getEntries: () => [
+          {
+            duration: 75,
+            entryType: 'longtask',
+            startTime: 1900,
+          } as PerformanceEntry,
+        ],
+      } as PerformanceObserverEntryList,
+      {} as PerformanceObserver
+    );
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      routes: [{ count: 1, route: 'explorer' }],
+      sampleCount: 1,
+    });
+  });
+
+  it('deduplicates buffered replay after an in-window sample is evicted by the cap', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {}
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+    vi.stubGlobal('performance', {
+      now: vi.fn(() => 2000),
+      timeOrigin: 498_000,
+    });
+    const telemetry = createRendererLongTaskTelemetry({
+      maxSamples: 1,
+      now: () => 500_000,
+      windowMs: 1000,
+    });
+    const listener = vi.fn();
+    telemetry.subscribe(listener);
+    telemetry.observe(() => ({ enabledFeatureFlags: [], route: 'explorer' }));
+    const callback = callbacks.at(0);
+    if (!callback) {
+      throw new Error('Expected PerformanceObserver callback to be registered.');
+    }
+    const entryList = {
+      getEntries: () => [
+        { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
+        { duration: 80, entryType: 'longtask', startTime: 1950 } as PerformanceEntry,
+      ],
+    } as PerformanceObserverEntryList;
+
+    callback(entryList, {} as PerformanceObserver);
+    listener.mockClear();
+    callback(entryList, {} as PerformanceObserver);
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(telemetry.getSnapshot().sampleCount).toBe(1);
+  });
+
   it('publishes feature-source availability changes before another long task arrives', () => {
     const telemetry = createRendererLongTaskTelemetry();
     telemetry.record({
@@ -256,7 +373,7 @@ describe('renderer-long-task-telemetry', () => {
     const now = vi.fn(() => 1000);
     const telemetry = createRendererLongTaskTelemetry({ now });
 
-    expect(now).toHaveBeenCalledTimes(1);
+    expect(now).not.toHaveBeenCalled();
 
     telemetry.record({
       durationMs: 75,
@@ -264,11 +381,11 @@ describe('renderer-long-task-telemetry', () => {
       route: 'settings',
     });
 
-    expect(now).toHaveBeenCalledTimes(2);
+    expect(now).toHaveBeenCalledTimes(1);
     expect(telemetry.getSnapshot()).toMatchObject({ sampleCount: 1 });
-    expect(now).toHaveBeenCalledTimes(3);
+    expect(now).toHaveBeenCalledTimes(2);
     expect(telemetry.getSnapshot()).toBe(telemetry.getSnapshot());
-    expect(now).toHaveBeenCalledTimes(3);
+    expect(now).toHaveBeenCalledTimes(2);
   });
 
   it('expires retained samples even without diagnostics subscribers', () => {

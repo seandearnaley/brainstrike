@@ -615,7 +615,14 @@ feature-flag context; System Diagnostics labels those fields as delivery-time
 context and must not imply that context was captured at the original stall
 time. Occurrence timestamps, window pruning, and retention deadlines share the
 Performance timeline's monotonic epoch clock; `Date.now()` must not drive this
-retention boundary because wall-clock adjustments would split the clocks.
+retention boundary because wall-clock adjustments would split the clocks. The
+module singleton is constructed without reading that clock: the first observer,
+record, or external-store read validates it, and observer setup publishes a
+local `failed` snapshot if the timing capability is unavailable instead of
+failing shell import. Injected retention clocks remain coherent with real
+`PerformanceEntry.startTime` values by mapping each entry age into the injected
+clock domain. Buffered-entry dedupe keys survive sample-cap eviction until the
+entry leaves the rolling window, so replay cannot create a spurious publish.
 Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
 never silently degrades. Do not write routine
