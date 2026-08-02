@@ -1,6 +1,6 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import { describe, expect, it } from 'vitest';
-import { fileExplorer, memoizedFileExplorer } from '../file-explorer-utils.js';
+import { fileExplorer, memoizedFileExplorer } from '../file-tree.js';
 
 const buildSampleTree = () => {
   const fileA = createFileNode({ name: 'a.ts', path: '/root/a.ts' });

@@ -45,16 +45,25 @@
  * ```
  */
 
-// Re-export port
-export { createFileTreeWorkerPort, type FileTreeWorkerPort } from './port';
+export type { TreeNode } from './generic-tree-operations';
 // Re-export tree operations for main thread usage
 export {
+  canLoadNode,
+  collectDirectoryPaths,
   collectExpandedPaths,
   findNodeByPath,
+  getPathDepth,
+  isDescendantPath,
+  isLoading,
   needsLoading,
-  sortFileNodes,
+  resetDirectoryNode,
+  setNodeLoadState,
+  sortTreeNodes,
   updateNodeChildren,
-} from './tree-operations';
+} from './generic-tree-operations';
+// Re-export port
+export { createFileTreeWorkerPort, type FileTreeWorkerPort } from './port';
+export { sortFileNodes } from './tree-operations';
 // Re-export types
 export type {
   AccumulatedFileTreePatchMessage,

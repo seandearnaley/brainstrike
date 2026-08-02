@@ -9,7 +9,7 @@
 // Worker bundles must use the crypto subpath to avoid pulling the full utils barrel into esbuild.
 import { generateUUID } from '@brainstrike/utils/crypto';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
-import { getPathDepth, isDescendantPath } from '@brainstrike/utils/tree-operations';
+import { getPathDepth, isDescendantPath } from './generic-tree-operations';
 
 import {
   collectDirectoryPaths,

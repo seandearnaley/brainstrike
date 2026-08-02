@@ -6,7 +6,8 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "minimatch": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -28,6 +29,26 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./context-generation": {
+      "types": "./dist/context-generation.d.ts",
+      "import": "./dist/context-generation.mjs",
+      "require": "./dist/context-generation.js"
+    },
+    "./file-tree": {
+      "types": "./dist/file-tree.d.ts",
+      "import": "./dist/file-tree.mjs",
+      "require": "./dist/file-tree.js"
+    },
+    "./project-tree-text": {
+      "types": "./dist/project-tree-text.d.ts",
+      "import": "./dist/project-tree-text.mjs",
+      "require": "./dist/project-tree-text.js"
+    },
+    "./selection": {
+      "types": "./dist/selection.d.ts",
+      "import": "./dist/selection.mjs",
+      "require": "./dist/selection.js"
     },
     "./testing": {
       "types": "./dist/testing.d.ts",

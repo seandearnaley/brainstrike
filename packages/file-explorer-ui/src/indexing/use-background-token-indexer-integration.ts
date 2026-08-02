@@ -12,12 +12,12 @@
  * `packages/utils/src/background-work-arbiter.ts` and is enforced at the collection-sync layer.
  */
 
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';

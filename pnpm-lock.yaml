@@ -429,6 +429,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../../packages/indexing-contract
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../../packages/local-runtime
@@ -1167,6 +1170,9 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../file-explorer
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../file-explorer-hooks
@@ -1620,6 +1626,9 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../file-explorer
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../file-explorer-hooks
@@ -1848,6 +1857,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      minimatch:
+        specifier: 'catalog:'
+        version: 10.2.5
       react:
         specifier: ^19.2.4
         version: 19.2.7
@@ -2308,6 +2320,9 @@ importers:
 
   packages/indexing-contract:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -3240,6 +3255,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../file-explorer
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui

@@ -86,6 +86,9 @@
       "@brainstrike/file-explorer-hooks": [
         "../file-explorer-hooks/dist/index.d.ts"
       ],
+      "@brainstrike/file-explorer/*": [
+        "../file-explorer/dist/*.d.ts"
+      ],
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/dist/index.d.ts"
       ],
@@ -155,6 +158,9 @@
     },
     {
       "path": "../ui"
+    },
+    {
+      "path": "../file-explorer"
     },
     {
       "path": "../file-explorer-hooks"

@@ -1,10 +1,10 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
-import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import {
   createFileContentWorker,
   type FileContentWorker,

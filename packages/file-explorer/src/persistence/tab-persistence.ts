@@ -18,7 +18,7 @@
  */
 
 import { createLogger } from '@brainstrike/logging';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { decodeFileSelection } from '../selection.js';
 
 // Type declarations for File System Access API permission methods
 // The browser's FileSystemFileHandle may have these methods, but TypeScript's

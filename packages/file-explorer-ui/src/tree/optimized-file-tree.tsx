@@ -1,4 +1,6 @@
 import { getForeignSelectionCount } from '@brainstrike/file-explorer';
+import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
@@ -13,8 +15,6 @@ import {
   useContextMenuTarget,
   useIdeFileEditor,
 } from '@brainstrike/ui';
-import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
-import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import {
   File as FileIcon,
   Folder,

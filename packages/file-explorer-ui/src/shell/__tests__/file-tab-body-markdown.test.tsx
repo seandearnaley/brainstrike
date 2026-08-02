@@ -89,7 +89,7 @@ vi.mock('@brainstrike/ui/markdown-surface', () => ({
   },
 }));
 
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { MarkdownPreviewCapabilitiesProvider } from '../../contexts/markdown-preview-capabilities';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';

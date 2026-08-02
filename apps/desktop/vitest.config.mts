@@ -151,13 +151,6 @@ export default defineConfig({
         find: '@brainstrike/text-splitter',
         replacement: path.resolve(import.meta.dirname, '../../packages/text-splitter/src/index.ts'),
       },
-      {
-        find: '@brainstrike/utils/workspace-indexing-power-snapshot',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/utils/src/workspace-indexing-power-snapshot.ts'
-        ),
-      },
       // @brainstrike/workers has no `src/` dir (worker files live at the
       // package root), so the registry skips it — alias its subpaths
       // explicitly. Surfaced by extending the workspace-src-alias guard to
@@ -169,13 +162,6 @@ export default defineConfig({
         replacement: path.resolve(
           import.meta.dirname,
           '../../packages/workers/file-content-worker.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/workers/report-generation-worker.ts'
         ),
       },
       // B4: shared workspace source-alias registry (#1651), so every other

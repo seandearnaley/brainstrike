@@ -17,10 +17,6 @@ export default defineConfig({
         find: '@brainstrike/workers/file-content-worker',
         replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
       },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
-      },
       ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },

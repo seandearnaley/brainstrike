@@ -21,14 +21,18 @@ import { FileExplorerTestWrapper } from './test-helpers';
 
 // Force the renderer fallback: worker construction fails, so the expand-all
 // session drives loadChildren directly.
-vi.mock('@brainstrike/file-tree-worker', () => ({
-  createFileTreeWorkerPort: vi.fn(() => {
-    throw new Error('worker unavailable in test');
-  }),
-  resolveFileTreeWorkerUrl: vi.fn(() => {
-    throw new Error('worker unavailable in test');
-  }),
-}));
+vi.mock('@brainstrike/file-tree-worker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-tree-worker')>();
+  return {
+    ...actual,
+    createFileTreeWorkerPort: vi.fn(() => {
+      throw new Error('worker unavailable in test');
+    }),
+    resolveFileTreeWorkerUrl: vi.fn(() => {
+      throw new Error('worker unavailable in test');
+    }),
+  };
+});
 
 interface MockEntry {
   children?: Record<string, MockEntry>;

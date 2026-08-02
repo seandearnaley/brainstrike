@@ -1,8 +1,13 @@
 import type { IFileNode } from '@brainstrike/types';
+import { calculatePathDepth } from '@brainstrike/utils/path-utils';
 import { Minimatch } from 'minimatch';
 import { describe, expect, it } from 'vitest';
-import { calculatePathDepth } from '../path-utils.js';
-import { compilePatterns, generateProjectTreeText, traverseFileTree } from '../tree-generator.js';
+import {
+  compilePatterns,
+  generateProjectTreeText,
+  generateProjectTreeTextResult,
+  traverseFileTree,
+} from '../project-tree-text.js';
 
 const createMockFileHandle = (): FileSystemFileHandle => ({
   createWritable: async () => {
@@ -191,7 +196,7 @@ describe('folderTreeGenerator pattern matching', () => {
     expect(result).not.toContain('helper.ts');
   });
 
-  it('should handle invalid regex patterns gracefully', () => {
+  it('rejects an invalid regex instead of silently widening the tree', () => {
     const srcDir = createMockDir('src', 'src');
     const componentsDir = createMockDir('src/components', 'components');
     const buttonFile = createMockFile('src/components/Button.tsx', 'Button.tsx');
@@ -199,14 +204,14 @@ describe('folderTreeGenerator pattern matching', () => {
     componentsDir.children = [buttonFile];
     srcDir.children = [componentsDir];
 
-    let result = '';
-    expect(() => {
-      result = generateProjectTreeText([srcDir], ['[abc'], [], true, 0);
-    }).not.toThrow();
+    expect(() => generateProjectTreeText([srcDir], ['[abc'], [], true, 0)).toThrow(
+      'Invalid regular expression pattern: [abc'
+    );
 
-    expect(result).toContain('components/');
-    // When regex patterns are invalid, the function falls back to including all files
-    expect(result).toContain('Button.tsx');
+    expect(generateProjectTreeTextResult([srcDir], ['[abc'], [], true, 0)).toEqual({
+      error: 'Invalid regular expression pattern: [abc',
+      ok: false,
+    });
   });
 });
 

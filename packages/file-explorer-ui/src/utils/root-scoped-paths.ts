@@ -15,7 +15,7 @@
  *   limitation; desktop (absolute) roots scope exactly.
  */
 import { isAbsolutePath } from '@brainstrike/context-actions';
-import { isDescendantPath } from '@brainstrike/utils/tree-operations';
+import { isDescendantPath } from '@brainstrike/file-tree-worker';
 
 export function normalizePathForRootScope(path: string): string {
   return path.replace(/\\/g, '/');

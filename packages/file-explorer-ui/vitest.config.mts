@@ -78,14 +78,10 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       // @brainstrike/workers has no src/ dir (worker files at the package root),
-      // so the registry skips it; alias its subpaths explicitly.
+      // so the registry skips it; alias its remaining subpath explicitly.
       {
         find: '@brainstrike/workers/file-content-worker',
         replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       // Registry fills the remaining workspace deps (file-system,
       // token-cache, file-tree-worker, workers, platform-utils transitively, …)

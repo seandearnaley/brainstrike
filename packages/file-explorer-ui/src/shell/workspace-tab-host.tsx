@@ -1,4 +1,5 @@
 import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   INACCESSIBLE_CONTENT_PREFIX,
   type TabFileStatus,
@@ -22,7 +23,6 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { resolveRelativePath } from '@brainstrike/utils';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   AlertCircle,
   File,

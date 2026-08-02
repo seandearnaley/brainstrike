@@ -1,4 +1,5 @@
-import { readFullFileTree } from '../file-system-utils.js';
+import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
+import { readFullFileTree } from '../read-full-file-tree.js';
 
 // --- Mocking Strategy ---
 interface MockFileHandle {
@@ -33,6 +34,65 @@ const mockDirectory = (
     name,
   } as MockDirectoryHandle; // Type assertion needed because of the async generator
 };
+
+class BrowserHandleTestAdapter implements FileSystemAdapter {
+  private readonly pathByHandle = new WeakMap<object, string>();
+
+  constructor(private readonly root: MockDirectoryHandle) {
+    this.pathByHandle.set(root, '');
+  }
+
+  async requestDirectoryAccess(): Promise<DirectoryHandle> {
+    return {
+      _internal: this.root,
+      kind: 'directory',
+      name: this.root.name,
+      path: '',
+      platform: 'web',
+    };
+  }
+
+  async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+    const browserHandle = handle._internal as MockDirectoryHandle | undefined;
+    if (!browserHandle) {
+      throw new Error(`Missing browser directory handle for ${handle.path}`);
+    }
+
+    const nodes: IFileNode[] = [];
+    for await (const [name, childHandle] of browserHandle.entries()) {
+      const path = this.pathByHandle.get(childHandle) ?? `${handle.path}/${name}`;
+      this.pathByHandle.set(childHandle, path);
+      nodes.push({
+        depth: 0,
+        handle: childHandle as unknown as FileSystemDirectoryHandle | FileSystemFileHandle,
+        name,
+        path,
+        rootFolderId: this.root.name,
+        selectionState: 'unchecked',
+        type: childHandle.kind,
+        ...(childHandle.kind === 'directory' ? { children: [] } : {}),
+      });
+    }
+    return nodes;
+  }
+
+  async readFile(): Promise<string> {
+    return '';
+  }
+
+  async exists(): Promise<boolean> {
+    return false;
+  }
+}
+
+async function readBrowserFixture(
+  root: MockDirectoryHandle,
+  maxDepth?: number
+): Promise<IFileNode[]> {
+  const adapter = new BrowserHandleTestAdapter(root);
+  const rootHandle = await adapter.requestDirectoryAccess();
+  return readFullFileTree(adapter, rootHandle, maxDepth === undefined ? {} : { maxDepth });
+}
 // --- End Mocking Strategy ---
 
 describe('readFullFileTree', () => {
@@ -43,7 +103,7 @@ describe('readFullFileTree', () => {
       ['dir1', mockDirectory('dir1', [['file2.txt', mockFile('file2.txt')]])],
     ]);
 
-    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
+    const result = await readBrowserFixture(_rootHandle);
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
@@ -87,7 +147,7 @@ describe('readFullFileTree', () => {
 
     const _rootHandle = mockDirectory('root', [['dirA', dirA]]);
 
-    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
+    const result = await readBrowserFixture(_rootHandle);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ depth: 0, name: 'dirA', path: '/dirA', type: 'directory' });
@@ -109,7 +169,7 @@ describe('readFullFileTree', () => {
       isDepthTruncated: false, // As per new logic, symlink is not depth truncated
       isSymbolicLink: true,
       name: 'loop_to_a',
-      path: '/dirA/dirB/loop_to_a',
+      path: '/dirA',
       rootFolderId: 'root',
       type: 'directory',
     });
@@ -131,14 +191,7 @@ describe('readFullFileTree', () => {
       ],
     ]);
 
-    const result = await readFullFileTree(
-      rootHandle as unknown as FileSystemDirectoryHandle,
-      '',
-      0,
-      'd0',
-      new Set(),
-      2
-    ); // maxDepth = 2
+    const result = await readBrowserFixture(rootHandle, 2);
 
     expect(result).toHaveLength(1); // d1
     expect(result[0]!.name).toBe('d1');
@@ -202,14 +255,7 @@ describe('readFullFileTree', () => {
     // inside, when processing children of rootHandle, depth will be 0.
     // So, file1.txt and dir1 will be created with isDepthTruncated: true and children: [].
 
-    const result = await readFullFileTree(
-      _rootHandle as unknown as FileSystemDirectoryHandle,
-      '',
-      0,
-      'root',
-      new Set(),
-      0
-    ); // maxDepth = 0
+    const result = await readBrowserFixture(_rootHandle, 0);
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
@@ -246,7 +292,7 @@ describe('readFullFileTree', () => {
       ],
     ]);
 
-    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
+    const result = await readBrowserFixture(_rootHandle);
     expect(result).toHaveLength(2); // file1.txt and src
     expect(result.find((node) => node.name === 'node_modules')).toBeUndefined();
     expect(result.find((node) => node.name === '.git')).toBeUndefined();
@@ -264,7 +310,7 @@ describe('readFullFileTree', () => {
       ['file1.txt', mockFile('file1.txt')],
     ]);
 
-    const result = await readFullFileTree(rootHandle as unknown as FileSystemDirectoryHandle);
+    const result = await readBrowserFixture(rootHandle);
     expect(result).toHaveLength(2);
     const emptyDirNode = result.find((node) => node.name === 'emptyDir');
     expect(emptyDirNode).toBeDefined();
@@ -322,14 +368,7 @@ describe('readFullFileTree', () => {
 
     const topHandle = mockDirectory('top', [['level0_entry', level0]]);
 
-    const result = await readFullFileTree(
-      topHandle as unknown as FileSystemDirectoryHandle,
-      '',
-      0,
-      'top',
-      new Set(),
-      0
-    ); // maxDepth = 0
+    const result = await readBrowserFixture(topHandle, 0);
 
     expect(result).toHaveLength(1);
     const level0Node = result[0]!;

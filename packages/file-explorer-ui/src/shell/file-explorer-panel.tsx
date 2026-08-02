@@ -1,3 +1,4 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
@@ -13,7 +14,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { Eye, EyeOff, MoreHorizontal, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
