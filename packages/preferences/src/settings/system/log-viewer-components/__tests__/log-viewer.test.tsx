@@ -208,6 +208,46 @@ describe('LogViewer', () => {
     expect(firstBindingsSerializations).toBe(1);
   });
 
+  it('reuses cached row projections across incremental search terms', async () => {
+    let argumentSerializations = 0;
+    let bindingSerializations = 0;
+    const record = createMockLogRecord({
+      args: [
+        {
+          toJSON: () => {
+            argumentSerializations += 1;
+            return { detail: 'needle detail' };
+          },
+        },
+      ],
+      bindings: {
+        toJSON: () => {
+          bindingSerializations += 1;
+          return { runtime: 'electron-renderer' };
+        },
+      },
+      message: 'Searchable record',
+    });
+    const logSource = {
+      getInitialRecords: async () => [record],
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(screen.getByText('Searchable record')).toBeInTheDocument());
+    expect(argumentSerializations).toBe(1);
+    expect(bindingSerializations).toBe(1);
+
+    const searchInput = screen.getByPlaceholderText('Search logs...');
+    fireEvent.change(searchInput, { target: { value: 'needle' } });
+    fireEvent.change(searchInput, { target: { value: 'needle detail' } });
+
+    expect(screen.getByText('Searchable record')).toBeInTheDocument();
+    expect(argumentSerializations).toBe(1);
+    expect(bindingSerializations).toBe(1);
+  });
+
   it('coalesces subscription bursts into one trailing snapshot', () => {
     vi.useFakeTimers();
     let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
