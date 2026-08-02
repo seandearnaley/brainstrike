@@ -33,7 +33,9 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
   `/file-tree` owns file-explorer tree queries; `/project-tree-text` owns
   filtered tree rendering; `/context-generation` owns LLM context projection.
   These surfaces are feature contracts, not general-purpose utilities, and
-  must not move back into `@brainstrike/utils`.
+  must not move back into `@brainstrike/utils`. Context traversal accepts the
+  platform-neutral `FileSystemAdapter` plus `DirectoryHandle`; browser DOM
+  handles stay inside file-system adapters and consumer packages.
 
 ---
 
@@ -180,7 +182,9 @@ const content = store.getState().getFileContent('repo-root|@|src/a.ts');
 * **Persist minimal state**: Only serializable, essential fields—use `partialize`/`merge` rather than ad-hoc storage. ([Zustand Documentation][2])
 * **Context generation fails closed**: invalid filters and adapter traversal
   failures throw contextual errors. Never widen a malformed filter or emit a
-  partial project tree as if context generation succeeded.
+  partial project tree as if context generation succeeded. Synchronous React
+  previews use the typed `generateProjectTreeTextResult` surface to render
+  known pattern errors visibly; async exports keep the strict throwing surface.
 
 ---
 

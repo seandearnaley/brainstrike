@@ -7,7 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { Download, FileText } from 'lucide-react';
+import { CircleAlert, Download, FileText } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import IncludeProjectTreeSetting from '../include-project-tree-setting';
 import { TokenBudgetControl } from '../indexing/token-budget-control';
@@ -174,6 +174,7 @@ interface PreviewPanelFooterProps {
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
   onTokenBudgetChange?: ((budget: number) => void) | undefined;
   projectTreeUsesViewFilters: boolean;
+  projectTreeValidationError?: string | undefined;
   selectedFilesCount: number;
   /** BST-153: Number of files still being indexed (for "estimating..." state) */
   selectedTokensPendingCount?: number;
@@ -540,6 +541,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       tokenUsage,
       includeProjectTree,
       projectTreeUsesViewFilters,
+      projectTreeValidationError,
       treeLoading = false,
       selectedTokensPendingCount = 0,
       onTokenBudgetChange,
@@ -619,6 +621,16 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         </div>
 
         <div className="flex flex-col gap-2.5 p-3">
+          {includeProjectTree && projectTreeUsesViewFilters && projectTreeValidationError ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive text-xs"
+              role="alert"
+            >
+              <CircleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+              <span>{projectTreeValidationError}</span>
+            </div>
+          ) : null}
+
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex flex-shrink-0 items-center">
               <TokenMeter

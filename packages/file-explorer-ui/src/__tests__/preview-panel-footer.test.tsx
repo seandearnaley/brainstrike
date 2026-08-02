@@ -82,6 +82,17 @@ describe('PreviewPanelFooter', () => {
     expect(screen.queryByText('Use Tapestry Ranges')).not.toBeInTheDocument();
   });
 
+  it('surfaces invalid project-tree filters without replacing the explorer panel', () => {
+    const props = {
+      ...createProps(),
+      projectTreeValidationError: 'Invalid regular expression pattern: [abc',
+    } as Parameters<typeof PreviewPanelFooter>[0];
+
+    render(<PreviewPanelFooter {...props} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Invalid regular expression pattern: [abc');
+  });
+
   it('disables context actions and shows over-budget compact status with no selected files', () => {
     render(
       <PreviewPanelFooter

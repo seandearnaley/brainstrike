@@ -1,8 +1,4 @@
-import {
-  generateContext,
-  generateContextFromAdapter,
-} from '@brainstrike/file-explorer/context-generation';
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import { generateContext } from '@brainstrike/file-explorer/context-generation';
 import type {
   ReportGenerationRequest,
   ReportGenerationWorkerOptions,
@@ -11,9 +7,12 @@ import type {
 
 export type ProgressEvent = ReportProgressEvent;
 
-export function createReportGenerationWorker({
-  fileSystemAdapter,
-}: ReportGenerationWorkerOptions = {}) {
+export function createReportGenerationWorker(options: ReportGenerationWorkerOptions) {
+  if (!options?.fileSystemAdapter) {
+    throw new Error('File system adapter is required for report generation');
+  }
+  const { fileSystemAdapter } = options;
+
   return async function generate(
     request: ReportGenerationRequest,
     onProgress?: (event: ReportProgressEvent) => void
@@ -39,31 +38,18 @@ export function createReportGenerationWorker({
       ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
     };
 
-    const context =
-      fileSystemAdapter && 'platform' in rootDirectoryHandle
-        ? await generateContextFromAdapter(
-            selectedFiles,
-            fileContents,
-            fileSystemAdapter,
-            rootDirectoryHandle as DirectoryHandle,
-            includeFilters,
-            excludeFilters,
-            useRegex,
-            includeProjectTree,
-            folderSummaryThreshold,
-            generationOptions
-          )
-        : await generateContext(
-            selectedFiles,
-            fileContents,
-            rootDirectoryHandle as FileSystemDirectoryHandle,
-            includeFilters,
-            excludeFilters,
-            useRegex,
-            includeProjectTree,
-            folderSummaryThreshold,
-            generationOptions
-          );
+    const context = await generateContext(
+      selectedFiles,
+      fileContents,
+      fileSystemAdapter,
+      rootDirectoryHandle,
+      includeFilters,
+      excludeFilters,
+      useRegex,
+      includeProjectTree,
+      folderSummaryThreshold,
+      generationOptions
+    );
 
     onProgress?.({ loaded: 1, total: 1 });
     return context;

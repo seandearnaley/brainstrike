@@ -1,103 +1,152 @@
-import type { IFileNode } from '@brainstrike/types';
+import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
 
-// Create a Set for O(1) lookups
-const IGNORED_PATH_SET = new Set(IGNORED_PATHS);
+const CONTEXT_IGNORED_PATH_SEGMENTS = [
+  ...IGNORED_PATHS,
+  '.turbo',
+  'coverage',
+  '.nyc_output',
+] as const;
 
-/**
- * Reads the browser File System Access tree for context generation.
- */
-export async function readFullFileTree(
-  directoryHandle: FileSystemDirectoryHandle,
-  parentPath = '',
-  depth = 0,
-  rootFolderId = directoryHandle.name,
-  visitedHandles: Set<FileSystemDirectoryHandle> = new Set(),
-  maxDepth = 30 // Added maxDepth parameter
+export interface ReadFullFileTreeOptions {
+  maxDepth?: number;
+  rootFolderId?: string;
+}
+
+interface TraversalState {
+  depth: number;
+  maxDepth: number;
+  rootFolderId: string;
+  visitedPaths: Set<string>;
+}
+
+function pathHasSegment(path: string, segment: string): boolean {
+  let segmentStart = 0;
+
+  while (segmentStart <= path.length) {
+    const segmentEnd = path.indexOf('/', segmentStart);
+    const end = segmentEnd === -1 ? path.length : segmentEnd;
+
+    if (end - segmentStart === segment.length && path.startsWith(segment, segmentStart)) {
+      return true;
+    }
+    if (segmentEnd === -1) {
+      return false;
+    }
+    segmentStart = segmentEnd + 1;
+  }
+
+  return false;
+}
+
+function shouldIgnorePath(path: string): boolean {
+  const normalizedPath = path.replace(/\/+/g, '/').replace(/^\/+/, '');
+  return CONTEXT_IGNORED_PATH_SEGMENTS.some((segment) => pathHasSegment(normalizedPath, segment));
+}
+
+function createFileNodeBase(node: IFileNode, state: TraversalState): IFileNode {
+  return {
+    ...node,
+    depth: state.depth,
+    isDepthTruncated: false,
+    isSymbolicLink: false,
+    rootFolderId: state.rootFolderId,
+    selectionState: 'unchecked',
+  };
+}
+
+function createChildDirectoryHandle(node: IFileNode, parent: DirectoryHandle): DirectoryHandle {
+  return {
+    _internal: node.handle,
+    kind: 'directory',
+    name: node.name,
+    path: node.path,
+    platform: parent.platform,
+  };
+}
+
+async function processDirectoryNode(
+  adapter: FileSystemAdapter,
+  parentHandle: DirectoryHandle,
+  node: IFileNode,
+  state: TraversalState
+): Promise<IFileNode> {
+  const baseNode = createFileNodeBase(node, state);
+
+  if (state.depth >= state.maxDepth - 1) {
+    return { ...baseNode, children: [], isDepthTruncated: true };
+  }
+
+  if (state.visitedPaths.has(node.path)) {
+    return { ...baseNode, children: [], isSymbolicLink: true };
+  }
+
+  const children = await readDirectoryTree(
+    adapter,
+    createChildDirectoryHandle(node, parentHandle),
+    {
+      ...state,
+      depth: state.depth + 1,
+    }
+  );
+
+  return { ...baseNode, children };
+}
+
+async function readDirectoryTree(
+  adapter: FileSystemAdapter,
+  directoryHandle: DirectoryHandle,
+  state: TraversalState
 ): Promise<IFileNode[]> {
+  const currentPath = directoryHandle.path;
+  if (state.visitedPaths.has(currentPath)) {
+    return [];
+  }
+
+  let directoryContents: IFileNode[];
+  try {
+    directoryContents = await adapter.readDirectory(directoryHandle);
+  } catch (error) {
+    throw new Error(
+      `Failed to read directory contents while generating context: ${directoryHandle.path}`,
+      { cause: error }
+    );
+  }
+
+  const nextState = {
+    ...state,
+    visitedPaths: new Set(state.visitedPaths).add(currentPath),
+  };
   const entries: IFileNode[] = [];
 
-  for await (const [name, handle] of directoryHandle.entries()) {
-    // Optimization: Check ignore list BEFORE path construction
-    if (IGNORED_PATH_SET.has(name)) {
+  for (const node of directoryContents) {
+    if (shouldIgnorePath(node.path)) {
       continue;
     }
 
-    const currentPath = `${parentPath}/${name}`;
+    if (node.type === 'file') {
+      entries.push(createFileNodeBase(node, nextState));
+      continue;
+    }
 
-    if (handle.kind === 'file') {
-      entries.push({
-        depth,
-        handle: handle as FileSystemFileHandle,
-        isDepthTruncated: false,
-        isSymbolicLink: false,
-        name,
-        path: currentPath,
-        rootFolderId,
-        selectionState: 'unchecked', // Default value
-        type: 'file',
-      });
-    } else if (handle.kind === 'directory') {
-      // 1. Check depth limit first
-      if (depth >= maxDepth - 1) {
-        entries.push({
-          children: [], // No further recursion
-          depth,
-          handle: handle as FileSystemDirectoryHandle,
-          isDepthTruncated: true, // Mark as depth truncated
-          isSymbolicLink: false,
-          name,
-          path: currentPath,
-          rootFolderId,
-          selectionState: 'unchecked',
-          type: 'directory',
-        });
-        continue; // Stop processing this directory further
-      }
-
-      // 2. Check for circular references (symbolic links)
-      if (visitedHandles.has(handle as FileSystemDirectoryHandle)) {
-        entries.push({
-          children: [], // No further recursion
-          depth,
-          handle: handle as FileSystemDirectoryHandle,
-          isDepthTruncated: false,
-          isSymbolicLink: true, // Mark as symlink/cycle
-          name,
-          path: currentPath,
-          rootFolderId,
-          selectionState: 'unchecked',
-          type: 'directory',
-        });
-        continue; // Stop processing this directory further
-      }
-
-      // 3. If not too deep and not a cycle, proceed with recursion
-      // Create a new Set for the recursive call, including the current path
-      const newVisitedHandles = new Set(visitedHandles);
-      newVisitedHandles.add(handle as FileSystemDirectoryHandle);
-
-      const children = await readFullFileTree(
-        handle as FileSystemDirectoryHandle,
-        currentPath, // Use unnormalized currentPath for parentPath in recursion
-        depth + 1,
-        rootFolderId,
-        newVisitedHandles, // Pass the new set for cycle detection
-        maxDepth // Pass maxDepth along
-      );
-      entries.push({
-        children,
-        depth,
-        handle: handle as FileSystemDirectoryHandle,
-        isDepthTruncated: false,
-        isSymbolicLink: false,
-        name,
-        path: currentPath,
-        rootFolderId,
-        selectionState: 'unchecked', // Default value
-        type: 'directory',
-      });
+    if (node.type === 'directory') {
+      entries.push(await processDirectoryNode(adapter, directoryHandle, node, nextState));
     }
   }
+
   return entries;
+}
+
+/** Read an adapter-backed directory tree for context generation. */
+export async function readFullFileTree(
+  adapter: FileSystemAdapter,
+  rootDirectoryHandle: DirectoryHandle,
+  options: ReadFullFileTreeOptions = {}
+): Promise<IFileNode[]> {
+  return readDirectoryTree(adapter, rootDirectoryHandle, {
+    depth: 0,
+    maxDepth: options.maxDepth ?? 30,
+    rootFolderId: options.rootFolderId ?? rootDirectoryHandle.name,
+    visitedPaths: new Set(),
+  });
 }

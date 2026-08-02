@@ -3,17 +3,6 @@ import { generateProjectTreeText } from './project-tree-text.js';
 import { readFullFileTree } from './read-full-file-tree.js';
 import { decodeFileSelection } from './selection.js';
 
-const IGNORED_PATTERNS = [
-  'node_modules',
-  '.git',
-  '.DS_Store',
-  'dist',
-  'build',
-  '.turbo',
-  'coverage',
-  '.nyc_output',
-] as const;
-
 export interface ContextLineRange {
   endLine: number;
   isActive?: boolean;
@@ -80,69 +69,6 @@ function formatContextFilePath(
     return relativePath;
   }
   return `${info.displayName}/${relativePath}`;
-}
-
-// File tree processing configuration
-interface FileTreeProcessingConfig {
-  depth: number;
-  maxDepth: number;
-  rootFolderId: string;
-  visitedPaths: Set<string>;
-}
-
-function shouldIgnorePath(pathString: string): boolean {
-  const normalizedPath = pathString.replace(/\/+/g, '/').replace(/^\/+/, '');
-  return IGNORED_PATTERNS.some((pattern) => pathHasSegment(normalizedPath, pattern));
-}
-
-function pathHasSegment(pathString: string, segment: string): boolean {
-  let segmentStart = 0;
-
-  while (segmentStart <= pathString.length) {
-    const segmentEnd = pathString.indexOf('/', segmentStart);
-    const end = segmentEnd === -1 ? pathString.length : segmentEnd;
-
-    // Avoid split() here: this path runs for every adapter tree node during
-    // context export, so segment scanning avoids transient arrays and strings.
-    if (end - segmentStart === segment.length && pathString.startsWith(segment, segmentStart)) {
-      return true;
-    }
-
-    if (segmentEnd === -1) {
-      return false;
-    }
-    segmentStart = segmentEnd + 1;
-  }
-
-  return false;
-}
-
-function createFileNodeBase(
-  node: import('@brainstrike/types').IFileNode,
-  depth: number,
-  rootFolderId: string
-): import('@brainstrike/types').IFileNode {
-  return {
-    ...node,
-    depth,
-    isDepthTruncated: false,
-    isSymbolicLink: false,
-    rootFolderId,
-    selectionState: 'unchecked',
-  };
-}
-
-function createChildDirectoryHandle(
-  node: import('@brainstrike/types').IFileNode,
-  parentHandle: DirectoryHandle
-): DirectoryHandle {
-  return {
-    _internal: node.handle,
-    kind: 'directory',
-    name: node.name,
-    path: node.path,
-    platform: parentHandle.platform,
-  };
 }
 
 export function splitContentLines(content: string): string[] {
@@ -324,114 +250,6 @@ ${projectTreeText}
   return finalContextParts.join('\n');
 }
 
-async function processDirectoryNode(
-  node: import('@brainstrike/types').IFileNode,
-  config: FileTreeProcessingConfig,
-  fileSystemAdapter: FileSystemAdapter,
-  directoryHandle: DirectoryHandle
-): Promise<import('@brainstrike/types').IFileNode> {
-  const baseNode = createFileNodeBase(node, config.depth, config.rootFolderId);
-
-  if (config.depth >= config.maxDepth - 1) {
-    return {
-      ...baseNode,
-      children: [],
-      isDepthTruncated: true,
-    };
-  }
-
-  if (config.visitedPaths.has(node.path)) {
-    return {
-      ...baseNode,
-      children: [],
-      isSymbolicLink: true,
-    };
-  }
-
-  const childDirectoryHandle = createChildDirectoryHandle(node, directoryHandle);
-  const children = await readFullFileTreeFromAdapter(
-    fileSystemAdapter,
-    childDirectoryHandle,
-    node.path,
-    config.depth + 1,
-    config.rootFolderId,
-    config.visitedPaths,
-    config.maxDepth
-  );
-
-  return {
-    ...baseNode,
-    children,
-  };
-}
-
-async function processFileNode(
-  node: import('@brainstrike/types').IFileNode,
-  config: FileTreeProcessingConfig,
-  fileSystemAdapter: FileSystemAdapter,
-  directoryHandle: DirectoryHandle
-): Promise<import('@brainstrike/types').IFileNode | null> {
-  if (node.type === 'file') {
-    return createFileNodeBase(node, config.depth, config.rootFolderId);
-  }
-
-  if (node.type === 'directory') {
-    return processDirectoryNode(node, config, fileSystemAdapter, directoryHandle);
-  }
-
-  return null;
-}
-
-async function readFullFileTreeFromAdapter(
-  fileSystemAdapter: FileSystemAdapter,
-  directoryHandle: DirectoryHandle,
-  parentPath = '',
-  depth = 0,
-  rootFolderId = directoryHandle.name,
-  visitedPaths: Set<string> = new Set(),
-  maxDepth = 30
-): Promise<import('@brainstrike/types').IFileNode[]> {
-  const currentPath = parentPath || directoryHandle.path;
-
-  if (visitedPaths.has(currentPath)) {
-    return [];
-  }
-
-  const newVisitedPaths = new Set(visitedPaths);
-  newVisitedPaths.add(currentPath);
-
-  const config: FileTreeProcessingConfig = {
-    depth,
-    maxDepth,
-    rootFolderId,
-    visitedPaths: newVisitedPaths,
-  };
-
-  try {
-    const directoryContents = await fileSystemAdapter.readDirectory(directoryHandle);
-    const entries: import('@brainstrike/types').IFileNode[] = [];
-
-    for (const node of directoryContents) {
-      if (shouldIgnorePath(node.path)) {
-        continue;
-      }
-
-      const processedNode = await processFileNode(node, config, fileSystemAdapter, directoryHandle);
-
-      if (processedNode) {
-        entries.push(processedNode);
-      }
-    }
-
-    return entries;
-  } catch (error) {
-    throw new Error(
-      `Failed to read directory contents while generating context: ${directoryHandle.path}`,
-      { cause: error }
-    );
-  }
-}
-
 function resolveProjectTreeFilterMode(
   includeFilters: string[],
   excludeFilters: string[],
@@ -447,8 +265,7 @@ function resolveProjectTreeFilterMode(
   return { excludeFilters, includeFilters, useRegex };
 }
 
-// Platform-agnostic version that works with our adapter pattern
-export async function generateContextFromAdapter(
+export async function generateContext(
   selectedFiles: Set<string>,
   fileContents: Record<string, string>,
   fileSystemAdapter: FileSystemAdapter,
@@ -463,7 +280,7 @@ export async function generateContextFromAdapter(
   let projectTreeText = '';
 
   if (includeProjectTree) {
-    const fullFileTree = await readFullFileTreeFromAdapter(fileSystemAdapter, rootDirectoryHandle);
+    const fullFileTree = await readFullFileTree(fileSystemAdapter, rootDirectoryHandle);
     const treeFilterMode = resolveProjectTreeFilterMode(
       includeFilters,
       excludeFilters,
@@ -488,48 +305,11 @@ export async function generateContextFromAdapter(
   );
 }
 
-// Web-only version for browser FileSystem APIs
-export async function generateContext(
-  selectedFiles: Set<string>,
-  fileContents: Record<string, string>,
-  rootDirectoryHandle: FileSystemDirectoryHandle,
-  includeFilters: string[],
-  excludeFilters: string[],
-  useRegex: boolean,
-  includeProjectTree: boolean,
-  folderSummaryThreshold = 5,
-  options: ContextGenerationOptions = {}
-): Promise<string> {
-  let projectTreeText = '';
+/** @deprecated Use `generateContext` instead. */
+export const generateContextFromAdapter = generateContext;
 
-  if (includeProjectTree) {
-    const fullFileTree = await readFullFileTree(rootDirectoryHandle);
-    const treeFilterMode = resolveProjectTreeFilterMode(
-      includeFilters,
-      excludeFilters,
-      useRegex,
-      options
-    );
-    projectTreeText = generateProjectTreeText(
-      fullFileTree,
-      treeFilterMode.includeFilters,
-      treeFilterMode.excludeFilters,
-      treeFilterMode.useRegex,
-      folderSummaryThreshold
-    );
-  }
-
-  return generateContextContent(
-    selectedFiles,
-    fileContents,
-    projectTreeText,
-    includeProjectTree,
-    options
-  );
-}
-
-/** @deprecated Use `generateContextFromAdapter` instead. */
-export const generateReportFromAdapter = generateContextFromAdapter;
+/** @deprecated Use `generateContext` instead. */
+export const generateReportFromAdapter = generateContext;
 
 /** @deprecated Use `generateContext` instead. */
 export const generateReport = generateContext;

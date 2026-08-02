@@ -93,6 +93,7 @@ interface PreviewPanelProps {
   projectTreeTokenCount?: number;
   projectTreeTokenCountLoading?: boolean;
   projectTreeUsesViewFilters?: boolean;
+  projectTreeValidationError?: string | undefined;
   /**
    * Resolve a RootId to its display name (multi-root, Phase 6) so context
    * snapshots can label same-relative-path files from different roots.
@@ -166,6 +167,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onProjectTreeUsesViewFiltersChange,
     projectTreeTokenCount = 0,
     projectTreeTokenCountLoading = false,
+    projectTreeValidationError,
     tokenBudget,
     onTokenBudgetChange,
     folderSummaryThreshold,
@@ -915,6 +917,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
           onTokenBudgetChange={onTokenBudgetChange}
           projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+          projectTreeValidationError={projectTreeValidationError}
           selectedFilesCount={selectedFiles.size}
           selectedTokensPendingCount={0}
           tokenCounting={tokenCounting}
@@ -947,6 +950,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         onTokenBudgetChange={onTokenBudgetChange}
         projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+        projectTreeValidationError={projectTreeValidationError}
         selectedFilesCount={selectedFiles.size}
         selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
         tokenCounting={tokenCounting}

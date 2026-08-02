@@ -20,25 +20,20 @@ describe('report-generation-worker', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses adapter version when adapter provided', async () => {
+  it('rejects a missing file-system adapter instead of selecting a browser fallback', () => {
+    const createWithoutOptions = createReportGenerationWorker as unknown as () => ReturnType<
+      typeof createReportGenerationWorker
+    >;
+
+    expect(() => createWithoutOptions()).toThrow(
+      'File system adapter is required for report generation'
+    );
+  });
+
+  it('uses the required adapter for context generation', async () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
     const rootHandle = await adapter.requestDirectoryAccess();
-    const spy = vi
-      .spyOn(contextGeneration, 'generateContextFromAdapter')
-      .mockResolvedValue('report');
-
-    const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
-
-    expect(spy).toHaveBeenCalled();
-    expect(result).toBe('report');
-  });
-
-  it('uses web version when no adapter', async () => {
-    const adapter = new MockFileSystemAdapter();
-    const worker = createReportGenerationWorker();
-    const rootHandle =
-      (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
     const spy = vi.spyOn(contextGeneration, 'generateContext').mockResolvedValue('report');
 
     const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
@@ -49,9 +44,8 @@ describe('report-generation-worker', () => {
 
   it('emits progress events', async () => {
     const adapter = new MockFileSystemAdapter();
-    const worker = createReportGenerationWorker();
-    const rootHandle =
-      (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
+    const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
+    const rootHandle = await adapter.requestDirectoryAccess();
     vi.spyOn(contextGeneration, 'generateContext').mockResolvedValue('done');
 
     const progress: number[] = [];
@@ -64,9 +58,8 @@ describe('report-generation-worker', () => {
 
   it('passes tapestry and tree filter options when provided', async () => {
     const adapter = new MockFileSystemAdapter();
-    const worker = createReportGenerationWorker();
-    const rootHandle =
-      (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
+    const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
+    const rootHandle = await adapter.requestDirectoryAccess();
     const spy = vi.spyOn(contextGeneration, 'generateContext').mockResolvedValue('done');
 
     await worker({
@@ -79,7 +72,7 @@ describe('report-generation-worker', () => {
     });
 
     const call = spy.mock.calls[0];
-    expect(call?.[8]).toEqual({
+    expect(call?.[9]).toEqual({
       projectTreeUsesViewFilters: false,
       selectedLineRangesByFile: {
         'a.ts': [{ endLine: 1, isActive: true, startLine: 0 }],

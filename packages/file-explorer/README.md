@@ -36,7 +36,11 @@ Feature-owned, UI-agnostic utilities are exposed through narrow subpaths:
 - `@brainstrike/file-explorer/project-tree-text`: filtered project-tree rendering.
 - `@brainstrike/file-explorer/context-generation`: selected-file and project-tree context projection.
 
-Invalid filters and adapter traversal failures surface as errors; context generation never silently widens a filter or returns a partial tree.
+Context traversal requires the platform-neutral `FileSystemAdapter` and
+`DirectoryHandle`; raw browser handles stay in adapter/consumer layers. Invalid
+filters and adapter traversal failures surface as errors, while synchronous UI
+previews render the typed pattern-validation result. Context generation never
+silently widens a filter or returns a partial tree.
 
 ## Actions Ownership
 

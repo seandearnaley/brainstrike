@@ -19,7 +19,7 @@ interface UsePreviewPanelReportActionsInput {
   includeProjectTree: boolean;
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
   projectTreeUsesViewFilters?: boolean;
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
+  rootDirectoryHandle: DirectoryHandle | null;
   selectedFiles: Set<string>;
   store: ReturnType<typeof useFileExplorerStoreContext>;
   useRegex: boolean;

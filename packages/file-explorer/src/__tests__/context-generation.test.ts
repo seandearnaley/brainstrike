@@ -452,10 +452,58 @@ describe('reportGenerator', () => {
       resolve: async () => [],
     }) as unknown as FileSystemDirectoryHandle;
 
-  let mockRootDirectoryHandle: FileSystemDirectoryHandle;
+  class BrowserHandleTestAdapter implements FileSystemAdapter {
+    constructor(private readonly root: FileSystemDirectoryHandle) {}
 
-  beforeEach(() => {
-    mockRootDirectoryHandle = createMockDirectoryHandle();
+    async requestDirectoryAccess(): Promise<DirectoryHandle> {
+      return {
+        _internal: this.root,
+        kind: 'directory',
+        name: this.root.name,
+        path: '',
+        platform: 'web',
+      };
+    }
+
+    async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+      const browserHandle = handle._internal;
+      if (!(browserHandle && typeof browserHandle === 'object' && 'entries' in browserHandle)) {
+        throw new Error(`Missing browser directory handle for ${handle.path}`);
+      }
+
+      const nodes: IFileNode[] = [];
+      for await (const [name, childHandle] of (
+        browserHandle as FileSystemDirectoryHandle
+      ).entries()) {
+        nodes.push({
+          depth: 0,
+          handle: childHandle as FileSystemDirectoryHandle | FileSystemFileHandle,
+          name,
+          path: `${handle.path}/${name}`,
+          rootFolderId: this.root.name,
+          selectionState: 'unchecked',
+          type: childHandle.kind,
+          ...(childHandle.kind === 'directory' ? { children: [] } : {}),
+        });
+      }
+      return nodes;
+    }
+
+    async readFile(): Promise<string> {
+      return '';
+    }
+
+    async exists(): Promise<boolean> {
+      return false;
+    }
+  }
+
+  let mockFileSystemAdapter: FileSystemAdapter;
+  let mockRootDirectoryHandle: DirectoryHandle;
+
+  beforeEach(async () => {
+    mockFileSystemAdapter = new BrowserHandleTestAdapter(createMockDirectoryHandle());
+    mockRootDirectoryHandle = await mockFileSystemAdapter.requestDirectoryAccess();
     vi.clearAllMocks();
   });
 
@@ -484,6 +532,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -511,6 +560,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -538,6 +588,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -565,6 +616,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -587,6 +639,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       ['**/components/**/*.tsx'],
       [],
@@ -609,6 +662,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       ['**/*.tsx'],
       ['**/tests/**'],
@@ -630,6 +684,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       ['**/components/**/*.tsx'],
       ['**/tests/**'],
@@ -650,6 +705,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -672,6 +728,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -699,6 +756,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -723,6 +781,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -786,6 +845,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -808,6 +868,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -828,6 +889,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -848,6 +910,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -940,6 +1003,24 @@ describe('generateReportFromAdapter', () => {
     await expect(
       generateReportFromAdapter(selected, fileContents, adapter, rootHandle, [], [], false, true)
     ).rejects.toThrow('Failed to read directory contents while generating context: mock-root');
+
+    spy.mockRestore();
+  });
+
+  it('reports the exact nested directory whose adapter read failed', async () => {
+    const spy = vi.spyOn(adapter, 'readDirectory');
+    spy.mockImplementation(async (handle) => {
+      if (handle.path === 'mock-root/src/components') {
+        throw new Error('nested failure');
+      }
+      return MockFileSystemAdapter.prototype.readDirectory.call(adapter, handle);
+    });
+
+    await expect(
+      generateReportFromAdapter(new Set(), {}, adapter, rootHandle, [], [], false, true)
+    ).rejects.toThrow(
+      'Failed to read directory contents while generating context: mock-root/src/components'
+    );
 
     spy.mockRestore();
   });

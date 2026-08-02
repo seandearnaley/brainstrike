@@ -9,8 +9,8 @@ const treeOperationCounters = vi.hoisted(() => ({
   isDescendantPathCalls: 0,
 }));
 
-vi.mock('@brainstrike/file-tree-worker', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-tree-worker')>();
+vi.mock('./generic-tree-operations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./generic-tree-operations')>();
 
   return {
     ...actual,
@@ -78,5 +78,29 @@ describe('BFSEngine expanded-path index', () => {
 
     expect(treeOperationCounters.isDescendantPathCalls).toBe(0);
     expect(messages.some((message) => message.type === 'expandedPathsDelta')).toBe(false);
+  });
+
+  it('observes descendant checks when an indexed nested node is updated', () => {
+    const target = createDirectoryNode({
+      children: undefined,
+      depth: 2,
+      name: 'target',
+      path: '/root/parent/target',
+    });
+    engine.setTree(
+      [
+        createDirectoryNode({
+          children: [target],
+          depth: 0,
+          name: 'root',
+          path: '/root',
+        }),
+      ],
+      'root'
+    );
+
+    engine.handleLoadResult('/root/parent/target', []);
+
+    expect(treeOperationCounters.isDescendantPathCalls).toBeGreaterThan(0);
   });
 });

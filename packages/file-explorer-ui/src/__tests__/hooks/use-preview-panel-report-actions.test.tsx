@@ -126,7 +126,7 @@ describe('usePreviewPanelReportActions', () => {
     const reportGenerationArgs = mockUseReportGeneration.mock.calls[0]?.[0] as {
       selectedFiles: Set<string>;
       fileContents: Record<string, string>;
-      rootDirectoryHandle: DirectoryHandle | FileSystemDirectoryHandle | undefined;
+      rootDirectoryHandle: DirectoryHandle | undefined;
       fileSystemAdapter: unknown;
       includeFilters: string[];
       excludeFilters: string[];
@@ -153,7 +153,7 @@ describe('usePreviewPanelReportActions', () => {
 
     expect(mockUseReportManager).toHaveBeenCalledTimes(1);
     const reportManagerArgs = mockUseReportManager.mock.calls[0]?.[0] as {
-      rootDirectoryHandle: DirectoryHandle | FileSystemDirectoryHandle | null;
+      rootDirectoryHandle: DirectoryHandle | null;
       generateContextWithContent: () => Promise<string>;
       toast: unknown;
     };
