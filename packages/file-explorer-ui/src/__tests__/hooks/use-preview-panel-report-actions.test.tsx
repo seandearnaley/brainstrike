@@ -12,14 +12,15 @@ const mockUseReportManager = vi.fn();
 const mockFileSystemAdapter = {};
 const mockToast = vi.fn();
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  createReportGenerationWorker: vi.fn(),
   useAdapters: () => ({ fileSystemAdapter: mockFileSystemAdapter }),
+  useReportGeneration: (args: unknown) => mockUseReportGeneration(args),
   useToastManager: () => ({ toast: mockToast }),
 }));
 
 vi.mock('@brainstrike/hooks', () => ({
   useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
     callback,
-  useReportGeneration: (args: unknown) => mockUseReportGeneration(args),
   useReportManager: (args: unknown) => mockUseReportManager(args),
 }));
 
