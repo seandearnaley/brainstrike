@@ -108,6 +108,10 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'failed in-memory snapshot',
     'initial external-store read',
     'stable Performance entry identity',
+    'occurrence time rather than callback delivery order',
+    'one snapshot publication',
+    'converge on the same failed snapshot',
+    'diagnostics preserves the operation',
   ]) {
     assertContractIncludes(term);
   }

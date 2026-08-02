@@ -37,6 +37,12 @@ interface RendererLongTaskSample extends RendererLongTaskMetric {
   readonly performanceEntryKey?: string;
 }
 
+interface PendingRendererLongTaskMetric {
+  readonly metric: RendererLongTaskMetric;
+  readonly observedAt: number;
+  readonly performanceEntryKey: string;
+}
+
 export interface RendererLongTaskRouteSummary {
   readonly count: number;
   readonly route: RendererDiagnosticSurface;
@@ -95,6 +101,10 @@ function normalizeFeatureFlags(flags: readonly string[] | null): readonly string
   return [...new Set(flags)].sort((left, right) => left.localeCompare(right));
 }
 
+function readErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createRendererLongTaskTelemetry(
   options: RendererLongTaskTelemetryOptions = {}
 ): RendererLongTaskTelemetry {
@@ -127,19 +137,17 @@ export function createRendererLongTaskTelemetry(
 
   const prune = (snapshotAt: number): boolean => {
     const threshold = snapshotAt - windowMs;
-    const sampleCountBeforePrune = samples.length;
-    samples = samples.filter((sample) => {
-      if (sample.observedAt >= threshold) {
-        return true;
-      }
+    const retainedSamples = samples.filter((sample) => sample.observedAt >= threshold);
+    if (retainedSamples.length === samples.length) {
       return false;
-    });
+    }
+    samples = retainedSamples;
     for (const [key, observedAt] of performanceEntryKeys) {
       if (observedAt < threshold) {
         performanceEntryKeys.delete(key);
       }
     }
-    return samples.length !== sampleCountBeforePrune;
+    return true;
   };
 
   const buildSnapshot = (snapshotAt: number): RendererLongTaskTelemetrySnapshot => {
@@ -221,7 +229,8 @@ export function createRendererLongTaskTelemetry(
 
   const setFailedSnapshot = (error: unknown, notifyListeners: boolean): void => {
     availability = 'failed';
-    unavailableReason = error instanceof Error ? error.message : String(error);
+    const failureReason = readErrorMessage(error);
+    unavailableReason = failureReason;
     let snapshotAt = 0;
     try {
       snapshotAt = now();
@@ -232,7 +241,11 @@ export function createRendererLongTaskTelemetry(
       }
       samples = [];
       performanceEntryKeys.clear();
-      unavailableReason = clockError instanceof Error ? clockError.message : String(clockError);
+      const clockFailureReason = readErrorMessage(clockError);
+      unavailableReason =
+        clockFailureReason === failureReason
+          ? failureReason
+          : `${failureReason} (clock unavailable: ${clockFailureReason})`;
     }
     currentSnapshot = buildSnapshot(snapshotAt);
     snapshotDirty = false;
@@ -247,12 +260,25 @@ export function createRendererLongTaskTelemetry(
     setFailedSnapshot(error, true);
   };
 
+  const readClock = (notifyListeners: boolean): number | null => {
+    try {
+      return now();
+    } catch (error) {
+      setFailedSnapshot(error, notifyListeners);
+      return null;
+    }
+  };
+
   const publish = (): void => {
     snapshotDirty = true;
     if (listeners.size === 0) {
       return;
     }
-    publishSnapshot(now());
+    const snapshotAt = readClock(true);
+    if (snapshotAt === null) {
+      return;
+    }
+    publishSnapshot(snapshotAt);
   };
 
   const scheduleRetentionPrune = (scheduledAt: number): void => {
@@ -267,7 +293,10 @@ export function createRendererLongTaskTelemetry(
     const delayMs = Math.max(1, oldestSample.observedAt + windowMs - scheduledAt + 1);
     retentionTimer = setTimeout(() => {
       retentionTimer = null;
-      const snapshotAt = now();
+      const snapshotAt = readClock(true);
+      if (snapshotAt === null) {
+        return;
+      }
       const pruned = prune(snapshotAt);
       scheduleRetentionPrune(snapshotAt);
       if (!pruned) {
@@ -306,17 +335,29 @@ export function createRendererLongTaskTelemetry(
     return true;
   };
 
-  const recordAt = (
+  const evictPerformanceEntryKeysOverCap = (): void => {
+    const overflowCount = performanceEntryKeys.size - maxPerformanceEntryKeys;
+    if (overflowCount <= 0) {
+      return;
+    }
+    const oldestKeys = [...performanceEntryKeys.entries()]
+      .sort((left, right) => left[1] - right[1])
+      .slice(0, overflowCount);
+    for (const [key] of oldestKeys) {
+      performanceEntryKeys.delete(key);
+    }
+  };
+
+  const insertMetric = (
     metric: RendererLongTaskMetric,
     observedAt: number,
-    scheduledAt: number,
     performanceEntryKey?: string
-  ): void => {
+  ): boolean => {
     if (!Number.isFinite(observedAt)) {
       throw new Error('Renderer long-task telemetry observedAt must be finite.');
     }
     if (performanceEntryKey !== undefined && performanceEntryKeys.has(performanceEntryKey)) {
-      return;
+      return false;
     }
 
     const sample: RendererLongTaskSample = {
@@ -328,43 +369,46 @@ export function createRendererLongTaskTelemetry(
     insertSample(sample);
     if (performanceEntryKey !== undefined) {
       performanceEntryKeys.set(performanceEntryKey, observedAt);
-      if (performanceEntryKeys.size > maxPerformanceEntryKeys) {
-        const oldestKey = performanceEntryKeys.keys().next().value;
-        if (oldestKey === undefined) {
-          throw new Error('Renderer long-task telemetry dedupe-key invariant failed.');
-        }
-        performanceEntryKeys.delete(oldestKey);
-      }
     }
+    return true;
+  };
 
+  const finalizeInsertedMetrics = (scheduledAt: number): void => {
     const pruned = prune(scheduledAt);
     const sampleCapEvicted = evictSamplesOverCap();
+    evictPerformanceEntryKeysOverCap();
     if ((pruned || sampleCapEvicted) && listeners.size === 0) {
       // Releasing cached identifiers is O(1); the next read rebuilds the full
       // snapshot lazily, while an observed store rebuilds once in publish().
       releaseCachedSampleContext(scheduledAt);
     }
     scheduleRetentionPrune(scheduledAt);
-    publish();
+    snapshotDirty = true;
+    if (listeners.size > 0) {
+      publishSnapshot(scheduledAt);
+    }
   };
 
   const record = (metric: RendererLongTaskMetric): void => {
     if (!isLongTaskDuration(metric.durationMs)) {
       return;
     }
-    const observedAt = now();
-    recordAt(metric, observedAt, observedAt);
+    const observedAt = readClock(true);
+    if (observedAt === null) {
+      return;
+    }
+    if (!insertMetric(metric, observedAt)) {
+      return;
+    }
+    finalizeInsertedMetrics(observedAt);
   };
 
   const getSnapshot = (): RendererLongTaskTelemetrySnapshot => {
     if (snapshotDirty) {
-      try {
-        currentSnapshot = buildSnapshot(now());
+      const snapshotAt = readClock(false);
+      if (snapshotAt !== null) {
+        currentSnapshot = buildSnapshot(snapshotAt);
         snapshotDirty = false;
-      } catch (error) {
-        // External-store reads must surface a coherent local failure snapshot;
-        // notifying subscribers from inside a React render would be unsafe.
-        setFailedSnapshot(error, false);
       }
     }
     return currentSnapshot;
@@ -386,11 +430,37 @@ export function createRendererLongTaskTelemetry(
     publish();
   };
 
+  const preparePerformanceEntry = (
+    entry: PerformanceEntry,
+    deliveredAt: number,
+    elapsedMs: number,
+    getContext: () => RendererLongTaskContext
+  ): PendingRendererLongTaskMetric | null => {
+    if (entry.entryType !== 'longtask' || !isLongTaskDuration(entry.duration)) {
+      return null;
+    }
+    if (!Number.isFinite(entry.startTime)) {
+      throw new Error('PerformanceObserver longtask entry timing is unavailable.');
+    }
+    const observedAt = deliveredAt - (elapsedMs - entry.startTime);
+    if (observedAt < deliveredAt - windowMs) {
+      return null;
+    }
+    return {
+      metric: { ...getContext(), durationMs: entry.duration },
+      observedAt,
+      performanceEntryKey: `${entry.startTime}:${entry.duration}`,
+    };
+  };
+
   const recordPerformanceEntries = (
     list: PerformanceObserverEntryList,
     getContext: () => RendererLongTaskContext
-  ): void => {
-    const deliveredAt = now();
+  ): boolean => {
+    const deliveredAt = readClock(true);
+    if (deliveredAt === null) {
+      return false;
+    }
     if (typeof performance === 'undefined') {
       throw new Error('Renderer long-task telemetry requires the Performance timing API.');
     }
@@ -398,24 +468,27 @@ export function createRendererLongTaskTelemetry(
     if (!Number.isFinite(elapsedMs)) {
       throw new Error('PerformanceObserver longtask entry timing is unavailable.');
     }
+    const pendingMetrics: PendingRendererLongTaskMetric[] = [];
     for (const entry of list.getEntries()) {
-      if (entry.entryType !== 'longtask' || !isLongTaskDuration(entry.duration)) {
+      const pendingMetric = preparePerformanceEntry(entry, deliveredAt, elapsedMs, getContext);
+      if (pendingMetric === null) {
         continue;
       }
-      if (!Number.isFinite(entry.startTime)) {
-        throw new Error('PerformanceObserver longtask entry timing is unavailable.');
-      }
-      const observedAt = deliveredAt - (elapsedMs - entry.startTime);
-      if (observedAt < deliveredAt - windowMs) {
-        continue;
-      }
-      recordAt(
-        { ...getContext(), durationMs: entry.duration },
-        observedAt,
-        deliveredAt,
-        `${entry.startTime}:${entry.duration}`
-      );
+      pendingMetrics.push(pendingMetric);
     }
+    let insertedMetric = false;
+    for (const pendingMetric of pendingMetrics) {
+      insertedMetric =
+        insertMetric(
+          pendingMetric.metric,
+          pendingMetric.observedAt,
+          pendingMetric.performanceEntryKey
+        ) || insertedMetric;
+    }
+    if (insertedMetric) {
+      finalizeInsertedMetrics(deliveredAt);
+    }
+    return true;
   };
 
   const observe = (getContext: () => RendererLongTaskContext): (() => void) => {
@@ -440,19 +513,22 @@ export function createRendererLongTaskTelemetry(
       };
     let observer: PerformanceObserver | null = null;
     try {
-      const observationStartedAt = now();
       if (typeof PerformanceObserver === 'undefined') {
         availability = 'unsupported';
         unavailableReason = 'PerformanceObserver is unavailable in this renderer.';
-        publishSnapshot(observationStartedAt);
+        publishSnapshot(currentSnapshot.snapshotAt);
         return disposeInactiveObservation('unsupported');
       }
       const supportedEntryTypes = PerformanceObserver.supportedEntryTypes;
       if (!(Array.isArray(supportedEntryTypes) && supportedEntryTypes.includes('longtask'))) {
         availability = 'unsupported';
         unavailableReason = 'This renderer does not support PerformanceObserver longtask entries.';
-        publishSnapshot(observationStartedAt);
+        publishSnapshot(currentSnapshot.snapshotAt);
         return disposeInactiveObservation('unsupported');
+      }
+      const observationStartedAt = readClock(true);
+      if (observationStartedAt === null) {
+        return disposeInactiveObservation('failed');
       }
 
       const initialContext = getContext();
@@ -461,7 +537,13 @@ export function createRendererLongTaskTelemetry(
 
       const createdObserver = new PerformanceObserver((list) => {
         try {
-          recordPerformanceEntries(list, getContext);
+          if (recordPerformanceEntries(list, getContext)) {
+            return;
+          }
+          createdObserver.disconnect();
+          if (activeObserver === createdObserver) {
+            activeObserver = null;
+          }
         } catch (error) {
           createdObserver.disconnect();
           if (activeObserver === createdObserver) {
@@ -519,7 +601,11 @@ export function createRendererLongTaskTelemetry(
     unavailableReason = null;
     // Reset is a privacy boundary: rebuild even without listeners so the
     // external-store cache releases all previously retained identifiers now.
-    publishSnapshot(now());
+    const resetAt = readClock(true);
+    if (resetAt === null) {
+      return;
+    }
+    publishSnapshot(resetAt);
   };
 
   return { getSnapshot, observe, record, reset, subscribe, updateContext };

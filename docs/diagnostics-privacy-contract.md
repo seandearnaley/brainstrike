@@ -109,6 +109,15 @@ reported through a failed in-memory snapshot instead of breaking app-shell
 module evaluation. The initial external-store read also returns that explicit
 failed snapshot before the observer effect mounts. Buffered replay deduplication
 uses stable Performance entry identity rather than delivery-time clock mapping,
-so replacing an observer cannot count the same buffered entry twice.
+so replacing an observer cannot count the same buffered entry twice. Dedupe-key
+capacity eviction uses occurrence time rather than callback delivery order.
+A delivered PerformanceObserver batch performs retention, cap eviction, timer
+scheduling, snapshot rebuilding, and listener publication once after inserting
+all eligible entries; startup replay therefore produces one snapshot publication
+per delivered batch instead of one per sample. Clock failures from collection,
+external-store publication, direct recording, reset, or retention expiry all
+converge on the same failed snapshot without escaping through renderer effects.
+When an operation and the clock both fail, diagnostics preserves the operation
+failure and appends the clock failure instead of discarding the originating cause.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.
