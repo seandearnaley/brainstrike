@@ -600,6 +600,7 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       'tool-call-filter',
       'provider-history-compat',
       'openai-tool-search-history-compat',
+      'openai-duplicate-item-compat',
       'token-limiter',
     ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-resume-id');
@@ -682,6 +683,7 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       'tool-call-filter',
       'provider-history-compat',
       'openai-tool-search-history-compat',
+      'openai-duplicate-item-compat',
       'token-limiter',
     ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-suspend-resume-id');

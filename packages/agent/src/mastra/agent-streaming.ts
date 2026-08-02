@@ -67,6 +67,7 @@ import {
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
 import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
@@ -878,6 +879,13 @@ function buildToolLoopOptions(
   const openAIToolSearchHistoryCompat = buildOpenAIToolSearchHistoryCompatInputProcessor(
     runtimeData?.provider ?? ''
   );
+  // Mastra's sealed-boundary re-key can leave the same assistant response
+  // persisted under two message ids; OpenAI rejects any request that carries
+  // an item id twice (BST-1095). Runs LAST among the compat processors so it
+  // sees the item references the earlier rewrites produced.
+  const openAIDuplicateItemCompat = buildOpenAIDuplicateItemCompatInputProcessor(
+    runtimeData?.provider ?? ''
+  );
   const tokenLimiter = inputTokenLimit
     ? new ProjectionAwareTokenLimiter({
         limit: inputTokenLimit,
@@ -902,6 +910,7 @@ function buildToolLoopOptions(
     toolHistoryFilter,
     historyCompat,
     openAIToolSearchHistoryCompat,
+    openAIDuplicateItemCompat,
     tokenLimiter,
   ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
 
