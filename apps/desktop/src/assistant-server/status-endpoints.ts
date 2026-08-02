@@ -2,13 +2,15 @@ import type http from 'node:http';
 import {
   buildNativeToolRiskMap,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  hasRegisteredSuspendResumeUi,
   listSuspendedMastraRuns,
   type RediscoveredToolApproval,
+  type RediscoveredToolSuspend,
   RUN_PYTHON_TOOL_ID,
   type RuntimeAssistantMemorySettings,
   resolveApprovalStaleMs,
   resolveRunPythonExecutionContext,
-  type SuspendedApprovalsResponse,
+  type SuspendedRunsResponse,
 } from '@brainstrike/agent';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { desktopAssistantServerLogger as logger } from './logger';
@@ -244,7 +246,30 @@ export async function handleSuspendedRunsRequest(
       };
     });
 
-    const payload: SuspendedApprovalsResponse = { approvals };
+    // BST-1084: rediscovered suspend() pauses ride the same response. An
+    // UNREGISTERED tool's pause is flagged resumeSupported:false — the same
+    // honesty contract as the live path's dead-end notice — never dropped.
+    const suspends: RediscoveredToolSuspend[] = discovery.suspends.map((pause) => {
+      const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
+      if (!resumable) {
+        logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {
+          code: 'assistant_suspended_pause_resume_unregistered',
+          runId: pause.runId,
+          toolName: pause.toolName,
+        });
+      }
+      return {
+        runId: pause.runId,
+        stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,
+        suspendedAt: pause.suspendedAt,
+        toolCallId: pause.toolCallId,
+        toolName: pause.toolName,
+        ...(pause.suspendPayload === undefined ? {} : { suspendPayload: pause.suspendPayload }),
+        ...(resumable ? {} : { resumeSupported: false as const }),
+      };
+    });
+
+    const payload: SuspendedRunsResponse = { approvals, suspends };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.statusCode = 200;

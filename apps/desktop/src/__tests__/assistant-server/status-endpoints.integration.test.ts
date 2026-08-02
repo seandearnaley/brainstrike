@@ -100,7 +100,7 @@ beforeEach(() => {
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });
-  mockListSuspendedMastraRuns.mockReset().mockResolvedValue({ approvals: [] });
+  mockListSuspendedMastraRuns.mockReset().mockResolvedValue({ approvals: [], suspends: [] });
   mockCreatePgliteMastraMemory.mockReset().mockResolvedValue({
     memory: mockPgliteMastraMemory,
     storage: mockPgliteMastraStorage,
@@ -409,6 +409,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.executeCommand',
         },
       ],
+      suspends: [],
     });
 
     const response = await runRequest({
@@ -458,6 +459,8 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.executeCommand',
         },
       ],
+      // BST-1084: the response additionally carries rediscovered suspend() pauses.
+      suspends: [],
     });
   });
 
@@ -473,6 +476,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.writeWorkspaceFile',
         },
       ],
+      suspends: [],
     });
 
     const response = await runRequest({
@@ -507,6 +511,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.runPython',
         },
       ],
+      suspends: [],
     });
 
     const response = await runRequest({
@@ -541,6 +546,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.runPython',
         },
       ],
+      suspends: [],
     });
 
     const response = await runRequest({
@@ -552,6 +558,80 @@ describe('suspended-runs endpoint', () => {
     const body = JSON.parse(response.body);
     expect(body.approvals[0]).toMatchObject({ toolName: 'brainstrike.runPython' });
     expect(body.approvals[0]).not.toHaveProperty('executionContext');
+  });
+
+  it('GET /assistant/suspended-runs returns rediscovered suspend() pauses with payload + staleness (BST-1084)', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [],
+      suspends: [
+        {
+          runId: 'run-suspend-restart-1',
+          suspendedAt: new Date().toISOString(),
+          suspendPayload: { question: 'Which region?' },
+          toolCallId: 'call-suspend-restart-1',
+          toolName: 'brainstrike.askUser',
+        },
+        {
+          runId: 'run-suspend-restart-2',
+          // Two days ago — beyond the 24h default staleness threshold.
+          suspendedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          suspendPayload: { overview: 'plan', steps: [], title: 'Plan' },
+          toolCallId: 'call-suspend-restart-2',
+          toolName: 'brainstrike.submitPlan',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.suspends).toHaveLength(2);
+    expect(body.suspends[0]).toMatchObject({
+      runId: 'run-suspend-restart-1',
+      stale: false,
+      suspendPayload: { question: 'Which region?' },
+      toolCallId: 'call-suspend-restart-1',
+      toolName: 'brainstrike.askUser',
+    });
+    // Registered suspend UI => no resumeSupported flag (omitted means resumable).
+    expect(body.suspends[0]).not.toHaveProperty('resumeSupported');
+    expect(body.suspends[1]).toMatchObject({ stale: true, toolName: 'brainstrike.submitPlan' });
+  });
+
+  it('GET /assistant/suspended-runs flags an UNREGISTERED suspend as resumeSupported:false instead of dropping it', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [],
+      suspends: [
+        {
+          runId: 'run-suspend-unreg-1',
+          suspendedAt: new Date().toISOString(),
+          suspendPayload: { question: 'why?' },
+          toolCallId: 'call-suspend-unreg-1',
+          toolName: 'brainstrike.someFutureSuspendingTool',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    // Same honesty contract as the LIVE path: the pause surfaces (the renderer
+    // shows the dead-end notice), never a silent drop.
+    expect(body.suspends).toHaveLength(1);
+    expect(body.suspends[0]).toMatchObject({
+      resumeSupported: false,
+      toolName: 'brainstrike.someFutureSuspendingTool',
+    });
   });
 
   it('GET /assistant/suspended-runs omits riskCategory for a tool absent from the risk map and warns LOUDLY', async () => {
@@ -570,6 +650,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'someServer.someTool',
         },
       ],
+      suspends: [],
     });
     const warnSpy = vi.spyOn(desktopAssistantServerLogger, 'warn').mockImplementation(() => {
       // Silence expected warning output.
