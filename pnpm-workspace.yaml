@@ -27,9 +27,9 @@ catalog:
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1
   '@babel/runtime': ^8.0.0
-  '@electric-sql/pglite': 0.5.3
-  '@electric-sql/pglite-pg_textsearch': 0.0.4
-  '@electric-sql/pglite-pgvector': 0.0.4
+  '@electric-sql/pglite': 0.5.4
+  '@electric-sql/pglite-pg_textsearch': 0.0.6
+  '@electric-sql/pglite-pgvector': 0.0.5
   '@fontsource-variable/geist': ^5.2.9
   '@fontsource-variable/geist-mono': ^5.2.8
   '@huggingface/transformers': ^4.2.0
