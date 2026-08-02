@@ -84,6 +84,7 @@ describe('embedding host shared command helpers', () => {
               memoryEstimateUnavailableCount: 0,
               residentCount: 0,
             },
+            health: { failureCount: 0, lastFailure: null },
             lastUpdatedAt: 1000,
             peakVectorsInFlight: 1,
           },
@@ -107,6 +108,7 @@ describe('embedding host shared command helpers', () => {
           telemetry: {
             batchTransfer: { batchCount: 0, lastBytes: -1, peakBytes: 0, totalBytes: 0 },
             cache: { entries: [] },
+            health: { failureCount: 0, lastFailure: null },
             lastUpdatedAt: null,
             peakVectorsInFlight: 0,
           },

@@ -113,6 +113,11 @@ describe('SystemDiagnosticsPanel', () => {
                 memoryEstimateUnavailableCount: 0,
                 residentCount: 2,
               },
+              health: {
+                failureCount: 1,
+                lastFailure:
+                  'Workerpool result arrived without a pipeline-cache source diagnostic.',
+              },
               lastUpdatedAt: 1000,
               peakVectorsInFlight: 4,
             },
@@ -129,6 +134,10 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('model-a')).toBeInTheDocument();
       expect(screen.getByText('model-a-copy')).toBeInTheDocument();
       expect(screen.getByText('4 vectors')).toBeInTheDocument();
+      expect(screen.getByText('Telemetry degraded')).toBeInTheDocument();
+      expect(
+        screen.getByText(/1 telemetry failure: Workerpool result arrived without/)
+      ).toBeInTheDocument();
       expect(consoleError.mock.calls.flat().join(' ')).not.toContain(
         'Encountered two children with the same key'
       );

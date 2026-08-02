@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  assertEmbeddingTelemetrySnapshot,
+  createEmptyEmbeddingTelemetrySnapshot,
   getEmbeddingTelemetrySnapshot,
   recordEmbeddingBatchTelemetry,
   recordEmbeddingPipelineCacheTelemetry,
+  recordEmbeddingTelemetryFailure,
   removeEmbeddingTelemetrySource,
   resetEmbeddingTelemetryForTests,
   subscribeEmbeddingTelemetry,
@@ -82,6 +85,47 @@ describe('embedding telemetry store', () => {
 
     unsubscribe();
     vi.useRealTimers();
+  });
+
+  it('retains explicit telemetry failures without fabricating worker samples', () => {
+    recordEmbeddingTelemetryFailure(
+      'Workerpool result arrived without a pipeline-cache source diagnostic.'
+    );
+
+    expect(getEmbeddingTelemetrySnapshot()).toMatchObject({
+      batchTransfer: { batchCount: 0 },
+      cache: { residentCount: 0 },
+      health: {
+        failureCount: 1,
+        lastFailure: 'Workerpool result arrived without a pipeline-cache source diagnostic.',
+      },
+    });
+    expect(() => recordEmbeddingTelemetryFailure('')).toThrow(
+      'Embedding telemetry failure reason must contain 1-240 characters.'
+    );
+    expect(() => recordEmbeddingTelemetryFailure('x'.repeat(241))).toThrow(
+      'Embedding telemetry failure reason must contain 1-240 characters.'
+    );
+  });
+
+  it('rejects inconsistent telemetry health at the process boundary', () => {
+    const empty = createEmptyEmbeddingTelemetrySnapshot();
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...empty,
+        health: { failureCount: 1, lastFailure: null },
+      })
+    ).toThrow(
+      'Embedding telemetry health requires lastFailure exactly when failureCount is non-zero.'
+    );
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...empty,
+        health: { failureCount: 0, lastFailure: 'stale failure' },
+      })
+    ).toThrow(
+      'Embedding telemetry health requires lastFailure exactly when failureCount is non-zero.'
+    );
   });
 
   it('tracks resident model bytes by device and removes terminated worker state', () => {

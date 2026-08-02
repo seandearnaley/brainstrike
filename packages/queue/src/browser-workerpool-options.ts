@@ -6,6 +6,7 @@ import type { EmbeddingDeviceHint } from './types';
 
 export interface WorkerpoolEmbeddingTelemetrySink {
   readonly recordBatch: (sourceId: string, event: EmbedWorkerBatch) => void;
+  readonly recordFailure: (reason: string) => void;
   readonly recordPipelineCache: (
     sourceId: string,
     event: EmbedWorkerPipelineCacheDiagnostic
@@ -22,11 +23,12 @@ export function assertWorkerpoolEmbeddingTelemetrySink(
   const candidate = value as Record<string, unknown>;
   if (
     typeof candidate['recordBatch'] !== 'function' ||
+    typeof candidate['recordFailure'] !== 'function' ||
     typeof candidate['recordPipelineCache'] !== 'function' ||
     typeof candidate['removeSource'] !== 'function'
   ) {
     throw new Error(
-      'Workerpool embedding telemetry sink requires recordBatch, recordPipelineCache, and removeSource functions.'
+      'Workerpool embedding telemetry sink requires recordBatch, recordFailure, recordPipelineCache, and removeSource functions.'
     );
   }
 }

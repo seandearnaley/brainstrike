@@ -123,7 +123,16 @@ Embedding runtime telemetry (BST-402):
   `workerOpts` from its runtime termination callback despite declaring it in the public
   type. The callback-preserved script identifies and clears only the terminated worker's
   source. Full pool shutdown clears any remaining observed sources. Streaming workers
-  likewise clear their own source during explicit shutdown. No model weights, vector
+  likewise clear their own source during explicit shutdown. A missing workerpool cache
+  diagnostic latches a session-level telemetry-health failure and logs the task identifier,
+  but it never converts otherwise valid vectors into a failed embedding result. The bounded,
+  code-authored failure reason remains visible until the renderer session ends; it contains
+  no task payload or user data. Malformed diagnostics remain terminal because their identity
+  cannot be trusted. A rejected streaming batch
+  callback terminally fails and terminates its worker so the unacknowledged stream and its
+  telemetry source cannot remain alive. Every malformed streaming request receives a
+  request-scoped terminal error event, including failures detected while building or
+  validating its context. No model weights, vector
   values, input text, paths, or content are retained by the telemetry store.
 - On desktop, the hidden embedding-host renderer remains the source of truth. It reports
   a validated snapshot through the existing typed host-status bridge; Electron main

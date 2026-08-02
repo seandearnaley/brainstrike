@@ -52,6 +52,8 @@ function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDi
 }
 
 const MANAGED_WORKER_SCRIPT_FRAGMENT_KEY = 'brainstrike-embedding-worker-instance';
+const MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON =
+  'Workerpool result arrived without a pipeline-cache source diagnostic.';
 
 function tagManagedWorkerScript(
   workerScript: string | undefined,
@@ -284,21 +286,21 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       const result = await promise;
       if (result.vectors.length > 0) {
         if (telemetrySource.current === null) {
-          throw new Error(
-            `Embedding worker result ${task.id} is missing its required pipeline-cache source diagnostic.`
-          );
+          embeddingTelemetry.recordFailure(MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON);
+          logger.error(MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON, { taskId: task.id });
+        } else {
+          embeddingTelemetry.recordBatch(telemetrySource.current, {
+            batchIndex: 0,
+            endIndex: task.texts.length,
+            id: task.id,
+            peakVectorsInFlight: result.vectors.length,
+            startIndex: 0,
+            transferBytes: calculateTransferBytes(result.vectors),
+            type: 'batch',
+            vectors: result.vectors,
+            vectorsInFlight: result.vectors.length,
+          });
         }
-        embeddingTelemetry.recordBatch(telemetrySource.current, {
-          batchIndex: 0,
-          endIndex: task.texts.length,
-          id: task.id,
-          peakVectorsInFlight: result.vectors.length,
-          startIndex: 0,
-          transferBytes: calculateTransferBytes(result.vectors),
-          type: 'batch',
-          vectors: result.vectors,
-          vectorsInFlight: result.vectors.length,
-        });
       }
       onTaskComplete(task, startedAt);
       return result;

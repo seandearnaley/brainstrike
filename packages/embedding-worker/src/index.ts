@@ -9,6 +9,7 @@ export {
   getEmbeddingTelemetrySnapshot,
   recordEmbeddingBatchTelemetry,
   recordEmbeddingPipelineCacheTelemetry,
+  recordEmbeddingTelemetryFailure,
   removeEmbeddingTelemetrySource,
   resetEmbeddingTelemetryForTests,
   subscribeEmbeddingTelemetry,

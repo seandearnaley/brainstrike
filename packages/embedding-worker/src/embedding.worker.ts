@@ -1515,24 +1515,29 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
     }
 
     const payload = request as EmbedWorkerRequest;
+    const requestId =
+      typeof payload.id === 'string' && payload.id.length > 0 ? payload.id : 'unknown';
     void (async () => {
-      const context = createContext(payload);
-      activeStreamRequestIds.add(context.id);
-      const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
-      assertValidDimension(payload, requestedDimension);
-      const state = createInitialState(context, payload.deviceHint, payload.maxBatchSize);
-      isInferenceActive = true;
+      let context: EmbeddingContext | null = null;
       try {
+        context = createContext(payload);
+        activeStreamRequestIds.add(context.id);
+        const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+        assertValidDimension(payload, requestedDimension);
+        const state = createInitialState(context, payload.deviceHint, payload.maxBatchSize);
+        isInferenceActive = true;
         await streamEmbeddings(context, state);
       } catch (error) {
         postStreamEvent({
           cause: serializeErrorCause(error),
-          id: context.id,
+          id: context?.id ?? requestId,
           message: error instanceof Error ? error.message : String(error),
           type: 'error',
         });
       } finally {
-        activeStreamRequestIds.delete(context.id);
+        if (context !== null) {
+          activeStreamRequestIds.delete(context.id);
+        }
         isInferenceActive = false;
       }
     })();

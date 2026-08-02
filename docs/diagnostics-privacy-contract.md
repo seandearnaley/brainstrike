@@ -87,11 +87,16 @@ before implementation.
 
 ### BST-402 embedding-runtime boundary
 
-Embedding telemetry is local, in-memory, and source-scoped to a live worker. It may
-retain exact batch transfer byte counts, counts/peaks of vectors in flight, model and
-device labels already present in runtime diagnostics, cache-entry timestamps, and a
-model-memory estimate derived from catalog metadata. The estimate is not measured
-browser memory and must be labeled as estimated or unavailable.
+Embedding telemetry is local and in-memory. Worker measurements are source-scoped to a
+live worker; the session-level health failure count and last reason remain latched after
+source cleanup so a dropped diagnostic cannot disappear from view. It may retain exact
+batch transfer byte counts, counts/peaks of vectors in flight, model and device labels
+already present in runtime diagnostics, cache-entry timestamps, and a model-memory
+estimate derived from catalog metadata. The estimate is not measured browser memory and
+must be labeled as estimated or unavailable. The snapshot may also retain a bounded,
+code-authored telemetry-health failure reason and count; failure text
+must never interpolate a task payload, model input, path, filename, or content-derived
+identifier.
 
 It must not retain vector values or buffers, input text, chunks, model weights, local
 paths, filenames, or content-derived identifiers. Terminating or faulting a worker

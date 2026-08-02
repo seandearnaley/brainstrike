@@ -12,6 +12,7 @@ import {
 const TEST_WORKER_URL = 'https://example.invalid/embedding.worker.js';
 const TEST_TELEMETRY_SINK = {
   recordBatch: vi.fn(),
+  recordFailure: vi.fn(),
   recordPipelineCache: vi.fn(),
   removeSource: vi.fn(),
 };

@@ -10,6 +10,7 @@ const {
   poolStatsMock,
   poolTerminateMock,
   recordEmbeddingBatchTelemetryMock,
+  recordEmbeddingTelemetryFailureMock,
   recordEmbeddingPipelineCacheTelemetryMock,
   removeEmbeddingTelemetrySourceMock,
 } = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ const {
   poolTerminateMock: vi.fn(),
   recordEmbeddingBatchTelemetryMock: vi.fn(),
   recordEmbeddingPipelineCacheTelemetryMock: vi.fn(),
+  recordEmbeddingTelemetryFailureMock: vi.fn(),
   removeEmbeddingTelemetrySourceMock: vi.fn(),
 }));
 
@@ -104,6 +106,7 @@ function createWorkerOptions() {
   return {
     telemetry: {
       recordBatch: recordEmbeddingBatchTelemetryMock,
+      recordFailure: recordEmbeddingTelemetryFailureMock,
       recordPipelineCache: recordEmbeddingPipelineCacheTelemetryMock,
       removeSource: removeEmbeddingTelemetrySourceMock,
     },
@@ -122,6 +125,7 @@ describe('createWorkerpoolAdapter', () => {
     poolStatsMock.mockReset();
     poolTerminateMock.mockReset();
     recordEmbeddingBatchTelemetryMock.mockReset();
+    recordEmbeddingTelemetryFailureMock.mockReset();
     recordEmbeddingPipelineCacheTelemetryMock.mockReset();
     removeEmbeddingTelemetrySourceMock.mockReset();
     poolTerminateMock.mockResolvedValue(undefined);
@@ -249,7 +253,7 @@ describe('createWorkerpoolAdapter', () => {
     expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(sourceId);
   });
 
-  it('rejects results that omit the required live-worker telemetry source', async () => {
+  it('surfaces missing live-worker telemetry without rejecting valid vectors', async () => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
@@ -258,10 +262,14 @@ describe('createWorkerpoolAdapter', () => {
     const addPromise = adapter.add(createTask('task-without-source'));
     resolve(createResult('task-without-source'));
 
-    await expect(addPromise).rejects.toThrow(
-      'Embedding worker result task-without-source is missing its required pipeline-cache source diagnostic.'
-    );
+    await expect(addPromise).resolves.toEqual(createResult('task-without-source'));
     expect(recordEmbeddingBatchTelemetryMock).not.toHaveBeenCalled();
+    expect(recordEmbeddingTelemetryFailureMock).toHaveBeenCalledWith(
+      'Workerpool result arrived without a pipeline-cache source diagnostic.'
+    );
+    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'complete', taskId: 'task-without-source' })
+    );
   });
 
   it.each([

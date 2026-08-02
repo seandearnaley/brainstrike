@@ -50,8 +50,10 @@ Testing:
 Renderer long-task, embedding-runtime, and database-query performance snapshots are
 session-only diagnostics. They are deliberately not written to the diagnostic-event
 table, local storage, IndexedDB, or filesystem, so they require no factory-reset wiring.
-The embedding snapshot is source-scoped and removed when its worker terminates; desktop
-main only relays the hidden renderer's validated snapshot. Persisting or exporting any
+Embedding worker measurements are source-scoped and removed when their worker terminates.
+The bounded telemetry-health failure count and last reason are session-latched so a lost
+diagnostic remains visible after source cleanup; renderer restart clears them. Desktop main
+only relays the hidden renderer's validated snapshot. Persisting or exporting any
 of these snapshots is a contract change: update the diagnostics privacy contract and add
 the persistence to every applicable factory-reset path in the same change.
 

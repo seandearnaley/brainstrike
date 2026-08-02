@@ -10,6 +10,7 @@ export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnaps
       memoryEstimateUnavailableCount: 0,
       residentCount: 0,
     },
+    health: { failureCount: 0, lastFailure: null },
     lastUpdatedAt: null,
     peakVectorsInFlight: 0,
   };

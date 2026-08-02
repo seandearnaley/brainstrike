@@ -377,14 +377,25 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(worker.terminate).toHaveBeenCalled();
   });
 
-  it('rejects when the batch handler fails', async () => {
+  it.each([
+    [
+      'synchronously',
+      () => {
+        throw new Error('batch ack failed');
+      },
+    ],
+    [
+      'asynchronously',
+      async () => {
+        throw new Error('batch ack failed');
+      },
+    ],
+  ])('terminally fails when the batch handler rejects %s', async (_timing, onBatch) => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
 
     const streamPromise = client.stream(createRequest(), {
-      onBatch: async () => {
-        throw new Error('batch ack failed');
-      },
+      onBatch,
     });
     await flushMicrotasks();
 
@@ -406,6 +417,12 @@ describe('StreamingEmbeddingWorkerClient', () => {
       id: 'embed-1',
       type: 'stream-ack',
     });
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(getEmbeddingTelemetrySnapshot()).toMatchObject({
+      batchTransfer: { batchCount: 0, totalBytes: 0 },
+      cache: { residentCount: 0 },
+    });
+    await expect(client.stream(createRequest())).rejects.toThrow('batch ack failed');
   });
 
   it('latches worker error events as terminal failures', async () => {

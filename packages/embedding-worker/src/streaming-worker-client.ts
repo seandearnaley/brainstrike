@@ -236,7 +236,7 @@ export class StreamingEmbeddingWorkerClient {
       return;
     }
 
-    this.handleStreamBatch(payload, request, options, cleanup, reject);
+    this.handleStreamBatch(payload, request, options);
   }
 
   private cleanupTelemetryListener(): void {
@@ -251,12 +251,11 @@ export class StreamingEmbeddingWorkerClient {
   private handleStreamBatch(
     payload: EmbedWorkerBatch,
     request: EmbedWorkerRequest,
-    options: StreamingEmbedOptions,
-    cleanup: StreamCleanup,
-    reject: StreamReject
+    options: StreamingEmbedOptions
   ): void {
     recordEmbeddingBatchTelemetry(this.telemetrySourceId, payload);
-    void Promise.resolve(options.onBatch?.(payload))
+    void Promise.resolve()
+      .then(() => options.onBatch?.(payload))
       .then(() => {
         this.postMessage({
           batchIndex: payload.batchIndex,
@@ -265,9 +264,7 @@ export class StreamingEmbeddingWorkerClient {
         });
       })
       .catch((error: unknown) => {
-        this.activeStream = null;
-        cleanup();
-        reject(error instanceof Error ? error : new Error(String(error)));
+        this.runtime.markFailed(error instanceof Error ? error : new Error(String(error)));
       });
   }
 }

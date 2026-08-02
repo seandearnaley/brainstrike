@@ -418,6 +418,51 @@ describe('embedding worker runtime', () => {
       },
       []
     );
+
+    handleMessage({
+      data: {
+        request: {
+          deviceHint: 'wasm',
+          estimatedModelBytes: 0,
+          id: 'invalid-model-size',
+          model: 'bge-m3',
+          texts: ['hello'],
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+    handleMessage({
+      data: {
+        request: {
+          deviceHint: 'wasm',
+          id: 'invalid-dimension',
+          model: 'bge-m3',
+          targetDimension: 0,
+          texts: ['hello'],
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+    await flushMicrotasks();
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'invalid-model-size',
+        message: expect.stringContaining('estimatedModelBytes must be a positive safe integer'),
+        type: 'error',
+      }),
+      []
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'invalid-dimension',
+        message: expect.stringContaining('invalid target dimension'),
+        type: 'error',
+      }),
+      []
+    );
   });
 
   async function loadWorker() {

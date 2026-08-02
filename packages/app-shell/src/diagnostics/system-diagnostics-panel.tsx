@@ -368,12 +368,13 @@ function EmbeddingRuntimeDiagnosticsCard({
   readonly telemetry: EmbeddingTelemetrySnapshot;
 }): ReactElement {
   const hasSamples = telemetry.lastUpdatedAt !== null;
+  const hasFailures = telemetry.health.failureCount > 0;
   return (
     <DiagnosticCard
       description="Worker transfer and model residency"
       icon={<Activity className="h-4 w-4 text-primary" />}
-      status={hasSamples ? 'success' : 'warning'}
-      statusLabel={hasSamples ? 'Observed' : 'No samples'}
+      status={hasFailures ? 'error' : hasSamples ? 'success' : 'warning'}
+      statusLabel={hasFailures ? 'Telemetry degraded' : hasSamples ? 'Observed' : 'No samples'}
       title="Embedding Runtime"
     >
       <div className="space-y-2 text-xs">
@@ -423,6 +424,12 @@ function EmbeddingRuntimeDiagnosticsCard({
               'model estimate unavailable',
               'model estimates unavailable'
             )}
+          </div>
+        )}
+        {telemetry.health.lastFailure !== null && (
+          <div className="text-[10px] text-destructive">
+            {formatCount(telemetry.health.failureCount, 'telemetry failure', 'telemetry failures')}:{' '}
+            {telemetry.health.lastFailure}
           </div>
         )}
       </div>

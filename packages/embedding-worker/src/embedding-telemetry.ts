@@ -26,6 +26,10 @@ export interface EmbeddingPipelineCacheTelemetry {
 export interface EmbeddingTelemetrySnapshot {
   readonly batchTransfer: EmbeddingBatchTransferTelemetry;
   readonly cache: EmbeddingPipelineCacheTelemetry;
+  readonly health: {
+    readonly failureCount: number;
+    readonly lastFailure: string | null;
+  };
   readonly lastUpdatedAt: number | null;
   readonly peakVectorsInFlight: number;
 }
@@ -42,6 +46,8 @@ interface EmbeddingTelemetrySourceState {
 
 type EmbeddingTelemetryListener = () => void;
 
+const MAX_EMBEDDING_TELEMETRY_FAILURE_REASON_LENGTH = 240;
+
 const sources = new Map<string, EmbeddingTelemetrySourceState>();
 const listeners = new Set<EmbeddingTelemetryListener>();
 
@@ -49,6 +55,8 @@ let snapshot: EmbeddingTelemetrySnapshot;
 let nextBatchSequence = 1;
 let snapshotDirty = false;
 let lastMutationAt: number | null = null;
+let telemetryFailureCount = 0;
+let lastTelemetryFailure: string | null = null;
 
 export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
   return {
@@ -64,6 +72,10 @@ export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnaps
       estimatedHeapBytes: 0,
       memoryEstimateUnavailableCount: 0,
       residentCount: 0,
+    },
+    health: {
+      failureCount: 0,
+      lastFailure: null,
     },
     lastUpdatedAt: null,
     peakVectorsInFlight: 0,
@@ -160,14 +172,19 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
   const candidate = value as Record<string, unknown>;
   const batchTransfer = candidate['batchTransfer'];
   const cache = candidate['cache'];
+  const health = candidate['health'];
   if (!(batchTransfer && typeof batchTransfer === 'object' && !Array.isArray(batchTransfer))) {
     throw new Error('Embedding telemetry batchTransfer must be an object.');
   }
   if (!(cache && typeof cache === 'object' && !Array.isArray(cache))) {
     throw new Error('Embedding telemetry cache must be an object.');
   }
+  if (!(health && typeof health === 'object' && !Array.isArray(health))) {
+    throw new Error('Embedding telemetry health must be an object.');
+  }
   const batchCandidate = batchTransfer as Record<string, unknown>;
   const cacheCandidate = cache as Record<string, unknown>;
+  const healthCandidate = health as Record<string, unknown>;
   const entries = cacheCandidate['entries'];
   if (!Array.isArray(entries)) {
     throw new Error('Embedding telemetry cache.entries must be an array.');
@@ -175,6 +192,31 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
   const lastUpdatedAt = candidate['lastUpdatedAt'];
   if (!(lastUpdatedAt === null || typeof lastUpdatedAt === 'number')) {
     throw new Error('Embedding telemetry lastUpdatedAt must be a number or null.');
+  }
+  const failureCount = assertNonNegativeNumber(
+    healthCandidate['failureCount'],
+    'Embedding telemetry health.failureCount'
+  );
+  if (!Number.isSafeInteger(failureCount)) {
+    throw new Error('Embedding telemetry health.failureCount must be a safe integer.');
+  }
+  const lastFailure = healthCandidate['lastFailure'];
+  if (
+    !(
+      lastFailure === null ||
+      (typeof lastFailure === 'string' &&
+        lastFailure.length > 0 &&
+        lastFailure.length <= MAX_EMBEDDING_TELEMETRY_FAILURE_REASON_LENGTH)
+    )
+  ) {
+    throw new Error(
+      `Embedding telemetry health.lastFailure must be a string of 1-${MAX_EMBEDDING_TELEMETRY_FAILURE_REASON_LENGTH} characters or null.`
+    );
+  }
+  if ((failureCount === 0) !== (lastFailure === null)) {
+    throw new Error(
+      'Embedding telemetry health requires lastFailure exactly when failureCount is non-zero.'
+    );
   }
   return {
     batchTransfer: {
@@ -213,6 +255,10 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
         cacheCandidate['residentCount'],
         'Embedding telemetry cache.residentCount'
       ),
+    },
+    health: {
+      failureCount,
+      lastFailure,
     },
     lastUpdatedAt:
       lastUpdatedAt === null
@@ -284,6 +330,10 @@ function rebuildSnapshot(): void {
       memoryEstimateUnavailableCount,
       residentCount: entries.length,
     },
+    health: {
+      failureCount: telemetryFailureCount,
+      lastFailure: lastTelemetryFailure,
+    },
     lastUpdatedAt: lastMutationAt,
     peakVectorsInFlight,
   };
@@ -330,6 +380,23 @@ export function recordEmbeddingPipelineCacheTelemetry(
   markSnapshotDirty();
 }
 
+export function recordEmbeddingTelemetryFailure(reason: string): void {
+  if (
+    !(
+      typeof reason === 'string' &&
+      reason.length > 0 &&
+      reason.length <= MAX_EMBEDDING_TELEMETRY_FAILURE_REASON_LENGTH
+    )
+  ) {
+    throw new Error(
+      `Embedding telemetry failure reason must contain 1-${MAX_EMBEDDING_TELEMETRY_FAILURE_REASON_LENGTH} characters.`
+    );
+  }
+  telemetryFailureCount += 1;
+  lastTelemetryFailure = reason;
+  markSnapshotDirty();
+}
+
 export function removeEmbeddingTelemetrySource(sourceId: string): void {
   if (!sources.delete(sourceId)) {
     return;
@@ -339,6 +406,7 @@ export function removeEmbeddingTelemetrySource(sourceId: string): void {
 
 export const embeddingWorkerTelemetrySink = {
   recordBatch: recordEmbeddingBatchTelemetry,
+  recordFailure: recordEmbeddingTelemetryFailure,
   recordPipelineCache: recordEmbeddingPipelineCacheTelemetry,
   removeSource: removeEmbeddingTelemetrySource,
 } as const;
@@ -388,6 +456,8 @@ export function resetEmbeddingTelemetryForTests(): void {
   listeners.clear();
   lastMutationAt = null;
   nextBatchSequence = 1;
+  telemetryFailureCount = 0;
+  lastTelemetryFailure = null;
   snapshot = createEmptyEmbeddingTelemetrySnapshot();
   snapshotDirty = false;
 }

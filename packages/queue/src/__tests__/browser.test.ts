@@ -4,6 +4,7 @@ import type { QueueAdapter, QueueResult, TaskPayload } from '../types';
 const createWorkerpoolAdapterMock = vi.hoisted(() => vi.fn());
 const telemetrySink = {
   recordBatch: vi.fn(),
+  recordFailure: vi.fn(),
   recordPipelineCache: vi.fn(),
   removeSource: vi.fn(),
 };
