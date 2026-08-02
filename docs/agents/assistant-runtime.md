@@ -384,9 +384,23 @@ not sufficient evidence.
 
 The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
 ProjectionSafeToolCallFilter → ProviderHistoryCompat →
-OpenAIToolSearchHistoryCompat → ProjectionAwareTokenLimiter. The OpenAI-only
-compatibility seam is absent for every other provider; token limiting is always
-last. Initial streams, approval resumes, and suspending-tool resumes reuse the
+OpenAIToolSearchHistoryCompat → OpenAIDuplicateItemCompat →
+ProjectionAwareTokenLimiter. The OpenAI-only compatibility seams are absent for
+every other provider; token limiting is always last. OpenAIDuplicateItemCompat
+(BST-1095) canonicalizes duplicated OpenAI item references at the transient
+boundary — Mastra's sealed-boundary re-key can double-persist one assistant
+response under two message ids, and a prompt carrying both copies serializes
+two input items per `rs_`/`fc_`/`call_` id, which OpenAI rejects with
+"Duplicate item found". Canonicalization must not trade that 400 for another:
+reasoning/text ids keep their newest occurrence; a tool call and its output
+(tool-role for client tools, assistant-role for provider-executed tools like
+native web search) are kept as the newest COMPLETE pair so no
+`function_call_output` survives without a preceding call; reasoning left
+trailing in an edited message is swept ("reasoning without its required
+following item" is also a 400); emptied messages are removed. Within-message
+repeats are untouched (multi-summary reasoning merges provider-side) and
+durable history is never mutated. It runs after the other compat rewrites so
+it sees the item references they produce. Initial streams, approval resumes, and suspending-tool resumes reuse the
 same discovery and history-filter processor instances so same-process approval
 executors remain available while persisted discovery results provide restart
 reconstruction.
@@ -707,6 +721,7 @@ modules; the spec is now split to match. Five files share ONE fake-Mastra harnes
 | `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
 | `mastra-stream-watchdogs.integration.spec.ts` | `makeStreamWatchdogTermination` through the real elapsed-time behavior of the inactivity and tool-call-input watchdogs; the suffix keeps these wall-clock-sensitive cases in the uncached integration lane |
 | `mastra-streaming.spec.ts` | What no single module owns: the async-iterator contract, the R6 unknown-chunk diagnostic, token measurement, cross-step usage/cost accumulation, steering, observational-memory chunks, and everything reached through `createMastraAgentRuntime` |
+| `openai-duplicate-item-compat.spec.ts` + `openai-reasoning-item-replay.integration.spec.ts` | `mastra/openai-duplicate-item-compat.ts` (BST-1095) — the unit spec pins keep-newest/drop-stale semantics and proves via the real `@ai-sdk/openai` serializer that each item id reaches the wire once; the integration spec seeds real PGlite with the double-persisted history shape and asserts every prompt the real agent loop produces carries each OpenAI item reference in at most one message (plus approval suspend/resume replay regression coverage) |
 
 **These are integration specs, not unit specs — deliberately.** They drive
 `streamMastraAgent` over a fake Mastra stream instead of importing the module
