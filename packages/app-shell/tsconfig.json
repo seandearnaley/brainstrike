@@ -32,6 +32,9 @@
       "@brainstrike/text-splitter/*": [
         "../text-splitter/dist/*.d.ts"
       ],
+      "@brainstrike/tokenization": [
+        "../tokenization/dist/index.d.ts"
+      ],
       "@brainstrike/db": [
         "../db/dist/index.d.ts"
       ],
@@ -185,6 +188,9 @@
     },
     {
       "path": "../logging"
+    },
+    {
+      "path": "../tokenization"
     }
   ]
 }

@@ -216,7 +216,7 @@ async function getTokenUtils(): Promise<{
   countTokensHeuristic: (text: string) => number;
 }> {
   if (!tokenUtilsPromise) {
-    tokenUtilsPromise = import('./token-utils-lite')
+    tokenUtilsPromise = import('@brainstrike/tokenization/token-utils-lite')
       .then((mod) => ({
         countTokensAccurate: mod.countTokensAccurate,
         countTokensHeuristic: mod.countTokensHeuristic,

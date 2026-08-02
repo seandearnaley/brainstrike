@@ -1224,8 +1224,16 @@ The browser `o200k_base` table is resolved through Vite's `?url` asset contract
 and fetched only when an accurate-token-counting worker first initializes.
 Keep the table out of JavaScript chunks and out of both apps' initial HTML
 module-preload closure. Heuristic counting must not fetch the table. The
-runtime behavior and both app ceilings are pinned by the utils accurate-runtime
-tests and app Vite-config tests.
+runtime behavior and both app ceilings are pinned by the tokenization package's
+strict-counter/worker-lite tests and app Vite-config tests.
+
+`@brainstrike/tokenization` is an ordinary tsc-only library and the sole source
+owner. Its root exposes only synchronous constants, heuristics, and cost helpers;
+its only public subpaths are the strict-counter and worker-lite modules that have
+real consumers. Importing the root cannot pull tokenizer assets into an eager
+graph. `chunking-worker` and `token-cache` bundle those shared entrypoints into
+their own isolated artifacts; neither owns a source shim or imports the other
+worker package.
 
 The `chunking-worker` and `token-cache` tsup builds must install the shared
 `tokenizerAssetPlugin` so their published worker artifacts preserve that URL

@@ -85,6 +85,9 @@
       "@brainstrike/utils/*": [
         "../../packages/utils/src/*"
       ],
+      "@brainstrike/tokenization": [
+        "../../packages/tokenization/src"
+      ],
       "@brainstrike/db": [
         "../../packages/db/src"
       ],
@@ -185,6 +188,9 @@
     },
     {
       "path": "../../packages/logging"
+    },
+    {
+      "path": "../../packages/tokenization"
     }
   ]
 }

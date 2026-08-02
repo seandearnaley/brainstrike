@@ -4,8 +4,7 @@
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "minimatch": "catalog:",
-    "tiktoken": "catalog:"
+    "minimatch": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -25,22 +24,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./token-counting-runtime": {
-      "types": "./dist/token-counting-runtime.d.ts",
-      "default": "./dist/token-counting-runtime.js"
-    },
-    "./token-counting-heuristics": {
-      "types": "./dist/token-counting-heuristics.d.ts",
-      "default": "./dist/token-counting-heuristics.js"
-    },
-    "./token-constants": {
-      "types": "./dist/token-constants.d.ts",
-      "default": "./dist/token-constants.js"
-    },
-    "./token-utils-accurate-lite": {
-      "types": "./dist/token-utils-accurate-lite.d.ts",
-      "default": "./dist/token-utils-accurate-lite.js"
     },
     "./diagnostics": {
       "types": "./dist/diagnostics.d.ts",
@@ -182,7 +165,6 @@
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

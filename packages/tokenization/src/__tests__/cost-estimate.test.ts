@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { computeCost, formatUsdCost } from '../token-counting-heuristics.js';
+import { buildTokenUsageCounts, computeCost, formatUsdCost } from '../cost-estimate.js';
+
+describe('buildTokenUsageCounts', () => {
+  it('omits empty cache classes and preserves positive cache usage', () => {
+    expect(buildTokenUsageCounts(100, 20, 0, undefined)).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+    expect(buildTokenUsageCounts(100, 20, 60, 10)).toEqual({
+      cacheCreationInputTokens: 10,
+      cacheReadInputTokens: 60,
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+  });
+});
 
 describe('computeCost with Anthropic cache tokens', () => {
   it('prices cache reads and writes at their own rates, remainder at the base input rate', () => {
@@ -29,6 +44,15 @@ describe('computeCost with Anthropic cache tokens', () => {
         { inputPerMTok: 3, outputPerMTok: 15 }
       )
     ).toThrow(/cache/i);
+  });
+
+  it('throws when cache-write tokens have no cache-write rate', () => {
+    expect(() =>
+      computeCost(
+        { cacheCreationInputTokens: 10, inputTokens: 100, outputTokens: 5 },
+        { inputPerMTok: 3, outputPerMTok: 15 }
+      )
+    ).toThrow(/cacheWritePerMTok/u);
   });
 
   it('throws when cache token classes exceed the total input tokens', () => {

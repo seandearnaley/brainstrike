@@ -32,7 +32,7 @@ import {
   VoyageEmbeddingProvider,
 } from '@brainstrike/embeddings/provider-core';
 import { createLogger } from '@brainstrike/logging';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService, SecretReadError } from '../secrets';

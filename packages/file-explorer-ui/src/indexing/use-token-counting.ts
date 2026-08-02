@@ -2,7 +2,7 @@ import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/preferences/stores/token-preferences-store';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { useCallback, useMemo } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 

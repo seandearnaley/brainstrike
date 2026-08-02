@@ -148,27 +148,6 @@ export default defineConfig({
         ),
       },
       {
-        find: '@brainstrike/text-splitter/token-constants',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/text-splitter/src/token-constants.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-counting-heuristics',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/text-splitter/src/token-counting-heuristics.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-utils-accurate-lite',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-        ),
-      },
-      {
         find: '@brainstrike/text-splitter',
         replacement: path.resolve(import.meta.dirname, '../../packages/text-splitter/src/index.ts'),
       },

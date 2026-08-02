@@ -63,6 +63,23 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     expect(encodingFactory).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a node encoder that lacks encode_ordinary', async () => {
+    vi.doMock('tiktoken', () => ({
+      encoding_for_model: () => ({ encode: () => new Uint32Array() }),
+      get_encoding: () => ({ encode: () => new Uint32Array() }),
+    }));
+
+    const runtime = await importRuntime();
+
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
+      'encoding_for_model(gpt-5.2) failed'
+    );
+    expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
+      'get_encoding(o200k_base) failed'
+    );
+  });
+
   it('reports node encoder initialization failures without logging more than once', async () => {
     vi.doMock('tiktoken', () => ({
       encoding_for_model: undefined,
@@ -79,6 +96,46 @@ describe('token-utils-accurate-lite runtime behavior', () => {
       'Node tiktoken encoder unavailable'
     );
     expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a failed node module load and permits a later retry', async () => {
+    vi.doMock('tiktoken', () => {
+      throw new Error('module load exploded');
+    });
+
+    const runtime = await importRuntime();
+
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
+      'Failed to load tiktoken (node)'
+    );
+    expect(console.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not initialize the encoder for empty input', async () => {
+    const encoderFactory = vi.fn(() => ({
+      encode_ordinary: () => new Uint32Array(),
+    }));
+    vi.doMock('tiktoken', () => ({
+      encoding_for_model: encoderFactory,
+      get_encoding: undefined,
+    }));
+
+    const runtime = await importRuntime();
+
+    await expect(runtime.countTokensAccurate('')).resolves.toBe(0);
+    expect(encoderFactory).not.toHaveBeenCalled();
+  });
+
+  it('returns no synchronous counter when the encoder is unavailable', async () => {
+    vi.doMock('tiktoken', () => ({
+      encoding_for_model: undefined,
+      get_encoding: undefined,
+    }));
+
+    const runtime = await importRuntime();
+
+    await expect(runtime.getAccurateTokenCounter()).resolves.toBeNull();
   });
 
   it('throws encode failures and records the failure reason', async () => {
@@ -298,6 +355,43 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     );
     expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
       'Failed to load tiktoken (browser)'
+    );
+  });
+
+  it('reports a browser bundle that does not resolve the wasm asset as a URL', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('location', { href: 'https://example.com/app/' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        json: async () => ({
+          bpe_ranks: 'mock-ranks',
+          pat_str: 'mock-pattern',
+          special_tokens: {},
+        }),
+        ok: true,
+        status: 200,
+      }))
+    );
+
+    vi.doMock('tiktoken/lite/init', () => ({
+      init: async () => {},
+      Tiktoken: class FakeTiktoken {
+        encode_ordinary(): Uint32Array {
+          return new Uint32Array();
+        }
+      },
+    }));
+    vi.doMock('tiktoken/lite/tiktoken_bg.wasm?url', () => ({ default: undefined }));
+    vi.doMock('tiktoken/encoders/o200k_base.json?url', () => ({
+      default: '/assets/o200k_base.json',
+    }));
+
+    const runtime = await importRuntime();
+
+    await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
+    expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
+      'tiktoken wasm asset not resolved as URL'
     );
   });
 

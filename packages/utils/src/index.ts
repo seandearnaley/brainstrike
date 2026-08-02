@@ -32,7 +32,6 @@ export * from './report-generator.js';
 export * from './selection-utils.js';
 export * from './string-utils.js';
 export * from './throttled-state.js';
-export * from './token-counting-heuristics.js';
 export * from './tree-generator.js';
 export * from './tree-operations.js';
 export * from './url-utils.js';

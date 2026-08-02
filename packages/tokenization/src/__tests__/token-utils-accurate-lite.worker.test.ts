@@ -5,7 +5,7 @@ const BROWSER_INIT_SPECIFIER = 'tiktoken/lite/init';
 const BROWSER_WASM_SPECIFIER = 'tiktoken/lite/tiktoken_bg.wasm?url';
 const BROWSER_ENCODER_SPECIFIER = 'tiktoken/encoders/o200k_base.json?url';
 
-const importModule = async () => import('../token-utils-accurate-lite');
+const importModule = async () => import('../token-utils-accurate-lite.js');
 
 function mockBrowserGlobals(): void {
   vi.stubGlobal('window', {});

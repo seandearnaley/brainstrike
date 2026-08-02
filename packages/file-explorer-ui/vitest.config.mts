@@ -34,10 +34,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../ui/src'),
       },
       {
-        find: '@brainstrike/utils/token-counting-runtime',
-        replacement: resolve(import.meta.dirname, '../utils/src/token-counting-runtime.ts'),
-      },
-      {
         find: '@brainstrike/utils/crypto',
         replacement: resolve(import.meta.dirname, '../utils/src/crypto.ts'),
       },

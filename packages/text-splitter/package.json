@@ -2,7 +2,7 @@
   "name": "@brainstrike/text-splitter",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/tokenization": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -19,18 +19,6 @@
     "./chunking-core": {
       "types": "./dist/chunking-core.d.ts",
       "default": "./dist/chunking-core.js"
-    },
-    "./token-counting-heuristics": {
-      "types": "./dist/token-counting-heuristics.d.ts",
-      "default": "./dist/token-counting-heuristics.js"
-    },
-    "./token-constants": {
-      "types": "./dist/token-constants.d.ts",
-      "default": "./dist/token-constants.js"
-    },
-    "./token-utils-accurate-lite": {
-      "types": "./dist/token-utils-accurate-lite.d.ts",
-      "default": "./dist/token-utils-accurate-lite.js"
     }
   },
   "files": [

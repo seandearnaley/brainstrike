@@ -23,7 +23,7 @@ import {
   type UpdateWorkspaceTapestrySelectionsInput,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,

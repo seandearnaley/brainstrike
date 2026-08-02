@@ -16,11 +16,7 @@
  */
 import { useAuiState } from '@assistant-ui/react';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
-import {
-  type CostEstimate,
-  formatTokenCount,
-  formatUsdCost,
-} from '@brainstrike/utils/token-counting-heuristics';
+import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '../popover';

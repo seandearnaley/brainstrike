@@ -7,7 +7,7 @@ describe('token-utils-lite', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    vi.doUnmock('../token-utils-accurate-lite');
+    vi.doUnmock('../token-utils-accurate-lite.js');
   });
 
   // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ describe('token-utils-lite', () => {
     let countTokensHeuristic: (text: string) => number;
 
     beforeEach(async () => {
-      ({ countTokensHeuristic } = await import('../token-utils-lite'));
+      ({ countTokensHeuristic } = await import('../token-utils-lite.js'));
     });
 
     it('returns 0 for an empty string', () => {
@@ -73,30 +73,30 @@ describe('token-utils-lite', () => {
   // ---------------------------------------------------------------------------
   describe('getAccurateTokenCountingFailureReason', () => {
     it('returns null initially before any accurate operations', async () => {
-      const { getAccurateTokenCountingFailureReason } = await import('../token-utils-lite');
+      const { getAccurateTokenCountingFailureReason } = await import('../token-utils-lite.js');
       expect(getAccurateTokenCountingFailureReason()).toBeNull();
     });
 
     it('returns the failure reason after a failed support check', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 0),
         getAccurateTokenCountingFailureReason: vi.fn(() => 'wasm not available'),
         supportsAccurateTokenCounting: vi.fn(async () => false),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await tokenUtils.supportsAccurateTokenCounting();
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('wasm not available');
     });
 
     it('returns null when the accurate helper reports no failure', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 5),
         getAccurateTokenCountingFailureReason: vi.fn(() => null),
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await tokenUtils.supportsAccurateTokenCounting();
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBeNull();
     });
@@ -107,24 +107,24 @@ describe('token-utils-lite', () => {
   // ---------------------------------------------------------------------------
   describe('supportsAccurateTokenCounting', () => {
     it('returns true when the accurate helper supports counting', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 5),
         getAccurateTokenCountingFailureReason: vi.fn(() => null),
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
     });
 
     it('returns false when the accurate helper does not support counting', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 0),
         getAccurateTokenCountingFailureReason: vi.fn(() => 'accurate tokenizer unavailable'),
         supportsAccurateTokenCounting: vi.fn(async () => false),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(false);
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe(
         'accurate tokenizer unavailable'
@@ -138,9 +138,9 @@ describe('token-utils-lite', () => {
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      vi.doMock('../token-utils-accurate-lite', moduleFactory);
+      vi.doMock('../token-utils-accurate-lite.js', moduleFactory);
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await tokenUtils.supportsAccurateTokenCounting();
       await tokenUtils.supportsAccurateTokenCounting();
       await tokenUtils.supportsAccurateTokenCounting();
@@ -152,13 +152,13 @@ describe('token-utils-lite', () => {
     it('updates failure reason on each call', async () => {
       const supportResults = [false, true];
       const failureReasons = ['first failure', null];
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 0),
         getAccurateTokenCountingFailureReason: vi.fn(() => failureReasons.shift() ?? null),
         supportsAccurateTokenCounting: vi.fn(async () => supportResults.shift() ?? true),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       await tokenUtils.supportsAccurateTokenCounting();
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('first failure');
@@ -175,12 +175,12 @@ describe('token-utils-lite', () => {
     it('resolves and returns the shared synchronous counter', async () => {
       const counter = vi.fn((text: string) => text.length);
       const getAccurateTokenCounter = vi.fn(async () => counter);
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         getAccurateTokenCounter,
         getAccurateTokenCountingFailureReason: vi.fn(() => null),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       const resolvedCounter = await tokenUtils.getAccurateTokenCounter();
 
       expect(getAccurateTokenCounter).toHaveBeenCalledOnce();
@@ -188,12 +188,12 @@ describe('token-utils-lite', () => {
     });
 
     it('records the failure reason when no synchronous counter is available', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         getAccurateTokenCounter: vi.fn(async () => null),
         getAccurateTokenCountingFailureReason: vi.fn(() => 'encoder unavailable'),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       await expect(tokenUtils.getAccurateTokenCounter()).resolves.toBeNull();
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('encoder unavailable');
@@ -205,30 +205,30 @@ describe('token-utils-lite', () => {
   // ---------------------------------------------------------------------------
   describe('countTokensAccurate', () => {
     it('delegates to the accurate helper and returns the count', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async (text: string) => text.length + 2),
         getAccurateTokenCountingFailureReason: vi.fn(() => null),
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await expect(tokenUtils.countTokensAccurate('hello')).resolves.toBe(7);
     });
 
     it('updates failure reason after successful counting', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 19),
         getAccurateTokenCountingFailureReason: vi.fn(() => 'initialized after retry'),
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await expect(tokenUtils.countTokensAccurate('const value = 42;')).resolves.toBe(19);
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('initialized after retry');
     });
 
     it('updates failure reason even when counting throws (finally block)', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => {
           throw new Error('encoder blew up');
         }),
@@ -236,7 +236,7 @@ describe('token-utils-lite', () => {
         supportsAccurateTokenCounting: vi.fn(async () => false),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await expect(tokenUtils.countTokensAccurate('broken')).rejects.toThrow('encoder blew up');
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe(
         'encoder blew up after initialization'
@@ -250,9 +250,9 @@ describe('token-utils-lite', () => {
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      vi.doMock('../token-utils-accurate-lite', moduleFactory);
+      vi.doMock('../token-utils-accurate-lite.js', moduleFactory);
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       await tokenUtils.supportsAccurateTokenCounting();
       await tokenUtils.countTokensAccurate('test');
@@ -267,21 +267,21 @@ describe('token-utils-lite', () => {
   // ---------------------------------------------------------------------------
   describe('disposeAccurateTokenCountingRuntime', () => {
     it('is a no-op before the accurate helper is initialized', async () => {
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await expect(tokenUtils.disposeAccurateTokenCountingRuntime()).resolves.toBeUndefined();
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBeNull();
     });
 
     it('calls dispose on the accurate helper and clears cached state', async () => {
       const disposeAccurateTokenCountingRuntime = vi.fn();
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 9),
         disposeAccurateTokenCountingRuntime,
         getAccurateTokenCountingFailureReason: vi.fn(() => 'stale failure'),
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       // Initialize the module
       await tokenUtils.supportsAccurateTokenCounting();
@@ -302,9 +302,9 @@ describe('token-utils-lite', () => {
         supportsAccurateTokenCounting: firstSupportCheck,
       }));
 
-      vi.doMock('../token-utils-accurate-lite', moduleFactory);
+      vi.doMock('../token-utils-accurate-lite.js', moduleFactory);
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       await tokenUtils.supportsAccurateTokenCounting();
       await tokenUtils.disposeAccurateTokenCountingRuntime();
@@ -316,14 +316,14 @@ describe('token-utils-lite', () => {
 
     it('can be called multiple times safely', async () => {
       const dispose = vi.fn();
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 5),
         disposeAccurateTokenCountingRuntime: dispose,
         getAccurateTokenCountingFailureReason: vi.fn(() => null),
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
       await tokenUtils.supportsAccurateTokenCounting();
 
       await tokenUtils.disposeAccurateTokenCountingRuntime();
@@ -341,7 +341,7 @@ describe('token-utils-lite', () => {
     it('retries support probes after an initial runtime error', async () => {
       let shouldThrow = true;
 
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 42),
         getAccurateTokenCountingFailureReason: vi.fn(() => null),
         supportsAccurateTokenCounting: vi.fn(async () => {
@@ -353,7 +353,7 @@ describe('token-utils-lite', () => {
         }),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       // First probe should fail
       await expect(tokenUtils.supportsAccurateTokenCounting()).rejects.toThrow('network error');
@@ -364,7 +364,7 @@ describe('token-utils-lite', () => {
 
     it('retries support probes without caching a failed result', async () => {
       let shouldReportSupported = false;
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => 7),
         disposeAccurateTokenCountingRuntime: vi.fn(),
         getAccurateTokenCountingFailureReason: vi.fn(() =>
@@ -377,7 +377,7 @@ describe('token-utils-lite', () => {
         }),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(false);
       await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
@@ -390,9 +390,9 @@ describe('token-utils-lite', () => {
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      vi.doMock('../token-utils-accurate-lite', moduleFactory);
+      vi.doMock('../token-utils-accurate-lite.js', moduleFactory);
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       // Call countTokensAccurate directly without calling supportsAccurateTokenCounting first
       await expect(tokenUtils.countTokensAccurate('hi')).resolves.toBe(4);
@@ -413,9 +413,9 @@ describe('token-utils-lite', () => {
         supportsAccurateTokenCounting: vi.fn(async () => true),
       }));
 
-      vi.doMock('../token-utils-accurate-lite', moduleFactory);
+      vi.doMock('../token-utils-accurate-lite.js', moduleFactory);
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       // Check support
       await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
@@ -437,7 +437,7 @@ describe('token-utils-lite', () => {
     });
 
     it('heuristic counting works independently of accurate counting state', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
+      vi.doMock('../token-utils-accurate-lite.js', () => ({
         countTokensAccurate: vi.fn(async () => {
           throw new Error('broken');
         }),
@@ -445,7 +445,7 @@ describe('token-utils-lite', () => {
         supportsAccurateTokenCounting: vi.fn(async () => false),
       }));
 
-      const tokenUtils = await import('../token-utils-lite');
+      const tokenUtils = await import('../token-utils-lite.js');
 
       // Accurate counting fails
       await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(false);

@@ -1,28 +1,23 @@
 /**
- * Minimal token counting helpers for chunking workers.
+ * Minimal token counting helpers for worker bundles.
  *
  * This module must stay free of direct tiktoken imports so loading the worker for
  * non-token strategies cannot trigger late Vite dependency optimization and app
  * reloads in development. Accurate counting is isolated in token-utils-accurate-lite.
  *
- * It intentionally mirrors the token-cache worker helper instead of importing it
- * so each worker bundle stays isolated and does not pull the other worker graph
- * into its runtime chunk.
+ * Both worker packages bundle this one source into their own isolated output;
+ * neither worker imports the other worker's graph at runtime.
  */
 
-let accurateTokenUtilsPromise: Promise<typeof import('./token-utils-accurate-lite')> | null = null;
+export { countTokensHeuristic } from './token-counting-heuristics.js';
+
+let accurateTokenUtilsPromise: Promise<typeof import('./token-utils-accurate-lite.js')> | null =
+  null;
 let lastAccurateFailureReason: string | null = null;
 
-export function countTokensHeuristic(text: string): number {
-  if (!text) {
-    return 0;
-  }
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function getAccurateTokenUtils(): Promise<typeof import('./token-utils-accurate-lite')> {
+function getAccurateTokenUtils(): Promise<typeof import('./token-utils-accurate-lite.js')> {
   if (!accurateTokenUtilsPromise) {
-    accurateTokenUtilsPromise = import('./token-utils-accurate-lite').catch((error: unknown) => {
+    accurateTokenUtilsPromise = import('./token-utils-accurate-lite.js').catch((error: unknown) => {
       accurateTokenUtilsPromise = null;
       throw error;
     });
@@ -51,7 +46,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
 }
 
 export async function getAccurateTokenCounter(): Promise<
-  import('./token-utils-accurate-lite').SyncAccurateCounter | null
+  import('./token-utils-accurate-lite.js').SyncAccurateCounter | null
 > {
   const accurateTokenUtils = await getAccurateTokenUtils();
   try {

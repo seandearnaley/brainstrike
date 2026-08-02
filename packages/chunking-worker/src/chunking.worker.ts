@@ -26,13 +26,13 @@ import type {
   WorkerRequest,
 } from './shared';
 
-type TokenUtilsLiteModule = typeof import('./token-utils-lite');
+type TokenUtilsLiteModule = typeof import('@brainstrike/tokenization/token-utils-lite');
 
 let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
 
 async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
   if (!tokenUtilsLiteModulePromise) {
-    tokenUtilsLiteModulePromise = import('./token-utils-lite');
+    tokenUtilsLiteModulePromise = import('@brainstrike/tokenization/token-utils-lite');
   }
   return tokenUtilsLiteModulePromise;
 }
