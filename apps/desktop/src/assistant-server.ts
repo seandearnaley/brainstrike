@@ -82,7 +82,6 @@ import {
   enrichRuntimeDataWithWorkspaceRoots,
 } from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
-import { emitBootMeasurementMark } from './boot-measurement';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
@@ -252,7 +251,6 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
       const addr = server.address();
       const actualPort = typeof addr === 'object' && addr ? addr.port : port;
       const url = `http://${host}:${actualPort}`;
-      emitBootMeasurementMark('assistant-listening');
       resolve({
         ...(authToken === undefined ? {} : { authToken }),
         stop: async () => await new Promise<void>((r) => server.close(() => r())),

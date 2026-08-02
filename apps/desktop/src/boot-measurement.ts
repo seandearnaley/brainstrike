@@ -10,6 +10,12 @@ export type BootMeasurementMark = 'app-ready' | 'assistant-listening';
  * harness. The parent supplies its wall-clock spawn timestamp so the reported
  * duration includes process creation and Electron/Node bootstrap time.
  *
+ * `isPackaged` (pass `app.isPackaged`) makes this scaffolding provably
+ * unreachable in a shipped build: a stray env var in a user's environment must
+ * never alter a packaged boot — not by emitting marker lines and not by
+ * throwing. The strict-validation rules below therefore apply only to
+ * unpackaged (dev/harness) launches, which are the only place the harness runs.
+ *
  * An unset or empty-string env var means "measurement mode is off" (a normal
  * production boot never sets this, and an empty-value assignment — the
  * `NO_COLOR=` idiom used elsewhere in this repo's e2e scripts — must behave
@@ -17,7 +23,10 @@ export type BootMeasurementMark = 'app-ready' | 'assistant-listening';
  * (e.g. a typo) still throws: silently no-op'ing on bad input would hide the
  * mistake instead of surfacing it.
  */
-export function emitBootMeasurementMark(mark: BootMeasurementMark): void {
+export function emitBootMeasurementMark(mark: BootMeasurementMark, isPackaged: boolean): void {
+  if (isPackaged) {
+    return;
+  }
   const rawStartMs = process.env[BOOT_MEASUREMENT_START_ENV];
   if (rawStartMs === undefined || rawStartMs === '') {
     return;
@@ -34,13 +43,19 @@ export function emitBootMeasurementMark(mark: BootMeasurementMark): void {
 
 /**
  * Whether main should quit immediately after the assistant-listening mark,
- * for the boot-measurement harness. Shares the same strictness rule as
- * {@link emitBootMeasurementMark}: unset or empty means "off"; the one
- * accepted "on" value is `'1'`; anything else (e.g. a human hand-running the
- * harness's documented follow-up steps with `=true` or `=yes`) throws rather
- * than silently running a full boot that never quits.
+ * for the boot-measurement harness. Always false in a packaged build (pass
+ * `app.isPackaged`): the quit-after-listen kill switch booting a shipped app
+ * to "started, then exited 0 with no window" would read as "I double-clicked
+ * BrainStrike and nothing happened". Unpackaged launches share the same
+ * strictness rule as {@link emitBootMeasurementMark}: unset or empty means
+ * "off"; the one accepted "on" value is `'1'`; anything else (e.g. a human
+ * hand-running the harness's documented follow-up steps with `=true` or
+ * `=yes`) throws rather than silently running a full boot that never quits.
  */
-export function shouldQuitAfterBootMeasurement(): boolean {
+export function shouldQuitAfterBootMeasurement(isPackaged: boolean): boolean {
+  if (isPackaged) {
+    return false;
+  }
   const raw = process.env[QUIT_AFTER_BOOT_MEASUREMENT_ENV];
   if (raw === undefined || raw === '') {
     return false;

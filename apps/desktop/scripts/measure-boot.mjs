@@ -43,22 +43,31 @@ function printUsage() {
     '  --app=<path>         Built app directory passed to Electron (default: desktop package)\n'
   );
   process.stdout.write('  --timeout-ms=<ms>    Per-run timeout (default: 120000)\n');
+  process.stdout.write(
+    '  --conditions=<text>  Host conditions recorded verbatim with the label\n' +
+      '                       (load, concurrent work, how idleness was verified).\n' +
+      '                       Defaults to an explicit "unspecified" disclaimer.\n'
+  );
   process.stdout.write('  --help               Show this help\n\n');
   process.stdout.write(
     'Methodology notes:\n' +
-      '  - Launches the real production boot path: no ELECTRON_IS_E2E_TEST / \n' +
-      "    --test-mode. Profile isolation uses only Electron's native \n" +
-      '    --user-data-dir flag, so this measures the same startup code path a \n' +
-      '    real user hits (E2E test mode changes launch mode, macOS activation \n' +
-      '    policy, secret handling, and preference overrides -- not appropriate \n' +
-      '    for a boot-latency measurement).\n' +
+      '  - Measures the unpackaged main-process boot up to assistant-listen; \n' +
+      '    no ELECTRON_IS_E2E_TEST / --test-mode (E2E test mode changes launch \n' +
+      '    mode, macOS activation policy, secret handling, and preference \n' +
+      "    overrides). Profile isolation uses only Electron's native \n" +
+      '    --user-data-dir flag. Three deliberate deviations from a packaged \n' +
+      '    user launch, each held constant across labels so relative deltas \n' +
+      '    stand: BRAINSTRIKE_DISABLE_FILE_LOGS=1 (skips file-log sink \n' +
+      "    construction), --no-sandbox (matches this repo's own unpackaged \n" +
+      '    `pnpm start` launch configuration; a packaged app runs sandboxed), \n' +
+      '    and quit-after-listen (no window/renderer work is in the number).\n' +
       '  - Runs one discarded warm-up launch first (profile creation + PGlite \n' +
       '    migrations happen once, not once per measured run), then reuses that \n' +
       '    same warmed profile directory for all --n measured runs. This reports \n' +
-      "    steady-state repeat-boot latency (a returning user's daily launch), \n" +
-      '    not first-ever-launch latency. Pass --n=1 twice with separate \n' +
-      '    --label values (e.g. cold-* / warm-*) if you need the first-launch \n' +
-      '    number specifically.\n'
+      "    steady-state repeat-boot latency (a returning user's daily launch). \n" +
+      '    First-ever-launch (cold) latency is intentionally out of scope: the \n' +
+      '    warm-up is unconditional, so no invocation of this harness can \n' +
+      '    produce a cold number.\n'
   );
 }
 
@@ -96,8 +105,32 @@ function resolveDefaultElectronBinary() {
 function toRepoRelative(absolutePath) {
   const relative = path.relative(repoRoot, absolutePath);
   // Never leak a path outside the repo (or the machine-specific prefix that
-  // implies) into committed results -- fall back to just the basename.
-  return relative.startsWith('..') ? path.basename(absolutePath) : relative;
+  // implies) into committed results -- fall back to just the basename. On
+  // Windows a target on a different drive comes back drive-qualified and
+  // absolute (no '..' prefix), so treat that as outside the repo too.
+  return relative.startsWith('..') || path.isAbsolute(relative)
+    ? path.basename(absolutePath)
+    : relative;
+}
+
+/**
+ * Records which app tree a label measured -- the variable the whole
+ * before/after argument turns on. `dirty: true` matters: the Electron 41
+ * baseline tree, for example, only becomes measurable by hand-porting the
+ * boot marks in as uncommitted edits. A null result is recorded as-is
+ * (visible "unknown", never a fabricated value).
+ */
+function detectAppCommit(appPath) {
+  try {
+    const runGit = (args) =>
+      execFileSync('git', args, { cwd: appPath, encoding: 'utf8', timeout: 15_000 }).trim();
+    return {
+      dirty: runGit(['status', '--porcelain']).length > 0,
+      sha: runGit(['rev-parse', 'HEAD']),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function detectElectronVersion(binaryPath) {
@@ -111,14 +144,9 @@ function detectElectronVersion(binaryPath) {
   }
 }
 
-function percentile(sortedValues, fraction) {
-  const index = Math.min(
-    sortedValues.length - 1,
-    Math.max(0, Math.ceil(fraction * sortedValues.length) - 1)
-  );
-  return sortedValues[index];
-}
-
+// No p10/p90: at the enforced minimum n=10, nearest-rank percentiles collapse
+// to min and second-from-max -- fields that look like information but are not.
+// median/min/max/stdev carry the distribution at this sample size.
 function summarize(values) {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
@@ -130,8 +158,6 @@ function summarize(values) {
     maxMs: sorted.at(-1),
     medianMs: median,
     minMs: sorted[0],
-    p10Ms: percentile(sorted, 0.1),
-    p90Ms: percentile(sorted, 0.9),
     stdevMs: Math.sqrt(variance),
   };
 }
@@ -292,7 +318,15 @@ async function readResults() {
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('results root must be an object');
     }
-    if (parsed.schemaVersion !== 1 || parsed.labels === null || typeof parsed.labels !== 'object') {
+    if (
+      parsed.schemaVersion !== 1 ||
+      parsed.labels === null ||
+      typeof parsed.labels !== 'object' ||
+      // An array IS an object, and JSON.stringify silently drops non-index
+      // properties assigned onto one -- the merge would "succeed" in memory
+      // and discard the label on write.
+      Array.isArray(parsed.labels)
+    ) {
       throw new Error('unsupported results schema');
     }
     return parsed;
@@ -326,6 +360,15 @@ async function main() {
   const timeoutMs = readPositiveInteger('timeout-ms', 120_000);
   const binaryPath = path.resolve(readOption('binary') ?? resolveDefaultElectronBinary());
   const appPath = path.resolve(readOption('app') ?? desktopRoot);
+  const conditions =
+    readOption('conditions')?.trim() ||
+    'Unspecified: the operator did not record host conditions (--conditions). ' +
+      'Treat as an uncontrolled capture.';
+  // Fail on a corrupt/unsupported results file NOW, not after N+1 Electron
+  // launches whose numbers would be thrown away by the late write. The file
+  // is re-read just before the write below so a concurrent capture into a
+  // different label is not clobbered with this early snapshot.
+  await readResults();
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-boot-measure-'));
   const runs = [];
 
@@ -358,16 +401,16 @@ async function main() {
     appReady: summarize(runs.map((run) => run.appReadyMs)),
     assistantListening: summarize(runs.map((run) => run.assistantListeningMs)),
   };
+  // Numbers are printed before any persistence work: a disk/permissions
+  // failure on the write must not destroy minutes of idle-host measurement.
+  printSummary(label, runCount, summaries);
   const results = await readResults();
   results.labels[label] = {
+    appCommit: detectAppCommit(appPath),
     appPath: toRepoRelative(appPath),
     binaryPath: toRepoRelative(binaryPath),
     capturedAt: new Date().toISOString(),
-    conditions:
-      'Not a controlled benchmark host: see the PR/commit that captured this label for ' +
-      'concurrent-load caveats. Treat as indicative, not authoritative -- do not diff a ' +
-      'future clean-host label against this one without capturing both under matching ' +
-      'conditions.',
+    conditions,
     electronVersion: detectElectronVersion(binaryPath),
     n: runCount,
     nodeVersion: process.version,
@@ -377,7 +420,6 @@ async function main() {
     warmUp: 'discarded (profile-warmed before measured runs; see script header comment)',
   };
   await writeFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`, 'utf8');
-  printSummary(label, runCount, summaries);
   process.stdout.write(`Results merged into ${resultsPath}\n`);
 }
 

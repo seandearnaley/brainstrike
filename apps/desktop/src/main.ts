@@ -1292,12 +1292,12 @@ if (singleInstanceLockAcquired) {
 
   app.whenReady().then(async () => {
     try {
-      emitBootMeasurementMark('app-ready');
+      emitBootMeasurementMark('app-ready', app.isPackaged);
       // Validated up front (before assistant-server startup) so a malformed
       // value fails loudly and clearly here, instead of being caught by the
       // assistant-server try/catch below and mislabeled as an assistant
       // startup failure.
-      const quitAfterBootMeasurement = shouldQuitAfterBootMeasurement();
+      const quitAfterBootMeasurement = shouldQuitAfterBootMeasurement(app.isPackaged);
       logger.debug('App ready, starting initialization...');
 
       const launchMode = resolveDesktopRendererLaunchMode({
@@ -1554,6 +1554,11 @@ if (singleInstanceLockAcquired) {
         assistantUrl = url;
         assistantAuthToken = authToken;
         stopAssistantServer = stop;
+        // Emitted here (one microtask after the server's listen callback
+        // resolves) rather than inside startAssistantServer's listen callback:
+        // that promise has no reject path, so anything throwable inside the
+        // callback would wedge the await above instead of failing loudly.
+        emitBootMeasurementMark('assistant-listening', app.isPackaged);
         logger.debug(`Assistant server started at ${assistantUrl}`);
         if (quitAfterBootMeasurement) {
           app.quit();
