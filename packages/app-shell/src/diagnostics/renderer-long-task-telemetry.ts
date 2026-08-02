@@ -145,26 +145,24 @@ export function createRendererLongTaskTelemetry(
     Math.ceil(windowMs / LONG_TASK_MIN_DURATION_MS) + 1
   );
   const performanceEntryKeys = new Map<string, number>();
+  let pendingRetainedContextRelease = false;
   let retentionTimer: ReturnType<typeof setTimeout> | null = null;
   let samples: RendererLongTaskSample[] = [];
   let unavailableReason: string | null = null;
 
   const prune = (snapshotAt: number): boolean => {
-    if (samples.length === 0) {
-      return false;
-    }
     const threshold = snapshotAt - windowMs;
     const firstRetainedIndex = samples.findIndex((sample) => sample.observedAt >= threshold);
-    if (firstRetainedIndex === 0) {
-      return false;
+    const samplesPruned = firstRetainedIndex !== 0 && samples.length > 0;
+    if (samplesPruned) {
+      samples = firstRetainedIndex < 0 ? [] : samples.slice(firstRetainedIndex);
     }
-    samples = firstRetainedIndex < 0 ? [] : samples.slice(firstRetainedIndex);
     for (const [key, observedAt] of performanceEntryKeys) {
       if (observedAt < threshold) {
         performanceEntryKeys.delete(key);
       }
     }
-    return true;
+    return samplesPruned;
   };
 
   const buildSnapshot = (snapshotAt: number): RendererLongTaskTelemetrySnapshot => {
@@ -261,24 +259,32 @@ export function createRendererLongTaskTelemetry(
       clearTimeout(retentionTimer);
       retentionTimer = null;
     }
+    pendingRetainedContextRelease = false;
     samples = [];
     performanceEntryKeys.clear();
+  };
+
+  const releasePendingRetainedSampleContext = (): void => {
+    if (!pendingRetainedContextRelease) {
+      return;
+    }
+    releaseRetainedSampleContext();
   };
 
   const setFailedSnapshot = (
     error: unknown,
     notifyListeners: boolean,
-    releaseRetainedContext = false
+    retainedContextDisposition: 'defer' | 'preserve' | 'release' = 'preserve'
   ): void => {
     availability = 'failed';
     const failureReason = readErrorMessage(error);
     unavailableReason = failureReason;
     let snapshotAt = 0;
-    let shouldReleaseRetainedContext = releaseRetainedContext;
+    let shouldReleaseRetainedContext = retainedContextDisposition === 'release';
     try {
       snapshotAt = now();
     } catch (clockError) {
-      shouldReleaseRetainedContext = true;
+      shouldReleaseRetainedContext = retainedContextDisposition !== 'defer';
       const clockFailureReason = readErrorMessage(clockError);
       unavailableReason =
         clockFailureReason === failureReason
@@ -287,8 +293,13 @@ export function createRendererLongTaskTelemetry(
     }
     if (shouldReleaseRetainedContext) {
       releaseRetainedSampleContext();
+    } else if (retainedContextDisposition === 'defer') {
+      pendingRetainedContextRelease = true;
     }
-    currentSnapshot = buildSnapshot(snapshotAt);
+    currentSnapshot =
+      retainedContextDisposition === 'defer'
+        ? buildEmptySnapshot(snapshotAt)
+        : buildSnapshot(snapshotAt);
     snapshotDirty = false;
     if (notifyListeners) {
       for (const listener of listeners) {
@@ -301,16 +312,23 @@ export function createRendererLongTaskTelemetry(
     setFailedSnapshot(error, true);
   };
 
-  const readClock = (notifyListeners: boolean): number | null => {
+  const readClock = (
+    notifyListeners: boolean,
+    deferRetainedContextRelease = false
+  ): number | null => {
+    if (!deferRetainedContextRelease) {
+      releasePendingRetainedSampleContext();
+    }
     try {
       return now();
     } catch (error) {
-      setFailedSnapshot(error, notifyListeners, true);
+      setFailedSnapshot(error, notifyListeners, deferRetainedContextRelease ? 'defer' : 'release');
       return null;
     }
   };
 
   const publish = (): void => {
+    releasePendingRetainedSampleContext();
     snapshotDirty = true;
     if (listeners.size === 0) {
       return;
@@ -431,6 +449,7 @@ export function createRendererLongTaskTelemetry(
   };
 
   const record = (metric: RendererLongTaskMetric): void => {
+    releasePendingRetainedSampleContext();
     if (!isLongTaskDuration(metric.durationMs)) {
       return;
     }
@@ -446,7 +465,7 @@ export function createRendererLongTaskTelemetry(
 
   const getSnapshot = (): RendererLongTaskTelemetrySnapshot => {
     if (snapshotDirty) {
-      const snapshotAt = readClock(false);
+      const snapshotAt = readClock(false, true);
       if (snapshotAt !== null) {
         currentSnapshot = buildSnapshot(snapshotAt);
         snapshotDirty = false;
@@ -487,7 +506,7 @@ export function createRendererLongTaskTelemetry(
       };
     }
     const observedAt = deliveredAt - (elapsedMs - entry.startTime);
-    if (!Number.isFinite(observedAt)) {
+    if (!(Number.isFinite(observedAt) && observedAt <= deliveredAt)) {
       return {
         error: new Error('PerformanceObserver longtask entry timing is unavailable.'),
         kind: 'invalid',
@@ -607,6 +626,7 @@ export function createRendererLongTaskTelemetry(
         availability = 'idle';
         unavailableReason = null;
         if (expectedAvailability === 'unsupported') {
+          releaseRetainedSampleContext();
           publishEmptySnapshot(currentSnapshot.snapshotAt);
           return;
         }
@@ -617,6 +637,7 @@ export function createRendererLongTaskTelemetry(
       if (typeof PerformanceObserver === 'undefined') {
         availability = 'unsupported';
         unavailableReason = 'PerformanceObserver is unavailable in this renderer.';
+        releaseRetainedSampleContext();
         publishEmptySnapshot(currentSnapshot.snapshotAt);
         return disposeInactiveObservation('unsupported');
       }
@@ -624,6 +645,7 @@ export function createRendererLongTaskTelemetry(
       if (!(Array.isArray(supportedEntryTypes) && supportedEntryTypes.includes('longtask'))) {
         availability = 'unsupported';
         unavailableReason = 'This renderer does not support PerformanceObserver longtask entries.';
+        releaseRetainedSampleContext();
         publishEmptySnapshot(currentSnapshot.snapshotAt);
         return disposeInactiveObservation('unsupported');
       }
