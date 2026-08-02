@@ -177,9 +177,17 @@ function readEmbeddingTelemetryFromHostStatus(status: unknown): EmbeddingTelemet
   if (!(status && typeof status === 'object' && !Array.isArray(status))) {
     throw new Error('Embedding host status must be an object.');
   }
-  const embeddingRuntime = (status as Record<string, unknown>)['embeddingRuntime'];
+  const statusRecord = status as Record<string, unknown>;
+  const embeddingRuntime = statusRecord['embeddingRuntime'];
   if (embeddingRuntime === undefined) {
-    return null;
+    const state = statusRecord['state'];
+    if (state === 'error' || state === 'stopped') {
+      return EMPTY_EMBEDDING_TELEMETRY;
+    }
+    if (state === 'running' || state === 'starting' || state === 'stopping') {
+      return null;
+    }
+    throw new Error('Embedding host status state is invalid.');
   }
   if (
     !(embeddingRuntime && typeof embeddingRuntime === 'object' && !Array.isArray(embeddingRuntime))

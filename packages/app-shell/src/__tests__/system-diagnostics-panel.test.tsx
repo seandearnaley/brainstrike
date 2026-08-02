@@ -233,6 +233,17 @@ describe('SystemDiagnosticsPanel', () => {
         expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
       });
 
+      act(() =>
+        statusListener({
+          active: false,
+          lastError: 'Embedding host renderer crashed.',
+          runtimeId: 'embedding-host:crashed',
+          runtimeKind: 'embedding-host',
+          state: 'error',
+        })
+      );
+      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
+
       await userEvent.click(screen.getByRole('button', { name: /refresh all diagnostics/i }));
 
       await waitFor(() => {

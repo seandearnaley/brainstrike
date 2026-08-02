@@ -169,8 +169,10 @@ Embedding runtime telemetry (BST-402):
   reads. An explicit refresh clears the prior status override before accepting the refreshed
   platform snapshot, so stopped-host residency cannot remain stale. Invalid status telemetry
   is surfaced visibly without clearing an independent platform-snapshot collection error.
-  Web diagnostics read the same
-  renderer-local store directly.
+  A terminal `stopped` or `error` host status that lacks runtime metadata replaces the
+  displayed telemetry with an empty snapshot, preventing a crashed or closed renderer's
+  cache residency from remaining visible. Transitional metadata-free statuses retain the
+  latest snapshot. Web diagnostics read the same renderer-local store directly.
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts
   to be revisited explicitly.
