@@ -73,13 +73,13 @@ export function useAssistantLocalRuntimeCatalog({
   useEffect(() => {
     const generation = ++requestGeneration.current;
     const isCurrent = (): boolean => generation === requestGeneration.current;
-    setLocalRuntimeStatuses({
-      lmstudio: { state: 'checking' },
-      ollama: { state: 'checking' },
-    });
-    setLocalRuntimeModels(null);
 
     const refresh = async (): Promise<void> => {
+      setLocalRuntimeStatuses({
+        lmstudio: { state: 'checking' },
+        ollama: { state: 'checking' },
+      });
+      setLocalRuntimeModels(null);
       const statuses = await loadLocalRuntimeStatuses(getLocalRuntimeStatuses);
       if (!isCurrent()) {
         return;
@@ -104,7 +104,11 @@ export function useAssistantLocalRuntimeCatalog({
       }
     };
 
-    void refresh();
+    queueMicrotask(() => {
+      if (isCurrent()) {
+        void refresh();
+      }
+    });
 
     return () => {
       if (isCurrent()) {
