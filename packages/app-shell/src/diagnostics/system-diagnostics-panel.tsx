@@ -10,6 +10,7 @@
  * without navigating to multiple places.
  */
 
+import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
 import {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
@@ -29,6 +30,7 @@ import {
   type LucideIcon,
   RefreshCw,
   Server,
+  Timer,
   XCircle,
 } from 'lucide-react';
 import {
@@ -42,6 +44,10 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import {
+  type RendererLongTaskTelemetrySnapshot,
+  rendererLongTaskTelemetry,
+} from './renderer-long-task-telemetry';
 
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
@@ -169,7 +175,7 @@ function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
   };
 
   return (
-    <Badge className="h-5 px-2 text-[10px]" variant={variantMap[status]}>
+    <Badge className="h-5 px-2 text-[10px]" data-status={status} variant={variantMap[status]}>
       {label}
     </Badge>
   );
@@ -327,6 +333,90 @@ function WorkerStatusSection({
         </div>
         <div className="pt-1 text-[10px] text-muted-foreground">
           {modeDescriptions[persistenceMode]}
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
+const DATABASE_QUERY_FEATURE_LABELS = {
+  'file-tree': 'File tree',
+  'live-query': 'Live queries',
+  'queue-stats': 'Queue stats',
+  'token-estimation': 'Token estimation',
+} as const;
+
+function DatabaseQueryTelemetrySection({
+  snapshot,
+}: {
+  readonly snapshot: DatabaseQueryTelemetrySnapshot;
+}): ReactElement {
+  const failures = Object.values(snapshot.features).reduce(
+    (total, feature) => total + feature.failureCount,
+    0
+  );
+  const totalQueries = Object.values(snapshot.features).reduce(
+    (total, feature) => total + feature.queryCount,
+    0
+  );
+  const cacheHitLabel =
+    snapshot.tokenEstimation.cacheHitRate === null
+      ? 'No lookups'
+      : `${Math.round(snapshot.tokenEstimation.cacheHitRate * 100)}% cache hit`;
+
+  return (
+    <DiagnosticCard
+      description="Rolling one-minute coarse query histograms"
+      icon={<Database className="h-4 w-4 text-primary" />}
+      status={snapshot.availability === 'failed' ? 'error' : failures > 0 ? 'warning' : 'success'}
+      statusLabel={formatCount(totalQueries, 'query', 'queries')}
+      title="Database Queries"
+    >
+      <div className="space-y-2 text-xs">
+        {Object.entries(DATABASE_QUERY_FEATURE_LABELS).map(([feature, label]) => {
+          const metrics = snapshot.features[feature as keyof typeof snapshot.features];
+          return (
+            <div className="space-y-0.5" key={feature}>
+              <span className="text-muted-foreground">{label}</span>
+              <div
+                className="font-mono text-[10px]"
+                data-testid={`database-query-${feature}-metrics`}
+              >
+                {metrics.queryCount} queries · {metrics.failureCount} failed · p50{' '}
+                {Math.round(metrics.durationP50Ms)} ms · p95 {Math.round(metrics.durationP95Ms)} ms
+                · max {Math.round(metrics.maxDurationMs)} ms
+                {' · '}
+                {metrics.droppedSampleCount} dropped
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Token cache</span>
+          <span className="font-medium">{cacheHitLabel}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Live subscriptions</span>
+          <span className="font-medium">
+            {formatCount(snapshot.activeLiveSubscriptions, 'active', 'active')}
+          </span>
+        </div>
+        {snapshot.droppedSampleCount > 0 ? (
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>Retention overflow</span>
+            <span>{formatCount(snapshot.droppedSampleCount, 'sample', 'samples')} dropped</span>
+          </div>
+        ) : null}
+        {snapshot.availability === 'failed' ? (
+          <div className="text-destructive" role="alert">
+            Query telemetry unavailable: {snapshot.unavailableReason}
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Live updates</span>
+          <span className="font-mono text-[10px]" data-testid="database-live-update-metrics">
+            {formatCount(snapshot.liveUpdateCount, 'update', 'updates')}
+          </span>
         </div>
       </div>
     </DiagnosticCard>
@@ -579,6 +669,100 @@ function DesktopPlatformStatusSection({
   );
 }
 
+function formatDuration(durationMs: number | null): string {
+  return durationMs === null ? 'No samples' : `${Math.round(durationMs)} ms`;
+}
+
+function formatRendererLongTaskStatus(snapshot: RendererLongTaskTelemetrySnapshot): string {
+  if (snapshot.availability === 'active') {
+    return formatCount(snapshot.sampleCount, 'sample', 'samples');
+  }
+  if (snapshot.availability === 'failed') {
+    return `Failed · ${formatCount(snapshot.sampleCount, 'sample', 'samples')}`;
+  }
+  if (snapshot.availability === 'unsupported') {
+    return 'Unsupported';
+  }
+  return `Idle · ${formatCount(snapshot.sampleCount, 'sample', 'samples')}`;
+}
+
+function formatRendererLongTaskFeatureFlags(snapshot: RendererLongTaskTelemetrySnapshot): string {
+  if (snapshot.featureFlagContextAvailability === 'unavailable') {
+    return snapshot.sampleCount === 0
+      ? 'No feature flag source'
+      : 'Unavailable for retained samples';
+  }
+  if (snapshot.sampleCount === 0) {
+    return 'No samples';
+  }
+  const knownFlags = snapshot.featureFlags
+    .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
+    .join(', ');
+  if (snapshot.featureFlagContextAvailability === 'mixed') {
+    const denominator = `${snapshot.featureFlagContextSampleCount} of ${snapshot.sampleCount} samples`;
+    return knownFlags.length > 0
+      ? `${knownFlags} · partial context, ${denominator}`
+      : `Partial feature flag context, ${denominator}`;
+  }
+  return knownFlags.length > 0 ? knownFlags : 'None active';
+}
+
+function RendererLongTaskStatusSection({
+  snapshot,
+}: {
+  readonly snapshot: RendererLongTaskTelemetrySnapshot;
+}): ReactElement {
+  const status: StatusVariant =
+    snapshot.availability === 'failed'
+      ? 'error'
+      : snapshot.availability === 'unsupported' || snapshot.availability === 'idle'
+        ? 'warning'
+        : 'success';
+  const statusLabel = formatRendererLongTaskStatus(snapshot);
+
+  return (
+    <DiagnosticCard
+      description="Main-thread stalls in the rolling one-minute window"
+      icon={<Timer className="h-4 w-4 text-primary" />}
+      status={status}
+      statusLabel={statusLabel}
+      title="Renderer Long Tasks"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">P50</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP50Ms)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">P95</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP95Ms)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Maximum</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.maxDurationMs)}</span>
+        </div>
+        {snapshot.routes.length > 0 && (
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-muted-foreground">Delivery-time routes</span>
+            <span className="text-right font-mono text-[10px]">
+              {snapshot.routes.map((route) => `${route.route} (${route.count})`).join(', ')}
+            </span>
+          </div>
+        )}
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Delivery-time feature flags</span>
+          <span className="text-right font-mono text-[10px]">
+            {formatRendererLongTaskFeatureFlags(snapshot)}
+          </span>
+        </div>
+        {snapshot.unavailableReason && (
+          <div className="pt-1 text-[10px] text-muted-foreground">{snapshot.unavailableReason}</div>
+        )}
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 export interface SystemDiagnosticsPanelProps {
   /** Token cache persistence mode (from TokenCacheContext) */
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
@@ -615,6 +799,16 @@ export function SystemDiagnosticsPanel({
     () => EMPTY_EMBEDDING_TELEMETRY
   );
   const embeddingTelemetry = desktopSnapshot?.telemetry?.embedding ?? localEmbeddingTelemetry;
+  const databaseQuerySnapshot = useSyncExternalStore(
+    databaseQueryTelemetry.subscribe,
+    databaseQueryTelemetry.getSnapshot,
+    databaseQueryTelemetry.getSnapshot
+  );
+  const longTaskSnapshot = useSyncExternalStore(
+    rendererLongTaskTelemetry.subscribe,
+    rendererLongTaskTelemetry.getSnapshot,
+    rendererLongTaskTelemetry.getSnapshot
+  );
 
   // Cleanup timeout on unmount to prevent memory leaks
   useEffect(() => {
@@ -703,6 +897,8 @@ export function SystemDiagnosticsPanel({
           tokenCacheOperational={tokenCacheOperational}
           tokenCachePersisted={tokenCachePersisted}
         />
+        <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
+        <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
         <EmbeddingRuntimeDiagnosticsCard telemetry={embeddingTelemetry} />
         {desktopDiagnosticsError && (

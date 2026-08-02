@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { act, render } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { databaseQueryTelemetry } from '../src/database-query-telemetry.js';
 // The escape helper is imported from its OWNING module: use-live-query no
 // longer re-exports it (BST-990 — engine helpers stay out of the React
 // module's export chain).
 import { escapePGliteLiveQueryFormatPercents } from '../src/pglite-live-query-format.js';
-import { deepEqual, makeLiveQueryKey, usePGliteLiveQuery } from '../src/use-live-query.js';
+import {
+  deepEqual,
+  makeLiveQueryKey,
+  subscribeViaElectron,
+  usePGliteLiveQuery,
+} from '../src/use-live-query.js';
 
 // Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
@@ -158,7 +164,8 @@ describe('Electron Live Query', () => {
   }
 
   it('should use Electron bridge when PGlite is not available', async () => {
-    render(<TestComponent params={[1]} />);
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const { unmount } = render(<TestComponent params={[1]} />);
 
     // Wait for effect
     await vi.waitFor(() => {
@@ -169,10 +176,21 @@ describe('Electron Live Query', () => {
         })
       );
     });
+    await vi.waitFor(() => {
+      expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+        telemetryBefore.activeLiveSubscriptions + 1
+      );
+    });
+    unmount();
+    await vi.waitFor(() => {
+      expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+        telemetryBefore.activeLiveSubscriptions
+      );
+    });
   });
 
   it('escapes literal percent signs before Electron live query start', async () => {
-    render(
+    const { unmount } = render(
       <PercentQueryComponent
         params={['needle']}
         query="SELECT * FROM test WHERE name LIKE '%' || $1 || '%'"
@@ -187,9 +205,11 @@ describe('Electron Live Query', () => {
         })
       );
     });
+    unmount();
   });
 
   it('should unsubscribe from bridge on unmount', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
     const { unmount } = render(<TestComponent params={[1]} />);
 
     await vi.waitFor(() => {
@@ -202,6 +222,149 @@ describe('Electron Live Query', () => {
       expect(mockUnsubscribe).toHaveBeenCalled();
       expect(mockBridge.stop).toHaveBeenCalledWith(123);
     });
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
+  it('detaches local Electron state when the remote stop request rejects', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    mockBridge.stop.mockRejectedValue(new Error('database host is resetting'));
+    const { result, unmount } = renderHook(() =>
+      usePGliteLiveQuery({ params: [1], query: 'SELECT * FROM test' })
+    );
+
+    await vi.waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+        telemetryBefore.activeLiveSubscriptions + 1
+      );
+    });
+
+    unmount();
+
+    await vi.waitFor(() => {
+      expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+      expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+        telemetryBefore.activeLiveSubscriptions
+      );
+    });
+  });
+
+  it('releases Electron subscription ownership exactly once', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const subscription = await subscribeViaElectron(
+      mockBridge,
+      { mode: 'query', query: 'SELECT * FROM test' },
+      vi.fn()
+    );
+
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions + 1
+    );
+
+    await subscription.unsubscribe();
+    await subscription.unsubscribe();
+
+    expect(mockBridge.stop).toHaveBeenCalledTimes(1);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
+  it('shares concurrent Electron cleanup and retries a rejected remote stop', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    let rejectStop: ((error: Error) => void) | undefined;
+    mockBridge.stop
+      .mockImplementationOnce(
+        async () =>
+          await new Promise<void>((_resolve, reject) => {
+            rejectStop = reject;
+          })
+      )
+      .mockResolvedValueOnce(undefined);
+    const subscription = await subscribeViaElectron(
+      mockBridge,
+      { mode: 'query', query: 'SELECT * FROM test' },
+      vi.fn()
+    );
+
+    const firstCleanup = subscription.unsubscribe();
+    const concurrentCleanup = subscription.unsubscribe();
+    let concurrentSettled = false;
+    void concurrentCleanup.then(
+      () => {
+        concurrentSettled = true;
+      },
+      () => {
+        concurrentSettled = true;
+      }
+    );
+    await Promise.resolve();
+
+    expect(concurrentSettled).toBe(false);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+    rejectStop?.(new Error('database host is resetting'));
+    await expect(firstCleanup).rejects.toThrow('database host is resetting');
+    await expect(concurrentCleanup).rejects.toThrow('database host is resetting');
+    expect(mockBridge.stop).toHaveBeenCalledTimes(1);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+
+    await expect(subscription.unsubscribe()).resolves.toBeUndefined();
+
+    expect(mockBridge.stop).toHaveBeenCalledTimes(2);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
+  it('tracks Electron live updates and refresh queries', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const { result, unmount } = renderHook(() =>
+      usePGliteLiveQuery({ params: [1], query: 'SELECT * FROM test' })
+    );
+
+    await vi.waitFor(() => expect(mockBridge.onUpdate).toHaveBeenCalled());
+    const onUpdate = mockBridge.onUpdate.mock.calls[0]?.[0] as
+      | ((payload: { id: number; results: { rows: unknown[] } }) => void)
+      | undefined;
+    expect(onUpdate).toBeDefined();
+    act(() => {
+      onUpdate?.({ id: 123, results: { rows: [] } });
+    });
+
+    expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(
+      telemetryBefore.liveUpdateCount + 1
+    );
+    const queryCountBeforeRefresh =
+      databaseQueryTelemetry.snapshot().features['live-query'].queryCount;
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(mockBridge.refresh).toHaveBeenCalledWith({ id: 123 });
+    expect(databaseQueryTelemetry.snapshot().features['live-query'].queryCount).toBe(
+      queryCountBeforeRefresh + 1
+    );
+    const queryCountBeforeStop =
+      databaseQueryTelemetry.snapshot().features['live-query'].queryCount;
+
+    unmount();
+    await vi.waitFor(() => {
+      expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+        telemetryBefore.activeLiveSubscriptions
+      );
+    });
+    expect(databaseQueryTelemetry.snapshot().features['live-query'].queryCount).toBe(
+      queryCountBeforeStop
+    );
   });
 });
 

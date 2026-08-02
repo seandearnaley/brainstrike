@@ -594,12 +594,170 @@ LIVE REFRESH").
 
 ---
 
+## IN-MEMORY DATABASE QUERY TELEMETRY
+
+`packages/db/src/database-query-telemetry.ts` is the privacy boundary for
+BST-403. Producers must choose one fixed feature area (`file-tree`,
+`live-query`, `queue-stats`, or `token-estimation`) at the typed call site. Do
+not infer feature ownership from SQL text or labels. The collector keeps an
+independent rolling one-minute buffer of at most 512 duration samples **per
+feature** plus a separate bounded arrival-count bucket stream. Query count and
+rate therefore remain independent of the duration-sample cap; sample count
+remains the number of retained percentile inputs. The collector exposes counts,
+failures, p50/p95/max duration, live subscription/update frequency, token-cache
+hit rate, and an explicit retained-sample overflow count to System Diagnostics.
+Query arrivals, failures, and token lookup/hit totals each use exact bounded
+rolling buckets rather than being reconstructed from the capped percentile
+samples. Overflow buckets use the evicted sample's occurrence time and therefore
+expire with the evicted sample.
+Counts use a boundary-inclusive bucket interval and can therefore retain up to
+one coarse bucket of events older than the strict duration-sample cutoff. A
+nonzero count with zero retained percentile inputs at that boundary is expected.
+The card renders every per-feature count, failure, p50/p95/max, and overflow
+dimension plus the raw live-update count, so warning attribution is visible;
+the one-minute count and its derived per-minute rate are deliberately not shown
+together as duplicate values.
+External-store notifications are coalesced to one-second updates; while a
+subscriber is active, reads return the published snapshot identity until the
+coalesced notification publishes a replacement. Producers do not sort or
+rebuild snapshots on every query. A monotonic Performance clock owns sample and
+count-bucket retention; the wall clock is used only for the externally reported
+`snapshotAt`. The per-feature cap therefore evicts the oldest duration sample
+directly, while query arrivals and overflow events are bucketed at their
+occurrence time. Module
+construction is clock-free; the first collection or external-store read
+validates the monotonic clock and fails loudly if it is unavailable.
+
+The collector is memory-only and deliberately process-local. It retains no SQL,
+parameters, rows, paths, filenames, queue names, or content, and requires no
+factory-reset wiring. Runtime records accept only the declared feature,
+duration, failure, lookup, and hit fields; unknown keys and malformed values
+throw before a sample is retained, and caller fields are captured exactly once
+before validation and retention. Query duration and retention both use the
+monotonic performance clock. File-record counts and selected-file token SUMs
+are measured alongside the other production reads; SUM samples contribute
+duration and failure data with zero lookup and hit counts. Live-query histogram
+samples represent start and refresh query executions on both renderer and
+Electron paths; subscription lifecycle, update delivery, and teardown are
+tracked separately. A direct unsubscribe terminalizes the pinned PGlite
+live-query handle before its async teardown settles, so the scheduler releases
+its one supported locally counted listener exactly once on the first teardown
+attempt. Repeated unsubscribe is idempotent, while subscribe and refresh reject
+on that dead handle; callers must create a fresh live-query handle. Folder-wide
+token-cache preloads record duration/failure with zero lookup and hit counts.
+Concurrent Electron teardown callers share one remote stop attempt;
+a rejected stop remains retryable while renderer-local listener and counter
+ownership release exactly once. Production wrappers log telemetry failures,
+including an unavailable timing clock, at error level while preserving and always
+executing the database operation's original success or rejection. Each producer
+latches an unavailable clock and logs it once rather than emitting an error for
+every subsequent operation. The collector also suppresses repeated timer callbacks
+after its retention clock fails; retained metrics become zero, clock-independent
+live-subscription ownership continues to update, and an explicit
+imperative `snapshot()` read still throws the latched error. External-store reads
+instead return one stable snapshot marked `failed` with the precise reason, so a
+React diagnostics surface can render the failure without crashing. The clock-free
+package regression imports the public database package entrypoint. There is
+deliberately no public reset: clearing the singleton could invalidate
+live-subscription ownership held by active proxies. Paired coverage
+lives in
+`packages/db/__tests__/database-query-telemetry.test.ts`,
+`database-work-scheduler.test.ts`,
+`database-work-scheduler-live-handle.integration.test.ts`,
+`use-live-query.test.tsx`, the token-cache and
+Drizzle token/file repository tests, and
+`packages/app-shell/src/__tests__/system-diagnostics-panel.test.tsx`.
+
+---
+
 ## DIAGNOSTIC EVENTS (FLIGHT RECORDER P1)
 
 Design doc: `docs/error-observability-design-2026-07-23.md`. Cross-cutting,
 app-wide diagnostic capture — deliberately SEPARATE from the run-scoped
 `brainstrike_assistant_run_events` timeline (different scope, retention, and
 sanitization contract; do not relitigate).
+
+**Performance telemetry is a separate in-memory signal, not a fabricated
+warning event.** Renderer long tasks (BST-400) are observed only in the visible
+renderer by
+`packages/app-shell/src/diagnostics/renderer-long-task-telemetry.ts`, retained
+in a bounded one-minute/512-sample window, and shown in System Diagnostics.
+Only duration, the coarse app route, and enabled feature-flag identifiers are
+retained. The app shell accepts feature flags only from an authoritative
+app-owned registry; when no registry is wired, the snapshot and System
+Diagnostics say that the context is unavailable instead of treating an empty
+placeholder as "no flags active." The observer remains mounted across route
+changes, requests buffered `longtask` entries so pre-effect startup stalls are
+not discarded, and reads current context at delivery time. Feature-registry
+availability changes publish immediately rather than waiting for another stall.
+Availability shown for a non-empty rolling window is derived from the retained
+samples; mixed known/unknown flag context is surfaced as partial and never
+rewritten to "no flags active" by a later registry transition.
+Retention is owned by the telemetry store: expiry and cap eviction remove stale
+context without a diagnostics subscriber and release it no later than the next
+external-store read. Any retention-clock failure outside a render-phase
+`getSnapshot` releases retained samples and dedupe keys immediately, even if the
+failure is transient, so an aborted timer cannot leave identifiers resident
+without a replacement expiry deadline.
+A render-phase `getSnapshot` clock failure is the one exception: it publishes an
+empty failed snapshot and does not mutate backing storage. The already owned
+retention timer or the next non-render collection/publication entry point
+performs the pending destructive cleanup. Buffered observer entries are retained
+from their occurrence timestamp and deduplicated across observer replay. An
+observer entry whose duration is negative, whose start maps after delivery,
+whose start time is negative, or whose completion exceeds delivery by
+more than the one-millisecond Performance API rounding tolerance, is malformed
+and fails the observation.
+Because the Performance Observer entry has no historical app context, a buffered
+sample explicitly carries delivery-time route and feature-flag context; System
+Diagnostics labels those fields as delivery-time context and must not imply that
+context was captured at the original stall time. Occurrence timestamps, window
+pruning, and retention deadlines share the Performance timeline's monotonic epoch
+clock; `Date.now()` must not drive this
+retention boundary because wall-clock adjustments would split the clocks. The
+module singleton is constructed without reading that clock: the first observer,
+record, or external-store read validates it, and observer setup publishes a
+local `failed` snapshot if the timing capability is unavailable instead of
+failing shell import. An initial external-store read before the observer effect
+mounts follows the same explicit failed-snapshot path. Injected retention clocks
+remain coherent with real `PerformanceEntry.startTime` values by mapping each
+entry age into the injected clock domain. Buffered-entry dedupe keys survive
+sample-cap eviction until the entry leaves the rolling window, so replay cannot
+create a spurious publish.
+They use stable Performance entry identity (`startTime` plus duration), never
+the delivery-time clock mapping, because replacement observers can deliver the
+same buffered entry at different times.
+Unsupported or failed `PerformanceObserver` setup is represented explicitly in
+the snapshot; it never silently degrades. Unsupported observation releases
+retained samples, dedupe keys and the retention timer before publishing an
+explicitly empty window without consulting the timing clock; disposing that
+inactive observation repeats the release before the caller sees the idle state.
+The empty snapshot carries
+the last successful monotonic timestamp rather than fabricating a new clock read,
+or the explicit epoch-zero sentinel if no clock read has succeeded yet. Direct
+recording after unsupported observation is known throws instead of creating a
+hidden retained window, and failed observation has the same explicit rejection.
+A malformed entry fails and disconnects its observer loudly, but valid sibling
+entries from the same delivered batch are retained and published with that failed
+snapshot; their expiry timer remains owned even if a later batch insertion fails.
+Distinct malformed causes are reported together with their original errors
+preserved. A delivery failure reuses the validated delivery timestamp for the
+failed snapshot rather than probing the clock again. The observer Performance
+clock is read after the delivery epoch clock, conservatively biasing occurrence
+mapping slightly earlier for retention. A non-finite or negative long-task
+duration or injected clock result fails collection visibly. System Diagnostics
+keeps the retained sample count visible on active, idle, and failed cards so
+aggregates always have an explicit denominator. Mixed feature-flag context also exposes the
+known-context sample count against the total retained sample count; flag counts
+must never imply they cover samples whose flag context was unavailable.
+Disposing a failed inactive observation preserves its precise reason if the clock
+is still unusable rather than claiming recovery. Reset always clears retained
+context; when the timing clock is unusable, the failed state remains latched
+instead of claiming an idle collector. Do not write routine performance samples
+into
+`brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
+failure signals, drives the unseen-error chip, and is the wrong cardinality and
+severity model for continuous performance measurements.
 
 **Table**: `brainstrike_diagnostic_events` (migration 073, numbered runner
 `packages/db/src/migrations/073-diagnostic-events.ts` AND drizzle

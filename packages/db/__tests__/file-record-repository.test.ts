@@ -1,5 +1,6 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { databaseQueryTelemetry } from '../src/database-query-telemetry.js';
 import type { FileRecord } from '../src/models/file-record';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
@@ -258,9 +259,13 @@ describe('FileRecordRepository', () => {
       rootId: 'root-a',
     });
 
+    const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
     const entries = await repo.listManagedCacheEntries('00000000-0000-0000-0000-000000000101');
 
     expect(entries.map((entry) => entry.id).sort()).toEqual(['cache-a', 'cache-b']);
+    expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+      telemetryBefore + 1
+    );
   });
 
   it('stamps stat metadata in batch so hash-unchanged rows can join the stat-cache', async () => {
@@ -278,6 +283,7 @@ describe('FileRecordRepository', () => {
       { fileRecordId: 'stamp-a', mtimeMs: 1_700_000_000_000, size: 64 },
     ]);
 
+    const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
     const entries = await repo.listManagedCacheEntryMetadata(
       '00000000-0000-0000-0000-000000000101'
     );
@@ -289,6 +295,9 @@ describe('FileRecordRepository', () => {
         size: 64,
       }),
     ]);
+    expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+      telemetryBefore + 1
+    );
   });
 
   it('updateStatMetadata floors fractional mtimes and no-ops on an empty batch', async () => {
@@ -339,5 +348,17 @@ describe('FileRecordRepository', () => {
         rootId: 'root-a',
       }),
     ]);
+  });
+
+  it('reports file-record count queries to the file-tree histogram', async () => {
+    const record = createTestRecord({ content: 'const value = 1;' });
+    await repo.createWithContent(record);
+    const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
+
+    expect(await repo.count()).toBe(1);
+    expect(await repo.countWithContent()).toBe(1);
+    expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+      telemetryBefore + 2
+    );
   });
 });

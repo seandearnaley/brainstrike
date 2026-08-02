@@ -10,6 +10,7 @@ import { createLogger } from '@brainstrike/logging';
 import { generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import { measureDatabaseQuery } from '../../database-query-telemetry.js';
 import type {
   FileImportRequest,
   FileImportResult,
@@ -152,9 +153,10 @@ export class DrizzleFileRecordRepository {
   }
 
   async findById(id: string): Promise<FileRecord | null> {
-    const [row] = await this.db.select().from(fileRecords).where(eq(fileRecords.id, id));
-
-    return row ? this.fromRow(row) : null;
+    return await measureDatabaseQuery('file-tree', async () => {
+      const [row] = await this.db.select().from(fileRecords).where(eq(fileRecords.id, id));
+      return row ? this.fromRow(row) : null;
+    });
   }
 
   /**
@@ -169,38 +171,49 @@ export class DrizzleFileRecordRepository {
       return [];
     }
 
-    const uniqueIds = Array.from(new Set(ids));
-    const rows = await this.db.select().from(fileRecords).where(inArray(fileRecords.id, uniqueIds));
+    return await measureDatabaseQuery('file-tree', async () => {
+      const uniqueIds = Array.from(new Set(ids));
+      const rows = await this.db
+        .select()
+        .from(fileRecords)
+        .where(inArray(fileRecords.id, uniqueIds));
 
-    return rows.map((row) => this.fromRow(row));
+      return rows.map((row) => this.fromRow(row));
+    });
   }
 
   async findByContentHash(contentHash: string): Promise<FileRecord | null> {
-    const [row] = await this.db
-      .select()
-      .from(fileRecords)
-      .where(eq(fileRecords.contentHash, contentHash));
+    return await measureDatabaseQuery('file-tree', async () => {
+      const [row] = await this.db
+        .select()
+        .from(fileRecords)
+        .where(eq(fileRecords.contentHash, contentHash));
 
-    return row ? this.fromRow(row) : null;
+      return row ? this.fromRow(row) : null;
+    });
   }
 
   async findAll(): Promise<FileRecord[]> {
-    const rows = await this.db
-      .select()
-      .from(fileRecords)
-      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const rows = await this.db
+        .select()
+        .from(fileRecords)
+        .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
-    return rows.map((row) => this.fromRow(row));
+      return rows.map((row) => this.fromRow(row));
+    });
   }
 
   async findAllWithContent(): Promise<FileRecord[]> {
-    const rows = await this.db
-      .select()
-      .from(fileRecords)
-      .where(isNotNull(fileRecords.content))
-      .orderBy(sql`${fileRecords.processedAt} DESC, ${fileRecords.updatedAt} DESC`);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const rows = await this.db
+        .select()
+        .from(fileRecords)
+        .where(isNotNull(fileRecords.content))
+        .orderBy(sql`${fileRecords.processedAt} DESC, ${fileRecords.updatedAt} DESC`);
 
-    return rows.map((row) => this.fromRow(row));
+      return rows.map((row) => this.fromRow(row));
+    });
   }
 
   async findByManagedCacheIdentity(
@@ -208,16 +221,18 @@ export class DrizzleFileRecordRepository {
     rootId: string,
     relativePath: string
   ): Promise<FileRecord | null> {
-    const [row] = await this.db
-      .select()
-      .from(fileRecords)
-      .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} = ${rootId} AND ${fileRecords.path} = ${relativePath}`
-      )
-      .orderBy(sql`${fileRecords.updatedAt} DESC`)
-      .limit(1);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const [row] = await this.db
+        .select()
+        .from(fileRecords)
+        .where(
+          sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} = ${rootId} AND ${fileRecords.path} = ${relativePath}`
+        )
+        .orderBy(sql`${fileRecords.updatedAt} DESC`)
+        .limit(1);
 
-    return row ? this.fromRow(row) : null;
+      return row ? this.fromRow(row) : null;
+    });
   }
 
   /**
@@ -230,87 +245,93 @@ export class DrizzleFileRecordRepository {
    */
   async findByNameSubstring(query: string, limit: number): Promise<QuickOpenFileRow[]> {
     const boundedLimit = clampQuickOpenLimit(limit);
-    const rows = await this.db
-      .select({
-        display_name: roots.displayName,
-        id: fileRecords.id,
-        name: fileRecords.name,
-        path: fileRecords.path,
-        root_id: fileRecords.rootId,
-      })
-      .from(fileRecords)
-      .leftJoin(roots, eq(roots.id, fileRecords.rootId))
-      .where(sql`${fileRecords.name} ILIKE '%' || ${query} || '%'`)
-      .orderBy(sql`length(${fileRecords.name})`, fileRecords.path)
-      .limit(boundedLimit);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const rows = await this.db
+        .select({
+          display_name: roots.displayName,
+          id: fileRecords.id,
+          name: fileRecords.name,
+          path: fileRecords.path,
+          root_id: fileRecords.rootId,
+        })
+        .from(fileRecords)
+        .leftJoin(roots, eq(roots.id, fileRecords.rootId))
+        .where(sql`${fileRecords.name} ILIKE '%' || ${query} || '%'`)
+        .orderBy(sql`length(${fileRecords.name})`, fileRecords.path)
+        .limit(boundedLimit);
 
-    return rows.map((row) => ({
-      display_name: row.display_name ?? null,
-      id: row.id,
-      name: row.name,
-      path: row.path,
-      root_id: row.root_id ?? null,
-    }));
+      return rows.map((row) => ({
+        display_name: row.display_name ?? null,
+        id: row.id,
+        name: row.name,
+        path: row.path,
+        root_id: row.root_id ?? null,
+      }));
+    });
   }
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
-    const rows = await this.db
-      .select()
-      .from(fileRecords)
-      .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
-      )
-      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const rows = await this.db
+        .select()
+        .from(fileRecords)
+        .where(
+          sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
+        )
+        .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
-    return rows.map((row) => this.fromRow(row));
+      return rows.map((row) => this.fromRow(row));
+    });
   }
 
   async listManagedCacheEntryMetadata(
     embeddingSetId: string
   ): Promise<ManagedCacheEntryMetadata[]> {
-    const rows = await this.db
-      .select({
-        chunksCount: fileRecords.chunksCount,
-        chunksProcessedAt: fileRecords.chunksProcessedAt,
-        contentHash: fileRecords.contentHash,
-        embeddingSetId: fileRecords.embeddingSetId,
-        fileRecordId: fileRecords.id,
-        mtimeMs: fileRecords.mtimeMs,
-        relativePath: fileRecords.path,
-        rootId: fileRecords.rootId,
-        size: fileRecords.size,
-        updatedAt: fileRecords.updatedAt,
-      })
-      .from(fileRecords)
-      .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
-      )
-      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const rows = await this.db
+        .select({
+          chunksCount: fileRecords.chunksCount,
+          chunksProcessedAt: fileRecords.chunksProcessedAt,
+          contentHash: fileRecords.contentHash,
+          embeddingSetId: fileRecords.embeddingSetId,
+          fileRecordId: fileRecords.id,
+          mtimeMs: fileRecords.mtimeMs,
+          relativePath: fileRecords.path,
+          rootId: fileRecords.rootId,
+          size: fileRecords.size,
+          updatedAt: fileRecords.updatedAt,
+        })
+        .from(fileRecords)
+        .where(
+          sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
+        )
+        .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
-    return rows.flatMap((row) => {
-      if (
-        typeof row.fileRecordId !== 'string' ||
-        typeof row.embeddingSetId !== 'string' ||
-        typeof row.rootId !== 'string' ||
-        typeof row.relativePath !== 'string' ||
-        !(typeof row.contentHash === 'string' || row.contentHash === null)
-      ) {
-        return [];
-      }
-      return [
-        {
-          chunksCount: row.chunksCount,
-          chunksProcessedAt: row.chunksProcessedAt?.toISOString() ?? null,
-          contentHash: row.contentHash ?? '',
-          embeddingSetId: row.embeddingSetId,
-          fileRecordId: row.fileRecordId,
-          mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
-          relativePath: row.relativePath,
-          rootId: row.rootId,
-          size: row.size,
-          updatedAt: row.updatedAt.toISOString(),
-        } satisfies ManagedCacheEntryMetadata,
-      ];
+      return rows.flatMap((row) => {
+        if (
+          typeof row.fileRecordId !== 'string' ||
+          typeof row.embeddingSetId !== 'string' ||
+          typeof row.rootId !== 'string' ||
+          typeof row.relativePath !== 'string' ||
+          !(typeof row.contentHash === 'string' || row.contentHash === null)
+        ) {
+          return [];
+        }
+        return [
+          {
+            chunksCount: row.chunksCount,
+            chunksProcessedAt: row.chunksProcessedAt?.toISOString() ?? null,
+            contentHash: row.contentHash ?? '',
+            embeddingSetId: row.embeddingSetId,
+            fileRecordId: row.fileRecordId,
+            mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
+            relativePath: row.relativePath,
+            rootId: row.rootId,
+            size: row.size,
+            updatedAt: row.updatedAt.toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ];
+      });
     });
   }
 
@@ -472,16 +493,20 @@ export class DrizzleFileRecordRepository {
   }
 
   async count(): Promise<number> {
-    const [result] = await this.db.select({ count: count() }).from(fileRecords);
-    return result?.count ?? 0;
+    return await measureDatabaseQuery('file-tree', async () => {
+      const [result] = await this.db.select({ count: count() }).from(fileRecords);
+      return result?.count ?? 0;
+    });
   }
 
   async countWithContent(): Promise<number> {
-    const [result] = await this.db
-      .select({ count: count() })
-      .from(fileRecords)
-      .where(isNotNull(fileRecords.content));
-    return result?.count ?? 0;
+    return await measureDatabaseQuery('file-tree', async () => {
+      const [result] = await this.db
+        .select({ count: count() })
+        .from(fileRecords)
+        .where(isNotNull(fileRecords.content));
+      return result?.count ?? 0;
+    });
   }
 
   async bulkImport(

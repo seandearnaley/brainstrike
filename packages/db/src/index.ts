@@ -23,6 +23,7 @@ export {
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './database-pressure-controller.js';
+export * from './database-query-telemetry.js';
 export * from './database-work-scheduler.js';
 // Drizzle ORM utilities and database wrapper
 export {

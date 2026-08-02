@@ -2,13 +2,15 @@
  * Tests for SystemDiagnosticsPanel (BST-181)
  */
 
+import { databaseQueryTelemetry } from '@brainstrike/db';
 import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
 } from '@brainstrike/preferences/stores/database-status-store';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import {
   createSystemDiagnosticsSettingsCategory,
   SystemDiagnosticsPanel,
@@ -32,12 +34,15 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 describe('SystemDiagnosticsPanel', () => {
   beforeEach(() => {
     __resetDatabaseStatusStoreForTests();
+    rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
+    rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
+    vi.unstubAllGlobals();
   });
 
   describe('rendering', () => {
@@ -173,12 +178,302 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('Token counting and indexing worker')).toBeInTheDocument();
     });
 
+    it('renders coarse database query telemetry by feature area', () => {
+      try {
+        databaseQueryTelemetry.recordQuery({ durationMs: 12, feature: 'queue-stats' });
+        databaseQueryTelemetry.recordQuery({
+          durationMs: 20,
+          failed: true,
+          feature: 'queue-stats',
+        });
+        databaseQueryTelemetry.recordQuery({
+          durationMs: 4,
+          feature: 'token-estimation',
+          hitCount: 3,
+          lookupCount: 4,
+        });
+        databaseQueryTelemetry.recordLiveSubscriptionStarted();
+        databaseQueryTelemetry.recordLiveUpdate();
+
+        const telemetrySnapshot = databaseQueryTelemetry.getSnapshot();
+        const queueMetrics = telemetrySnapshot.features['queue-stats'];
+        render(<SystemDiagnosticsPanel />);
+
+        expect(screen.getByText('Database Queries')).toBeInTheDocument();
+        expect(screen.getByText('Queue stats')).toBeInTheDocument();
+        expect(screen.getByText('Token estimation')).toBeInTheDocument();
+        expect(screen.getByText('75% cache hit')).toBeInTheDocument();
+        expect(screen.getByText('1 active')).toBeInTheDocument();
+        expect(screen.getByTestId('database-live-update-metrics')).toHaveTextContent(
+          `${telemetrySnapshot.liveUpdateCount} ${telemetrySnapshot.liveUpdateCount === 1 ? 'update' : 'updates'}`
+        );
+        expect(screen.getByTestId('database-live-update-metrics')).not.toHaveTextContent('/ min');
+        expect(screen.getByTestId('database-query-queue-stats-metrics')).toHaveTextContent(
+          `${queueMetrics.queryCount} queries · ${queueMetrics.failureCount} failed · p50 ${Math.round(queueMetrics.durationP50Ms)} ms · p95 ${Math.round(queueMetrics.durationP95Ms)} ms · max ${Math.round(queueMetrics.maxDurationMs)} ms · ${queueMetrics.droppedSampleCount} dropped`
+        );
+        expect(screen.getByTestId('database-query-queue-stats-metrics')).not.toHaveTextContent(
+          '/ min'
+        );
+      } finally {
+        databaseQueryTelemetry.recordLiveSubscriptionEnded();
+      }
+    });
+
+    it('uses exact query totals for healthy overflow status', () => {
+      const baseline = databaseQueryTelemetry.snapshot();
+      const snapshot = {
+        ...baseline,
+        droppedSampleCount: 4,
+        features: {
+          'file-tree': {
+            ...baseline.features['file-tree'],
+            droppedSampleCount: 4,
+            failureCount: 0,
+            queriesPerMinute: 5,
+            queryCount: 5,
+          },
+          'live-query': {
+            ...baseline.features['live-query'],
+            failureCount: 0,
+            queriesPerMinute: 0,
+            queryCount: 0,
+          },
+          'queue-stats': {
+            ...baseline.features['queue-stats'],
+            failureCount: 0,
+            queriesPerMinute: 0,
+            queryCount: 0,
+          },
+          'token-estimation': {
+            ...baseline.features['token-estimation'],
+            failureCount: 0,
+            queriesPerMinute: 0,
+            queryCount: 0,
+          },
+        },
+        sampleCount: 1,
+      };
+      const getSnapshot = vi.spyOn(databaseQueryTelemetry, 'getSnapshot').mockReturnValue(snapshot);
+      const subscribe = vi
+        .spyOn(databaseQueryTelemetry, 'subscribe')
+        .mockImplementation(() => () => undefined);
+
+      try {
+        render(<SystemDiagnosticsPanel />);
+
+        expect(screen.getByText('5 queries')).toHaveAttribute('data-status', 'success');
+        expect(screen.getByText('Retention overflow').parentElement).toHaveClass(
+          'text-muted-foreground'
+        );
+      } finally {
+        getSnapshot.mockRestore();
+        subscribe.mockRestore();
+      }
+    });
+
+    it('renders an explicit failed query-telemetry snapshot without throwing', () => {
+      const baseline = databaseQueryTelemetry.snapshot();
+      const getSnapshot = vi.spyOn(databaseQueryTelemetry, 'getSnapshot').mockReturnValue({
+        ...baseline,
+        availability: 'failed',
+        unavailableReason: 'retention clock unavailable',
+      });
+      const subscribe = vi
+        .spyOn(databaseQueryTelemetry, 'subscribe')
+        .mockImplementation(() => () => undefined);
+
+      try {
+        render(<SystemDiagnosticsPanel />);
+
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Query telemetry unavailable: retention clock unavailable'
+        );
+        expect(screen.getByText(/^\d+ queries?$/)).toHaveAttribute('data-status', 'error');
+      } finally {
+        getSnapshot.mockRestore();
+        subscribe.mockRestore();
+      }
+    });
+
+    it('updates database query telemetry while diagnostics remains open', async () => {
+      vi.useFakeTimers();
+      try {
+        render(<SystemDiagnosticsPanel />);
+        const sampleCountBefore = databaseQueryTelemetry.getSnapshot().sampleCount;
+
+        act(() => {
+          databaseQueryTelemetry.recordQuery({ durationMs: 9, feature: 'file-tree' });
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1000);
+        });
+
+        const expectedCount = sampleCountBefore + 1;
+        expect(
+          screen.getByText(`${expectedCount} ${expectedCount === 1 ? 'query' : 'queries'}`)
+        ).toBeInTheDocument();
+        expect(screen.getByText('File tree')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('renders queue diagnostics panel', () => {
       render(<SystemDiagnosticsPanel />);
 
       return waitFor(() => {
         expect(screen.getByTestId('queue-diagnostics-panel')).toBeInTheDocument();
       });
+    });
+
+    it('surfaces renderer long-task aggregates in system diagnostics', () => {
+      rendererLongTaskTelemetry.record({
+        durationMs: 125,
+        enabledFeatureFlags: ['diagnostic-search'],
+        route: 'settings',
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Renderer Long Tasks')).toBeInTheDocument();
+      expect(screen.getByText('Idle · 1 sample')).toBeInTheDocument();
+      expect(screen.getAllByText('125 ms')).toHaveLength(3);
+      expect(screen.getByText('Delivery-time routes')).toBeInTheDocument();
+      expect(screen.getByText('Delivery-time feature flags')).toBeInTheDocument();
+      expect(screen.getByText('settings (1)')).toBeInTheDocument();
+      expect(screen.getByText('diagnostic-search (1)')).toBeInTheDocument();
+    });
+
+    it('updates renderer long-task diagnostics when the collector publishes', () => {
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('No feature flag source')).toBeInTheDocument();
+
+      act(() => {
+        rendererLongTaskTelemetry.record({
+          durationMs: 80,
+          enabledFeatureFlags: null,
+          route: 'explorer',
+        });
+      });
+
+      expect(screen.getByText('Idle · 1 sample')).toBeInTheDocument();
+      expect(screen.getAllByText('80 ms')).toHaveLength(3);
+      expect(screen.getByText('Unavailable for retained samples')).toBeInTheDocument();
+    });
+
+    it('does not treat retained samples with unknown flag context as no flags active', () => {
+      rendererLongTaskTelemetry.record({
+        durationMs: 80,
+        enabledFeatureFlags: null,
+        route: 'explorer',
+      });
+      rendererLongTaskTelemetry.updateContext({
+        enabledFeatureFlags: ['diagnostics-v2'],
+        route: 'explorer',
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
+        'Unavailable for retained samples'
+      );
+      act(() => {
+        rendererLongTaskTelemetry.record({
+          durationMs: 90,
+          enabledFeatureFlags: ['diagnostics-v2'],
+          route: 'explorer',
+        });
+      });
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
+        'diagnostics-v2 (1) · partial context, 1 of 2 samples'
+      );
+    });
+
+    it('shows the known-context denominator when mixed samples have no active flags', () => {
+      rendererLongTaskTelemetry.record({
+        durationMs: 80,
+        enabledFeatureFlags: null,
+        route: 'explorer',
+      });
+      rendererLongTaskTelemetry.record({
+        durationMs: 90,
+        enabledFeatureFlags: [],
+        route: 'explorer',
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
+        'Partial feature flag context, 1 of 2 samples'
+      );
+    });
+
+    it('labels unsupported long-task collection instead of reporting zero samples', () => {
+      vi.stubGlobal('PerformanceObserver', undefined);
+      act(() => {
+        rendererLongTaskTelemetry.observe(() => ({
+          enabledFeatureFlags: [],
+          route: 'settings',
+        }));
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Unsupported')).toBeInTheDocument();
+      expect(
+        screen.getByText('PerformanceObserver is unavailable in this renderer.')
+      ).toBeInTheDocument();
+    });
+
+    it('keeps the retained sample count visible when observation fails', () => {
+      class ThrowingPerformanceObserver {
+        static readonly supportedEntryTypes = ['longtask'];
+
+        constructor(_callback: PerformanceObserverCallback) {
+          throw new Error('observer construction failed');
+        }
+      }
+      rendererLongTaskTelemetry.record({
+        durationMs: 80,
+        enabledFeatureFlags: [],
+        route: 'settings',
+      });
+      vi.stubGlobal('PerformanceObserver', ThrowingPerformanceObserver);
+      act(() => {
+        rendererLongTaskTelemetry.observe(() => ({
+          enabledFeatureFlags: [],
+          route: 'settings',
+        }));
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Failed · 1 sample')).toBeInTheDocument();
+      expect(screen.getByText('observer construction failed')).toBeInTheDocument();
+    });
+
+    it('distinguishes no samples from no active feature flags', () => {
+      class MockPerformanceObserver {
+        static readonly supportedEntryTypes = ['longtask'];
+
+        observe(): void {}
+
+        disconnect(): void {}
+      }
+      vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+      act(() => {
+        rendererLongTaskTelemetry.observe(() => ({
+          enabledFeatureFlags: [],
+          route: 'settings',
+        }));
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
+        'No samples'
+      );
     });
 
     it('renders desktop platform diagnostics when the desktop bridge is available', async () => {
