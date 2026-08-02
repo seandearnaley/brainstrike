@@ -1,3 +1,26 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  buildHookTrustRequest,
+  hookTrustSelectors,
+  useHookTrustStore,
+} from '@brainstrike/app-state/stores/hook-trust-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import {
+  buildPermissionToolGateSnapshotInput,
+  usePermissionPolicyStore,
+} from '@brainstrike/app-state/stores/permission-policy-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
+import {
+  buildSkillsContextRequest,
+  useSkillsPreferencesStore,
+} from '@brainstrike/app-state/stores/skills-preferences-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
 import type {
   AssistantRunEvent,
   LocalLlmBackendFactory,
@@ -19,29 +42,6 @@ import {
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import {
-  buildHookTrustRequest,
-  hookTrustSelectors,
-  useHookTrustStore,
-} from '@brainstrike/preferences/stores/hook-trust-store';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
-import {
-  buildPermissionToolGateSnapshotInput,
-  usePermissionPolicyStore,
-} from '@brainstrike/preferences/stores/permission-policy-store';
-import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
-import {
-  buildSkillsContextRequest,
-  useSkillsPreferencesStore,
-} from '@brainstrike/preferences/stores/skills-preferences-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/preferences/stores/workspace-instructions-preferences-store';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,

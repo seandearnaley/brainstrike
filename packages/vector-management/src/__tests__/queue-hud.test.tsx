@@ -1,9 +1,9 @@
-import { JobQueue } from '@brainstrike/db';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { JobQueue } from '@brainstrike/db';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

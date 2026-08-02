@@ -1,4 +1,4 @@
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useCallback } from 'react';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';

@@ -215,7 +215,14 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/preferences": {
+    "packages/app-state": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/settings-ui": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
@@ -461,8 +468,8 @@
     "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
-    "@tanstack/react-table", // Used in packages/preferences for LogViewerCard table component
-    "@tanstack/react-virtual", // Used in packages/preferences for row virtualization
+    "@tanstack/react-table", // Used in packages/settings-ui for LogViewerCard table component
+    "@tanstack/react-virtual", // Used in packages/settings-ui for row virtualization
     "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
     "react-doctor" // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
   ],

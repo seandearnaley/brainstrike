@@ -268,7 +268,7 @@ export function getChunkingPreset(id: ChunkingPresetId): ChunkingPresetDefinitio
  * BST-423 — canonical chunking-settings invariants.
  *
  * These live here, in the contract package, because BOTH sides of the settings
- * flow already depend on it: the persisted store (`@brainstrike/preferences`)
+ * flow already depend on it: the persisted store (`@brainstrike/app-state`)
  * and the settings UI (`@brainstrike/db-explorer`). They previously each
  * carried their own copy of the rules, and the copies disagreed — the store
  * turned a non-finite token limit into 512 via `Math.floor(n) || 512` (so a

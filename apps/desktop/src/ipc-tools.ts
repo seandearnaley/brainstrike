@@ -27,7 +27,8 @@ type RuntimeAgentLoop = NonNullable<RuntimeData['agentLoop']>;
 const MAX_INPUT_DEPTH = 12;
 const MAX_INPUT_SIZE = 1_000_000;
 // Keep this boundary allowlist in sync with BackgroundIndexingMode in
-// @brainstrike/preferences when additional workspace indexing modes are added.
+// @brainstrike/app-state/stores/background-indexing-preferences-store when additional workspace
+// indexing modes are added.
 const ALLOWED_WORKSPACE_INDEXING_MODES = new Set(['root-folder-cache']);
 const ALLOWED_NATIVE_TOOL_IDS = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 

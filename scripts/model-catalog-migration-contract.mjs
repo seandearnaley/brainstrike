@@ -765,12 +765,12 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
   const assistantModelRemaps = extractNestedStringRecord(
     input.assistantPreferencesSource,
     'MODEL_ID_MIGRATIONS',
-    'packages/preferences/src/stores/assistant-preferences-store.ts'
+    'packages/app-state/src/stores/assistant-preferences-store.ts'
   );
   const memoryModelTargetRemaps = extractStringRecord(
     input.memoryPreferencesSource,
     'MEMORY_MODEL_TARGET_MIGRATIONS',
-    'packages/preferences/src/stores/assistant-memory-preferences-store.ts'
+    'packages/app-state/src/stores/assistant-memory-preferences-store.ts'
   );
   const failures = [];
 
@@ -784,7 +784,7 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
       !assistantModelRemaps.get(row.providerId)?.has(row.id)
     ) {
       failures.push({
-        file: 'packages/preferences/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
         message: `Removed assistant catalog model ${modelKey(row)} is missing from MODEL_ID_MIGRATIONS.`,
       });
     }
@@ -795,7 +795,7 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
       !memoryModelTargetRemaps.has(target)
     ) {
       failures.push({
-        file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-memory-preferences-store.ts',
         message: `Removed assistant memory model target ${target} is missing from MEMORY_MODEL_TARGET_MIGRATIONS.`,
       });
     }
@@ -898,11 +898,11 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
     readFile(path.join(rootDir, 'packages/db/src/migrations/index.ts'), 'utf8'),
     readFile(path.join(rootDir, 'packages/db/src/drizzle/migrate.ts'), 'utf8'),
     readFile(
-      path.join(rootDir, 'packages/preferences/src/stores/assistant-preferences-store.ts'),
+      path.join(rootDir, 'packages/app-state/src/stores/assistant-preferences-store.ts'),
       'utf8'
     ),
     readFile(
-      path.join(rootDir, 'packages/preferences/src/stores/assistant-memory-preferences-store.ts'),
+      path.join(rootDir, 'packages/app-state/src/stores/assistant-memory-preferences-store.ts'),
       'utf8'
     ),
     readFile(path.join(rootDir, 'packages/assistant-contract/src/provider-registry.ts'), 'utf8'),

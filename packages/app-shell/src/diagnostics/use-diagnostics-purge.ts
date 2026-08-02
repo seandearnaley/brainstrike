@@ -1,9 +1,9 @@
-import { DiagnosticEventsRepository } from '@brainstrike/db';
-import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import {
   diagnosticsRetentionSelectors,
   useDiagnosticsRetentionStore,
-} from '@brainstrike/preferences/stores/diagnostics-retention-store';
+} from '@brainstrike/app-state/stores/diagnostics-retention-store';
+import { DiagnosticEventsRepository } from '@brainstrike/db';
+import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useCallback } from 'react';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

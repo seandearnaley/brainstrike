@@ -107,9 +107,6 @@
       "@brainstrike/app-shell": [
         "./packages/app-shell/src"
       ],
-      "@brainstrike/preferences": [
-        "./packages/preferences/src"
-      ],
       "@brainstrike/vector-management": [
         "./packages/vector-management/src"
       ],
@@ -264,7 +261,10 @@
       "path": "./packages/queue"
     },
     {
-      "path": "./packages/preferences"
+      "path": "./packages/app-state"
+    },
+    {
+      "path": "./packages/settings-ui"
     },
     {
       "path": "./packages/vector-management"

@@ -24,7 +24,7 @@ What already exists and is reusable:
 | Log forwarding IPC | `logging:get-buffered-logs`, `logging:ingest-buffered-record`, `logging:select-destination`, `logging:open-destination` | `apps/desktop/src/platform/logging-api-contract.ts`, `logging-ipc.ts` |
 | Run persistence | `brainstrike_assistant_thread_runs` (status + free-text `error`), `_run_events` (sanitized timeline), `_run_usage` (tokens/cost), `_run_outcomes` (verdicts), `_edit_checkpoints`, `_tool_output_artifacts` | `packages/app-shell/src/assistant-memory-repository.ts` + migrations 046–069 |
 | Error classification | `MastraAgentError` (code/context/cause), `resolveProviderError` / `makeProviderErrorTermination`, `StreamStalledError`, guard/`GuardedToolError`, retry processors | `packages/agent/src/mastra/*`, `packages/agent/src/stream/*`, `packages/agent/src/tools/guard-tool-execution.ts` |
-| Diagnostics | Crash-recovery snapshot (in-memory), `desktop-diagnostics:get-snapshot`, `db:diagnostics`, System Diagnostics panel, settings Log Viewer (`LogSourceAdapter`) with Export | `apps/desktop/src/ipc-desktop-diagnostics.ts`, `packages/app-shell/src/diagnostics/`, `packages/preferences/.../log-viewer-components/` |
+| Diagnostics | Crash-recovery snapshot (in-memory), `desktop-diagnostics:get-snapshot`, `db:diagnostics`, System Diagnostics panel, settings Log Viewer (`LogSourceAdapter`) with Export | `apps/desktop/src/ipc-desktop-diagnostics.ts`, `packages/app-shell/src/diagnostics/`, `packages/settings-ui/.../log-viewer-components/` |
 | Clipboard | `clipboard:write-text` IPC already bridged | `apps/desktop/src/preload.ts` |
 
 ### The gaps (what this design adds)

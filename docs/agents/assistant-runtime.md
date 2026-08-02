@@ -983,7 +983,7 @@ this section and those tests.
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
 Mutation tools PROMPT for per-call approval by default. The permission policy
-store (`packages/preferences/src/stores/permission-policy-store.ts`) defaults to
+store (`packages/app-state/src/stores/permission-policy-store.ts`) defaults to
 `enforce: true` with policies `{read:allow, mcp:allow, edit:ask, execute:ask}`,
 so by default read/MCP tools run free while edits and shell commands suspend the
 run for user approval. A user can turn `enforce` off (explicit opt-out), set a
@@ -1526,7 +1526,7 @@ loud + fail-closed, the opposite of a silent fallback.
 user's own machine) run without approval. **Project** hooks
 (`<root>/.brainstrike/hooks.json`, per mounted desktop root) run ONLY after a
 per-root approval **pinned to the file's SHA-256**. The trust store
-(`packages/preferences/src/stores/hook-trust-store.ts`, persisted,
+(`packages/app-state/src/stores/hook-trust-store.ts`, persisted,
 factory-reset-registered) records `{rootId → {approvedSha256, approvedAt}}`. The
 store resolves its platform storage through a local deferred state-storage
 proxy, preserving the `persist` API across optimized chunk cycles and retrying

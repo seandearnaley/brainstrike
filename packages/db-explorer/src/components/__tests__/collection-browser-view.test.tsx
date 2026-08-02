@@ -1,6 +1,6 @@
+import { useCollectionBrowserColumnSizesStore } from '@brainstrike/app-state/stores/collection-browser-column-sizes-store';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { FileChunk, FileRecord } from '@brainstrike/db';
-import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

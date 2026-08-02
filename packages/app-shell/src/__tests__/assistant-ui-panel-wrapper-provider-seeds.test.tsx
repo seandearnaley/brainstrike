@@ -1,5 +1,5 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';

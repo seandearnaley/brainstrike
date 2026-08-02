@@ -1,7 +1,7 @@
 import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/app-state/stores/database-status-store';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseStatusItem } from '../status-items/database-status-item';

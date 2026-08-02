@@ -1,5 +1,5 @@
+import type { ChunkingSettingsRepair } from '@brainstrike/app-state/stores/import-settings-store';
 import type { FileChunk, FileRecord, ImportProgress } from '@brainstrike/db';
-import type { ChunkingSettingsRepair } from '@brainstrike/preferences';
 import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
 
 export interface ChunkSearchResult {

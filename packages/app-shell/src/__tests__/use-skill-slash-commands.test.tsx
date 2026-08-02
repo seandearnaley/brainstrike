@@ -5,11 +5,11 @@
  * with the trigger text stripped — never auto-sends).
  */
 
-import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
 import {
   __resetSkillsPreferencesStoreForTests,
   useSkillsPreferencesStore,
-} from '@brainstrike/preferences/stores/skills-preferences-store';
+} from '@brainstrike/app-state/stores/skills-preferences-store';
+import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

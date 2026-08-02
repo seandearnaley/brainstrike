@@ -14,7 +14,7 @@
  * - packages/app-shell/src/root-layout-content.tsx (RootLayoutContent)
  */
 
-import type { LogSourceAdapter } from '@brainstrike/preferences/settings/system/logging-settings-section';
+import type { LogSourceAdapter } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
 import type { LucideIcon } from 'lucide-react';
 import type React from 'react';
 

@@ -3,7 +3,7 @@
  * the WIRE seam).
  *
  * The renderer persists the user's permission posture in the
- * `permission-policy-store` (@brainstrike/preferences) and attaches a
+ * `permission-policy-store` (@brainstrike/app-state) and attaches a
  * SERIALIZABLE snapshot of it to the assistant request — but ONLY when the
  * user's OPT-IN `enforce` flag is true. The renderer never classifies tool risk:
  * that mapping is registry-side (`buildNativeToolRiskMap`) and is built HERE,

@@ -1,6 +1,6 @@
+import type { WorkspaceCollectionSyncState } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
-import type { WorkspaceCollectionSyncState } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';

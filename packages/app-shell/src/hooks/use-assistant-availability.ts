@@ -1,3 +1,4 @@
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
   ASSISTANT_AUTH_HEADER_NAME,
   isSecretReadErrorCode,
@@ -11,7 +12,6 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 

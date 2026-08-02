@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
-import { buildHookTrustRequest } from '@brainstrike/preferences/stores/hook-trust-store';
+import { buildHookTrustRequest } from '@brainstrike/app-state/stores/hook-trust-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
 import type { HookManager, HookRunEventInput } from '../../../assistant-server/hooks/manager';

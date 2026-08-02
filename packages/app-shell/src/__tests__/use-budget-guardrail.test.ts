@@ -12,7 +12,7 @@ vi.mock('../cost-tracking/use-daily-spend', () => ({
 import {
   __resetAssistantBudgetPreferencesStoreForTests,
   useAssistantBudgetPreferencesStore,
-} from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
+} from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
 import type { DailySpendState } from '../cost-tracking/use-daily-spend';
 import { useBudgetGuardrailBinding } from '../hooks/use-budget-guardrail';
 

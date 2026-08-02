@@ -223,11 +223,11 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', () => {
+vi.mock('@brainstrike/app-state/stores/model-registry-store', () => {
   const registryState = { models: [], providers: [] };
   return {
     useModelRegistryStore: (selector?: (state: typeof registryState) => unknown) =>

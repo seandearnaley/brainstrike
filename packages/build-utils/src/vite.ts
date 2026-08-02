@@ -120,7 +120,7 @@ export function isSanitizedPersistMergeModule(id: string): boolean {
   if (id.includes('node_modules')) {
     return false;
   }
-  return /[\\/]preferences[\\/](?:src|dist)[\\/]stores[\\/]sanitized-persist-merge\.[cm]?[jt]s$/.test(
+  return /[\\/]app-state[\\/](?:src|dist)[\\/]stores[\\/]sanitized-persist-merge\.[cm]?[jt]s$/.test(
     id
   );
 }

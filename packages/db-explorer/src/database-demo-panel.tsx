@@ -1,3 +1,11 @@
+import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog';
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import {
+  type CachedCollection,
+  useVectorStatusUIStore,
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
 import {
   useClearAllData,
@@ -13,14 +21,6 @@ import {
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
 import { createLogger } from '@brainstrike/logging';
-import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import {
-  type CachedCollection,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,

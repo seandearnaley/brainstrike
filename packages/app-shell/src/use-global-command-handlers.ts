@@ -1,6 +1,6 @@
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { GlobalCommandHandlers } from '@brainstrike/commands';
 import type { DbHandle } from '@brainstrike/db/react';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useTheme } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
 import {

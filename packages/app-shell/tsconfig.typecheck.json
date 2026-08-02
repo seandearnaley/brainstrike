@@ -68,9 +68,6 @@
       "@brainstrike/platform-utils/*": [
         "../platform-utils/dist/*.d.ts"
       ],
-      "@brainstrike/preferences/*": [
-        "../preferences/dist/*.d.ts"
-      ],
       "@brainstrike/utils": [
         "../utils/dist/index.d.ts"
       ],

@@ -524,7 +524,7 @@
   for repair instead of throwing during render; the endpoint never silently
   mutates the registry.
 - State:
-  - packages/preferences/src/stores/assistant-preferences-store.ts
+  - packages/app-state/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts
   - Assistant preferences persist the most recently selected model as the default for the next
     new thread, plus a capped `recentModels` list (composite keys, newest first) that feeds the

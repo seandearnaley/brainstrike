@@ -1,9 +1,9 @@
+import type { QueueStatsSnapshot } from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { JobQueue } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
-import type { QueueStatsSnapshot } from '@brainstrike/preferences/stores/vector-status-ui-store';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('EmbeddingJobQueueTracker');

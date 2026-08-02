@@ -5,7 +5,7 @@ import type { VaultDirectoryHandleLike, VaultRootId } from './types';
  * database stores the user's vault FileSystemDirectoryHandles (handles are
  * structured-cloneable; IndexedDB is the only place they can persist). It is
  * wiped by factory reset via the IndexedDB fallback list in
- * packages/preferences/src/settings/system/factory-reset-helpers.ts.
+ * packages/app-state/src/factory-reset.ts.
  */
 export const NOTES_VAULT_IDB_NAME = 'brainstrike-notes-vault';
 const STORE_NAME = 'vault-roots';

@@ -1,14 +1,14 @@
+import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
+import {
+  type PanelTab,
+  usePanelLayoutStore,
+} from '@brainstrike/app-state/stores/panel-layout-store';
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
-import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
-import {
-  type PanelTab,
-  usePanelLayoutStore,
-} from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   ActionRegistryProvider,

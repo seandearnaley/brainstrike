@@ -3,13 +3,13 @@ import {
   useDiagnosticsPurge,
   useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
+import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import type { LoggingPreferences } from '@brainstrike/logging';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
-} from '@brainstrike/preferences/settings/system/logging-settings-section';
-import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
+} from '@brainstrike/settings-ui/settings/system/logging-settings-section';
 import {
   Card,
   CardContent,

@@ -12,6 +12,7 @@
  * - Semantic search mode and configuration
  */
 
+import { useCollectionBrowserColumnSizesStore } from '@brainstrike/app-state/stores/collection-browser-column-sizes-store';
 import {
   type AnyContextAction,
   createClipboardService,
@@ -19,7 +20,6 @@ import {
 } from '@brainstrike/context-actions';
 import type { FileChunk } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
-import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import {
   ActionContextMenu,
   type BrowserNodeData,

@@ -71,9 +71,6 @@
       "@brainstrike/platform-utils/*": [
         "../platform-utils/dist/*.d.ts"
       ],
-      "@brainstrike/preferences/*": [
-        "../preferences/dist/*.d.ts"
-      ],
       "@brainstrike/utils": [
         "../utils/dist/index.d.ts"
       ],
@@ -151,6 +148,9 @@
   ],
   "references": [
     {
+      "path": "../app-state"
+    },
+    {
       "path": "../assistant-contract"
     },
     {
@@ -178,7 +178,7 @@
       "path": "../indexing-contract"
     },
     {
-      "path": "../preferences"
+      "path": "../settings-ui"
     },
     {
       "path": "../db-explorer"

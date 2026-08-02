@@ -1,4 +1,13 @@
 import {
+  ensureBackgroundIndexingPreferencesHydrated,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
+import {
+  useWorkspaceCollectionSyncStatusStore,
+  type WorkspaceCollectionSyncStatusPatch,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
   createDatabasePressureController,
   createPriorityDbHandle,
@@ -32,15 +41,6 @@ import {
   type WorkspaceIndexingQosPolicy,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
-import {
-  ensureBackgroundIndexingPreferencesHydrated,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import {
-  useWorkspaceCollectionSyncStatusStore,
-  type WorkspaceCollectionSyncStatusPatch,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { DirectoryHandle, FileSystemChange } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,

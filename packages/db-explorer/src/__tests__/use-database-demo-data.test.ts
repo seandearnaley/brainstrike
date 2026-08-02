@@ -38,7 +38,7 @@ const mockVectorStatusUIStore = {
 };
 
 // Mock the preferences store - required for dbInfo sync to global store
-vi.mock('@brainstrike/preferences/stores/database-status-store', () => ({
+vi.mock('@brainstrike/app-state/stores/database-status-store', () => ({
   useDatabaseStatusStore: {
     getState: vi.fn(() => ({
       setConnected: vi.fn(),
@@ -48,7 +48,7 @@ vi.mock('@brainstrike/preferences/stores/database-status-store', () => ({
   },
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUIStore) => unknown) =>
     selector(mockVectorStatusUIStore)
   ),

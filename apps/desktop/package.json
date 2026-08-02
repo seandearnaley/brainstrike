@@ -51,6 +51,7 @@
     }
   },
   "dependencies": {
+    "@brainstrike/app-state": "workspace:*",
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/app-shell": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
@@ -68,10 +69,10 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/storage": "workspace:*",
+    "@brainstrike/settings-ui": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",

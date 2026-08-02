@@ -1099,7 +1099,7 @@ factory-reset registration.** Everything it remembers already lives in
 - `perToolOverrides['brainstrike.runPython']` (from "Always allow") — persisted;
   cleared by `clearPersistentUiState`'s blanket `localStorage.clear()` **and**
   by the explicit `resetPermissionPolicyStoreToDefaults()` call at
-  `packages/preferences/src/settings/system/factory-reset-helpers.ts:336`.
+  `packages/app-state/src/factory-reset.ts`.
 - `sessionGrants` — never persisted (excluded from `partialize`), and the same
   explicit reset drops the in-memory set so grants cannot survive a reset that
   does not reload.

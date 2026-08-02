@@ -1,4 +1,4 @@
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

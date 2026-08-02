@@ -72,7 +72,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 
   Paired tests: `apps/desktop/src/__tests__/assistant-server/user-personas-loader.test.ts`,
   `apps/desktop/src/__tests__/ipc-domains/ipc-user-personas-handlers.test.ts`,
-  `packages/preferences/src/__tests__/subagent-personas-settings-section.test.tsx`.
+  `packages/settings-ui/src/__tests__/subagent-personas-settings-section.test.tsx`.
 - **Per-request resolution:** `apps/desktop/src/assistant-server/request-personas.ts`
   (`resolveRequestPersonas`) merges built-ins + scanned user personas, applies
   the renderer's `subagentPersonasRequest` availability preference
@@ -83,8 +83,8 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   (server-set; a client-supplied value is STRIPPED, same posture as
   `permissionPolicy`). A scan failure degrades to built-ins with a warn — a
   broken agents dir must not take down chat. Settings UI:
-  `packages/preferences/src/settings/system/subagent-personas-settings-section.tsx`;
-  the store is factory-reset-registered in `factory-reset-helpers.ts`.
+  `packages/settings-ui/src/settings/system/subagent-personas-settings-section.tsx`;
+  the store is factory-reset-registered in `packages/app-state/src/factory-reset.ts`.
 - **Model pinning (v2):** a persona with `model: provider::modelId` builds its
   child on THAT model via `resolvePinnedModel`
   (`packages/agent/src/mastra/persona-pinned-model.ts`): same-provider pins
@@ -188,5 +188,4 @@ per request, so edits apply on the next turn).
 When changing this flow, update this section and the paired tests.
 
 ---
-
 

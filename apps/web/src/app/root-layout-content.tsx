@@ -5,14 +5,14 @@ import {
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
+import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
-import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';

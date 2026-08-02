@@ -1,5 +1,5 @@
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { createLogger } from '@brainstrike/logging';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import {
   type QuickOpenFileItem,
   QuickOpenPalette,

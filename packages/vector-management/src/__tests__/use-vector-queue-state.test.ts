@@ -206,7 +206,7 @@ vi.mock('@brainstrike/db/react', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => {
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', () => {
   const useVectorStatusUIStore = vi.fn(
     (selector: (state: typeof vectorStatusUiStoreState) => unknown) =>
       selector(vectorStatusUiStoreState)

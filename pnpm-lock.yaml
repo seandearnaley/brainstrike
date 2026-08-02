@@ -399,6 +399,9 @@ importers:
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../../packages/app-state
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../../packages/assistant-contract
@@ -444,15 +447,15 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../../packages/platform-utils
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../../packages/preferences
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../../packages/queue
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../../packages/secure-fs-native
+      '@brainstrike/settings-ui':
+        specifier: workspace:*
+        version: link:../../packages/settings-ui
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -733,9 +736,6 @@ importers:
 
   apps/e2e-test-utils:
     devDependencies:
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../../packages/preferences
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils
@@ -763,6 +763,9 @@ importers:
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../../packages/app-state
       '@brainstrike/assistant-service':
         specifier: workspace:*
         version: link:../../packages/assistant-service
@@ -799,15 +802,15 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../../packages/platform-utils
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../../packages/preferences
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../../packages/queue
       '@brainstrike/server-config':
         specifier: workspace:*
         version: link:../../packages/server-config
+      '@brainstrike/settings-ui':
+        specifier: workspace:*
+        version: link:../../packages/settings-ui
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -1155,6 +1158,9 @@ importers:
       '@atlaskit/pragmatic-drag-and-drop-hitbox':
         specifier: ^2.0.0
         version: 2.0.0
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../app-state
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
@@ -1200,12 +1206,12 @@ importers:
       '@brainstrike/pipeline':
         specifier: workspace:*
         version: link:../pipeline
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../preferences
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
+      '@brainstrike/settings-ui':
+        specifier: workspace:*
+        version: link:../settings-ui
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -1279,6 +1285,64 @@ importers:
       react-dom:
         specifier: ^19.2.4
         version: 19.2.7(react@19.2.7)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+      zustand:
+        specifier: 'catalog:'
+        version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+
+  packages/app-state:
+    dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@brainstrike/storage':
+        specifier: workspace:*
+        version: link:../storage
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      react:
+        specifier: ^19.2.4
+        version: 19.2.7
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      jsdom:
+        specifier: 'catalog:'
+        version: 29.1.1(@noble/hashes@2.2.0)
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
@@ -1614,6 +1678,9 @@ importers:
 
   packages/db-explorer:
     dependencies:
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../app-state
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
@@ -1659,9 +1726,6 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../preferences
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -1976,6 +2040,9 @@ importers:
 
   packages/file-explorer-ui:
     dependencies:
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../app-state
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -2003,9 +2070,6 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../preferences
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -2488,79 +2552,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
 
-  packages/preferences:
-    dependencies:
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
-      '@brainstrike/indexing-contract':
-        specifier: workspace:*
-        version: link:../indexing-contract
-      '@brainstrike/local-runtime':
-        specifier: workspace:*
-        version: link:../local-runtime
-      '@brainstrike/logging':
-        specifier: workspace:*
-        version: link:../logging
-      '@brainstrike/storage':
-        specifier: workspace:*
-        version: link:../storage
-      '@brainstrike/types':
-        specifier: workspace:*
-        version: link:../types
-      '@brainstrike/ui':
-        specifier: workspace:*
-        version: link:../ui
-      '@brainstrike/utils':
-        specifier: workspace:*
-        version: link:../utils
-      '@tanstack/react-table':
-        specifier: 'catalog:'
-        version: 8.21.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@tanstack/react-virtual':
-        specifier: 'catalog:'
-        version: 3.14.9(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      lucide-react:
-        specifier: 'catalog:'
-        version: 1.23.0(react@19.2.7)
-      react:
-        specifier: ^19.2.4
-        version: 19.2.7
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@testing-library/jest-dom':
-        specifier: 'catalog:'
-        version: 6.9.1
-      '@testing-library/react':
-        specifier: 'catalog:'
-        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@testing-library/user-event':
-        specifier: 'catalog:'
-        version: 14.6.1(@testing-library/dom@10.4.1)
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.1.0
-      '@types/react':
-        specifier: 'catalog:'
-        version: 19.2.17
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      jsdom:
-        specifier: 'catalog:'
-        version: 29.1.1(@noble/hashes@2.2.0)
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
-      zustand:
-        specifier: 'catalog:'
-        version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
-
   packages/queue:
     dependencies:
       '@brainstrike/indexing-contract':
@@ -2623,6 +2614,76 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
+  packages/settings-ui:
+    dependencies:
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../app-state
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
+      '@brainstrike/local-runtime':
+        specifier: workspace:*
+        version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@brainstrike/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@tanstack/react-table':
+        specifier: 'catalog:'
+        version: 8.21.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@tanstack/react-virtual':
+        specifier: 'catalog:'
+        version: 3.14.9(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.23.0(react@19.2.7)
+      react:
+        specifier: ^19.2.4
+        version: 19.2.7
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@testing-library/user-event':
+        specifier: 'catalog:'
+        version: 14.6.1(@testing-library/dom@10.4.1)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      jsdom:
+        specifier: 'catalog:'
+        version: 29.1.1(@noble/hashes@2.2.0)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+      zustand:
+        specifier: 'catalog:'
+        version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
 
   packages/storage:
     dependencies:
@@ -3092,6 +3153,9 @@ importers:
 
   packages/vector-management:
     dependencies:
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../app-state
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -3107,9 +3171,6 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../preferences
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -3252,6 +3313,9 @@ importers:
 
   packages/workspace-search:
     dependencies:
+      '@brainstrike/app-state':
+        specifier: workspace:*
+        version: link:../app-state
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -3261,9 +3325,6 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui
-      '@brainstrike/preferences':
-        specifier: workspace:*
-        version: link:../preferences
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

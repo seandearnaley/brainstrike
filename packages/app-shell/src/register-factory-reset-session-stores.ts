@@ -1,6 +1,6 @@
+import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
-import { registerFactoryResetSessionStore } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import { resetContextUsageStore } from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
 import { resetFollowUpQueueStore } from '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';

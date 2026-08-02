@@ -77,7 +77,7 @@ vi.mock('@brainstrike/vector-management', () => ({
   EmbeddingJobQueueTracker: () => <div data-testid="embedding-job-queue-tracker" />,
 }));
 
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: (
     selector: (state: {
       devicePref: string;
@@ -109,12 +109,12 @@ vi.mock('../../create-embedding-queue', () => ({
   registerWebEmbeddingRuntimeConfig: startupMocks.registerWebEmbeddingRuntimeConfig,
 }));
 
-vi.mock('@brainstrike/preferences/stores/background-indexing-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', () => ({
   ensureBackgroundIndexingPreferencesHydrated:
     startupMocks.ensureBackgroundIndexingPreferencesHydrated,
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: startupMocks.ensureVectorPreferencesHydrated,
 }));
 

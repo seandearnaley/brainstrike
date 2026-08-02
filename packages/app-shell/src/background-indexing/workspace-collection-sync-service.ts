@@ -1,4 +1,9 @@
 import type {
+  WorkspaceCollectionSyncChunkingProgress,
+  WorkspaceCollectionSyncScanSummary,
+  WorkspaceCollectionSyncStatusPatch,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import type {
   ApplyManagedCacheBatchArgs,
   ApplyManagedCacheInvalidationsArgs,
   EmbeddingSet,
@@ -28,11 +33,6 @@ import {
   needsEmbeddingBackfill,
   selectRecoverableBackgroundBackfill,
 } from '@brainstrike/pipeline';
-import type {
-  WorkspaceCollectionSyncChunkingProgress,
-  WorkspaceCollectionSyncScanSummary,
-  WorkspaceCollectionSyncStatusPatch,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { FileSystemChange } from '@brainstrike/types';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';

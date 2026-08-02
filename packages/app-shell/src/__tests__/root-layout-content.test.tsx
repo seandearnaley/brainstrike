@@ -1,5 +1,5 @@
-import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';

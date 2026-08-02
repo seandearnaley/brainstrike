@@ -1,6 +1,6 @@
+import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
-import { clearPersistentUiStateWithResult } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import {
   resetContextUsageStore,
   useContextUsageStore,

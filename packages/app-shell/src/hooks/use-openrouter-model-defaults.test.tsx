@@ -1,8 +1,8 @@
-import { OPENROUTER_RECOMMENDED_CODING_MODEL_IDS } from '@brainstrike/assistant-contract';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
-} from '@brainstrike/preferences/stores/model-registry-store';
+} from '@brainstrike/app-state/stores/model-registry-store';
+import { OPENROUTER_RECOMMENDED_CODING_MODEL_IDS } from '@brainstrike/assistant-contract';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOpenRouterDefaults } from './use-openrouter-model-defaults';

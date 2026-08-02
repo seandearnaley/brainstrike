@@ -1,15 +1,15 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import type {
   IndexingActivitySnapshot,
   IndexingManagedCollectionStatsState,
-} from '@brainstrike/preferences/stores/indexing-activity-store';
-import { useIndexingActivityStore } from '@brainstrike/preferences/stores/indexing-activity-store';
+} from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
   shouldShowWorkspaceCollectionSyncPauseControl,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-helpers';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   Accordion,
   AccordionContent,

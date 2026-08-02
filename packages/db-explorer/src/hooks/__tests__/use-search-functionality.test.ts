@@ -1,3 +1,5 @@
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
   FileChunk,
   FileChunkRepository,
@@ -5,8 +7,6 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { EmbeddingProviderFactory } from '@brainstrike/embeddings/factory';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSearchFunctionality } from '../use-search-functionality';

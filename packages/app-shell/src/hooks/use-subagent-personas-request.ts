@@ -5,12 +5,12 @@
  * field stays off the wire), on any other transport, or on web.
  */
 
-import type { SubagentPersonasAvailabilityRequest } from '@brainstrike/assistant-contract';
 import {
   buildSubagentPersonasAvailabilityRequest,
   subagentPersonasSelectors,
   useSubagentPersonasStore,
-} from '@brainstrike/preferences/stores/subagent-personas-store';
+} from '@brainstrike/app-state/stores/subagent-personas-store';
+import type { SubagentPersonasAvailabilityRequest } from '@brainstrike/assistant-contract';
 import { useMemo } from 'react';
 
 export function useSubagentPersonasRequest(

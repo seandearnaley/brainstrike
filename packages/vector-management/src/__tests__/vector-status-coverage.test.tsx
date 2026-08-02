@@ -172,7 +172,7 @@ vi.mock('@brainstrike/db/react', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: (selector: (state: object) => unknown) =>
     selector({
       devicePref: 'wasm' as 'webgpu' | 'wasm',
@@ -184,7 +184,7 @@ vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
     }),
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: (selector: (state: object) => unknown) =>
     selector({
       activeEmbeddingSetId: 'set-1',

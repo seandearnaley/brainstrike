@@ -1,12 +1,12 @@
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import {
   __resetPermissionPolicyStoreForTests,
   usePermissionPolicyStore,
-} from '@brainstrike/preferences/stores/permission-policy-store';
+} from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

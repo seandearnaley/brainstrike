@@ -187,12 +187,12 @@ export const migrations = [
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/preferences/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
         message:
           'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.5 is missing from MODEL_ID_MIGRATIONS.',
       },
       {
-        file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-memory-preferences-store.ts',
         message:
           'Removed assistant memory model target openrouter/anthropic/claude-sonnet-4.5 is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
       },
@@ -286,12 +286,12 @@ export const migrations = [
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/preferences/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
         message:
           'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.6 is missing from MODEL_ID_MIGRATIONS.',
       },
       {
-        file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-memory-preferences-store.ts',
         message:
           'Removed assistant memory model target openrouter/anthropic/claude-sonnet-4.6 is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
       },
@@ -358,12 +358,12 @@ export const migrations = [
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/preferences/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
         message:
           'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.5 is missing from MODEL_ID_MIGRATIONS.',
       },
       {
-        file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-memory-preferences-store.ts',
         message:
           'Removed assistant memory model target openrouter/anthropic/claude-sonnet-4.5 is missing from MEMORY_MODEL_TARGET_MIGRATIONS.',
       },

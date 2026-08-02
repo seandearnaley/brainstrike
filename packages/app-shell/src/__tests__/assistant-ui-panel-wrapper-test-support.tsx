@@ -1,11 +1,11 @@
+import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   type LocalLlmBackendFactory,
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import type { LocalRuntimeModelCatalogState } from '@brainstrike/local-runtime';
-import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
-import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -62,8 +62,9 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
   ]),
 }));
 
-// Mock preferences stores with lightweight Zustand stores to avoid loading the full package graph.
-vi.mock('@brainstrike/preferences', async () => {
+// Build the related lightweight Zustand doubles once, then expose only the
+// explicit app-state subpaths used by the wrapper under test.
+vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async () => {
   const { create } = await import('zustand');
 
   const buildEnabledModelsByProvider = (): Record<string, string[]> => ({
@@ -397,61 +398,68 @@ vi.mock('@brainstrike/preferences', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', async () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
-  return {
-    useAssistantPreferencesStore: preferences.useAssistantPreferencesStore,
-  };
-});
-
-vi.mock('@brainstrike/preferences/stores/assistant-memory-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/assistant-memory-preferences-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useAssistantMemoryPreferencesStore: unknown };
   return {
     useAssistantMemoryPreferencesStore: preferences.useAssistantMemoryPreferencesStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/background-indexing-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useBackgroundIndexingPreferencesStore: unknown };
   return {
     useBackgroundIndexingPreferencesStore: preferences.useBackgroundIndexingPreferencesStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/model-registry-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useModelRegistryStore: unknown };
   return {
     useModelRegistryStore: preferences.useModelRegistryStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useNativeToolPreferencesStore: unknown };
   return {
     useNativeToolPreferencesStore: preferences.useNativeToolPreferencesStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/panel-layout-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/panel-layout-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { usePanelLayoutStore: unknown };
   return {
     usePanelLayoutStore: preferences.usePanelLayoutStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/secrets-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/secrets-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useSecretsStore: unknown };
   return {
     useSecretsStore: preferences.useSecretsStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useVectorStatusUIStore: unknown };
   return {
     useVectorStatusUIStore: preferences.useVectorStatusUIStore,
   };

@@ -5,7 +5,7 @@
 import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
-} from '@brainstrike/preferences/stores/database-status-store';
+} from '@brainstrike/app-state/stores/database-status-store';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

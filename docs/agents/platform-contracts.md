@@ -57,7 +57,7 @@ Rules:
 
 Implementation:
 - Update:
-  - packages/preferences/src/settings/system/factory-reset-helpers.ts
+  - packages/app-state/src/factory-reset.ts
   - Ensure clearPersistentUiState() includes:
     - All new persistent UI store keys (e.g. `hook-trust-store` — the
       security-sensitive per-root hook approvals; reset drops every approval so a
@@ -997,7 +997,7 @@ table render or silently produce an empty clipboard payload.
 `useDurableLogSource`,
 `packages/app-shell/src/diagnostics/durable-log-source.ts` and
 `use-durable-log-source.ts`, wired into the Session/Persistent switch in
-`packages/preferences/src/settings/system/logging-settings-section.tsx`):
+`packages/settings-ui/src/settings/system/logging-settings-section.tsx`):
 gated on `useOptionalPGliteDatabase()` returning a live db handle — NOT
 `hasDurableAssistantUsageCapability()` (that gate is desktop-only OM
 persistence; diagnostics are written on both web and desktop, so the correct
@@ -1036,8 +1036,8 @@ rather than a swallowed failure rendering as a successful-but-empty file.
 choke points feeding the sink),
 `packages/app-shell/src/__tests__/durable-log-source.test.ts`,
 `packages/app-shell/src/__tests__/use-durable-log-source.test.tsx`,
-`packages/preferences/src/settings/system/logging-settings-section.test.tsx`,
-`packages/preferences/src/settings/system/log-viewer-components/__tests__/log-viewer.test.tsx`,
+`packages/settings-ui/src/settings/system/logging-settings-section.test.tsx`,
+`packages/settings-ui/src/settings/system/log-viewer-components/__tests__/log-viewer.test.tsx`,
 `packages/ui/src/__tests__/copy-text-button.test.tsx`.
 
 ### P2b: status chip, retention preferences, sink health
@@ -1068,7 +1068,7 @@ watermark would replay up to 20,000 retained rows as unread on every launch,
 so the chip means "warn+ events since this launch," not "since you last
 looked." Do not "fix" this by adding `persist`.
 
-**Retention preferences** (`packages/preferences/src/stores/diagnostics-retention-store.ts`,
+**Retention preferences** (`packages/app-state/src/stores/diagnostics-retention-store.ts`,
 persisted): `maxAgeDays` / `maxRows`, chosen from
 `DIAGNOSTICS_RETENTION_DAY_OPTIONS` / `DIAGNOSTICS_RETENTION_ROW_OPTIONS`.
 Defaults MUST equal `DIAGNOSTIC_RETENTION_MAX_AGE_MS` / `_MAX_ROWS` so
@@ -1132,14 +1132,14 @@ failure threshold accumulates.
 in `packages/app-shell/src/register-factory-reset-session-stores.ts`; the
 persisted `resetDiagnosticsRetentionStoreToDefaults()` is called directly from
 `clearBrowserStorage()` in
-`packages/preferences/src/settings/system/factory-reset-helpers.ts`, alongside
+`packages/app-state/src/factory-reset.ts`, alongside
 its sibling persisted stores.
 
-**Paired tests**: `packages/preferences/src/__tests__/diagnostics-retention-store.test.ts`,
+**Paired tests**: `packages/app-state/src/__tests__/diagnostics-retention-store.test.ts`,
 `packages/app-shell/src/__tests__/diagnostics-seen-store.test.ts`,
 `.../diagnostic-sink-health-store.test.ts`,
 `.../diagnostics-status-item.test.tsx`, `.../use-diagnostics-purge.test.tsx`,
 `.../diagnostic-sink-bridge.test.tsx` (the configured-retention startup purge
 and the writer-disables-populates-health-store cases),
-`packages/preferences/src/settings/system/logging-settings-section.test.tsx`
+`packages/settings-ui/src/settings/system/logging-settings-section.test.tsx`
 (retention card + sink-health banner describes).

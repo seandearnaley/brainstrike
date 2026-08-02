@@ -131,7 +131,7 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
     per-file budget and auto-injects whole. The opt-in path remains the modal
     case for other large repos.
 
-- **Preference** (`packages/preferences/src/stores/workspace-instructions-preferences-store.ts`) —
+- **Preference** (`packages/app-state/src/stores/workspace-instructions-preferences-store.ts`) —
   persisted `{ masterEnabled: true, oversizedOptInByRootId: Record<rootId, boolean> }`
   keyed by durable DB `roots.id` (NEVER a raw path); only `true` opt-ins are
   stored. Reset via the direct-call seam in `factory-reset-helpers.ts` (mirrors
@@ -146,7 +146,7 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   a warn rather than silently coercing it, then applies the fail-safe default
   (master ON, no oversized opt-ins).
 
-- **Settings UI** (`packages/preferences/src/settings/system/workspace-instructions-settings-{section,category}.tsx`,
+- **Settings UI** (`packages/settings-ui/src/settings/system/workspace-instructions-settings-{section,category}.tsx`,
   registered in the DESKTOP page-content only) lists each mounted root's detected
   file with name, size, ~token estimate (chars/4, consistent with
   `countTokensHeuristic`), injection status, and the oversized opt-in toggle. It
@@ -176,7 +176,7 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   Agent-level auto-add.)
 
 When changing this flow, update this section and the paired tests
-(`packages/preferences` store + settings-section + factory-reset tests;
+(`packages/app-state` store + factory-reset tests and `packages/settings-ui` settings-section tests;
 `apps/desktop/src/assistant-server/__tests__/workspace-instructions-{context,scan}.test.ts`;
 `apps/desktop/src/__tests__/ipc-context-files-handlers.test.ts`;
 `packages/app-shell` request-builder test).
@@ -457,7 +457,7 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   `window.skills.scan()` (`ipc-skills{,-handlers}.ts`, channel `skills:scan`,
   preload capability-gated) which runs the SAME scan as the engine.
 
-- **Preference store** (`packages/preferences/src/stores/skills-preferences-store.ts`):
+- **Preference store** (`packages/app-state/src/stores/skills-preferences-store.ts`):
   `{masterEnabled: true, disabledSkillKeys}` (only `true` entries persist),
   registered in `factory-reset-helpers.ts` (FACTORY RESET CONTRACT).
 
@@ -477,8 +477,8 @@ packages/agent/src/__tests__/{skill-scan,scanned-workspace-skills,skill-tools}.s
 + mastra-skills.integration.spec.ts + tool-output-limits.spec.ts;
 apps/desktop/src/__tests__/assistant-server/{request-skills,skills-activation-context}.test.ts
 + ipc-domains/ipc-skills-handlers.test.ts;
-packages/preferences/src/stores/__tests__/skills-preferences-store.test.ts +
-src/__tests__/skills-settings-section.test.tsx;
+packages/app-state/src/stores/__tests__/skills-preferences-store.test.ts +
+packages/settings-ui/src/__tests__/skills-settings-section.test.tsx;
 packages/app-shell/src/__tests__/use-skill-slash-commands.test.tsx +
 assistant-ui-panel-wrapper-runtime.test.ts (skillsPreference opt-in field).
 

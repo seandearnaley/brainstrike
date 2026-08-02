@@ -56,7 +56,7 @@ describe('assistant UI panel architecture', () => {
     // (its own module, run-lifecycle-notifications.ts) that reports each new
     // terminal run event / approval request up to app-shell exactly once. The
     // notification DECISION logic (settings gate, permission, coalescing) lives
-    // entirely in @brainstrike/preferences — this file only plumbs three
+    // entirely in @brainstrike/app-state — this file only plumbs three
     // optional callback props, matching the existing onUsage seam.
     // Bumped 1786 → 1787 for the hydration-replay fix: RunLifecycleNotificationBridge
     // now also receives `threadKey` so a thread switch re-seeds its "seen"

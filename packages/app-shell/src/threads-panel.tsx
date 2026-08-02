@@ -1,3 +1,5 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   type AnyContextAction,
   defineContextAction,
@@ -11,8 +13,6 @@ import {
   usePGliteDatabase,
 } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   ActionContextMenu,
