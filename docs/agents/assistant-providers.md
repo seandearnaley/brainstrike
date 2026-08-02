@@ -431,6 +431,16 @@
   missing hosted output ID, and never mutates durable history. Remove the seam
   after consuming an AI SDK release containing vercel/ai#17667; do not replace
   it with `patchedDependencies` or a lossy history filter.
+- OpenAI Responses item-id uniqueness has a second provider-boundary seam,
+  `openai-duplicate-item-compat.ts` (BST-1095): when durable history holds the
+  same assistant response under two message ids (Mastra sealed-boundary re-key
+  double-persistence), the OpenAI-only `processLLMRequest` processor keeps each
+  duplicated `rs_`/`fc_`/`call_` reference's newest occurrence and drops the
+  stale parts from the transient prompt, so the request no longer 400s with
+  "Duplicate item found". Within-message repeats (multi-summary reasoning) are
+  untouched; durable history is never mutated. See
+  `docs/agents/assistant-runtime.md` for its position in the input-processor
+  chain.
 - OpenRouter reasoning controls are model-capability-aware when the Models API
   publishes its `reasoning` object. Selected-model metadata validates and
   preserves `mandatory`, `default_enabled`, `supported_efforts`,
