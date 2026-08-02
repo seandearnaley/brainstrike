@@ -46,10 +46,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/quick-filter-utils.ts'),
       },
       {
-        find: '@brainstrike/utils/report-generator',
-        replacement: resolve(import.meta.dirname, '../utils/src/report-generator.ts'),
-      },
-      {
         find: '@brainstrike/utils/env-utils',
         replacement: resolve(import.meta.dirname, '../utils/src/env-utils.ts'),
       },
@@ -80,10 +76,6 @@ export default defineConfig({
       {
         find: '@brainstrike/types',
         replacement: resolve(import.meta.dirname, '../types/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       {
         find: '@brainstrike/file-system',

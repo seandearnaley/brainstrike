@@ -20,6 +20,17 @@ import {
 } from '@brainstrike/file-explorer-ui/shell';
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
+import {
+  assertValidWorkspaceIndexingPowerSnapshot,
+  type WorkspaceIndexingPowerSnapshot,
+} from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
+import {
+  createWorkspaceIndexingQosTransitionLogger,
+  resolveWorkspaceIndexingQosPolicy,
+  type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingPipelineInputs,
+  type WorkspaceIndexingQosPolicy,
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
 import {
   ensureBackgroundIndexingPreferencesHydrated,
@@ -40,17 +51,6 @@ import {
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
-import {
-  assertValidWorkspaceIndexingPowerSnapshot,
-  type WorkspaceIndexingPowerSnapshot,
-} from '@brainstrike/utils/workspace-indexing-power-snapshot';
-import {
-  createWorkspaceIndexingQosTransitionLogger,
-  resolveWorkspaceIndexingQosPolicy,
-  type WorkspaceIndexingDatabasePressure,
-  type WorkspaceIndexingPipelineInputs,
-  type WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
 import {
   type ReactNode,

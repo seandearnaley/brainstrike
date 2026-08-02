@@ -1,10 +1,10 @@
 import { resolveQuerySelection } from '@brainstrike/file-explorer';
+import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
 import type { FlattenedNode } from '@brainstrike/file-tree-worker';
+import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import type { TreeNode } from '@brainstrike/ui';
-import { isDescendantPath } from '@brainstrike/utils';
-import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
-import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import {
   hasNormalizedIncompleteDescendants,
   materializeNormalizedNodeStable,

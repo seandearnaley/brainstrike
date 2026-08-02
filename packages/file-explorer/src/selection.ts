@@ -1,6 +1,6 @@
 /**
- * Utilities for handling file selection composite keys.
- * These functions help manage file paths that are unique to specific root folders.
+ * File-explorer selection composite keys.
+ * These functions keep file paths unique to their owning workspace root.
  */
 
 const SEPARATOR = '|@|';

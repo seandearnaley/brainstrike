@@ -200,9 +200,15 @@ consumer (report generator, `listWorkspaceContext`, token meters).
   summaries lock to the single "Output" presentation (no per-mode toggle).
 - **Key files:** `packages/file-explorer-ui/src/utils/tapestry-range-sync.ts`,
   `packages/file-explorer-ui/src/preview/preview-panel.tsx`,
-  `packages/utils/src/report-generator.ts`,
+  `packages/file-explorer/src/context-generation.ts`,
   `apps/desktop/src/assistant-server/assistant-tools.ts` (`listWorkspaceContext`
   `detail: true` gate for per-file ranges).
+- **Context traversal boundary:** `context-generation.ts` accepts only the
+  platform-neutral `FileSystemAdapter` and `DirectoryHandle`. Raw browser File
+  System Access handles remain behind adapters/consumers. Async exports throw on
+  malformed filters or traversal failures; the synchronous preview converts
+  only known pattern-validation failures into a typed result and renders them
+  visibly.
 
 When changing this flow, update this section and the related tests.
 

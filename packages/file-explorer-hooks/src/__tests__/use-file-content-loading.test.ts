@@ -1,8 +1,8 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
-import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DirectFileContentProcessor } from '../file-content-processor.js';
@@ -23,8 +23,8 @@ vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/utils/selection-utils', async (importOriginal) => {
-  const actual: typeof import('@brainstrike/utils/selection-utils') = await importOriginal();
+vi.mock('@brainstrike/file-explorer/selection', async (importOriginal) => {
+  const actual: typeof import('@brainstrike/file-explorer/selection') = await importOriginal();
   return {
     ...actual,
     encodeFileSelection: vi.fn((folderId: string, path: string) => `${folderId}|@|${path}`),

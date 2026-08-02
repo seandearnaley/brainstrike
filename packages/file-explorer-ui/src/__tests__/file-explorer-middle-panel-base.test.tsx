@@ -1,4 +1,4 @@
-import { encodeFileSelection } from '@brainstrike/utils';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, render, waitFor } from '@testing-library/react';
 import type { ComponentProps, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +7,14 @@ import { FileExplorerMiddlePanelBase } from '../shell/file-explorer-middle-panel
 
 const mocks = vi.hoisted(() => {
   const previewProps = { current: null as ComponentProps<typeof PreviewPanel> | null };
+  const storeState = {
+    excludeFilters: ['dist/**'],
+    folderSummaryThreshold: 25,
+    includeFilters: ['src/**'],
+    includeProjectTree: false,
+    tokenBudget: 1000,
+    useRegex: false,
+  };
   return {
     copyContext: vi.fn(async () => {}),
     downloadContext: vi.fn(async () => {}),
@@ -19,6 +27,7 @@ const mocks = vi.hoisted(() => {
     setIncludeProjectTree: vi.fn(),
     setSelectedFilesFromList: vi.fn(),
     setTokenBudget: vi.fn(),
+    storeState,
   };
 });
 
@@ -62,22 +71,17 @@ vi.mock('../utils/persist-file-explorer-state', () => ({
 }));
 
 vi.mock('../shell/file-explorer-provider', () => {
-  const storeState = {
-    excludeFilters: ['dist/**'],
-    folderSummaryThreshold: 25,
-    includeFilters: ['src/**'],
-    includeProjectTree: false,
+  const getStoreState = () => ({
+    ...mocks.storeState,
     setFolderSummaryThreshold: mocks.setFolderSummaryThreshold,
     setIncludeProjectTree: mocks.setIncludeProjectTree,
     setTokenBudget: mocks.setTokenBudget,
-    tokenBudget: 1000,
-    useRegex: false,
-  };
+  });
 
   return {
-    useFileExplorerStoreContext: () => ({ getState: () => storeState }),
-    useFileExplorerStoreSelector: <T,>(selector: (state: typeof storeState) => T) =>
-      selector(storeState),
+    useFileExplorerStoreContext: () => ({ getState: getStoreState }),
+    useFileExplorerStoreSelector: <T,>(selector: (state: ReturnType<typeof getStoreState>) => T) =>
+      selector(getStoreState()),
   };
 });
 
@@ -121,6 +125,9 @@ vi.mock('../shell/use-selection-manager-context', () => ({
 
 describe('FileExplorerMiddlePanelBase', () => {
   beforeEach(() => {
+    mocks.storeState.excludeFilters = ['dist/**'];
+    mocks.storeState.includeFilters = ['src/**'];
+    mocks.storeState.useRegex = false;
     mocks.copyContext.mockClear();
     mocks.downloadContext.mockClear();
     mocks.setSelectedFilesFromList.mockClear();
@@ -132,6 +139,28 @@ describe('FileExplorerMiddlePanelBase', () => {
     mocks.setFolderSummaryThreshold.mockClear();
     mocks.setIncludeProjectTree.mockClear();
     mocks.setTokenBudget.mockClear();
+  });
+
+  it('keeps invalid project-tree regexes in-band as a visible validation result', async () => {
+    mocks.storeState.includeFilters = ['[abc'];
+    mocks.storeState.useRegex = true;
+
+    render(<FileExplorerMiddlePanelBase />);
+    const initialProps = mocks.previewProps.current;
+    if (!initialProps) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+
+    await act(async () => {
+      initialProps.onProjectTreeUsesViewFiltersChange?.(true);
+    });
+
+    const updatedProps = mocks.previewProps.current as
+      | (ComponentProps<typeof PreviewPanel> & { projectTreeValidationError?: string })
+      | null;
+    expect(updatedProps?.projectTreeValidationError).toBe(
+      'Invalid regular expression pattern: [abc'
+    );
   });
 
   it('adapts preview panel callbacks to shell services', async () => {

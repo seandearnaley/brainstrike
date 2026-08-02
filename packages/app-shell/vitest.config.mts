@@ -21,7 +21,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
       },
       {
-        find: '@brainstrike/indexing-contract',
+        find: /^@brainstrike\/indexing-contract$/,
         replacement: path.resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
       {
@@ -187,10 +187,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/vector-management$/,
         replacement: path.resolve(import.meta.dirname, '../vector-management/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: path.resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       {
         find: '@brainstrike/workers/file-content-worker',

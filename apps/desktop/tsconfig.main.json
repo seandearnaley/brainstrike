@@ -107,11 +107,11 @@
       "@brainstrike/utils/crypto": [
         "../../packages/utils/dist/crypto.d.ts"
       ],
-      "@brainstrike/utils/workspace-indexing-qos": [
-        "../../packages/utils/dist/workspace-indexing-qos.d.ts"
+      "@brainstrike/indexing-contract/workspace-indexing-qos": [
+        "../../packages/indexing-contract/dist/workspace-indexing-qos.d.ts"
       ],
-      "@brainstrike/utils/workspace-indexing-power-snapshot": [
-        "../../packages/utils/dist/workspace-indexing-power-snapshot.d.ts"
+      "@brainstrike/indexing-contract/workspace-indexing-power-snapshot": [
+        "../../packages/indexing-contract/dist/workspace-indexing-power-snapshot.d.ts"
       ]
     },
     "strictNullChecks": true

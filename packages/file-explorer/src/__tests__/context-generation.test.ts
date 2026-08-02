@@ -6,13 +6,13 @@ import type {
   FileSystemChange,
   IFileNode,
 } from '@brainstrike/types';
+import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { extractPathSegments } from '../path-utils.js';
 import {
   generateReport,
   generateReportFromAdapter,
   normalizeContextLineRanges,
-} from '../report-generator.js';
+} from '../context-generation.js';
 
 interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
@@ -452,10 +452,58 @@ describe('reportGenerator', () => {
       resolve: async () => [],
     }) as unknown as FileSystemDirectoryHandle;
 
-  let mockRootDirectoryHandle: FileSystemDirectoryHandle;
+  class BrowserHandleTestAdapter implements FileSystemAdapter {
+    constructor(private readonly root: FileSystemDirectoryHandle) {}
 
-  beforeEach(() => {
-    mockRootDirectoryHandle = createMockDirectoryHandle();
+    async requestDirectoryAccess(): Promise<DirectoryHandle> {
+      return {
+        _internal: this.root,
+        kind: 'directory',
+        name: this.root.name,
+        path: '',
+        platform: 'web',
+      };
+    }
+
+    async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+      const browserHandle = handle._internal;
+      if (!(browserHandle && typeof browserHandle === 'object' && 'entries' in browserHandle)) {
+        throw new Error(`Missing browser directory handle for ${handle.path}`);
+      }
+
+      const nodes: IFileNode[] = [];
+      for await (const [name, childHandle] of (
+        browserHandle as FileSystemDirectoryHandle
+      ).entries()) {
+        nodes.push({
+          depth: 0,
+          handle: childHandle as FileSystemDirectoryHandle | FileSystemFileHandle,
+          name,
+          path: `${handle.path}/${name}`,
+          rootFolderId: this.root.name,
+          selectionState: 'unchecked',
+          type: childHandle.kind,
+          ...(childHandle.kind === 'directory' ? { children: [] } : {}),
+        });
+      }
+      return nodes;
+    }
+
+    async readFile(): Promise<string> {
+      return '';
+    }
+
+    async exists(): Promise<boolean> {
+      return false;
+    }
+  }
+
+  let mockFileSystemAdapter: FileSystemAdapter;
+  let mockRootDirectoryHandle: DirectoryHandle;
+
+  beforeEach(async () => {
+    mockFileSystemAdapter = new BrowserHandleTestAdapter(createMockDirectoryHandle());
+    mockRootDirectoryHandle = await mockFileSystemAdapter.requestDirectoryAccess();
     vi.clearAllMocks();
   });
 
@@ -484,6 +532,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -511,6 +560,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -538,6 +588,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -565,6 +616,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -587,6 +639,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       ['**/components/**/*.tsx'],
       [],
@@ -609,6 +662,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       ['**/*.tsx'],
       ['**/tests/**'],
@@ -630,6 +684,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       ['**/components/**/*.tsx'],
       ['**/tests/**'],
@@ -650,6 +705,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -672,6 +728,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -699,6 +756,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -723,6 +781,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       mockFileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -786,6 +845,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -808,6 +868,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -828,6 +889,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -848,6 +910,7 @@ describe('reportGenerator', () => {
     const report = await generateReport(
       selectedFiles,
       fileContents,
+      mockFileSystemAdapter,
       mockRootDirectoryHandle,
       [],
       [],
@@ -932,24 +995,32 @@ describe('generateReportFromAdapter', () => {
     expect(report).not.toContain('tooDeep.txt');
   });
 
-  it('handles adapter errors gracefully', async () => {
+  it('surfaces adapter errors instead of returning partial context', async () => {
     const spy = vi.spyOn(adapter, 'readDirectory');
     spy.mockImplementationOnce(() => Promise.reject(new Error('fail')));
 
     const selected = new Set(['src/index.ts']);
-    const report = await generateReportFromAdapter(
-      selected,
-      fileContents,
-      adapter,
-      rootHandle,
-      [],
-      [],
-      false,
-      true
-    );
+    await expect(
+      generateReportFromAdapter(selected, fileContents, adapter, rootHandle, [], [], false, true)
+    ).rejects.toThrow('Failed to read directory contents while generating context: mock-root');
 
-    expect(report).toContain('<context>');
-    expect(report).toContain('src/index.ts');
+    spy.mockRestore();
+  });
+
+  it('reports the exact nested directory whose adapter read failed', async () => {
+    const spy = vi.spyOn(adapter, 'readDirectory');
+    spy.mockImplementation(async (handle) => {
+      if (handle.path === 'mock-root/src/components') {
+        throw new Error('nested failure');
+      }
+      return MockFileSystemAdapter.prototype.readDirectory.call(adapter, handle);
+    });
+
+    await expect(
+      generateReportFromAdapter(new Set(), {}, adapter, rootHandle, [], [], false, true)
+    ).rejects.toThrow(
+      'Failed to read directory contents while generating context: mock-root/src/components'
+    );
 
     spy.mockRestore();
   });
@@ -1014,7 +1085,7 @@ describe('generateReportFromAdapter', () => {
       }
     }
 
-    const treeModule = await import('../tree-generator.js');
+    const treeModule = await import('../project-tree-text.js');
     let capturedTree: IFileNode[] = [];
     const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
       capturedTree = nodes;
@@ -1132,7 +1203,7 @@ describe('generateReportFromAdapter', () => {
     const customRoot = await customAdapter.requestDirectoryAccess();
 
     // Capture the file tree passed to generateProjectTreeText
-    const treeModule = await import('../tree-generator.js');
+    const treeModule = await import('../project-tree-text.js');
     let captured: import('@brainstrike/types').IFileNode[] = [];
     const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
       captured = nodes;

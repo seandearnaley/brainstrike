@@ -1,5 +1,5 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 /**
  * Electron-style handle with path property for direct file system access.

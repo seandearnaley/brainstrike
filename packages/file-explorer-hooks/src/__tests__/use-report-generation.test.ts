@@ -1,3 +1,4 @@
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -36,7 +37,13 @@ const createReportGenerator = vi.fn(
 describe('useReportGeneration', () => {
   const mockSelectedFiles = new Set<string>(['file1.ts', 'file2.ts']);
   const mockFileContents = { 'file1.ts': 'content1', 'file2.ts': 'content2' };
-  const mockRootDirectoryHandle = {} as FileSystemDirectoryHandle;
+  const mockFileSystemAdapter = {} as FileSystemAdapter;
+  const mockRootDirectoryHandle = {
+    kind: 'directory',
+    name: 'root',
+    path: '/root',
+    platform: 'web',
+  } satisfies DirectoryHandle;
   const mockIncludeFilters = ['*.ts'];
   const mockExcludeFilters = ['node_modules'];
   const mockUseRegex = false;
@@ -48,6 +55,7 @@ describe('useReportGeneration', () => {
     createReportGenerator,
     excludeFilters: mockExcludeFilters,
     fileContents: mockFileContents,
+    fileSystemAdapter: mockFileSystemAdapter,
     folderSummaryThreshold: mockFolderSummaryThreshold,
     includeFilters: mockIncludeFilters,
     includeProjectTree: mockIncludeProjectTree,

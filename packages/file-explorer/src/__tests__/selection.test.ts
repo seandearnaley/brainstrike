@@ -5,7 +5,7 @@ import {
   encodeFileSelection,
   getSelectedPathsForFolder,
   isPathSelectedInFolder,
-} from '../selection-utils.js';
+} from '../selection.js';
 
 describe('file-selection-utils', () => {
   const folderId = 'folder-123';

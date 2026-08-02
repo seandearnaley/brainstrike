@@ -6,7 +6,7 @@ import {
 import type {
   WorkspaceIndexingQosInputs,
   WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loggerInfoMock, registryStoreState, resolveWorkspaceIndexingQosPolicyMock } = vi.hoisted(
@@ -37,8 +37,9 @@ vi.mock('@brainstrike/logging', async () => {
   };
 });
 
-vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+vi.mock('@brainstrike/indexing-contract/workspace-indexing-qos', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/indexing-contract/workspace-indexing-qos')>();
   const createMockQosPolicy = (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => {
     const foregroundYielding =
       inputs.foregroundQueryActive ||

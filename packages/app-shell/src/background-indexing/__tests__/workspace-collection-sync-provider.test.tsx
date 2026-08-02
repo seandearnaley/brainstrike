@@ -1,4 +1,9 @@
 import type { EmbeddingSet } from '@brainstrike/db';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import type {
+  WorkspaceIndexingQosInputs,
+  WorkspaceIndexingQosPolicy,
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
@@ -15,14 +20,9 @@ import {
 import {
   __resetBackgroundWorkArbiterForTests,
   acquireBackgroundWorkPauseReason,
-  encodeFileSelection,
   getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
 import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
-import type {
-  WorkspaceIndexingQosInputs,
-  WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -285,8 +285,9 @@ const {
   },
 }));
 
-vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+vi.mock('@brainstrike/indexing-contract/workspace-indexing-qos', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/indexing-contract/workspace-indexing-qos')>();
   resolveWorkspaceIndexingQosPolicyMock.mockImplementation(
     (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy =>
       actual.resolveWorkspaceIndexingQosPolicy(inputs)

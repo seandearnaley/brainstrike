@@ -11,6 +11,7 @@ import {
 import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   useFileExplorerStoreSelector,
@@ -60,7 +61,6 @@ import {
   ToolApprovalGrantProvider,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {

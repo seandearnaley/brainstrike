@@ -1,6 +1,6 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context.js';
 import {

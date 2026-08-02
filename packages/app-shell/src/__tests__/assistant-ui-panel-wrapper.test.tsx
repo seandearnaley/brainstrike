@@ -1,13 +1,13 @@
 import './assistant-ui-panel-wrapper-test-support';
 import { type SupportedProvider, WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   useAssistantMemoryPreferencesStore,
   useAssistantPreferencesStore,
   usePanelLayoutStore,
 } from '@brainstrike/preferences';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';

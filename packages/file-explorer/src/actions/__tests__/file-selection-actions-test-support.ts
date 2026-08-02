@@ -15,7 +15,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/utils/selection-utils', () => ({
+vi.mock('../../selection.js', () => ({
   encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,
 }));
 

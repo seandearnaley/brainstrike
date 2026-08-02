@@ -1,8 +1,14 @@
+import type {
+  ContextLineRange,
+  RootDisplayInfo,
+} from '@brainstrike/file-explorer/context-generation';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { ContextLineRange, RootDisplayInfo } from '@brainstrike/utils/report-generator';
 import { useCallback, useRef, useState } from 'react';
 
-export type { ContextLineRange, RootDisplayInfo } from '@brainstrike/utils/report-generator';
+export type {
+  ContextLineRange,
+  RootDisplayInfo,
+} from '@brainstrike/file-explorer/context-generation';
 
 export interface ReportGenerationRequest {
   excludeFilters: string[];
@@ -11,7 +17,7 @@ export interface ReportGenerationRequest {
   includeFilters: string[];
   includeProjectTree: boolean;
   projectTreeUsesViewFilters?: boolean;
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
+  rootDirectoryHandle: DirectoryHandle;
   /**
    * RootId UUID → display metadata (storage v5) so `<file path>` attributes
    * render human-readable paths instead of composite selection keys.
@@ -28,7 +34,7 @@ export interface ReportProgressEvent {
 }
 
 export interface ReportGenerationWorkerOptions {
-  fileSystemAdapter?: FileSystemAdapter;
+  fileSystemAdapter: FileSystemAdapter;
 }
 
 export type ReportGenerator = (
@@ -36,7 +42,7 @@ export type ReportGenerator = (
   onProgress?: (event: ReportProgressEvent) => void
 ) => Promise<string>;
 
-export type CreateReportGenerator = (options?: ReportGenerationWorkerOptions) => ReportGenerator;
+export type CreateReportGenerator = (options: ReportGenerationWorkerOptions) => ReportGenerator;
 
 export interface ContextGenerationOverrides {
   projectTreeUsesViewFilters?: boolean;
@@ -47,7 +53,7 @@ interface UseReportGenerationProps {
   createReportGenerator: CreateReportGenerator;
   excludeFilters: string[];
   fileContents: { [path: string]: string };
-  fileSystemAdapter?: FileSystemAdapter;
+  fileSystemAdapter: FileSystemAdapter;
   folderSummaryThreshold: number;
   /**
    * Optional callback to get current file contents from state.
@@ -69,7 +75,7 @@ interface UseReportGenerationProps {
    */
   loadMissingContent?: (compositeKeys: string[]) => Promise<void>;
   projectTreeUsesViewFilters?: boolean;
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | undefined;
+  rootDirectoryHandle: DirectoryHandle | undefined;
   selectedFiles: Set<string>;
   useRegex: boolean;
 }
@@ -150,12 +156,12 @@ export function useReportGeneration({
         }
       }
 
-      const worker = createGenerator(adapter ? { fileSystemAdapter: adapter } : {});
+      const worker = createGenerator({ fileSystemAdapter: adapter });
       const rootDisplayInfoById = getRootDisplayInfo?.();
       return await worker(
         {
           fileContents: finalFileContents,
-          rootDirectoryHandle: stableRoot as FileSystemDirectoryHandle | DirectoryHandle,
+          rootDirectoryHandle: stableRoot,
           selectedFiles: s,
           ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
           excludeFilters: exc,

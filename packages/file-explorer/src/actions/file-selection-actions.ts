@@ -2,11 +2,11 @@ import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, SelectionQueryDescriptor } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   DEFAULT_SELECTION_CHUNK_SIZE,
   IDLE_CALLBACK_TIMEOUT_MS,
 } from '../constants/selection-constants';
+import { encodeFileSelection } from '../selection.js';
 import type { GetState, SetState } from '../types/store-types';
 import {
   createNewFolderState,

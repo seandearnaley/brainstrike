@@ -8,6 +8,9 @@
     "outDir": "dist",
     "declarationDir": "dist",
     "paths": {
+      "@brainstrike/file-explorer/*": [
+        "../file-explorer/dist/*.d.ts"
+      ],
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/dist/index.d.ts"
       ],
@@ -52,6 +55,9 @@
     },
     {
       "path": "../embeddings"
+    },
+    {
+      "path": "../file-explorer"
     },
     {
       "path": "../file-explorer-hooks"

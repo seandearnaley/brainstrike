@@ -32,7 +32,7 @@ const packageJson = JSON.parse(
 const tsconfig = JSON.parse(
   readFileSync(path.join(packageRoot, 'tsconfig.json'), 'utf8')
 ) as Tsconfig;
-const MIN_RUNTIME_SUBPATH_EXPORTS = 30;
+const MIN_RUNTIME_SUBPATH_EXPORTS = 23;
 
 function runtimeSubpathExportNames(exportsMap: PackageJson['exports']): string[] {
   return Object.entries(exportsMap)
@@ -83,7 +83,7 @@ describe('utils emitted TypeScript build contract', () => {
     );
 
     expect(() => assertMinimumRuntimeSubpathExports(mutatedExports)).toThrow(
-      'utils runtime subpath floor violated: expected at least 30, found 29'
+      'utils runtime subpath floor violated: expected at least 23, found 22'
     );
   });
 

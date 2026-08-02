@@ -29,7 +29,7 @@ const TASK_STATUS_GLYPHS: Record<AssistantTaskStatus, string> = {
  * `<`/`>` neutralizes any tag-like breakout while keeping the label readable;
  * `&` is encoded first so a genuine ampersand round-trips instead of forming a
  * bogus entity. Mirrors the `escapeXmlAttribute` precedent in
- * packages/utils/src/report-generator.ts (used for the `<file path="...">`
+ * packages/file-explorer/src/context-generation.ts (used for the `<file path="...">`
  * attribute); quotes/apostrophes aren't escaped here since this text is never
  * inside a quoted attribute, only free-standing block content.
  */

@@ -1,3 +1,4 @@
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { TapestryRange } from '@brainstrike/file-explorer-ui';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
@@ -5,7 +6,6 @@ import {
   useFileExplorerStoreSelector,
 } from '@brainstrike/file-explorer-ui/shell';
 import type { FileExplorerState } from '@brainstrike/types';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
 import { type SelectedChunk, useChunkSelectionStore } from './chunk-selection-store';
 import { deriveSearchRanges, searchRangeColor } from './range-math';

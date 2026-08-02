@@ -102,6 +102,18 @@ describe('WebHandleCache', () => {
     expect(result).toBeNull();
   });
 
+  it('rejects incomplete persisted file-handle keys', async () => {
+    const cache = new WebHandleCache();
+    const fileHandle = createFileHandle('file.txt');
+
+    await expect(cache.storeFileHandle('', 'file.txt', fileHandle)).rejects.toThrow(
+      'Both folderId and relativePath are required for a file-handle cache key'
+    );
+    await expect(cache.storeFileHandle('root', '', fileHandle)).rejects.toThrow(
+      'Both folderId and relativePath are required for a file-handle cache key'
+    );
+  });
+
   it('removes root handles and associated file handles', async () => {
     const cache = new WebHandleCache();
     const rootHandle = createDirectoryHandle('root');

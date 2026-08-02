@@ -44,10 +44,14 @@ const mockWorkerPort = {
 };
 
 // Mock the file-tree-worker to avoid Worker instantiation in tests
-vi.mock('@brainstrike/file-tree-worker', () => ({
-  createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
-  resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
-}));
+vi.mock('@brainstrike/file-tree-worker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-tree-worker')>();
+  return {
+    ...actual,
+    createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
+    resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
+  };
+});
 
 // Mock global Worker for jsdom environment
 vi.stubGlobal(
