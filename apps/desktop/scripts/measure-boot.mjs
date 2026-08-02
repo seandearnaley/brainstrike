@@ -102,7 +102,7 @@ function resolveDefaultElectronBinary() {
   return electronBinary;
 }
 
-function toRepoRelative(absolutePath) {
+export function toRepoRelative(absolutePath) {
   const relative = path.relative(repoRoot, absolutePath);
   // Never leak a path outside the repo (or the machine-specific prefix that
   // implies) into committed results -- fall back to just the basename. On
@@ -131,9 +131,7 @@ function detectAppCommit(appPath) {
     // the recorded sha".
     const statusArgs = ['status', '--porcelain', '--'];
     const measuredTreeTop = runGit(['rev-parse', '--show-toplevel']);
-    const resultsInsideMeasuredTree = !path
-      .relative(measuredTreeTop, resultsPath)
-      .startsWith('..');
+    const resultsInsideMeasuredTree = !path.relative(measuredTreeTop, resultsPath).startsWith('..');
     statusArgs.push(resultsInsideMeasuredTree ? `:(exclude)${resultsPath}` : '.');
     return {
       dirty: runGit(statusArgs).length > 0,
@@ -158,7 +156,7 @@ function detectElectronVersion(binaryPath) {
 // No p10/p90: at the enforced minimum n=10, nearest-rank percentiles collapse
 // to min and second-from-max -- fields that look like information but are not.
 // median/min/max/stdev carry the distribution at this sample size.
-function summarize(values) {
+export function summarize(values) {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   const median =
@@ -323,23 +321,32 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
   });
 }
 
+/**
+ * Throws unless `parsed` is a valid results document: a plain object with
+ * `schemaVersion: 1` and a plain-object (not array) `labels` map. Exported
+ * and unit-tested in isolation from file I/O (an array IS an object, and
+ * JSON.stringify silently drops non-index properties assigned onto one --
+ * the merge would "succeed" in memory and discard the label on write; see
+ * scripts/__tests__/measure-boot.test.mjs).
+ */
+export function validateResultsSchema(parsed) {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('results root must be an object');
+  }
+  if (
+    parsed.schemaVersion !== 1 ||
+    parsed.labels === null ||
+    typeof parsed.labels !== 'object' ||
+    Array.isArray(parsed.labels)
+  ) {
+    throw new Error('unsupported results schema');
+  }
+}
+
 async function readResults() {
   try {
     const parsed = JSON.parse(await readFile(resultsPath, 'utf8'));
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('results root must be an object');
-    }
-    if (
-      parsed.schemaVersion !== 1 ||
-      parsed.labels === null ||
-      typeof parsed.labels !== 'object' ||
-      // An array IS an object, and JSON.stringify silently drops non-index
-      // properties assigned onto one -- the merge would "succeed" in memory
-      // and discard the label on write.
-      Array.isArray(parsed.labels)
-    ) {
-      throw new Error('unsupported results schema');
-    }
+    validateResultsSchema(parsed);
     return parsed;
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
@@ -434,7 +441,12 @@ async function main() {
   process.stdout.write(`Results merged into ${resultsPath}\n`);
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  process.exitCode = 1;
-});
+// Only run when executed directly (`node scripts/measure-boot.mjs ...`), not
+// when imported -- scripts/__tests__/measure-boot.test.mjs imports this
+// module to unit-test the pure helpers above without spawning Electron.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
