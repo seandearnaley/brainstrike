@@ -76,6 +76,29 @@ function readPlanDecisionChip(resumeData: Record<string, unknown>): ApprovalActi
   return { label: `Rejected the plan${feedbackNote}`, tone: 'decline' };
 }
 
+/**
+ * `run_python`'s Gate B network decision (BST-1070). Deliberately does NOT name
+ * the domains: the resume payload carries only the verdict (its schema is
+ * strict, and the tool's fail-safe requires exactly one key), and the card
+ * directly above already lists them — repeating them here is the redundancy
+ * this chip exists to remove.
+ *
+ * `'allow'`/`'deny'` are distinct from the plan decision's
+ * `'approved'`/`'rejected'`, so the two recognizers cannot collide.
+ */
+function readNetworkDecisionChip(
+  resumeData: Record<string, unknown>
+): ApprovalActionChipProps | null {
+  const decision = resumeData['action'];
+  if (decision === 'allow') {
+    return { label: 'Allowed internet access', tone: 'approve' };
+  }
+  if (decision === 'deny') {
+    return { label: "Didn't allow internet access", tone: 'decline' };
+  }
+  return null;
+}
+
 function readAnswerText(resumeData: unknown): string | null {
   if (typeof resumeData === 'string') {
     const trimmed = resumeData.trim();
@@ -109,12 +132,17 @@ function readSuspendChip(marker: unknown): ApprovalActionChipProps | null {
     return null;
   }
   // The suspend notice produces exactly these resumeData shapes: a submitPlan
-  // decision record, or an askUser `{answer}` envelope (AskUserResumeData).
-  // The bare string/string[] arm below is the LEGACY pre-envelope askUser
-  // answer, kept so persisted pre-migration action messages still chip.
-  // Anything else is unrecognized — fall through to the bubble.
+  // decision record, a run_python network decision record, or an askUser
+  // `{answer}` envelope (AskUserResumeData). The bare string/string[] arm below
+  // is the LEGACY pre-envelope askUser answer, kept so persisted pre-migration
+  // action messages still chip. Anything else is unrecognized — fall through to
+  // the bubble.
   if (isRecord(marker.resumeData)) {
-    return readPlanDecisionChip(marker.resumeData) ?? readAnswerChip(marker.resumeData['answer']);
+    return (
+      readPlanDecisionChip(marker.resumeData) ??
+      readNetworkDecisionChip(marker.resumeData) ??
+      readAnswerChip(marker.resumeData['answer'])
+    );
   }
   return readAnswerChip(marker.resumeData);
 }

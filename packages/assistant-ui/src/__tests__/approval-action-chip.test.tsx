@@ -137,6 +137,34 @@ describe('readApprovalActionChipProps (suspend marker — plan/askUser resumes)'
     expect(props?.label.length).toBeLessThan(100);
   });
 
+  it('reads a run_python network allow into an approve-tone chip', () => {
+    // BST-1070 Gate B. Without this the decision was the ONLY resume shape that
+    // fell through to a full prompt bubble, so the thread read
+    // "You allowed example.com." as if the user had typed it — directly above a
+    // card already naming the same domains. The chip is the consistent surface.
+    expect(
+      readApprovalActionChipProps(suspendMessage({ action: 'allow' }, 'You allowed example.com.'))
+    ).toEqual({ label: 'Allowed internet access', tone: 'approve' });
+  });
+
+  it('reads a run_python network denial into a decline-tone chip', () => {
+    expect(
+      readApprovalActionChipProps(
+        suspendMessage({ action: 'deny' }, "You didn't allow internet access.")
+      )
+    ).toEqual({ label: "Didn't allow internet access", tone: 'decline' });
+  });
+
+  it('does not name the domains on the chip (the card above already states them)', () => {
+    // The resume payload deliberately carries ONLY the decision — the Gate B
+    // resume schema is strict and the tool's fail-safe requires exactly one key
+    // — so a domain-naming chip would have to invent or re-plumb them.
+    const props = readApprovalActionChipProps(
+      suspendMessage({ action: 'allow' }, 'You allowed example.com.')
+    );
+    expect(props?.label).not.toContain('example.com');
+  });
+
   it('falls through to the bubble (null) for malformed resumeData — never chips on a guess', () => {
     // A record with neither a recognized plan action nor a valid {answer}
     // envelope, and a non-string/array scalar: neither may hide the
@@ -191,6 +219,20 @@ describe('ApprovalActionChip', () => {
 
     expect(screen.getByTestId('approval-action-chip').textContent?.trim()).toBe(
       'Approved tool call'
+    );
+  });
+
+  it('renders a network-outcome chip end to end, replacing the prompt bubble', () => {
+    const props = readApprovalActionChipProps(
+      suspendMessage({ action: 'allow' }, 'You allowed example.com.')
+    );
+    if (!props) {
+      throw new Error('expected network chip props');
+    }
+    render(<ApprovalActionChip {...props} />);
+
+    expect(screen.getByTestId('approval-action-chip').textContent?.trim()).toBe(
+      'Allowed internet access'
     );
   });
 
