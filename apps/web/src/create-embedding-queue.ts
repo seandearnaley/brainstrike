@@ -1,3 +1,4 @@
+import { embeddingWorkerTelemetrySink } from '@brainstrike/embedding-worker';
 import {
   registerEmbeddingQueueFactory,
   registerEmbeddingRuntimeConfig,
@@ -27,6 +28,7 @@ function createSingletonQueue(): QueueAdapter {
   const queue: QueueAdapter = createBrowserEmbeddingQueue({
     requireWorkerpool: true,
     worker: {
+      telemetry: embeddingWorkerTelemetrySink,
       workerUrl: embeddingWorkerUrl,
     },
   });

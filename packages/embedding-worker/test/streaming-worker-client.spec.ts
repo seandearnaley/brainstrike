@@ -164,6 +164,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
       event: 'loaded',
       id: 'embed-1',
       type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
     } satisfies EmbedWorkerPipelineCacheDiagnostic);
     worker.emitMessage({
       id: 'embed-1',
@@ -253,6 +254,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
       event: 'invalidated',
       reason: 'device-lost',
       type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
     } satisfies EmbedWorkerPipelineCacheDiagnostic;
     worker.emitMessage(diagnostic);
     worker.emitMessage({
@@ -304,6 +306,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
       event: 'loaded',
       id: 'embed-1',
       type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
     } satisfies EmbedWorkerPipelineCacheDiagnostic);
     worker.emitMessage({
       id: 'embed-1',
@@ -330,6 +333,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
       event: 'evicted',
       reason: 'idle-timeout',
       type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
     } satisfies EmbedWorkerPipelineCacheDiagnostic);
 
     expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);

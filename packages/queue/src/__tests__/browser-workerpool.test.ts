@@ -8,6 +8,9 @@ const {
   poolFactoryMock,
   poolStatsMock,
   poolTerminateMock,
+  recordEmbeddingBatchTelemetryMock,
+  recordEmbeddingPipelineCacheTelemetryMock,
+  removeEmbeddingTelemetrySourceMock,
 } = vi.hoisted(() => ({
   emitQueueTelemetryMock: vi.fn(),
   loggerMock: {
@@ -20,6 +23,9 @@ const {
   poolFactoryMock: vi.fn(),
   poolStatsMock: vi.fn(),
   poolTerminateMock: vi.fn(),
+  recordEmbeddingBatchTelemetryMock: vi.fn(),
+  recordEmbeddingPipelineCacheTelemetryMock: vi.fn(),
+  removeEmbeddingTelemetrySourceMock: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils', () => ({
@@ -93,6 +99,17 @@ function createResult(id: string): QueueResult {
   };
 }
 
+function createWorkerOptions() {
+  return {
+    telemetry: {
+      recordBatch: recordEmbeddingBatchTelemetryMock,
+      recordPipelineCache: recordEmbeddingPipelineCacheTelemetryMock,
+      removeSource: removeEmbeddingTelemetrySourceMock,
+    },
+    workerUrl: '/worker.js',
+  } as const;
+}
+
 describe('createWorkerpoolAdapter', () => {
   beforeEach(() => {
     emitQueueTelemetryMock.mockReset();
@@ -103,6 +120,9 @@ describe('createWorkerpoolAdapter', () => {
     poolExecMock.mockReset();
     poolStatsMock.mockReset();
     poolTerminateMock.mockReset();
+    recordEmbeddingBatchTelemetryMock.mockReset();
+    recordEmbeddingPipelineCacheTelemetryMock.mockReset();
+    removeEmbeddingTelemetrySourceMock.mockReset();
     poolTerminateMock.mockResolvedValue(undefined);
     poolStatsMock.mockReturnValue({ pendingTasks: 2 });
     poolFactoryMock.mockReset();
@@ -132,12 +152,21 @@ describe('createWorkerpoolAdapter', () => {
       (_method, _args, options?: { on?: (event: unknown) => void }) => {
         options?.on?.({ completed: 1, id: 'task-1', total: 1, type: 'progress' });
         options?.on?.({ completed: 99, type: 'ignored' });
+        options?.on?.({
+          cacheSize: 1,
+          diagnostic: 'pipeline-cache',
+          emittedAt: 100,
+          event: 'hit',
+          id: 'task-1',
+          type: 'diagnostic',
+          workerInstanceId: 'worker-success',
+        });
         return promise;
       }
     );
 
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
-    const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const off = adapter.onProgress(progressListener);
 
     const addPromise = adapter.add(createTask('task-1'));
@@ -162,6 +191,109 @@ describe('createWorkerpoolAdapter', () => {
       'Workerpool embedding task complete',
       expect.objectContaining({ taskId: 'task-1' })
     );
+    expect(recordEmbeddingBatchTelemetryMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^workerpool-embedding-/),
+      expect.objectContaining({
+        endIndex: 1,
+        id: 'task-1',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 12,
+        vectorsInFlight: 1,
+      })
+    );
+  });
+
+  it('records pipeline-cache diagnostics and removes the pool source on dispose', async () => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    const cacheDiagnostic = {
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      entry: {
+        cacheKey: 'local:test:webgpu:fp16',
+        createdAt: 50,
+        device: 'webgpu',
+        dtype: 'fp16',
+        lastUsedAt: 100,
+        memory: { gpuBytes: 1024, heapBytes: null, reason: 'model-size-estimate' },
+        model: 'local:test',
+        residencyMs: 50,
+      },
+      event: 'loaded',
+      id: 'task-cache',
+      type: 'diagnostic',
+      workerInstanceId: 'worker-cache',
+    } as const;
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        options?.on?.(cacheDiagnostic);
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('task-cache'));
+    resolve(createResult('task-cache'));
+    await addPromise;
+    await adapter.dispose?.();
+
+    const sourceId = recordEmbeddingPipelineCacheTelemetryMock.mock.calls[0]?.[0];
+    expect(sourceId).toMatch(/^workerpool-embedding-/);
+    expect(recordEmbeddingPipelineCacheTelemetryMock).toHaveBeenCalledWith(
+      sourceId,
+      cacheDiagnostic
+    );
+    expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(sourceId);
+  });
+
+  it('rejects results that omit the required live-worker telemetry source', async () => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    poolExecMock.mockReturnValue(promise);
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('task-without-source'));
+    resolve(createResult('task-without-source'));
+
+    await expect(addPromise).rejects.toThrow(
+      'Embedding worker result task-without-source is missing its required pipeline-cache source diagnostic.'
+    );
+    expect(recordEmbeddingBatchTelemetryMock).not.toHaveBeenCalled();
+  });
+
+  it('clears every observed worker source when workerpool terminates a worker', async () => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        options?.on?.({
+          cacheSize: 1,
+          diagnostic: 'pipeline-cache',
+          emittedAt: 100,
+          event: 'hit',
+          id: 'task-worker-fault',
+          type: 'diagnostic',
+          workerInstanceId: 'worker-fault',
+        });
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('task-worker-fault'));
+    resolve(createResult('task-worker-fault'));
+    await addPromise;
+
+    const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
+      | { onTerminateWorker?: () => void }
+      | undefined;
+    poolOptions?.onTerminateWorker?.();
+
+    expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(
+      'workerpool-embedding-worker-fault'
+    );
   });
 
   it('cancels pre-aborted tasks immediately', async () => {
@@ -171,7 +303,7 @@ describe('createWorkerpoolAdapter', () => {
     poolExecMock.mockReturnValue(promise);
 
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
-    const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     await expect(adapter.add(createTask('task-2'), { signal: controller.signal })).rejects.toThrow(
       'canceled'
@@ -198,7 +330,7 @@ describe('createWorkerpoolAdapter', () => {
     poolExecMock.mockReturnValue(promise);
 
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
-    const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const addPromise = adapter.add(createTask('task-3'), { signal });
     await Promise.resolve();
@@ -218,7 +350,7 @@ describe('createWorkerpoolAdapter', () => {
     poolExecMock.mockReturnValue(promise);
 
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
-    const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const addPromise = adapter.add(createTask('task-4'));
     reject(objectError);
@@ -246,7 +378,7 @@ describe('createWorkerpoolAdapter', () => {
     poolExecMock.mockReturnValue(promise);
 
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
-    const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const addPromise = adapter.add(createTask('task-5')).catch((error: unknown) => error);
     await Promise.resolve();

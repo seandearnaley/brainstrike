@@ -337,6 +337,12 @@ export function removeEmbeddingTelemetrySource(sourceId: string): void {
   markSnapshotDirty();
 }
 
+export const embeddingWorkerTelemetrySink = {
+  recordBatch: recordEmbeddingBatchTelemetry,
+  recordPipelineCache: recordEmbeddingPipelineCacheTelemetry,
+  removeSource: removeEmbeddingTelemetrySource,
+} as const;
+
 export function getEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
   if (snapshotDirty) {
     rebuildSnapshot();

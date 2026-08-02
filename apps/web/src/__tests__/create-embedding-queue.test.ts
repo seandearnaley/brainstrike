@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const createBrowserEmbeddingQueue = vi.fn(() => ({ id: 'web-queue' }));
 const registerEmbeddingQueueFactory = vi.fn();
 const registerEmbeddingRuntimeConfig = vi.fn();
+const embeddingWorkerTelemetrySink = { id: 'web-embedding-telemetry' };
+
+vi.mock('@brainstrike/embedding-worker', () => ({
+  embeddingWorkerTelemetrySink,
+}));
 
 vi.mock('@brainstrike/queue/browser', () => ({
   createBrowserEmbeddingQueue,
@@ -30,6 +35,7 @@ describe('web create-embedding-queue', () => {
     expect(createBrowserEmbeddingQueue).toHaveBeenCalledWith({
       requireWorkerpool: true,
       worker: {
+        telemetry: embeddingWorkerTelemetrySink,
         workerUrl: expect.any(String),
       },
     });

@@ -1,7 +1,11 @@
+import type { EmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/utils';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
 import workerpool from 'workerpool';
-import type { WorkerpoolAdapterOptions } from '../browser-workerpool-options';
+import {
+  assertWorkerpoolEmbeddingTelemetrySink,
+  type WorkerpoolAdapterOptions,
+} from '../browser-workerpool-options';
 import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
 import {
   type QueueAdapter,
@@ -26,6 +30,31 @@ function isWorkerEvent(value: unknown): value is WorkerEvent {
   const record = value as Record<string, unknown>;
   const typeValue = record['type'];
   return typeValue === 'progress' || typeValue === 'error';
+}
+
+function isPipelineCacheDiagnostic(value: unknown): value is EmbedWorkerPipelineCacheDiagnostic {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    record['diagnostic'] === 'pipeline-cache' &&
+    record['type'] === 'diagnostic' &&
+    typeof record['workerInstanceId'] === 'string' &&
+    record['workerInstanceId'].length > 0
+  );
+}
+
+function calculateTransferBytes(vectors: QueueResult['vectors']): number {
+  const buffers = new Set<ArrayBufferLike>();
+  for (const vector of vectors) {
+    buffers.add(vector.buffer);
+  }
+  let bytes = 0;
+  for (const buffer of buffers) {
+    bytes += buffer.byteLength;
+  }
+  return bytes;
 }
 
 const DEFAULT_MAX_WORKERS_CAP = 8;
@@ -104,6 +133,8 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   if (!(typeof options.workerUrl === 'string' && options.workerUrl.length > 0)) {
     throw new Error('createWorkerpoolAdapter requires an explicit workerUrl.');
   }
+  assertWorkerpoolEmbeddingTelemetrySink(options.telemetry);
+  const embeddingTelemetry = options.telemetry;
   const hardwareConcurrency = estimateHardwareConcurrency();
   // MDN documents `navigator.hardwareConcurrency` as the number of logical
   // cores. We default conservatively based on whether the device exposes
@@ -120,10 +151,18 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   );
   const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
+  const embeddingTelemetrySourceIds = new Set<string>();
+  const clearEmbeddingTelemetrySources = (): void => {
+    for (const sourceId of embeddingTelemetrySourceIds) {
+      embeddingTelemetry.removeSource(sourceId);
+    }
+    embeddingTelemetrySourceIds.clear();
+  };
   const poolOptions: WorkerPoolOptions = {
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
     maxWorkers: Math.max(minWorkers, maxWorkers),
     minWorkers,
+    onTerminateWorker: clearEmbeddingTelemetrySources,
     workerOpts: { type: 'module' },
     workerType: 'web',
   };
@@ -169,11 +208,29 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     opts?: QueueAddOptions | QueueAddBulkOptions
   ): Promise<QueueResult> => {
     await waitForResume();
-    const { promise, cancelable, startedAt } = createExecutionPromise(task);
+    const { promise, cancelable, startedAt, telemetrySource } = createExecutionPromise(task);
     attachAbort((opts as QueueAddOptions | undefined)?.signal, cancelable, task.id);
     activeTasks += 1;
     try {
       const result = await promise;
+      if (result.vectors.length > 0) {
+        if (telemetrySource.current === null) {
+          throw new Error(
+            `Embedding worker result ${task.id} is missing its required pipeline-cache source diagnostic.`
+          );
+        }
+        embeddingTelemetry.recordBatch(telemetrySource.current, {
+          batchIndex: 0,
+          endIndex: task.texts.length,
+          id: task.id,
+          peakVectorsInFlight: result.vectors.length,
+          startIndex: 0,
+          transferBytes: calculateTransferBytes(result.vectors),
+          type: 'batch',
+          vectors: result.vectors,
+          vectorsInFlight: result.vectors.length,
+        });
+      }
       onTaskComplete(task, startedAt);
       return result;
     } catch (error) {
@@ -189,10 +246,18 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   const createExecutionPromise = (task: TaskPayload) => {
     const startedAt = now();
     const request = toWorkerRequest(task);
+    const telemetrySource: { current: string | null } = { current: null };
     const execPromise = pool.exec('runEmbedding', [request], {
       on: (event: unknown) => {
         if (isWorkerEvent(event)) {
           emitter.emit(event);
+          return;
+        }
+        if (isPipelineCacheDiagnostic(event)) {
+          const sourceId = `workerpool-embedding-${event.workerInstanceId}`;
+          telemetrySource.current = sourceId;
+          embeddingTelemetrySourceIds.add(sourceId);
+          embeddingTelemetry.recordPipelineCache(sourceId, event);
         }
       },
     }) as WorkerPoolPromise<QueueResult>;
@@ -211,7 +276,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     };
     emitQueueTelemetry(telemetry);
 
-    return { cancelable: execPromise, promise: execPromise, startedAt };
+    return { cancelable: execPromise, promise: execPromise, startedAt, telemetrySource };
   };
 
   const onTaskComplete = (task: TaskPayload, startedAt: number) => {
@@ -317,11 +382,15 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     logger.debug(`Workerpool adapter ${nextState === 'canceled' ? 'canceling' : 'disposing'}`, {
       activeTasks,
     });
-    await pool.terminate(true);
-    if (activeTasks > 0) {
-      await new Promise<void>((resolve) => {
-        cancelWaiters.push(resolve);
-      });
+    try {
+      await pool.terminate(true);
+      if (activeTasks > 0) {
+        await new Promise<void>((resolve) => {
+          cancelWaiters.push(resolve);
+        });
+      }
+    } finally {
+      clearEmbeddingTelemetrySources();
     }
     logger.debug(`Workerpool adapter ${nextState}`);
   };

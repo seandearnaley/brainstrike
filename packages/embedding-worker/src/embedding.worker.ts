@@ -29,6 +29,8 @@ import {
   vectorsFromPipelineOutput,
 } from './shared';
 
+const embeddingWorkerInstanceId = globalThis.crypto.randomUUID();
+
 function debugLog(message: string, data?: Record<string, unknown>): void {
   void message;
   void data;
@@ -428,6 +430,7 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
     diagnostic: 'pipeline-cache' as const,
     emittedAt: timestamp,
     type: 'diagnostic' as const,
+    workerInstanceId: embeddingWorkerInstanceId,
     ...(shouldIncludePipelineCacheEntries(options.event)
       ? { entries: buildPipelineCacheEntryDiagnostics(timestamp) }
       : {}),

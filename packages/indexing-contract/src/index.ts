@@ -857,6 +857,8 @@ interface EmbedWorkerPipelineCacheDiagnosticBase {
   readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
   readonly id?: string;
   readonly type: 'diagnostic';
+  /** Ephemeral identity for the live worker instance that owns this cache. */
+  readonly workerInstanceId: string;
 }
 
 export type EmbedWorkerPipelineCacheDiagnostic = EmbedWorkerPipelineCacheDiagnosticBase &

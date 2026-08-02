@@ -122,6 +122,7 @@ describe('embedding telemetry store', () => {
       event: 'loaded',
       id: 'embed-1',
       type: 'diagnostic',
+      workerInstanceId: 'worker-a',
     } satisfies EmbedWorkerPipelineCacheDiagnostic);
 
     expect(getEmbeddingTelemetrySnapshot().cache).toMatchObject({

@@ -114,9 +114,13 @@ Embedding runtime telemetry (BST-402):
   into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
   entries to heap memory. Missing registry metadata remains explicitly unavailable; it
   is never presented as a measured browser-memory value.
-- `StreamingEmbeddingWorkerClient` owns a source-scoped, in-memory telemetry record and
-  removes it when the worker terminates or faults. No model weights, vector values,
-  input text, paths, or content are retained by the telemetry store.
+- `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
+  workerpool own source-scoped, in-memory telemetry records. The workerpool records the
+  unique buffers transferred with each completed result and forwards pipeline-cache
+  diagnostics emitted during `runEmbedding`. A workerpool termination callback clears all
+  sources observed in that pool so a crashed/replaced worker cannot leave stale residency;
+  both paths also clear their sources during explicit shutdown. No model weights, vector
+  values, input text, paths, or content are retained by the telemetry store.
 - On desktop, the hidden embedding-host renderer remains the source of truth. It reports
   a validated snapshot through the existing typed host-status bridge; Electron main
   stores/relays that snapshot but never observes or runs inference. Web diagnostics read

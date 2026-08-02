@@ -1,4 +1,35 @@
+import type {
+  EmbedWorkerBatch,
+  EmbedWorkerPipelineCacheDiagnostic,
+} from '@brainstrike/indexing-contract';
 import type { EmbeddingDeviceHint } from './types';
+
+export interface WorkerpoolEmbeddingTelemetrySink {
+  readonly recordBatch: (sourceId: string, event: EmbedWorkerBatch) => void;
+  readonly recordPipelineCache: (
+    sourceId: string,
+    event: EmbedWorkerPipelineCacheDiagnostic
+  ) => void;
+  readonly removeSource: (sourceId: string) => void;
+}
+
+export function assertWorkerpoolEmbeddingTelemetrySink(
+  value: unknown
+): asserts value is WorkerpoolEmbeddingTelemetrySink {
+  if (!(typeof value === 'object' && value !== null)) {
+    throw new Error('Workerpool embedding telemetry sink is required.');
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate['recordBatch'] !== 'function' ||
+    typeof candidate['recordPipelineCache'] !== 'function' ||
+    typeof candidate['removeSource'] !== 'function'
+  ) {
+    throw new Error(
+      'Workerpool embedding telemetry sink requires recordBatch, recordPipelineCache, and removeSource functions.'
+    );
+  }
+}
 
 export interface WorkerpoolAdapterOptions {
   readonly defaultDeviceHint?: EmbeddingDeviceHint;
@@ -14,6 +45,8 @@ export interface WorkerpoolAdapterOptions {
    */
   readonly minWorkers?: number;
   readonly name?: string;
+  /** Renderer-owned sink for source-scoped embedding runtime telemetry. */
+  readonly telemetry?: WorkerpoolEmbeddingTelemetrySink;
   /** Canonical worker URL supplied by the host app or caller. */
   readonly workerUrl?: string;
 }

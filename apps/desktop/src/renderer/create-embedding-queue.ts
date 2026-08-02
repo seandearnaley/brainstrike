@@ -1,3 +1,4 @@
+import { embeddingWorkerTelemetrySink } from '@brainstrike/embedding-worker';
 import {
   registerEmbeddingQueueFactory,
   registerEmbeddingRuntimeConfig,
@@ -35,6 +36,7 @@ function createSingletonQueue(): QueueAdapter {
     requireWorkerpool: true,
     worker: {
       name: 'desktop-renderer-embedding',
+      telemetry: embeddingWorkerTelemetrySink,
       workerUrl: embeddingWorkerUrl,
     },
   });

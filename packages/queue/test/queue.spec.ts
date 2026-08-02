@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWorkerpoolAdapter } from '../src/adapters/browser-workerpool';
+import { createWorkerpoolAdapter as createWorkerpoolAdapterBase } from '../src/adapters/browser-workerpool';
 import { createBrowserEmbeddingQueue } from '../src/browser';
+import type { WorkerpoolAdapterOptions } from '../src/browser-workerpool-options';
 import {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
@@ -9,6 +10,18 @@ import {
 } from '../src/telemetry';
 
 const TEST_WORKER_URL = 'https://example.invalid/embedding.worker.js';
+const TEST_TELEMETRY_SINK = {
+  recordBatch: vi.fn(),
+  recordPipelineCache: vi.fn(),
+  removeSource: vi.fn(),
+};
+
+function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}) {
+  return createWorkerpoolAdapterBase({
+    ...options,
+    telemetry: TEST_TELEMETRY_SINK,
+  });
+}
 
 type CancellablePromise = Promise<unknown> & { cancel: () => void };
 
@@ -58,7 +71,19 @@ const workerpoolMocks = vi.hoisted(() => {
       options?: { readonly on?: (event: unknown) => void; readonly priority?: number },
     ],
     Promise<unknown> & { cancel: () => void }
-  >((method, args, options) => implementation(method, args, options));
+  >((method, args, options) => {
+    const [payload] = args;
+    options?.on?.({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      event: 'hit',
+      id: (payload as { id: string }).id,
+      type: 'diagnostic',
+      workerInstanceId: 'queue-spec-worker',
+    });
+    return implementation(method, args, options);
+  });
 
   const poolSpy = vi.fn((_script: unknown, _options: unknown) => ({
     exec: execSpy,
@@ -585,7 +610,7 @@ describe('createBrowserEmbeddingQueue', () => {
   it('uses workerpool when Worker is available', async () => {
     setWorkerSupport();
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: TEST_WORKER_URL },
+      worker: { telemetry: TEST_TELEMETRY_SINK, workerUrl: TEST_WORKER_URL },
     });
     const result = await queue.add(minimalTask);
     expect(result.metadata.device).toBe('webgpu');
@@ -595,7 +620,7 @@ describe('createBrowserEmbeddingQueue', () => {
     (globalThis as Partial<typeof globalThis>).Worker = undefined;
     expect(() =>
       createBrowserEmbeddingQueue({
-        worker: { workerUrl: TEST_WORKER_URL },
+        worker: { telemetry: TEST_TELEMETRY_SINK, workerUrl: TEST_WORKER_URL },
       })
     ).toThrow('Embedding queue requires Web Workers; this environment does not support them.');
   });
@@ -607,6 +632,16 @@ describe('createBrowserEmbeddingQueue', () => {
     );
     expect(() => createBrowserEmbeddingQueue()).toThrow(
       'createBrowserEmbeddingQueue requires an explicit worker.workerUrl.'
+    );
+  });
+
+  it('fails fast when renderer telemetry composition is missing', () => {
+    setWorkerSupport();
+    expect(() => createWorkerpoolAdapterBase({ workerUrl: TEST_WORKER_URL })).toThrow(
+      'Workerpool embedding telemetry sink is required.'
+    );
+    expect(() => createBrowserEmbeddingQueue({ worker: { workerUrl: TEST_WORKER_URL } })).toThrow(
+      'Workerpool embedding telemetry sink is required.'
     );
   });
 });

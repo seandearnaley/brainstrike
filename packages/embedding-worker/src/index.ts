@@ -5,6 +5,7 @@ export {
   type EmbeddingPipelineCacheTelemetry,
   type EmbeddingPipelineCacheTelemetryEntry,
   type EmbeddingTelemetrySnapshot,
+  embeddingWorkerTelemetrySink,
   getEmbeddingTelemetrySnapshot,
   recordEmbeddingBatchTelemetry,
   recordEmbeddingPipelineCacheTelemetry,

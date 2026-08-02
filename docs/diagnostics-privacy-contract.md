@@ -98,3 +98,7 @@ paths, filenames, or content-derived identifiers. Terminating or faulting a work
 removes that worker's telemetry source. The desktop hidden renderer owns the snapshot;
 Electron main may only validate and relay the typed aggregate. No background upload,
 durable storage, or diagnostic export is authorized by BST-402.
+
+Both streaming workers and non-streaming browser workerpools publish into this same
+source-scoped store. The workerpool derives transfer bytes from unique result buffers and
+forwards only cache diagnostics; it does not copy vector values or input text into telemetry.
