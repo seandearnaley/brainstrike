@@ -513,10 +513,11 @@ describe('LogViewer', () => {
     let bindingSerializations = 0;
     const mainRecord = createMockLogRecord({
       args: [{ logSource: 'electron-main' }],
+      bindings: { code: 'included-code' },
       message: 'Main needle',
-      timestamp: 1,
+      timestamp: new Date('2026-01-01T12:00').getTime(),
     });
-    const excludedRecord = createMockLogRecord({
+    const sourceExcludedRecord = createMockLogRecord({
       args: [
         {
           logSource: 'electron-renderer',
@@ -527,13 +528,54 @@ describe('LogViewer', () => {
         },
       ],
       bindings: {
+        code: 'included-code',
         toJSON: () => {
           bindingSerializations += 1;
           return { runtime: 'electron-renderer' };
         },
       },
       message: 'Renderer needle',
-      timestamp: 2,
+      timestamp: new Date('2026-01-01T12:00').getTime(),
+    });
+    const codeExcludedRecord = createMockLogRecord({
+      args: [
+        {
+          logSource: 'electron-main',
+          toJSON: () => {
+            argumentSerializations += 1;
+            return { detail: 'Code excluded needle' };
+          },
+        },
+      ],
+      bindings: {
+        code: 'excluded-code',
+        toJSON: () => {
+          bindingSerializations += 1;
+          return { code: 'excluded-code' };
+        },
+      },
+      message: 'Code excluded needle',
+      timestamp: new Date('2026-01-01T12:00').getTime(),
+    });
+    const timeExcludedRecord = createMockLogRecord({
+      args: [
+        {
+          logSource: 'electron-main',
+          toJSON: () => {
+            argumentSerializations += 1;
+            return { detail: 'Time excluded needle' };
+          },
+        },
+      ],
+      bindings: {
+        code: 'included-code',
+        toJSON: () => {
+          bindingSerializations += 1;
+          return { code: 'included-code' };
+        },
+      },
+      message: 'Time excluded needle',
+      timestamp: new Date('2026-01-01T10:00').getTime(),
     });
     const subscribe = vi.fn((handler: (records: readonly LogRecord[]) => void) => {
       subscribedHandler = handler;
@@ -553,10 +595,20 @@ describe('LogViewer', () => {
     });
     await user.click(screen.getByRole('combobox', { name: 'Source' }));
     await user.click(screen.getByRole('option', { name: 'electron-main' }));
+    await user.click(screen.getByRole('combobox', { name: 'Code' }));
+    await user.click(screen.getByRole('option', { name: 'included-code' }));
+    fireEvent.change(screen.getByLabelText('From time'), {
+      target: { value: '2026-01-01T11:00' },
+    });
     await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
 
     await act(async () => {
-      subscribedHandler?.([mainRecord, excludedRecord]);
+      subscribedHandler?.([
+        mainRecord,
+        sourceExcludedRecord,
+        codeExcludedRecord,
+        timeExcludedRecord,
+      ]);
       await new Promise((resolve) => setTimeout(resolve, 110));
     });
 
