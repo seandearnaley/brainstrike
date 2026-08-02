@@ -344,7 +344,10 @@ export class DatabaseQueryTelemetry {
       throw new Error('Database query telemetry hitCount cannot exceed lookupCount');
     }
 
-    const recordedAt = this.readRetentionNow();
+    const recordedAt = this.tryReadRetentionNow(`${feature}-query`);
+    if (recordedAt === null) {
+      return;
+    }
     this.trimExpired(recordedAt);
     const featureSamples = this.querySamples[feature];
     featureSamples.push({

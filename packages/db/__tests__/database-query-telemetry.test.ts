@@ -405,4 +405,47 @@ describe('DatabaseQueryTelemetry', () => {
     expect(now).toHaveBeenCalledTimes(1);
     expect(recordQuery).not.toHaveBeenCalled();
   });
+
+  it('stops producer records after a retention failure without repeated error logs', async () => {
+    vi.resetModules();
+    const now = vi
+      .fn<() => number>()
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(20)
+      .mockReturnValueOnce(Number.NaN)
+      .mockReturnValueOnce(30)
+      .mockReturnValueOnce(40);
+    vi.stubGlobal('performance', { now });
+    const [{ addLogListener: addFreshLogListener }, telemetryModule] = await Promise.all([
+      import('@brainstrike/utils'),
+      import('../src/database-query-telemetry'),
+    ]);
+    const telemetryErrors: string[] = [];
+    const removeLogListener = addFreshLogListener((record) => {
+      if (record.scope === 'DatabaseQueryTelemetry' && record.level === 'error') {
+        telemetryErrors.push(record.message ?? '');
+      }
+    });
+    const work = vi.fn(async () => 'query result');
+
+    try {
+      await expect(telemetryModule.measureDatabaseQuery('file-tree', work)).resolves.toBe(
+        'query result'
+      );
+      await expect(telemetryModule.measureDatabaseQuery('queue-stats', work)).resolves.toBe(
+        'query result'
+      );
+
+      expect(work).toHaveBeenCalledTimes(2);
+      expect(now).toHaveBeenCalledTimes(5);
+      expect(telemetryErrors).toEqual([
+        'Database query telemetry retention timing unavailable; samples will not be recorded',
+      ]);
+      expect(() => telemetryModule.databaseQueryTelemetry.getSnapshot()).toThrow(
+        'Database query telemetry monotonic clock must be finite and non-negative'
+      );
+    } finally {
+      removeLogListener();
+    }
+  });
 });
