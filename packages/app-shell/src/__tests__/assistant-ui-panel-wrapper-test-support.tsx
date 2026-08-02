@@ -5,7 +5,10 @@ import {
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
-import type { LocalRuntimeModelCatalogState } from '@brainstrike/local-runtime';
+import type {
+  LocalRuntimeAvailabilityState,
+  LocalRuntimeModelCatalogState,
+} from '@brainstrike/local-runtime';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -65,7 +68,11 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
 
 // Build the related lightweight Zustand doubles once, then expose only the
 // explicit app-state subpaths used by the wrapper under test.
-vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async () => {
+vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@brainstrike/app-state/stores/assistant-preferences-store')
+    >();
   const { create } = await import('zustand');
 
   const buildEnabledModelsByProvider = (): Record<string, string[]> => ({
@@ -146,10 +153,9 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async () =>
       ollama: LocalRuntimeModelCatalogState;
       lmstudio: LocalRuntimeModelCatalogState;
     }>;
-    getLocalRuntimeStatuses: () => Promise<{
-      ollama: { state: 'unavailable'; checkedAt: number; message: string };
-      lmstudio: { state: 'unavailable'; checkedAt: number; message: string };
-    }>;
+    getLocalRuntimeStatuses: () => Promise<
+      Record<'lmstudio' | 'ollama', LocalRuntimeAvailabilityState>
+    >;
     getSelectedModel: () => string | null;
     getSelectedProvider: () => SupportedProvider | null;
     modelsByProvider: Record<string, string>;
@@ -393,6 +399,7 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async () =>
 
   return {
     __resetAssistantPreferencesStoreForTests,
+    AvailableProviderDiscoveryError: actual.AvailableProviderDiscoveryError,
     useAssistantMemoryPreferencesStore,
     useAssistantPreferencesStore,
     useBackgroundIndexingPreferencesStore,

@@ -57,6 +57,25 @@ export type {
 
 type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;
 
+/**
+ * Provider discovery can be partially successful when independent local
+ * runtime probes disagree. The native AggregateError channel keeps every
+ * failure visible while `providers` carries the independently verified
+ * providers that the app shell can continue rendering in its error state.
+ */
+export class AvailableProviderDiscoveryError extends AggregateError {
+  readonly providers: readonly SupportedProvider[];
+
+  constructor(errors: readonly unknown[], providers: readonly SupportedProvider[]) {
+    const details = errors
+      .map((error) => (error instanceof Error ? error.message : String(error)))
+      .join('; ');
+    super(errors, `Provider discovery failed: ${details}`);
+    this.name = 'AvailableProviderDiscoveryError';
+    this.providers = providers;
+  }
+}
+
 interface AssistantPreferencesData {
   enabledModelsByProvider: EnabledModelsMap;
   modelsByProvider: Partial<Record<SupportedProvider, string>>;
@@ -696,9 +715,14 @@ async function getProvidersWithConfiguredKeys(): Promise<readonly SupportedProvi
   return SUPPORTED_PROVIDERS.filter((provider) => configured.has(provider));
 }
 
+interface DetectedRuntimeProvidersResult {
+  readonly errors: readonly unknown[];
+  readonly providers: readonly SupportedProvider[];
+}
+
 async function getDetectedRuntimeProviders(
   providerSettings: ProviderSettingsMap
-): Promise<readonly SupportedProvider[]> {
+): Promise<DetectedRuntimeProvidersResult> {
   const detected: SupportedProvider[] = [];
 
   // `on` providers are included up-front so users can select a forced remote
@@ -722,14 +746,14 @@ async function getDetectedRuntimeProviders(
   }
 
   if (autoRuntimes.length === 0) {
-    return detected;
+    return { errors: [], providers: detected };
   }
 
   // Probe only the `auto` runtimes. Each probe carries the user's stored
   // baseUrl and bearer token so "auto" against a remote token-protected
   // host (Ollama Turbo, LM Studio with auth) still surfaces as available.
   // Prefer the main-process bridge on desktop to sidestep Chromium CORS.
-  const probes = await Promise.all(
+  const probes = await Promise.allSettled(
     autoRuntimes.map(async (runtimeId) => {
       const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
       const endpoint = await buildLocalRuntimeEndpointConfig(
@@ -744,13 +768,28 @@ async function getDetectedRuntimeProviders(
     })
   );
 
-  for (const { providerId, status } of probes) {
-    if (shouldIncludeLocalRuntimeProvider(status)) {
-      detected.push(providerId);
+  const errors: unknown[] = [];
+  for (const [index, probe] of probes.entries()) {
+    const runtimeId = autoRuntimes[index];
+    if (!runtimeId) {
+      throw new Error('Local runtime probe results lost their registry ordering');
+    }
+    if (probe.status === 'rejected') {
+      const reason = probe.reason;
+      errors.push(
+        new Error(
+          `${runtimeId} discovery failed: ${reason instanceof Error ? reason.message : String(reason)}`,
+          { cause: reason }
+        )
+      );
+      continue;
+    }
+    if (shouldIncludeLocalRuntimeProvider(probe.value.status)) {
+      detected.push(probe.value.providerId);
     }
   }
 
-  return detected;
+  return { errors, providers: detected };
 }
 
 function orderProvidersByRegistry(providers: ReadonlySet<SupportedProvider>): SupportedProvider[] {
@@ -1040,7 +1079,7 @@ export const useAssistantPreferencesStore = create<Store>()(
 
         const combined = new Set<SupportedProvider>(STATIC_NO_KEY_PROVIDERS);
         const { providerSettings } = get();
-        const [providersWithConfiguredKeys, detectedRuntimeProviders] = await Promise.all([
+        const [providersWithConfiguredKeys, runtimeDiscovery] = await Promise.all([
           getProvidersWithConfiguredKeys(),
           getDetectedRuntimeProviders(providerSettings),
         ]);
@@ -1049,11 +1088,15 @@ export const useAssistantPreferencesStore = create<Store>()(
           combined.add(provider);
         }
 
-        for (const provider of detectedRuntimeProviders) {
+        for (const provider of runtimeDiscovery.providers) {
           combined.add(provider);
         }
 
-        return orderProvidersByRegistry(combined);
+        const providers = orderProvidersByRegistry(combined);
+        if (runtimeDiscovery.errors.length > 0) {
+          throw new AvailableProviderDiscoveryError(runtimeDiscovery.errors, providers);
+        }
+        return providers;
       },
 
       getEnabledModels: (provider) => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LOCAL_RUNTIME_PROVIDER_IDS,
   type LocalRuntimeModelCatalogMap,
@@ -12,6 +12,11 @@ interface UseAssistantLocalRuntimeCatalogArgs {
   readonly getLocalRuntimeStatuses: (options?: {
     readonly diagnosticLogLevel?: 'debug' | 'warn';
   }) => Promise<LocalRuntimeStatusMap>;
+  /**
+   * Immutable settings snapshot whose identity changes when a runtime URL,
+   * token, or activation setting changes.
+   */
+  readonly refreshKey: object;
 }
 
 interface UseAssistantLocalRuntimeCatalogResult {
@@ -24,9 +29,38 @@ const labelByRuntime = {
   ollama: 'Ollama',
 } as const;
 
+async function loadLocalRuntimeStatuses(
+  getLocalRuntimeStatuses: UseAssistantLocalRuntimeCatalogArgs['getLocalRuntimeStatuses']
+): Promise<LocalRuntimeStatusMap | null> {
+  try {
+    return await getLocalRuntimeStatuses({ diagnosticLogLevel: 'debug' });
+  } catch {
+    return null;
+  }
+}
+
+async function loadReachableRuntimeCatalog(
+  statuses: LocalRuntimeStatusMap,
+  getLocalRuntimeModels: UseAssistantLocalRuntimeCatalogArgs['getLocalRuntimeModels']
+): Promise<LocalRuntimeModelCatalogMap | null> {
+  const hasReachableRuntime = LOCAL_RUNTIME_PROVIDER_IDS.some((runtimeId) => {
+    const state = statuses[runtimeId].state;
+    return state === 'available' || state === 'stale';
+  });
+  if (!hasReachableRuntime) {
+    return null;
+  }
+  try {
+    return await getLocalRuntimeModels({ diagnosticLogLevel: 'debug' });
+  } catch {
+    return null;
+  }
+}
+
 export function useAssistantLocalRuntimeCatalog({
   getLocalRuntimeModels,
   getLocalRuntimeStatuses,
+  refreshKey,
 }: UseAssistantLocalRuntimeCatalogArgs): UseAssistantLocalRuntimeCatalogResult {
   const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
     null
@@ -34,76 +68,50 @@ export function useAssistantLocalRuntimeCatalog({
   const [localRuntimeModels, setLocalRuntimeModels] = useState<LocalRuntimeModelCatalogMap | null>(
     null
   );
+  const requestGeneration = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const generation = ++requestGeneration.current;
+    const isCurrent = (): boolean => generation === requestGeneration.current;
     setLocalRuntimeStatuses({
       lmstudio: { state: 'checking' },
       ollama: { state: 'checking' },
     });
+    setLocalRuntimeModels(null);
 
-    void getLocalRuntimeStatuses({ diagnosticLogLevel: 'debug' })
-      .then((statuses) => {
-        if (!cancelled) {
-          setLocalRuntimeStatuses(statuses);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          const fallback = {
-            checkedAt: Date.now(),
-            message: 'Local runtime probe failed',
-            state: 'unavailable' as const,
-          };
-          setLocalRuntimeStatuses({
-            lmstudio: fallback,
-            ollama: fallback,
-          });
-        }
-      });
+    const refresh = async (): Promise<void> => {
+      const statuses = await loadLocalRuntimeStatuses(getLocalRuntimeStatuses);
+      if (!isCurrent()) {
+        return;
+      }
+      if (!statuses) {
+        const fallback = {
+          checkedAt: Date.now(),
+          message: 'Local runtime probe failed',
+          state: 'unavailable' as const,
+        };
+        setLocalRuntimeStatuses({
+          lmstudio: fallback,
+          ollama: fallback,
+        });
+        return;
+      }
+      setLocalRuntimeStatuses(statuses);
+
+      const catalog = await loadReachableRuntimeCatalog(statuses, getLocalRuntimeModels);
+      if (isCurrent()) {
+        setLocalRuntimeModels(catalog);
+      }
+    };
+
+    void refresh();
 
     return () => {
-      cancelled = true;
+      if (isCurrent()) {
+        requestGeneration.current += 1;
+      }
     };
-  }, [getLocalRuntimeStatuses]);
-
-  useEffect(() => {
-    if (!localRuntimeStatuses) {
-      return;
-    }
-    const isCheckingStatuses = LOCAL_RUNTIME_PROVIDER_IDS.some(
-      (runtimeId) => localRuntimeStatuses[runtimeId].state === 'checking'
-    );
-    if (isCheckingStatuses) {
-      return;
-    }
-    const hasReachableRuntime = LOCAL_RUNTIME_PROVIDER_IDS.some((runtimeId) => {
-      const state = localRuntimeStatuses[runtimeId].state;
-      return state === 'available' || state === 'stale';
-    });
-    if (!hasReachableRuntime) {
-      setLocalRuntimeModels(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    void getLocalRuntimeModels({ diagnosticLogLevel: 'debug' })
-      .then((catalog) => {
-        if (!cancelled) {
-          setLocalRuntimeModels(catalog);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLocalRuntimeModels(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getLocalRuntimeModels, localRuntimeStatuses]);
+  }, [getLocalRuntimeModels, getLocalRuntimeStatuses, refreshKey]);
 
   const localRuntimeHint = useMemo(() => {
     if (!localRuntimeStatuses) {

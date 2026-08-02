@@ -343,6 +343,51 @@ describe('assistant-preferences-store', () => {
     );
   });
 
+  it('retains successful runtime probes while surfacing a failed sibling probe', async () => {
+    const bridgeProbe = vi.fn(async (runtimeId: string) => {
+      if (runtimeId === 'lmstudio') {
+        return { not_a_state: 'malformed' };
+      }
+      return {
+        checkedAt: 123,
+        endpoint: 'http://127.0.0.1:11434/api/tags',
+        latencyMs: 5,
+        state: 'available',
+      };
+    });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      listModels: vi.fn(),
+      probe: bridgeProbe,
+    };
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    try {
+      let thrown: unknown;
+      try {
+        await useAssistantPreferencesStore.getState().getAvailableProviders();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(AggregateError);
+      expect(thrown).toMatchObject({
+        providers: expect.arrayContaining(['local', 'ollama']),
+      });
+      expect((thrown as Error).message).toMatch(/lmstudio.*unexpected probe result shape/i);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
   it('uses local runtime test overrides before probing services', async () => {
     const probeSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
     __setSettingsTestOverridesForTests({

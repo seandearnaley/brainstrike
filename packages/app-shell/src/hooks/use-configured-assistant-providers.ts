@@ -1,4 +1,7 @@
-import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import {
+  AvailableProviderDiscoveryError,
+  useAssistantPreferencesStore,
+} from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { useMemo, useSyncExternalStore } from 'react';
@@ -144,7 +147,10 @@ async function refreshProviderDiscovery(): Promise<void> {
     }
     publishProviderDiscovery({
       error: error instanceof Error ? error.message : String(error),
-      providers: discoverySnapshot.providers,
+      providers:
+        error instanceof AvailableProviderDiscoveryError
+          ? error.providers
+          : discoverySnapshot.providers,
       state: 'error',
     });
   }

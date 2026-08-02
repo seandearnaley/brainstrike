@@ -1,5 +1,6 @@
 import {
   __resetAssistantPreferencesStoreForTests,
+  AvailableProviderDiscoveryError,
   useAssistantPreferencesStore,
 } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import {
@@ -298,6 +299,27 @@ describe('useConfiguredAssistantProviders', () => {
         discoveryError: 'OS keychain is locked',
         discoveryState: 'error',
         providers: ['local'],
+      });
+    });
+  });
+
+  it('surfaces a failed runtime probe while retaining independently discovered providers', async () => {
+    setProviderDiscovery(async () => {
+      throw new AvailableProviderDiscoveryError(
+        [new Error('lmstudio discovery failed: probe crashed')],
+        ['local', 'ollama']
+      );
+    });
+
+    const { result } = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: providerSourceWrapper({ kind: 'discovery', seeds: ['openai'] }),
+    });
+
+    await waitFor(() => {
+      expect(result.current).toEqual({
+        discoveryError: 'Provider discovery failed: lmstudio discovery failed: probe crashed',
+        discoveryState: 'error',
+        providers: ['openai', 'local', 'ollama'],
       });
     });
   });

@@ -47,6 +47,16 @@ const ollamaModelCatalog: LocalRuntimeModelCatalogMap = {
   },
 };
 
+const unchangedSettings = {};
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('useAssistantLocalRuntimeCatalog', () => {
   it('loads model catalogs for reachable local runtimes and returns a model-count hint', async () => {
     const getLocalRuntimeStatuses = vi.fn().mockResolvedValue(availableOllamaStatus);
@@ -56,6 +66,7 @@ describe('useAssistantLocalRuntimeCatalog', () => {
       useAssistantLocalRuntimeCatalog({
         getLocalRuntimeModels,
         getLocalRuntimeStatuses,
+        refreshKey: unchangedSettings,
       })
     );
 
@@ -91,6 +102,7 @@ describe('useAssistantLocalRuntimeCatalog', () => {
       useAssistantLocalRuntimeCatalog({
         getLocalRuntimeModels,
         getLocalRuntimeStatuses,
+        refreshKey: unchangedSettings,
       })
     );
 
@@ -123,6 +135,7 @@ describe('useAssistantLocalRuntimeCatalog', () => {
       useAssistantLocalRuntimeCatalog({
         getLocalRuntimeModels,
         getLocalRuntimeStatuses,
+        refreshKey: unchangedSettings,
       })
     );
 
@@ -133,5 +146,49 @@ describe('useAssistantLocalRuntimeCatalog', () => {
     expect(result.current.localRuntimeHint).toBe(
       'Detected local runtime: Ollama (model discovery failed: Ollama capability lookup failed for "qwen3:30b": Update Ollama and retry discovery.) on localhost.'
     );
+  });
+
+  it('refreshes after settings change and ignores a superseded catalog response', async () => {
+    const firstCatalog = deferred<LocalRuntimeModelCatalogMap>();
+    const secondCatalog = deferred<LocalRuntimeModelCatalogMap>();
+    const staleCatalog: LocalRuntimeModelCatalogMap = {
+      ollama: {
+        availability: availableOllamaStatus.ollama,
+        checkedAt: 15,
+        endpoint: 'http://old-host:11434/v1/models',
+        freshness: 'live',
+        models: [],
+        runtime: 'ollama',
+        source: 'openai_v1_models',
+        state: 'loaded_empty',
+      },
+    };
+    const getLocalRuntimeStatuses = vi.fn().mockResolvedValue(availableOllamaStatus);
+    const getLocalRuntimeModels = vi
+      .fn()
+      .mockImplementationOnce(() => firstCatalog.promise)
+      .mockImplementationOnce(() => secondCatalog.promise);
+    const initialRefreshKey = {};
+    const updatedRefreshKey = {};
+
+    const { rerender, result } = renderHook(
+      ({ refreshKey }) =>
+        useAssistantLocalRuntimeCatalog({
+          getLocalRuntimeModels,
+          getLocalRuntimeStatuses,
+          refreshKey,
+        }),
+      { initialProps: { refreshKey: initialRefreshKey } }
+    );
+    await waitFor(() => expect(getLocalRuntimeModels).toHaveBeenCalledTimes(1));
+
+    rerender({ refreshKey: updatedRefreshKey });
+    await waitFor(() => expect(getLocalRuntimeModels).toHaveBeenCalledTimes(2));
+    secondCatalog.resolve(ollamaModelCatalog);
+    await waitFor(() => expect(result.current.localRuntimeModels).toBe(ollamaModelCatalog));
+
+    firstCatalog.resolve(staleCatalog);
+    await waitFor(() => expect(result.current.localRuntimeModels).toBe(ollamaModelCatalog));
+    expect(getLocalRuntimeStatuses).toHaveBeenCalledTimes(2);
   });
 });

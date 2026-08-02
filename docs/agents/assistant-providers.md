@@ -576,8 +576,20 @@ Every refresh carries a monotonically increasing generation; a superseded or
 unsubscribed request cannot publish late. Unexpected key or runtime discovery
 failures remain visible as a disabled-reason diagnostic while explicit Desktop
 seeds stay rendered; they are never converted to an empty successful result.
+Ollama and LM Studio probes settle independently. If one unexpected probe
+fails, every independently verified provider remains in the error snapshot and
+the failed probe remains visible through the typed aggregate error; neither the
+successful provider nor the failure may be discarded. Malformed main-process
+bridge payloads use that same visible failure channel.
 Keep the authority, refresh, ordering, teardown, and failure controls in
 `use-configured-assistant-providers.test.tsx` when this boundary changes.
+
+The mounted assistant wrapper keys local-runtime status and model-catalog
+refreshes to the immutable Ollama / LM Studio settings snapshots; unrelated
+provider settings do not trigger local probes. Changing activation, base URL,
+or credentials invalidates both requests. Status is resolved before catalog
+loading, and the combined refresh uses a monotonically increasing generation
+so a response from an older settings snapshot cannot replace the new catalog.
 
 Desktop status also reports each unreadable stored credential as a validated
 `providerErrors` entry (`provider`, `api_key_unreadable`, typed error code, and
