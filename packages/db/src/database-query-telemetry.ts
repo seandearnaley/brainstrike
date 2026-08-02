@@ -27,6 +27,7 @@ export interface DatabaseQueryFeatureSnapshot {
   readonly failureCount: number;
   readonly maxDurationMs: number;
   readonly queriesPerMinute: number;
+  /** Rolling query arrival count, independent of the retained percentile samples. */
   readonly queryCount: number;
 }
 
@@ -38,6 +39,7 @@ export interface DatabaseQueryTelemetrySnapshot {
   /** Rolling count aggregated into buckets of at most one second. */
   readonly liveUpdateCount: number;
   readonly liveUpdatesPerMinute: number;
+  /** Total duration samples retained across the per-feature percentile buffers. */
   readonly sampleCount: number;
   readonly snapshotAt: number;
   readonly tokenEstimation: {
@@ -139,7 +141,8 @@ function percentile(sorted: readonly number[], ratio: number): number {
 function featureSnapshot(
   samples: readonly QuerySample[],
   windowMs: number,
-  droppedSampleCount: number
+  droppedSampleCount: number,
+  queryCount: number
 ): DatabaseQueryFeatureSnapshot {
   const durations = samples.map((sample) => sample.durationMs).sort((a, b) => a - b);
   return {
@@ -148,8 +151,8 @@ function featureSnapshot(
     durationP95Ms: percentile(durations, 0.95),
     failureCount: samples.filter((sample) => sample.failed === true).length,
     maxDurationMs: durations.at(-1) ?? 0,
-    queriesPerMinute: (samples.length * 60_000) / windowMs,
-    queryCount: samples.length,
+    queriesPerMinute: (queryCount * 60_000) / windowMs,
+    queryCount,
   };
 }
 
@@ -158,10 +161,10 @@ function createInitialSnapshot(windowMs: number): DatabaseQueryTelemetrySnapshot
     activeLiveSubscriptions: 0,
     droppedSampleCount: 0,
     features: {
-      'file-tree': featureSnapshot([], windowMs, 0),
-      'live-query': featureSnapshot([], windowMs, 0),
-      'queue-stats': featureSnapshot([], windowMs, 0),
-      'token-estimation': featureSnapshot([], windowMs, 0),
+      'file-tree': featureSnapshot([], windowMs, 0, 0),
+      'live-query': featureSnapshot([], windowMs, 0, 0),
+      'queue-stats': featureSnapshot([], windowMs, 0, 0),
+      'token-estimation': featureSnapshot([], windowMs, 0, 0),
     },
     liveUpdateCount: 0,
     liveUpdatesPerMinute: 0,
@@ -258,6 +261,8 @@ export class DatabaseQueryTelemetry {
   private readonly maxSamples: number;
   private readonly now: () => number;
   private notifyTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly queryCountBucketMs: number;
+  private readonly queryCountBuckets = createFeatureArrays<CountBucket[]>(() => []);
   private readonly querySamples = createFeatureArrays<QuerySample[]>(() => []);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private retentionClockFailure: Error | null = null;
@@ -272,6 +277,7 @@ export class DatabaseQueryTelemetry {
       Math.min(NOTIFY_INTERVAL_MS, Math.floor(this.windowMs / 60))
     );
     this.liveUpdateBucketMs = this.droppedSampleBucketMs;
+    this.queryCountBucketMs = this.droppedSampleBucketMs;
     this.now = options.now ?? readMonotonicTime;
     this.wallNow = options.wallNow ?? Date.now;
     assertPositiveInteger(this.maxSamples, 'Database query telemetry maxSamples');
@@ -349,6 +355,7 @@ export class DatabaseQueryTelemetry {
       return;
     }
     this.trimExpired(recordedAt);
+    this.recordCount(this.queryCountBuckets[feature], this.queryCountBucketMs, recordedAt);
     const featureSamples = this.querySamples[feature];
     featureSamples.push({
       durationMs,
@@ -415,9 +422,13 @@ export class DatabaseQueryTelemetry {
       .filter((bucket) => bucket.startedAt + this.liveUpdateBucketMs > cutoff)
       .reduce((total, bucket) => total + bucket.count, 0);
     const droppedSampleCounts = createFeatureArrays(() => 0);
+    const queryCounts = createFeatureArrays(() => 0);
     for (const feature of DATABASE_QUERY_FEATURES) {
       droppedSampleCounts[feature] = this.droppedSampleBuckets[feature]
         .filter((bucket) => bucket.startedAt + this.droppedSampleBucketMs > cutoff)
+        .reduce((total, bucket) => total + bucket.count, 0);
+      queryCounts[feature] = this.queryCountBuckets[feature]
+        .filter((bucket) => bucket.startedAt + this.queryCountBucketMs > cutoff)
         .reduce((total, bucket) => total + bucket.count, 0);
     }
     const tokenSamples = samples['token-estimation'];
@@ -434,22 +445,26 @@ export class DatabaseQueryTelemetry {
         'file-tree': featureSnapshot(
           samples['file-tree'],
           this.windowMs,
-          droppedSampleCounts['file-tree']
+          droppedSampleCounts['file-tree'],
+          queryCounts['file-tree']
         ),
         'live-query': featureSnapshot(
           samples['live-query'],
           this.windowMs,
-          droppedSampleCounts['live-query']
+          droppedSampleCounts['live-query'],
+          queryCounts['live-query']
         ),
         'queue-stats': featureSnapshot(
           samples['queue-stats'],
           this.windowMs,
-          droppedSampleCounts['queue-stats']
+          droppedSampleCounts['queue-stats'],
+          queryCounts['queue-stats']
         ),
         'token-estimation': featureSnapshot(
           tokenSamples,
           this.windowMs,
-          droppedSampleCounts['token-estimation']
+          droppedSampleCounts['token-estimation'],
+          queryCounts['token-estimation']
         ),
       },
       liveUpdateCount,
@@ -577,6 +592,9 @@ export class DatabaseQueryTelemetry {
           this.droppedSampleBucketMs,
           cutoff
         ) || changed;
+      changed =
+        this.trimCountBuckets(this.queryCountBuckets[feature], this.queryCountBucketMs, cutoff) ||
+        changed;
     }
     return (
       this.trimCountBuckets(this.liveUpdateBuckets, this.liveUpdateBucketMs, cutoff) || changed

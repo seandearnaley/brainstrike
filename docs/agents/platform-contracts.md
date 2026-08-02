@@ -588,10 +588,13 @@ LIVE REFRESH").
 BST-403. Producers must choose one fixed feature area (`file-tree`,
 `live-query`, `queue-stats`, or `token-estimation`) at the typed call site. Do
 not infer feature ownership from SQL text or labels. The collector keeps an
-independent rolling one-minute buffer of at most 512 samples **per feature** and
-exposes counts, failures, p50/p95/max duration, live subscription/update
-frequency, token-cache hit rate, and an explicit retained-sample overflow count
-to System Diagnostics. The card renders every per-feature count, failure,
+independent rolling one-minute buffer of at most 512 duration samples **per
+feature** plus a separate bounded arrival-count bucket stream. Query count and
+rate therefore remain independent of the duration-sample cap; sample count
+remains the number of retained percentile inputs. The collector exposes counts,
+failures, p50/p95/max duration, live subscription/update frequency, token-cache
+hit rate, and an explicit retained-sample overflow count to System Diagnostics.
+The card renders every per-feature count, failure,
 p50/p95/max, rate, and overflow dimension plus both the raw live-update count
 and rate, so warning attribution and rate inputs are visible.
 External-store notifications are coalesced to one-second updates; while a
@@ -599,8 +602,9 @@ subscriber is active, reads return the published snapshot identity until the
 coalesced notification publishes a replacement. Producers do not sort or
 rebuild snapshots on every query. A monotonic Performance clock owns sample and
 count-bucket retention; the wall clock is used only for the externally reported
-`snapshotAt`. The per-feature cap therefore evicts the oldest arrival directly,
-and overflow events are bucketed at the arrival that exceeded the cap. Module
+`snapshotAt`. The per-feature cap therefore evicts the oldest duration sample
+directly, while query arrivals and overflow events are bucketed at their
+occurrence time. Module
 construction is clock-free; the first collection or external-store read
 validates the monotonic clock and fails loudly if it is unavailable.
 

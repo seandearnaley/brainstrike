@@ -106,6 +106,10 @@ testWithContract('diagnostics privacy contract links related performance telemet
 testWithContract('BST-403 documents fail-closed aggregate and live-query boundaries', () => {
   for (const term of [
     'captures each caller field once',
+    'arrival-count bucket stream',
+    'bounded-bucket rolling',
+    'sample cap',
+    'retained percentile inputs',
     'zero lookup and hit counts',
     'start and refresh query executions rather than teardown',
     'release local subscription ownership exactly once',

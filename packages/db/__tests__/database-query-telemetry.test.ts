@@ -56,7 +56,7 @@ describe('DatabaseQueryTelemetry', () => {
     expect(telemetry.snapshot()).toMatchObject({
       droppedSampleCount: 1,
       features: {
-        'file-tree': { droppedSampleCount: 1, queryCount: 2 },
+        'file-tree': { droppedSampleCount: 1, queryCount: 3 },
         'queue-stats': { droppedSampleCount: 0, queryCount: 1 },
       },
       sampleCount: 3,
@@ -80,7 +80,7 @@ describe('DatabaseQueryTelemetry', () => {
     expect(telemetry.snapshot()).toMatchObject({
       droppedSampleCount: 1,
       features: {
-        'file-tree': { droppedSampleCount: 1, queryCount: 2 },
+        'file-tree': { droppedSampleCount: 1, queryCount: 3 },
       },
     });
 
@@ -127,6 +127,52 @@ describe('DatabaseQueryTelemetry', () => {
 
     now += 61_001;
     expect(telemetry.snapshot().liveUpdateCount).toBe(0);
+  });
+
+  it('preserves per-feature query rates above the retained sample bound', () => {
+    let now = 2000;
+    const telemetry = new DatabaseQueryTelemetry({ maxSamples: 2, now: () => now });
+
+    for (let query = 0; query < 600; query += 1) {
+      telemetry.recordQuery({ durationMs: query, feature: 'file-tree' });
+    }
+
+    expect(telemetry.snapshot()).toMatchObject({
+      droppedSampleCount: 598,
+      features: {
+        'file-tree': {
+          droppedSampleCount: 598,
+          queriesPerMinute: 600,
+          queryCount: 600,
+        },
+      },
+      sampleCount: 2,
+    });
+
+    now += 61_001;
+    expect(telemetry.snapshot().features['file-tree']).toMatchObject({
+      queriesPerMinute: 0,
+      queryCount: 0,
+    });
+  });
+
+  it('uses sub-window buckets so expired query arrivals do not over-report', () => {
+    let now = 0;
+    const telemetry = new DatabaseQueryTelemetry({
+      maxSamples: 1,
+      now: () => now,
+      windowMs: 1000,
+    });
+
+    telemetry.recordQuery({ durationMs: 1, feature: 'queue-stats' });
+    now = 999;
+    telemetry.recordQuery({ durationMs: 2, feature: 'queue-stats' });
+    now = 1017;
+
+    expect(telemetry.getSnapshot().features['queue-stats']).toMatchObject({
+      queriesPerMinute: 60,
+      queryCount: 1,
+    });
   });
 
   it('expires query samples on monotonic time when the wall clock moves backwards', () => {
@@ -182,7 +228,7 @@ describe('DatabaseQueryTelemetry', () => {
           droppedSampleCount: 1,
           durationP50Ms: 2,
           durationP95Ms: 3,
-          queryCount: 2,
+          queryCount: 3,
         },
       },
     });

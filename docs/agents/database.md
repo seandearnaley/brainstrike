@@ -12,6 +12,11 @@ lookup/hit totals only. SQL, parameters, rows, paths, filenames, queue names,
 and content are prohibited. The collector rejects unsupported runtime record
 keys and materializes retained samples from an explicit field allowlist, so an
 untyped caller cannot smuggle caller data into the in-memory buffer.
+Per-feature query arrivals use their own bounded rolling count buckets, separate
+from the capped duration samples used for percentiles. `queryCount` and
+`queriesPerMinute` therefore report bounded-bucket rolling executions above the
+sample cap, while top-level `sampleCount` reports retained percentile inputs and
+`droppedSampleCount` exposes overflow.
 `docs/diagnostics-privacy-contract.md` is the cross-cutting privacy authority.
 
 The in-renderer live-query scheduler and Electron live-query bridge both wrap

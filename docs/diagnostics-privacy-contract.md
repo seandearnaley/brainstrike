@@ -34,8 +34,11 @@ under four fixed feature identifiers: `file-tree`, `live-query`, `queue-stats`,
 and `token-estimation`. It never retains SQL, parameters, query results, queue
 names, file paths, filenames, or content. The collector is process-local and
 memory-only; it is not written to the diagnostic event store or exported. Each
-feature has an independent bounded sample buffer, and retention overflow is
-reported only as a numeric dropped-sample count. Runtime records are
+feature has an independent bounded duration-sample buffer and a separate bounded
+arrival-count bucket stream. Query count and rate report bounded-bucket rolling
+executions above the sample cap; top-level sample count remains the number of
+retained percentile inputs, and retention overflow is reported only as a
+numeric dropped-sample count. Runtime records are
 fail-closed: unsupported keys or malformed values throw before retention, and
 the collector captures each caller field once and
 copies only explicit allowlisted fields into each sample. Selected-file aggregate token queries
