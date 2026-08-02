@@ -134,7 +134,9 @@ Embedding runtime telemetry (BST-402):
   adapter requires that capability, validates the complete discriminated cache diagnostic
   and every cache-entry/memory field, requires subject entries for hit/load/removal events,
   and requires every non-hit event to carry a unique full snapshot whose entry count matches
-  `cacheSize`. It requires worker-lifetime channel traffic to be id-less,
+  `cacheSize`. The streaming client uses that same indexing-contract validator for both
+  request-scoped and id-less diagnostics and terminally tears down malformed workers. The
+  workerpool adapter requires worker-lifetime channel traffic to be id-less,
   terminates the affected pool on malformed traffic, and closes the channel during pool
   teardown. Streaming workers without that fragment deliver worker-global diagnostics over
   their direct worker message transport. Each pool worker receives a unique
@@ -166,7 +168,8 @@ Embedding runtime telemetry (BST-402):
   This avoids turning the host's frequent status cadence into overlapping full diagnostics
   reads. An explicit refresh clears the prior status override before accepting the refreshed
   platform snapshot, so stopped-host residency cannot remain stale. Invalid status telemetry
-  is surfaced visibly. Web diagnostics read the same
+  is surfaced visibly without clearing an independent platform-snapshot collection error.
+  Web diagnostics read the same
   renderer-local store directly.
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts

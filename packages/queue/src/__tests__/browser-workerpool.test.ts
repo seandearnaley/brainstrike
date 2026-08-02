@@ -477,7 +477,7 @@ describe('createWorkerpoolAdapter', () => {
     resolve(createResult('task-malformed-entry'));
 
     await expect(addPromise).rejects.toThrow(
-      'Embedding worker pipeline-cache diagnostic entries[0].createdAt must be a non-negative finite number.'
+      'Embedding worker pipeline-cache diagnostic.entries[0].createdAt must be a non-negative finite number.'
     );
     expect(promise.cancel).toHaveBeenCalledTimes(1);
     expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();

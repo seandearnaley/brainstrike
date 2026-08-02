@@ -890,7 +890,11 @@ export function SystemDiagnosticsPanel({
         const telemetry = readEmbeddingTelemetryFromHostStatus(status);
         if (telemetry) {
           setDesktopEmbeddingTelemetry(telemetry);
-          setDesktopDiagnosticsError(null);
+          setDesktopDiagnosticsError((currentError) =>
+            currentError?.startsWith('Embedding host status telemetry is invalid:')
+              ? null
+              : currentError
+          );
         }
       } catch (error) {
         setDesktopDiagnosticsError(

@@ -202,7 +202,8 @@ describe('SystemDiagnosticsPanel', () => {
       const getSnapshot = vi
         .fn()
         .mockResolvedValueOnce(createSnapshot(0))
-        .mockResolvedValueOnce(createSnapshot(0));
+        .mockResolvedValueOnce(createSnapshot(0))
+        .mockRejectedValueOnce(new Error('desktop snapshot unavailable'));
       const statusListenerRef: { current: ((status: unknown) => void) | null } = { current: null };
       const unsubscribe = vi.fn();
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = { getSnapshot };
@@ -238,8 +239,20 @@ describe('SystemDiagnosticsPanel', () => {
         expect(getSnapshot).toHaveBeenCalledTimes(2);
         expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
       });
+
+      const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/i });
+      await waitFor(() => expect(refreshButton).toBeEnabled());
+      await userEvent.click(refreshButton);
+      expect(await screen.findByText('desktop snapshot unavailable')).toBeInTheDocument();
+
+      const listenerAfterFailedRefresh = statusListenerRef.current;
+      if (!listenerAfterFailedRefresh) {
+        throw new Error('Expected the diagnostics panel to retain its host status subscription.');
+      }
+      act(() => listenerAfterFailedRefresh({ embeddingRuntime: { telemetry: updatedTelemetry } }));
+      expect(screen.getByText('desktop snapshot unavailable')).toBeInTheDocument();
       unmount();
-      expect(unsubscribe).toHaveBeenCalledTimes(2);
+      expect(unsubscribe).toHaveBeenCalledTimes(3);
     });
 
     it('renders header with title and description', () => {

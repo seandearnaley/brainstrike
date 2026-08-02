@@ -1,8 +1,8 @@
 import {
+  assertEmbedWorkerPipelineCacheDiagnostic,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerPipelineCacheDiagnostic,
-  type EmbedWorkerPipelineCacheEntryDiagnostic,
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
@@ -37,151 +37,6 @@ function isWorkerEvent(value: unknown): value is WorkerEvent {
   return typeValue === 'progress' || typeValue === 'error';
 }
 
-function assertNonEmptyDiagnosticString(value: unknown, path: string): asserts value is string {
-  if (!(typeof value === 'string' && value.length > 0)) {
-    throw new Error(`${path} must be a non-empty string.`);
-  }
-}
-
-function assertNonNegativeDiagnosticNumber(value: unknown, path: string): asserts value is number {
-  if (!(typeof value === 'number' && Number.isFinite(value) && value >= 0)) {
-    throw new Error(`${path} must be a non-negative finite number.`);
-  }
-}
-
-function assertPipelineCacheEntryDiagnostic(
-  value: unknown,
-  path: string
-): asserts value is EmbedWorkerPipelineCacheEntryDiagnostic {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    throw new Error(`${path} must be an object.`);
-  }
-  const entry = value as Record<string, unknown>;
-  assertNonEmptyDiagnosticString(entry['cacheKey'], `${path}.cacheKey`);
-  assertNonNegativeDiagnosticNumber(entry['createdAt'], `${path}.createdAt`);
-  if (entry['device'] !== 'webgpu' && entry['device'] !== 'wasm') {
-    throw new Error(`${path}.device must be "webgpu" or "wasm".`);
-  }
-  if (entry['dtype'] !== 'fp16' && entry['dtype'] !== 'fp32' && entry['dtype'] !== 'q4') {
-    throw new Error(`${path}.dtype must be "fp16", "fp32", or "q4".`);
-  }
-  assertNonNegativeDiagnosticNumber(entry['lastUsedAt'], `${path}.lastUsedAt`);
-  assertNonEmptyDiagnosticString(entry['model'], `${path}.model`);
-  assertNonNegativeDiagnosticNumber(entry['residencyMs'], `${path}.residencyMs`);
-
-  const memory = entry['memory'];
-  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
-    throw new Error(`${path}.memory must be an object.`);
-  }
-  const memoryRecord = memory as Record<string, unknown>;
-  for (const field of ['gpuBytes', 'heapBytes'] as const) {
-    const bytes = memoryRecord[field];
-    if (bytes !== null) {
-      assertNonNegativeDiagnosticNumber(bytes, `${path}.memory.${field}`);
-    }
-  }
-  const memoryReason = memoryRecord['reason'];
-  if (
-    memoryReason !== 'browser-runtime-unavailable' &&
-    memoryReason !== 'measured' &&
-    memoryReason !== 'model-size-estimate' &&
-    memoryReason !== 'model-size-unknown'
-  ) {
-    throw new Error(`${path}.memory.reason is invalid.`);
-  }
-}
-
-function requirePipelineCacheEntry(record: Record<string, unknown>, path: string): void {
-  if (record['entry'] === undefined) {
-    throw new Error(`${path}.${String(record['event'])} requires an entry.`);
-  }
-}
-
-function requireFullPipelineCacheSnapshot(
-  record: Record<string, unknown>,
-  path: string
-): readonly EmbedWorkerPipelineCacheEntryDiagnostic[] {
-  const entries = record['entries'];
-  if (!Array.isArray(entries)) {
-    throw new Error(`${path}.${String(record['event'])} requires a full entries snapshot.`);
-  }
-  const cacheSize = record['cacheSize'] as number;
-  const uniqueCacheKeys = new Set(entries.map((entry) => entry.cacheKey));
-  if (entries.length !== cacheSize || uniqueCacheKeys.size !== cacheSize) {
-    throw new Error(`${path}.entries must contain ${cacheSize} unique cache entries.`);
-  }
-  return entries;
-}
-
-function assertSubjectEntrySnapshotMembership(
-  record: Record<string, unknown>,
-  entries: readonly EmbedWorkerPipelineCacheEntryDiagnostic[],
-  path: string,
-  expected: 'absent' | 'present'
-): void {
-  const entry = record['entry'] as EmbedWorkerPipelineCacheEntryDiagnostic;
-  const includesSubject = entries.some((candidate) => candidate.cacheKey === entry.cacheKey);
-  if ((expected === 'present') !== includesSubject) {
-    throw new Error(
-      `${path}.${String(record['event'])} subject entry must be ${expected} from entries.`
-    );
-  }
-}
-
-function assertPipelineCacheDiagnosticEvent(record: Record<string, unknown>, path: string): void {
-  const event = record['event'];
-  const reason = record['reason'];
-  if (event === 'hit') {
-    requirePipelineCacheEntry(record, path);
-    if (reason !== undefined) {
-      throw new Error(`${path}.hit must not include a reason.`);
-    }
-    return;
-  }
-  if (event === 'loaded') {
-    requirePipelineCacheEntry(record, path);
-    const entries = requireFullPipelineCacheSnapshot(record, path);
-    assertSubjectEntrySnapshotMembership(record, entries, path, 'present');
-    if (reason !== undefined) {
-      throw new Error(`${path}.loaded must not include a reason.`);
-    }
-    return;
-  }
-  if (event === 'disposed') {
-    requirePipelineCacheEntry(record, path);
-    const entries = requireFullPipelineCacheSnapshot(record, path);
-    assertSubjectEntrySnapshotMembership(record, entries, path, 'absent');
-    if (reason !== 'manual-dispose') {
-      throw new Error(`${path}.disposed requires reason "manual-dispose".`);
-    }
-    return;
-  }
-  if (event === 'evicted') {
-    requirePipelineCacheEntry(record, path);
-    const entries = requireFullPipelineCacheSnapshot(record, path);
-    assertSubjectEntrySnapshotMembership(record, entries, path, 'absent');
-    if (reason !== 'device-lost' && reason !== 'idle-timeout' && reason !== 'resident-limit') {
-      throw new Error(`${path}.evicted reason is invalid.`);
-    }
-    return;
-  }
-  if (event === 'invalidated') {
-    requireFullPipelineCacheSnapshot(record, path);
-    if (reason !== 'device-lost') {
-      throw new Error(`${path}.invalidated requires reason "device-lost".`);
-    }
-    return;
-  }
-  if (event === 'load-failed') {
-    requireFullPipelineCacheSnapshot(record, path);
-    if (reason !== 'load-failure') {
-      throw new Error(`${path}.load-failed requires reason "load-failure".`);
-    }
-    return;
-  }
-  throw new Error(`${path}.event is invalid.`);
-}
-
 function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDiagnostic | null {
   if (typeof value !== 'object' || value === null) {
     return null;
@@ -190,32 +45,8 @@ function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDi
   if (!(record['diagnostic'] === 'pipeline-cache' && record['type'] === 'diagnostic')) {
     return null;
   }
-  const path = 'Embedding worker pipeline-cache diagnostic';
-  assertNonNegativeDiagnosticNumber(record['cacheSize'], `${path}.cacheSize`);
-  if (!Number.isSafeInteger(record['cacheSize'])) {
-    throw new Error(`${path}.cacheSize must be a safe integer.`);
-  }
-  assertNonNegativeDiagnosticNumber(record['emittedAt'], `${path}.emittedAt`);
-  if (!(typeof record['workerInstanceId'] === 'string' && record['workerInstanceId'].length > 0)) {
-    throw new Error(`${path} requires a non-empty workerInstanceId.`);
-  }
-  if (record['id'] !== undefined) {
-    assertNonEmptyDiagnosticString(record['id'], `${path}.id`);
-  }
-  if (record['entry'] !== undefined) {
-    assertPipelineCacheEntryDiagnostic(record['entry'], `${path}.entry`);
-  }
-  if (record['entries'] !== undefined) {
-    if (!Array.isArray(record['entries'])) {
-      throw new Error(`${path}.entries must be an array.`);
-    }
-    record['entries'].forEach((entry, index) => {
-      assertPipelineCacheEntryDiagnostic(entry, `${path} entries[${index}]`);
-    });
-  }
-
-  assertPipelineCacheDiagnosticEvent(record, path);
-  return record as unknown as EmbedWorkerPipelineCacheDiagnostic;
+  assertEmbedWorkerPipelineCacheDiagnostic(value);
+  return value;
 }
 
 const MANAGED_WORKER_SCRIPT_FRAGMENT_KEY = 'brainstrike-embedding-worker-instance';

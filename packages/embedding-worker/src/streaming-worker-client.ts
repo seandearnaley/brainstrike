@@ -1,3 +1,4 @@
+import { assertEmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import {
   recordEmbeddingBatchTelemetry,
@@ -111,6 +112,12 @@ export class StreamingEmbeddingWorkerClient {
       if (!(isStreamEvent(message) && message.type === 'diagnostic' && message.id === undefined)) {
         return;
       }
+      try {
+        assertEmbedWorkerPipelineCacheDiagnostic(message);
+      } catch (error) {
+        this.runtime.markFailed(error);
+        return;
+      }
       recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, message);
     });
   }
@@ -217,6 +224,12 @@ export class StreamingEmbeddingWorkerClient {
     }
 
     if (payload.type === 'diagnostic') {
+      try {
+        assertEmbedWorkerPipelineCacheDiagnostic(payload);
+      } catch (error) {
+        this.runtime.markFailed(error);
+        return;
+      }
       if (payload.id !== undefined) {
         recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, payload);
       }

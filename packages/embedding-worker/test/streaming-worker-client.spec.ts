@@ -67,6 +67,23 @@ function createRequest(): EmbedWorkerRequest {
   };
 }
 
+function createPipelineCacheEntry() {
+  return {
+    cacheKey: 'local:test-model|wasm|fp32',
+    createdAt: 1000,
+    device: 'wasm' as const,
+    dtype: 'fp32' as const,
+    lastUsedAt: 1000,
+    memory: {
+      gpuBytes: null,
+      heapBytes: null,
+      reason: 'browser-runtime-unavailable' as const,
+    },
+    model: 'local:test-model',
+    residencyMs: 0,
+  };
+}
+
 const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
@@ -133,6 +150,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
     });
     await flushMicrotasks();
 
+    const entry = createPipelineCacheEntry();
     const [requestMessage] = worker.postMessage.mock.calls[0] ?? [];
     expect(requestMessage).toMatchObject({
       request: expect.objectContaining({
@@ -145,22 +163,8 @@ describe('StreamingEmbeddingWorkerClient', () => {
       cacheSize: 1,
       diagnostic: 'pipeline-cache',
       emittedAt: 1000,
-      entries: [
-        {
-          cacheKey: 'local:test-model|wasm|fp32',
-          createdAt: 1000,
-          device: 'wasm',
-          dtype: 'fp32',
-          lastUsedAt: 1000,
-          memory: {
-            gpuBytes: null,
-            heapBytes: null,
-            reason: 'browser-runtime-unavailable',
-          },
-          model: 'local:test-model',
-          residencyMs: 0,
-        },
-      ],
+      entries: [entry],
+      entry,
       event: 'loaded',
       id: 'embed-1',
       type: 'diagnostic',
@@ -278,6 +282,52 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(onDiagnostic).toHaveBeenCalledWith(diagnostic);
   });
 
+  it('terminally rejects a malformed request-scoped cache diagnostic', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onDiagnostic = vi.fn();
+    const streamPromise = client.stream(createRequest(), { onDiagnostic });
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1000,
+      event: 'loaded',
+      id: 'embed-1',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    });
+
+    await expect(streamPromise).rejects.toThrow(
+      'Embedding worker pipeline-cache diagnostic.loaded requires an entry.'
+    );
+    expect(onDiagnostic).not.toHaveBeenCalled();
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);
+  });
+
+  it('terminally latches a malformed id-less cache diagnostic', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+
+    worker.emitMessage({
+      cacheSize: 0,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1000,
+      event: 'invalidated',
+      reason: 'device-lost',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    });
+
+    await expect(client.stream(createRequest())).rejects.toThrow(
+      'Embedding worker pipeline-cache diagnostic.invalidated requires a full entries snapshot.'
+    );
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);
+  });
+
   it('records id-less cache eviction diagnostics after a stream completes', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
@@ -303,6 +353,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
       diagnostic: 'pipeline-cache',
       emittedAt: 1000,
       entries: [entry],
+      entry,
       event: 'loaded',
       id: 'embed-1',
       type: 'diagnostic',
