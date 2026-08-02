@@ -53,10 +53,17 @@ export interface ClearPersistentUiStateOptions {
   skipIndexedDb?: boolean;
 }
 
-export type ClearPersistentUiStateTarget = 'cache-storage' | 'opfs-pglite';
+export type ClearPersistentUiStateTarget =
+  | 'cache-storage'
+  | 'electron-renderer-storage'
+  | 'electron-secrets'
+  | 'electron-settings'
+  | 'indexed-db'
+  | 'opfs-pglite';
 
 export type ClearPersistentUiStateOperation =
   | 'clear'
+  | 'delete'
   | 'enumerate'
   | 'getDirectory'
   | 'removeEntry';
@@ -99,18 +106,37 @@ function formatResetFailure(failure: ClearPersistentUiStateFailure): string {
  */
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
-async function clearElectronStorage(): Promise<void> {
+function assertElectronSecretsClearSucceeded(value: unknown): void {
+  if (!(value && typeof value === 'object')) {
+    throw new Error('Electron secrets clear returned a malformed result');
+  }
+  const result = value as Record<string, unknown>;
+  if (result['success'] === false) {
+    throw new Error(
+      typeof result['message'] === 'string' && result['message'].length > 0
+        ? result['message']
+        : 'Electron secrets store reported an unsuccessful clear'
+    );
+  }
+  if (
+    result['success'] !== true ||
+    (result['message'] !== undefined && typeof result['message'] !== 'string')
+  ) {
+    throw new Error('Electron secrets clear returned a malformed result');
+  }
+}
+
+async function clearElectronStorage(): Promise<ClearPersistentUiStateFailure[]> {
   if (typeof window === 'undefined') {
-    return;
+    return [];
   }
 
   const w = window as {
     electronAPI?: { storage?: { clear?: () => Promise<void> } };
-    secrets?: {
-      clearAll?: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
-    };
+    secrets?: { clearAll?: (confirmationToken?: string) => Promise<unknown> };
     settings?: { clearAll?: () => Promise<void> };
   };
+  const failures: ClearPersistentUiStateFailure[] = [];
 
   // Clear renderer storage (electron-storage.json)
   if (w.electronAPI?.storage?.clear) {
@@ -118,15 +144,18 @@ async function clearElectronStorage(): Promise<void> {
       await w.electronAPI.storage.clear();
     } catch (error) {
       logger.warn('Failed to clear Electron renderer storage', { error });
+      failures.push({ error, operation: 'clear', target: 'electron-renderer-storage' });
     }
   }
 
   // Clear secrets store (brainstrike-secrets.json) - API keys, provider configs
   if (w.secrets?.clearAll) {
     try {
-      await w.secrets.clearAll(SECRETS_CLEAR_CONFIRMATION_TOKEN);
+      const result = await w.secrets.clearAll(SECRETS_CLEAR_CONFIRMATION_TOKEN);
+      assertElectronSecretsClearSucceeded(result);
     } catch (error) {
       logger.warn('Failed to clear Electron secrets store', { error });
+      failures.push({ error, operation: 'clear', target: 'electron-secrets' });
     }
   }
 
@@ -136,40 +165,53 @@ async function clearElectronStorage(): Promise<void> {
       await w.settings.clearAll();
     } catch (error) {
       logger.warn('Failed to clear Electron settings store', { error });
+      failures.push({ error, operation: 'clear', target: 'electron-settings' });
     }
   }
+
+  return failures;
 }
 
 /**
- * Deletes the given IndexedDB database, catching and silencing errors.
+ * Deletes the given IndexedDB database and returns a typed failure when the
+ * request cannot complete. A blocked request is a failed reset: waiting for a
+ * later success would leave the caller unable to distinguish a clean slate
+ * from a database still held open by another context.
  */
-async function deleteIndexedDb(name: string): Promise<void> {
+async function deleteIndexedDb(name: string): Promise<ClearPersistentUiStateFailure[]> {
   if (!name) {
-    return;
+    return [];
   }
   if (typeof window === 'undefined' || !window.indexedDB) {
-    return;
+    return [];
   }
 
-  await new Promise<void>((resolve) => {
+  return await new Promise<ClearPersistentUiStateFailure[]>((resolve) => {
+    const fail = (error: unknown): void => {
+      resolve([{ error, name, operation: 'delete', target: 'indexed-db' }]);
+    };
     try {
       const request = window.indexedDB.deleteDatabase(name);
-      request.onsuccess = () => resolve();
-      request.onerror = () => resolve();
-      request.onblocked = () => resolve();
-    } catch {
-      resolve();
+      request.onsuccess = () => resolve([]);
+      request.onerror = () => {
+        fail(request.error ?? new Error(`IndexedDB deletion failed for ${name}`));
+      };
+      request.onblocked = () => {
+        fail(new Error(`IndexedDB deletion was blocked for ${name}`));
+      };
+    } catch (error) {
+      fail(error);
     }
   });
 }
 
 /**
- * Nuclear option: enumerate and delete ALL IndexedDB databases.
- * No fallback lists - if enumeration fails, we can't guarantee a clean slate.
+ * Nuclear option: enumerate and delete ALL IndexedDB databases. Browsers that
+ * cannot enumerate use the explicit Brainstrike compatibility names instead.
  */
-async function clearIndexedDbDatabases(): Promise<void> {
+async function clearIndexedDbDatabases(): Promise<ClearPersistentUiStateFailure[]> {
   if (typeof window === 'undefined' || !window.indexedDB) {
-    return;
+    return [];
   }
 
   let enumeratedNames: string[] = [];
@@ -193,11 +235,12 @@ async function clearIndexedDbDatabases(): Promise<void> {
 
   const targets = enumeratedNames.length > 0 ? enumeratedNames : [...FALLBACK_INDEXED_DB_NAMES];
   if (targets.length === 0) {
-    return;
+    return [];
   }
 
   const uniqueTargets = [...new Set(targets)];
-  await Promise.all(uniqueTargets.map((name) => deleteIndexedDb(name)));
+  const failuresByDatabase = await Promise.all(uniqueTargets.map((name) => deleteIndexedDb(name)));
+  return failuresByDatabase.flat();
 }
 
 /**
@@ -437,14 +480,14 @@ async function collectPersistentUiStateResetFailures(
 
   const noFailures = (): ClearPersistentUiStateFailure[] => [];
   const tasks: Promise<ClearPersistentUiStateFailure[]>[] = [
-    clearElectronStorage().then(noFailures),
+    clearElectronStorage(),
     clearCacheStorage()
       .then(noFailures)
       .catch((error: unknown) => [{ error, operation: 'clear', target: 'cache-storage' }]),
     clearOpfsPGliteStores(),
   ];
   if (!skipIndexedDb) {
-    tasks.push(clearIndexedDbDatabases().then(noFailures));
+    tasks.push(clearIndexedDbDatabases());
   }
 
   const failuresByTask = await Promise.all(tasks);
@@ -509,7 +552,8 @@ async function clearCacheStorage(): Promise<void> {
  *   failures are surfaced as incomplete reset results
  * - CacheStorage: All caches (fetch, worker bundles)
  *
- * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
+ * Enumeration is preferred; explicit compatibility names cover browser APIs
+ * that cannot enumerate IndexedDB / OPFS storage.
  * If any storage survives, the user gets phantom data. This is a true nuke.
  *
  * Throws when any required storage target cannot be fully cleared or verified. Factory reset

@@ -9,6 +9,7 @@ import {
 } from '../factory-reset';
 
 interface FakeRequest {
+  error?: DOMException | null;
   onblocked: ((event: Event) => void) | null;
   onerror: ((event: Event) => void) | null;
   onsuccess: ((event: Event) => void) | null;
@@ -194,6 +195,71 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     expect(deleteDatabaseMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      event: 'error' as const,
+      expectedMessage: 'delete failed',
+      failure: new DOMException('delete failed', 'UnknownError'),
+    },
+    {
+      event: 'blocked' as const,
+      expectedMessage: 'blocked',
+      failure: null,
+    },
+  ])('reports an incomplete reset when IndexedDB deletion emits $event', async ({
+    event,
+    expectedMessage,
+    failure,
+  }) => {
+    deleteDatabaseMock.mockImplementationOnce(() => {
+      const request: FakeRequest = {
+        error: failure,
+        onblocked: null,
+        onerror: null,
+        onsuccess: null,
+      };
+      queueMicrotask(() => {
+        if (event === 'error') {
+          request.onerror?.(new Event('error'));
+        } else {
+          request.onblocked?.(new Event('blocked'));
+        }
+      });
+      return request as unknown as IDBOpenDBRequest;
+    });
+
+    const result = await clearPersistentUiStateWithResult();
+
+    expect(result.success).toBe(false);
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        name: FALLBACK_INDEXED_DB_NAMES[0],
+        operation: 'delete',
+        target: 'indexed-db',
+      }),
+    ]);
+    expect(String(result.failures[0]?.error)).toContain(expectedMessage);
+  });
+
+  it('reports an incomplete reset when IndexedDB deletion throws synchronously', async () => {
+    const deletionFailure = new Error('IndexedDB bridge crashed');
+    deleteDatabaseMock.mockImplementation(() => {
+      throw deletionFailure;
+    });
+
+    const result = await clearPersistentUiStateWithResult();
+
+    expect(result.success).toBe(false);
+    expect(result.failures).toHaveLength(FALLBACK_INDEXED_DB_NAMES.length);
+    expect(result.failures[0]).toMatchObject({
+      error: deletionFailure,
+      name: FALLBACK_INDEXED_DB_NAMES[0],
+      operation: 'delete',
+      target: 'indexed-db',
+    });
+    await expect(clearPersistentUiState()).rejects.toThrow('IndexedDB bridge crashed');
+  });
+
   it('clears browser storage and Electron renderer stores during reset', async () => {
     const localStorageClear = vi.spyOn(Storage.prototype, 'clear');
     const rendererStorageClear = vi.fn(async () => undefined);
@@ -225,6 +291,60 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     expect(rendererStorageClear).toHaveBeenCalledTimes(1);
     expect(secretsClearAll).toHaveBeenCalledWith('CONFIRM_CLEAR_SECRETS');
     expect(settingsClearAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('aggregates Electron bridge failures, including a fulfilled secrets rejection', async () => {
+    const rendererStorageClear = vi.fn(async () => {
+      throw new Error('renderer storage is locked');
+    });
+    const secretsClearAll = vi.fn(async () => ({
+      message: 'OS keychain refused deletion',
+      success: false,
+    }));
+    const settingsClearAll = vi.fn(async () => {
+      throw new Error('settings store is locked');
+    });
+    Object.defineProperty(globalWindow, 'electronAPI', {
+      configurable: true,
+      value: { storage: { clear: rendererStorageClear } },
+    });
+    Object.defineProperty(globalWindow, 'secrets', {
+      configurable: true,
+      value: { clearAll: secretsClearAll },
+    });
+    Object.defineProperty(globalWindow, 'settings', {
+      configurable: true,
+      value: { clearAll: settingsClearAll },
+    });
+
+    try {
+      const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+
+      expect(result.success).toBe(false);
+      expect(result.failures.map((failure) => failure.target)).toEqual([
+        'electron-renderer-storage',
+        'electron-secrets',
+        'electron-settings',
+      ]);
+      expect(result.failures).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ operation: 'clear', target: 'electron-secrets' }),
+        ])
+      );
+      expect(
+        result.failures.find((failure) => failure.target === 'electron-secrets')?.error
+      ).toMatchObject({ message: 'OS keychain refused deletion' });
+      expect(rendererStorageClear).toHaveBeenCalledTimes(1);
+      expect(secretsClearAll).toHaveBeenCalledTimes(1);
+      expect(settingsClearAll).toHaveBeenCalledTimes(1);
+      await expect(clearPersistentUiState({ skipIndexedDb: true })).rejects.toThrow(
+        'OS keychain refused deletion'
+      );
+    } finally {
+      Reflect.deleteProperty(globalWindow, 'electronAPI');
+      Reflect.deleteProperty(globalWindow, 'secrets');
+      Reflect.deleteProperty(globalWindow, 'settings');
+    }
   });
 
   it('deletes every CacheStorage entry and verifies the reset', async () => {

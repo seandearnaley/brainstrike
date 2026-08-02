@@ -66,6 +66,15 @@ Implementation:
     - IndexedDB (enumerated + fallback list).
     - CacheStorage.
 
+Storage deletion is fail-visible. Electron renderer storage, secrets, and
+settings failures (including a fulfilled secrets response with
+`success:false`), IndexedDB `error` / `blocked` events or synchronous deletion
+exceptions, CacheStorage failures, and OPFS failures all produce an incomplete
+reset result. The IndexedDB enumeration compatibility fallback is the sole
+tolerated degradation: browsers without `indexedDB.databases()`, or browsers
+where enumeration rejects, still delete the explicit Brainstrike fallback
+names. Never convert a failed deletion into reset success.
+
 If you add new persistence (Caches API, service worker, filesystem handles, etc.):
 - Document it next to the helper.
 - Integrate into reset pipeline.
