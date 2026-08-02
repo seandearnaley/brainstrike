@@ -23,7 +23,7 @@
  * Narrowing and formatters live in `run-python-result-model.ts` so this file
  * exports only components (react-doctor `only-export-components`).
  */
-import { AlertCircle, CheckCircle, CircleSlash, Timer } from 'lucide-react';
+import { AlertCircle, CheckCircle, CircleSlash, Globe, Timer } from 'lucide-react';
 import type { ReactElement } from 'react';
 import {
   formatOmittedBytes,
@@ -69,6 +69,11 @@ function unavailableCopy(reason: string): { headline: string; sub?: string } | n
       };
     case 'language_unsupported':
       return { headline: "Nothing ran — this sandbox can't run Python." };
+    case 'network_confirmation_unavailable':
+      return {
+        headline:
+          'Nothing ran — this script wanted internet access and there was no way to ask you about it.',
+      };
     case 'network_unsupported':
       return {
         headline:
@@ -185,6 +190,15 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         state: 'killed',
         text: 'The script was stopped by the system before it finished.',
       };
+    case 'network_denied':
+      // The user's choice, honestly stated — not a failure and not empty.
+      // Design §4.4: Globe, muted; the model sees deniedDomains and can
+      // rewrite the script to work offline.
+      return {
+        icon: <Globe className="size-4 text-muted-foreground" />,
+        state: 'network_denied',
+        text: "You didn't allow internet access, so the script didn't run.",
+      };
     case 'cancelled': {
       const silent =
         result.partialStdout.length === 0 &&
@@ -244,6 +258,16 @@ function resolveSurfaceModel(result: RunPythonDisplayResult): RunPythonSurfaceMo
         stdout: result.stdout,
         stdoutLabel: 'Output before it was stopped',
         stdoutOmittedBytes: result.stdoutOmittedBytes,
+      };
+    case 'network_denied':
+      return {
+        secondaryLines: [],
+        stderr: '',
+        stderrLeads: false,
+        stderrOmittedBytes: 0,
+        stdout: '',
+        stdoutLabel: 'Output',
+        stdoutOmittedBytes: 0,
       };
     case 'unavailable': {
       const copy = unavailableCopy(result.reason);

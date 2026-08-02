@@ -1396,7 +1396,11 @@ NOTE: the per-tool approval gate is SEPARATE from tool SUSPENSION (submitPlan /
 askUser) — see PLAN MODE & TOOL SUSPENSION below. Approval pauses BEFORE a tool
 runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
 pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
-`resumeStream`). submitPlan/askUser are classified `riskCategory:'read'` so the
+`resumeStream`). run_python's Gate B network escalation (BST-1070) is the
+third registered suspending tool: per-call, argument-aware, and structurally
+ungrantable — the escalation card (`RunPythonNetworkNotice`) requires every
+named domain individually ticked, renders deny primary/autofocused, and has
+no grant surface at all. submitPlan/askUser are classified `riskCategory:'read'` so the
 permission engine never stacks an approval prompt on top of their own suspend.
 
 Desktop request initialization validates `enabledNativeToolIds` against the
@@ -1765,8 +1769,9 @@ termination so it fails visibly.
 
 **Unknown resume schemas are REJECTED VISIBLY and NON-TERMINALLY (BST-558):** only
 tools listed in `REGISTERED_SUSPEND_RESUME_TOOL_IDS`
-(`@brainstrike/assistant-contract/tool-suspend` — today `askUser` + `submitPlan`)
-have a registered typed suspension UI. A well-formed pause from any OTHER tool
+(`@brainstrike/assistant-contract/tool-suspend` — today `askUser`, `runPython`
+(the BST-1070 Gate B network escalation), and `submitPlan`) have a registered
+typed suspension UI. A well-formed pause from any OTHER tool
 still becomes a `tool-suspend-required` chunk, but
 `makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable
 `tool.resume.unsupported` run event

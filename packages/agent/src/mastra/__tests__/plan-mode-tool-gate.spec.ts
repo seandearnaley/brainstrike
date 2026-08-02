@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { describe, expect, it, vi } from 'vitest';
 import { createAskUserTool } from '../../tools/ask-user-tool';
+import { createRunPythonTool } from '../../tools/run-python-tool';
 import { createSubmitPlanTool } from '../../tools/submit-plan-tool';
 import {
   ASK_USER_TOOL_ID,
@@ -74,7 +75,10 @@ describe('suspending tools vs the resume-UI registry', () => {
   });
 
   it('every REAL suspending tool factory has a registered resume UI', () => {
-    for (const tool of [createAskUserTool(), createSubmitPlanTool()]) {
+    const runPythonTool = createRunPythonTool({
+      resolveHost: () => Promise.reject(new Error('unused in this test')),
+    });
+    for (const tool of [createAskUserTool(), runPythonTool, createSubmitPlanTool()]) {
       expect(hasSuspendSchema(tool)).toBe(true);
       expect(hasRegisteredSuspendResumeUi(tool.id)).toBe(true);
     }

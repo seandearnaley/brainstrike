@@ -1,11 +1,13 @@
 # `run_python` approval UX + network escalation — design spec (BST-1070)
 
-> **Status: PARTIALLY IMPLEMENTED, 2026-08-01.** Gate A (§2, the pre-run
-> approval card with the three-place `executionContext` forwarding) and the
-> result surface (§4) are LIVE. **Gate B (§3, the network escalation) remains
-> unbuilt and BLOCKED on unified suspend rediscovery (§3.2c)** — consistent
-> with the shipped tool, whose input schema has no domains field at all, so
-> Gate B is structurally unreachable until that gap closes.
+> **Status: IMPLEMENTED, 2026-08-02.** Gate A (§2), the result surface (§4),
+> AND Gate B (§3, the network escalation) are LIVE. The §3.2c prerequisite
+> (unified suspend rediscovery) closed in BST-1084, after which Gate B shipped:
+> `allowedDomains` on the input schema (seam-validated), the resume-first
+> suspension flow with fail-safe deny, the §3.3 escalation card
+> (`RunPythonNetworkNotice` — deny primary/autofocused, per-domain checkboxes
+> all required, no grant surface), and the `network_denied` result arm. A
+> rediscovered escalation re-renders the same card with reset ticks.
 >
 > **Deviations the implementation made deliberately (contract-grounded, not
 > drift):**
@@ -535,19 +537,21 @@ armed) and needs no new code — but it means **Hosted Web never gets
 `WebNativeToolId` already excluding `runSkillScript`. Add `runPython` to that
 `Exclude<…>` union.
 
-**(c) Cross-reload rediscovery does not yet cover suspensions.**
+**(c) Cross-reload rediscovery does not yet cover suspensions — CLOSED by
+BST-1084 (PR #2223), and Gate B shipped on top of it.** The paragraphs below
+are the original blocking analysis, kept for the record; suspensions ARE now
+rediscovered (unified, both pause kinds) and a reloaded escalation re-renders
+the same card with reset ticks.**
 `listSuspendedMastraRuns` returns approval-gated calls only; non-approval
 `suspend()` pauses are "tolerated + skipped (debug-logged)", and unified
 suspend rediscovery is already a documented follow-up. So a renderer reload
 while a network escalation is on screen strands the run: the transient
 `brainstrike.tool-suspend` part is gone and nothing re-surfaces it.
 
-The **direction** is safe — the run stays suspended, the executor is never
-reached, no code runs, no packet leaves. But it is silent, which this project
-does not accept. **BST-1070 implementation is blocked on unified suspend
-rediscovery** (or on a scoped version of it that covers
-`REGISTERED_SUSPEND_RESUME_TOOL_IDS`). File it as a dependency; do not ship the
-escalation with a silent stranding path.
+The **direction** was safe — the run stays suspended, the executor is never
+reached, no code runs, no packet leaves. But it was silent, which this project
+does not accept. That is why Gate B waited for BST-1084; with unified suspend
+rediscovery merged, the stranding path is gone and the escalation shipped.
 
 ### 3.3 What the user sees
 

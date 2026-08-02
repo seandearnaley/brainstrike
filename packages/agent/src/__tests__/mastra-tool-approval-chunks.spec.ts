@@ -1277,8 +1277,8 @@ describe('run_python approval executionContext stamping (BST-1070)', () => {
 
   it('omits executionContext when the args do not parse — the card falls to its fail-safe path', async () => {
     const approval = await collectApprovalChunk({
-      allowedDomains: ['exfil.example.com'],
       code: 'print(1)',
+      unknownField: true,
     });
     expect(approval).toBeDefined();
     expect(approval && 'executionContext' in approval).toBe(false);

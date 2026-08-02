@@ -50,6 +50,7 @@ export type RunPythonDisplayResult =
       readonly stderrOmittedBytes: number;
       readonly stdoutOmittedBytes: number;
     }
+  | { readonly deniedDomains: readonly string[]; readonly kind: 'network_denied' }
   | { readonly detail: string; readonly kind: 'unavailable'; readonly reason: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,6 +102,11 @@ export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayRe
       return typeof value['partialStdout'] === 'string' &&
         typeof value['partialStderr'] === 'string' &&
         hasOmittedByteFields(value)
+        ? (value as unknown as RunPythonDisplayResult)
+        : null;
+    case 'network_denied':
+      return Array.isArray(value['deniedDomains']) &&
+        value['deniedDomains'].every((domain) => typeof domain === 'string')
         ? (value as unknown as RunPythonDisplayResult)
         : null;
     case 'unavailable':

@@ -58,13 +58,19 @@ const RUN_SKILL_SCRIPT_TOOL_ID = NATIVE_TOOL_ID.runSkillScript;
 const STRING_REPLACE_TOOL_ID = NATIVE_TOOL_ID.stringReplaceWorkspaceFile;
 const WRITE_FILE_TOOL_ID = NATIVE_TOOL_ID.writeWorkspaceFile;
 const EXECUTE_COMMAND_ARG_KEYS = new Set(['command', 'cwd', 'root', 'timeoutMs']);
-const RUN_PYTHON_ARG_KEYS = new Set(['code', 'timeoutMs']);
+const RUN_PYTHON_ARG_KEYS = new Set(['allowedDomains', 'code', 'timeoutMs']);
 // Local literals mirroring the agent seam's MAX_EXEC_CODE_LENGTH /
 // MAX_EXEC_TIMEOUT_MS (packages/agent/src/code-execution.ts). The UI package
 // does not depend on @brainstrike/agent — the same trade the other narrowers
 // in this file make.
 const RUN_PYTHON_MAX_CODE_CHARS = 1_000_000;
 const RUN_PYTHON_MAX_TIMEOUT_MS = 600_000;
+// Mirrors MAX_POLICY_ENTRIES / MAX_POLICY_DOMAIN_LENGTH. Domain SHAPE is NOT
+// re-validated here — the seam's policyDomainSchema is authoritative and a
+// second drifting regex would be a way to disagree with the thing that
+// actually enforces it (design §2.5); this narrowing only bounds size.
+const RUN_PYTHON_MAX_DOMAINS = 256;
+const RUN_PYTHON_MAX_DOMAIN_CHARS = 253;
 const RUN_SKILL_SCRIPT_ARG_KEYS = new Set([
   'args',
   'cwd',
@@ -256,25 +262,43 @@ function narrowWriteFileArgs(value: unknown): WriteFileApprovalArgs | null {
 }
 
 interface RunPythonApprovalArgs {
+  readonly allowedDomains?: readonly string[];
   readonly code: string;
   readonly timeoutMs?: number;
 }
 
 /**
  * Structural guard mirroring the agent-package `RunPythonInputSchema`
- * (strict: `code` + optional `timeoutMs`, nothing else). One deliberate
- * display-side difference: an EMPTY `code` passes here so the card can say
- * "this script is empty" instead of a parse error — the agent schema still
- * rejects it at execute time. An unknown key (e.g. a future `allowedDomains`
- * from a newer build) fails narrowing: a call carrying a field this build
- * does not understand must not be described as if it were understood.
+ * (strict: `code` + optional `timeoutMs` + optional `allowedDomains`, nothing
+ * else). One deliberate display-side difference: an EMPTY `code` passes here
+ * so the card can say "this script is empty" instead of a parse error — the
+ * agent schema still rejects it at execute time. An unknown key (e.g. an
+ * `unknownField` from a newer build) fails narrowing: a call carrying a field
+ * this build does not understand must not be described as if it were
+ * understood.
  */
 function narrowRunPythonArgs(value: unknown): RunPythonApprovalArgs | null {
   if (!isRecord(value) || Object.keys(value).some((key) => !RUN_PYTHON_ARG_KEYS.has(key))) {
     return null;
   }
-  const { code, timeoutMs } = value;
+  const { allowedDomains, code, timeoutMs } = value;
   if (typeof code !== 'string' || code.length > RUN_PYTHON_MAX_CODE_CHARS) {
+    return null;
+  }
+  if (
+    allowedDomains !== undefined &&
+    !(
+      Array.isArray(allowedDomains) &&
+      // [] is the OpenAI-strict-mode spelling of "no network" — valid.
+      allowedDomains.length <= RUN_PYTHON_MAX_DOMAINS &&
+      allowedDomains.every(
+        (domain) =>
+          typeof domain === 'string' &&
+          domain.trim().length > 0 &&
+          domain.length <= RUN_PYTHON_MAX_DOMAIN_CHARS
+      )
+    )
+  ) {
     return null;
   }
   if (
@@ -286,7 +310,11 @@ function narrowRunPythonArgs(value: unknown): RunPythonApprovalArgs | null {
   ) {
     return null;
   }
-  return { code, ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}) };
+  return {
+    ...(Array.isArray(allowedDomains) ? { allowedDomains: allowedDomains as string[] } : {}),
+    code,
+    ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
+  };
 }
 
 /**

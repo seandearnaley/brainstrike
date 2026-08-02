@@ -278,3 +278,26 @@ describe('run_python result surface', () => {
     expect(screen.queryByTestId('run-python-result-header')).not.toBeInTheDocument();
   });
 });
+
+describe('network_denied (Gate B, BST-1070)', () => {
+  it("renders the user's refusal honestly — Stopped card, no panes, no failure chrome", () => {
+    renderRunPython({ deniedDomains: ['pypi.org'], kind: 'network_denied' });
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
+      "You didn't allow internet access, so the script didn't run."
+    );
+    expect(screen.getByTestId('run-python-result-state')).toHaveAttribute(
+      'data-state',
+      'network_denied'
+    );
+    expect(screen.queryByTestId('run-python-stdout')).not.toBeInTheDocument();
+    // Card-level: the user's choice is a Stopped state, never Failed and
+    // never a green Completed check.
+    expect(screen.getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).not.toBeInTheDocument();
+  });
+
+  it('a malformed network_denied (non-string domains) stays on the generic pane', () => {
+    renderRunPython({ deniedDomains: [42], kind: 'network_denied' });
+    expect(screen.queryByTestId('run-python-result-header')).not.toBeInTheDocument();
+  });
+});

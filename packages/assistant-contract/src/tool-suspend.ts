@@ -44,6 +44,12 @@ export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
  */
 export const REGISTERED_SUSPEND_RESUME_TOOL_IDS = [
   NATIVE_TOOL_ID.askUser,
+  // BST-1070 Gate B: run_python's network escalation rides the suspension
+  // channel (per-call, argument-aware, structurally ungrantable). Registered
+  // here means the escalation card is the typed resume UI; plan mode still
+  // OMITS the tool on its execute risk (BST-1073 — a suspend schema is not an
+  // admission ticket).
+  NATIVE_TOOL_ID.runPython,
   NATIVE_TOOL_ID.submitPlan,
 ] as const;
 
@@ -270,3 +276,26 @@ export interface AskUserPayload {
 
 /** Free-text/single-select resume with a string; multi-select with a string[]. */
 export type AskUserAnswer = string | string[];
+
+/**
+ * The Gate B network-escalation pause payload (BST-1070 design §3): built
+ * inside `run_python`'s execute() from the LIVE resolved policy, so the
+ * domains shown are the domains used, by construction. Never empty — an
+ * empty-domain call runs without suspending.
+ */
+export interface RunPythonNetworkSuspendPayload {
+  /** The exact ExecPolicy.allowedDomains the script will get. Never empty. */
+  readonly allowedDomains: readonly string[];
+  readonly kind: 'network';
+}
+
+/**
+ * Resumed into the suspended `run_python` call. Deny is expressible; "run
+ * offline instead" deliberately is NOT (design §3.3 rejected it: exit 0 with
+ * silently missing data is a wrong result dressed as a stronger sandbox).
+ * Anything that does not narrow to this shape is treated as DENY by the tool
+ * — a schema drift must never become a silent network grant.
+ */
+export interface RunPythonNetworkDecision {
+  readonly action: 'allow' | 'deny';
+}

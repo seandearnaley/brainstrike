@@ -6,8 +6,10 @@ import {
 } from '../tool-approval.js';
 import {
   type AssistantToolResumeAction,
+  hasRegisteredSuspendResumeUi,
   isAssistantToolResumeAction,
   isRediscoveredToolSuspend,
+  REGISTERED_SUSPEND_RESUME_TOOL_IDS,
   readToolResumeRunConfigAction,
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
@@ -247,5 +249,12 @@ describe('isRediscoveredToolSuspend', () => {
     expect(isRediscoveredToolSuspend(undefined)).toBe(false);
     expect(isRediscoveredToolSuspend(null)).toBe(false);
     expect(isRediscoveredToolSuspend([base])).toBe(false);
+  });
+});
+
+describe('run_python Gate B registration (BST-1070)', () => {
+  it('registers brainstrike.runPython as a suspending tool with a typed resume UI', () => {
+    expect(hasRegisteredSuspendResumeUi('brainstrike.runPython')).toBe(true);
+    expect(REGISTERED_SUSPEND_RESUME_TOOL_IDS).toContain('brainstrike.runPython');
   });
 });
