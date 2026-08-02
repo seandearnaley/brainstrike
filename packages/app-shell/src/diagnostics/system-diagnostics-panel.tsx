@@ -559,14 +559,14 @@ function RendererLongTaskStatusSection({
         </div>
         {snapshot.routes.length > 0 && (
           <div className="flex items-start justify-between gap-3">
-            <span className="text-muted-foreground">Routes</span>
+            <span className="text-muted-foreground">Delivery-time routes</span>
             <span className="text-right font-mono text-[10px]">
               {snapshot.routes.map((route) => `${route.route} (${route.count})`).join(', ')}
             </span>
           </div>
         )}
         <div className="flex items-start justify-between gap-3">
-          <span className="text-muted-foreground">Feature flags</span>
+          <span className="text-muted-foreground">Delivery-time feature flags</span>
           <span className="text-right font-mono text-[10px]">
             {formatRendererLongTaskFeatureFlags(snapshot)}
           </span>

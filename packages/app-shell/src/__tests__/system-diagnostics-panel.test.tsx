@@ -95,6 +95,8 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('Renderer Long Tasks')).toBeInTheDocument();
       expect(screen.getByText('Idle')).toBeInTheDocument();
       expect(screen.getAllByText('125 ms')).toHaveLength(3);
+      expect(screen.getByText('Delivery-time routes')).toBeInTheDocument();
+      expect(screen.getByText('Delivery-time feature flags')).toBeInTheDocument();
       expect(screen.getByText('settings (1)')).toBeInTheDocument();
       expect(screen.getByText('diagnostic-search (1)')).toBeInTheDocument();
     });
@@ -130,7 +132,7 @@ describe('SystemDiagnosticsPanel', () => {
 
       render(<SystemDiagnosticsPanel />);
 
-      expect(screen.getByText('Feature flags').parentElement).toHaveTextContent(
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
         'Unavailable for retained samples'
       );
       act(() => {
@@ -140,7 +142,7 @@ describe('SystemDiagnosticsPanel', () => {
           route: 'explorer',
         });
       });
-      expect(screen.getByText('Feature flags').parentElement).toHaveTextContent(
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
         'diagnostics-v2 (1) · partial context'
       );
     });
@@ -180,7 +182,9 @@ describe('SystemDiagnosticsPanel', () => {
 
       render(<SystemDiagnosticsPanel />);
 
-      expect(screen.getByText('Feature flags').parentElement).toHaveTextContent('No samples');
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
+        'No samples'
+      );
     });
 
     it('renders desktop platform diagnostics when the desktop bridge is available', async () => {

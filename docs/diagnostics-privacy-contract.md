@@ -93,12 +93,14 @@ selectors, paths, filenames, or content. Feature-flag identifiers are accepted
 only from an explicitly injected authoritative registry. If an app has no such
 registry, diagnostics reports the feature context as unavailable rather than
 recording a fabricated empty list.
-The telemetry store owns expiry and cap eviction, including removal of route
-and feature identifiers from its cached external-store snapshot; retention
-does not depend on a diagnostics subscriber. Buffered long-task entries use
+The telemetry store owns expiry and cap eviction: stale context is removed
+without a diagnostics subscriber and released no later than the next
+external-store read. Buffered long-task entries use
 their occurrence timestamp for the rolling window and are deduplicated across
 observer replay. Performance Observer does not preserve historical app
 context, so buffered samples carry delivery-time route and feature-flag context
-and diagnostics must not present that context as stall-time attribution.
+and diagnostics labels them as delivery-time context rather than stall-time
+attribution. Occurrence timestamps and the one-minute retention boundary use a
+single monotonic epoch clock, never the adjustable wall clock.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.

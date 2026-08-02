@@ -426,18 +426,16 @@ export function RootLayoutContent({
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
   const diagnosticSurface: RendererDiagnosticSurface =
     settingsOpen || activeTab === 'settings' ? 'settings' : shellTab;
-  const longTaskContextRef = useRef({
-    enabledFeatureFlags: diagnosticFeatureFlags ?? null,
-    route: diagnosticSurface,
-  });
+  const longTaskContext = useMemo(
+    () => ({ enabledFeatureFlags: diagnosticFeatureFlags ?? null, route: diagnosticSurface }),
+    [diagnosticFeatureFlags, diagnosticSurface]
+  );
+  const longTaskContextRef = useRef(longTaskContext);
 
   useLayoutEffect(() => {
-    longTaskContextRef.current = {
-      enabledFeatureFlags: diagnosticFeatureFlags ?? null,
-      route: diagnosticSurface,
-    };
-    rendererLongTaskTelemetry.updateContext(longTaskContextRef.current);
-  }, [diagnosticFeatureFlags, diagnosticSurface]);
+    longTaskContextRef.current = longTaskContext;
+    rendererLongTaskTelemetry.updateContext(longTaskContext);
+  }, [longTaskContext]);
 
   useEffect(() => rendererLongTaskTelemetry.observe(() => longTaskContextRef.current), []);
 

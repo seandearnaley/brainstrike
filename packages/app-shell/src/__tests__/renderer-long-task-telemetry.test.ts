@@ -435,13 +435,18 @@ describe('renderer-long-task-telemetry', () => {
   it('surfaces unsupported and failed observer states instead of silently degrading', () => {
     vi.stubGlobal('PerformanceObserver', undefined);
     const unsupported = createRendererLongTaskTelemetry();
-    unsupported.observe(() => ({
+    const disposeUnsupported = unsupported.observe(() => ({
       enabledFeatureFlags: [],
       route: 'explorer',
     }));
     expect(unsupported.getSnapshot()).toMatchObject({
       availability: 'unsupported',
       unavailableReason: 'PerformanceObserver is unavailable in this renderer.',
+    });
+    disposeUnsupported();
+    expect(unsupported.getSnapshot()).toMatchObject({
+      availability: 'idle',
+      unavailableReason: null,
     });
 
     class ThrowingPerformanceObserver {
@@ -453,13 +458,18 @@ describe('renderer-long-task-telemetry', () => {
     }
     vi.stubGlobal('PerformanceObserver', ThrowingPerformanceObserver);
     const failed = createRendererLongTaskTelemetry();
-    failed.observe(() => ({
+    const disposeFailed = failed.observe(() => ({
       enabledFeatureFlags: [],
       route: 'explorer',
     }));
     expect(failed.getSnapshot()).toMatchObject({
       availability: 'failed',
       unavailableReason: 'observer construction failed',
+    });
+    disposeFailed();
+    expect(failed.getSnapshot()).toMatchObject({
+      availability: 'idle',
+      unavailableReason: null,
     });
   });
 
@@ -525,8 +535,7 @@ describe('renderer-long-task-telemetry', () => {
       disconnect(): void {}
     }
     vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
-    const timeOrigin = performance.timeOrigin;
-    vi.setSystemTime(timeOrigin + 10_000);
+    vi.advanceTimersByTime(10_000);
     const telemetry = createRendererLongTaskTelemetry({ windowMs: 1000 });
     telemetry.observe(() => ({
       enabledFeatureFlags: ['diagnostics-v2'],
@@ -562,6 +571,58 @@ describe('renderer-long-task-telemetry', () => {
     vi.advanceTimersByTime(501);
     expect(telemetry.getSnapshot()).toMatchObject({
       featureFlags: [],
+      routes: [],
+      sampleCount: 0,
+    });
+  });
+
+  it('keeps observer occurrence and retention timestamps monotonic across wall-clock changes', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {}
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+    vi.setSystemTime(performance.timeOrigin + 86_400_000);
+    const telemetry = createRendererLongTaskTelemetry({ windowMs: 1000 });
+    telemetry.observe(() => ({
+      enabledFeatureFlags: ['diagnostics-v2'],
+      route: 'settings',
+    }));
+    const callback = callbacks.at(0);
+    if (!callback) {
+      throw new Error('Expected PerformanceObserver callback to be registered.');
+    }
+
+    callback(
+      {
+        getEntries: () => [
+          {
+            duration: 75,
+            entryType: 'longtask',
+            startTime: performance.now(),
+          } as PerformanceEntry,
+        ],
+      } as PerformanceObserverEntryList,
+      {} as PerformanceObserver
+    );
+
+    expect(telemetry.getSnapshot().sampleCount).toBe(1);
+
+    vi.advanceTimersByTime(1001);
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      durationP50Ms: null,
+      durationP95Ms: null,
+      featureFlags: [],
+      maxDurationMs: null,
       routes: [],
       sampleCount: 0,
     });

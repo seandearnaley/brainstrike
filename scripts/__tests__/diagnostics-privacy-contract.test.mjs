@@ -98,10 +98,11 @@ testWithContract('diagnostics privacy contract links related performance telemet
 
 testWithContract('BST-400 documents retention ownership and buffered attribution', () => {
   for (const term of [
-    'cached external-store snapshot',
-    'does not depend on a diagnostics subscriber',
+    'without a diagnostics subscriber',
+    'external-store read',
     'occurrence timestamp',
     'delivery-time route and feature-flag context',
+    'single monotonic epoch clock',
   ]) {
     assertContractIncludes(term);
   }

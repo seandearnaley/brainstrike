@@ -605,14 +605,17 @@ availability changes publish immediately rather than waiting for another stall.
 Availability shown for a non-empty rolling window is derived from the retained
 samples; mixed known/unknown flag context is surfaced as partial and never
 rewritten to "no flags active" by a later registry transition.
-Retention is owned by the telemetry store, including prompt removal of route
-and feature identifiers from its cached external-store snapshot; expiry and
-cap eviction do not depend on a diagnostics subscriber. Buffered observer
+Retention is owned by the telemetry store: expiry and cap eviction remove stale
+context without a diagnostics subscriber and release it no later than the next
+external-store read. Buffered observer
 entries are retained from their occurrence timestamp and deduplicated across
 observer replay. Because the Performance Observer entry has no historical app
 context, a buffered sample explicitly carries delivery-time route and
-feature-flag context; diagnostics must not imply that context was captured at
-the original stall time.
+feature-flag context; System Diagnostics labels those fields as delivery-time
+context and must not imply that context was captured at the original stall
+time. Occurrence timestamps, window pruning, and retention deadlines share the
+Performance timeline's monotonic epoch clock; `Date.now()` must not drive this
+retention boundary because wall-clock adjustments would split the clocks.
 Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
 never silently degrades. Do not write routine
