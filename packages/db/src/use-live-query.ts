@@ -6,6 +6,12 @@ import type {
   PGliteWithLive,
 } from '@electric-sql/pglite/live';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  measureDatabaseQuery,
+  recordDatabaseLiveSubscriptionEnded,
+  recordDatabaseLiveSubscriptionStarted,
+  recordDatabaseLiveUpdate,
+} from './database-query-telemetry.js';
 import { usePGliteDatabase } from './db-provider.js';
 import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
@@ -336,7 +342,7 @@ async function subscribeViaPGlite<T>(
   };
 }
 
-async function subscribeViaElectron<T>(
+export async function subscribeViaElectron<T>(
   bridge: ElectronLiveBridge,
   options: InternalLiveQueryOptions,
   onUpdate: (results: LiveQueryResults<T>) => void
@@ -356,14 +362,34 @@ async function subscribeViaElectron<T>(
     startPayload.limit = options.limit;
   }
 
-  const startResult = await bridge.start<T>(startPayload);
+  const startResult = await measureDatabaseQuery(
+    'live-query',
+    async () => await bridge.start<T>(startPayload)
+  );
 
   const unsubscribeUpdates = bridge.onUpdate((payload) => {
     if (payload.id !== startResult.id) {
       return;
     }
+    recordDatabaseLiveUpdate();
     onUpdate(payload.results as LiveQueryResults<T>);
   });
+  recordDatabaseLiveSubscriptionStarted();
+  let localReleased = false;
+  let remoteStopped = false;
+  let stopPromise: Promise<void> | null = null;
+
+  const releaseLocalOnce = (): void => {
+    if (localReleased) {
+      return;
+    }
+    localReleased = true;
+    try {
+      unsubscribeUpdates();
+    } finally {
+      recordDatabaseLiveSubscriptionEnded();
+    }
+  };
 
   return {
     initialResults: startResult.initialResults,
@@ -375,11 +401,30 @@ async function subscribeViaElectron<T>(
       if (refreshOptions?.limit !== undefined) {
         refreshPayload.limit = refreshOptions.limit;
       }
-      await bridge.refresh(refreshPayload);
+      await measureDatabaseQuery('live-query', async () => {
+        await bridge.refresh(refreshPayload);
+      });
     },
-    unsubscribe: async () => {
-      unsubscribeUpdates();
-      await bridge.stop(startResult.id);
+    unsubscribe: () => {
+      if (remoteStopped) {
+        return Promise.resolve();
+      }
+      if (stopPromise) {
+        return stopPromise;
+      }
+      releaseLocalOnce();
+      const attempt = (async () => {
+        await bridge.stop(startResult.id);
+        remoteStopped = true;
+      })();
+      let shared: Promise<void>;
+      shared = attempt.finally(() => {
+        if (stopPromise === shared) {
+          stopPromise = null;
+        }
+      });
+      stopPromise = shared;
+      return shared;
     },
   };
 }
@@ -494,7 +539,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     void subscribeToLiveSource<T>(source as LiveSource, normalizedOptions, handleUpdate)
       .then((result) => {
         if (cancelled) {
-          void result.unsubscribe();
+          void result.unsubscribe().catch((error: unknown) => {
+            logger.error('Live query unsubscribe failed after a cancelled subscription', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
           return;
         }
         subscription = result;
@@ -519,7 +568,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       cancelled = true;
       refreshRef.current = noopAsync;
       if (subscription) {
-        void subscription.unsubscribe();
+        void subscription.unsubscribe().catch((error: unknown) => {
+          logger.error('Live query unsubscribe failed during effect cleanup', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }
     };
   }, [

@@ -855,7 +855,13 @@ viewport, not by thread length.
   size that just changed, and the verdict flips depending on whether the
   estimate happens to run above or below the real height. The static tier's own
   `isAtBottom` is recorded while it is still the truth and read back on the
-  swap.
+  swap. **Testing consequence:** a test that scrolls up and then crosses the
+  threshold must wait for the LIBRARY to disengage — the jump button rendering
+  enabled — not just for `viewport.scrollTop`, which is written synchronously
+  and says nothing about the recorded value. Cross while the recorded value is
+  still `true` and the swap anchors to the newest message, which is a terminal
+  state: the viewport is legitimately pinned and no amount of waiting recovers
+  the scrolled-up position.
 - **`aria-live` forks per tier.** Every insertion into a live region is an
   announcement. Tier 1's only insertions are new messages, so the viewport stays
   `aria-live="polite"`. Tier 2 mounts and unmounts rows as the user SCROLLS, so

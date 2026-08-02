@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { databaseQueryTelemetry } from '../src/database-query-telemetry';
 import {
   createDatabaseWorkScheduler,
   createPriorityDbHandle,
@@ -586,6 +587,196 @@ describe('DatabaseWorkScheduler', () => {
     expect(rawDb.live.query).toHaveBeenCalledTimes(1);
     expect(liveHandle.refresh).toHaveBeenCalledTimes(1);
     expect(seenPriorities).toEqual(['normal', 'background']);
+  });
+
+  it('tracks live query creation, subscriptions, updates, and cleanup', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    let subscribedListener: ((results: unknown) => void) | null = null;
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn((listener: (results: unknown) => void) => {
+        subscribedListener = listener;
+      }),
+      unsubscribe: vi.fn(async () => undefined),
+    };
+    const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => liveHandle),
+        query: vi.fn(async () => liveHandle),
+      },
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+    };
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    const listener = vi.fn(function (this: { readonly marker: string }) {
+      expect(this.marker).toBe('live-handle');
+    });
+    handle.subscribe(listener);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions + 1
+    );
+    expect(subscribedListener).not.toBeNull();
+    subscribedListener?.call({ marker: 'live-handle' }, { rows: [] });
+    await handle.unsubscribe(listener);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot()).toMatchObject({
+      activeLiveSubscriptions: telemetryBefore.activeLiveSubscriptions,
+    });
+    expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(
+      telemetryBefore.liveUpdateCount + 1
+    );
+    expect(databaseQueryTelemetry.snapshot().features['live-query'].queryCount).toBe(
+      telemetryBefore.features['live-query'].queryCount + 1
+    );
+  });
+
+  it('requires a fresh PGlite live-query handle after teardown starts', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    let subscribedListener: ((...args: unknown[]) => unknown) | null = null;
+    let dead = false;
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn((listener: (...args: unknown[]) => unknown) => {
+        if (dead) {
+          throw new Error('Live query is no longer active and cannot be subscribed to');
+        }
+        subscribedListener = listener;
+      }),
+      unsubscribe: vi.fn(async () => {
+        // PGlite 0.5.3 marks a query dead before awaiting its teardown transaction.
+        dead = true;
+        subscribedListener = null;
+        throw new Error('database is closing');
+      }),
+    };
+    const replacementLiveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(async () => undefined),
+    };
+    const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => replacementLiveHandle),
+        query: vi
+          .fn()
+          .mockResolvedValueOnce(liveHandle)
+          .mockResolvedValueOnce(replacementLiveHandle),
+      },
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+    };
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    const listener = vi.fn();
+    handle.subscribe(listener);
+
+    await expect(handle.unsubscribe(listener)).rejects.toThrow('database is closing');
+
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+    const liveUpdatesAfterFailedCleanup = databaseQueryTelemetry.snapshot().liveUpdateCount;
+    subscribedListener?.({ rows: [] });
+    expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(liveUpdatesAfterFailedCleanup);
+
+    expect(() => handle.subscribe(listener)).toThrow(
+      'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
+    );
+    await expect(handle.unsubscribe(listener)).resolves.toBeUndefined();
+    expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
+    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+
+    const replacementHandle = await scheduled.live.query({ query: 'SELECT 1' });
+    replacementHandle.subscribe(listener);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions + 1
+    );
+    await replacementHandle.unsubscribe(listener);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
+  it('fails fast when a scheduled PGlite live-query handle receives a second listener', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(async () => undefined),
+    };
+    const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => liveHandle),
+        query: vi.fn(async () => liveHandle),
+      },
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+    };
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    const firstListener = vi.fn();
+
+    handle.subscribe(firstListener);
+    expect(() => handle.subscribe(vi.fn())).toThrow(
+      'Scheduled PGlite live-query handles support exactly one listener'
+    );
+    expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions + 1
+    );
+
+    await handle.unsubscribe(firstListener);
+    await expect(handle.unsubscribe(firstListener)).resolves.toBeUndefined();
+    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
+  it('counts a live update delivered synchronously during subscription', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn((listener: () => void) => listener()),
+      unsubscribe: vi.fn(async () => undefined),
+    };
+    const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => liveHandle),
+        query: vi.fn(async () => liveHandle),
+      },
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+    };
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    const listener = vi.fn();
+
+    handle.subscribe(listener);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(
+      telemetryBefore.liveUpdateCount + 1
+    );
+    await handle.unsubscribe(listener);
   });
 
   it('does not let foreground-handle live query refreshes extend the background quiet window', async () => {

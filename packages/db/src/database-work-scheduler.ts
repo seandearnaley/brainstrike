@@ -1,3 +1,10 @@
+import {
+  measureDatabaseQuery,
+  recordDatabaseLiveSubscriptionEnded,
+  recordDatabaseLiveSubscriptionStarted,
+  recordDatabaseLiveUpdate,
+} from './database-query-telemetry.js';
+
 export type DatabaseWorkPriority = 'foreground' | 'normal' | 'background';
 
 export interface DatabaseWorkOptions {
@@ -703,6 +710,19 @@ function createScheduledLiveQueryHandle<THandle extends object>(
   scheduler: DatabaseWorkScheduler,
   refreshPriority: DatabaseWorkPriority
 ): THandle {
+  let active = true;
+  let subscribedListener: {
+    counted: boolean;
+    readonly listener: CallableUnknown;
+    readonly wrappedListener: CallableUnknown;
+  } | null = null;
+  const assertActive = (): void => {
+    if (!active) {
+      throw new Error(
+        'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
+      );
+    }
+  };
   return new Proxy(handle, {
     get(target, property, receiver) {
       if (property === 'refresh') {
@@ -710,11 +730,84 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         if (typeof refresh !== 'function') {
           return refresh;
         }
-        return async (...args: unknown[]) =>
-          await scheduler.run(
-            async () => await Reflect.apply(refresh as CallableUnknown, target, args),
-            { label: 'live query refresh', priority: refreshPriority }
+        return async (...args: unknown[]) => {
+          assertActive();
+          return await measureDatabaseQuery(
+            'live-query',
+            async () =>
+              await scheduler.run(
+                async () => await Reflect.apply(refresh as CallableUnknown, target, args),
+                { label: 'live query refresh', priority: refreshPriority }
+              )
           );
+        };
+      }
+      if (property === 'subscribe') {
+        const subscribe = Reflect.get(target, property, receiver);
+        if (typeof subscribe !== 'function') {
+          return subscribe;
+        }
+        return (listener: CallableUnknown) => {
+          assertActive();
+          if (subscribedListener !== null) {
+            throw new Error('Scheduled PGlite live-query handles support exactly one listener');
+          }
+          const wrappedListener = function (this: unknown, ...args: unknown[]) {
+            if (entry.counted) {
+              recordDatabaseLiveUpdate();
+            }
+            return Reflect.apply(listener, this, args) as unknown;
+          };
+          const entry = {
+            counted: true,
+            listener,
+            wrappedListener,
+          };
+          let result: unknown;
+          try {
+            result = Reflect.apply(subscribe as CallableUnknown, target, [entry.wrappedListener]);
+          } catch (error) {
+            entry.counted = false;
+            throw error;
+          }
+          subscribedListener = entry;
+          recordDatabaseLiveSubscriptionStarted();
+          return result;
+        };
+      }
+      if (property === 'unsubscribe') {
+        const unsubscribe = Reflect.get(target, property, receiver);
+        if (typeof unsubscribe !== 'function') {
+          return unsubscribe;
+        }
+        return async (listener: CallableUnknown) => {
+          if (!active) {
+            return;
+          }
+          if (subscribedListener !== null && subscribedListener.listener !== listener) {
+            throw new Error(
+              'Scheduled PGlite live-query unsubscribe listener does not match the active listener'
+            );
+          }
+          // PGlite 0.5.4 marks a live-query handle dead before it awaits the
+          // teardown transaction. Once cleanup starts, even a rejected
+          // unsubscribe cannot be retried or re-subscribed on this handle.
+          active = false;
+          const entry = subscribedListener;
+          try {
+            return await Reflect.apply(unsubscribe as CallableUnknown, target, [
+              entry?.wrappedListener ?? listener,
+            ]);
+          } finally {
+            // The pinned PGlite lifecycle clears every downstream callback
+            // before teardown. Release the one supported local owner too.
+            if (entry?.counted) {
+              entry.counted = false;
+              recordDatabaseLiveSubscriptionEnded();
+            }
+            subscribedListener = null;
+          }
+        };
       }
       return Reflect.get(target, property, receiver);
     },
@@ -740,14 +833,22 @@ function createScheduledLiveNamespace<TLive extends object>(
         }
         const label = property === 'query' ? 'live query' : 'live incremental query';
         return async (...args: unknown[]) =>
-          await scheduler.run(
-            async () => {
-              const handle = await Reflect.apply(startLiveQuery as CallableUnknown, target, args);
-              return isObjectRecord(handle)
-                ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
-                : handle;
-            },
-            { label, priority: liveQueryPriority }
+          await measureDatabaseQuery(
+            'live-query',
+            async () =>
+              await scheduler.run(
+                async () => {
+                  const handle = await Reflect.apply(
+                    startLiveQuery as CallableUnknown,
+                    target,
+                    args
+                  );
+                  return isObjectRecord(handle)
+                    ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
+                    : handle;
+                },
+                { label, priority: liveQueryPriority }
+              )
           );
       }
       return Reflect.get(target, property, receiver);

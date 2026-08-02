@@ -7,6 +7,8 @@ export { TokenCacheStore } from './token-cache-store';
 export type {
   FileMetadata,
   TokenCacheEntry,
+  TokenCacheLookupTelemetryRecord,
+  TokenCacheStoreTelemetry,
   TokenCountError,
   TokenCountingMode,
   TokenCountProgress,

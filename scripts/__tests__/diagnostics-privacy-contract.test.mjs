@@ -80,6 +80,13 @@ testWithContract('diagnostics privacy contract documents default allowed telemet
   }
 });
 
+testWithContract('database telemetry records are fail-closed and allowlisted', () => {
+  const defaultTelemetry = contractSection('Default Background Telemetry');
+  for (const term of ['fail-closed', 'unsupported keys', 'explicit allowlisted fields']) {
+    assertSectionIncludes(defaultTelemetry, term);
+  }
+});
+
 testWithContract(
   'diagnostics privacy contract documents data that background telemetry must not collect',
   () => {
@@ -111,6 +118,31 @@ testWithContract(
 testWithContract('diagnostics privacy contract links related performance telemetry tickets', () => {
   for (const issueId of ['BST-376', 'BST-400', 'BST-401', 'BST-402', 'BST-403']) {
     assertContractIncludes(issueId, '');
+  }
+});
+
+testWithContract('BST-403 documents fail-closed aggregate and live-query boundaries', () => {
+  for (const term of [
+    'captures each caller field once',
+    'arrival-count bucket stream',
+    'Failure and token lookup/hit totals',
+    'exact bounded',
+    'bounded-bucket rolling',
+    'boundary-inclusive bucket interval',
+    'sample cap',
+    'retained percentile inputs',
+    'zero lookup and hit counts',
+    'Folder-wide token-cache preloads',
+    'start and refresh query executions rather than teardown',
+    'support exactly one listener',
+    'make repeated unsubscribe idempotent',
+    'terminal when teardown starts',
+    'imperative snapshot reads continue to fail loudly',
+    'stable failed snapshot with the precise reason',
+    'Measurement-clock failure remains latched',
+    'wrapped database or token-cache operation',
+  ]) {
+    assertContractIncludes(term);
   }
 });
 

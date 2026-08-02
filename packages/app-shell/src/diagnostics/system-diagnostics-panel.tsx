@@ -14,6 +14,7 @@ import {
   databaseStatusSelectors,
   useDatabaseStatusStore,
 } from '@brainstrike/app-state/stores/database-status-store';
+import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import {
@@ -166,7 +167,7 @@ function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
   };
 
   return (
-    <Badge className="h-5 px-2 text-[10px]" variant={variantMap[status]}>
+    <Badge className="h-5 px-2 text-[10px]" data-status={status} variant={variantMap[status]}>
       {label}
     </Badge>
   );
@@ -324,6 +325,90 @@ function WorkerStatusSection({
         </div>
         <div className="pt-1 text-[10px] text-muted-foreground">
           {modeDescriptions[persistenceMode]}
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
+const DATABASE_QUERY_FEATURE_LABELS = {
+  'file-tree': 'File tree',
+  'live-query': 'Live queries',
+  'queue-stats': 'Queue stats',
+  'token-estimation': 'Token estimation',
+} as const;
+
+function DatabaseQueryTelemetrySection({
+  snapshot,
+}: {
+  readonly snapshot: DatabaseQueryTelemetrySnapshot;
+}): ReactElement {
+  const failures = Object.values(snapshot.features).reduce(
+    (total, feature) => total + feature.failureCount,
+    0
+  );
+  const totalQueries = Object.values(snapshot.features).reduce(
+    (total, feature) => total + feature.queryCount,
+    0
+  );
+  const cacheHitLabel =
+    snapshot.tokenEstimation.cacheHitRate === null
+      ? 'No lookups'
+      : `${Math.round(snapshot.tokenEstimation.cacheHitRate * 100)}% cache hit`;
+
+  return (
+    <DiagnosticCard
+      description="Rolling one-minute coarse query histograms"
+      icon={<Database className="h-4 w-4 text-primary" />}
+      status={snapshot.availability === 'failed' ? 'error' : failures > 0 ? 'warning' : 'success'}
+      statusLabel={formatCount(totalQueries, 'query', 'queries')}
+      title="Database Queries"
+    >
+      <div className="space-y-2 text-xs">
+        {Object.entries(DATABASE_QUERY_FEATURE_LABELS).map(([feature, label]) => {
+          const metrics = snapshot.features[feature as keyof typeof snapshot.features];
+          return (
+            <div className="space-y-0.5" key={feature}>
+              <span className="text-muted-foreground">{label}</span>
+              <div
+                className="font-mono text-[10px]"
+                data-testid={`database-query-${feature}-metrics`}
+              >
+                {metrics.queryCount} queries · {metrics.failureCount} failed · p50{' '}
+                {Math.round(metrics.durationP50Ms)} ms · p95 {Math.round(metrics.durationP95Ms)} ms
+                · max {Math.round(metrics.maxDurationMs)} ms
+                {' · '}
+                {metrics.droppedSampleCount} dropped
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Token cache</span>
+          <span className="font-medium">{cacheHitLabel}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Live subscriptions</span>
+          <span className="font-medium">
+            {formatCount(snapshot.activeLiveSubscriptions, 'active', 'active')}
+          </span>
+        </div>
+        {snapshot.droppedSampleCount > 0 ? (
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>Retention overflow</span>
+            <span>{formatCount(snapshot.droppedSampleCount, 'sample', 'samples')} dropped</span>
+          </div>
+        ) : null}
+        {snapshot.availability === 'failed' ? (
+          <div className="text-destructive" role="alert">
+            Query telemetry unavailable: {snapshot.unavailableReason}
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Live updates</span>
+          <span className="font-mono text-[10px]" data-testid="database-live-update-metrics">
+            {formatCount(snapshot.liveUpdateCount, 'update', 'updates')}
+          </span>
         </div>
       </div>
     </DiagnosticCard>
@@ -610,6 +695,11 @@ export function SystemDiagnosticsPanel({
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const databaseQuerySnapshot = useSyncExternalStore(
+    databaseQueryTelemetry.subscribe,
+    databaseQueryTelemetry.getSnapshot,
+    databaseQueryTelemetry.getSnapshot
+  );
   const longTaskSnapshot = useSyncExternalStore(
     rendererLongTaskTelemetry.subscribe,
     rendererLongTaskTelemetry.getSnapshot,
@@ -703,6 +793,7 @@ export function SystemDiagnosticsPanel({
           tokenCacheOperational={tokenCacheOperational}
           tokenCachePersisted={tokenCachePersisted}
         />
+        <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
         <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
         {desktopDiagnosticsError && (

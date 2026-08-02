@@ -200,13 +200,27 @@ const waitForOverflowingViewport = async (): Promise<HTMLElement> => {
   return viewport;
 };
 
-/** Tier 2 settles asynchronously: measure → adjust → re-render. */
+/**
+ * Budget for waits that a contended CI runner can lose. Deliberately far above
+ * the frame or two these actually take: exhausting one of these is a HARD test
+ * failure, not a retry, and load-induced slowness is the exact condition this
+ * file's flakes came from — so the budget must not double as a timing
+ * assumption. Generous here costs nothing; every one of these waits returns as
+ * soon as its condition holds.
+ */
+const SETTLE_TIMEOUT_MS = 5000;
+
+/**
+ * Settling after a scroll correction: measure → adjust → re-render. Tier 2 does
+ * this on its own; on tier 1 it is the library's autoScroll pinning, which both
+ * threshold-crossing tests below wait out before they touch the position.
+ */
 const waitForPinnedToEnd = async (viewport: HTMLElement): Promise<void> => {
   await waitFor(
     () => {
       expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(2);
     },
-    { timeout: 5000 }
+    { timeout: SETTLE_TIMEOUT_MS }
   );
 };
 
@@ -378,7 +392,34 @@ describe('crossing the virtualization threshold mid-session (BST-897)', () => {
   test('a reader scrolled up on the static tier is not yanked by the switch', async () => {
     render(<MutableThreadHarness initialCount={THREAD_VIRTUALIZATION_THRESHOLD - 1} />);
     const viewport = await waitForOverflowingViewport();
+    // The library pins a freshly opened thread; land there before scrolling
+    // away, so the scroll-up is a real disengage rather than a write issued
+    // while the library is still pinning. WRITTEN, not merely waited for: with
+    // `scrollToBottomOnInitialize={false}` the opening pin is a side effect of
+    // resize-driven follow, so a coalesced ResizeObserver notification would
+    // leave waitForPinnedToEnd nothing to converge on — a second timing
+    // assumption is the last thing a determinism fix should rest on. The raw
+    // scrollTo, not the scrollTo() helper: the helper asserts `scrollTop ≈ top`,
+    // which never holds for `scrollHeight` once the browser clamps it. Matches
+    // the sibling test above.
+    viewport.scrollTo({ behavior: 'instant', top: viewport.scrollHeight });
+    await waitForPinnedToEnd(viewport);
     await scrollTo(viewport, 0);
+    // scrollTo only proves the DOM moved — `scrollTop` is written synchronously,
+    // so its waitFor passes on the first check. The LIBRARY's pinned state, which
+    // is what the tier swap records as `pinnedWhileStatic`, trails it by a frame
+    // (scroll listener → store → render): measured, the button is still DISABLED
+    // in the same task the scroll lands. Appending inside that window makes the
+    // swap take the "was pinned" branch and scrollToEnd() onto the newest
+    // message — and that state is terminal, so the assertion below then sees 0
+    // for its whole window and no amount of waiting recovers it — the same
+    // one-frame lag as BST-1042, read by a different consumer.
+    await waitFor(
+      () => {
+        expect(getButton()).toBeEnabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
 
     fireEvent.click(screen.getByTestId('append'));
 
@@ -390,7 +431,9 @@ describe('crossing the virtualization threshold mid-session (BST-897)', () => {
     await waitFor(() => {
       expect(distanceFromBottom(viewport)).toBeGreaterThan(VIEWPORT_HEIGHT_PX);
     });
-    expect(getButton()).toBeEnabled();
+    await waitFor(() => {
+      expect(getButton()).toBeEnabled();
+    });
   });
 });
 

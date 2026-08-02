@@ -29,6 +29,40 @@ Telemetry names should describe product surfaces or subsystems, not user data.
 For example, `file-explorer.expand.duration_ms` is acceptable; a metric keyed by
 a specific local path is not.
 
+BST-403's database-query telemetry applies that boundary at the producer. It
+retains a bounded rolling minute of duration, failure, lookup, and hit counts
+under four fixed feature identifiers: `file-tree`, `live-query`, `queue-stats`,
+and `token-estimation`. It never retains SQL, parameters, query results, queue
+names, file paths, filenames, or content. The collector is process-local and
+memory-only; it is not written to the diagnostic event store or exported. Each
+feature has an independent bounded duration-sample buffer and a separate bounded
+arrival-count bucket stream. Query count and rate report bounded-bucket rolling
+executions above the sample cap; top-level sample count remains the number of
+retained percentile inputs. Failure and token lookup/hit totals use exact bounded
+rolling buckets rather than capped duration samples. Retention overflow is
+reported only as a numeric dropped-sample count and is timestamped at the evicted
+sample's occurrence so it expires with that sample. Counts are reported over a
+boundary-inclusive bucket interval, which can retain up to one
+coarse bucket of events older than the strict duration-sample cutoff; a nonzero
+count with zero retained percentile inputs at that boundary is expected. Runtime
+records are fail-closed: unsupported keys or malformed values throw before
+retention, and the collector captures each caller field once and
+copies only explicit allowlisted fields into each sample. Selected-file aggregate token queries
+record duration and failure only, with zero lookup and hit counts; live-query
+histograms count start and refresh query executions rather than teardown.
+Folder-wide token-cache preloads also report zero lookup and hit counts. Direct
+PGlite wrappers support exactly one listener, release that ownership exactly once,
+and make repeated unsubscribe idempotent even when cleanup rejects. Subscribe and
+refresh become terminal when teardown starts, so the handle must be recreated;
+concurrent Electron callers share a retryable remote-stop attempt without
+reacquiring local ownership. A missing telemetry clock is logged visibly once per
+producer, timer callbacks stop attempting telemetry publication, and explicit
+imperative snapshot reads continue to fail loudly. External-store reads expose a
+stable failed snapshot with the precise reason so diagnostics can render the
+failure without crashing, while the wrapped database or token-cache operation
+always runs. Measurement-clock failure remains latched for the failed clock
+identity; token-cache timing failure remains latched for that store.
+
 ## Prohibited By Default
 
 Background telemetry must not collect these values by default:
