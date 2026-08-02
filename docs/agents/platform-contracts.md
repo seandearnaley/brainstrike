@@ -607,7 +607,9 @@ samples; mixed known/unknown flag context is surfaced as partial and never
 rewritten to "no flags active" by a later registry transition.
 Retention is owned by the telemetry store: expiry and cap eviction remove stale
 context without a diagnostics subscriber and release it no later than the next
-external-store read. Buffered observer
+external-store read. Any retention-clock failure releases retained samples and
+dedupe keys immediately, even if the failure is transient, so an aborted timer
+cannot leave identifiers resident without a replacement expiry deadline. Buffered observer
 entries are retained from their occurrence timestamp and deduplicated across
 observer replay. Because the Performance Observer entry has no historical app
 context, a buffered sample explicitly carries delivery-time route and
@@ -630,7 +632,13 @@ the delivery-time clock mapping, because replacement observers can deliver the
 same buffered entry at different times.
 Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
-never silently degrades. Do not write routine
+never silently degrades. Unsupported setup publishes an explicitly empty window
+without consulting the timing clock, and disposing that inactive observation
+preserves the capability classification until the caller sees the idle state.
+A malformed entry fails and disconnects its observer loudly, but valid sibling
+entries from the same delivered batch are retained and published with that failed
+snapshot. Reset always clears retained context; when the timing clock is unusable,
+the failed state remains latched instead of claiming an idle collector. Do not write routine
 performance samples into
 `brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
 failure signals, drives the unseen-error chip, and is the wrong cardinality and

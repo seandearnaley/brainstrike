@@ -112,6 +112,10 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'one snapshot publication',
     'converge on the same failed snapshot',
     'diagnostics preserves the operation',
+    'retention-clock failure releases samples and dedupe keys',
+    'explicitly empty window',
+    'valid sibling',
+    'keeps a clock failure latched',
   ]) {
     assertContractIncludes(term);
   }

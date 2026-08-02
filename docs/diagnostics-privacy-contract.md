@@ -95,7 +95,9 @@ registry, diagnostics reports the feature context as unavailable rather than
 recording a fabricated empty list.
 The telemetry store owns expiry and cap eviction: stale context is removed
 without a diagnostics subscriber and released no later than the next
-external-store read. Buffered long-task entries use
+external-store read. A retention-clock failure releases samples and dedupe keys
+immediately, including when a retrying read succeeds, so no identifier loses its
+expiry owner. Buffered long-task entries use
 their occurrence timestamp for the rolling window and are deduplicated across
 observer replay, including after an in-window sample-cap eviction. Performance
 Observer does not preserve historical app context, so buffered
@@ -119,5 +121,9 @@ external-store publication, direct recording, reset, or retention expiry all
 converge on the same failed snapshot without escaping through renderer effects.
 When an operation and the clock both fail, diagnostics preserves the operation
 failure and appends the clock failure instead of discarding the originating cause.
+Unsupported observation publishes an explicitly empty window without reading the
+clock. A malformed observer entry fails collection visibly while valid sibling
+entries in that delivery remain available in the failed snapshot. Reset clears
+all identifiers but keeps a clock failure latched rather than reporting idle.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.
