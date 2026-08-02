@@ -30,6 +30,7 @@ export interface DatabaseQueryTelemetrySnapshot {
   readonly activeLiveSubscriptions: number;
   readonly droppedSampleCount: number;
   readonly features: Record<DatabaseQueryFeature, DatabaseQueryFeatureSnapshot>;
+  /** Rolling count aggregated into buckets of at most one second. */
   readonly liveUpdateCount: number;
   readonly liveUpdatesPerMinute: number;
   readonly sampleCount: number;
@@ -40,6 +41,11 @@ export interface DatabaseQueryTelemetrySnapshot {
     readonly lookupCount: number;
   };
   readonly windowMs: number;
+}
+
+interface LiveUpdateBucket {
+  count: number;
+  readonly startedAt: number;
 }
 
 interface QuerySample extends DatabaseQueryTelemetryRecord {
@@ -122,7 +128,8 @@ export class DatabaseQueryTelemetry {
   private currentSnapshot: DatabaseQueryTelemetrySnapshot;
   private dirty = false;
   private readonly droppedSamples = createFeatureArrays(() => 0);
-  private readonly liveUpdateTimestamps: number[] = [];
+  private readonly liveUpdateBucketMs: number;
+  private readonly liveUpdateBuckets: LiveUpdateBucket[] = [];
   private readonly listeners = new Set<() => void>();
   private readonly maxSamples: number;
   private readonly now: () => number;
@@ -134,6 +141,7 @@ export class DatabaseQueryTelemetry {
   constructor(options: DatabaseQueryTelemetryOptions = {}) {
     this.maxSamples = options.maxSamples ?? DEFAULT_MAX_SAMPLES_PER_FEATURE;
     this.windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
+    this.liveUpdateBucketMs = Math.min(NOTIFY_INTERVAL_MS, this.windowMs);
     this.now = options.now ?? Date.now;
     assertPositiveInteger(this.maxSamples, 'Database query telemetry maxSamples');
     assertPositiveInteger(this.windowMs, 'Database query telemetry windowMs');
@@ -165,8 +173,15 @@ export class DatabaseQueryTelemetry {
   }
 
   recordLiveUpdate(): void {
-    this.liveUpdateTimestamps.push(this.now());
-    this.trimBound(this.liveUpdateTimestamps);
+    const recordedAt = this.now();
+    const startedAt = Math.floor(recordedAt / this.liveUpdateBucketMs) * this.liveUpdateBucketMs;
+    const currentBucket = this.liveUpdateBuckets.at(-1);
+    if (currentBucket?.startedAt === startedAt) {
+      currentBucket.count += 1;
+    } else {
+      this.liveUpdateBuckets.push({ count: 1, startedAt });
+    }
+    this.trimLiveUpdateBuckets(recordedAt - this.windowMs);
     this.markDirty();
   }
 
@@ -230,7 +245,9 @@ export class DatabaseQueryTelemetry {
     for (const feature of DATABASE_QUERY_FEATURES) {
       samples[feature] = this.querySamples[feature].filter((sample) => sample.recordedAt >= cutoff);
     }
-    const liveUpdates = this.liveUpdateTimestamps.filter((timestamp) => timestamp >= cutoff);
+    const liveUpdateCount = this.liveUpdateBuckets
+      .filter((bucket) => bucket.startedAt + this.liveUpdateBucketMs > cutoff)
+      .reduce((total, bucket) => total + bucket.count, 0);
     const tokenSamples = samples['token-estimation'];
     const lookupCount = tokenSamples.reduce((sum, sample) => sum + (sample.lookupCount ?? 0), 0);
     const hitCount = tokenSamples.reduce((sum, sample) => sum + (sample.hitCount ?? 0), 0);
@@ -263,8 +280,8 @@ export class DatabaseQueryTelemetry {
           this.droppedSamples['token-estimation']
         ),
       },
-      liveUpdateCount: liveUpdates.length,
-      liveUpdatesPerMinute: (liveUpdates.length * 60_000) / this.windowMs,
+      liveUpdateCount,
+      liveUpdatesPerMinute: (liveUpdateCount * 60_000) / this.windowMs,
       sampleCount: DATABASE_QUERY_FEATURES.reduce(
         (total, feature) => total + samples[feature].length,
         0
@@ -297,11 +314,13 @@ export class DatabaseQueryTelemetry {
     }
   }
 
-  private trimBound<T>(samples: T[]): void {
-    if (samples.length <= this.maxSamples) {
-      return;
+  private trimLiveUpdateBuckets(cutoff: number): boolean {
+    let changed = false;
+    while ((this.liveUpdateBuckets[0]?.startedAt ?? cutoff) + this.liveUpdateBucketMs <= cutoff) {
+      this.liveUpdateBuckets.shift();
+      changed = true;
     }
-    samples.shift();
+    return changed;
   }
 
   private trimExpired(): boolean {
@@ -314,11 +333,7 @@ export class DatabaseQueryTelemetry {
         changed = true;
       }
     }
-    while ((this.liveUpdateTimestamps[0] ?? cutoff) < cutoff) {
-      this.liveUpdateTimestamps.shift();
-      changed = true;
-    }
-    return changed;
+    return this.trimLiveUpdateBuckets(cutoff) || changed;
   }
 }
 

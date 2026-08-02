@@ -391,13 +391,16 @@ async function subscribeViaElectron<T>(
       });
     },
     unsubscribe: async () => {
-      await measureDatabaseQuery('live-query', async () => {
-        await bridge.stop(startResult.id);
-      });
       try {
-        unsubscribeUpdates();
+        await measureDatabaseQuery('live-query', async () => {
+          await bridge.stop(startResult.id);
+        });
       } finally {
-        recordDatabaseLiveSubscriptionEnded();
+        try {
+          unsubscribeUpdates();
+        } finally {
+          recordDatabaseLiveSubscriptionEnded();
+        }
       }
     },
   };
@@ -513,7 +516,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     void subscribeToLiveSource<T>(source as LiveSource, normalizedOptions, handleUpdate)
       .then((result) => {
         if (cancelled) {
-          void result.unsubscribe();
+          void result.unsubscribe().catch((error: unknown) => {
+            logger.error('Live query unsubscribe failed after a cancelled subscription', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
           return;
         }
         subscription = result;
@@ -538,7 +545,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       cancelled = true;
       refreshRef.current = noopAsync;
       if (subscription) {
-        void subscription.unsubscribe();
+        void subscription.unsubscribe().catch((error: unknown) => {
+          logger.error('Live query unsubscribe failed during effect cleanup', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }
     };
   }, [

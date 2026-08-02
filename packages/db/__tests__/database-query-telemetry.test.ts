@@ -78,6 +78,23 @@ describe('DatabaseQueryTelemetry', () => {
     });
   });
 
+  it('preserves live-update counts above the query sample retention bound', () => {
+    let now = 2000;
+    const telemetry = new DatabaseQueryTelemetry({ maxSamples: 2, now: () => now });
+
+    for (let update = 0; update < 600; update += 1) {
+      telemetry.recordLiveUpdate();
+    }
+
+    expect(telemetry.snapshot()).toMatchObject({
+      liveUpdateCount: 600,
+      liveUpdatesPerMinute: 600,
+    });
+
+    now += 61_001;
+    expect(telemetry.snapshot().liveUpdateCount).toBe(0);
+  });
+
   it('aggregates token-estimation cache hits from lookup counts', () => {
     const telemetry = new DatabaseQueryTelemetry();
 

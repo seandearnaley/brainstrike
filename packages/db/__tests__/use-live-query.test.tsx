@@ -222,6 +222,30 @@ describe('Electron Live Query', () => {
     );
   });
 
+  it('detaches local Electron state when the remote stop request rejects', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    mockBridge.stop.mockRejectedValue(new Error('database host is resetting'));
+    const { result, unmount } = renderHook(() =>
+      usePGliteLiveQuery({ params: [1], query: 'SELECT * FROM test' })
+    );
+
+    await vi.waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+        telemetryBefore.activeLiveSubscriptions + 1
+      );
+    });
+
+    unmount();
+
+    await vi.waitFor(() => {
+      expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+      expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+        telemetryBefore.activeLiveSubscriptions
+      );
+    });
+  });
+
   it('tracks Electron live updates and refresh queries', async () => {
     const telemetryBefore = databaseQueryTelemetry.snapshot();
     const { result, unmount } = renderHook(() =>
