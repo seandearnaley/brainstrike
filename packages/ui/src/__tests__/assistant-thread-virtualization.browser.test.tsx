@@ -200,13 +200,27 @@ const waitForOverflowingViewport = async (): Promise<HTMLElement> => {
   return viewport;
 };
 
-/** Tier 2 settles asynchronously: measure → adjust → re-render. */
+/**
+ * Budget for waits that a contended CI runner can lose. Deliberately far above
+ * the frame or two these actually take: exhausting one of these is a HARD test
+ * failure, not a retry, and load-induced slowness is the exact condition this
+ * file's flakes came from — so the budget must not double as a timing
+ * assumption. Generous here costs nothing; every one of these waits returns as
+ * soon as its condition holds.
+ */
+const SETTLE_TIMEOUT_MS = 5000;
+
+/**
+ * Settling after a scroll correction: measure → adjust → re-render. Tier 2 does
+ * this on its own; on tier 1 it is the library's autoScroll pinning, which both
+ * threshold-crossing tests below wait out before they touch the position.
+ */
 const waitForPinnedToEnd = async (viewport: HTMLElement): Promise<void> => {
   await waitFor(
     () => {
       expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(2);
     },
-    { timeout: 5000 }
+    { timeout: SETTLE_TIMEOUT_MS }
   );
 };
 
@@ -400,9 +414,12 @@ describe('crossing the virtualization threshold mid-session (BST-897)', () => {
     // message — and that state is terminal, so the assertion below then sees 0
     // for its whole window and no amount of waiting recovers it — the same
     // one-frame lag as BST-1042, read by a different consumer.
-    await waitFor(() => {
-      expect(getButton()).toBeEnabled();
-    });
+    await waitFor(
+      () => {
+        expect(getButton()).toBeEnabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
 
     fireEvent.click(screen.getByTestId('append'));
 
