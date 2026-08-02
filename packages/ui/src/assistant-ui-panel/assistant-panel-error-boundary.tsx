@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 const logger = createLogger('AssistantPanelErrorBoundary');

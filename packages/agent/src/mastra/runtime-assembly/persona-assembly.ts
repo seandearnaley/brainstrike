@@ -5,7 +5,7 @@
  * delegation contract.
  */
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { buildPersonaSubAgents } from '../build-persona-subagents';

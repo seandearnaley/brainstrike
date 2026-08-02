@@ -1,6 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useEffect } from 'react';
 import { useModelRegistryStore } from '../stores/model-registry-store';
 

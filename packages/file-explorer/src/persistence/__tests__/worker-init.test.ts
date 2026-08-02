@@ -3,7 +3,7 @@ import { initWorker } from '../worker-init';
 import { WorkerStorage } from '../worker-storage';
 
 // Mock dependencies
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),

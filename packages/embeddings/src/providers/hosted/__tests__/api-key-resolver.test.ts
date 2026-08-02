@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearHostedProviderApiKeyCache, resolveHostedProviderApiKey } from '../api-key-resolver';
+import {
+  clearHostedProviderApiKeyCache,
+  resolveHostedProviderApiKey,
+} from '../api-key-resolver.js';
 
 // Store original values to restore after tests
 const originalProcess = globalThis.process;

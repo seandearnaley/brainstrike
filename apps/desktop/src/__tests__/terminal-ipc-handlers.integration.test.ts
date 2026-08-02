@@ -18,7 +18,7 @@ import { execSync } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createTerminalIpcHandlers,

@@ -10,7 +10,7 @@
  * so no import cycle is possible.
  */
 import { writeShellOutputChunk } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { z } from 'zod';
 import type { ShellOutputStreamer } from './execute-command-tool';
 

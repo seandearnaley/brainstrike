@@ -34,10 +34,14 @@ const mockWorkerPort = {
   updateTree: vi.fn(),
 };
 
-vi.mock('@brainstrike/file-tree-worker', () => ({
-  createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
-  resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
-}));
+vi.mock('@brainstrike/file-tree-worker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-tree-worker')>();
+  return {
+    ...actual,
+    createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
+    resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
+  };
+});
 
 vi.stubGlobal(
   'Worker',

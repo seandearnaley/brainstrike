@@ -41,6 +41,12 @@
       "path": "../../packages/types"
     },
     {
+      "path": "../logging"
+    },
+    {
+      "path": "../tokenization"
+    },
+    {
       "path": "../utils"
     }
   ]

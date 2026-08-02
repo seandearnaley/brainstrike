@@ -39,7 +39,7 @@ vi.mock('@brainstrike/db/react', () => ({
   viewFilterPresets: {},
 }));
 
-vi.mock('@brainstrike/utils', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => ({
     debug: vi.fn(),
     error: vi.fn(),

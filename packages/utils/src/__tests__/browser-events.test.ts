@@ -16,7 +16,7 @@ import {
   QUEUE_PROGRESS_EVENT,
   type QueueDrainedEventDetail,
   type QueueProgressEventDetail,
-} from '../browser-events';
+} from '../browser-events.js';
 
 describe('browser-events', () => {
   it('pins the wire-format event names', () => {

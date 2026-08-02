@@ -7,7 +7,7 @@ import {
   type CostEstimate,
   computeCost,
   type ModelTokenPricing,
-} from '@brainstrike/utils/token-counting-heuristics';
+} from '@brainstrike/tokenization';
 import type { ThreadCumulativeUsage } from './assistant-memory-repository';
 
 /** One source's share of the thread total (BST-953). OM rows are local estimates. */

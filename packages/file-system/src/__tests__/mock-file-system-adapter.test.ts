@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { type MockFileEntry, MockFileSystemAdapter } from '../adapters/mock-file-system-adapter';
-import type { FileHandle } from '../types';
+import { type MockFileEntry, MockFileSystemAdapter } from '../adapters/mock-file-system-adapter.js';
+import type { FileHandle } from '../types.js';
 
 function expectDefined<T>(value: T | undefined, message: string): T {
   expect(value, message).toBeDefined();

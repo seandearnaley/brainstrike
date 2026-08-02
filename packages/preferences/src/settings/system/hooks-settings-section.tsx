@@ -9,6 +9,7 @@
  * in-panel content view and full `hooks.json` editing are documented follow-ups.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import {
   Badge,
   Button,
@@ -18,7 +19,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useState } from 'react';
 import { hookTrustSelectors, useHookTrustStore } from '../../stores/hook-trust-store';
 

@@ -1,5 +1,6 @@
 import { DiagnosticEventsRepository } from '@brainstrike/db';
 import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
+import { addLogListener, createLogger, type LogRecord } from '@brainstrike/logging';
 import { useDiagnosticsRetentionStore } from '@brainstrike/preferences/stores/diagnostics-retention-store';
 import {
   boundWithMarker,
@@ -9,7 +10,6 @@ import {
   deriveDiagnosticRecordSource,
   logRecordToDiagnosticEvent,
 } from '@brainstrike/utils/diagnostics';
-import { addLogListener, createLogger, type LogRecord } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
 import { useDiagnosticSinkHealthStore } from './diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE, getDiagnosticSessionId } from './diagnostic-sink-session';

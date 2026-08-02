@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow } from 'electron';
 import { resolveAgentDevtoolsWindowTitle } from './agent-devtools-config';
 import {

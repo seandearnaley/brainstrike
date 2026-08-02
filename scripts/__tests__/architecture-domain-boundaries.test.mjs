@@ -23,6 +23,7 @@ const makeWorkspace = async ({ sources }) => {
     ['apps/web', '@brainstrike/web'],
     ['packages/app-shell', '@brainstrike/app-shell'],
     ['packages/db', '@brainstrike/db'],
+    ['packages/logging', '@brainstrike/logging'],
     ['packages/ui', '@brainstrike/ui'],
     ['packages/utils', '@brainstrike/utils'],
   ];
@@ -62,7 +63,7 @@ const makeWorkspace = async ({ sources }) => {
         id: 'shared-foundation',
         mayDependOn: [],
         owner: 'foundation',
-        packages: ['@brainstrike/ui', '@brainstrike/utils'],
+        packages: ['@brainstrike/logging', '@brainstrike/ui', '@brainstrike/utils'],
         title: 'Shared',
       },
     ],
@@ -82,11 +83,11 @@ test('accepts same-domain and explicitly allowed lower-domain imports', async ()
     sources: [
       [
         'apps/web/src/main.tsx',
-        "import { Shell } from '@brainstrike/app-shell';\nimport { logger } from '@brainstrike/utils/logger';\nvoid Shell;\nvoid logger;\n",
+        "import { Shell } from '@brainstrike/app-shell';\nimport { logger } from '@brainstrike/logging';\nvoid Shell;\nvoid logger;\n",
       ],
       [
         'packages/app-shell/src/panel.ts',
-        "export { Button } from '@brainstrike/ui';\nimport type { Logger } from '@brainstrike/utils/logger';\n",
+        "export { Button } from '@brainstrike/ui';\nimport type { Logger } from '@brainstrike/logging';\n",
       ],
     ],
   });

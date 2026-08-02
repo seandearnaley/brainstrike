@@ -1,4 +1,10 @@
 import type { EmbeddingSet } from '@brainstrike/db';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import type {
+  WorkspaceIndexingQosInputs,
+  WorkspaceIndexingQosPolicy,
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
@@ -14,21 +20,9 @@ import {
 import {
   __resetBackgroundWorkArbiterForTests,
   acquireBackgroundWorkPauseReason,
-  encodeFileSelection,
   getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
 import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
-import {
-  addLogListener,
-  configureLogger,
-  LogLevel,
-  type LogRecord,
-  setLogLevel,
-} from '@brainstrike/utils/logger';
-import type {
-  WorkspaceIndexingQosInputs,
-  WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -291,8 +285,9 @@ const {
   },
 }));
 
-vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+vi.mock('@brainstrike/indexing-contract/workspace-indexing-qos', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/indexing-contract/workspace-indexing-qos')>();
   resolveWorkspaceIndexingQosPolicyMock.mockImplementation(
     (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy =>
       actual.resolveWorkspaceIndexingQosPolicy(inputs)
@@ -781,7 +776,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   it('logs a workspace QoS transition once across repeated policy resolutions', async () => {
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
     const captured: LogRecord[] = [];
     const removeListener = addLogListener((record) => {
@@ -807,8 +801,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(captured[0]?.args).toContainEqual(expect.objectContaining({ from: null }));
     } finally {
       removeListener();
-      // Restore the default so later tests in this file stay console-quiet.
-      configureLogger({ enableInProduction: false });
     }
   });
 
@@ -1737,7 +1729,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
     const capturedExclusionLogs: LogRecord[] = [];
     const removeListener = addLogListener((record) => {
@@ -1790,7 +1781,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(JSON.stringify(capturedExclusionLogs[0]?.args ?? [])).toContain('null bytes');
     } finally {
       removeListener();
-      configureLogger({ enableInProduction: false });
       syncSpy.mockRestore();
     }
   });
@@ -1913,7 +1903,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
         captured.push(record);
       }
     });
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.WARN);
 
     try {
@@ -1957,7 +1946,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       );
     } finally {
       removeListener();
-      configureLogger({ enableInProduction: false });
       syncSpy.mockRestore();
     }
   });

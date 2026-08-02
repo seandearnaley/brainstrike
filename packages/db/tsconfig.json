@@ -38,6 +38,12 @@
       "path": "../indexing-contract"
     },
     {
+      "path": "../logging"
+    },
+    {
+      "path": "../tokenization"
+    },
+    {
       "path": "../utils"
     }
   ]

@@ -9,7 +9,7 @@ import {
   type AssistantToolSuspendRequest,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -771,6 +771,12 @@ export class DataStreamMapper {
       ...(chunk.policyDecision === undefined ? {} : { policyDecision: chunk.policyDecision }),
       ...(args === undefined ? {} : { args: toJsonSafe(args) }),
       ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
+      // BST-1070: this rebuild is field-by-field, so anything not explicitly
+      // spread is DROPPED — omitting this line would starve every LIVE
+      // approval of its execution context while rediscovered ones (which
+      // recompute server-side) kept working, precisely backwards. Pinned by
+      // the live-transport test in data-stream-session.spec.ts.
+      ...(chunk.executionContext === undefined ? {} : { executionContext: chunk.executionContext }),
     };
     yield {
       code: DataStreamCode.auiDataPart,

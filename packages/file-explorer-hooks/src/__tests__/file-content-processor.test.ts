@@ -1,14 +1,14 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { resetFileSizeConfig, setFileSizeConfig } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
-import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFileContentProcessor,
   DirectFileContentProcessor,
   WorkerFileContentProcessor,
-} from '../file-content-processor';
+} from '../file-content-processor.js';
 
 // Mock the worker
 vi.mock('@brainstrike/workers/file-content-worker', () => ({
@@ -29,8 +29,8 @@ vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/utils/file-explorer-utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/file-explorer-utils')>();
+vi.mock('@brainstrike/file-explorer/file-tree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer/file-tree')>();
   return {
     ...actual,
     fileExplorer: {
@@ -278,7 +278,8 @@ describe('DirectFileContentProcessor', () => {
     const processor = new DirectFileContentProcessor();
     const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
     mockReadFile.mockClear();
-    const { fileContent, fileExplorer } = await import('@brainstrike/utils');
+    const { fileExplorer } = await import('@brainstrike/file-explorer/file-tree');
+    const { fileContent } = await import('@brainstrike/utils/file-content');
     mockReadFile.mockResolvedValue('file content');
     vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
     vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);

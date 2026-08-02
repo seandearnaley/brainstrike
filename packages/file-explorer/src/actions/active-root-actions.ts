@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, StoredRootDescriptor } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { GetState, SetState } from '../types/store-types';
 
 const logger = createLogger('ActiveRootActions');

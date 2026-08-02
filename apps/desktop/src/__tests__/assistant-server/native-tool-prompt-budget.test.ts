@@ -101,7 +101,14 @@ const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // as loudly as bloat (BST-927 band doctrine).
 const MIN_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 2000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
-const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
+// runPython joined the suspending set in BST-1070 Gate B: without workflow
+// storage its suspend metadata is stripped here for the same reason as the
+// other two (this fixture measures the PROMPT surface, not resumability).
+const SUSPENDING_TOOL_IDS = [
+  'brainstrike.askUser',
+  'brainstrike.runPython',
+  'brainstrike.submitPlan',
+] as const;
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',
   description: 'A minimal production-equivalent skill for prompt-budget coverage.',

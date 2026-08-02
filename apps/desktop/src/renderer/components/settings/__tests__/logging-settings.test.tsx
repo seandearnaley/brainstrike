@@ -1,13 +1,13 @@
 import {
-  __resetLoggingPreferencesStoreForTests,
-  useLoggingPreferencesStore,
-} from '@brainstrike/preferences';
-import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
   LogLevel,
   type LogRecord,
-} from '@brainstrike/utils';
+} from '@brainstrike/logging';
+import {
+  __resetLoggingPreferencesStoreForTests,
+  useLoggingPreferencesStore,
+} from '@brainstrike/preferences';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { LoggingSettingsPayload } from '../../../../logging-shared';

@@ -17,7 +17,7 @@ import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/con
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract/run-events';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { createAssistantRequestEnvelope } from '@brainstrike/assistant-wire';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { AssistantStreamChunk } from 'assistant-stream';
 import {

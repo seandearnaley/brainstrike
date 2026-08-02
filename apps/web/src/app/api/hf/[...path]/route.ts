@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
 // Keep this pinned to the same built-in local model contract as

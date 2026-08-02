@@ -1,5 +1,5 @@
 import type { Command, CommandContext, CommandRegistry } from '@brainstrike/commands';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
+import type { ScopedLogger } from '@brainstrike/logging';
 
 /**
  * The capability-gated, danger-excluded command source for the composer's "/"

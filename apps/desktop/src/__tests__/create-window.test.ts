@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { addLogListener } from '@brainstrike/utils';
+import { addLogListener } from '@brainstrike/logging';
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow, noteNextWindowReload } from '../create-window';

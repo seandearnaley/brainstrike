@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import {
   type QuickOpenFileItem,
@@ -5,7 +6,6 @@ import {
   useIdeFileEditor,
   useQuickOpenHotkey,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
 import { useQuickOpenStore } from './stores/quick-open-store';
 import { useQuickOpenFiles } from './use-quick-open-files';

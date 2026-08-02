@@ -1,6 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import type { AssistantEditCheckpointOp, RuntimeData } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   type EditCheckpointCapture,
   type EditCheckpointDatabase,

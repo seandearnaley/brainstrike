@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { usePagination } from '../use-pagination';
+import { usePagination } from '../use-pagination.js';
 
 describe('usePagination', () => {
   it('navigates between pages correctly', () => {

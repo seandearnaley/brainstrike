@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { VaultFileHandleLike } from '../core/types';
 
 const logger = createLogger('NotesVaultViewer');

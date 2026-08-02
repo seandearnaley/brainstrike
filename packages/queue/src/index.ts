@@ -3,7 +3,7 @@ export {
   type QueueTelemetryRuntime,
   type QueueTelemetrySink,
   type QueueTelemetrySinkOptions,
-} from './remote-telemetry-sink';
+} from './remote-telemetry-sink.js';
 export {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
@@ -11,7 +11,7 @@ export {
   type QueueTelemetryAdapter,
   type QueueTelemetryEvent,
   type QueueTelemetrySnapshot,
-} from './telemetry';
+} from './telemetry.js';
 export type {
   DurableQueueStats,
   // Queue Health Diagnostics (BST-166)
@@ -32,10 +32,10 @@ export type {
   WorkerClientState,
   WorkerClientWithTimeout,
   WorkerHealthStatus,
-} from './types';
+} from './types.js';
 export {
   createTimeoutPromise,
   createWorkerReadyWaiter,
   DEFAULT_WORKER_READY_TIMEOUT_MS,
   type WorkerReadyWaiterOptions,
-} from './util';
+} from './util.js';

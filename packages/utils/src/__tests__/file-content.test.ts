@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileContent } from '../file-content';
+import { fileContent } from '../file-content.js';
 
 describe('fileContent', () => {
   describe('isTextContent', () => {

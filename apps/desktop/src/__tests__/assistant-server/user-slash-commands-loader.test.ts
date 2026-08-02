@@ -1,4 +1,4 @@
-import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetUserCommandWarningsForTests,

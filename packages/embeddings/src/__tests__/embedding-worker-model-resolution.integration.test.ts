@@ -2,7 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { startEmbeddingWorker } from '../index.js';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -11,8 +11,8 @@ import type {
   EmbeddingStatus,
   ModelConfig,
   SimilarityResult,
-} from '../types';
-import { clearModelConfigCache } from '../worker/embedding-worker';
+} from '../types.js';
+import { clearModelConfigCache } from '../worker/embedding-worker.js';
 
 const { mockState } = vi.hoisted(() => ({
   mockState: {

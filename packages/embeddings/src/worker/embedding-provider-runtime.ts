@@ -1,19 +1,23 @@
 import type { IDatabase } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
-import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service';
-import { EmbeddingProviderFactory } from '../factory';
+import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service.js';
+import { EmbeddingProviderFactory } from '../factory.js';
 import type {
   EmbeddingProviderConfig,
   EmbeddingProviderError,
   EmbeddingProviderType,
   LocalProviderType,
-} from '../provider-types';
-import { isLocalProviderType } from '../provider-types';
-import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
-import type { EmbeddingService, ModelConfig } from '../types';
-import { FALLBACK_MODEL_CONFIG } from '../types';
-import { getModelConfigFromDb } from './embedding-model-config';
+} from '../provider-types.js';
+import { isLocalProviderType } from '../provider-types.js';
+import {
+  formatProviderModelKey,
+  isHostedProvider,
+  parseProviderModelKey,
+} from '../provider-utils.js';
+import type { EmbeddingService, ModelConfig } from '../types.js';
+import { FALLBACK_MODEL_CONFIG } from '../types.js';
+import { getModelConfigFromDb } from './embedding-model-config.js';
 
 const runtimeLogger = createLogger('EmbeddingWorkerProviderRuntime');
 

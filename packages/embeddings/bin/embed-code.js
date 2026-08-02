@@ -5,41 +5,30 @@
 // before the TypeScript sources are compiled into dist/.
 
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const cjsEntrypoint = resolve(__dirname, '../dist/cli/embed-code.js');
-const esmEntrypoint = resolve(__dirname, '../dist/cli/embed-code.mjs');
+const entrypoint = resolve(__dirname, '../dist/cli/embed-code.js');
 
 async function main() {
-  if (existsSync(cjsEntrypoint)) {
-    // CommonJS build
-    const req = createRequire(import.meta.url);
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    requireOrExit(() => req(cjsEntrypoint));
-    return;
+  if (!existsSync(entrypoint)) {
+    throw new Error(`Built embed-code entrypoint is missing: ${entrypoint}`);
   }
-  if (existsSync(esmEntrypoint)) {
-    // ESM build
-    const url = pathToFileURL(esmEntrypoint).href;
-    await import(url);
-    return;
+  const builtModule = await import(pathToFileURL(entrypoint).href);
+  if (typeof builtModule.runEmbedCodeCli !== 'function') {
+    throw new TypeError(
+      `Built embed-code entrypoint does not export runEmbedCodeCli: ${entrypoint}`
+    );
   }
-  process.exit(1);
+  await builtModule.runEmbedCodeCli(process.argv.slice(2));
 }
 
-function requireOrExit(fn) {
-  try {
-    fn();
-  } catch {
-    process.exit(1);
-  }
-}
-
-main().catch((_err) => {
-  process.exit(1);
+main().catch((error) => {
+  process.stderr.write(
+    `embed-code failed: ${error instanceof Error ? error.stack : String(error)}\n`
+  );
+  process.exitCode = 1;
 });

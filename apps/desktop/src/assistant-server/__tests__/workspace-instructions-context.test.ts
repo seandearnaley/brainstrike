@@ -1,5 +1,5 @@
 import type { RuntimeData } from '@brainstrike/agent';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildWorkspaceInstructionsContextMessage,

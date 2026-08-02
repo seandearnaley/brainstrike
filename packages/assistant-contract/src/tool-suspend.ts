@@ -21,6 +21,7 @@ import type { AssistantRunEventKind } from './run-events.js';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+  type SuspendedApprovalsResponse,
 } from './tool-approval.js';
 
 export const TOOL_SUSPEND_DATA_NAME = 'brainstrike.tool-suspend';
@@ -43,6 +44,12 @@ export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
  */
 export const REGISTERED_SUSPEND_RESUME_TOOL_IDS = [
   NATIVE_TOOL_ID.askUser,
+  // BST-1070 Gate B: run_python's network escalation rides the suspension
+  // channel (per-call, argument-aware, structurally ungrantable). Registered
+  // here means the escalation card is the typed resume UI; plan mode still
+  // OMITS the tool on its execute risk (BST-1073 — a suspend schema is not an
+  // admission ticket).
+  NATIVE_TOOL_ID.runPython,
   NATIVE_TOOL_ID.submitPlan,
 ] as const;
 
@@ -98,6 +105,54 @@ export interface AssistantToolSuspendRequest {
   suspendPayload?: unknown;
   toolCallId: string;
   toolName: string;
+}
+
+/**
+ * A suspend pause re-discovered from workflow storage after a restart/reload
+ * (BST-1084), via the same `listSuspendedRuns` discovery the approval path
+ * uses. Extends the live-stream {@link AssistantToolSuspendRequest} ADDITIVELY
+ * — the same notice + resume seam renders it — with the suspend instant and an
+ * advisory staleness flag, mirroring {@link RediscoveredToolApproval} exactly
+ * (surface, never auto-answer). `suspendPayload` is recovered from the durable
+ * snapshot (Mastra's `AgentRunToolCall.suspendPayload`), so a rediscovered
+ * plan/question renders its real content, not a placeholder.
+ */
+export interface RediscoveredToolSuspend extends AssistantToolSuspendRequest {
+  /**
+   * ADVISORY resumability flag. The desktop endpoint only ever writes the
+   * literal `false` (no registered resume UI in this build), mirroring the
+   * live chunk's narrowing-only-to-false contract — but the renderer
+   * dispatches on `toolName`, never on this field, so the guard below does
+   * NOT validate it: rejecting an otherwise-valid pause over an unrecognized
+   * advisory value would re-create the silent stranding this contract exists
+   * to remove (#2223 review).
+   */
+  readonly resumeSupported?: boolean;
+  /** True when older than BRAINSTRIKE_APPROVAL_STALE_MS (advisory only). */
+  readonly stale: boolean;
+  /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
+  readonly suspendedAt: string;
+}
+
+/**
+ * The `/assistant/suspended-runs` payload once suspend rediscovery ships:
+ * the approvals array (unchanged) plus the rediscovered suspend pauses.
+ * ADDITIVE — a client that only knows {@link SuspendedApprovalsResponse}
+ * ignores `suspends` and loses nothing it had.
+ */
+export interface SuspendedRunsResponse extends SuspendedApprovalsResponse {
+  readonly suspends?: readonly RediscoveredToolSuspend[];
+}
+
+export function isRediscoveredToolSuspend(value: unknown): value is RediscoveredToolSuspend {
+  return (
+    isRecord(value) &&
+    isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS) &&
+    typeof value['suspendedAt'] === 'string' &&
+    typeof value['stale'] === 'boolean'
+  );
 }
 
 /**
@@ -221,3 +276,26 @@ export interface AskUserPayload {
 
 /** Free-text/single-select resume with a string; multi-select with a string[]. */
 export type AskUserAnswer = string | string[];
+
+/**
+ * The Gate B network-escalation pause payload (BST-1070 design §3): built
+ * inside `run_python`'s execute() from the LIVE resolved policy, so the
+ * domains shown are the domains used, by construction. Never empty — an
+ * empty-domain call runs without suspending.
+ */
+export interface RunPythonNetworkSuspendPayload {
+  /** The exact ExecPolicy.allowedDomains the script will get. Never empty. */
+  readonly allowedDomains: readonly string[];
+  readonly kind: 'network';
+}
+
+/**
+ * Resumed into the suspended `run_python` call. Deny is expressible; "run
+ * offline instead" deliberately is NOT (design §3.3 rejected it: exit 0 with
+ * silently missing data is a wrong result dressed as a stronger sandbox).
+ * Anything that does not narrow to this shape is treated as DENY by the tool
+ * — a schema drift must never become a silent network grant.
+ */
+export interface RunPythonNetworkDecision {
+  readonly action: 'allow' | 'deny';
+}

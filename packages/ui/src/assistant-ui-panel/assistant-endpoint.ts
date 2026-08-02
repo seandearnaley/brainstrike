@@ -1,5 +1,5 @@
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 export const assistantEndpointLogger = createLogger('AssistantEndpoint');
 

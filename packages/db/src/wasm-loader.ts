@@ -1,4 +1,5 @@
-import { createLogger, isDevEnv, setupHMR } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { isDevEnv, setupHMR } from '@brainstrike/utils';
 import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 import type { LiveNamespace } from '@electric-sql/pglite/live';

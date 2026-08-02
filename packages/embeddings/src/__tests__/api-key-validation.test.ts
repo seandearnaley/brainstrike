@@ -3,8 +3,8 @@ import {
   checkApiKeyAvailability,
   getApiKeyConfigInstructions,
   requiresApiKey,
-} from '../api-key-validation';
-import { clearHostedProviderApiKeyCache } from '../providers/hosted/api-key-resolver';
+} from '../api-key-validation.js';
+import { clearHostedProviderApiKeyCache } from '../providers/hosted/api-key-resolver.js';
 
 describe('api-key-validation', () => {
   beforeEach(() => {

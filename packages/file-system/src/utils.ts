@@ -1,6 +1,6 @@
 import fsPromises from 'node:fs/promises';
-import { AccessError, PermissionError } from './errors';
-import { resolveValidatedPath } from './path-validation';
+import { AccessError, PermissionError } from './errors.js';
+import { resolveValidatedPath } from './path-validation.js';
 
 export {
   createLimiter,
@@ -11,7 +11,7 @@ export {
   isFileSystemFileHandle,
   isValidDirectoryHandle,
   normalizeDirectoryReadOptions,
-} from './utils-browser';
+} from './utils-browser.js';
 
 /**
  * Validate that a given path exists and is a directory.

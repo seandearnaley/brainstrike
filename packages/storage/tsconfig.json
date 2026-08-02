@@ -1,5 +1,5 @@
 {
-  "extends": "../../packages/config/tsconfig/base.json",
+  "extends": "../../packages/config/tsconfig/node-library.json",
   "compilerOptions": {
     "composite": true,
     "incremental": true,
@@ -7,8 +7,6 @@
     "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
-    "emitDeclarationOnly": true,
-    "declarationDir": "dist",
     "declarationMap": true,
     "types": [
       "node"
@@ -33,6 +31,9 @@
     },
     {
       "path": "../../packages/utils"
+    },
+    {
+      "path": "../logging"
     }
   ]
 }

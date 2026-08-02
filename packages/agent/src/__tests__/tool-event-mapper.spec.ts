@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import { mapMastraToolEvent, readNestedToolOutputChunk } from '../mastra/tool-event-mapper';
 import { createHookResultEnvelope } from '../tools/hook-runner';

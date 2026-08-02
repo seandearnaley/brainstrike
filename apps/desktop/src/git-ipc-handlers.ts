@@ -21,7 +21,7 @@
  * silently swallowed.
  */
 import { type ExecFileException, execFile } from 'node:child_process';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   createGitService,
   GIT_MAX_BUFFER_BYTES,

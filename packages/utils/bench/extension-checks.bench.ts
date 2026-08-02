@@ -5,7 +5,7 @@ import {
   isBinaryFile,
   isTextExtension,
   isTextFile,
-} from '../src/file-utils';
+} from '../src/file-utils.js';
 
 const normalizedTextExtensions = ['ts', 'tsx', 'md', 'json'];
 const normalizedBinaryExtensions = ['png', 'pdf', 'mp4', 'zip'];

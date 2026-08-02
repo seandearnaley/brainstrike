@@ -4,7 +4,7 @@ import {
   normalizeFilePathForFolder,
   normalizeSelectionPathForFolder,
   validateRelativeFilePath,
-} from '../relative-file-path';
+} from '../relative-file-path.js';
 
 describe('validateRelativeFilePath', () => {
   it('accepts safe relative paths', () => {

@@ -16,18 +16,20 @@
 // the current program, so the set pruned here is disjoint from anything it
 // writes.
 //
-// The orphan test is PROGRAM membership, not filesystem existence: the
-// package's tsconfig is resolved with the real TypeScript config loader
-// (extends/include/exclude respected), and an artifact is stale when no
-// program source would emit it. A bare "does src/<base>.ts exist" check
-// wrongly retains artifacts of sources that exist but are EXCLUDED — e.g. a
-// dist/foo.test.js left from before a `**/*.test.*` exclude landed, which is
-// exactly the vitest-importing shape that trips `turbo boundaries`.
+// The orphan test is TypeScript's exact emit plan, not filesystem existence:
+// the package's tsconfig is resolved with the real config loader
+// (extends/include/exclude respected), then `getOutputFileNames` supplies the
+// artifacts each program source can emit. A bare "does src/<base>.ts exist"
+// check wrongly retains both outputs of EXCLUDED sources and obsolete module
+// formats after a build-strategy change (for example `index.cjs` left behind
+// when a package moves from tsup dual emit to tsc ESM emit).
 //
 // Two deliberate carve-outs:
-//   - Outputs of on-disk `.js`/`.jsx` sources are kept even outside the
-//     program: they are bundler entries (file-explorer's .worker.js), and
-//     pruning them would erode the concurrent-build disjointness above.
+//   - A package that actually runs tsup may keep a declared alternate-format
+//     artifact only while the same source base remains in TypeScript's emit
+//     plan. Package metadata alone is not liveness: a stale export must not
+//     immortalize a sourceless compiled module. Outputs of on-disk `.js`/`.jsx`
+//     sources outside the program are also kept as bundler outputs.
 //   - `.json` pruning activates only when the program itself contains json
 //     sources (tsc copies included json verbatim — packages/db's
 //     drizzle/migrations.json). In packages whose tsc does not own json, a
@@ -65,8 +67,6 @@ const ARTIFACT_SUFFIXES = [
   '.json',
 ];
 
-const PROGRAM_SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx'];
-
 /** Split a dist-relative artifact path into { base, suffix }, or null if the file is not a build artifact. */
 function splitArtifact(relPath) {
   for (const suffix of ARTIFACT_SUFFIXES) {
@@ -77,10 +77,69 @@ function splitArtifact(relPath) {
   return null;
 }
 
+/** Collect live alternate-format artifacts produced by a real tsup build step. */
+function resolveDeclaredBundlerArtifacts(packageDir, distDir, liveArtifactBases) {
+  const packageJsonPath = path.join(packageDir, 'package.json');
+  let packageJson;
+  try {
+    packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  } catch (error) {
+    throw new Error(
+      `prune-stale-dist: failed to parse ${packageJsonPath}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  const buildScript = packageJson.scripts?.build;
+  const runsTsup =
+    typeof buildScript === 'string' &&
+    buildScript
+      .split('&&')
+      .map((step) => step.trim())
+      .some((step) => /^(?:pnpm exec )?tsup(?:\s|$)/u.test(step));
+  if (!runsTsup) {
+    return new Set();
+  }
+
+  const declaredArtifacts = new Set();
+  const visit = (value) => {
+    if (typeof value === 'string') {
+      if (value.includes('*')) {
+        return;
+      }
+      const abs = path.resolve(packageDir, value);
+      if (abs.startsWith(distDir + path.sep)) {
+        const relPath = path.relative(distDir, abs);
+        const artifact = splitArtifact(relPath);
+        if (artifact && liveArtifactBases.has(artifact.base)) {
+          declaredArtifacts.add(relPath);
+        }
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item);
+      }
+      return;
+    }
+    if (value && typeof value === 'object') {
+      for (const item of Object.values(value)) {
+        visit(item);
+      }
+    }
+  };
+
+  visit(packageJson.exports);
+  visit(packageJson.main);
+  visit(packageJson.module);
+  visit(packageJson.types);
+  return declaredArtifacts;
+}
+
 /**
- * Resolve the package's tsc program and reduce it to the emit-relevant view:
- * src-relative artifact bases plus the set of src-relative json paths tsc
- * copies verbatim.
+ * Resolve the package's tsc program and ask TypeScript for its exact output
+ * filenames. This keeps the pruner aligned with module/declaration/source-map
+ * options without duplicating the compiler's extension rules.
  */
 function resolveProgram(packageDir, srcDir, distDir) {
   const tsconfigPath = path.join(packageDir, 'tsconfig.json');
@@ -118,37 +177,51 @@ function resolveProgram(packageDir, srcDir, distDir) {
     );
   }
 
-  const bases = new Set();
-  const jsonSources = new Set();
+  const liveArtifacts = new Set();
+  const liveArtifactBases = new Set();
+  let hasJsonSources = false;
   for (const fileName of parsed.fileNames) {
     const abs = path.resolve(fileName);
     if (!abs.startsWith(srcDir + path.sep)) {
       continue;
     }
-    const rel = path.relative(srcDir, abs);
-    if (rel.endsWith('.json')) {
-      jsonSources.add(rel);
-      continue;
+    if (abs.endsWith('.json')) {
+      hasJsonSources = true;
     }
-    const ext = PROGRAM_SOURCE_EXTENSIONS.find((candidate) => rel.endsWith(candidate));
-    if (ext) {
-      bases.add(rel.slice(0, -ext.length));
+    for (const outputFile of ts.getOutputFileNames(
+      parsed,
+      abs,
+      !ts.sys.useCaseSensitiveFileNames
+    )) {
+      const outputAbs = path.resolve(outputFile);
+      if (outputAbs.startsWith(distDir + path.sep)) {
+        const relPath = path.relative(distDir, outputAbs);
+        liveArtifacts.add(relPath);
+        const artifact = splitArtifact(relPath);
+        if (artifact) {
+          liveArtifactBases.add(artifact.base);
+        }
+      }
     }
   }
-  return { bases, jsonSources };
+  for (const declaredArtifact of resolveDeclaredBundlerArtifacts(
+    packageDir,
+    distDir,
+    liveArtifactBases
+  )) {
+    liveArtifacts.add(declaredArtifact);
+  }
+  return { hasJsonSources, liveArtifacts };
 }
 
 /** True when the current build would still emit this artifact. */
-function isLiveArtifact(artifact, program, srcDir) {
+function isLiveArtifact(relPath, artifact, program, srcDir) {
+  if (program.liveArtifacts.has(relPath)) {
+    return true;
+  }
   if (artifact.suffix === '.json') {
     // Json pruning only in packages whose program owns json (see header).
-    if (program.jsonSources.size === 0) {
-      return true;
-    }
-    return program.jsonSources.has(`${artifact.base}.json`);
-  }
-  if (program.bases.has(artifact.base)) {
-    return true;
+    return !program.hasJsonSources;
   }
   // Bundler entries: checked-in .js/.jsx sources outside the program (see header).
   return (
@@ -196,8 +269,9 @@ export function main({ packageDir = process.cwd(), log = console.log } = {}) {
 
   const deleted = [];
   for (const abs of files) {
-    const artifact = splitArtifact(path.relative(distDir, abs));
-    if (artifact === null || isLiveArtifact(artifact, program, srcDir)) {
+    const relPath = path.relative(distDir, abs);
+    const artifact = splitArtifact(relPath);
+    if (artifact === null || isLiveArtifact(relPath, artifact, program, srcDir)) {
       continue;
     }
     // force:true keeps concurrent prunes of the same package idempotent — the

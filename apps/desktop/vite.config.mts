@@ -103,7 +103,7 @@ export default defineConfig({
       '@brainstrike/hooks',
       '@brainstrike/ui',
       '@brainstrike/utils',
-      '@brainstrike/utils/workspace-indexing-qos',
+      '@brainstrike/indexing-contract/workspace-indexing-qos',
       '@brainstrike/file-explorer',
       '@brainstrike/file-explorer-hooks',
       '@brainstrike/file-explorer-ui',

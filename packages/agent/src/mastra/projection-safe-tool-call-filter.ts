@@ -1,6 +1,6 @@
 import { isGuardedToolError, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import type {
   ProcessInputStepArgs,

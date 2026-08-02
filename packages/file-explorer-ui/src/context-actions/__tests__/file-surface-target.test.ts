@@ -1,4 +1,4 @@
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { describe, expect, it } from 'vitest';
 import { fileTabToTarget, fileViewerToTarget } from '../file-surface-target';
 

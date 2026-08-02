@@ -16,7 +16,7 @@
  * errors; this module owns only the policy for what the user and the durable
  * timeline see when one of them fires.
  */
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { type ProviderRunError, providerRunErrorToEventMetadata } from '../provider-error-metadata';
 import type { AssistantRunEventMetadata } from '../run-events';
 import { StreamStalledError } from '../stream/with-inactivity-timeout';

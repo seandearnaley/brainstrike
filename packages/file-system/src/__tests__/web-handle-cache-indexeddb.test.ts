@@ -3,7 +3,7 @@ import {
   type StoredFileHandle,
   type StoredRootHandle,
   WebHandleCache,
-} from '../adapters/web-handle-cache';
+} from '../adapters/web-handle-cache.js';
 
 const { mockDeleteDatabase, mockOpenDb } = vi.hoisted(() => ({
   mockDeleteDatabase: vi.fn(),

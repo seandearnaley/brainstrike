@@ -1,4 +1,4 @@
-import { formatUsdCost } from '@brainstrike/utils/token-counting-heuristics';
+import { formatUsdCost } from '@brainstrike/tokenization';
 import { PiggyBank } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { Button } from '../button';

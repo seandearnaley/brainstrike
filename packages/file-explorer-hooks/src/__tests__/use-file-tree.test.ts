@@ -1,13 +1,13 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileTree } from '../use-file-tree';
-import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
+import { useFileTree } from '../use-file-tree.js';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
 
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;
@@ -29,8 +29,8 @@ const loggerMock = vi.hoisted<MockLogger>(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: vi.fn(() => loggerMock),

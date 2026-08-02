@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createThrottledSetState, createThrottledStateRef } from '../../src/throttled-state';
+import { createThrottledSetState, createThrottledStateRef } from '../../src/throttled-state.js';
 
 describe('throttled-state', () => {
   beforeEach(() => {

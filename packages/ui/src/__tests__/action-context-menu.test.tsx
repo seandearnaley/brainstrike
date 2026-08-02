@@ -5,7 +5,7 @@ import {
   createTestActionRegistry,
   defineContextAction,
 } from '@brainstrike/context-actions';
-import { addLogListener, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionContextMenu, ActionRegistryProvider, useContextMenuTarget } from '../context-menu';

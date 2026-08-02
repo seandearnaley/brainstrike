@@ -1,4 +1,4 @@
-import type { ActionOutcome, ClipboardService } from './types';
+import type { ActionOutcome, ClipboardService } from './types.js';
 
 interface ClipboardBridgeResult {
   error?: string;

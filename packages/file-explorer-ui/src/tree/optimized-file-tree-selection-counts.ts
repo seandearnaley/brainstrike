@@ -1,7 +1,7 @@
 import { resolveQuerySelection } from '@brainstrike/file-explorer';
+import { isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
+import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { isDescendantPath } from '@brainstrike/utils';
-import { isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import { useEffect, useMemo, useRef } from 'react';
 
 // Bound ancestor-path cache growth for large workspaces (15k+ files) while

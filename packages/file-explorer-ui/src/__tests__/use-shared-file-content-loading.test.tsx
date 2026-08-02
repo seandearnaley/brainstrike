@@ -1,3 +1,5 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import {
   DEFAULT_MAX_FILE_SIZE,
@@ -5,11 +7,11 @@ import {
   resetFileSizeConfig,
   setFileSizeConfig,
 } from '@brainstrike/file-system';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
+import { fileContent } from '@brainstrike/utils';
 import type { FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';

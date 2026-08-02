@@ -1027,6 +1027,30 @@ Flow (desktop assistant server → agent runtime):
    mounted root, root-relative cwd, runtime, and structured argv. It never
    presents or accepts a model-supplied absolute skill path; malformed typed
    arguments stay on the same visible raw-arguments error path.
+   `brainstrike.runPython` (BST-1070 Gate A) renders the code plus
+   always-rendered fact rows (internet / write / read / time limit / sandbox)
+   from a server-computed `executionContext`
+   (`CodeExecutionApprovalContext`, tool-approval contract): host facts the
+   model's args cannot carry, derived by
+   `resolveRunPythonExecutionContext` from the tool's own strict schema plus
+   the constants execute() uses. It is forwarded in THREE places — stamped in
+   `makeApprovalRequiredChunks`, spread through
+   `DataStreamMapper.handleToolApprovalRequired`'s field-by-field rebuild
+   (miss it and every LIVE approval degrades while rediscovered ones work —
+   pinned by a live-transport test), and RECOMPUTED on rediscovery in
+   `status-endpoints.ts` beside `riskCategory`. Fail-safe: args that fail
+   strict narrowing or an absent/invalid context keep Approve/Decline but
+   SUPPRESS the grant buttons (parent-side `resolveApprovalPreviewPolicy`,
+   riding the existing null-`grantCategory` gating path) with a visible
+   reason — no "always allow" for a call the card cannot read. Copy rule the
+   fence contract forces: an empty `allowRead` under `defaultReadAccess:
+   'permissive'` renders "most files on this computer", NEVER "can't read
+   your files". Settled result surface (`run-python-result.tsx`, mounted by
+   `tool-fallback.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
+   amber finish (destructive chrome is reserved for `unavailable`), cancelled
+   never renders as success or empty, truncation is a per-stream note, and
+   the card-level status maps cancelled/timed-out/killed to a `stopped` state
+   instead of the generic green check.
    The built-in local provider admits a call to this chain only after its
    arguments parse as a root JSON object. A
    `local_tool_call_arguments_invalid` generation ends visibly with typed
@@ -1279,20 +1303,25 @@ scripted model's synchronous stream starves the event loop during the
 PGlite-backed resume; the test drains with a per-chunk `setImmediate` yield
 (mirrors real streaming) — a harness concern, not a production bug.
 
-Restart-safe rediscovery (a run suspended for approval survives a desktop
-restart / renderer reload, but the LIVE approval notice — a never-persisted
-stream data part — is gone on reload): on thread open the desktop history
-adapter rediscovers pending approvals and re-surfaces a working notice, REUSING
-the (already restart-safe) `streamMastraToolApprovalAction` resume seam
-untouched. Flow:
+Restart-safe rediscovery (a run suspended for approval OR by a tool's
+`suspend()` survives a desktop restart / renderer reload, but the LIVE notice —
+a never-persisted stream data part — is gone on reload): on thread open the
+desktop history adapter rediscovers both pause kinds and re-surfaces working
+notices, REUSING the (already restart-safe, stateless)
+`streamMastraToolApprovalAction` / `streamMastraToolResumeAction` resume seams
+untouched. Unified since BST-1084 — the previous "non-approval pauses are
+tolerated + skipped" behavior is GONE, and with it the silent stranding path
+that blocked run_python's Gate B. Flow:
 - `listSuspendedMastraRuns(filter, options)` (`agent-streaming.ts`) wraps
   `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
-  returns approval-gated tool calls only (`requiresApproval === true`) with
-  `toolName` mapped back to the ORIGINAL dotted form (see NAME-FORM CONTRACT
-  above);
-  non-approval `suspend()` pauses (submitPlan/askUser) and delegation-thread runs
-  are tolerated + skipped (debug-logged) — a unified suspend rediscovery is a
-  follow-up. Discovery is CONTEXT-FREE + KEYLESS: the stable agent id
+  returns `{ approvals, suspends }`: approval-gated calls
+  (`requiresApproval === true`) and non-approval `suspend()` pauses
+  (submitPlan/askUser), both with `toolName` mapped back to the ORIGINAL dotted
+  form (see NAME-FORM CONTRACT above), suspends carrying the tool-defined
+  `suspendPayload` recovered from the durable snapshot (so a rediscovered
+  plan/question renders its real content). Only a call missing its ids (e.g. a
+  delegation-thread run) is tolerated + skipped (debug-logged). Discovery is
+  CONTEXT-FREE + KEYLESS: the stable agent id
   (`brainstrike-assistant`) is provider-independent, so listing constructs a
   keyless `ollama` agent (no provider/apiKey from the renderer, no inference).
   Desktop constructs the paired PGlite memory/storage with observational memory
@@ -1301,19 +1330,29 @@ untouched. Flow:
   before the inert listing model is reached, violating the keyless contract.
 - Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
   (`apps/desktop/src/assistant-server/status-endpoints.ts`): recomputes `riskCategory` from
-  `buildNativeToolRiskMap()` and stamps `stale` against
-  `BRAINSTRIKE_APPROVAL_STALE_MS`. Missing thread ctx → 400; no storage → 503.
-- Renderer client `createSuspendedApprovalDiscovery` (app-shell,
+  `buildNativeToolRiskMap()` (approvals), stamps `stale` against
+  `BRAINSTRIKE_APPROVAL_STALE_MS` (both kinds), and flags a suspend whose tool
+  has no `hasRegisteredSuspendResumeUi` with `resumeSupported: false` + a loud
+  warning — the live path's honesty contract, never a silent drop. Missing
+  thread ctx → 400; no storage → 503. Response is `SuspendedRunsResponse`
+  (`suspends` is ADDITIVE; a client that only knows approvals ignores it).
+- Renderer client `createSuspendedRunDiscovery` (app-shell,
   desktop-capability-gated — web omits it, no `isElectron()`) → hydration
-  injection `appendSuspendedApprovalMessages` appends one synthetic trailing
-  assistant message per approval carrying a `TOOL_APPROVAL_DATA_NAME` data part
-  identical to the live mapper's output; the existing notice + its
-  Approve/Decline resume render unchanged. Staleness is display-only (D5): a
-  muted "Pending since <relative>" line always, an amber advisory when `stale`,
-  both buttons enabled, NO auto-decline.
-- Restart proof extends the same spec: a run suspended under `openai` is
+  injection `appendSuspendedPauseMessages` appends one synthetic trailing
+  assistant message per pause — `TOOL_APPROVAL_DATA_NAME` for approvals,
+  `TOOL_SUSPEND_DATA_NAME` for suspends, interleaved oldest-first — identical
+  to the live mapper's output; the existing notices + their resume seams render
+  unchanged (an unregistered suspend gets the same dead-end notice as live).
+  Staleness is display-only (D5) via the SHARED `RediscoveredPauseLines`
+  (`packages/ui/src/assistant-ui-panel/rediscovered-pause-lines.tsx`, used by
+  both notice kinds): a muted "Pending since <relative>" line always, an amber
+  advisory when `stale`, controls enabled, NO auto-decline / auto-answer.
+- Restart proofs extend the same specs: a run suspended under `openai` is
   rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
-  to execution by a THIRD fresh runtime.
+  to execution by a THIRD fresh runtime — for approvals
+  (mastra-tool-approval-suspend.integration.spec.ts) AND for suspend() pauses
+  with their payload (mastra-tool-suspend-resume.integration.spec.ts, the
+  BST-1084 headline proof).
 - **Corrupt snapshot rows (BST-558, settled — do not relitigate.)** Every
   TARGETED snapshot read in `PgliteWorkflowsStore`
   (`loadWorkflowSnapshot`, `getWorkflowRunById`, `updateWorkflowResults`)
@@ -1357,7 +1396,11 @@ NOTE: the per-tool approval gate is SEPARATE from tool SUSPENSION (submitPlan /
 askUser) — see PLAN MODE & TOOL SUSPENSION below. Approval pauses BEFORE a tool
 runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
 pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
-`resumeStream`). submitPlan/askUser are classified `riskCategory:'read'` so the
+`resumeStream`). run_python's Gate B network escalation (BST-1070) is the
+third registered suspending tool: per-call, argument-aware, and structurally
+ungrantable — the escalation card (`RunPythonNetworkNotice`) requires every
+named domain individually ticked, renders deny primary/autofocused, and has
+no grant surface at all. submitPlan/askUser are classified `riskCategory:'read'` so the
 permission engine never stacks an approval prompt on top of their own suspend.
 
 Desktop request initialization validates `enabledNativeToolIds` against the
@@ -1726,8 +1769,9 @@ termination so it fails visibly.
 
 **Unknown resume schemas are REJECTED VISIBLY and NON-TERMINALLY (BST-558):** only
 tools listed in `REGISTERED_SUSPEND_RESUME_TOOL_IDS`
-(`@brainstrike/assistant-contract/tool-suspend` — today `askUser` + `submitPlan`)
-have a registered typed suspension UI. A well-formed pause from any OTHER tool
+(`@brainstrike/assistant-contract/tool-suspend` — today `askUser`, `runPython`
+(the BST-1070 Gate B network escalation), and `submitPlan`) have a registered
+typed suspension UI. A well-formed pause from any OTHER tool
 still becomes a `tool-suspend-required` chunk, but
 `makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable
 `tool.resume.unsupported` run event

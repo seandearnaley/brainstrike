@@ -1,7 +1,7 @@
+import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, PartialRefreshError } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback } from 'react';
 
 /**

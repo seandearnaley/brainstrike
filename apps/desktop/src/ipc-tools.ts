@@ -7,7 +7,7 @@
 
 import type { RuntimeData } from '@brainstrike/agent';
 import { DESKTOP_NATIVE_TOOL_IDS, isNativeTool } from '@brainstrike/agent/client';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';

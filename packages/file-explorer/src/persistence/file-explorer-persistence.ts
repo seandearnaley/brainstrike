@@ -5,9 +5,9 @@
  * It handles state serialization/deserialization and rehydration.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, SerializedState } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
 import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
 import { migrateState } from './state-migration';

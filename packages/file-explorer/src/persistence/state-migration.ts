@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
 
 interface ZustandPersistWrapper<T> {

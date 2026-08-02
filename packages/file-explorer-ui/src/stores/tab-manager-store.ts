@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import { createSafeJsonStateStorage } from '@brainstrike/storage';
-import { createLogger } from '@brainstrike/utils/logger';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 

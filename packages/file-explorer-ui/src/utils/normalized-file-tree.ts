@@ -1,5 +1,5 @@
+import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type { DirectoryLoadState, IFileNode } from '@brainstrike/types';
-import { isDescendantPath } from '@brainstrike/utils';
 
 export interface NormalizedFileTreeNode extends Omit<IFileNode, 'children'> {}
 

@@ -9,7 +9,7 @@ import {
   isFileSystemFileHandle,
   isValidDirectoryHandle,
   normalizeDirectoryReadOptions,
-} from '../utils-browser';
+} from '../utils-browser.js';
 
 function makeHandle(overrides: Partial<DirectoryHandle> = {}): DirectoryHandle {
   return {

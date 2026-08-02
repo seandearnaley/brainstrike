@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react';
 import { createElement, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type ConsoleErrorProbe, captureConsoleError } from '../src/console-error-probe';
+import { type ConsoleErrorProbe, captureConsoleError } from '../src/console-error-probe.js';
 
 let consoleErrorProbe: ConsoleErrorProbe;
 let downstreamConsoleError: ReturnType<typeof vi.spyOn>;

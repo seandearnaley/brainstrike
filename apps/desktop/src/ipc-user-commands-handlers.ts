@@ -15,7 +15,7 @@
 
 import { homedir } from 'node:os';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
 import {
   scanUserSlashCommands,

@@ -13,12 +13,12 @@ import {
   useDrizzleLiveQuery,
   useViewFilterPresetsRepository,
 } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
 import type {
   CreateViewFilterPresetInput,
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { asc } from 'drizzle-orm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 

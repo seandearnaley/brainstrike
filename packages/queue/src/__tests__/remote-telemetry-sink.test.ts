@@ -1,6 +1,7 @@
+import { LogLevel } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initializeQueueTelemetrySink } from '../remote-telemetry-sink';
-import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
+import { initializeQueueTelemetrySink } from '../remote-telemetry-sink.js';
+import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry.js';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
@@ -10,9 +11,13 @@ const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: vi.fn(() => mockLogger),
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => mockLogger),
+  };
+});
 
 describe('initializeQueueTelemetrySink', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
@@ -42,6 +47,10 @@ describe('initializeQueueTelemetrySink', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('preserves unmocked logging exports', () => {
+    expect(LogLevel.INFO).toBe('info');
   });
 
   it('should return null when endpoint is not provided', () => {

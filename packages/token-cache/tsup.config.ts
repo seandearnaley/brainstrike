@@ -29,7 +29,7 @@ export default defineConfig((options) => ({
   // chunks (for example tiktoken_bg/token-utils-accurate-lite) once across the
   // worker and runtime entrypoints instead of relying on external ESM resolution.
   // The tokenizer table itself is emitted as a guarded JSON asset above.
-  noExternal: ['@brainstrike/text-splitter', '@brainstrike/utils', 'xxhash-wasm', 'tiktoken'],
+  noExternal: ['@brainstrike/tokenization', '@brainstrike/utils', 'xxhash-wasm'],
   outDir: 'dist',
   platform: 'browser',
   sourcemap: false,

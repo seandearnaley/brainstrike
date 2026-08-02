@@ -5,7 +5,7 @@ import {
   type StreamChunk,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';

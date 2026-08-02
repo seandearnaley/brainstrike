@@ -4,7 +4,6 @@
  */
 
 import {
-  countTokensHeuristic,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
@@ -16,6 +15,7 @@ import {
   splitByBlankLines,
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import { type ExtractedSymbols, extractSymbols } from './extract-symbols';
 import {
@@ -168,16 +168,18 @@ const LARGE_STRUCTURED_PATTERNS = [
   /\.log$/i,
 ];
 
-type TokenUtilsLiteModule = typeof import('./token-utils-lite');
+type TokenUtilsLiteModule = typeof import('@brainstrike/tokenization/token-utils-lite');
 
 let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
 
 async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
   if (!tokenUtilsLiteModulePromise) {
-    tokenUtilsLiteModulePromise = import('./token-utils-lite').catch((error: unknown) => {
-      tokenUtilsLiteModulePromise = null;
-      throw error;
-    });
+    tokenUtilsLiteModulePromise = import('@brainstrike/tokenization/token-utils-lite').catch(
+      (error: unknown) => {
+        tokenUtilsLiteModulePromise = null;
+        throw error;
+      }
+    );
   }
   return tokenUtilsLiteModulePromise;
 }

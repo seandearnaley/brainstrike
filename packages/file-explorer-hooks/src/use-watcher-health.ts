@@ -4,7 +4,7 @@
 // empty map and an 'unsupported' retry outcome — the UI renders nothing.
 import type { WatcherRetryOutcome, WatcherRootHealthEvent } from '@brainstrike/types';
 import { useCallback, useEffect, useState } from 'react';
-import { useAdapters } from './adapters-context';
+import { useAdapters } from './adapters-context.js';
 
 export interface WatcherHealthApi {
   /** Latest health transition per watched root path. */

@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/hooks": "workspace:*",
-    "@brainstrike/text-splitter": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
     "@electric-sql/pglite": "catalog:",
-    "tiktoken": "catalog:",
     "xxhash-wasm": "catalog:"
   },
   "devDependencies": {

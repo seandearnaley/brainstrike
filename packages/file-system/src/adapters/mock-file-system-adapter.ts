@@ -6,7 +6,7 @@ import type {
   FileHandle,
   FileSystemAdapter,
   StreamingDirectoryReadOptions,
-} from '../types';
+} from '../types.js';
 
 export interface MockFileEntry {
   children?: Record<string, MockFileEntry>;

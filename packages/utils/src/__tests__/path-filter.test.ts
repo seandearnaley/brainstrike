@@ -1,7 +1,7 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import type { FileFilterOptions } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-import { fileFilter } from '../path-filter';
+import { fileFilter } from '../path-filter.js';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
@@ -11,7 +11,7 @@ const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 

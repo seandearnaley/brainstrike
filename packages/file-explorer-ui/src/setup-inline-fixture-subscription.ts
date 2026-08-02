@@ -21,8 +21,8 @@ import {
   type FixtureLoadOptions,
   isFixtureCapableAdapter,
 } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { StoreApi } from 'zustand';
 import { dispatchInjectRootHandle } from './inject-root-handle-event';
 import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';

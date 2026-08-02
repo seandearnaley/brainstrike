@@ -1,7 +1,7 @@
 export {
   type CspEnvironment,
   getContentSecurityPolicy,
-} from './content-security-policy';
+} from './content-security-policy.js';
 
 export type Platform = 'web' | 'electron';
 

@@ -11,8 +11,8 @@ import type {
   WorkerClientState,
   WorkerClientWithTimeout,
   WorkerHealthStatus,
-} from '../types';
-import { toWorkerRequest } from '../types';
+} from '../types.js';
+import { toWorkerRequest } from '../types.js';
 
 const basePayload = {
   deviceHint: 'wasm' as const,

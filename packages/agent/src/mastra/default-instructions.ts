@@ -4,7 +4,7 @@ import {
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
+import { formatTokenCount } from '@brainstrike/tokenization';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
   if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {
@@ -29,7 +29,7 @@ const TASK_STATUS_GLYPHS: Record<AssistantTaskStatus, string> = {
  * `<`/`>` neutralizes any tag-like breakout while keeping the label readable;
  * `&` is encoded first so a genuine ampersand round-trips instead of forming a
  * bogus entity. Mirrors the `escapeXmlAttribute` precedent in
- * packages/utils/src/report-generator.ts (used for the `<file path="...">`
+ * packages/file-explorer/src/context-generation.ts (used for the `<file path="...">`
  * attribute); quotes/apostrophes aren't escaped here since this text is never
  * inside a quoted attribute, only free-standing block content.
  */

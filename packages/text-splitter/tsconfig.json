@@ -1,11 +1,10 @@
 {
-  "extends": "../../packages/config/tsconfig/base.json",
+  "extends": "../../packages/config/tsconfig/node-library.json",
   "compilerOptions": {
     "composite": true,
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
-    "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
     "types": [
@@ -13,14 +12,8 @@
     ],
     "strictNullChecks": true,
     "paths": {
-      "@brainstrike/utils/token-counting-heuristics": [
-        "../utils/dist/token-counting-heuristics.d.ts"
-      ],
-      "@brainstrike/utils/token-constants": [
-        "../utils/dist/token-constants.d.ts"
-      ],
-      "@brainstrike/utils/token-utils-accurate-lite": [
-        "../utils/dist/token-utils-accurate-lite.d.ts"
+      "@brainstrike/tokenization": [
+        "../tokenization/dist/index.d.ts"
       ]
     }
   },
@@ -34,7 +27,7 @@
   ],
   "references": [
     {
-      "path": "../utils"
+      "path": "../tokenization"
     }
   ]
 }

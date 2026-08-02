@@ -6,7 +6,7 @@ import {
 import type {
   WorkspaceIndexingQosInputs,
   WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loggerInfoMock, registryStoreState, resolveWorkspaceIndexingQosPolicyMock } = vi.hoisted(
@@ -26,10 +26,9 @@ vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils/logger', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
-    '@brainstrike/utils/logger'
-  );
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
   return {
     ...actual,
     createLogger: () => ({
@@ -38,8 +37,9 @@ vi.mock('@brainstrike/utils/logger', async () => {
   };
 });
 
-vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+vi.mock('@brainstrike/indexing-contract/workspace-indexing-qos', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/indexing-contract/workspace-indexing-qos')>();
   const createMockQosPolicy = (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => {
     const foregroundYielding =
       inputs.foregroundQueryActive ||

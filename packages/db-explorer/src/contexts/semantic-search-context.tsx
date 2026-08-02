@@ -6,8 +6,8 @@
  * loading, errors) while persisted preferences are handled by the Zustand store.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { JSX, ReactNode } from 'react';
 import {
   createContext,

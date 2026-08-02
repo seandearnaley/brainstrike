@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { createVaultHandleStore, type VaultHandleStore } from '../core/handle-store';
 import type { VaultDirectoryHandleLike } from '../core/types';
 import type { NotesVaultServices } from '../store/notes-vault-store';

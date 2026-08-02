@@ -10,8 +10,8 @@ import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runGlobWorkspace } from '../../assistant-server/glob-workspace-tool';
 
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({

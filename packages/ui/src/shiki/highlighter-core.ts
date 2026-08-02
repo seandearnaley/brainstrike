@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useEffect, useState } from 'react';
 import { createHighlighterCore, createOnigurumaEngine } from 'react-shiki/core';
 import type { HighlighterCore } from 'shiki';

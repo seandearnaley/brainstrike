@@ -7,7 +7,7 @@ import {
   registerBackgroundWorkPauseHandler,
   setBackgroundWorkManualPause,
   subscribeToBackgroundWorkArbiter,
-} from '../background-work-arbiter';
+} from '../background-work-arbiter.js';
 
 describe('background-work-arbiter', () => {
   beforeEach(() => {

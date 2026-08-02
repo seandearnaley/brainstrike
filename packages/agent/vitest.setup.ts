@@ -1,4 +1,4 @@
-import { configureLogger } from '@brainstrike/utils/logger';
+import { configureLogger } from '@brainstrike/logging';
 import { beforeEach } from 'vitest';
 
 beforeEach(() => {

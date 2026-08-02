@@ -1,1 +1,1 @@
-export { TransformersBackend } from './transformers-backend';
+export { TransformersBackend } from './transformers-backend.js';

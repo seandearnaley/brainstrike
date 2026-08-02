@@ -4,7 +4,9 @@
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/queue": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "catalog:",
@@ -75,7 +77,7 @@
     "db:migrate": "node scripts/forbid-db-generate.mjs",
     "db:migrate:unsafe": "pnpm db:generate:unsafe && pnpm db:export",
     "dev": "tsc --build --watch",
-    "eval:retrieval": "pnpm --filter @brainstrike/types --filter @brainstrike/queue --filter @brainstrike/indexing-contract --filter @brainstrike/utils run build && tsx src/evaluation/retrieval-eval-cli.ts",
+    "eval:retrieval": "pnpm --filter @brainstrike/types --filter @brainstrike/queue --filter @brainstrike/indexing-contract --filter @brainstrike/tokenization --filter @brainstrike/utils run build && tsx src/evaluation/retrieval-eval-cli.ts",
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run --project unit",
     "test:all": "vitest run",

@@ -1,1 +1,1 @@
-export { SimpleEmbeddingService } from './bge-m3-service';
+export { SimpleEmbeddingService } from './bge-m3-service.js';

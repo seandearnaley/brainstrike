@@ -16,7 +16,7 @@ import type {
   StreamChunk,
 } from '@brainstrike/agent';
 import { createAssistantRunEvent, resolveToolTimeoutMs } from '@brainstrike/agent';
-import type { ScopedLogger } from '@brainstrike/utils';
+import type { ScopedLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from '../workspace-roots';
 import { getGlobalHooksPath, loadHooksConfig } from './config';
 import { createDesktopHookRunner } from './hook-runner-impl';

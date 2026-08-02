@@ -132,7 +132,7 @@ const policyPathSchema = z
  * invariant, and a single wildcard entry would invert it. Unrestricted egress
  * is deliberately not expressible.
  */
-const policyDomainSchema = z
+export const policyDomainSchema = z
   .string()
   .min(1)
   .max(MAX_POLICY_DOMAIN_LENGTH)

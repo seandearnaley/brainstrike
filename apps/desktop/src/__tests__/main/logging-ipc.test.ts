@@ -1,4 +1,4 @@
-import { createDefaultLoggingPreferences, type LoggingPreferences } from '@brainstrike/utils';
+import { createDefaultLoggingPreferences, type LoggingPreferences } from '@brainstrike/logging';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

@@ -21,7 +21,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
       },
       {
-        find: '@brainstrike/indexing-contract',
+        find: /^@brainstrike\/indexing-contract$/,
         replacement: path.resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
       {
@@ -121,24 +121,6 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/chunking-core.ts'),
       },
       {
-        find: '@brainstrike/text-splitter/token-counting-heuristics',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../text-splitter/src/token-counting-heuristics.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-constants',
-        replacement: path.resolve(import.meta.dirname, '../text-splitter/src/token-constants.ts'),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-utils-accurate-lite',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../text-splitter/src/token-utils-accurate-lite.ts'
-        ),
-      },
-      {
         find: /^@brainstrike\/text-splitter$/,
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
       },
@@ -205,10 +187,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/vector-management$/,
         replacement: path.resolve(import.meta.dirname, '../vector-management/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: path.resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       {
         find: '@brainstrike/workers/file-content-worker',

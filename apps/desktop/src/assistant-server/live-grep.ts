@@ -6,8 +6,8 @@ import process from 'node:process';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch, LineMatcher } from '@brainstrike/db';
 import { collectGrepMatchesInContent, extractTrigramLiteral } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { walkWorkspaceRoot } from './workspace-file-walk';
 import { isWithinRoot } from './workspace-path';
 

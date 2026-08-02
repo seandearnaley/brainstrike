@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MetadataCache } from '../metadata-cache';
+import { MetadataCache } from '../metadata-cache.js';
 
 describe('MetadataCache extra coverage', () => {
   it('preserves replacement order during batched updates at capacity', () => {

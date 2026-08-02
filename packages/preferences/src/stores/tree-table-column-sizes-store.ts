@@ -19,9 +19,10 @@
  * `localStorage.clear()` (see `factory-reset-helpers.ts`), which removes every
  * versioned store created here.
  */
+
+import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
-import { createLogger } from '@brainstrike/utils';
 import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';

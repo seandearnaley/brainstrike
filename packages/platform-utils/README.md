@@ -271,8 +271,7 @@ pnpm dev
 
 ## Build Output
 
-- **ESM**: `dist/index.js`
-- **CJS**: `dist/index.cjs`
+- **Node-loadable ESM**: `dist/index.js`
 - **Types**: `dist/index.d.ts`
 
 ## Dependencies

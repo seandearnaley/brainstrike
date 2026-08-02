@@ -1,8 +1,8 @@
 import type { UsePGliteLiveQueryOptions } from '@brainstrike/db/react';
 import { usePGliteLiveQuery } from '@brainstrike/db/react';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { ElectronAPI } from '@brainstrike/types';
 import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {

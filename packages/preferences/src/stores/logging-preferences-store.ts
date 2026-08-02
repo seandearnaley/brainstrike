@@ -1,9 +1,9 @@
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { LogLevel } from '@brainstrike/utils/logger';
 import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
-} from '@brainstrike/utils/logging-preferences';
+  LogLevel,
+} from '@brainstrike/logging';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { clearPersistedStorageForTests } from './persist-api';

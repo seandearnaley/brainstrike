@@ -1,4 +1,4 @@
-import type { SimilarityResult } from './types';
+import type { SimilarityResult } from './types.js';
 
 const SPARSE_ARRAY_ERROR = 'Sparse arrays are not supported';
 const NAN_INPUT_ERROR = 'Embeddings must not contain NaN';

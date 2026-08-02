@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCompilerHotspot } from '../compiler-hotspots';
+import { isCompilerHotspot } from '../compiler-hotspots.js';
 
 describe('build-utils/compiler-hotspots', () => {
   it('matches unix paths', () => {

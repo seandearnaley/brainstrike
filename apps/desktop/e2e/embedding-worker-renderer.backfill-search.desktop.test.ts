@@ -306,7 +306,10 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     // All chunks should have content and tsvector populated
     expect(ftsDiagnostics.withContent).toBe(ftsDiagnostics.totalChunks);
     expect(ftsDiagnostics.withTsvector).toBe(ftsDiagnostics.totalChunks);
-    expect(ftsDiagnostics.bm25ExtensionVersion).toBe('1.2.0');
+    // Pinned to the qualified family (BST-1063 bumped this to 1.3.1; see
+    // packages/db/src/pg-textsearch-compatibility.ts — the paired assertion
+    // this contract requires to move with the package family).
+    expect(ftsDiagnostics.bm25ExtensionVersion).toBe('1.3.1');
     expect(ftsDiagnostics.bm25IndexName).toBe('idx_file_chunks_content_bm25');
     // Qualified BM25 should rank the tsvector matches for fixture content.
     expect(ftsDiagnostics.ftsMatchCount).toBeGreaterThan(0);

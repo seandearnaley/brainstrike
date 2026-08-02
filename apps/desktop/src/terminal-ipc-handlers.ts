@@ -39,7 +39,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
 import type { IPty } from 'node-pty';

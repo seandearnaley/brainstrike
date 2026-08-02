@@ -49,15 +49,28 @@ describe('run_python registration', () => {
     expect(tool?.inputSchema).toBeDefined();
     expect(tool?.outputSchema).toBeDefined();
     expect(Object.getPrototypeOf(tool)).not.toBe(Object.prototype);
+    // GATE B IS ARMED (BST-1070): the registered entry carries the suspend
+    // and resume schemas. This is the only guard against the silent bypass
+    // above — with hasSuspendSchema false, a non-empty allowedDomains would
+    // run with no prompt, no error, and no run event.
+    expect((tool as { suspendSchema?: unknown })?.suspendSchema).toBeTruthy();
+    expect((tool as { resumeSchema?: unknown })?.resumeSchema).toBeTruthy();
   });
 
-  it('does not accept a network field on its input schema', () => {
-    // The whole no-network posture rests on egress being inexpressible.
+  it('rejects unrestricted egress at the schema: a bare "*" never parses', () => {
+    // Gate B makes domains EXPRESSIBLE, but unrestricted egress stays
+    // inexpressible: the seam's policyDomainSchema (single source) rejects a
+    // bare "*" and single-label wildcards before execute() ever runs.
     const tool = toolsFor()[NATIVE_TOOL_ID.runPython];
-    const parsed = tool?.inputSchema?.safeParse({
-      allowedDomains: ['evil.example.com'],
-      code: 'print(1)',
-    });
-    expect(parsed?.success).toBe(false);
+    expect(tool?.inputSchema?.safeParse({ allowedDomains: ['*'], code: 'print(1)' }).success).toBe(
+      false
+    );
+    expect(
+      tool?.inputSchema?.safeParse({ allowedDomains: ['*.com'], code: 'print(1)' }).success
+    ).toBe(false);
+    // A concrete domain request parses — approval of it is Gate B's job.
+    expect(
+      tool?.inputSchema?.safeParse({ allowedDomains: ['pypi.org'], code: 'print(1)' }).success
+    ).toBe(true);
   });
 });

@@ -23,7 +23,7 @@
  */
 
 import { deriveSkillPreferenceKey, type SkillSourceTier } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { parseSkillMarkdown } from './skill-frontmatter';
 import { validateSkillMetadata } from './skill-validation';
 

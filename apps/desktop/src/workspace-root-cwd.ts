@@ -13,7 +13,7 @@
  */
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
+import type { ScopedLogger } from '@brainstrike/logging';
 
 /** Resolves the active path-backed workspace roots for cwd validation. */
 export interface WorkspaceRootResolver {

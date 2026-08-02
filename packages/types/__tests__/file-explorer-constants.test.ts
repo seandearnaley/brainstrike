@@ -7,7 +7,7 @@ import {
   MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
   TEXT_FILE_EXTENSIONS,
-} from '../src/file-explorer-constants';
+} from '../src/file-explorer-constants.js';
 
 describe('file-explorer-constants', () => {
   describe('TEXT_FILE_EXTENSIONS', () => {
