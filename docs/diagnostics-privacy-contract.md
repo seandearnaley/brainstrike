@@ -104,8 +104,10 @@ performs the pending destructive cleanup. Dedupe-key expiry is scanned on every
 retention pass even when no sample expires. Buffered long-task entries use
 their occurrence timestamp for the rolling window and are deduplicated across
 observer replay, including after an in-window sample-cap eviction. Performance
-entries whose start or end maps after callback delivery fail observation as
-malformed timing instead of recording an impossible sample. Performance
+entries whose start maps after callback delivery, or whose completion exceeds
+delivery by more than one millisecond, fail observation as malformed timing
+instead of recording an impossible sample. The one-millisecond completion
+tolerance covers sub-millisecond Performance API rounding only. Performance
 Observer does not preserve historical app context, so buffered
 samples carry delivery-time route and feature-flag context and diagnostics
 labels them as delivery-time context rather than stall-time attribution.
@@ -117,7 +119,9 @@ reported through a failed in-memory snapshot instead of breaking app-shell
 module evaluation. The initial external-store read also returns that explicit
 failed snapshot before the observer effect mounts. A failed clock read is not
 immediately retried to fabricate a timestamp; the snapshot uses the last
-successful monotonic timestamp and keeps the failure latched. Buffered replay
+successful monotonic timestamp and keeps the failure latched. An unsupported
+snapshot published before any successful clock read therefore carries the
+explicit epoch-zero sentinel. Buffered replay
 deduplication uses stable Performance entry identity rather than delivery-time
 clock mapping, so replacing an observer cannot count the same buffered entry
 twice. Dedupe-key capacity eviction uses occurrence time rather than callback
@@ -131,10 +135,16 @@ converge on the same failed snapshot without escaping through renderer effects.
 When an operation and the clock both fail, diagnostics preserves the operation
 failure and appends the clock failure instead of discarding the originating cause.
 Unsupported observation releases retained samples, dedupe keys, and the retention
-timer before publishing an explicitly empty window without reading the clock. A
-malformed or future-dated observer entry fails collection visibly while valid sibling
-entries in that delivery remain available in the failed snapshot; the
-first malformed entry determines the delivery failure reason. Reset clears all
+timer before publishing an explicitly empty window without reading the clock.
+Direct recording after observation is known to be unsupported throws instead of
+creating a hidden retained window. A malformed or future-dated observer entry
+fails collection visibly while valid sibling entries in that delivery remain
+available in the failed snapshot; distinct malformed causes in one batch are
+reported together. The observer Performance clock is read after the delivery
+epoch clock, so occurrence mapping is conservatively biased slightly earlier for
+retention. Disposing a failed inactive observation cannot claim recovery while
+that clock remains unusable, and therefore preserves the precise failure reason.
+Reset clears all
 identifiers but keeps a clock failure latched rather than reporting idle.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.

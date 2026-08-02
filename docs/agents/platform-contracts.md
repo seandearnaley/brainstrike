@@ -616,8 +616,9 @@ an empty failed snapshot and does not mutate backing storage. The already owned
 retention timer or the next
 non-render collection/publication entry point performs the pending destructive
 cleanup. Buffered observer entries are retained from their occurrence timestamp
-and deduplicated across observer replay. An observer entry whose start or end
-maps after delivery is a malformed timing capability and fails the observation.
+and deduplicated across observer replay. An observer entry whose start maps after
+delivery, or whose completion exceeds delivery by more than the one-millisecond
+Performance API rounding tolerance, is malformed and fails the observation.
 Because the Performance Observer entry has no historical app context, a buffered
 sample explicitly carries delivery-time route and feature-flag context; System
 Diagnostics labels those fields as delivery-time context and must not imply that
@@ -643,11 +644,18 @@ never silently degrades. Unsupported observation releases retained samples,
 dedupe keys and the retention timer before publishing an explicitly empty window
 without consulting the timing clock; disposing that inactive observation repeats
 the release before the caller sees the idle state. The empty snapshot carries
-the last successful monotonic timestamp rather than fabricating a new clock read.
-A malformed entry fails and disconnects its observer loudly, but valid sibling
-entries from the same delivered batch are retained and published with that failed
-snapshot. Reset always clears retained context; when the timing clock is unusable,
-the failed state remains latched instead of claiming an idle collector. Do not write routine
+the last successful monotonic timestamp rather than fabricating a new clock read,
+or the explicit epoch-zero sentinel if no clock read has succeeded yet. Direct
+recording after unsupported observation is known throws instead of creating a
+hidden retained window. A malformed entry fails and disconnects its observer
+loudly, but valid sibling entries from the same delivered batch are retained and
+published with that failed snapshot; distinct malformed causes are reported
+together. The observer Performance clock is read after the delivery epoch clock,
+conservatively biasing occurrence mapping slightly earlier for retention.
+Disposing a failed inactive observation preserves its precise reason if the clock
+is still unusable rather than claiming recovery. Reset always clears retained
+context; when the timing clock is unusable, the failed state remains latched
+instead of claiming an idle collector. Do not write routine
 performance samples into
 `brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
 failure signals, drives the unseen-error chip, and is the wrong cardinality and

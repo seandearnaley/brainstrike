@@ -1,6 +1,7 @@
 const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_MAX_SAMPLES = 512;
 const LONG_TASK_MIN_DURATION_MS = 50;
+const PERFORMANCE_ENTRY_COMPLETION_TOLERANCE_MS = 1;
 
 function isLongTaskDuration(durationMs: number): boolean {
   return Number.isFinite(durationMs) && durationMs >= LONG_TASK_MIN_DURATION_MS;
@@ -48,11 +49,16 @@ type PreparedPerformanceEntry =
   | { readonly error: unknown; readonly kind: 'invalid' }
   | { readonly kind: 'metric'; readonly pendingMetric: PendingRendererLongTaskMetric };
 
-interface PreparedPerformanceEntryBatch {
-  readonly hasPreparationError: boolean;
-  readonly pendingMetrics: readonly PendingRendererLongTaskMetric[];
-  readonly preparationError: unknown;
-}
+type PreparedPerformanceEntryBatch =
+  | {
+      readonly kind: 'invalid';
+      readonly pendingMetrics: readonly PendingRendererLongTaskMetric[];
+      readonly preparationError: unknown;
+    }
+  | {
+      readonly kind: 'valid';
+      readonly pendingMetrics: readonly PendingRendererLongTaskMetric[];
+    };
 
 export interface RendererLongTaskRouteSummary {
   readonly count: number;
@@ -461,6 +467,11 @@ export function createRendererLongTaskTelemetry(
   };
 
   const record = (metric: RendererLongTaskMetric): void => {
+    if (availability === 'unsupported') {
+      throw new Error(
+        'Cannot record renderer long-task telemetry while observation is unsupported.'
+      );
+    }
     releasePendingRetainedSampleContext();
     if (!isLongTaskDuration(metric.durationMs)) {
       return;
@@ -519,20 +530,20 @@ export function createRendererLongTaskTelemetry(
     }
     const completedAt = entry.startTime + entry.duration;
     // Buffered entries may be stale, but a completed entry cannot arrive before
-    // its end time on the same Performance timeline.
-    if (!(Number.isFinite(completedAt) && completedAt <= elapsedMs)) {
+    // its end time on the same Performance timeline. One millisecond covers
+    // independent sub-millisecond rounding; larger overshoots remain malformed.
+    if (
+      !(
+        Number.isFinite(completedAt) &&
+        completedAt <= elapsedMs + PERFORMANCE_ENTRY_COMPLETION_TOLERANCE_MS
+      )
+    ) {
       return {
         error: new Error('PerformanceObserver longtask entry completed after delivery.'),
         kind: 'invalid',
       };
     }
     const observedAt = deliveredAt - (elapsedMs - entry.startTime);
-    if (!(Number.isFinite(observedAt) && observedAt <= deliveredAt)) {
-      return {
-        error: new Error('PerformanceObserver longtask entry timing is unavailable.'),
-        kind: 'invalid',
-      };
-    }
     if (observedAt < deliveredAt - windowMs) {
       return { kind: 'ignored' };
     }
@@ -566,8 +577,7 @@ export function createRendererLongTaskTelemetry(
     getContext: () => RendererLongTaskContext
   ): PreparedPerformanceEntryBatch => {
     const pendingMetrics: PendingRendererLongTaskMetric[] = [];
-    let hasPreparationError = false;
-    let preparationError: unknown;
+    const preparationErrors: unknown[] = [];
     for (const entry of entries) {
       const preparedEntry = safelyPreparePerformanceEntry(
         entry,
@@ -576,17 +586,28 @@ export function createRendererLongTaskTelemetry(
         getContext
       );
       if (preparedEntry.kind === 'invalid') {
-        if (!hasPreparationError) {
-          hasPreparationError = true;
-          preparationError = preparedEntry.error;
-        }
+        preparationErrors.push(preparedEntry.error);
         continue;
       }
       if (preparedEntry.kind === 'metric') {
         pendingMetrics.push(preparedEntry.pendingMetric);
       }
     }
-    return { hasPreparationError, pendingMetrics, preparationError };
+    const distinctPreparationErrorMessages = [...new Set(preparationErrors.map(readErrorMessage))];
+    if (preparationErrors.length === 0) {
+      return { kind: 'valid', pendingMetrics };
+    }
+    const preparationError =
+      distinctPreparationErrorMessages.length > 1
+        ? new Error(
+            `PerformanceObserver longtask batch contains multiple invalid entries: ${distinctPreparationErrorMessages.join(' ')}`
+          )
+        : preparationErrors[0];
+    return {
+      kind: 'invalid',
+      pendingMetrics,
+      preparationError,
+    };
   };
 
   const recordPerformanceEntries = (
@@ -600,18 +621,20 @@ export function createRendererLongTaskTelemetry(
     if (typeof performance === 'undefined') {
       throw new Error('Renderer long-task telemetry requires the Performance timing API.');
     }
+    // Reading this after deliveredAt biases mapped occurrence times slightly
+    // earlier, which is the conservative direction for retention.
     const elapsedMs = performance.now();
     if (!Number.isFinite(elapsedMs)) {
       throw new Error('PerformanceObserver longtask entry timing is unavailable.');
     }
-    const { hasPreparationError, pendingMetrics, preparationError } = preparePerformanceEntryBatch(
+    const preparedBatch = preparePerformanceEntryBatch(
       list.getEntries(),
       deliveredAt,
       elapsedMs,
       getContext
     );
     let insertedMetric = false;
-    for (const pendingMetric of pendingMetrics) {
+    for (const pendingMetric of preparedBatch.pendingMetrics) {
       insertedMetric =
         insertMetric(
           pendingMetric.metric,
@@ -620,12 +643,26 @@ export function createRendererLongTaskTelemetry(
         ) || insertedMetric;
     }
     if (insertedMetric) {
-      finalizeInsertedMetrics(deliveredAt, !hasPreparationError);
+      finalizeInsertedMetrics(deliveredAt, preparedBatch.kind === 'valid');
     }
-    if (hasPreparationError) {
-      throw preparationError;
+    if (preparedBatch.kind === 'invalid') {
+      throw preparedBatch.preparationError;
     }
     return true;
+  };
+
+  const publishIdleSnapshotIfClockRecovered = (): void => {
+    releasePendingRetainedSampleContext();
+    try {
+      const snapshotAt = now();
+      lastSuccessfulClockAt = snapshotAt;
+      availability = 'idle';
+      unavailableReason = null;
+      publishSnapshot(snapshotAt);
+    } catch {
+      // Disposal cannot claim recovery while the clock remains unusable.
+      // Keep the precise observer failure latched until a later operation.
+    }
   };
 
   const observe = (getContext: () => RendererLongTaskContext): (() => void) => {
@@ -644,14 +681,14 @@ export function createRendererLongTaskTelemetry(
         ) {
           return;
         }
-        availability = 'idle';
-        unavailableReason = null;
         if (expectedAvailability === 'unsupported') {
+          availability = 'idle';
+          unavailableReason = null;
           releaseRetainedSampleContext();
           publishEmptySnapshot(lastSuccessfulClockAt);
           return;
         }
-        publish();
+        publishIdleSnapshotIfClockRecovered();
       };
     let observer: PerformanceObserver | null = null;
     try {
@@ -715,9 +752,7 @@ export function createRendererLongTaskTelemetry(
           return;
         }
         if (availability === 'failed') {
-          unavailableReason = null;
-          availability = 'idle';
-          publish();
+          publishIdleSnapshotIfClockRecovered();
         }
       };
     } catch (error) {

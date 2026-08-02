@@ -32,7 +32,8 @@ test('platform contract exists in the repo docs', () => {
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const assertContractIncludes = (term, flags = 'i') => {
-  assert.match(contractSource, new RegExp(escapeRegExp(term), flags));
+  const whitespaceAgnosticTerm = escapeRegExp(term).replaceAll(' ', '\\s+');
+  assert.match(contractSource, new RegExp(whitespaceAgnosticTerm, flags));
 };
 
 const contractSection = (heading) => {
@@ -135,7 +136,11 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'timer before publishing an explicitly empty window',
     'explicitly empty window',
     'future-dated observer entry',
-    'first malformed entry determines the delivery failure reason',
+    'distinct malformed causes in one batch are reported together',
+    'explicit epoch-zero sentinel',
+    'one-millisecond completion tolerance',
+    'occurrence mapping is conservatively biased slightly earlier',
+    'preserves the precise failure reason',
     'valid sibling',
     'keeps a clock failure latched',
   ]) {
