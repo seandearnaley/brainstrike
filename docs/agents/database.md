@@ -9,16 +9,19 @@ Database performance instrumentation uses the typed, memory-only collector in
 the call site; never classify queries by parsing SQL or parameters. Producers
 may record duration/failure counts, live subscription/update counts, and token
 lookup/hit totals only. SQL, parameters, rows, paths, filenames, queue names,
-and content are prohibited. `docs/diagnostics-privacy-contract.md` is the
-cross-cutting privacy authority.
+and content are prohibited. The collector rejects unsupported runtime record
+keys and materializes retained samples from an explicit field allowlist, so an
+untyped caller cannot smuggle caller data into the in-memory buffer.
+`docs/diagnostics-privacy-contract.md` is the cross-cutting privacy authority.
 
 The in-renderer live-query scheduler and Electron live-query bridge both wrap
 creation/refresh and listener lifecycle; the single embedding queue poller wraps
 its stats read. The production `@brainstrike/token-cache` store exposes a narrow
 lookup telemetry port that the file-explorer composition layer wires to this
 collector, avoiding a package dependency back to `@brainstrike/db`. File-record
-read methods report the coarse `file-tree` feature. Keep these seams and their
-paired tests aligned when a query path moves.
+read methods report the coarse `file-tree` feature, including full and
+metadata-only managed-cache listings on both repository implementations. Keep
+these seams and their paired tests aligned when a query path moves.
 
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 

@@ -62,6 +62,13 @@ testWithContract('diagnostics privacy contract documents default allowed telemet
   }
 });
 
+testWithContract('database telemetry records are fail-closed and allowlisted', () => {
+  const defaultTelemetry = contractSection('Default Background Telemetry');
+  for (const term of ['fail-closed', 'unsupported keys', 'explicit allowlisted fields']) {
+    assertSectionIncludes(defaultTelemetry, term);
+  }
+});
+
 testWithContract(
   'diagnostics privacy contract documents data that background telemetry must not collect',
   () => {

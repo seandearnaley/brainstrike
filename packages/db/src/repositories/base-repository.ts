@@ -249,65 +249,69 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
-    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
-    const result = await this.db.query(sql, [embeddingSetId]);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
+      const result = await this.db.query(sql, [embeddingSetId]);
 
-    if (!Array.isArray(result.rows)) {
-      return [];
-    }
+      if (!Array.isArray(result.rows)) {
+        return [];
+      }
 
-    return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+      return result.rows.filter(isFileRecordRow).map((row) => this.fromRow(row));
+    });
   }
 
   async listManagedCacheEntryMetadata(
     embeddingSetId: string
   ): Promise<ManagedCacheEntryMetadata[]> {
-    // Managed-cache dedup identity is root_id since the source_root_path
-    // retirement; rows without a root_id are not part of the managed cache.
-    const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, chunks_count, chunks_processed_at, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
-    const result = await this.db.query(sql, [embeddingSetId]);
+    return await measureDatabaseQuery('file-tree', async () => {
+      // Managed-cache dedup identity is root_id since the source_root_path
+      // retirement; rows without a root_id are not part of the managed cache.
+      const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, chunks_count, chunks_processed_at, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
+      const result = await this.db.query(sql, [embeddingSetId]);
 
-    if (!Array.isArray(result.rows)) {
-      return [];
-    }
-
-    return result.rows.filter(isFileRecordRow).flatMap((row) => {
-      const fileRecordId = row['id'];
-      const rowEmbeddingSetId = row['embedding_set_id'];
-      const rootId = row['root_id'];
-      const relativePath = row['path'];
-      const contentHash = row['content_hash'];
-      const updatedAt = row['updated_at'];
-      if (
-        typeof fileRecordId !== 'string' ||
-        typeof rowEmbeddingSetId !== 'string' ||
-        typeof rootId !== 'string' ||
-        typeof relativePath !== 'string' ||
-        !(typeof contentHash === 'string' || contentHash === null) ||
-        !(updatedAt instanceof Date || typeof updatedAt === 'string')
-      ) {
+      if (!Array.isArray(result.rows)) {
         return [];
       }
-      const parsedSize = parseOptionalStatNumber(row['size']);
-      return [
-        {
-          contentHash: contentHash ?? '',
-          embeddingSetId: rowEmbeddingSetId,
-          fileRecordId,
-          relativePath,
-          rootId,
-          ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
-          chunksCount: parseOptionalStatNumber(row['chunks_count']),
-          chunksProcessedAt:
-            row['chunks_processed_at'] instanceof Date
-              ? row['chunks_processed_at'].toISOString()
-              : typeof row['chunks_processed_at'] === 'string'
-                ? row['chunks_processed_at']
-                : null,
-          mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
-          updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
-        } satisfies ManagedCacheEntryMetadata,
-      ];
+
+      return result.rows.filter(isFileRecordRow).flatMap((row) => {
+        const fileRecordId = row['id'];
+        const rowEmbeddingSetId = row['embedding_set_id'];
+        const rootId = row['root_id'];
+        const relativePath = row['path'];
+        const contentHash = row['content_hash'];
+        const updatedAt = row['updated_at'];
+        if (
+          typeof fileRecordId !== 'string' ||
+          typeof rowEmbeddingSetId !== 'string' ||
+          typeof rootId !== 'string' ||
+          typeof relativePath !== 'string' ||
+          !(typeof contentHash === 'string' || contentHash === null) ||
+          !(updatedAt instanceof Date || typeof updatedAt === 'string')
+        ) {
+          return [];
+        }
+        const parsedSize = parseOptionalStatNumber(row['size']);
+        return [
+          {
+            contentHash: contentHash ?? '',
+            embeddingSetId: rowEmbeddingSetId,
+            fileRecordId,
+            relativePath,
+            rootId,
+            ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
+            chunksCount: parseOptionalStatNumber(row['chunks_count']),
+            chunksProcessedAt:
+              row['chunks_processed_at'] instanceof Date
+                ? row['chunks_processed_at'].toISOString()
+                : typeof row['chunks_processed_at'] === 'string'
+                  ? row['chunks_processed_at']
+                  : null,
+            mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
+            updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
+          } satisfies ManagedCacheEntryMetadata,
+        ];
+      });
     });
   }
 

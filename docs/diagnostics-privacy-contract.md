@@ -35,7 +35,9 @@ and `token-estimation`. It never retains SQL, parameters, query results, queue
 names, file paths, filenames, or content. The collector is process-local and
 memory-only; it is not written to the diagnostic event store or exported. Each
 feature has an independent bounded sample buffer, and retention overflow is
-reported only as a numeric dropped-sample count.
+reported only as a numeric dropped-sample count. Runtime records are
+fail-closed: unsupported keys or malformed values throw before retention, and
+the collector copies only its explicit allowlisted fields into each sample.
 
 ## Prohibited By Default
 

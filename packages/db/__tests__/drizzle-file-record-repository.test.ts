@@ -224,6 +224,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootId: 'root-c',
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const entries = await repository.listManagedCacheEntries(
         '00000000-0000-0000-0000-000000000101'
       );
@@ -232,6 +233,9 @@ describe('DrizzleFileRecordRepository', () => {
         '00000000-0000-0000-0000-000000000021',
         '00000000-0000-0000-0000-000000000022',
       ]);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 1
+      );
     });
 
     it('should list managed cache metadata without selecting content', async () => {
@@ -243,6 +247,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootId: 'root-a',
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const entries = await repository.listManagedCacheEntryMetadata(
         '00000000-0000-0000-0000-000000000101'
       );
@@ -256,6 +261,9 @@ describe('DrizzleFileRecordRepository', () => {
           rootId: 'root-a',
         }),
       ]);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 1
+      );
     });
   });
 

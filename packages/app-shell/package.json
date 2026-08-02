@@ -8,6 +8,7 @@
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/commands": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
+    "@brainstrike/db": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
@@ -34,7 +35,6 @@
     "lucide-react": "catalog:"
   },
   "devDependencies": {
-    "@brainstrike/db": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",

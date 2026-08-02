@@ -270,63 +270,67 @@ export class DrizzleFileRecordRepository {
   }
 
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
-    const rows = await this.db
-      .select()
-      .from(fileRecords)
-      .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
-      )
-      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const rows = await this.db
+        .select()
+        .from(fileRecords)
+        .where(
+          sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
+        )
+        .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
-    return rows.map((row) => this.fromRow(row));
+      return rows.map((row) => this.fromRow(row));
+    });
   }
 
   async listManagedCacheEntryMetadata(
     embeddingSetId: string
   ): Promise<ManagedCacheEntryMetadata[]> {
-    const rows = await this.db
-      .select({
-        chunksCount: fileRecords.chunksCount,
-        chunksProcessedAt: fileRecords.chunksProcessedAt,
-        contentHash: fileRecords.contentHash,
-        embeddingSetId: fileRecords.embeddingSetId,
-        fileRecordId: fileRecords.id,
-        mtimeMs: fileRecords.mtimeMs,
-        relativePath: fileRecords.path,
-        rootId: fileRecords.rootId,
-        size: fileRecords.size,
-        updatedAt: fileRecords.updatedAt,
-      })
-      .from(fileRecords)
-      .where(
-        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
-      )
-      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+    return await measureDatabaseQuery('file-tree', async () => {
+      const rows = await this.db
+        .select({
+          chunksCount: fileRecords.chunksCount,
+          chunksProcessedAt: fileRecords.chunksProcessedAt,
+          contentHash: fileRecords.contentHash,
+          embeddingSetId: fileRecords.embeddingSetId,
+          fileRecordId: fileRecords.id,
+          mtimeMs: fileRecords.mtimeMs,
+          relativePath: fileRecords.path,
+          rootId: fileRecords.rootId,
+          size: fileRecords.size,
+          updatedAt: fileRecords.updatedAt,
+        })
+        .from(fileRecords)
+        .where(
+          sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.rootId} IS NOT NULL`
+        )
+        .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
-    return rows.flatMap((row) => {
-      if (
-        typeof row.fileRecordId !== 'string' ||
-        typeof row.embeddingSetId !== 'string' ||
-        typeof row.rootId !== 'string' ||
-        typeof row.relativePath !== 'string' ||
-        !(typeof row.contentHash === 'string' || row.contentHash === null)
-      ) {
-        return [];
-      }
-      return [
-        {
-          chunksCount: row.chunksCount,
-          chunksProcessedAt: row.chunksProcessedAt?.toISOString() ?? null,
-          contentHash: row.contentHash ?? '',
-          embeddingSetId: row.embeddingSetId,
-          fileRecordId: row.fileRecordId,
-          mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
-          relativePath: row.relativePath,
-          rootId: row.rootId,
-          size: row.size,
-          updatedAt: row.updatedAt.toISOString(),
-        } satisfies ManagedCacheEntryMetadata,
-      ];
+      return rows.flatMap((row) => {
+        if (
+          typeof row.fileRecordId !== 'string' ||
+          typeof row.embeddingSetId !== 'string' ||
+          typeof row.rootId !== 'string' ||
+          typeof row.relativePath !== 'string' ||
+          !(typeof row.contentHash === 'string' || row.contentHash === null)
+        ) {
+          return [];
+        }
+        return [
+          {
+            chunksCount: row.chunksCount,
+            chunksProcessedAt: row.chunksProcessedAt?.toISOString() ?? null,
+            contentHash: row.contentHash ?? '',
+            embeddingSetId: row.embeddingSetId,
+            fileRecordId: row.fileRecordId,
+            mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
+            relativePath: row.relativePath,
+            rootId: row.rootId,
+            size: row.size,
+            updatedAt: row.updatedAt.toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ];
+      });
     });
   }
 

@@ -73,23 +73,35 @@ describe('SystemDiagnosticsPanel', () => {
     });
 
     it('renders coarse database query telemetry by feature area', () => {
-      databaseQueryTelemetry.recordQuery({ durationMs: 12, feature: 'queue-stats' });
-      databaseQueryTelemetry.recordQuery({
-        durationMs: 4,
-        feature: 'token-estimation',
-        hitCount: 3,
-        lookupCount: 4,
-      });
-      databaseQueryTelemetry.recordLiveSubscriptionStarted();
+      try {
+        databaseQueryTelemetry.recordQuery({ durationMs: 12, feature: 'queue-stats' });
+        databaseQueryTelemetry.recordQuery({
+          durationMs: 20,
+          failed: true,
+          feature: 'queue-stats',
+        });
+        databaseQueryTelemetry.recordQuery({
+          durationMs: 4,
+          feature: 'token-estimation',
+          hitCount: 3,
+          lookupCount: 4,
+        });
+        databaseQueryTelemetry.recordLiveSubscriptionStarted();
 
-      render(<SystemDiagnosticsPanel />);
+        const queueMetrics = databaseQueryTelemetry.getSnapshot().features['queue-stats'];
+        render(<SystemDiagnosticsPanel />);
 
-      expect(screen.getByText('Database Queries')).toBeInTheDocument();
-      expect(screen.getByText('Queue stats')).toBeInTheDocument();
-      expect(screen.getByText('Token estimation')).toBeInTheDocument();
-      expect(screen.getByText('75% cache hit')).toBeInTheDocument();
-      expect(screen.getByText('1 active')).toBeInTheDocument();
-      databaseQueryTelemetry.recordLiveSubscriptionEnded();
+        expect(screen.getByText('Database Queries')).toBeInTheDocument();
+        expect(screen.getByText('Queue stats')).toBeInTheDocument();
+        expect(screen.getByText('Token estimation')).toBeInTheDocument();
+        expect(screen.getByText('75% cache hit')).toBeInTheDocument();
+        expect(screen.getByText('1 active')).toBeInTheDocument();
+        expect(screen.getByTestId('database-query-queue-stats-metrics')).toHaveTextContent(
+          `${queueMetrics.queryCount} queries · ${Math.round(queueMetrics.queriesPerMinute)} / min · ${queueMetrics.failureCount} failed · p50 ${Math.round(queueMetrics.durationP50Ms)} ms · p95 ${Math.round(queueMetrics.durationP95Ms)} ms · max ${Math.round(queueMetrics.maxDurationMs)} ms · ${queueMetrics.droppedSampleCount} dropped`
+        );
+      } finally {
+        databaseQueryTelemetry.recordLiveSubscriptionEnded();
+      }
     });
 
     it('updates database query telemetry while diagnostics remains open', async () => {

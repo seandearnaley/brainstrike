@@ -591,21 +591,26 @@ not infer feature ownership from SQL text or labels. The collector keeps an
 independent rolling one-minute buffer of at most 512 samples **per feature** and
 exposes counts, failures, p50/p95/max duration, live subscription/update
 frequency, token-cache hit rate, and an explicit retained-sample overflow count
-to System Diagnostics. External-store notifications are coalesced to one-second
-updates; producers do not sort or rebuild snapshots on every query. Wall-clock
-timestamps order expiry, while the per-feature cap evicts by arrival order so a
-clock rollback cannot discard newly observed queries. Overflow events are
-bucketed at the arrival that exceeded the cap, not at the evicted sample's
-wall-clock timestamp.
+to System Diagnostics. The card renders every per-feature count, failure,
+p50/p95/max, rate, and overflow dimension so warning attribution is visible.
+External-store notifications are coalesced to one-second updates; while a
+subscriber is active, reads return the published snapshot identity until the
+coalesced notification publishes a replacement. Producers do not sort or
+rebuild snapshots on every query. A monotonic Performance clock owns sample and
+count-bucket retention; the wall clock is used only for the externally reported
+`snapshotAt`. The per-feature cap therefore evicts the oldest arrival directly,
+and overflow events are bucketed at the arrival that exceeded the cap.
 
 The collector is memory-only and deliberately process-local. It retains no SQL,
 parameters, rows, paths, filenames, queue names, or content, and requires no
-factory-reset wiring. Query duration uses the monotonic performance clock.
-Malformed collector inputs throw when called directly; production wrappers log
-telemetry failures at error level while preserving the database operation's
-original success or rejection. There is deliberately no public reset: clearing
-the singleton could invalidate live-subscription ownership held by active
-proxies. Paired coverage lives in
+factory-reset wiring. Runtime records accept only the declared feature,
+duration, failure, lookup, and hit fields; unknown keys and malformed values
+throw before a sample is retained. Query duration and retention both use the
+monotonic performance clock. Production wrappers log telemetry failures at
+error level while preserving the database operation's original success or
+rejection. There is deliberately no public reset: clearing the singleton could
+invalidate live-subscription ownership held by active proxies. Paired coverage
+lives in
 `packages/db/__tests__/database-query-telemetry.test.ts`,
 `database-work-scheduler.test.ts`, `use-live-query.test.tsx`, the token-cache and
 Drizzle token/file repository tests, and

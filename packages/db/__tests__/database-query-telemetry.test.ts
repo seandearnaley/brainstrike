@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DatabaseQueryTelemetryRecord } from '../src/database-query-telemetry';
 import {
   DatabaseQueryTelemetry,
   databaseQueryTelemetry,
@@ -126,53 +127,40 @@ describe('DatabaseQueryTelemetry', () => {
     expect(telemetry.snapshot().liveUpdateCount).toBe(0);
   });
 
-  it('keeps rolling count buckets ordered when the wall clock moves backwards', () => {
-    let now = 120_000;
-    const telemetry = new DatabaseQueryTelemetry({ now: () => now, windowMs: 60_000 });
+  it('expires query samples on monotonic time when the wall clock moves backwards', () => {
+    let monotonicNow = 1000;
+    let wallNow = 120_000;
 
-    telemetry.recordLiveUpdate();
-    now = 0;
-    telemetry.recordLiveUpdate();
-    now = 61_000;
-
-    expect(telemetry.getSnapshot().liveUpdateCount).toBe(1);
-    expect(
-      (
-        telemetry as unknown as {
-          readonly liveUpdateBuckets: readonly unknown[];
-        }
-      ).liveUpdateBuckets
-    ).toHaveLength(1);
-  });
-
-  it('retains the newest bounded query samples when the wall clock moves backwards', () => {
-    let now = 120_000;
     const telemetry = new DatabaseQueryTelemetry({
-      maxSamples: 2,
-      now: () => now,
+      now: () => monotonicNow,
+      wallNow: () => wallNow,
       windowMs: 60_000,
     });
 
     telemetry.recordQuery({ durationMs: 1, feature: 'file-tree' });
-    now = 0;
-    telemetry.recordQuery({ durationMs: 2, feature: 'file-tree' });
-    now = 61_000;
-    telemetry.recordQuery({ durationMs: 3, feature: 'file-tree' });
+    wallNow = 0;
+    monotonicNow += 60_001;
 
     expect(telemetry.getSnapshot()).toMatchObject({
-      droppedSampleCount: 0,
-      features: {
-        'file-tree': {
-          droppedSampleCount: 0,
-          durationP95Ms: 3,
-          queryCount: 2,
-        },
-      },
+      sampleCount: 0,
+      snapshotAt: 0,
     });
   });
 
-  it('evicts the oldest arrival when a full query buffer receives a post-rollback sample', () => {
-    let now = 120_000;
+  it('uses sub-window buckets so expired live updates do not over-report', () => {
+    let now = 0;
+    const telemetry = new DatabaseQueryTelemetry({ now: () => now, windowMs: 1000 });
+
+    telemetry.recordLiveUpdate();
+    now = 999;
+    telemetry.recordLiveUpdate();
+    now = 1017;
+
+    expect(telemetry.getSnapshot().liveUpdateCount).toBe(1);
+  });
+
+  it('evicts the oldest arrival when a full query buffer receives a new sample', () => {
+    let now = 1000;
     const telemetry = new DatabaseQueryTelemetry({
       maxSamples: 2,
       now: () => now,
@@ -182,7 +170,7 @@ describe('DatabaseQueryTelemetry', () => {
     telemetry.recordQuery({ durationMs: 1, feature: 'file-tree' });
     now += 1;
     telemetry.recordQuery({ durationMs: 2, feature: 'file-tree' });
-    now = 0;
+    now += 1;
     telemetry.recordQuery({ durationMs: 3, feature: 'file-tree' });
 
     expect(telemetry.getSnapshot()).toMatchObject({
@@ -196,6 +184,32 @@ describe('DatabaseQueryTelemetry', () => {
         },
       },
     });
+  });
+
+  it('rejects malformed or extra runtime fields before retaining a sample', () => {
+    const telemetry = new DatabaseQueryTelemetry();
+
+    expect(() =>
+      telemetry.recordQuery({
+        durationMs: 1,
+        feature: 'file-tree',
+        sql: 'SELECT secret',
+      } as unknown as DatabaseQueryTelemetryRecord)
+    ).toThrow('Database query telemetry record contains unsupported field: sql');
+    expect(() =>
+      telemetry.recordQuery({
+        durationMs: 1,
+        failed: 'yes',
+        feature: 'file-tree',
+      } as unknown as DatabaseQueryTelemetryRecord)
+    ).toThrow('Database query telemetry failed must be a boolean when provided');
+    expect(() =>
+      telemetry.recordQuery({
+        durationMs: 1,
+        feature: 'workspace-private',
+      } as unknown as DatabaseQueryTelemetryRecord)
+    ).toThrow('Database query telemetry feature is unsupported: workspace-private');
+    expect(telemetry.getSnapshot().sampleCount).toBe(0);
   });
 
   it('aggregates token-estimation cache hits from lookup counts', () => {
@@ -237,7 +251,8 @@ describe('DatabaseQueryTelemetry', () => {
     telemetry.recordLiveSubscriptionEnded();
 
     expect(listener).not.toHaveBeenCalled();
-    expect(now).toHaveBeenCalledTimes(5);
+    expect(telemetry.getSnapshot()).toBe(initialSnapshot);
+    expect(now).toHaveBeenCalledTimes(4);
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(listener).toHaveBeenCalledTimes(1);

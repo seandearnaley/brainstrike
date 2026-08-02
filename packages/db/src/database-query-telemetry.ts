@@ -4,7 +4,10 @@ export type DatabaseQueryFeature = 'file-tree' | 'live-query' | 'queue-stats' | 
 
 export interface DatabaseQueryTelemetryOptions {
   readonly maxSamples?: number;
+  /** Monotonic retention clock. Defaults to Performance.now(). */
   readonly now?: () => number;
+  /** Epoch clock used only for the externally reported snapshotAt field. */
+  readonly wallNow?: () => number;
   readonly windowMs?: number;
 }
 
@@ -50,9 +53,13 @@ interface CountBucket {
   readonly startedAt: number;
 }
 
-interface QuerySample extends DatabaseQueryTelemetryRecord {
+interface QuerySample {
+  readonly durationMs: number;
+  readonly failed?: boolean;
+  readonly feature: DatabaseQueryFeature;
+  readonly hitCount: number;
+  readonly lookupCount: number;
   readonly recordedAt: number;
-  readonly sequence: number;
 }
 
 const DATABASE_QUERY_FEATURES: readonly DatabaseQueryFeature[] = [
@@ -64,6 +71,14 @@ const DATABASE_QUERY_FEATURES: readonly DatabaseQueryFeature[] = [
 const DEFAULT_MAX_SAMPLES_PER_FEATURE = 512;
 const DEFAULT_WINDOW_MS = 60_000;
 const NOTIFY_INTERVAL_MS = 1000;
+const DATABASE_QUERY_FEATURE_SET = new Set(DATABASE_QUERY_FEATURES);
+const DATABASE_QUERY_RECORD_FIELDS = new Set([
+  'durationMs',
+  'failed',
+  'feature',
+  'hitCount',
+  'lookupCount',
+]);
 const logger = createLogger('DatabaseQueryTelemetry');
 
 function assertPositiveInteger(value: number, label: string): void {
@@ -77,6 +92,31 @@ function assertCount(value: number, label: string): void {
     throw new Error(`${label} must be a non-negative integer`);
   }
 }
+
+function assertDatabaseQueryRecord(record: DatabaseQueryTelemetryRecord): void {
+  if (typeof record !== 'object' || record === null || Array.isArray(record)) {
+    throw new Error('Database query telemetry record must be an object');
+  }
+  for (const key of Reflect.ownKeys(record)) {
+    if (typeof key !== 'string' || !DATABASE_QUERY_RECORD_FIELDS.has(key)) {
+      throw new Error(`Database query telemetry record contains unsupported field: ${String(key)}`);
+    }
+  }
+  if (!DATABASE_QUERY_FEATURE_SET.has(record.feature)) {
+    throw new Error(`Database query telemetry feature is unsupported: ${String(record.feature)}`);
+  }
+  if (record.failed !== undefined && typeof record.failed !== 'boolean') {
+    throw new Error('Database query telemetry failed must be a boolean when provided');
+  }
+}
+
+const readMonotonicTime = (() => {
+  if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
+    throw new Error('Database query telemetry requires the Performance monotonic clock');
+  }
+  const performanceNow = performance.now.bind(performance);
+  return (): number => performanceNow();
+})();
 
 function percentile(sorted: readonly number[], ratio: number): number {
   if (sorted.length === 0) {
@@ -136,11 +176,11 @@ export class DatabaseQueryTelemetry {
   private readonly liveUpdateBuckets: CountBucket[] = [];
   private readonly listeners = new Set<() => void>();
   private readonly maxSamples: number;
-  private nextQuerySequence = 0;
   private readonly now: () => number;
   private notifyTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly querySamples = createFeatureArrays<QuerySample[]>(() => []);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly wallNow: () => number;
   private readonly windowMs: number;
 
   constructor(options: DatabaseQueryTelemetryOptions = {}) {
@@ -150,20 +190,24 @@ export class DatabaseQueryTelemetry {
       1,
       Math.min(NOTIFY_INTERVAL_MS, Math.floor(this.windowMs / 60))
     );
-    this.liveUpdateBucketMs = Math.min(NOTIFY_INTERVAL_MS, this.windowMs);
-    this.now = options.now ?? Date.now;
+    this.liveUpdateBucketMs = this.droppedSampleBucketMs;
+    this.now = options.now ?? readMonotonicTime;
+    this.wallNow = options.wallNow ?? Date.now;
     assertPositiveInteger(this.maxSamples, 'Database query telemetry maxSamples');
     assertPositiveInteger(this.windowMs, 'Database query telemetry windowMs');
-    this.currentSnapshot = this.snapshot();
+    this.currentSnapshot = this.buildSnapshot(this.readRetentionNow());
   }
 
   readonly getSnapshot = (): DatabaseQueryTelemetrySnapshot => {
-    if (this.trimExpired()) {
+    if (this.listeners.size > 0) {
+      return this.currentSnapshot;
+    }
+    const retentionAt = this.readRetentionNow();
+    if (this.trimExpired(retentionAt)) {
       this.dirty = true;
     }
     if (this.dirty) {
-      this.currentSnapshot = this.snapshot();
-      this.dirty = false;
+      this.publishSnapshot(retentionAt);
     }
     return this.currentSnapshot;
   };
@@ -182,7 +226,7 @@ export class DatabaseQueryTelemetry {
   }
 
   recordLiveUpdate(): void {
-    const recordedAt = this.now();
+    const recordedAt = this.readRetentionNow();
     this.recordCount(this.liveUpdateBuckets, this.liveUpdateBucketMs, recordedAt);
     this.trimCountBuckets(
       this.liveUpdateBuckets,
@@ -193,6 +237,7 @@ export class DatabaseQueryTelemetry {
   }
 
   recordQuery(record: DatabaseQueryTelemetryRecord): void {
+    assertDatabaseQueryRecord(record);
     if (!Number.isFinite(record.durationMs) || record.durationMs < 0) {
       throw new Error('Database query telemetry durationMs must be finite and non-negative');
     }
@@ -204,19 +249,19 @@ export class DatabaseQueryTelemetry {
       throw new Error('Database query telemetry hitCount cannot exceed lookupCount');
     }
 
-    const recordedAt = this.now();
+    const recordedAt = this.readRetentionNow();
     this.trimExpired(recordedAt);
     const featureSamples = this.querySamples[record.feature];
-    this.insertQuerySample(featureSamples, {
-      ...record,
+    featureSamples.push({
+      durationMs: record.durationMs,
+      feature: record.feature,
       hitCount,
       lookupCount,
       recordedAt,
-      sequence: this.nextQuerySequence,
+      ...(record.failed === undefined ? {} : { failed: record.failed }),
     });
-    this.nextQuerySequence += 1;
     if (featureSamples.length > this.maxSamples) {
-      this.evictOldestArrival(featureSamples);
+      featureSamples.shift();
       this.recordCount(
         this.droppedSampleBuckets[record.feature],
         this.droppedSampleBucketMs,
@@ -227,6 +272,12 @@ export class DatabaseQueryTelemetry {
   }
 
   readonly subscribe = (listener: () => void): (() => void) => {
+    if (this.listeners.size === 0) {
+      const retentionAt = this.readRetentionNow();
+      if (this.trimExpired(retentionAt) || this.dirty) {
+        this.publishSnapshot(retentionAt);
+      }
+    }
     this.listeners.add(listener);
     if (this.refreshInterval === null) {
       this.refreshInterval = setInterval(() => {
@@ -254,8 +305,13 @@ export class DatabaseQueryTelemetry {
   };
 
   snapshot(): DatabaseQueryTelemetrySnapshot {
-    const snapshotAt = this.now();
-    const cutoff = snapshotAt - this.windowMs;
+    const retentionAt = this.readRetentionNow();
+    this.trimExpired(retentionAt);
+    return this.buildSnapshot(retentionAt);
+  }
+
+  private buildSnapshot(retentionAt: number): DatabaseQueryTelemetrySnapshot {
+    const cutoff = retentionAt - this.windowMs;
     const samples = createFeatureArrays<QuerySample[]>(() => []);
     for (const feature of DATABASE_QUERY_FEATURES) {
       samples[feature] = this.querySamples[feature].filter((sample) => sample.recordedAt >= cutoff);
@@ -307,7 +363,7 @@ export class DatabaseQueryTelemetry {
         (total, feature) => total + samples[feature].length,
         0
       ),
-      snapshotAt,
+      snapshotAt: this.readWallNow(),
       tokenEstimation: {
         cacheHitRate: lookupCount === 0 ? null : hitCount / lookupCount,
         hitCount,
@@ -315,45 +371,6 @@ export class DatabaseQueryTelemetry {
       },
       windowMs: this.windowMs,
     };
-  }
-
-  private insertQuerySample(samples: QuerySample[], sample: QuerySample): void {
-    const latestSample = samples.at(-1);
-    if (!latestSample || latestSample.recordedAt <= sample.recordedAt) {
-      samples.push(sample);
-      return;
-    }
-
-    let lowerBound = 0;
-    let upperBound = samples.length;
-    while (lowerBound < upperBound) {
-      const middle = Math.floor((lowerBound + upperBound) / 2);
-      const middleSample = samples[middle];
-      if (!middleSample) {
-        throw new Error('Database query telemetry sample ordering invariant failed');
-      }
-      if (middleSample.recordedAt <= sample.recordedAt) {
-        lowerBound = middle + 1;
-      } else {
-        upperBound = middle;
-      }
-    }
-    samples.splice(lowerBound, 0, sample);
-  }
-
-  private evictOldestArrival(samples: QuerySample[]): void {
-    let oldestIndex = 0;
-    for (let index = 1; index < samples.length; index += 1) {
-      const candidate = samples[index];
-      const oldest = samples[oldestIndex];
-      if (!(candidate && oldest)) {
-        throw new Error('Database query telemetry arrival ordering invariant failed');
-      }
-      if (candidate.sequence < oldest.sequence) {
-        oldestIndex = index;
-      }
-    }
-    samples.splice(oldestIndex, 1);
   }
 
   private markDirty(): void {
@@ -368,10 +385,32 @@ export class DatabaseQueryTelemetry {
   }
 
   private notifyListeners(): void {
-    this.getSnapshot();
+    this.publishSnapshot(this.readRetentionNow());
     for (const listener of this.listeners) {
       listener();
     }
+  }
+
+  private publishSnapshot(retentionAt: number): void {
+    this.trimExpired(retentionAt);
+    this.currentSnapshot = this.buildSnapshot(retentionAt);
+    this.dirty = false;
+  }
+
+  private readRetentionNow(): number {
+    const retentionAt = this.now();
+    if (!Number.isFinite(retentionAt) || retentionAt < 0) {
+      throw new Error('Database query telemetry monotonic clock must be finite and non-negative');
+    }
+    return retentionAt;
+  }
+
+  private readWallNow(): number {
+    const snapshotAt = this.wallNow();
+    if (!Number.isFinite(snapshotAt)) {
+      throw new Error('Database query telemetry wall clock must be finite');
+    }
+    return snapshotAt;
   }
 
   private recordCount(buckets: CountBucket[], bucketMs: number, recordedAt: number): void {
@@ -385,27 +424,7 @@ export class DatabaseQueryTelemetry {
       latestBucket.count += 1;
       return;
     }
-
-    let lowerBound = 0;
-    let upperBound = buckets.length;
-    while (lowerBound < upperBound) {
-      const middle = Math.floor((lowerBound + upperBound) / 2);
-      const middleBucket = buckets[middle];
-      if (!middleBucket) {
-        throw new Error('Database query telemetry count-bucket ordering invariant failed');
-      }
-      if (middleBucket.startedAt < startedAt) {
-        lowerBound = middle + 1;
-      } else {
-        upperBound = middle;
-      }
-    }
-    const matchingBucket = buckets[lowerBound];
-    if (matchingBucket?.startedAt === startedAt) {
-      matchingBucket.count += 1;
-      return;
-    }
-    buckets.splice(lowerBound, 0, { count: 1, startedAt });
+    throw new Error('Database query telemetry count-bucket monotonicity invariant failed');
   }
 
   private trimCountBuckets(buckets: CountBucket[], bucketMs: number, cutoff: number): boolean {
@@ -417,7 +436,7 @@ export class DatabaseQueryTelemetry {
     return changed;
   }
 
-  private trimExpired(snapshotAt = this.now()): boolean {
+  private trimExpired(snapshotAt = this.readRetentionNow()): boolean {
     const cutoff = snapshotAt - this.windowMs;
     let changed = false;
     for (const feature of DATABASE_QUERY_FEATURES) {

@@ -359,11 +359,18 @@ function DatabaseQueryTelemetrySection({
         {Object.entries(DATABASE_QUERY_FEATURE_LABELS).map(([feature, label]) => {
           const metrics = snapshot.features[feature as keyof typeof snapshot.features];
           return (
-            <div className="flex items-center justify-between" key={feature}>
+            <div className="space-y-0.5" key={feature}>
               <span className="text-muted-foreground">{label}</span>
-              <span className="font-mono text-[10px]">
-                {metrics.queryCount} / p95 {Math.round(metrics.durationP95Ms)} ms
-              </span>
+              <div
+                className="font-mono text-[10px]"
+                data-testid={`database-query-${feature}-metrics`}
+              >
+                {metrics.queryCount} queries · {Math.round(metrics.queriesPerMinute)} / min ·{' '}
+                {metrics.failureCount} failed · p50 {Math.round(metrics.durationP50Ms)} ms · p95{' '}
+                {Math.round(metrics.durationP95Ms)} ms · max {Math.round(metrics.maxDurationMs)} ms
+                {' · '}
+                {metrics.droppedSampleCount} dropped
+              </div>
             </div>
           );
         })}
