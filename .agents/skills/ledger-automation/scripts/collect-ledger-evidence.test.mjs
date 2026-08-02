@@ -75,7 +75,7 @@ function createFixture() {
   );
   write(
     repo,
-    'packages/preferences/src/settings/system/factory-reset-helpers.ts',
+    'packages/app-state/src/factory-reset.ts',
     "export const resetTables = ['widgets'];\n"
   );
   write(repo, 'packages/db/src/db-provider.tsx', 'export const provider = true;\n');
