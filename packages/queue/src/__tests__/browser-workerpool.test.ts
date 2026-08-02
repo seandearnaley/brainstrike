@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueueResult, TaskPayload } from '../types';
+import type { QueueResult, TaskPayload } from '../types.js';
 
 const {
   emitQueueTelemetryMock,
@@ -37,7 +37,7 @@ vi.mock('../telemetry', () => ({
 }));
 
 vi.mock('../util', async () => {
-  const actual = await vi.importActual<typeof import('../util')>('../util');
+  const actual = await vi.importActual<typeof import('../util.js')>('../util');
   return {
     ...actual,
     estimateHardwareConcurrency: vi.fn(() => 4),
@@ -119,7 +119,7 @@ describe('createWorkerpoolAdapter', () => {
   });
 
   it('requires an explicit workerUrl', async () => {
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     expect(() => createWorkerpoolAdapter()).toThrow(
       'createWorkerpoolAdapter requires an explicit workerUrl.'
     );
@@ -136,7 +136,7 @@ describe('createWorkerpoolAdapter', () => {
       }
     );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
     const off = adapter.onProgress(progressListener);
 
@@ -170,7 +170,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
 
     await expect(adapter.add(createTask('task-2'), { signal: controller.signal })).rejects.toThrow(
@@ -197,7 +197,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
 
     const addPromise = adapter.add(createTask('task-3'), { signal });
@@ -217,7 +217,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise, reject } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
 
     const addPromise = adapter.add(createTask('task-4'));
@@ -245,7 +245,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise, reject } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter({ workerUrl: '/worker.js' });
 
     const addPromise = adapter.add(createTask('task-5')).catch((error: unknown) => error);

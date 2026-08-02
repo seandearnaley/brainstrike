@@ -1,4 +1,4 @@
-import type { FileSystemChange } from '../types';
+import type { FileSystemChange } from '../types.js';
 
 // Shared change-batching primitive for the watcher service (BST-568). The
 // legacy chokidar / recursive-fs.watch engines that used to live here were

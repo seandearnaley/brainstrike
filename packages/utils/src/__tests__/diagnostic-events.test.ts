@@ -4,8 +4,8 @@ import {
   DIAGNOSTIC_MESSAGE_MAX_CHARS,
   deriveDiagnosticRecordSource,
   logRecordToDiagnosticEvent,
-} from '../diagnostics/diagnostic-events';
-import { addLogListener, LogLevel, type LogRecord, error as logError } from '../logger';
+} from '../diagnostics/diagnostic-events.js';
+import { addLogListener, LogLevel, type LogRecord, error as logError } from '../logger.js';
 
 const ENV = {
   appVersion: '1.0.0-test',

@@ -6,8 +6,8 @@ import type {
   RootDescriptor,
   WatcherHealthEvent,
   WatcherHealthTransition,
-} from './file-system';
-import type { TapestryColorName } from './tapestry-colors';
+} from './file-system.js';
+import type { TapestryColorName } from './tapestry-colors.js';
 
 /**
  * Result of a database test operation

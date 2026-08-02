@@ -1347,9 +1347,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1424,9 +1421,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1472,9 +1466,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1791,9 +1782,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1919,9 +1907,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2147,9 +2132,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2254,9 +2236,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2396,9 +2375,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2497,9 +2473,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2569,9 +2542,6 @@ importers:
       playwright:
         specifier: 'catalog:'
         version: 1.61.1
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2633,9 +2603,6 @@ importers:
       react:
         specifier: ^19.2.4
         version: 19.2.7
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2658,9 +2625,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2979,9 +2943,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3093,9 +3054,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'

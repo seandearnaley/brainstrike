@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { installConsoleGuard } from '../console-guard';
+import { installConsoleGuard } from '../console-guard.js';
 
 describe('Console Guard - Simple Tests', () => {
   describe('installConsoleGuard', () => {

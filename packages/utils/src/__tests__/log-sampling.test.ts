@@ -4,7 +4,7 @@ import {
   createLogSampler,
   createMilestoneSampler,
   createPercentSampler,
-} from '../../src/log-sampling';
+} from '../../src/log-sampling.js';
 
 describe('log-sampling', () => {
   describe('createLogSampler', () => {

@@ -1,7 +1,10 @@
 import * as loggerModule from '@brainstrike/utils/logger';
 import { LogLevel } from '@brainstrike/utils/logger';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyLoggingPreferences, createDefaultLoggingPreferences } from '../logging-preferences';
+import {
+  applyLoggingPreferences,
+  createDefaultLoggingPreferences,
+} from '../logging-preferences.js';
 
 describe('logging-preferences', () => {
   const configureLoggerSpy = vi.spyOn(loggerModule, 'configureLogger');

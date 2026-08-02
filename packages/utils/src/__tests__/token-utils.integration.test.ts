@@ -1,6 +1,6 @@
 import { encoding_for_model, get_encoding } from 'tiktoken';
 import { describe, expect, it } from 'vitest';
-import { countTokensAccurate } from '../token-utils';
+import { countTokensAccurate } from '../token-utils.js';
 
 describe('Token Utilities Integration', () => {
   describe('countTokensAccurate with real tokenizer', () => {

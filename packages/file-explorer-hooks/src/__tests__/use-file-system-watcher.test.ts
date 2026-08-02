@@ -8,7 +8,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { JSX, ReactNode } from 'react';
 import { useLayoutEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileSystemWatcher } from '../use-file-system-watcher';
+import { useFileSystemWatcher } from '../use-file-system-watcher.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

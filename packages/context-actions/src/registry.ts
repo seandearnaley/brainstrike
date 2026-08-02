@@ -5,7 +5,7 @@ import type {
   AnyContextAction,
   CapabilityKey,
   ContextTarget,
-} from './types';
+} from './types.js';
 
 export interface GroupedActions {
   actions: AnyContextAction[];

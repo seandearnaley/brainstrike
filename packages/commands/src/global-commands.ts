@@ -1,5 +1,5 @@
 import type { ActionOutcome } from '@brainstrike/context-actions';
-import type { Command } from './types';
+import type { Command } from './types.js';
 
 /**
  * App-supplied handlers for the targetless global commands. Each is OPTIONAL:

@@ -3,7 +3,7 @@ import {
   canonicalizeProviderModelKey,
   formatProviderModelKey,
   parseProviderModelKey,
-} from '../index';
+} from '../index.js';
 
 describe('provider-model-key', () => {
   it('formats provider/model ids with the canonical separator', () => {

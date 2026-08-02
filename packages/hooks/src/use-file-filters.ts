@@ -7,7 +7,7 @@ import {
   createProcessTreeFunction,
   type PatternCache,
   setupFilters,
-} from './filter-engine';
+} from './filter-engine.js';
 
 interface RegexCache extends PatternCache {
   lastExcludePatterns: string[];

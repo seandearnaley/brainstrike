@@ -1,4 +1,4 @@
-import { LogLevel, type LogRecord, redactSensitiveLogValue } from '../logger';
+import { LogLevel, type LogRecord, redactSensitiveLogValue } from '../logger.js';
 
 export type DiagnosticSeverity = 'warn' | 'error' | 'fatal';
 

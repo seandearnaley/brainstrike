@@ -3,7 +3,7 @@ import {
   DEFAULT_EMBEDDING_DIMENSION,
   LEGACY_DEFAULT_EMBEDDING_DIMENSION,
   MAX_EMBEDDING_DIMENSION,
-} from '../src/embedding-constants';
+} from '../src/embedding-constants.js';
 
 describe('embedding-constants', () => {
   describe('LEGACY_DEFAULT_EMBEDDING_DIMENSION', () => {

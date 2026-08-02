@@ -1,21 +1,21 @@
 import { createLogger } from '@brainstrike/utils';
-import type { IEmbeddingProvider } from './interfaces/provider';
+import type { IEmbeddingProvider } from './interfaces/provider.js';
 import type {
   EmbeddingProviderConfig,
   EmbeddingProviderError,
   HostedProviderType,
   Result,
-} from './provider-types';
-import { hostedProviderRequiresApiKey, type LocalProviderType } from './provider-types';
+} from './provider-types.js';
+import { hostedProviderRequiresApiKey, type LocalProviderType } from './provider-types.js';
 import {
   clearHostedProviderApiKeyCache,
   resolveHostedProviderApiKey,
-} from './providers/hosted/api-key-resolver';
-import { CohereEmbeddingProvider } from './providers/hosted/cohere-provider';
-import { GoogleEmbeddingProvider } from './providers/hosted/google-provider';
-import { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider';
-import { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider';
-import { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
+} from './providers/hosted/api-key-resolver.js';
+import { CohereEmbeddingProvider } from './providers/hosted/cohere-provider.js';
+import { GoogleEmbeddingProvider } from './providers/hosted/google-provider.js';
+import { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider.js';
+import { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider.js';
+import { TransformersEmbeddingProvider } from './providers/local/transformers-provider.js';
 
 const logger = createLogger('EmbeddingProviderFactory');
 

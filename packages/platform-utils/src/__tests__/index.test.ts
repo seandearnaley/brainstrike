@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { detectPlatform, type Platform, parsePositiveIntegerConfig } from '../index';
+import { detectPlatform, type Platform, parsePositiveIntegerConfig } from '../index.js';
 
 describe('Platform Utils', () => {
   describe('detectPlatform', () => {

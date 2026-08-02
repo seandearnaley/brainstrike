@@ -4,15 +4,15 @@ import {
   createFixtureCapableAdapter,
   type FixtureControls,
   isFixtureCapableAdapter,
-} from '../dev-fixture-adapter';
-import type { FixtureDefinition } from '../dev-fixture-types';
-import { DEV_INLINE_FIXTURE } from '../fixtures/dev-inline-fixture';
+} from '../dev-fixture-adapter.js';
+import type { FixtureDefinition } from '../dev-fixture-types.js';
+import { DEV_INLINE_FIXTURE } from '../fixtures/dev-inline-fixture.js';
 import type {
   DirectoryHandle,
   DirectoryStreamCallback,
   FileHandle,
   FileSystemAdapter,
-} from '../types';
+} from '../types.js';
 
 interface AdapterOptions {
   includeRestoreLastFolder?: boolean;

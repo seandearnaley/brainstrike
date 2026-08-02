@@ -1,9 +1,9 @@
 import { addLogListener } from '@brainstrike/utils';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { WebFileSystemAdapter } from '../adapters/web-adapter';
-import type { HandleCache, StoredRootHandle } from '../adapters/web-handle-cache';
-import type { DirectoryHandle, FileHandle } from '../types';
+import { WebFileSystemAdapter } from '../adapters/web-adapter.js';
+import type { HandleCache, StoredRootHandle } from '../adapters/web-handle-cache.js';
+import type { DirectoryHandle, FileHandle } from '../types.js';
 
 function createFile(name: string, content = 'data', lastModified = Date.now()) {
   return {

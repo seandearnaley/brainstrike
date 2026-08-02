@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseFilterString } from '../quick-filter-utils';
+import { parseFilterString } from '../quick-filter-utils.js';
 
 describe('quick-filter-utils', () => {
   describe('parseFilterString', () => {

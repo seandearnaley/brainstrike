@@ -4,8 +4,8 @@ import {
   parseDiagnosticEventLine,
   serializeDiagnosticEventLine,
   serializeDiagnosticEventsNdjson,
-} from '../diagnostics/diagnostic-event-ndjson';
-import type { DiagnosticEvent } from '../diagnostics/diagnostic-events';
+} from '../diagnostics/diagnostic-event-ndjson.js';
+import type { DiagnosticEvent } from '../diagnostics/diagnostic-events.js';
 
 const FULL_EVENT: DiagnosticEvent = {
   appVersion: '1.0.0',

@@ -1,4 +1,4 @@
-import type { EmbeddingDeviceHint } from './types';
+import type { EmbeddingDeviceHint } from './types.js';
 
 export interface WorkerpoolAdapterOptions {
   readonly defaultDeviceHint?: EmbeddingDeviceHint;

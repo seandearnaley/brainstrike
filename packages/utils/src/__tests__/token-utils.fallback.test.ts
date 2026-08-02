@@ -25,7 +25,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should fall back to heuristic for countTokensAccurate', async () => {
-      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils');
+      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils.js');
 
       const text = 'hello world test';
       const result = await countTokensAccurate(text);
@@ -36,14 +36,14 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should return false for supportsAccurateTokenCounting', async () => {
-      const { supportsAccurateTokenCounting } = await import('../token-utils');
+      const { supportsAccurateTokenCounting } = await import('../token-utils.js');
 
       const result = await supportsAccurateTokenCounting();
       expect(result).toBe(false);
     });
 
     it('should fall back to heuristic for calculateGroupTokens', async () => {
-      const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils');
+      const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils.js');
 
       const texts = ['hello', 'world'];
       const result = await calculateGroupTokens(texts);
@@ -63,7 +63,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should fall back to heuristic when no encoder available', async () => {
-      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils');
+      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils.js');
 
       const text = 'test string';
       const result = await countTokensAccurate(text);
@@ -86,7 +86,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should fall back to heuristic when encode throws', async () => {
-      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils');
+      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils.js');
 
       const text = 'test encoding failure';
       const result = await countTokensAccurate(text);
@@ -96,7 +96,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should fall back to heuristic for calculateGroupTokens when encode throws', async () => {
-      const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils');
+      const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils.js');
 
       const texts = ['test', 'encoding', 'failure'];
       const result = await calculateGroupTokens(texts);
@@ -120,7 +120,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should use get_encoding as fallback', async () => {
-      const { countTokensAccurate } = await import('../token-utils');
+      const { countTokensAccurate } = await import('../token-utils.js');
 
       const text = 'hello world';
       const result = await countTokensAccurate(text);
@@ -140,7 +140,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should handle null encoder from factory', async () => {
-      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils');
+      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils.js');
 
       const text = 'test null encoder';
       const result = await countTokensAccurate(text);
@@ -159,7 +159,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
     });
 
     it('should only log the first failure', async () => {
-      const { countTokensAccurate } = await import('../token-utils');
+      const { countTokensAccurate } = await import('../token-utils.js');
 
       // Multiple calls should all succeed (using heuristic)
       // but only log the failure once
@@ -178,7 +178,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
 
 describe('Token Utils - Edge Cases Without Mocking', () => {
   it('should handle concurrent countTokensAccurate calls', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const texts = Array.from({ length: 20 }, (_, i) => `concurrent text ${i}`);
     const results = await Promise.all(texts.map((t) => countTokensAccurate(t)));
@@ -190,7 +190,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
   });
 
   it('should handle concurrent calculateGroupTokens calls', async () => {
-    const { calculateGroupTokens } = await import('../token-utils');
+    const { calculateGroupTokens } = await import('../token-utils.js');
 
     const groups = [
       ['a', 'b', 'c'],
@@ -208,10 +208,10 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
 
   it('calculateGroupTokens resolves the encoder once per batch (not per item)', async () => {
     vi.resetModules();
-    const accurate = await import('../token-utils-accurate-lite');
+    const accurate = await import('../token-utils-accurate-lite.js');
     const counterSpy = vi.spyOn(accurate, 'getAccurateTokenCounter');
 
-    const { calculateGroupTokens } = await import('../token-utils');
+    const { calculateGroupTokens } = await import('../token-utils.js');
     const texts = Array.from({ length: 50 }, (_, i) => `batch entry ${i}`);
 
     const result = await calculateGroupTokens(texts);
@@ -224,7 +224,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
 
   it('falls back to heuristic for a single bad input instead of aborting the batch', async () => {
     vi.resetModules();
-    const accurate = await import('../token-utils-accurate-lite');
+    const accurate = await import('../token-utils-accurate-lite.js');
     let callIndex = 0;
     vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue((text: string) => {
       callIndex += 1;
@@ -234,7 +234,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
       return text.length;
     });
 
-    const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils');
+    const { calculateGroupTokens, countTokensHeuristic } = await import('../token-utils.js');
     const [first, second, third] = ['alpha', 'beta', 'gamma'] as const;
 
     const result = await calculateGroupTokens([first, second, third]);
@@ -244,7 +244,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
 
   it('emits a batch-end summary whenever any item degrades to heuristic', async () => {
     vi.resetModules();
-    const accurate = await import('../token-utils-accurate-lite');
+    const accurate = await import('../token-utils-accurate-lite.js');
     let faultCallIndex = 0;
     vi.spyOn(accurate, 'getAccurateTokenCounter').mockResolvedValue((text: string) => {
       faultCallIndex += 1;
@@ -270,7 +270,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
       warn: vi.fn(),
     } as unknown as ReturnType<typeof utilsLogger.createLogger>);
 
-    const { calculateGroupTokens } = await import('../token-utils');
+    const { calculateGroupTokens } = await import('../token-utils.js');
     await calculateGroupTokens(['a', 'b', 'c', 'd']);
 
     // Guard: createLogger('TokenUtils') is called at module scope. If a
@@ -295,7 +295,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
   });
 
   it('should produce consistent results for the same input', async () => {
-    const { countTokensAccurate } = await import('../token-utils');
+    const { countTokensAccurate } = await import('../token-utils.js');
 
     const text = 'consistency test text';
     const results = [];

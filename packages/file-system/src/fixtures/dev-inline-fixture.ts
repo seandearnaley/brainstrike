@@ -1,4 +1,4 @@
-import type { FixtureDefinition } from '../dev-fixture-types';
+import type { FixtureDefinition } from '../dev-fixture-types.js';
 
 /**
  * Default inline fixture used by the Developer: Inline Fixtures toggle.

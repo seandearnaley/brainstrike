@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getContentSecurityPolicy } from '../content-security-policy';
+import { getContentSecurityPolicy } from '../content-security-policy.js';
 
 /**
  * Golden contract for the unified CSP builder (BST-745). The four literals below

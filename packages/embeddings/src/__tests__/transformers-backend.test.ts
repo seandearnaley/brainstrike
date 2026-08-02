@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { TransformersBackend } from '../transformers-backend';
+import { TransformersBackend } from '../transformers-backend.js';
 
 // Mock @huggingface/transformers so importing the backend never pulls in the
 // real (heavy) library. The backend is queue-based and does not call `pipeline`

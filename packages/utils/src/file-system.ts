@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { stableHash } from './hash-utils';
-import { calculatePathDepth } from './path-utils';
+import { stableHash } from './hash-utils.js';
+import { calculatePathDepth } from './path-utils.js';
 
 interface ExperimentalFileSystemFeatures {
   getParent: () => Promise<FileSystemHandle | null>;

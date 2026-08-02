@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const importRuntime = async () => import('../token-utils-accurate-lite');
+const importRuntime = async () => import('../token-utils-accurate-lite.js');
 
 describe('token-utils-accurate-lite runtime behavior', () => {
   beforeEach(() => {

@@ -2,7 +2,7 @@ import {
   resolveHostedProviderKey,
   SECRETS_CHANGED_EVENT_NAME,
 } from '@brainstrike/assistant-contract/provider-key-resolution';
-import type { HostedProviderType } from '../../provider-types';
+import type { HostedProviderType } from '../../provider-types.js';
 
 type HostedProvider = HostedProviderType;
 

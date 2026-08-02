@@ -5,7 +5,7 @@ import {
   countTokensHeuristic,
   formatTokenCount,
   supportsAccurateTokenCounting,
-} from '../token-utils';
+} from '../token-utils.js';
 
 describe('Token Utilities - Enhanced Coverage', () => {
   describe('supportsAccurateTokenCounting', () => {

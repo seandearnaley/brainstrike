@@ -1,11 +1,11 @@
 import { TextDecoder, TextEncoder } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
-import { fileSystem } from '../file-system';
+import { fileSystem } from '../file-system.js';
 import {
   createCircularHandles,
   createSelfReferencingHandle,
   MockFileSystemHandle,
-} from './utils/mock-file-system';
+} from './utils/mock-file-system.js';
 
 // Add TextEncoder and TextDecoder to global scope if not already defined
 if (typeof global.TextEncoder === 'undefined') {

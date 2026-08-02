@@ -3,7 +3,7 @@ import {
   BACKGROUND_INDEXING_POLICY_OPTIONS,
   createBackgroundIndexingEntryPolicy,
   DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE,
-} from '../background-indexing-policy';
+} from '../background-indexing-policy.js';
 
 describe('background-indexing-policy', () => {
   afterEach(() => {

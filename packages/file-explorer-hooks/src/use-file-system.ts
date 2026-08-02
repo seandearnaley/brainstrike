@@ -2,8 +2,8 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { FileExplorerState, RootDescriptor, StoredRootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
-import { useAdapters } from './adapters-context';
-import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers';
+import { useAdapters } from './adapters-context.js';
+import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers.js';
 
 const logger = createLogger('FileSystemHook');
 

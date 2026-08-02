@@ -95,7 +95,9 @@ describe('Token Utilities mocked runtime coverage', () => {
       default: './o200k_base.json?url',
     }));
 
-    const { countTokensAccurate, supportsAccurateTokenCounting } = await import('../token-utils');
+    const { countTokensAccurate, supportsAccurateTokenCounting } = await import(
+      '../token-utils.js'
+    );
 
     await expect(supportsAccurateTokenCounting()).resolves.toBe(true);
     await expect(countTokensAccurate('mock')).resolves.toBe(4);
@@ -118,7 +120,9 @@ describe('Token Utilities mocked runtime coverage', () => {
       }),
     }));
 
-    const { countTokensAccurate, supportsAccurateTokenCounting } = await import('../token-utils');
+    const { countTokensAccurate, supportsAccurateTokenCounting } = await import(
+      '../token-utils.js'
+    );
 
     await expect(supportsAccurateTokenCounting()).resolves.toBe(true);
     await expect(countTokensAccurate('abc')).resolves.toBe(4);
@@ -153,7 +157,7 @@ describe('Token Utilities mocked runtime coverage', () => {
     }));
 
     const { countTokensAccurate, countTokensHeuristic, supportsAccurateTokenCounting } =
-      await import('../token-utils');
+      await import('../token-utils.js');
 
     await expect(supportsAccurateTokenCounting()).resolves.toBe(false);
     await expect(countTokensAccurate('fallback-text')).resolves.toBe(
@@ -195,7 +199,7 @@ describe('Token Utilities mocked runtime coverage', () => {
     }));
 
     const { countTokensAccurate, countTokensHeuristic, supportsAccurateTokenCounting } =
-      await import('../token-utils');
+      await import('../token-utils.js');
 
     await expect(supportsAccurateTokenCounting()).resolves.toBe(false);
     await expect(countTokensAccurate('bad-url')).resolves.toBe(countTokensHeuristic('bad-url'));

@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { openDB } from 'idb';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { WebHandleCache } from '../adapters/web-handle-cache';
+import { WebHandleCache } from '../adapters/web-handle-cache.js';
 
 const DB_NAME = 'brainstrike-file-handles';
 

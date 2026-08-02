@@ -384,7 +384,7 @@ export interface FileExplorerState extends FileExplorerData {
   evictOldFileContents: (count?: number) => void;
 
   // New actions
-  expandAllDirectories: (fileTree: import('./file-system').IFileNode[]) => void;
+  expandAllDirectories: (fileTree: import('./file-system.js').IFileNode[]) => void;
   getFileContent: (compositeKey: string) => string | undefined;
   getFileContentCacheStats: () => CacheStats;
   hydrateFolderState: (folderId: string) => void;

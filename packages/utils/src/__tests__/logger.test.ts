@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as envUtils from '../env-utils';
+import * as envUtils from '../env-utils.js';
 import {
   __loggerTesting,
   addLogListener,
@@ -18,7 +18,7 @@ import {
   resetLogger,
   setLogLevel,
   warn,
-} from '../logger';
+} from '../logger.js';
 
 describe('redactSensitiveLogValue cause chains', () => {
   it('carries a nested Error cause through redaction', () => {
@@ -399,7 +399,7 @@ describe('logger', () => {
     });
 
     it('supports trace level logging', async () => {
-      const { trace } = await import('../logger');
+      const { trace } = await import('../logger.js');
       const records = collectLogs(() => {
         trace('trace message');
       });
@@ -410,7 +410,7 @@ describe('logger', () => {
     });
 
     it('supports fatal level logging', async () => {
-      const { fatal } = await import('../logger');
+      const { fatal } = await import('../logger.js');
       const records = collectLogs(() => {
         fatal('fatal message');
       });

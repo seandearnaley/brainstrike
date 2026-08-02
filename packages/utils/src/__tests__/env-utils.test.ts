@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isDevEnv } from '../env-utils';
+import { isDevEnv } from '../env-utils.js';
 
 describe('isDevEnv', () => {
   afterEach(() => {

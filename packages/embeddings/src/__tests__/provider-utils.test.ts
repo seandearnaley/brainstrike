@@ -3,7 +3,7 @@ import {
   canonicalizeProviderModelKey,
   formatProviderModelKey,
   parseProviderModelKey,
-} from '../provider-utils';
+} from '../provider-utils.js';
 
 describe('parseProviderModelKey', () => {
   it('parses double-colon composite keys', () => {

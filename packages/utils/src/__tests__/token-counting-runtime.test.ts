@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { __resetTokenCountingRuntimeModuleForTests } from '../token-counting-runtime';
+import { __resetTokenCountingRuntimeModuleForTests } from '../token-counting-runtime.js';
 
 const supportsAccurateTokenCountingMock = vi.hoisted(() => vi.fn());
 const countTokensAccurateMock = vi.hoisted(() => vi.fn());
@@ -20,7 +20,7 @@ describe('token-counting-runtime', () => {
   });
 
   it('keeps heuristic counting available without loading the accurate runtime', async () => {
-    const { countTokensHeuristic } = await import('../token-counting-runtime');
+    const { countTokensHeuristic } = await import('../token-counting-runtime.js');
 
     expect(countTokensHeuristic('abcdefgh')).toBe(2);
     expect(supportsAccurateTokenCountingMock).not.toHaveBeenCalled();
@@ -30,7 +30,7 @@ describe('token-counting-runtime', () => {
   it('loads the accurate runtime lazily for support checks', async () => {
     supportsAccurateTokenCountingMock.mockResolvedValue(true);
 
-    const { supportsAccurateTokenCounting } = await import('../token-counting-runtime');
+    const { supportsAccurateTokenCounting } = await import('../token-counting-runtime.js');
 
     await expect(supportsAccurateTokenCounting()).resolves.toBe(true);
     expect(supportsAccurateTokenCountingMock).toHaveBeenCalledTimes(1);
@@ -39,7 +39,7 @@ describe('token-counting-runtime', () => {
   it('loads the accurate runtime lazily for accurate counting', async () => {
     countTokensAccurateMock.mockResolvedValue(42);
 
-    const { countTokensAccurate } = await import('../token-counting-runtime');
+    const { countTokensAccurate } = await import('../token-counting-runtime.js');
 
     await expect(countTokensAccurate('hello world')).resolves.toBe(42);
     expect(countTokensAccurateMock).toHaveBeenCalledWith('hello world');
@@ -48,14 +48,14 @@ describe('token-counting-runtime', () => {
   it('loads the accurate runtime lazily for grouped counting', async () => {
     calculateGroupTokensMock.mockResolvedValue(99);
 
-    const { calculateGroupTokens } = await import('../token-counting-runtime');
+    const { calculateGroupTokens } = await import('../token-counting-runtime.js');
 
     await expect(calculateGroupTokens(['a', 'bb'])).resolves.toBe(99);
     expect(calculateGroupTokensMock).toHaveBeenCalledWith(['a', 'bb']);
   });
 
   it('keeps lightweight formatting helpers local to the facade', async () => {
-    const { formatTokenCount } = await import('../token-counting-runtime');
+    const { formatTokenCount } = await import('../token-counting-runtime.js');
 
     expect(formatTokenCount(1500)).toBe('1.5K tokens');
     expect(calculateGroupTokensMock).not.toHaveBeenCalled();

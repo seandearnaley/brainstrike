@@ -7,7 +7,7 @@ import {
   isBinaryFile,
   isTextExtension,
   isTextFile,
-} from '../file-utils';
+} from '../file-utils.js';
 
 describe('file-utils', () => {
   it('treats svg files as text', () => {

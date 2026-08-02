@@ -3,7 +3,7 @@ import {
   resolveTapestryColorHex,
   TAPESTRY_COLOR_HEX,
   TAPESTRY_COLOR_NAMES,
-} from '../src/tapestry-colors';
+} from '../src/tapestry-colors.js';
 
 describe('tapestry-colors', () => {
   it('maps every name to a 6-digit hex', () => {

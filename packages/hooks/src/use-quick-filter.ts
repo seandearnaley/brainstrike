@@ -1,8 +1,8 @@
 import type { IFileNode } from '@brainstrike/types';
 import { parseFilterString } from '@brainstrike/utils/quick-filter-utils';
 import { useCallback, useMemo, useState } from 'react';
-import { filterTreeIterative } from './filter-tree';
-import { useDebouncedValue } from './use-debounced-value';
+import { filterTreeIterative } from './filter-tree.js';
+import { useDebouncedValue } from './use-debounced-value.js';
 
 /**
  * A hook that provides debounced include/exclude filtering over a tree of IFileNode.

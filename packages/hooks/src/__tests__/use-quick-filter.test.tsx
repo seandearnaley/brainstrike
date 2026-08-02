@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useQuickFilter } from '../use-quick-filter';
+import { useQuickFilter } from '../use-quick-filter.js';
 
 // Mock the debounced hook to return the filter immediately
 vi.mock('../use-debounced-value', () => ({

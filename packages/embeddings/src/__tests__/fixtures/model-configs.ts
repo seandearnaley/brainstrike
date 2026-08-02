@@ -1,4 +1,4 @@
-import type { ModelConfig } from '../../types';
+import type { ModelConfig } from '../../types.js';
 
 export const JINA_CODE_MODEL: ModelConfig = {
   contextWindow: 8192,

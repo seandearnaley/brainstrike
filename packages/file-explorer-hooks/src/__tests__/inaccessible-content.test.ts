@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildInaccessibleContent, INACCESSIBLE_CONTENT_PREFIX } from '../inaccessible-content';
+import { buildInaccessibleContent, INACCESSIBLE_CONTENT_PREFIX } from '../inaccessible-content.js';
 
 describe('inaccessible-content sentinel', () => {
   it('exposes the canonical English-prose prefix', () => {

@@ -1,12 +1,12 @@
-import { SimpleEmbeddingService } from '../../bge-m3-service';
-import type { EmbeddingInput, ILocalEmbeddingProvider } from '../../interfaces/provider';
+import { SimpleEmbeddingService } from '../../bge-m3-service.js';
+import type { EmbeddingInput, ILocalEmbeddingProvider } from '../../interfaces/provider.js';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   ProviderMetadata,
   Result,
-} from '../../provider-types';
-import type { EmbeddingProgress, ModelConfig } from '../../types';
+} from '../../provider-types.js';
+import type { EmbeddingProgress, ModelConfig } from '../../types.js';
 
 /** Default distance metric for local transformers models */
 const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';

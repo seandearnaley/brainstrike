@@ -7,8 +7,8 @@ import {
   createFileSystemChangeBatcher,
   FS_WATCH_BATCH_WINDOW_MS,
   FS_WATCH_MAX_BATCH_SIZE,
-} from '../adapters/electron-watchers';
-import type { FileSystemChange } from '../types';
+} from '../adapters/electron-watchers.js';
+import type { FileSystemChange } from '../types.js';
 
 function change(pathSuffix: number): FileSystemChange {
   return { kind: 'file', path: `/root/f${pathSuffix}.txt`, type: 'added' };

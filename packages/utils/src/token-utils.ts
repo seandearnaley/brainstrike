@@ -11,15 +11,15 @@ import {
   getAccurateTokenCounter,
   type SyncAccurateCounter,
   supportsAccurateTokenCounting as supportsAccurateTokenCountingStrict,
-} from './token-utils-accurate-lite';
+} from './token-utils-accurate-lite.js';
 
 export {
   ACCURATE_TOKEN_ENCODING,
   ACCURATE_TOKEN_MODEL_HINT,
-} from './token-constants';
-export { countTokensHeuristic, formatTokenCount } from './token-counting-heuristics';
+} from './token-constants.js';
+export { countTokensHeuristic, formatTokenCount } from './token-counting-heuristics.js';
 
-import { countTokensHeuristic } from './token-counting-heuristics';
+import { countTokensHeuristic } from './token-counting-heuristics.js';
 
 let loadFailureLogged = false;
 const logger = createLogger('TokenUtils');

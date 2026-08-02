@@ -1,4 +1,4 @@
-import { fileNodeCollator } from './collator';
+import { fileNodeCollator } from './collator.js';
 
 /**
  * Tree Operations

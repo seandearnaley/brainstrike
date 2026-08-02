@@ -8,7 +8,7 @@ import {
   createFileContentProcessor,
   DirectFileContentProcessor,
   WorkerFileContentProcessor,
-} from '../file-content-processor';
+} from '../file-content-processor.js';
 
 // Mock the worker
 vi.mock('@brainstrike/workers/file-content-worker', () => ({

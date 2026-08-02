@@ -5,7 +5,7 @@ import {
   UserCancelledError,
 } from '@brainstrike/file-system';
 import { describe, expect, it } from 'vitest';
-import { isUserCancellation, mapFileSystemError } from '../file-system-error-helpers';
+import { isUserCancellation, mapFileSystemError } from '../file-system-error-helpers.js';
 
 describe('file-system-error-helpers', () => {
   describe('isUserCancellation', () => {

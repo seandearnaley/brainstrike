@@ -1,5 +1,5 @@
-export { createClipboardService } from './clipboard';
-export { isAbsolutePath, toRelativePath } from './paths';
+export { createClipboardService } from './clipboard.js';
+export { isAbsolutePath, toRelativePath } from './paths.js';
 export {
   type ActionMenuItemDescriptor,
   type ActionRegistry,
@@ -7,8 +7,8 @@ export {
   createActionRegistry,
   type GroupedActionMenuDescriptors,
   type GroupedActions,
-} from './registry';
-export { createTestActionRegistry } from './testing';
+} from './registry.js';
+export { createTestActionRegistry } from './testing.js';
 export {
   type ActionGroup,
   type ActionOutcome,
@@ -25,4 +25,4 @@ export {
   type FileContextIdentity,
   type PlatformFsService,
   type TargetOf,
-} from './types';
+} from './types.js';

@@ -1,7 +1,7 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import { type loadChunk, loadChunksBatch } from './embedding-worker-db-io';
-import type { EmbedChunkPayload, EmbeddingJobModel } from './embedding-worker-job-payload';
-import { assertEmbedChunkJob } from './embedding-worker-job-payload';
+import { type loadChunk, loadChunksBatch } from './embedding-worker-db-io.js';
+import type { EmbedChunkPayload, EmbeddingJobModel } from './embedding-worker-job-payload.js';
+import { assertEmbedChunkJob } from './embedding-worker-job-payload.js';
 
 // biome-ignore lint/style/useNamingConvention: lease_token is a database field name.
 export type ClaimedEmbeddingJob = Job & { lease_token: string };

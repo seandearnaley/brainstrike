@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getFileExtension } from '../file-utils';
+import { getFileExtension } from '../file-utils.js';
 
 describe('getFileExtension', () => {
   it('returns empty string for empty input', () => {

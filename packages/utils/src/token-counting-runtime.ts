@@ -8,17 +8,17 @@
  * the user explicitly enables accurate counting or requests a token count.
  */
 
-import { countTokensHeuristic, formatTokenCount } from './token-counting-heuristics';
+import { countTokensHeuristic, formatTokenCount } from './token-counting-heuristics.js';
 
 export { countTokensHeuristic, formatTokenCount };
 
-type TokenUtilsModule = typeof import('./token-utils');
+type TokenUtilsModule = typeof import('./token-utils.js');
 
 let tokenUtilsModulePromise: Promise<TokenUtilsModule> | null = null;
 
 function loadTokenUtilsModule(): Promise<TokenUtilsModule> {
   if (!tokenUtilsModulePromise) {
-    tokenUtilsModulePromise = import('./token-utils');
+    tokenUtilsModulePromise = import('./token-utils.js');
   }
   return tokenUtilsModulePromise;
 }

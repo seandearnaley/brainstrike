@@ -34,7 +34,6 @@ describe('build-utils architecture boundaries', () => {
     const packageFiles: [relativePath: string, text: string][] = [
       ['package.json', readPackageFile('package.json')],
       ['tsconfig.json', readPackageFile('tsconfig.json')],
-      ['tsup.config.ts', readPackageFile('tsup.config.ts')],
     ];
     const sourceFiles = listFiles(BUILD_UTILS_SRC_ROOT)
       .filter((filePath) => path.basename(filePath) !== 'architecture-boundary.test.ts')
