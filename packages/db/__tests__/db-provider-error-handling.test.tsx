@@ -93,8 +93,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('logs initialization errors as structured metadata for browser exports', async () => {
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {
@@ -123,8 +122,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('handles database initialization errors gracefully', async () => {
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {
@@ -165,8 +163,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('handles migration errors gracefully', async () => {
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {
@@ -207,9 +204,7 @@ describe('DbProvider error handling', () => {
 
     // Mock production environment but enable logging for the test
     const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
-    // Configure logger to enable logging in production for this test
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {

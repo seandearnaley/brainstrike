@@ -111,7 +111,6 @@ export interface LoggerConfig {
   browser?: BrowserLoggerOptions;
   console?: ConsoleTransportConfig | false;
   customTransports?: readonly CustomTransportConfig[];
-  enableInProduction?: boolean;
   file?: FileTransportConfig | false;
   includeTimestamp?: boolean;
   level?: LogLevel;
@@ -154,7 +153,6 @@ interface InternalLoggerConfig {
   browser?: BrowserLoggerOptions;
   console: NormalizedConsoleConfig;
   customTransports: readonly CustomTransportConfig[];
-  enableInProduction: boolean;
   explicitLevel?: LogLevel;
   file?: NormalizedFileConfig;
   includeTimestamp: boolean;
@@ -178,7 +176,6 @@ function createDefaultConfig(): InternalLoggerConfig {
       options: {},
     },
     customTransports: [],
-    enableInProduction: false,
     includeTimestamp: false,
     scopeKey: 'scope',
   };
@@ -818,10 +815,6 @@ export function configureLogger(config: LoggerConfig): void {
 
   if (config.level !== undefined) {
     nextConfig.explicitLevel = config.level;
-  }
-
-  if (config.enableInProduction !== undefined) {
-    nextConfig.enableInProduction = config.enableInProduction;
   }
 
   if (config.prefix !== undefined) {

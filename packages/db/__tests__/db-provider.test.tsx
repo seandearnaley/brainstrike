@@ -186,8 +186,7 @@ describe('DbProvider', () => {
 
   it('returns null and logs error when initialization fails', async () => {
     const error = new Error('init failed');
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
 
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
@@ -223,9 +222,7 @@ describe('DbProvider', () => {
 
     // Mock production environment but enable logging for the test
     const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
-    // Configure logger to enable logging in production for this test
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
 
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {

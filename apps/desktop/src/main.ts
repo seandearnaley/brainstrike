@@ -487,7 +487,6 @@ const loggingOptions: InitializeLoggingOptions = {
       : {}),
   },
   consoleLevel: initialLoggingPreferences.consoleLevel,
-  enableDebugInProduction: true,
   includeTimestamp: initialLoggingPreferences.includeTimestamp,
   level: initialLoggingPreferences.level,
   runtime: 'electron-main',

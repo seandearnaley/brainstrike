@@ -1,11 +1,5 @@
 import type { FileImportResult } from '@brainstrike/db';
-import {
-  addLogListener,
-  configureLogger,
-  LogLevel,
-  type LogRecord,
-  setLogLevel,
-} from '@brainstrike/logging';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import { runEnhancedImport } from '../enhanced-import';
 
@@ -39,7 +33,6 @@ describe('runEnhancedImport error handling', () => {
   });
 
   it('reports cancellation without misclassifying it as a catastrophic failure', async () => {
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
     const captured: LogRecord[] = [];
     const removeListener = addLogListener((record) => {
@@ -76,12 +69,10 @@ describe('runEnhancedImport error handling', () => {
       );
     } finally {
       removeListener();
-      configureLogger({ enableInProduction: false });
     }
   });
 
   it('reports a genuine failure even when the runner aborts its signal first', async () => {
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
     const captured: LogRecord[] = [];
     const removeListener = addLogListener((record) => {
@@ -121,7 +112,6 @@ describe('runEnhancedImport error handling', () => {
       );
     } finally {
       removeListener();
-      configureLogger({ enableInProduction: false });
     }
   });
 

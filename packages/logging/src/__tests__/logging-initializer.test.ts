@@ -41,7 +41,6 @@ describe('initializeLogging', () => {
         enabled: true,
         level: LogLevel.DEBUG,
       } satisfies ConsoleTransportConfig,
-      enableInProduction: false,
       file: false,
       level: LogLevel.INFO,
     });
@@ -58,7 +57,6 @@ describe('initializeLogging', () => {
           target: 'datadog-transport',
         },
       ],
-      enableDebugInProduction: true,
       file: {
         append: false,
         destination: '/tmp/brainstrike.log',
@@ -89,7 +87,6 @@ describe('initializeLogging', () => {
           target: 'datadog-transport',
         },
       ],
-      enableInProduction: true,
       file: {
         append: false,
         destination: '/tmp/brainstrike.log',

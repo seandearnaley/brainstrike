@@ -94,8 +94,8 @@ describe('logger', () => {
       ]);
     });
 
-    it('enables debug logging in production when configured with explicit level', () => {
-      configureLogger({ enableInProduction: true, level: LogLevel.DEBUG });
+    it('enables debug logging when configured with an explicit level', () => {
+      configureLogger({ level: LogLevel.DEBUG });
 
       const records = collectLogs(() => {
         debug('debug message');
@@ -138,8 +138,6 @@ describe('logger', () => {
   });
 
   describe('structured metadata', () => {
-    beforeEach(() => {});
-
     it('adds global bindings when configured', () => {
       configureLogger({
         baseBindings: { environment: 'test' },
@@ -301,8 +299,6 @@ describe('logger', () => {
   });
 
   describe('listeners', () => {
-    beforeEach(() => {});
-
     it('allows listeners to unsubscribe cleanly', () => {
       const captured: LogRecord[] = [];
       const unsubscribe = addLogListener((record) => {
@@ -346,8 +342,6 @@ describe('logger', () => {
   });
 
   describe('legacy aliases', () => {
-    beforeEach(() => {});
-
     it('continues to emit records for legacy helpers', () => {
       // Note: log() is an alias for debug(), which requires DEBUG level
       // With default INFO level, only info/warn/error are captured
@@ -420,8 +414,6 @@ describe('logger', () => {
   });
 
   describe('logger caching', () => {
-    beforeEach(() => {});
-
     it('returns the same logger instance for the same scope', () => {
       const logger1 = createLogger('CachedScope');
       const logger2 = createLogger('CachedScope');
@@ -490,8 +482,6 @@ describe('logger', () => {
   });
 
   describe('listener error handling', () => {
-    beforeEach(() => {});
-
     it('logs listener errors to console without breaking logging', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const throwingListener = vi.fn(() => {
@@ -651,7 +641,6 @@ describe('logger', () => {
           options: {},
         },
         customTransports: [],
-        enableInProduction: true,
         includeTimestamp: false,
         scopeKey: 'scope',
       }) as BrowserWriteMethods;
@@ -685,7 +674,6 @@ describe('logger', () => {
           options: {},
         },
         customTransports: [],
-        enableInProduction: true,
         includeTimestamp: false,
         scopeKey: 'scope',
       }) as BrowserWriteMethods;
