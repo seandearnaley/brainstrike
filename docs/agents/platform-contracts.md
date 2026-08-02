@@ -639,9 +639,11 @@ the delivery-time clock mapping, because replacement observers can deliver the
 same buffered entry at different times.
 Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
-never silently degrades. Unsupported setup publishes an explicitly empty window
-without consulting the timing clock, and disposing that inactive observation
-preserves the capability classification until the caller sees the idle state.
+never silently degrades. Unsupported observation releases retained samples,
+dedupe keys and the retention timer before publishing an explicitly empty window
+without consulting the timing clock; disposing that inactive observation repeats
+the release before the caller sees the idle state. The empty snapshot carries
+the last successful monotonic timestamp rather than fabricating a new clock read.
 A malformed entry fails and disconnects its observer loudly, but valid sibling
 entries from the same delivered batch are retained and published with that failed
 snapshot. Reset always clears retained context; when the timing clock is unusable,

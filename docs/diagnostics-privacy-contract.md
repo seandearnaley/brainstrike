@@ -115,10 +115,13 @@ Module construction is clock-free; collection validates timing, and a missing
 timing capability is
 reported through a failed in-memory snapshot instead of breaking app-shell
 module evaluation. The initial external-store read also returns that explicit
-failed snapshot before the observer effect mounts. Buffered replay deduplication
-uses stable Performance entry identity rather than delivery-time clock mapping,
-so replacing an observer cannot count the same buffered entry twice. Dedupe-key
-capacity eviction uses occurrence time rather than callback delivery order.
+failed snapshot before the observer effect mounts. A failed clock read is not
+immediately retried to fabricate a timestamp; the snapshot uses the last
+successful monotonic timestamp and keeps the failure latched. Buffered replay
+deduplication uses stable Performance entry identity rather than delivery-time
+clock mapping, so replacing an observer cannot count the same buffered entry
+twice. Dedupe-key capacity eviction uses occurrence time rather than callback
+delivery order.
 A delivered PerformanceObserver batch performs retention, cap eviction, timer
 scheduling, snapshot rebuilding, and listener publication once after inserting
 all eligible entries; startup replay therefore produces one snapshot publication

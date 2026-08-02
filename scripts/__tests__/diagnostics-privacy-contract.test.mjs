@@ -156,6 +156,9 @@ test('platform contract documents the non-destructive render-phase retention exc
     'already owned',
     'retention timer',
     'non-render collection/publication entry point',
+    'Unsupported observation releases retained samples',
+    'dedupe keys and the retention timer',
+    'before publishing an explicitly empty window',
   ]) {
     assert.match(platformContractSource, new RegExp(escapeRegExp(term), 'i'));
   }

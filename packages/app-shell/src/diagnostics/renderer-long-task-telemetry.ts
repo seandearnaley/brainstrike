@@ -149,6 +149,7 @@ export function createRendererLongTaskTelemetry(
   let retentionTimer: ReturnType<typeof setTimeout> | null = null;
   let samples: RendererLongTaskSample[] = [];
   let unavailableReason: string | null = null;
+  let lastSuccessfulClockAt = 0;
 
   const prune = (snapshotAt: number): boolean => {
     const threshold = snapshotAt - windowMs;
@@ -274,22 +275,26 @@ export function createRendererLongTaskTelemetry(
   const setFailedSnapshot = (
     error: unknown,
     notifyListeners: boolean,
-    retainedContextDisposition: 'defer' | 'preserve' | 'release' = 'preserve'
+    retainedContextDisposition: 'defer' | 'preserve' | 'release' = 'preserve',
+    clockAlreadyFailed = false
   ): void => {
     availability = 'failed';
     const failureReason = readErrorMessage(error);
     unavailableReason = failureReason;
-    let snapshotAt = 0;
+    let snapshotAt = lastSuccessfulClockAt;
     let shouldReleaseRetainedContext = retainedContextDisposition === 'release';
-    try {
-      snapshotAt = now();
-    } catch (clockError) {
-      shouldReleaseRetainedContext = retainedContextDisposition !== 'defer';
-      const clockFailureReason = readErrorMessage(clockError);
-      unavailableReason =
-        clockFailureReason === failureReason
-          ? failureReason
-          : `${failureReason} (clock unavailable: ${clockFailureReason})`;
+    if (!clockAlreadyFailed) {
+      try {
+        snapshotAt = now();
+        lastSuccessfulClockAt = snapshotAt;
+      } catch (clockError) {
+        shouldReleaseRetainedContext = retainedContextDisposition !== 'defer';
+        const clockFailureReason = readErrorMessage(clockError);
+        unavailableReason =
+          clockFailureReason === failureReason
+            ? failureReason
+            : `${failureReason} (clock unavailable: ${clockFailureReason})`;
+      }
     }
     if (shouldReleaseRetainedContext) {
       releaseRetainedSampleContext();
@@ -320,9 +325,16 @@ export function createRendererLongTaskTelemetry(
       releasePendingRetainedSampleContext();
     }
     try {
-      return now();
+      const snapshotAt = now();
+      lastSuccessfulClockAt = snapshotAt;
+      return snapshotAt;
     } catch (error) {
-      setFailedSnapshot(error, notifyListeners, deferRetainedContextRelease ? 'defer' : 'release');
+      setFailedSnapshot(
+        error,
+        notifyListeners,
+        deferRetainedContextRelease ? 'defer' : 'release',
+        true
+      );
       return null;
     }
   };
@@ -501,14 +513,16 @@ export function createRendererLongTaskTelemetry(
     }
     if (!Number.isFinite(entry.startTime)) {
       return {
-        error: new Error('PerformanceObserver longtask entry timing is unavailable.'),
+        error: new Error('PerformanceObserver longtask entry start time is unavailable.'),
         kind: 'invalid',
       };
     }
     const completedAt = entry.startTime + entry.duration;
+    // Buffered entries may be stale, but a completed entry cannot arrive before
+    // its end time on the same Performance timeline.
     if (!(Number.isFinite(completedAt) && completedAt <= elapsedMs)) {
       return {
-        error: new Error('PerformanceObserver longtask entry timing is unavailable.'),
+        error: new Error('PerformanceObserver longtask entry completed after delivery.'),
         kind: 'invalid',
       };
     }
@@ -634,7 +648,7 @@ export function createRendererLongTaskTelemetry(
         unavailableReason = null;
         if (expectedAvailability === 'unsupported') {
           releaseRetainedSampleContext();
-          publishEmptySnapshot(currentSnapshot.snapshotAt);
+          publishEmptySnapshot(lastSuccessfulClockAt);
           return;
         }
         publish();
@@ -645,7 +659,7 @@ export function createRendererLongTaskTelemetry(
         availability = 'unsupported';
         unavailableReason = 'PerformanceObserver is unavailable in this renderer.';
         releaseRetainedSampleContext();
-        publishEmptySnapshot(currentSnapshot.snapshotAt);
+        publishEmptySnapshot(lastSuccessfulClockAt);
         return disposeInactiveObservation('unsupported');
       }
       const supportedEntryTypes = PerformanceObserver.supportedEntryTypes;
@@ -653,7 +667,7 @@ export function createRendererLongTaskTelemetry(
         availability = 'unsupported';
         unavailableReason = 'This renderer does not support PerformanceObserver longtask entries.';
         releaseRetainedSampleContext();
-        publishEmptySnapshot(currentSnapshot.snapshotAt);
+        publishEmptySnapshot(lastSuccessfulClockAt);
         return disposeInactiveObservation('unsupported');
       }
       const observationStartedAt = readClock(true);

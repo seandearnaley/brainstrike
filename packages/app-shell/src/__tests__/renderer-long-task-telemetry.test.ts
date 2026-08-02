@@ -322,7 +322,7 @@ describe('renderer-long-task-telemetry', () => {
       featureFlags: [{ count: 2, flag: 'diagnostics-v2' }],
       routes: [{ count: 2, route: 'settings' }],
       sampleCount: 2,
-      unavailableReason: 'PerformanceObserver longtask entry timing is unavailable.',
+      unavailableReason: 'PerformanceObserver longtask entry start time is unavailable.',
     });
   });
 
@@ -375,7 +375,7 @@ describe('renderer-long-task-telemetry', () => {
       featureFlags: [],
       routes: [],
       sampleCount: 0,
-      unavailableReason: 'PerformanceObserver longtask entry timing is unavailable.',
+      unavailableReason: 'PerformanceObserver longtask entry completed after delivery.',
     });
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -429,7 +429,7 @@ describe('renderer-long-task-telemetry', () => {
       featureFlags: [],
       routes: [],
       sampleCount: 0,
-      unavailableReason: 'PerformanceObserver longtask entry timing is unavailable.',
+      unavailableReason: 'PerformanceObserver longtask entry completed after delivery.',
     });
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -807,14 +807,13 @@ describe('renderer-long-task-telemetry', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('clears retained context when the retention clock fails transiently', () => {
+  it('clears retained context without retrying when the retention clock fails', () => {
     const now = vi
       .fn<() => number>()
       .mockReturnValueOnce(1000)
       .mockImplementationOnce(() => {
         throw new Error('retention clock failed');
-      })
-      .mockReturnValueOnce(1050);
+      });
     const telemetry = createRendererLongTaskTelemetry({ now, windowMs: 100 });
     telemetry.subscribe(vi.fn());
     telemetry.record({
@@ -825,7 +824,7 @@ describe('renderer-long-task-telemetry', () => {
 
     vi.advanceTimersByTime(101);
 
-    expect(now).toHaveBeenCalledTimes(3);
+    expect(now).toHaveBeenCalledTimes(2);
     expect(telemetry.getSnapshot()).toMatchObject({
       availability: 'failed',
       featureFlags: [],
@@ -858,8 +857,10 @@ describe('renderer-long-task-telemetry', () => {
       featureFlags: [],
       routes: [],
       sampleCount: 0,
+      snapshotAt: 1000,
       unavailableReason: 'snapshot clock failed',
     });
+    expect(now).toHaveBeenCalledTimes(2);
     expect(listener).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(1);
 
@@ -1010,11 +1011,21 @@ describe('renderer-long-task-telemetry', () => {
       availability: 'unsupported',
       unavailableReason: 'PerformanceObserver is unavailable in this renderer.',
     });
+    unsupported.record({
+      durationMs: 75,
+      enabledFeatureFlags: ['private-preview'],
+      route: 'settings',
+    });
+    expect(vi.getTimerCount()).toBe(1);
     disposeUnsupported();
     expect(unsupported.getSnapshot()).toMatchObject({
       availability: 'idle',
+      featureFlags: [],
+      routes: [],
+      sampleCount: 0,
       unavailableReason: null,
     });
+    expect(vi.getTimerCount()).toBe(0);
 
     class ThrowingPerformanceObserver {
       static readonly supportedEntryTypes = ['longtask'];
@@ -1071,14 +1082,14 @@ describe('renderer-long-task-telemetry', () => {
     vi.stubGlobal('PerformanceObserver', undefined);
     let now = 500_000;
     const telemetry = createRendererLongTaskTelemetry({ now: () => now, windowMs: 1000 });
-    const listener = vi.fn();
-    telemetry.subscribe(listener);
     telemetry.record({
       durationMs: 75,
       enabledFeatureFlags: ['private-preview'],
       route: 'settings',
     });
     expect(vi.getTimerCount()).toBe(1);
+    const listener = vi.fn();
+    telemetry.subscribe(listener);
 
     telemetry.observe(() => ({ enabledFeatureFlags: [], route: 'explorer' }));
 
@@ -1088,6 +1099,7 @@ describe('renderer-long-task-telemetry', () => {
       featureFlags: [],
       routes: [],
       sampleCount: 0,
+      snapshotAt: 500_000,
       unavailableReason: 'PerformanceObserver is unavailable in this renderer.',
     });
     expect(vi.getTimerCount()).toBe(0);
@@ -1212,7 +1224,13 @@ describe('renderer-long-task-telemetry', () => {
       }
     }
     vi.stubGlobal('PerformanceObserver', UnsupportedPerformanceObserver);
-    const telemetry = createRendererLongTaskTelemetry();
+    const telemetry = createRendererLongTaskTelemetry({ now: () => 1000, windowMs: 100 });
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: ['private-preview'],
+      route: 'settings',
+    });
+    expect(vi.getTimerCount()).toBe(1);
 
     telemetry.observe(() => ({
       enabledFeatureFlags: [],
@@ -1222,8 +1240,13 @@ describe('renderer-long-task-telemetry', () => {
     expect(observe).not.toHaveBeenCalled();
     expect(telemetry.getSnapshot()).toMatchObject({
       availability: 'unsupported',
+      featureFlags: [],
+      routes: [],
+      sampleCount: 0,
+      snapshotAt: 1000,
       unavailableReason: 'This renderer does not support PerformanceObserver longtask entries.',
     });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('treats a missing supported entry type list as explicitly unsupported', () => {
