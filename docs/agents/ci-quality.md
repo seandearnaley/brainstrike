@@ -1023,7 +1023,11 @@ emits files whose sources are in the current program, so the prune set is
 disjoint from its writes. That disjointness silently depends on tsup NOT
 code-splitting (hashed split chunks have no source counterpart and would be
 pruned out from under a sibling build), so the wiring contract statically
-requires `splitting: false` in every pruned package's tsup config. The pruner
+requires `splitting: false` in every pruned package's tsup config. After
+BST-1014, `agent` and `file-explorer` are the complete live intersection of
+pruned packages and real bundle boundaries; the paired test pins its
+anti-vacuity floor to both while continuing to discover and inspect every future
+intersection member. The pruner
 itself requires `tsconfig.json` with rootDir `src` and outDir `dist` and
 per-file emit — anything else throws, and such a package must clean instead. `ui`'s
 `pnpm run clean:generated` cleans stray compiled JS in `src`, not `dist` — it

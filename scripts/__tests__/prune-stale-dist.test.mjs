@@ -513,6 +513,11 @@ function tsupPinsNoSplitting(configText) {
   return /splitting:\s*false/.test(configText);
 }
 
+// BST-1014 removed tsup from ordinary libraries. Only agent and file-explorer
+// now combine prune-stale-dist with a real bundle boundary; this floor pins the
+// complete live intersection so discovery cannot silently collapse to one/zero.
+const MIN_PRUNED_TSUP_CONFIGS = 2;
+
 test('every pruned package with a tsup config pins splitting: false', () => {
   const violations = [];
   let checkedConfigs = 0;
@@ -539,8 +544,8 @@ test('every pruned package with a tsup config pins splitting: false', () => {
   }
   assert.deepEqual(violations, [], `Unpinned tsup splitting:\n${violations.join('\n')}`);
   assert.ok(
-    checkedConfigs >= 6,
-    `Only ${checkedConfigs} pruned tsup config(s) checked (expected >= 6) — discovery broke.`
+    checkedConfigs >= MIN_PRUNED_TSUP_CONFIGS,
+    `Only ${checkedConfigs} pruned tsup config(s) checked (expected >= ${MIN_PRUNED_TSUP_CONFIGS}) — discovery broke.`
   );
 });
 
