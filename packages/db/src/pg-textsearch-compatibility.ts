@@ -13,18 +13,13 @@
  *     config: 100 cycles / 4 writers / 200 rows-per-writer) on macOS arm64.
  *     This is GREENFIELD evidence: the gate builds its BM25 index under
  *     1.3.1 from the start. It qualifies 1.3.1 for new installs only.
- *   - 3/3 clean trials of the existing-user upgrade path: a data dir with a
- *     BM25 index created under pglite-pg_textsearch@0.0.4 (extversion
- *     1.2.0) reopened and continued (inserts/updates/deletes/VACUUM/BM25
- *     search) under the pglite-pg_textsearch@0.0.6 binary, with the index
- *     staying valid/ready throughout and pg_extension.extversion remaining
- *     '1.2.0' in the catalog (no ALTER EXTENSION UPDATE occurred or was
- *     needed for that path — see BST-1063 PR body for the full evidence).
- *     THIS SCRIPT WAS NEVER COMMITTED — it is not a repeatable test and does
- *     not run in CI. It is the only evidence for the scenario every existing
- *     install actually lands in after this bump (see below), and per
- *     AGENTS.md's rule that docs and their paired tests move together, that
- *     is a gap, not a footnote.
+ *   - 3/3 clean trials of the mixed-version path (a data dir with a BM25
+ *     index created under pglite-pg_textsearch@0.0.4 / extversion 1.2.0,
+ *     reopened and churned — inserts/updates/deletes/VACUUM/BM25 search —
+ *     under the 0.0.6 / 1.3.1 binary, index staying valid throughout). The
+ *     script was never committed; under the greenfield ruling below, the
+ *     only population that path covers is PRE-BUMP DEVELOPMENT DATABASES,
+ *     which the ruling explicitly accepts (reset on misbehaviour).
  * Neither trial was run on Linux or Windows, and no CI lane exercises this
  * opt-in gate on any platform. Do not raise this to a version pg_textsearch
  * has not shipped, and do not treat single-platform local evidence as a
