@@ -44,7 +44,7 @@ Allowed dependencies:
 
 - `@brainstrike/types` for the canonical file-explorer state and selection model.
 - `@brainstrike/utils/selection-utils` for composite selection key encoding.
-- `@brainstrike/utils/logger` for action logging.
+- `@brainstrike/logging` for action logging.
 
 Focused local verification:
 

@@ -4,10 +4,10 @@
 
 ## LOGGING (PINO V10)
 
-Centralized logging: packages/utils/src/logger.ts
+Centralized logging: `packages/logging/src/logger.ts`
 
 Usage:
-- Use initializeLogging from @brainstrike/utils.
+- Use `initializeLogging` from `@brainstrike/logging`.
 - Set runtime: browser | electron-main | electron-renderer.
 - Desktop main:
   - Logs to console + ${app.getPath('logs')}/brainstrike.log
@@ -40,6 +40,10 @@ Sensitive data:
 
 Testing:
 - Use addLogListener instead of mocking console.
+- Unit suites that disable transport output use `configureLogger({ console: false })`.
+  In Node, an empty transport set creates a disabled Pino instance instead of
+  falling back to Pino's implicit stdout destination. Log listeners remain
+  active so tests can assert records without emitting them to the test runner.
 
 ---
 
@@ -66,6 +70,14 @@ If you add new persistence (Caches API, service worker, filesystem handles, etc.
 - Document it next to the helper.
 - Integrate into reset pipeline.
 - Otherwise stale embeddings/providers may reappear.
+
+Desktop bundled Python runtime (BST-1061): `resolvePythonBinary` unpacks the
+pinned CPython under `app.getPath('userData')/python-runtime/`, so the
+wholesale userData wipe in `desktop-factory-reset.ts` covers it with zero
+dedicated wiring. That coverage is pinned by the BST-1061 regression test in
+`apps/desktop/src/__tests__/main/desktop-factory-reset.test.ts` — if the
+unpack dir ever moves outside userData, it needs explicit reset wiring plus an
+update here.
 
 Desktop reset order:
 1. Dispose embeddings.
@@ -596,7 +608,7 @@ fingerprint. `session_id` is a per-launch `crypto.randomUUID()`
 within one app run.
 
 **Capture**: the existing `addLogListener` seam
-(`packages/utils/src/logger.ts`) feeds `DiagnosticSinkBridge`
+(`packages/logging/src/logger.ts`) feeds `DiagnosticSinkBridge`
 (`packages/app-shell/src/diagnostics/diagnostic-sink-bridge.tsx`), a
 render-nothing component mounted ONLY in the two visible renderers
 (`apps/web/src/main.tsx`, `apps/desktop/src/renderer/main.tsx`). Desktop main
@@ -849,7 +861,7 @@ hand-rolled in `RotatingFileSink` instead.
 
 **Recursion rule**: nothing in the sink path
 (`rotating-file-sink.ts`, `error-log-sink.ts`) may import or call
-`@brainstrike/utils/logger` — the sink is fed BY a log listener, so logging
+`@brainstrike/logging` — the sink is fed BY a log listener, so logging
 from inside it would re-enter that listener and recurse without bound. The
 one deliberate exception is a raw `console.error` (`reportSinkFailure` in
 `error-log-sink.ts`), reused by both the sink's `onFailure` and the

@@ -20,6 +20,7 @@ import {
 } from '@brainstrike/file-explorer-ui/shell';
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
+import { createLogger } from '@brainstrike/logging';
 import {
   ensureBackgroundIndexingPreferencesHydrated,
   useBackgroundIndexingPreferencesStore,
@@ -39,7 +40,6 @@ import {
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
   type WorkspaceIndexingPowerSnapshot,

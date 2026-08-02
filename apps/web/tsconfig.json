@@ -28,6 +28,9 @@
       "@brainstrike/agent/request-boundary": [
         "../../packages/agent/src/request-boundary.ts"
       ],
+      "@brainstrike/logging": [
+        "../../packages/logging/src/index.ts"
+      ],
       "@brainstrike/utils": [
         "../../packages/utils/src/index.ts"
       ],
@@ -101,6 +104,9 @@
     },
     {
       "path": "../../packages/ui"
+    },
+    {
+      "path": "../../packages/logging"
     },
     {
       "path": "../../packages/utils"

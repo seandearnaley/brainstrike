@@ -28,6 +28,7 @@ const DESKTOP_NATIVE_TOOL_ID = {
   readWorkspaceDirectory: 'brainstrike.readWorkspaceDirectory',
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',
   renameWorkspaceFile: 'brainstrike.renameWorkspaceFile',
+  runPython: 'brainstrike.runPython',
   runSkillScript: 'brainstrike.runSkillScript',
   stringReplaceWorkspaceFile: 'brainstrike.stringReplaceWorkspaceFile',
   submitPlan: 'brainstrike.submitPlan',
@@ -59,6 +60,7 @@ export type WebNativeToolId = Exclude<
   | typeof NATIVE_TOOL_ID.manageCommandSession
   | typeof NATIVE_TOOL_ID.queryDiagnostics
   | typeof NATIVE_TOOL_ID.querySelf
+  | typeof NATIVE_TOOL_ID.runPython
   | typeof NATIVE_TOOL_ID.runSkillScript
 >;
 export type LocalDesktopNativeToolId = Extract<
@@ -96,6 +98,7 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
       id !== NATIVE_TOOL_ID.manageCommandSession &&
       id !== NATIVE_TOOL_ID.queryDiagnostics &&
       id !== NATIVE_TOOL_ID.querySelf &&
+      id !== NATIVE_TOOL_ID.runPython &&
       id !== NATIVE_TOOL_ID.runSkillScript
   )
 );

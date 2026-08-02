@@ -17,6 +17,7 @@ import {
   useFileSystem,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
+import { createLogger } from '@brainstrike/logging';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
@@ -59,7 +60,6 @@ import {
   ToolApprovalGrantProvider,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
-import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
@@ -84,7 +84,7 @@ import {
   normalizeWriteBackFilePaths,
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
-import { createSuspendedApprovalDiscovery } from './assistant-suspended-approvals';
+import { createSuspendedRunDiscovery } from './assistant-suspended-approvals';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   type AssistantRunUsagePayload,
@@ -1029,7 +1029,7 @@ export function AssistantUiPanelWrapper({
       resourceId: memoryResourceId,
       threadId: selectedMemoryThreadId,
       ...(desktopAssistantBackendAvailable
-        ? { discoverSuspendedApprovals: createSuspendedApprovalDiscovery(resolveAssistantBaseUrl) }
+        ? { discoverSuspendedRuns: createSuspendedRunDiscovery(resolveAssistantBaseUrl) }
         : {}),
     });
   }, [

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getHMRModule, type HMRModule, isHMRAvailable, setupHMR } from '../dev/hmr-utils';
+import { getHMRModule, type HMRModule, isHMRAvailable, setupHMR } from '../dev/hmr-utils.js';
 
 function installViteHot(hot: HMRModule | undefined): void {
   Object.defineProperty(globalThis, '__vite_hot__', {

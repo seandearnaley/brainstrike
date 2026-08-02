@@ -25,7 +25,7 @@ export interface RotatingFileSinkOptions {
  * diagnostics backstop, so it has no dependency on the database, IPC, or the
  * logger.
  *
- * NEVER import or call `@brainstrike/utils/logger` (or anything that logs)
+ * NEVER import or call `@brainstrike/logging` (or anything that logs)
  * from this module. One caller is itself a log transport, while the other is
  * fed by a log listener; logging from inside the sink would recurse. Any
  * failure is reported exactly once through the injected `onFailure` callback

@@ -1,5 +1,6 @@
 import {
   createAskUserTool,
+  createRunPythonTool,
   createSubmitPlanTool,
   type DeleteWorkspaceFileInput,
   type ExecuteCommandInput,
@@ -40,8 +41,9 @@ import {
   NATIVE_TOOL_ID,
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { resolveDesktopPythonExecutable } from '../python-runtime';
 import type { CommandSessionManager } from './command-session-manager';
 import {
   INSPECT_COMMAND_SESSIONS_TRANSFORM,
@@ -113,6 +115,14 @@ export interface DesktopAssistantToolDependencies {
   commandSessionManager?: CommandSessionManager | undefined;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   readWorkspaceFileCursorRegistry?: ReadWorkspaceFileCursorRegistry | undefined;
+  /**
+   * BST-1061: test seam for the bundled-CPython capability used by the
+   * `python3` skill-script runtime. Production omits it and gets the real
+   * `resolveDesktopPythonExecutable`; there is never a PATH-python fallback.
+   * Accepts an optional `AbortSignal` so a cold first-run unpack can be
+   * bounded by the tool call's own timeout/Stop (PR #2205 review).
+   */
+  resolvePythonExecutable?: ((signal?: AbortSignal) => Promise<string>) | undefined;
   skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
   /**
@@ -565,6 +575,51 @@ export function buildDesktopAssistantTools(
           // built-in local provider (same WebGPU-prefill reasoning as the task-list
           // tool and the plan-mode gate).
           [NATIVE_TOOL_ID.askUser]: createAskUserTool(),
+          // BST-1067. Registered as the factory-returned Tool object for the
+          // same reason as its two neighbours: BST-1070 will add a
+          // suspendSchema for the network escalation, and the registry's
+          // `{description, execute, id, inputSchema}` literal silently drops
+          // it — which would leave the network gate never firing, with no
+          // error and no run event. Registering in this shape now means that
+          // ticket changes the factory, not this call site.
+          [NATIVE_TOOL_ID.runPython]: createRunPythonTool({
+            resolveHost: async (signal) => {
+              // LAZY import, deliberately. `@brainstrike/agent/fence-executor`
+              // pulls in @anthropic-ai/sandbox-runtime AND evaluates
+              // `promisify(fs.realpath.native)` at MODULE SCOPE. A top-level
+              // import would load all of that merely to BUILD the tool map —
+              // on every desktop main startup, and inside every test that
+              // imports this registry (measured: it broke 8 suites that mock
+              // `node:fs` without a `.native`). Loading it only when a
+              // run_python call actually needs an executor is what the seam's
+              // Node-only subpath posture intends.
+              const { createFenceExecutorFactory, isFenceSupported } = await import(
+                '@brainstrike/agent/fence-executor'
+              );
+              // Fence FIRST, interpreter second. On a host with no OS fence
+              // (Windows today) the missing half is the sandbox, and resolving
+              // the interpreter first would report a python_* failure there —
+              // telling the user to fix the interpreter on a machine that
+              // could not have run anything anyway, inverting exactly the
+              // "which half is missing" distinction the error mapping exists
+              // to preserve. It also skips a pointless first-run unpack.
+              if (!isFenceSupported()) {
+                return {};
+              }
+              const command = await (
+                dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable
+              )(signal);
+              const fence = createFenceExecutorFactory({
+                interpreters: { python: { command, scriptExtension: 'py' } },
+              });
+              // `undefined` on a host with no OS fence (Windows today). Under
+              // exactOptionalPropertyTypes an explicit `fence: undefined` is
+              // not assignable, and omitting the key is also the honest
+              // shape: the capability is ABSENT, and the seam then throws
+              // ExecutorKindUnavailableError rather than degrading.
+              return fence ? { fence } : {};
+            },
+          }),
           [NATIVE_TOOL_ID.submitPlan]: createSubmitPlanTool(),
           [NATIVE_TOOL_ID.manageTaskList]: {
             description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
@@ -734,6 +789,8 @@ export function buildDesktopAssistantTools(
         });
         try {
           return await runSkillScript(resolvedInput, runtimeData, skillScriptResolver, {
+            resolvePythonExecutable:
+              dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable,
             signal: options?.abortSignal,
             ...(stream ? { stream } : {}),
           });
@@ -765,7 +822,11 @@ export function buildDesktopAssistantTools(
       // Skill execution is capability-gated by the trusted per-request scan
       // engine. A persisted preference may still name it while Skills are
       // disabled; omission is the explicit capability result, not corruption.
-      toolId !== NATIVE_TOOL_ID.runSkillScript
+      toolId !== NATIVE_TOOL_ID.runSkillScript &&
+      // run_python is capability-gated twice over: absent for the built-in
+      // local provider, and `createFenceExecutorFactory` yields undefined on
+      // a host with no OS fence. Omission is the explicit capability result.
+      toolId !== NATIVE_TOOL_ID.runPython
   );
   if (unavailableToolIds.length > 0) {
     logger.debug('Enabled native tool ids unavailable in the current runtime', {

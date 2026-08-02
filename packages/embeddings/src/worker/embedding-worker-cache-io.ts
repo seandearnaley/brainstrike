@@ -1,4 +1,4 @@
-import type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
+import type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types.js';
 
 export interface CacheableLoadedChunkItem {
   chunk: {

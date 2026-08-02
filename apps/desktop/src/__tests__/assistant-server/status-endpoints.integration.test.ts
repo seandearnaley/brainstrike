@@ -100,7 +100,7 @@ beforeEach(() => {
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });
-  mockListSuspendedMastraRuns.mockReset().mockResolvedValue({ approvals: [] });
+  mockListSuspendedMastraRuns.mockReset().mockResolvedValue({ approvals: [], suspends: [] });
   mockCreatePgliteMastraMemory.mockReset().mockResolvedValue({
     memory: mockPgliteMastraMemory,
     storage: mockPgliteMastraStorage,
@@ -409,6 +409,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.executeCommand',
         },
       ],
+      suspends: [],
     });
 
     const response = await runRequest({
@@ -458,6 +459,8 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.executeCommand',
         },
       ],
+      // BST-1084: the response additionally carries rediscovered suspend() pauses.
+      suspends: [],
     });
   });
 
@@ -473,6 +476,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'brainstrike.writeWorkspaceFile',
         },
       ],
+      suspends: [],
     });
 
     const response = await runRequest({
@@ -486,6 +490,188 @@ describe('suspended-runs endpoint', () => {
       riskCategory: 'edit',
       stale: true,
       toolName: 'brainstrike.writeWorkspaceFile',
+    });
+  });
+
+  it('GET /assistant/suspended-runs recomputes executionContext for a rediscovered run_python approval (BST-1070)', async () => {
+    // The live approval's executionContext is a transient stream field — it is
+    // never persisted. Rediscovery must RECOMPUTE it from the durable args
+    // (exactly where riskCategory is recomputed), or every reloaded run_python
+    // approval would render the degraded no-fact-rows card.
+    const { listSuspendedMastraRuns, resolveRunPythonExecutionContext } = await import(
+      '@brainstrike/agent'
+    );
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [
+        {
+          args: { code: 'print(1)', timeoutMs: 45_000 },
+          runId: 'run-python-restart-1',
+          suspendedAt: new Date().toISOString(),
+          toolCallId: 'call-python-restart-1',
+          toolName: 'brainstrike.runPython',
+        },
+      ],
+      suspends: [],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.approvals[0]).toMatchObject({
+      riskCategory: 'execute',
+      toolName: 'brainstrike.runPython',
+    });
+    // Byte-identical to the live derivation — the same helper, the same args.
+    expect(body.approvals[0].executionContext).toEqual(
+      JSON.parse(
+        JSON.stringify(resolveRunPythonExecutionContext({ code: 'print(1)', timeoutMs: 45_000 }))
+      )
+    );
+    expect(body.approvals[0].executionContext.timeoutMs).toBe(45_000);
+  });
+
+  it('GET /assistant/suspended-runs omits executionContext when rediscovered run_python args do not parse', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [
+        {
+          // A bare "*" fails the seam's policyDomainSchema — unrestricted
+          // egress stays inexpressible even on the rediscovery recompute.
+          args: { allowedDomains: ['*'], code: 'print(1)' },
+          runId: 'run-python-restart-2',
+          suspendedAt: new Date().toISOString(),
+          toolCallId: 'call-python-restart-2',
+          toolName: 'brainstrike.runPython',
+        },
+      ],
+      suspends: [],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.approvals[0]).toMatchObject({ toolName: 'brainstrike.runPython' });
+    expect(body.approvals[0]).not.toHaveProperty('executionContext');
+  });
+
+  it('GET /assistant/suspended-runs returns rediscovered suspend() pauses with payload + staleness (BST-1084)', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [],
+      suspends: [
+        {
+          runId: 'run-suspend-restart-1',
+          suspendedAt: new Date().toISOString(),
+          suspendPayload: { question: 'Which region?' },
+          toolCallId: 'call-suspend-restart-1',
+          toolName: 'brainstrike.askUser',
+        },
+        {
+          runId: 'run-suspend-restart-2',
+          // Two days ago — beyond the 24h default staleness threshold.
+          suspendedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          suspendPayload: { overview: 'plan', steps: [], title: 'Plan' },
+          toolCallId: 'call-suspend-restart-2',
+          toolName: 'brainstrike.submitPlan',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.suspends).toHaveLength(2);
+    expect(body.suspends[0]).toMatchObject({
+      runId: 'run-suspend-restart-1',
+      stale: false,
+      suspendPayload: { question: 'Which region?' },
+      toolCallId: 'call-suspend-restart-1',
+      toolName: 'brainstrike.askUser',
+    });
+    // Registered suspend UI => no resumeSupported flag (omitted means resumable).
+    expect(body.suspends[0]).not.toHaveProperty('resumeSupported');
+    expect(body.suspends[1]).toMatchObject({ stale: true, toolName: 'brainstrike.submitPlan' });
+  });
+
+  it('GET /assistant/suspended-runs caps suspends at the newest 10 with a logged truncation (#2223)', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    const suspends = Array.from({ length: 12 }, (_, index) => ({
+      runId: `run-cap-${index}`,
+      // Oldest-first, matching discovery's sort contract.
+      suspendedAt: new Date(Date.now() - (12 - index) * 60_000).toISOString(),
+      suspendPayload: { question: `q${index}` },
+      toolCallId: `call-cap-${index}`,
+      toolName: 'brainstrike.askUser',
+    }));
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({ approvals: [], suspends });
+    const warnSpy = vi.spyOn(desktopAssistantServerLogger, 'warn').mockImplementation(() => {
+      // Silence expected warning output.
+    });
+
+    try {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+      });
+
+      expect(response.status).toBe(200);
+      const body = JSON.parse(response.body);
+      // Newest 10 kept: the two OLDEST are dropped.
+      expect(body.suspends).toHaveLength(10);
+      expect(body.suspends[0]).toMatchObject({ runId: 'run-cap-2' });
+      expect(body.suspends[9]).toMatchObject({ runId: 'run-cap-11' });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          code: 'assistant_suspended_pause_cap_applied',
+          droppedCount: 2,
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('GET /assistant/suspended-runs flags an UNREGISTERED suspend as resumeSupported:false instead of dropping it', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+      approvals: [],
+      suspends: [
+        {
+          runId: 'run-suspend-unreg-1',
+          suspendedAt: new Date().toISOString(),
+          suspendPayload: { question: 'why?' },
+          toolCallId: 'call-suspend-unreg-1',
+          toolName: 'brainstrike.someFutureSuspendingTool',
+        },
+      ],
+    });
+
+    const response = await runRequest({
+      method: 'GET',
+      url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+    });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(response.body);
+    // Same honesty contract as the LIVE path: the pause surfaces (the renderer
+    // shows the dead-end notice), never a silent drop.
+    expect(body.suspends).toHaveLength(1);
+    expect(body.suspends[0]).toMatchObject({
+      resumeSupported: false,
+      toolName: 'brainstrike.someFutureSuspendingTool',
     });
   });
 
@@ -505,6 +691,7 @@ describe('suspended-runs endpoint', () => {
           toolName: 'someServer.someTool',
         },
       ],
+      suspends: [],
     });
     const warnSpy = vi.spyOn(desktopAssistantServerLogger, 'warn').mockImplementation(() => {
       // Silence expected warning output.

@@ -8,6 +8,7 @@ import {
   type ScannedSkill,
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
+import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -84,15 +85,30 @@ vi.mock('../../db-main', () => ({
 // not the numbers. (The initial-core pair below has its own, wider band:
 // its ceiling is a hard cap from the retired 11,500 boundary, not a
 // measurement envelope.)
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 8950;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8650;
+// BST-1067 RAISE (+170/+170, band width 300 preserved). `run_python` is a NEW
+// capability — sandboxed Python execution — so its cost is genuine growth, not
+// bloat. Trim-first was applied before raising: the first description spent
+// 8982 authored tokens (32 over the old 8950 ceiling) and was cut to the
+// security facts a model must know (no network, scratch-only writes,
+// unrestricted reads, print() to return), landing at 8967. The new ceiling
+// keeps the same ~150 tokens of headroom above that measurement the BST-927
+// band was set with, and the floor moves with it so a silent DROP still fails.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9120;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8820;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
 // as loudly as bloat (BST-927 band doctrine).
 const MIN_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 2000;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
-const SUSPENDING_TOOL_IDS = ['brainstrike.askUser', 'brainstrike.submitPlan'] as const;
+// runPython joined the suspending set in BST-1070 Gate B: without workflow
+// storage its suspend metadata is stripped here for the same reason as the
+// other two (this fixture measures the PROMPT surface, not resumability).
+const SUSPENDING_TOOL_IDS = [
+  'brainstrike.askUser',
+  'brainstrike.runPython',
+  'brainstrike.submitPlan',
+] as const;
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',
   description: 'A minimal production-equivalent skill for prompt-budget coverage.',
@@ -383,6 +399,16 @@ function expectProviderSurfaceWithinBudget(args: {
   ).toBeGreaterThanOrEqual(args.floor);
 }
 
+// This suite loads the o200k tokenizer and constructs the full desktop native
+// tool registry. It is computationally heavy, not a UI-component test, and its
+// measured wall time is contention-sensitive (BST-1050). The 30s heavy base is
+// honest for isolated iteration (measured p50 ~10.5s); official root batteries
+// apply the explicit 2x policy. A direct package/editor run under deliberate
+// host contention should set TEST_TIMEOUT_MULTIPLIER=2: a historical loaded
+// tail reached ~33s, which does not justify silently moving the base to the 120s
+// performance band.
+vi.setConfig({ testTimeout: getAdjustedTimeout('heavy') });
+
 describe('desktop native tool provider prompt budget', () => {
   it('records the eager baseline and proposed critical-only definition footprint', () => {
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
@@ -428,9 +454,9 @@ describe('desktop native tool provider prompt budget', () => {
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(7971);
+    ).toBeGreaterThanOrEqual(8141);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      8271
+      8441
     );
     expect(
       criticalDefinitionTokens,
@@ -478,7 +504,7 @@ describe('desktop native tool provider prompt budget', () => {
       // Recorded aggregates when the bands were set: eager 8121, critical
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
-      eagerToolCount: 32,
+      eagerToolCount: 33,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
@@ -487,7 +513,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 8,650-8,950 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 8,820-9,120 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

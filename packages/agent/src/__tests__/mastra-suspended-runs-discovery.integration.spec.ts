@@ -116,7 +116,7 @@ describe('listSuspendedMastraRuns (real provider-factory, zero provider config)'
       }
     );
 
-    expect(result).toEqual({ approvals: [] });
+    expect(result).toEqual({ approvals: [], suspends: [] });
   });
 
   it('returns the ORIGINAL dotted tool name for a rediscovered approval when the tool is registered (name-keying integrity)', async () => {

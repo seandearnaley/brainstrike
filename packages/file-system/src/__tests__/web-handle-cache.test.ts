@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type StoredRootHandle, WebHandleCache } from '../adapters/web-handle-cache';
+import { type StoredRootHandle, WebHandleCache } from '../adapters/web-handle-cache.js';
 
 const createDirectoryHandle = (name: string) =>
   ({

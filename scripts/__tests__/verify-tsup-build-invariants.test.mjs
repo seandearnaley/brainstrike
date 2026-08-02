@@ -226,9 +226,9 @@ test('MONEY TEST 4: an ABSENT clean/dts in a governed config FAILS the guard', (
 });
 
 test('RULE: a config-LESS TypeScript-owned package is not forced to grow a config', () => {
-  // The explicit-statement rule applies to configs that exist. queue, types and
-  // worker-runtime build `tsc -b . && tsup src/index.ts …` with no config file:
-  // there is nothing to drift, and their CLI flags are checked instead.
+  // The explicit-statement rule applies to configs that exist. The canonical
+  // strategy guard now rejects config-less real-tree tsup builds, but this
+  // lower-level invariant still models CLI flags without assuming a config.
   assert.deepEqual(
     runFixture(withFloorFiller({ configless: { build: 'tsc -b . && tsup src/index.ts' } })),
     []
@@ -593,7 +593,7 @@ test('the real tree clears both floors, and the tsup-owned set is pinned', () =>
     owned.length >= MIN_TYPESCRIPT_OWNED_PACKAGES,
     `real tree has ${owned.length} TypeScript-owned packages, floor is ${MIN_TYPESCRIPT_OWNED_PACKAGES}`
   );
-  // Pinned, not merely observed: these four are the ONLY packages exempt from the
+  // Pinned, not merely observed: these three are the ONLY packages exempt from the
   // clean/dts invariants, because they are the only ones with no `tsc -b` step.
   // Growing this set means another package stopped letting TypeScript own its
   // declarations — a build-architecture decision that must be made on purpose.
@@ -602,12 +602,7 @@ test('the real tree clears both floors, and the tsup-owned set is pinned', () =>
       .filter((pkg) => pkg.declarationOwner === 'tsup')
       .map((pkg) => pkg.name)
       .sort(),
-    [
-      '@brainstrike/chunking-worker',
-      '@brainstrike/file-tree-worker',
-      '@brainstrike/test-utils',
-      '@brainstrike/token-cache',
-    ]
+    ['@brainstrike/chunking-worker', '@brainstrike/file-tree-worker', '@brainstrike/token-cache']
   );
 });
 
@@ -627,5 +622,8 @@ test('the real tree states both invariants EXPLICITLY in every governed config',
     }
     checked += 1;
   }
-  assert.ok(checked >= MIN_TSUP_CONFIGS, `only ${checked} governed configs were actually asserted`);
+  assert.ok(
+    checked >= MIN_TYPESCRIPT_OWNED_PACKAGES,
+    `only ${checked} governed configs were actually asserted`
+  );
 });

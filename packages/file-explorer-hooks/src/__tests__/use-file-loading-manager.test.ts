@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileLoadingManager } from '../use-file-loading-manager';
+import { useFileLoadingManager } from '../use-file-loading-manager.js';
 
 describe('useFileLoadingManager', () => {
   beforeEach(() => {

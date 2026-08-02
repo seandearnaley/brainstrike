@@ -13,8 +13,8 @@
  * `pnpm -r --filter '!@brainstrike/db' ... run test:coverage` — so a green
  * `pnpm check` had never executed `packages/db`, the largest suite in the repo
  * and the one turbo task that can never be replayed from cache. It also
- * omitted four Static gates outright (`secrets:scan`, `turbo boundaries`,
- * `test:scripts`, and the two db lane checks), including the guard-script gate
+ * omitted three Static gates outright (`secrets:scan`, `turbo boundaries`,
+ * and `test:scripts`), including the guard-script gate
  * that exists to catch exactly this class of false green (BST-836). And its
  * lint step WROTE to the working tree (`biome check . --fix`) where CI's
  * `lint:ci` is read-only.
@@ -119,10 +119,6 @@ export const CI_GATE_PLAN_IDS = new Map([
   ['static › Secret scan', ['secrets-scan']],
   ['static › Package boundaries', ['boundaries']],
   ['static › Script tests', ['script-tests']],
-  [
-    'static › Check DB test + coverage lane assignments',
-    ['db-test-lane-check', 'db-coverage-lane-check'],
-  ],
   ['static › Lint', ['lint']],
   ['static › Type check', ['type-check']],
   ['unit-shard › Pull request affected unit tests', ['unit-tests']],
@@ -177,11 +173,11 @@ export function uncoveredCiGates(plan) {
  *
  * SCOPE IS LOAD-BEARING — do not hoist this to the whole run (BST-1050). A
  * process-wide `CI` would change the workload of the unit/integration steps,
- * not just their environment: `getTimeoutMultiplier()` returns 2 under `CI`,
- * and `packages/vector-management`'s base vitest config turns on coverage with
- * a 70% line threshold when `CI === 'true'`. Those steps must stay exactly as
- * CI's Unit shards run them (`COVERAGE=false`), so `CI` belongs to these
- * Playwright invocations and nothing else.
+ * not just their environment: `packages/vector-management`'s base vitest
+ * config turns on coverage with a 70% line threshold when `CI === 'true'`.
+ * Those steps use the dedicated `TEST_TIMEOUT_MULTIPLIER` to match CI's
+ * timeout policy without inheriting its other behavior, so `CI` belongs to
+ * these Playwright invocations and nothing else.
  */
 function playwrightLane(pkg, script) {
   return `node scripts/run-env.mjs CI=true -- pnpm -s --filter ${pkg} run ${script}`;
@@ -289,16 +285,6 @@ export function buildPlan(options = {}) {
     label: 'test:scripts',
   });
   plan.push({
-    command: 'pnpm -s --filter @brainstrike/db run test:db:check-lanes',
-    id: 'db-test-lane-check',
-    label: 'db test lane check',
-  });
-  plan.push({
-    command: 'pnpm -s --filter @brainstrike/db run test:coverage:db:check-lanes',
-    id: 'db-coverage-lane-check',
-    label: 'db coverage lane check',
-  });
-  plan.push({
     command: fixLint ? 'pnpm -s run lint-all' : 'pnpm -s run lint:ci',
     id: 'lint',
     label: fixLint ? 'lint-all (writes)' : 'lint:ci',
@@ -339,13 +325,13 @@ export function buildPlan(options = {}) {
   // split with the same concurrency caps mirrors the CI phase split.
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
     id: 'unit-tests',
     label: 'test',
   });
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
     id: 'integration-tests',
     label: 'test:integration',
   });
@@ -356,7 +342,7 @@ export function buildPlan(options = {}) {
   // superset of the CI selection.
   if (runBrowser) {
     plan.push({
-      command: 'pnpm -s run test:browser',
+      command: 'node scripts/run-env.mjs TEST_TIMEOUT_MULTIPLIER=2 -- pnpm -s run test:browser',
       id: 'browser-tests',
       label: 'test:browser',
     });
@@ -385,7 +371,7 @@ export function buildPlan(options = {}) {
     // turbo run is the same task set, db included.
     plan.push({
       command:
-        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
+        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
       id: 'coverage',
       label: 'test:coverage',
     });

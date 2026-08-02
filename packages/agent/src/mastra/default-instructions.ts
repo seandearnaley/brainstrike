@@ -4,7 +4,7 @@ import {
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
+import { formatTokenCount } from '@brainstrike/tokenization';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
   if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {

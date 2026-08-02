@@ -5,9 +5,9 @@ import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DirectFileContentProcessor } from '../file-content-processor';
-import { useFileContentLoading } from '../use-file-content-loading';
-import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
+import { DirectFileContentProcessor } from '../file-content-processor.js';
+import { useFileContentLoading } from '../use-file-content-loading.js';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
 
 // Define mock implementations
 vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {
@@ -31,15 +31,13 @@ vi.mock('@brainstrike/utils/selection-utils', async (importOriginal) => {
   };
 });
 
-// Mock console.debug and error to avoid test noise
-vi.spyOn(console, 'debug').mockImplementation(() => {});
-vi.spyOn(console, 'error').mockImplementation(() => {});
-
 describe('useFileContentLoading', () => {
   const TestFolderId = 'test-folder-id';
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     MockFileSystemAdapter.clearMockData(); // Clear adapter mocks
     // Setup fake timers for each test
     vi.useFakeTimers();
@@ -70,7 +68,7 @@ describe('useFileContentLoading', () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
     // Restore real timers after each test
     vi.useRealTimers();
   });

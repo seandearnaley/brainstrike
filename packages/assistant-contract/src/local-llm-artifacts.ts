@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { LocalLlmProgressCallback } from './local-llm.js';
 import { getLocalLlmModelSpec, type LocalLlmModelSpec } from './local-llm-model-specs.js';
 

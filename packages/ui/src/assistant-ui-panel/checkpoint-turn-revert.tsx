@@ -1,6 +1,6 @@
 import { useAuiState } from '@assistant-ui/react';
 import type { AssistantCheckpointRevertRunResult } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { Undo2 } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { Button } from '../button';

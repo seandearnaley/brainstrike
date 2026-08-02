@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { createLogger } from '@brainstrike/logging';
 import type {
   DatabaseDiagnosticsSnapshot,
   DatabaseInitFailureCategory,
@@ -22,7 +23,6 @@ import type {
   DatabaseInitStage,
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 import type { RemoteDbClient } from './db-host-manager';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';

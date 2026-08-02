@@ -12,11 +12,11 @@ import {
   type usePGliteDatabase,
   usePGliteLiveQuery,
 } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
 import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { useToast } from '@brainstrike/ui';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   buildCollectionFileDataSnapshot,

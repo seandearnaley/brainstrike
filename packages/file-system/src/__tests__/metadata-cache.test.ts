@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createMetadataCache, MetadataCache } from '../metadata-cache';
+import { createMetadataCache, MetadataCache } from '../metadata-cache.js';
 
 const processPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
 

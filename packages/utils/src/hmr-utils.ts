@@ -1,1 +1,1 @@
-export { setupHMR } from './dev/hmr-utils';
+export { setupHMR } from './dev/hmr-utils.js';

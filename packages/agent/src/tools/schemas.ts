@@ -7,6 +7,12 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
+import {
+  MAX_EXEC_CODE_LENGTH,
+  MAX_EXEC_TIMEOUT_MS,
+  MAX_POLICY_ENTRIES,
+  policyDomainSchema,
+} from '../code-execution';
 import { ReadToolOutputArtifactCursorInputSchema } from '../mastra/tool-output-artifact-reader';
 
 const WORKSPACE_SEARCH_ROOT_DESCRIPTION =
@@ -788,6 +794,63 @@ const StrictRootRelativePathSchema = z
     'Must be a canonical root-relative path without traversal'
   );
 
+/**
+ * run_python's domain grammar: the seam's `policyDomainSchema` PLUS a
+ * public-host requirement (#2225 review). The generic policy grammar accepts
+ * anything hostname-shaped, which includes `localhost`, bare IPv4 literals
+ * (`127.0.0.1`, `192.168.1.10`, `169.254.169.254`), and mDNS `.local` names —
+ * all of which the escalation card would present as "the internet" while the
+ * actual grant is services on the user's own machine or network (a local
+ * Ollama, a dev database, a cloud metadata endpoint). Model-authored code
+ * gets no such grant: name a public domain or run offline.
+ */
+const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const runPythonDomainSchema = policyDomainSchema
+  .refine((value) => !IPV4_LITERAL_PATTERN.test(value), {
+    message: 'IP literals are not allowed; name a public domain',
+  })
+  .refine(
+    (value) => {
+      const host = value.startsWith('*.') ? value.slice(2) : value;
+      return !(
+        host === 'localhost' ||
+        host.endsWith('.localhost') ||
+        host === 'local' ||
+        host.endsWith('.local')
+      );
+    },
+    { message: 'localhost and .local addresses are not allowed; name a public domain' }
+  );
+
+export const RunPythonInputSchema = z
+  .object({
+    allowedDomains: z
+      .array(runPythonDomainSchema)
+      // No .min(1): OpenAI's strict function-calling emits EVERY declared
+      // property, so an offline call must be representable as an explicit
+      // empty array (#2225 review). [] and omitted both mean no network.
+      .max(MAX_POLICY_ENTRIES)
+      .optional()
+      .describe(
+        'Public domains the script may reach, by name (e.g. "pypi.org", "*.example.com"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.'
+      ),
+    code: z
+      .string()
+      .min(1)
+      .max(MAX_EXEC_CODE_LENGTH)
+      .describe('Python source to run as a script; print() to return values'),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_EXEC_TIMEOUT_MS)
+      .optional()
+      .describe('Wall-clock limit ms (default 30000, max 600000)'),
+  })
+  .strict();
+
+export type RunPythonInput = z.infer<typeof RunPythonInputSchema>;
+
 export const RunSkillScriptInputSchema = z
   .object({
     args: z.array(z.string().max(2000)).max(64).optional().describe('Literal argv'),
@@ -1036,6 +1099,7 @@ export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: ReadWorkspaceDirectoryInputSchema,
   [NATIVE_TOOL_ID.readWorkspaceFile]: ReadWorkspaceFileInputSchema,
   [NATIVE_TOOL_ID.renameWorkspaceFile]: RenameWorkspaceFileInputSchema,
+  [NATIVE_TOOL_ID.runPython]: RunPythonInputSchema,
   [NATIVE_TOOL_ID.runSkillScript]: RunSkillScriptInputSchema,
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]: StringReplaceWorkspaceFileInputSchema,
   [NATIVE_TOOL_ID.submitPlan]: SubmitPlanInputSchema,

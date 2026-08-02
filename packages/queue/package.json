@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "workerpool": "catalog:"
   },
@@ -11,32 +12,29 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "default": "./dist/index.js"
     },
     "./browser": {
       "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js",
-      "require": "./dist/browser.cjs"
+      "default": "./dist/browser.js"
     }
   },
   "files": [
     "dist/**"
   ],
-  "main": "./dist/index.cjs",
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/browser.ts --format esm,cjs --out-dir dist",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsup src/index.ts src/browser.ts --format esm,cjs --out-dir dist --watch",
+    "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest --watch",

@@ -10,7 +10,7 @@
  * description 1–1024 chars).
  */
 
-import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetSkillScanWarningsForTests,
@@ -65,7 +65,6 @@ function scanInput(roots: readonly SkillScanRoot[] = [ROOT_A]): SkillScanInput {
 }
 
 function captureLogs(): { records: LogRecord[]; stop: () => void } {
-  configureLogger({ console: false });
   const records: LogRecord[] = [];
   const stop = addLogListener((record) => records.push(record));
   return { records, stop };

@@ -1,3 +1,4 @@
+import type { LogRecord } from '@brainstrike/logging';
 import {
   Input,
   Label,
@@ -8,7 +9,6 @@ import {
   SelectValue,
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import type { LogRecord } from '@brainstrike/utils/logger';
 import { useMemo, useState } from 'react';
 import { getLogRecordCode, getLogRecordSource } from './log-diagnostic-metadata';
 

@@ -5,7 +5,8 @@
  * It demonstrates the pattern for converting raw SQL repositories to Drizzle.
  */
 
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import { eq } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import {

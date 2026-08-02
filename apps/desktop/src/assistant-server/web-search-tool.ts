@@ -1,6 +1,6 @@
 import type { WebSearchInput } from '@brainstrike/agent';
 import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getSecretsService } from '../secrets';
 import { TAVILY_ENV_KEYS } from '../tavily-env-keys';
 import { isValidWebSearchCitationUrl } from './web-search-citation-url';

@@ -17,7 +17,7 @@
  * - queryPermission() can check without triggering a prompt
  */
 
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 // Type declarations for File System Access API permission methods

@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { describe, expect, it } from 'vitest';
 import { ContextPacker, type ContextPackerChunk } from '../context-packer';
 

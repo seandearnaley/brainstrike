@@ -21,6 +21,7 @@ import {
   isLocalProviderType,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 import {
   getSupersededBackgroundBackfillIds,
   needsEmbeddingBackfill,
@@ -33,7 +34,6 @@ import type {
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { FileSystemChange } from '@brainstrike/types';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {

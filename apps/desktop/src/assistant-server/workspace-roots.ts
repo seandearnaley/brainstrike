@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('AssistantWorkspaceRoots');
 // Process-lifetime revocation tombstones protect in-flight runtime snapshots.

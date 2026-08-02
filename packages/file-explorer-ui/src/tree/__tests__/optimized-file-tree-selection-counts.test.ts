@@ -10,6 +10,7 @@ import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   collectTreePaths,
+  createSelectedPathAncestorResolver,
   getWorkspaceSelectionPathCandidates,
   isSameOrDescendantSelectionPath,
   isWorkspacePathSelected,
@@ -47,6 +48,48 @@ function createQueryDescriptor(
 }
 
 describe('optimized file tree selection counts', () => {
+  describe('selected path ancestor resolver cache identity', () => {
+    it('returns the input cache by identity when no paths were resolved', () => {
+      const inputCache = new Map<string, string[]>();
+      const resolver = createSelectedPathAncestorResolver(folderId, inputCache);
+
+      expect(resolver.getResolvedCache()).toBe(inputCache);
+    });
+
+    it('returns a clone after a cache hit without mutating the input cache', () => {
+      const firstAncestors = ['src'];
+      const secondAncestors = ['docs'];
+      const inputCache = new Map<string, string[]>([
+        ['src/index.ts', firstAncestors],
+        ['docs/guide.md', secondAncestors],
+      ]);
+      const resolver = createSelectedPathAncestorResolver(folderId, inputCache);
+
+      expect(resolver.getAncestorPaths('src/index.ts')).toBe(firstAncestors);
+
+      const resolvedCache = resolver.getResolvedCache();
+      const secondResolvedCache = resolver.getResolvedCache();
+      expect(resolvedCache).not.toBe(inputCache);
+      expect(secondResolvedCache).not.toBe(resolvedCache);
+      expect([...inputCache.keys()]).toEqual(['src/index.ts', 'docs/guide.md']);
+      expect([...resolvedCache.keys()]).toEqual(['docs/guide.md', 'src/index.ts']);
+      expect([...secondResolvedCache.keys()]).toEqual(['docs/guide.md', 'src/index.ts']);
+    });
+
+    it('keeps one cloned working cache identity across misses', () => {
+      const inputCache = new Map<string, string[]>();
+      const resolver = createSelectedPathAncestorResolver(folderId, inputCache);
+
+      resolver.getAncestorPaths('src/index.ts');
+      const firstResolvedCache = resolver.getResolvedCache();
+      resolver.getAncestorPaths('docs/guide.md');
+
+      expect(resolver.getResolvedCache()).toBe(firstResolvedCache);
+      expect(inputCache.size).toBe(0);
+      expect([...firstResolvedCache.keys()]).toEqual(['src/index.ts', 'docs/guide.md']);
+    });
+  });
+
   it('returns absolute, rooted-relative, and bare-relative selection candidates', () => {
     expect(
       getWorkspaceSelectionPathCandidates(folderId, '/workspace/project/src/index.ts')
@@ -175,6 +218,36 @@ describe('optimized file tree selection counts', () => {
     rerender({ currentFolderId: '' });
 
     expect(result.current.size).toBe(0);
+  });
+
+  it('rebuilds observable counts when the active folder changes', () => {
+    const selectionModel = createExplicitSelectionModel();
+    const firstFolderId = '/workspace/first-project';
+    const nextFolderId = '/workspace/next-project';
+    const firstSelectedFilePaths = new Set([`${firstFolderId}|@|src/first.ts`]);
+    const nextSelectedFilePaths = new Set([`${nextFolderId}|@|docs/next.md`]);
+    const { result, rerender } = renderHook(
+      ({ currentFolderId, selectedFilePaths }) =>
+        useSelectedDirectoryCounts(selectedFilePaths, currentFolderId, selectionModel, null),
+      {
+        initialProps: {
+          currentFolderId: firstFolderId,
+          selectedFilePaths: firstSelectedFilePaths,
+        },
+      }
+    );
+
+    expect(result.current.get('src')).toBe(1);
+
+    rerender({
+      currentFolderId: nextFolderId,
+      selectedFilePaths: nextSelectedFilePaths,
+    });
+
+    expect(result.current.get('src')).toBeUndefined();
+    expect(result.current.get('docs')).toBe(1);
+    expect(result.current.get(nextFolderId)).toBe(1);
+    expect(result.current.get(firstFolderId)).toBeUndefined();
   });
 
   it('returns query manifest directory counts in query selection mode', () => {

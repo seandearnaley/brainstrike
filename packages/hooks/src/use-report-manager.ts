@@ -8,8 +8,8 @@
 
 import { createClipboardService } from '@brainstrike/context-actions';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { error as logError } from '@brainstrike/logging';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { error as logError } from '@brainstrike/utils/logger';
 import { useCallback } from 'react';
 
 const clipboard = createClipboardService();

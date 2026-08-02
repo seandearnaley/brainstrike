@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createLogger } from '@brainstrike/logging';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
-import { createLogger } from '@brainstrike/utils';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';

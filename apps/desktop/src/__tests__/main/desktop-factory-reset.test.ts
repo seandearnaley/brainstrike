@@ -114,6 +114,30 @@ describe('resetDesktopApplicationData', () => {
     });
   });
 
+  it('wipes the bundled Python runtime unpack dir in the wholesale userData reset (BST-1061)', async () => {
+    // The bundled-CPython unpack dir (resolvePythonBinary's install target)
+    // deliberately has NO dedicated reset wiring: it lives under userData,
+    // so the wholesale wipe must cover it. This test pins that — if the dir
+    // ever moves out of userData, or `python-runtime` is added to the
+    // preserved-entry list, factory reset silently stops being a fresh start.
+    fsMocks.readdirSync.mockReturnValue(['logs', 'python-runtime']);
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      resetDatabaseProfile: vi.fn(async () => undefined),
+      stopBackgroundRuntimes: vi.fn(async () => undefined),
+      userDataPath: '/mock/userData',
+    });
+
+    const trashPath = path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1');
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      path.join('/mock/userData', 'python-runtime'),
+      path.join(trashPath, 'python-runtime')
+    );
+    expect(result.deletedPaths).toContain(path.join('/mock/userData', 'python-runtime'));
+    expect(result.preservedPaths).toEqual([path.join('/mock/userData', 'logs')]);
+  });
+
   it('does not delete app data when runtime shutdown fails', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => {
       throw new Error('embedding host refused to stop');

@@ -12,7 +12,7 @@
  * fully-formed bridge. Web never sees it — there is no `isElectron()` check
  * anywhere.
  */
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('TerminalPanel');
 

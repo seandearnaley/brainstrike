@@ -26,7 +26,7 @@ import {
   extractSkillDirectives,
   MAX_ACTIVATED_SKILLS_PER_MESSAGE,
 } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 
 const logger = createLogger('AssistantSkillActivation');

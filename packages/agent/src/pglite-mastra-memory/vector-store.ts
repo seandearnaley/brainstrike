@@ -1,5 +1,6 @@
 import { withIndexBuildMaintenanceWorkMem } from '@brainstrike/db';
-import { createLogger, getErrorMessage } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { getErrorMessage } from '@brainstrike/utils';
 import type {
   CreateIndexParams,
   DeleteIndexParams,

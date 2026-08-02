@@ -1,4 +1,5 @@
 import { usePagination } from '@brainstrike/hooks';
+import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import {
   type BulkAction,
@@ -18,7 +19,6 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { FileText, FileX2, LayoutGrid, RotateCcw, Table as TableIcon } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from '../context-export-options';

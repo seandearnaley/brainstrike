@@ -5,12 +5,13 @@
  * Presets define include/exclude patterns for file filtering.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type {
   CreateViewFilterPresetInput,
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils';
 import { asc, eq } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { viewFilterPresets } from '../../schema/index.js';

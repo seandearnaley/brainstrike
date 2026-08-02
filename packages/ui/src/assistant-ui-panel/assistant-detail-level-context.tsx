@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
 import {
   type AssistantDetailLevel,

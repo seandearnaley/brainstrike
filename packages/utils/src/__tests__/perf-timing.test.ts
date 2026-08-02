@@ -6,7 +6,7 @@ import {
   TimingCollector,
   timeOperation,
   timeOperationSync,
-} from '../perf-timing';
+} from '../perf-timing.js';
 
 describe('perf-timing', () => {
   beforeEach(() => {

@@ -1,5 +1,5 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import type { ScopedLogger } from '@brainstrike/utils';
+import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationStartContext } from '@mastra/core/agent';
 import { describe, expect, it } from 'vitest';
 import {

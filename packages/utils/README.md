@@ -33,7 +33,6 @@ console.log(color.light); // { bg: '#E6F3FF', text: '#0A558C' }
 
 - **Color Utils**: Functions for generating and managing colors
 - **File Utils**: File operations and format helpers
-- **Token Utils**: Functions for measuring and estimating token counts
 
 ## Development
 

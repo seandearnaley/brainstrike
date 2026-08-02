@@ -1,9 +1,9 @@
-export type { ApiKeyValidationResult } from './api-key-validation';
+export type { ApiKeyValidationResult } from './api-key-validation.js';
 export {
   checkApiKeyAvailability,
   getApiKeyConfigInstructions,
   requiresApiKey,
-} from './api-key-validation';
+} from './api-key-validation.js';
 export type {
   DistanceMetric,
   EmbeddingInput,
@@ -16,25 +16,25 @@ export type {
   LocalProviderType,
   ProviderMetadata,
   Result,
-} from './provider-types';
+} from './provider-types.js';
 export {
   hostedProviderRequiresApiKey,
   isLocalProviderType,
   STANDARD_EMBEDDING_DIMENSION,
-} from './provider-types';
-export type { ParsedProviderModel } from './provider-utils';
+} from './provider-types.js';
+export type { ParsedProviderModel } from './provider-utils.js';
 export {
   canonicalizeProviderModelKey,
   formatProviderModelKey,
   isHostedProvider,
   parseProviderModelKey,
-} from './provider-utils';
+} from './provider-utils.js';
 export {
   clearHostedProviderApiKeyCache,
   resolveHostedProviderApiKey,
-} from './providers/hosted/api-key-resolver';
-export { CohereEmbeddingProvider } from './providers/hosted/cohere-provider';
-export { GoogleEmbeddingProvider } from './providers/hosted/google-provider';
-export { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider';
-export { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider';
-export type { ModelConfig } from './types';
+} from './providers/hosted/api-key-resolver.js';
+export { CohereEmbeddingProvider } from './providers/hosted/cohere-provider.js';
+export { GoogleEmbeddingProvider } from './providers/hosted/google-provider.js';
+export { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider.js';
+export { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider.js';
+export type { ModelConfig } from './types.js';

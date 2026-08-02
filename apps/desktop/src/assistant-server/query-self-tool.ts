@@ -34,7 +34,7 @@ import {
   AgentSqlService,
   AgentSqlUnboundedRecursionError,
 } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import { scanUserLenses, type UserLensScanResult } from './lens-loader';
 import { createNodeFsScanDeps } from './node-fs-scan-deps';

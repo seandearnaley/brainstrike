@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
-import { defaultCollator } from './collator';
-import { getFileExtension as getNormalizedFileExtension } from './file-utils';
-import { fileFilter } from './path-filter';
+import { defaultCollator } from './collator.js';
+import { getFileExtension as getNormalizedFileExtension } from './file-utils.js';
+import { fileFilter } from './path-filter.js';
 
 /**
  * Utilities for exploring and manipulating file trees

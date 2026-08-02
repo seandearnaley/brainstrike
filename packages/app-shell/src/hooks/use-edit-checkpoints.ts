@@ -1,6 +1,6 @@
 import type { AssistantEditCheckpointRecord } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { EditCheckpointContextValue } from '@brainstrike/ui/assistant-ui-panel';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
 

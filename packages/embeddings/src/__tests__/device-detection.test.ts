@@ -13,7 +13,7 @@ import {
   isDeviceAvailable,
   validateDeviceOrThrow,
   type WebGPUAdapterInfo,
-} from '../device-detection';
+} from '../device-detection.js';
 
 // Mock adapter info for testing
 const mockAdapterInfo: WebGPUAdapterInfo = {

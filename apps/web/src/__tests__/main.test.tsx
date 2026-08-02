@@ -89,31 +89,19 @@ const createMockLoggingPreferences = (
   ...overrides,
 });
 
-vi.mock('@brainstrike/utils/logging-initializer', () => ({
-  initializeLogging: vi.fn(),
-}));
-
-vi.mock('@brainstrike/utils/logging-preferences', () => ({
+vi.mock('@brainstrike/logging', () => ({
   applyLoggingPreferences: vi.fn(),
   createDefaultLoggingPreferences: vi.fn((overrides: Record<string, unknown> = {}) =>
     createMockLoggingPreferences(overrides)
   ),
-}));
-
-vi.mock('@brainstrike/utils/console-guard', () => ({
+  initializeLogging: vi.fn(),
   installConsoleGuard: vi.fn(),
+  installRendererErrorHooks: vi.fn(() => () => {}),
+  LogLevel: { DEBUG: 'debug', INFO: 'info' },
 }));
 
 vi.mock('@brainstrike/utils/performance-measure-guard', () => ({
   installPerformanceMeasureGuard: vi.fn(),
-}));
-
-vi.mock('@brainstrike/utils/install-renderer-error-hooks', () => ({
-  installRendererErrorHooks: vi.fn(() => () => {}),
-}));
-
-vi.mock('@brainstrike/utils/logger', () => ({
-  LogLevel: { DEBUG: 'debug', INFO: 'info' },
 }));
 
 // Mock queue telemetry

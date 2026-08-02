@@ -1,9 +1,9 @@
-export { bridgeActionToCommand } from './bridge-action-to-command';
-export { createCommandRegistry } from './command-registry';
+export { bridgeActionToCommand } from './bridge-action-to-command.js';
+export { createCommandRegistry } from './command-registry.js';
 export {
   createGlobalCommands,
   type GlobalCommandHandlers,
-} from './global-commands';
+} from './global-commands.js';
 export type {
   Command,
   CommandCapability,
@@ -11,4 +11,4 @@ export type {
   CommandGroup,
   CommandIcon,
   CommandRegistry,
-} from './types';
+} from './types.js';

@@ -41,10 +41,6 @@ const workspaceAliases = [
     replacement: resolve(import.meta.dirname, '../utils/src/filter-utils.ts'),
   },
   {
-    find: '@brainstrike/utils/logger',
-    replacement: resolve(import.meta.dirname, '../utils/src/logger.ts'),
-  },
-  {
     find: '@brainstrike/utils/quick-filter-utils',
     replacement: resolve(import.meta.dirname, '../utils/src/quick-filter-utils.ts'),
   },

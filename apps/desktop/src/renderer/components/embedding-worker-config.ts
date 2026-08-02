@@ -11,9 +11,9 @@ import type {
   EmbeddingWorkerPipelineCapacity,
   ForegroundEmbeddingGate,
 } from '@brainstrike/embeddings/worker';
+import { createLogger } from '@brainstrike/logging';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
   type WorkspaceIndexingPowerSnapshot,

@@ -1,5 +1,6 @@
 import { JobQueue } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Badge,
@@ -13,7 +14,6 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { RotateCw } from 'lucide-react';
 import { type ReactElement, useCallback, useMemo, useState } from 'react';
 

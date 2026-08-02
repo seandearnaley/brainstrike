@@ -696,7 +696,7 @@ When changing this flow, update this section and the related tests.
 
 `packages/agent/src/__tests__/mastra-streaming.spec.ts` was a single 4,246-line
 file covering the whole stream boundary. BST-986 split `agent-streaming.ts` into
-modules; the spec is now split to match. Four files share ONE fake-Mastra harness
+modules; the spec is now split to match. Five files share ONE fake-Mastra harness
 (`packages/agent/src/__tests__/fixtures/mastra-stream-harness.ts` — the mocked
 `Agent`/`Mastra`/MCP classes plus the mutable stream-part queue they read):
 
@@ -704,7 +704,8 @@ modules; the spec is now split to match. Four files share ONE fake-Mastra harnes
 | --- | --- |
 | `mastra-tool-lifecycle.spec.ts` | `mastra/tool-lifecycle-processors.ts` — `ToolLifecycleState`, `mapToolLifecyclePart`, `mapGenericToolEvent`, `makePendingToolOutputRunEventChunks`, `makeLifecycleStepMetadata` |
 | `mastra-tool-approval-chunks.spec.ts` | `mastra/tool-approval-chunks.ts` (`makeApprovalRequiredChunks`, `makeToolSuspendRequiredChunks`) **paired with** `streamMastraToolApprovalAction` / `streamMastraToolResumeAction` — a pause that cannot be resumed is a bug in the PAIR, so splitting these across two files would let either side stay green while the contract broke |
-| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`, `makeStreamWatchdogTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
+| `mastra-stream-termination.spec.ts` | `mastra/stream-termination.ts` (`makeProviderErrorTermination`, `makeTripwireTermination`) plus the `run.finished`-vs-`run.failed` finish-reason policy, which is one question even though its code is split across `agent-streaming.ts` and `makeFinishChunk` |
+| `mastra-stream-watchdogs.integration.spec.ts` | `makeStreamWatchdogTermination` through the real elapsed-time behavior of the inactivity and tool-call-input watchdogs; the suffix keeps these wall-clock-sensitive cases in the uncached integration lane |
 | `mastra-streaming.spec.ts` | What no single module owns: the async-iterator contract, the R6 unknown-chunk diagnostic, token measurement, cross-step usage/cost accumulation, steering, observational-memory chunks, and everything reached through `createMastraAgentRuntime` |
 
 **These are integration specs, not unit specs — deliberately.** They drive
@@ -718,8 +719,18 @@ case in the file whose module owns the behaviour; add a file only when a new
 module seam appears.
 
 `mastra/stream-run-event-chunks.ts` has no dedicated spec on purpose: its
-minting helpers are used by all three of the others, so every file above
-exercises it and no coherent set of cases pins it alone.
+minting helpers are used by all four module-seam specs above, so each of those
+files exercises it and no coherent set of cases pins it alone.
+
+Mocked dependencies do not by themselves make a watchdog case cache-safe. The
+two watchdog specs above drive production `Date.now` / `setTimeout` behavior
+with real elapsed-time gaps, so their verdict still depends on un-hashed host
+scheduling and every invocation must execute them. A watchdog test that uses
+deterministic/fake time, or whose verdict does not depend on scheduler progress,
+stays in the cacheable unit lane. The BST-839 case deliberately keeps 10x
+per-gap headroom (20ms stream gaps against a 200ms inactivity window) while its
+~400ms total stream remains long enough to prove the old coupled-timeout
+regression; do not narrow that margin merely to shorten the integration lane.
 
 ## THREAD SCROLLING (STICK-TO-BOTTOM + JUMP-TO-LATEST)
 
@@ -881,17 +892,37 @@ capability-gated, no `isElectron()`).
   the WIRE PROTOCOL (standard `vscode-jsonrpc` + `vscode-languageserver-
   protocol`, both bundled desktop deps), not the class.
 - **Bundled flagship server.** Phase A ships TypeScript/JavaScript only, via a
-  BUNDLED `typescript-language-server` + `typescript` (desktop `dependencies`,
-  so it works out-of-box). Reliability recipe (all three required, verified):
+  BUNDLED `typescript-language-server` + the JavaScript TypeScript 6
+  compatibility API (desktop `dependencies`, so it works out-of-box).
+  TypeScript 7's native compiler owns the workspace `tsc` binary, while the
+  official `@typescript/typescript6` package re-exports the JS API from its
+  `@typescript/old` dependency. The LSP resolver therefore follows that
+  package-scoped forwarding dependency to the real `tsserver.js`; it must not
+  assume the server is adjacent to the compatibility wrapper's
+  `lib/typescript.js`. Reliability recipe (all three required, verified):
   spawn the server's `cli.mjs` through `process.execPath` +
   `ELECTRON_RUN_AS_NODE=1` (packaged apps have no standalone `node`); pin
-  `initializationOptions.tsserver.path` to the bundled `typescript/lib/
-  tsserver.js` (deterministic — OUR TS version); and advertise the
+  `initializationOptions.tsserver.path` to the bundled real TypeScript 6
+  `tsserver.js` (deterministic — OUR TS version); and advertise the
   `textDocument.publishDiagnostics` client capability (without it the server
   stays silent). Diagnostics land as two pushes (`[]` then the real set), so a
   settle-window is mandatory — an empty publish is polled a little longer
-  before the "clean" verdict is trusted. Python/Go/Rust discovery + the config
-  surface are the remaining Phase B work.
+  before the "clean" verdict is trusted. This intentionally means agent-facing
+  diagnostics come from TypeScript 6 while build/type-check gates run native
+  TypeScript 7. The full compiler parity sweep covers every non-emitting project
+  command, and the real-subprocess LSP integration additionally checks the
+  embeddings WebGPU surface that relies on the current DOM library declarations;
+  do not remove that cross-major control while the LSP stays on TypeScript 6.
+  The desktop manifest must list the compatibility implementation
+  (`@typescript/old`) as a production dependency and unpack it explicitly:
+  Electron Builder packages the `@typescript/typescript6` wrapper but does not
+  retain that wrapper's private dependency by inference. The build-config
+  contract has a mutation control for both the dependency and unpack rule.
+  The root also owns that exact alias so `.vscode/settings.json` can point
+  `typescript.tsdk` at `node_modules/@typescript/old/lib`; the compiler-wiring
+  guard requires both the path and its `tsserver.js`, preventing VS Code from
+  silently falling back to its bundled compiler.
+  Python/Go/Rust discovery + the config surface are the remaining Phase B work.
 - **`lspInspect` tool (Phase B).** A read-risk native tool for semantic
   navigation: `{path, line (1-based), match}`. Prefer a markerless single
   JavaScript/TypeScript identifier as `match`; the cursor is its first character
@@ -996,6 +1027,30 @@ Flow (desktop assistant server → agent runtime):
    mounted root, root-relative cwd, runtime, and structured argv. It never
    presents or accepts a model-supplied absolute skill path; malformed typed
    arguments stay on the same visible raw-arguments error path.
+   `brainstrike.runPython` (BST-1070 Gate A) renders the code plus
+   always-rendered fact rows (internet / write / read / time limit / sandbox)
+   from a server-computed `executionContext`
+   (`CodeExecutionApprovalContext`, tool-approval contract): host facts the
+   model's args cannot carry, derived by
+   `resolveRunPythonExecutionContext` from the tool's own strict schema plus
+   the constants execute() uses. It is forwarded in THREE places — stamped in
+   `makeApprovalRequiredChunks`, spread through
+   `DataStreamMapper.handleToolApprovalRequired`'s field-by-field rebuild
+   (miss it and every LIVE approval degrades while rediscovered ones work —
+   pinned by a live-transport test), and RECOMPUTED on rediscovery in
+   `status-endpoints.ts` beside `riskCategory`. Fail-safe: args that fail
+   strict narrowing or an absent/invalid context keep Approve/Decline but
+   SUPPRESS the grant buttons (parent-side `resolveApprovalPreviewPolicy`,
+   riding the existing null-`grantCategory` gating path) with a visible
+   reason — no "always allow" for a call the card cannot read. Copy rule the
+   fence contract forces: an empty `allowRead` under `defaultReadAccess:
+   'permissive'` renders "most files on this computer", NEVER "can't read
+   your files". Settled result surface (`run-python-result.tsx`, mounted by
+   `tool-fallback.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
+   amber finish (destructive chrome is reserved for `unavailable`), cancelled
+   never renders as success or empty, truncation is a per-stream note, and
+   the card-level status maps cancelled/timed-out/killed to a `stopped` state
+   instead of the generic green check.
    The built-in local provider admits a call to this chain only after its
    arguments parse as a root JSON object. A
    `local_tool_call_arguments_invalid` generation ends visibly with typed
@@ -1248,20 +1303,25 @@ scripted model's synchronous stream starves the event loop during the
 PGlite-backed resume; the test drains with a per-chunk `setImmediate` yield
 (mirrors real streaming) — a harness concern, not a production bug.
 
-Restart-safe rediscovery (a run suspended for approval survives a desktop
-restart / renderer reload, but the LIVE approval notice — a never-persisted
-stream data part — is gone on reload): on thread open the desktop history
-adapter rediscovers pending approvals and re-surfaces a working notice, REUSING
-the (already restart-safe) `streamMastraToolApprovalAction` resume seam
-untouched. Flow:
+Restart-safe rediscovery (a run suspended for approval OR by a tool's
+`suspend()` survives a desktop restart / renderer reload, but the LIVE notice —
+a never-persisted stream data part — is gone on reload): on thread open the
+desktop history adapter rediscovers both pause kinds and re-surfaces working
+notices, REUSING the (already restart-safe, stateless)
+`streamMastraToolApprovalAction` / `streamMastraToolResumeAction` resume seams
+untouched. Unified since BST-1084 — the previous "non-approval pauses are
+tolerated + skipped" behavior is GONE, and with it the silent stranding path
+that blocked run_python's Gate B. Flow:
 - `listSuspendedMastraRuns(filter, options)` (`agent-streaming.ts`) wraps
   `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
-  returns approval-gated tool calls only (`requiresApproval === true`) with
-  `toolName` mapped back to the ORIGINAL dotted form (see NAME-FORM CONTRACT
-  above);
-  non-approval `suspend()` pauses (submitPlan/askUser) and delegation-thread runs
-  are tolerated + skipped (debug-logged) — a unified suspend rediscovery is a
-  follow-up. Discovery is CONTEXT-FREE + KEYLESS: the stable agent id
+  returns `{ approvals, suspends }`: approval-gated calls
+  (`requiresApproval === true`) and non-approval `suspend()` pauses
+  (submitPlan/askUser), both with `toolName` mapped back to the ORIGINAL dotted
+  form (see NAME-FORM CONTRACT above), suspends carrying the tool-defined
+  `suspendPayload` recovered from the durable snapshot (so a rediscovered
+  plan/question renders its real content). Only a call missing its ids (e.g. a
+  delegation-thread run) is tolerated + skipped (debug-logged). Discovery is
+  CONTEXT-FREE + KEYLESS: the stable agent id
   (`brainstrike-assistant`) is provider-independent, so listing constructs a
   keyless `ollama` agent (no provider/apiKey from the renderer, no inference).
   Desktop constructs the paired PGlite memory/storage with observational memory
@@ -1270,19 +1330,29 @@ untouched. Flow:
   before the inert listing model is reached, violating the keyless contract.
 - Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
   (`apps/desktop/src/assistant-server/status-endpoints.ts`): recomputes `riskCategory` from
-  `buildNativeToolRiskMap()` and stamps `stale` against
-  `BRAINSTRIKE_APPROVAL_STALE_MS`. Missing thread ctx → 400; no storage → 503.
-- Renderer client `createSuspendedApprovalDiscovery` (app-shell,
+  `buildNativeToolRiskMap()` (approvals), stamps `stale` against
+  `BRAINSTRIKE_APPROVAL_STALE_MS` (both kinds), and flags a suspend whose tool
+  has no `hasRegisteredSuspendResumeUi` with `resumeSupported: false` + a loud
+  warning — the live path's honesty contract, never a silent drop. Missing
+  thread ctx → 400; no storage → 503. Response is `SuspendedRunsResponse`
+  (`suspends` is ADDITIVE; a client that only knows approvals ignores it).
+- Renderer client `createSuspendedRunDiscovery` (app-shell,
   desktop-capability-gated — web omits it, no `isElectron()`) → hydration
-  injection `appendSuspendedApprovalMessages` appends one synthetic trailing
-  assistant message per approval carrying a `TOOL_APPROVAL_DATA_NAME` data part
-  identical to the live mapper's output; the existing notice + its
-  Approve/Decline resume render unchanged. Staleness is display-only (D5): a
-  muted "Pending since <relative>" line always, an amber advisory when `stale`,
-  both buttons enabled, NO auto-decline.
-- Restart proof extends the same spec: a run suspended under `openai` is
+  injection `appendSuspendedPauseMessages` appends one synthetic trailing
+  assistant message per pause — `TOOL_APPROVAL_DATA_NAME` for approvals,
+  `TOOL_SUSPEND_DATA_NAME` for suspends, interleaved oldest-first — identical
+  to the live mapper's output; the existing notices + their resume seams render
+  unchanged (an unregistered suspend gets the same dead-end notice as live).
+  Staleness is display-only (D5) via the SHARED `RediscoveredPauseLines`
+  (`packages/ui/src/assistant-ui-panel/rediscovered-pause-lines.tsx`, used by
+  both notice kinds): a muted "Pending since <relative>" line always, an amber
+  advisory when `stale`, controls enabled, NO auto-decline / auto-answer.
+- Restart proofs extend the same specs: a run suspended under `openai` is
   rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
-  to execution by a THIRD fresh runtime.
+  to execution by a THIRD fresh runtime — for approvals
+  (mastra-tool-approval-suspend.integration.spec.ts) AND for suspend() pauses
+  with their payload (mastra-tool-suspend-resume.integration.spec.ts, the
+  BST-1084 headline proof).
 - **Corrupt snapshot rows (BST-558, settled — do not relitigate.)** Every
   TARGETED snapshot read in `PgliteWorkflowsStore`
   (`loadWorkflowSnapshot`, `getWorkflowRunById`, `updateWorkflowResults`)
@@ -1326,7 +1396,11 @@ NOTE: the per-tool approval gate is SEPARATE from tool SUSPENSION (submitPlan /
 askUser) — see PLAN MODE & TOOL SUSPENSION below. Approval pauses BEFORE a tool
 runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
 pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
-`resumeStream`). submitPlan/askUser are classified `riskCategory:'read'` so the
+`resumeStream`). run_python's Gate B network escalation (BST-1070) is the
+third registered suspending tool: per-call, argument-aware, and structurally
+ungrantable — the escalation card (`RunPythonNetworkNotice`) requires every
+named domain individually ticked, renders deny primary/autofocused, and has
+no grant surface at all. submitPlan/askUser are classified `riskCategory:'read'` so the
 permission engine never stacks an approval prompt on top of their own suspend.
 
 Desktop request initialization validates `enabledNativeToolIds` against the
@@ -1695,8 +1769,9 @@ termination so it fails visibly.
 
 **Unknown resume schemas are REJECTED VISIBLY and NON-TERMINALLY (BST-558):** only
 tools listed in `REGISTERED_SUSPEND_RESUME_TOOL_IDS`
-(`@brainstrike/assistant-contract/tool-suspend` — today `askUser` + `submitPlan`)
-have a registered typed suspension UI. A well-formed pause from any OTHER tool
+(`@brainstrike/assistant-contract/tool-suspend` — today `askUser`, `runPython`
+(the BST-1070 Gate B network escalation), and `submitPlan`) have a registered
+typed suspension UI. A well-formed pause from any OTHER tool
 still becomes a `tool-suspend-required` chunk, but
 `makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable
 `tool.resume.unsupported` run event
@@ -1870,9 +1945,16 @@ has no server/storage, so both suspend tools are omitted there (desktop-first, v
 toggle (`assistant-preferences-store.planModeEnabled`) sends `planMode:true` only
 when on (presence-means-on, gated to the desktop data-stream transport in the
 app-shell wrapper). `filterToolsForPlanMode` runs BEFORE the permission gate in
-`createMastraAgentRuntime`'s tool pipeline (`runtime-assembly/tool-pipeline.ts`): it keeps read/mcp tools + the suspending tools and
+`createMastraAgentRuntime`'s tool pipeline (`runtime-assembly/tool-pipeline.ts`): it keeps risk ∈ {read, mcp} and
 OMITS every edit/execute tool, so the model investigates read-only and proposes a
-plan before any changes. `manageTaskList` (`riskCategory:'read'`) DELIBERATELY
+plan before any changes. **A suspend schema is NOT an admission ticket
+(BST-1073)**: the filter used to keep any suspending tool BEFORE consulting its
+risk, which was safe only because `submitPlan`/`askUser` are both classified
+`read`. It became a hole the moment a mutation tool needed to suspend —
+`run_python` requires a suspend schema for its per-call network escalation, and
+that would have admitted an execute-risk arbitrary-code tool into plan mode.
+Suspending tools now survive on their risk classification alone; an
+unclassified tool still falls to `mcp`, which plan mode keeps. `manageTaskList` (`riskCategory:'read'`) DELIBERATELY
 stays available in plan mode: it is thread bookkeeping (the assistant's own todo
 list), not workspace/fs mutation, so the model can plan its steps while planning.
 `buildDefaultInstructions(toolNameMap, {planMode})`

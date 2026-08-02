@@ -30,10 +30,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
       {
-        find: '@brainstrike/utils/token-counting-runtime',
-        replacement: resolve(import.meta.dirname, '../utils/src/token-counting-runtime.ts'),
-      },
-      {
         find: '@brainstrike/utils/create-debounce',
         replacement: resolve(import.meta.dirname, '../utils/src/create-debounce.ts'),
       },
@@ -44,14 +40,6 @@ export default defineConfig({
       {
         find: '@brainstrike/utils/filter-utils',
         replacement: resolve(import.meta.dirname, '../utils/src/filter-utils.ts'),
-      },
-      {
-        find: '@brainstrike/utils/logger',
-        replacement: resolve(import.meta.dirname, '../utils/src/logger.ts'),
-      },
-      {
-        find: '@brainstrike/utils/logging-preferences',
-        replacement: resolve(import.meta.dirname, '../utils/src/logging-preferences.ts'),
       },
       {
         find: '@brainstrike/utils/quick-filter-utils',

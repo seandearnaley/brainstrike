@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getErrorMessage, isAbortError } from '../error-utils';
+import { getErrorMessage, isAbortError } from '../error-utils.js';
 
 describe('error-utils', () => {
   describe('isAbortError', () => {

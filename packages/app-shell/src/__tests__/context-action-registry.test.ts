@@ -1,4 +1,4 @@
-import { addLogListener, configureLogger, type LogRecord, resetLogger } from '@brainstrike/utils';
+import { addLogListener, configureLogger, type LogRecord, resetLogger } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAppActionRegistry } from '../context-action-registry';
 

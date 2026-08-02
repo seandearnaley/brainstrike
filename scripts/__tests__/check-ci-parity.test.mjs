@@ -6,7 +6,7 @@
  * `test:coverage:split` step resolves to
  * `pnpm -r --filter '!@brainstrike/db' … run test:coverage`, so a green
  * `pnpm check` had never executed `packages/db` at all — while also skipping
- * `secrets:scan`, `turbo boundaries`, the two db lane checks, and
+ * `secrets:scan`, `turbo boundaries`, the former db lane checks, and
  * `test:scripts` (the guard-script gate that exists to catch exactly this).
  *
  * This contract parses `.github/workflows/test.yml` — the source of truth —
@@ -46,6 +46,12 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const checkSourcePath = path.join(repoRoot, 'scripts', 'check.mjs');
+const nightlyCoverageWorkflowPath = path.join(
+  repoRoot,
+  '.github',
+  'workflows',
+  'nightly-coverage.yml'
+);
 const workflowPath = path.join(repoRoot, '.github', 'workflows', 'test.yml');
 
 /**
@@ -75,6 +81,65 @@ const PROVISIONING_STEPS = new Set([
 
 function workflowSource() {
   return readFileSync(workflowPath, 'utf8');
+}
+
+function stripJsonc(source) {
+  let output = '';
+  let inBlockComment = false;
+  let inLineComment = false;
+  let inString = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (inLineComment) {
+      if (character === '\n') {
+        inLineComment = false;
+        output += character;
+      }
+      continue;
+    }
+    if (inBlockComment) {
+      if (character === '*' && nextCharacter === '/') {
+        inBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (inString) {
+      output += character;
+      if (character === '\\') {
+        output += nextCharacter ?? '';
+        index += 1;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      output += character;
+      continue;
+    }
+    if (character === '/' && nextCharacter === '/') {
+      inLineComment = true;
+      index += 1;
+      continue;
+    }
+    if (character === '/' && nextCharacter === '*') {
+      inBlockComment = true;
+      index += 1;
+      continue;
+    }
+    output += character;
+  }
+
+  return output.replace(/,(\s*[}\]])/g, '$1');
+}
+
+function parseJsonc(source) {
+  return JSON.parse(stripJsonc(source));
 }
 
 /**
@@ -179,7 +244,7 @@ function pnpmInvocations(command) {
       continue;
     }
     if (!PNPM_NON_SCRIPT_SUBCOMMANDS.has(subcommand)) {
-      // Script shorthand: `pnpm --filter @brainstrike/db test:db:check-lanes`.
+      // Script shorthand: `pnpm --filter @brainstrike/db test:coverage`.
       found.add(`pnpm-script:${subcommand}`);
     }
   }
@@ -222,10 +287,10 @@ function gateInvocations(text) {
   return found;
 }
 
-/** @returns {{ key: string, run: string }[]} every `run:` step in test.yml */
-function ciRunSteps(source = workflowSource()) {
+/** @returns {{ env: Record<string, unknown>, key: string, run: string }[]} every named `run:` step */
+function workflowRunSteps(source, { label, minimumSteps }) {
   const workflow = parseYaml(source);
-  assert.ok(workflow?.jobs, 'test.yml must parse to a workflow with jobs');
+  assert.ok(workflow?.jobs, `${label} must parse to a workflow with jobs`);
 
   const steps = [];
   for (const [jobId, job] of Object.entries(workflow.jobs)) {
@@ -235,20 +300,156 @@ function ciRunSteps(source = workflowSource()) {
           typeof step.name === 'string' && step.name.length > 0,
           `every run: step needs a name; ${jobId} has an unnamed one`
         );
-        steps.push({ key: `${jobId} › ${step.name}`, run: step.run });
+        steps.push({
+          env: step.env && typeof step.env === 'object' ? step.env : {},
+          key: `${jobId} › ${step.name}`,
+          run: step.run,
+        });
       }
     }
   }
-  // Discovery floor: refuse a vacuous green if the parse silently found
-  // nothing (a restructured workflow, a YAML shape change).
-  assert.ok(steps.length >= 30, `expected the full test.yml step set, found ${steps.length}`);
+  assert.ok(
+    steps.length >= minimumSteps,
+    `expected at least ${minimumSteps} named run steps in ${label}, found ${steps.length}`
+  );
   return steps;
 }
 
-function ciRunStep(key) {
+/** @returns {{ env: Record<string, unknown>, key: string, run: string }[]} every `run:` step in test.yml */
+function ciRunSteps(source = workflowSource()) {
+  return workflowRunSteps(source, { label: 'test.yml', minimumSteps: 30 });
+}
+
+function ciStep(key) {
   const found = ciRunSteps().find((step) => step.key === key);
   assert.ok(found, `test.yml no longer has the step "${key}"`);
-  return found.run;
+  return found;
+}
+
+function ciRunStep(key) {
+  return ciStep(key).run;
+}
+
+function timeoutSensitiveTurboTaskNames(config) {
+  assert.ok(
+    config?.tasks && typeof config.tasks === 'object' && !Array.isArray(config.tasks),
+    'turbo.jsonc must declare a tasks object'
+  );
+  const taskNames = Object.keys(config.tasks).filter(
+    (taskName) =>
+      ['test', 'test:browser', 'test:coverage', 'test:integration'].includes(taskName) ||
+      /^test:coverage:db:/.test(taskName)
+  );
+  assert.ok(
+    taskNames.length >= 5,
+    `expected at least 5 Vitest task families to hash timeout policy, found ${taskNames.length}`
+  );
+  return taskNames;
+}
+
+function assertTimeoutMultiplierIsHashed(config) {
+  for (const taskName of timeoutSensitiveTurboTaskNames(config)) {
+    const task = config.tasks[taskName];
+    assert.ok(task, `turbo.jsonc no longer declares the ${taskName} task`);
+    assert.ok(
+      task.env?.includes('TEST_TIMEOUT_MULTIPLIER'),
+      `turbo ${taskName} must hash TEST_TIMEOUT_MULTIPLIER in env`
+    );
+    assert.ok(
+      !task.passThroughEnv?.includes('TEST_TIMEOUT_MULTIPLIER'),
+      `turbo ${taskName} must not leave the result-affecting multiplier unhashed`
+    );
+  }
+}
+
+function assertCacheableTestWorkerModeIsHashed(config) {
+  const task = config.tasks.test;
+  assert.ok(task, 'turbo.jsonc no longer declares the test task');
+  assert.ok(
+    task.env?.includes('CI'),
+    'turbo test must hash CI because it changes Vitest worker and coverage workloads'
+  );
+  assert.ok(
+    !task.passThroughEnv?.includes('CI'),
+    'turbo test must not pass CI through without hashing its result-affecting workload'
+  );
+}
+
+function assertDbTestShardEnvIsScoped(rootConfig, dbConfig) {
+  assert.ok(
+    !rootConfig.tasks.test.env?.includes('DB_TEST_SHARD'),
+    'root turbo test must not hash DB_TEST_SHARD for every package in the filter closure'
+  );
+  assert.deepEqual(
+    dbConfig.tasks.test.env,
+    ['$TURBO_EXTENDS$', 'DB_TEST_SHARD'],
+    'packages/db test must append DB_TEST_SHARD to the inherited hashed environment'
+  );
+  assert.ok(
+    rootConfig.tasks['test:coverage:db:shard'].env?.includes('DB_TEST_SHARD'),
+    'the DB coverage shard task must hash DB_TEST_SHARD'
+  );
+}
+
+function assertRootTestPhaseParity(rootPackage) {
+  const commands = splitShellCommands(rootPackage.scripts.test);
+  assert.equal(commands.length, 2, 'root pnpm test must run unit and integration as two phases');
+  assert.match(
+    commands[0],
+    /\brun\s+test\s+--concurrency=4\b/,
+    'root pnpm test must run the unit phase at CI concurrency 4'
+  );
+  assert.doesNotMatch(
+    commands[0],
+    /\btest:integration\b/,
+    'root pnpm test must not combine integration into the unit phase'
+  );
+  assert.match(
+    commands[1],
+    /\brun\s+test:integration\s+--concurrency=2\b/,
+    'root pnpm test must run integration after unit at CI concurrency 2'
+  );
+}
+
+function unitPhaseTestSteps(source = workflowSource()) {
+  return ciRunSteps(source).filter(
+    (step) =>
+      step.key.startsWith('unit-shard › ') &&
+      /\bpnpm\s+turbo\s+run\s+test(?::integration)?(?:\s|$)/.test(step.run)
+  );
+}
+
+function assertUnitWorkflowTimeoutPolicy(source = workflowSource()) {
+  const steps = unitPhaseTestSteps(source);
+  assert.equal(steps.length, 4, 'the Unit phase test-step count changed; re-audit timeout policy');
+  for (const step of steps) {
+    assert.equal(
+      step.env['TEST_TIMEOUT_MULTIPLIER'],
+      '2',
+      `${step.key} must use the same explicit timeout policy as local gates`
+    );
+  }
+}
+
+function assertNightlyCoverageTimeoutPolicy(
+  source = readFileSync(nightlyCoverageWorkflowPath, 'utf8')
+) {
+  const steps = workflowRunSteps(source, {
+    label: 'nightly-coverage.yml',
+    minimumSteps: 10,
+  }).filter((step) => /\bpnpm\s+turbo\s+run\s+test:coverage(?:\s|:)/.test(step.run));
+  assert.equal(
+    steps.length,
+    2,
+    'the Nightly Coverage Vitest step count changed; re-audit timeout policy'
+  );
+  for (const step of steps) {
+    assert.equal(
+      step.env['TEST_TIMEOUT_MULTIPLIER'],
+      '2',
+      `${step.key} must use the explicit coverage timeout policy`
+    );
+  }
 }
 
 /**
@@ -436,10 +637,6 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
   // command comparison above would pass vacuously.
   assert.deepEqual([...gateInvocations('pnpm secrets:scan')], ['pnpm-script:secrets:scan']);
   assert.deepEqual([...gateInvocations('pnpm -s run secrets:scan')], ['pnpm-script:secrets:scan']);
-  assert.deepEqual(
-    [...gateInvocations('pnpm --filter @brainstrike/db test:db:check-lanes')],
-    ['pnpm-script:test:db:check-lanes']
-  );
   assert.deepEqual([...gateInvocations('pnpm exec turbo boundaries')], ['turbo:boundaries']);
 
   // Read from the real workflow rather than retyped here: these two carry the
@@ -493,6 +690,12 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
     'web-e2e-full-regression',
     'desktop-e2e-full-regression',
   ]);
+  const timeoutMatchedIds = new Set([
+    'browser-tests',
+    'coverage',
+    'integration-tests',
+    'unit-tests',
+  ]);
 
   for (const step of plan) {
     if (playwrightIds.has(step.id)) {
@@ -500,16 +703,30 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
       // false, so a stray `test.only` passes the lane while the required Web
       // E2E job rejects the same source.
       assert.match(step.command, /\bCI=true\b/, `${step.id} must mirror CI's environment`);
-      continue;
+    } else {
+      // BST-1050: `CI` must NOT leak into the unit/integration/build steps —
+      // vector-management's vitest config switches on a 70% line-coverage
+      // threshold when CI === 'true'.
+      assert.doesNotMatch(
+        step.command,
+        /\bCI=true\b/,
+        `${step.id} must not run under CI semantics; it would change the workload, not just the env`
+      );
     }
-    // BST-1050: `CI` must NOT leak into the unit/integration/build steps —
-    // getTimeoutMultiplier() doubles under it and vector-management's vitest
-    // config switches on a 70% line-coverage threshold when CI === 'true'.
-    assert.doesNotMatch(
-      step.command,
-      /\bCI=true\b/,
-      `${step.id} must not run under CI semantics; it would change the workload, not just the env`
-    );
+
+    if (timeoutMatchedIds.has(step.id)) {
+      assert.match(
+        step.command,
+        /\bTEST_TIMEOUT_MULTIPLIER=2\b/,
+        `${step.id} must match CI timeout budgets without setting CI`
+      );
+    } else {
+      assert.doesNotMatch(
+        step.command,
+        /\bTEST_TIMEOUT_MULTIPLIER=/,
+        `${step.id} is not a Vitest Unit phase and must not inherit its timeout policy`
+      );
+    }
   }
 
   // And the unit lanes still assert the uninstrumented CI workload.
@@ -517,6 +734,131 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
     plan.find((step) => step.id === 'unit-tests').command,
     /COVERAGE=false/,
     "the unit lane must stay uninstrumented, as CI's Unit shards are"
+  );
+});
+
+test('CI workflows, root Vitest scripts, and pnpm check share one hashed timeout policy', () => {
+  assertUnitWorkflowTimeoutPolicy();
+  assertNightlyCoverageTimeoutPolicy();
+
+  const rootPackage = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  for (const scriptName of [
+    'test',
+    'test:browser',
+    'test:coverage',
+    'test:coverage:base',
+    'test:coverage:embeddings',
+    'test:fast',
+  ]) {
+    assert.match(
+      rootPackage.scripts[scriptName],
+      /\bTEST_TIMEOUT_MULTIPLIER=2\b/,
+      `the root pnpm ${scriptName} battery must match the CI timeout policy`
+    );
+  }
+  assertRootTestPhaseParity(rootPackage);
+
+  const turboConfig = parseJsonc(readFileSync(path.join(repoRoot, 'turbo.jsonc'), 'utf8'));
+  const dbTurboConfig = parseJsonc(
+    readFileSync(path.join(repoRoot, 'packages/db/turbo.json'), 'utf8')
+  );
+  assertTimeoutMultiplierIsHashed(turboConfig);
+  assertCacheableTestWorkerModeIsHashed(turboConfig);
+  assertDbTestShardEnvIsScoped(turboConfig, dbTurboConfig);
+
+  for (const taskName of ['test', 'test:browser', 'test:coverage', 'test:coverage:db:shard']) {
+    const mutatedTurboConfig = structuredClone(turboConfig);
+    mutatedTurboConfig.tasks[taskName].env = mutatedTurboConfig.tasks[taskName].env.filter(
+      (name) => name !== 'TEST_TIMEOUT_MULTIPLIER'
+    );
+    assert.throws(
+      () => assertTimeoutMultiplierIsHashed(mutatedTurboConfig),
+      new RegExp(`${taskName} must hash TEST_TIMEOUT_MULTIPLIER`),
+      `CONTROL: removing the hashed multiplier from ${taskName} must turn the contract red`
+    );
+  }
+
+  const unhashedWorkerMode = structuredClone(turboConfig);
+  unhashedWorkerMode.tasks.test.env = unhashedWorkerMode.tasks.test.env.filter(
+    (name) => name !== 'CI'
+  );
+  unhashedWorkerMode.tasks.test.passThroughEnv = [
+    ...(unhashedWorkerMode.tasks.test.passThroughEnv ?? []),
+    'CI',
+  ];
+  assert.throws(
+    () => assertCacheableTestWorkerModeIsHashed(unhashedWorkerMode),
+    /turbo test must hash CI/,
+    'CONTROL: moving CI back to passThroughEnv must expose the cache false-green'
+  );
+
+  const globallyHashedShard = structuredClone(turboConfig);
+  globallyHashedShard.tasks.test.env.push('DB_TEST_SHARD');
+  assert.throws(
+    () => assertDbTestShardEnvIsScoped(globallyHashedShard, dbTurboConfig),
+    /must not hash DB_TEST_SHARD for every package/,
+    'CONTROL: leaking the shard environment into every unit task must turn the guard red'
+  );
+
+  const unscopedDbShard = structuredClone(dbTurboConfig);
+  unscopedDbShard.tasks.test.env = ['$TURBO_EXTENDS$'];
+  assert.throws(
+    () => assertDbTestShardEnvIsScoped(turboConfig, unscopedDbShard),
+    /must append DB_TEST_SHARD/,
+    'CONTROL: removing the package-local shard hash must turn the guard red'
+  );
+
+  const mismatchedRootPhases = structuredClone(rootPackage);
+  mismatchedRootPhases.scripts.test = mismatchedRootPhases.scripts.test.replace(
+    'run test:integration --concurrency=2',
+    'run test:integration --concurrency=4'
+  );
+  assert.notEqual(
+    mismatchedRootPhases.scripts.test,
+    rootPackage.scripts.test,
+    'the root-phase control mutation matched nothing'
+  );
+  assert.throws(
+    () => assertRootTestPhaseParity(mismatchedRootPhases),
+    /integration after unit at CI concurrency 2/,
+    'CONTROL: root integration scheduling drift must turn the parity guard red'
+  );
+});
+
+test('CONTROL: a fifth Unit test step without timeout policy turns the discovery guard red', () => {
+  const source = workflowSource();
+  const insertionPoint = '      - name: Push and manual integration tests\n';
+  const mutated = source.replace(
+    insertionPoint,
+    '      - name: Unreviewed fifth unit phase\n' +
+      '        run: pnpm turbo run test --filter=@brainstrike/types\n\n' +
+      insertionPoint
+  );
+  assert.notEqual(mutated, source, 'the fifth-step control mutation matched nothing');
+  assert.throws(
+    () => assertUnitWorkflowTimeoutPolicy(mutated),
+    /Unit phase test-step count changed/,
+    'a newly added Unit phase must not bypass timeout-policy review'
+  );
+});
+
+test('CONTROL: Nightly Coverage without explicit timeout policy turns the guard red', () => {
+  const source = readFileSync(nightlyCoverageWorkflowPath, 'utf8');
+  // Anchor the mutation inside a COVERAGE step's env block: a bare
+  // TEST_TIMEOUT_MULTIPLIER line is no longer unique (the pg-textsearch
+  // durability job carries one too, and it is deliberately OUTSIDE the
+  // guard's turbo-run-test:coverage scope), and replace() strips the first
+  // occurrence — which must be a step the guard actually inspects for this
+  // control to prove anything.
+  const mutated = source.replace(
+    '          COVERAGE: "true"\n          NODE_ENV: test\n          TEST_TIMEOUT_MULTIPLIER: "2"\n',
+    '          COVERAGE: "true"\n          NODE_ENV: test\n'
+  );
+  assert.notEqual(mutated, source, 'the Nightly Coverage control mutation matched nothing');
+  assert.throws(
+    () => assertNightlyCoverageTimeoutPolicy(mutated),
+    /must use the explicit coverage timeout policy/,
+    'a Nightly Coverage task must not fall back to Turbo-filtered CI state'
   );
 });
 
@@ -560,8 +902,8 @@ test('packages/db is tested by a green pnpm check', () => {
     );
   }
 
-  // Unfiltered turbo selection is the union of CI's three Unit shards, and
-  // `@brainstrike/db` is a shard of its own there.
+  // Unfiltered turbo selection is the union of CI's three logical Unit
+  // partitions (four physical rows because DB uses two native Vitest shards).
   assert.match(unit.command, /run-turbo-command\.mjs .*run test\b/);
   assert.doesNotMatch(unit.command, /--filter/);
 });

@@ -5,11 +5,8 @@
  * Manages hot cache (in-memory) and cold cache (PGlite) with background worker.
  */
 
-import {
-  createLogger,
-  normalizeFilePathForFolder,
-  validateRelativeFilePath,
-} from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { normalizeFilePathForFolder, validateRelativeFilePath } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('TokenCache');

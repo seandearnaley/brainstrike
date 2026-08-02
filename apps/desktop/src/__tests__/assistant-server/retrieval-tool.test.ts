@@ -159,7 +159,7 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     error: loggerError,
@@ -168,16 +168,7 @@ vi.mock('@brainstrike/utils', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    error: loggerError,
-    info: vi.fn(),
-    warn: loggerWarn,
-  }),
-}));
-
-vi.mock('@brainstrike/text-splitter', () => ({
+vi.mock('@brainstrike/tokenization', () => ({
   countTokensHeuristic: (value: string) => value.length,
 }));
 

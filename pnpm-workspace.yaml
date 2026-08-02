@@ -19,6 +19,7 @@ cleanupUnusedCatalogs: true
 # this file, and a rewrite DELETES comments indented inside the catalog: block
 # (verified). Column-0 comments above a block survive.
 catalog:
+  '@anthropic-ai/sandbox-runtime': 0.0.67
   '@assistant-ui/react': '~0.14.26'
   '@assistant-ui/react-data-stream': ^0.12.18
   '@assistant-ui/react-markdown': ^0.14.5
@@ -26,9 +27,9 @@ catalog:
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1
   '@babel/runtime': ^8.0.0
-  '@electric-sql/pglite': 0.5.3
-  '@electric-sql/pglite-pg_textsearch': 0.0.4
-  '@electric-sql/pglite-pgvector': 0.0.4
+  '@electric-sql/pglite': 0.5.4
+  '@electric-sql/pglite-pg_textsearch': 0.0.6
+  '@electric-sql/pglite-pgvector': 0.0.5
   '@fontsource-variable/geist': ^5.2.9
   '@fontsource-variable/geist-mono': ^5.2.8
   '@huggingface/transformers': ^4.2.0
@@ -52,7 +53,7 @@ catalog:
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.2
   '@tanstack/react-table': ^8.21.3
-  '@tanstack/react-virtual': ^3.14.6
+  '@tanstack/react-virtual': ^3.14.9
   '@testing-library/jest-dom': ^6.9.1
   '@testing-library/react': ^16.3.2
   '@testing-library/user-event': ^14.6.1
@@ -60,6 +61,8 @@ catalog:
   '@types/node': ^26.1.0
   '@types/react': ^19.2.17
   '@types/react-dom': ^19.2.3
+  '@typescript/native': 'npm:typescript@7.0.2'
+  '@typescript/old': 'npm:typescript@6.0.3'
   '@vitejs/plugin-react': ^6.0.3
   '@vitest/browser-playwright': ^4.1.10
   '@vitest/coverage-v8': ^4.1.10
@@ -95,7 +98,7 @@ catalog:
   tailwindcss: ^4.3.2
   tiktoken: ^1.0.22
   tsup: ^8.5.1
-  typescript: ^6.0.3
+  typescript: 'npm:@typescript/typescript6@6.0.2'
   vite: ^8.1.5
   vite-plugin-static-copy: ^4.1.1
   vite-plugin-top-level-await: ^1.6.0

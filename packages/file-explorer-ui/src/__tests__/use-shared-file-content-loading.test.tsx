@@ -5,11 +5,11 @@ import {
   resetFileSizeConfig,
   setFileSizeConfig,
 } from '@brainstrike/file-system';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import type { FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';

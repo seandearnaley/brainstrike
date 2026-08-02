@@ -1,8 +1,8 @@
+import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
-import { readFullFileTree } from './file-system-utils';
-import { decodeFileSelection } from './selection-utils';
-import { generateProjectTreeText } from './tree-generator';
+import { readFullFileTree } from './file-system-utils.js';
+import { decodeFileSelection } from './selection-utils.js';
+import { generateProjectTreeText } from './tree-generator.js';
 
 const logger = createLogger('ContextGenerator');
 const IGNORED_PATTERNS = [

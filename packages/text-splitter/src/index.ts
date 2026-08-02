@@ -1,8 +1,3 @@
-import { countTokensHeuristic, formatTokenCount } from './token-counting-heuristics.js';
-
-export { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from './token-constants.js';
-export { countTokensHeuristic, formatTokenCount };
-
 export type ResolvedChunkingStrategy =
   | 'character'
   | 'recursive'

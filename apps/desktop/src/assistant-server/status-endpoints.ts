@@ -2,11 +2,15 @@ import type http from 'node:http';
 import {
   buildNativeToolRiskMap,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  hasRegisteredSuspendResumeUi,
   listSuspendedMastraRuns,
   type RediscoveredToolApproval,
+  type RediscoveredToolSuspend,
+  RUN_PYTHON_TOOL_ID,
   type RuntimeAssistantMemorySettings,
   resolveApprovalStaleMs,
-  type SuspendedApprovalsResponse,
+  resolveRunPythonExecutionContext,
+  type SuspendedRunsResponse,
 } from '@brainstrike/agent';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { desktopAssistantServerLogger as logger } from './logger';
@@ -19,6 +23,15 @@ import { collectAvailableProviders, resolveProviderApiKeyOrRespond } from './pro
 import type { AssistantServerOptions } from './server-options';
 
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
+
+/**
+ * Newest-N bound on rediscovered suspend() pauses per thread open (BST-1084,
+ * #2223 review). Suspends are the common abandonment case (no Decline settles
+ * them), so hydration cards must not grow monotonically with every ignored
+ * question/plan. Ten keeps any realistic backlog visible while bounding a
+ * pathological one; truncation is logged, never silent.
+ */
+const MAX_REDISCOVERED_SUSPENDS = 10;
 
 const SUSPENDED_RUN_DISCOVERY_MEMORY_SETTINGS: RuntimeAssistantMemorySettings = {
   observationalMemory: {
@@ -221,6 +234,15 @@ export async function handleSuspendedRunsRequest(
           toolName: approval.toolName,
         });
       }
+      // BST-1070: the live approval's executionContext is a transient stream
+      // field, so a rediscovered run_python approval RECOMPUTES it from the
+      // durable args — the same helper the live chunk uses, exactly where
+      // riskCategory is recomputed. Unparseable args yield no context, and the
+      // card falls to its fail-safe (no fact rows, grants suppressed).
+      const executionContext =
+        approval.toolName === RUN_PYTHON_TOOL_ID
+          ? resolveRunPythonExecutionContext(approval.args)
+          : undefined;
       return {
         runId: approval.runId,
         stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
@@ -229,10 +251,58 @@ export async function handleSuspendedRunsRequest(
         toolName: approval.toolName,
         ...(approval.args === undefined ? {} : { args: approval.args }),
         ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
+        ...(executionContext === undefined ? {} : { executionContext }),
       };
     });
 
-    const payload: SuspendedApprovalsResponse = { approvals };
+    // BST-1084: rediscovered suspend() pauses ride the same response. An
+    // UNREGISTERED tool's pause is flagged resumeSupported:false and NEVER
+    // dropped. The flag is WIRE HONESTY, not a renderer input: the notice
+    // picks its dead-end branch from hasRegisteredSuspendResumeUi(toolName)
+    // against the same REGISTERED_SUSPEND_RESUME_TOOL_IDS constant this
+    // process reads (same build, same answer) — the field exists so the
+    // payload states what this build concluded, and for any future consumer
+    // that is NOT the same build (logs, debug bundles, version-skewed
+    // clients).
+    //
+    // BOUNDED (#2223 review): abandoned suspends accumulate — a user who
+    // ignores an askUser/submitPlan card and types a new message leaves that
+    // run suspended in workflow storage permanently, and unlike approvals
+    // there is no Decline that settles them. Without a cap every thread open
+    // would append one card per abandoned question/plan, forever. Keep the
+    // NEWEST N (discovery sorts oldest-first) and log the dropped count —
+    // truncation is visible in the log, and the dropped runs stay resumable
+    // in storage if a later build adds a management surface.
+    const cappedSuspends = discovery.suspends.slice(-MAX_REDISCOVERED_SUSPENDS);
+    if (cappedSuspends.length < discovery.suspends.length) {
+      logger.warn('Capping rediscovered suspend pauses for thread hydration', {
+        code: 'assistant_suspended_pause_cap_applied',
+        droppedCount: discovery.suspends.length - cappedSuspends.length,
+        keptCount: cappedSuspends.length,
+        threadId,
+      });
+    }
+    const suspends: RediscoveredToolSuspend[] = cappedSuspends.map((pause) => {
+      const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
+      if (!resumable) {
+        logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {
+          code: 'assistant_suspended_pause_resume_unregistered',
+          runId: pause.runId,
+          toolName: pause.toolName,
+        });
+      }
+      return {
+        runId: pause.runId,
+        stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,
+        suspendedAt: pause.suspendedAt,
+        toolCallId: pause.toolCallId,
+        toolName: pause.toolName,
+        ...(pause.suspendPayload === undefined ? {} : { suspendPayload: pause.suspendPayload }),
+        ...(resumable ? {} : { resumeSupported: false as const }),
+      };
+    });
+
+    const payload: SuspendedRunsResponse = { approvals, suspends };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.statusCode = 200;

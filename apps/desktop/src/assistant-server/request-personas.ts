@@ -22,7 +22,7 @@ import {
   type AssistantPersonaDefinition,
   BUILT_IN_PERSONAS,
 } from '@brainstrike/assistant-contract';
-import type { ScopedLogger } from '@brainstrike/utils';
+import type { ScopedLogger } from '@brainstrike/logging';
 import type { UserPersonaScanResult } from './user-personas-loader';
 
 /**

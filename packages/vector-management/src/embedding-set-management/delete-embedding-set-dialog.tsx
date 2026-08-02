@@ -1,4 +1,5 @@
 import type { EmbeddingSet } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Button,
@@ -10,7 +11,6 @@ import {
   DialogTitle,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';

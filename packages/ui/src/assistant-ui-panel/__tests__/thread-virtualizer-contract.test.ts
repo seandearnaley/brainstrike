@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
  * BST-897: the virtualized thread tier depends on TanStack Virtual's
  * END-ANCHORED chat APIs, which landed in @tanstack/virtual-core 3.17.
  *
- * The workspace catalog pins the REACT ADAPTER (`^3.14.6`), and the adapter is
- * what pins core — 3.14.6 declares an exact `"@tanstack/virtual-core": "3.17.4"`.
+ * The workspace catalog pins the REACT ADAPTER (`^3.14.9`), and the adapter is
+ * what pins core — 3.14.9 declares an exact `"@tanstack/virtual-core": "3.17.7"`.
  * Nothing in the manifest states the requirement the renderer actually has, and
  * `setOptions` silently SPREADS unknown option keys: an adapter bump that dragged
  * in an older core would drop `anchorTo` / `followOnAppend` / `scrollEndThreshold`

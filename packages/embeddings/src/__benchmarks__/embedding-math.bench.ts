@@ -12,7 +12,7 @@ import {
   calculateL2Distance,
   magnitude,
   normalize,
-} from '../embedding-math';
+} from '../embedding-math.js';
 
 // Generate random embeddings of various sizes (common model dimensions)
 function generateEmbedding(size: number): number[] {

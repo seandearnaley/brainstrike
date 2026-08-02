@@ -2,7 +2,7 @@ import {
   getBestBuiltInLocalLlmDevice,
   isBuiltInLocalLlmDeviceAvailable,
 } from '@brainstrike/assistant-contract/local-llm-device';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { Gemma4Engine } from './gemma4-engine';
 import { createLocalArtifactStore } from './local-artifact-store';
 import { getLocalLlmModelSpec, listLocalLlmModelSpecs } from './local-model-specs';

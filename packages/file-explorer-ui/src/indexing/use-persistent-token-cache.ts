@@ -13,7 +13,7 @@
  */
 
 import { INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file-explorer-hooks';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import type { MutableRefObject } from 'react';
 import { useCallback, useRef } from 'react';

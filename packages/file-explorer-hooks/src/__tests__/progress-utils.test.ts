@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateDynamicTotal, calculateProgressPercentage } from '../progress-utils';
+import { calculateDynamicTotal, calculateProgressPercentage } from '../progress-utils.js';
 
 describe('calculateDynamicTotal', () => {
   it('returns the current total when loaded does not exceed it', () => {

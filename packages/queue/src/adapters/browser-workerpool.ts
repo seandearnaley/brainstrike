@@ -1,8 +1,8 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
 import workerpool from 'workerpool';
-import type { WorkerpoolAdapterOptions } from '../browser-workerpool-options';
-import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
+import type { WorkerpoolAdapterOptions } from '../browser-workerpool-options.js';
+import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry.js';
 import {
   type QueueAdapter,
   type QueueAddBulkOptions,
@@ -12,8 +12,8 @@ import {
   type QueueResult,
   type TaskPayload,
   toWorkerRequest,
-} from '../types';
-import { estimateHardwareConcurrency, ProgressEmitter } from '../util';
+} from '../types.js';
+import { estimateHardwareConcurrency, ProgressEmitter } from '../util.js';
 
 const logger = createLogger('BrowserWorkerpoolAdapter');
 

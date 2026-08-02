@@ -4,7 +4,7 @@ import type {
   AnyContextAction,
   ContextTarget,
 } from '@brainstrike/context-actions';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import {
   Fragment,
   type MouseEvent as ReactMouseEvent,

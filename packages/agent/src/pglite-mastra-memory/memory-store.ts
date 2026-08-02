@@ -1,4 +1,5 @@
-import { createLogger, getErrorMessage } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { getErrorMessage } from '@brainstrike/utils';
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
 import type {
@@ -37,6 +38,7 @@ import {
   type MessageIncludeItem,
   type MessageListArgs,
   messageMatchesListFilters,
+  messageMatchesListScope,
   normalizeIncludeThreadId,
   normalizeIncludeWindowCount,
   normalizeMessageOrder,
@@ -54,7 +56,6 @@ import {
   emptyBufferedActivation,
   type MessageRow,
   messageFromRow,
-  messageRowMatchesListScope,
   type ObservationalMemoryRow,
   observationalMemoryFromRow,
   observationalMemoryKey,
@@ -1080,7 +1081,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       if (!targetRow) {
         continue;
       }
-      if (!messageRowMatchesListScope(targetRow, args)) {
+      if (!messageMatchesListScope(targetRow, args)) {
         continue;
       }
 
@@ -1129,7 +1130,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     row: MessageRow,
     args: MessageListArgs
   ): void {
-    if (!messageRowMatchesListScope(row, args)) {
+    if (!messageMatchesListScope(row, args)) {
       return;
     }
     this.appendMessageIfMissing(messages, messageIds, row);

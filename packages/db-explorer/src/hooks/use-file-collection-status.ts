@@ -1,5 +1,5 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useCallback, useMemo } from 'react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 

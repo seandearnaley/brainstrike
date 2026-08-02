@@ -13,6 +13,7 @@
  * flips its per-root opt-in, which injects it truncated.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import {
   Badge,
   Button,
@@ -24,7 +25,6 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWorkspaceInstructionsPreferencesStore } from '../../stores/workspace-instructions-preferences-store';
 

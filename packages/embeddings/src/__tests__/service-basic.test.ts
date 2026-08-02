@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SimpleEmbeddingService } from '../bge-m3-service';
+import { SimpleEmbeddingService } from '../bge-m3-service.js';
 
 describe('SimpleEmbeddingService (basic)', () => {
   it('calculates similarity for simple vectors', () => {

@@ -17,9 +17,9 @@ import type {
   FileTreeWorkerPort,
   WorkerFileNode,
 } from '@brainstrike/file-tree-worker';
+import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { canLoadNode, sortTreeNodes } from '@brainstrike/utils/tree-operations';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 

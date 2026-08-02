@@ -5,14 +5,9 @@ import {
   getFileSizeConfig,
   getFileTooLargeMessage,
 } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
-import {
-  createLogger,
-  fileContent,
-  fileExplorer,
-  isBinaryExtension,
-  isTextExtension,
-} from '@brainstrike/utils';
+import { fileContent, fileExplorer, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
 
 export interface FileReadRequest {
   compositeKey: string;

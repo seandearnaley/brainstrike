@@ -21,6 +21,12 @@
   ],
   "references": [
     {
+      "path": "../logging"
+    },
+    {
+      "path": "../tokenization"
+    },
+    {
       "path": "../utils"
     },
     {

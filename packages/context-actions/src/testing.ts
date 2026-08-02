@@ -1,5 +1,5 @@
-import { type ActionRegistry, createActionRegistry } from './registry';
-import type { ActionServices, AnyContextAction, CapabilityKey } from './types';
+import { type ActionRegistry, createActionRegistry } from './registry.js';
+import type { ActionServices, AnyContextAction, CapabilityKey } from './types.js';
 
 /**
  * Registry for component tests: all capabilities granted, services recorded

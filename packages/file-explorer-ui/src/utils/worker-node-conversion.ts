@@ -6,8 +6,8 @@
  */
 
 import type { WorkerFileNode } from '@brainstrike/file-tree-worker';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('WorkerNodeConversion');
 

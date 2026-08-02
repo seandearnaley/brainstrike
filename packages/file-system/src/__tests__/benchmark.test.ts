@@ -2,8 +2,8 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
-import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
-import type { DirectoryHandle } from '../types';
+import { ElectronFileSystemAdapter } from '../adapters/electron-adapter.js';
+import type { DirectoryHandle } from '../types.js';
 
 // Mock electron
 vi.mock('electron', () => ({

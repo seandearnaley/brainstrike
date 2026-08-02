@@ -1,11 +1,10 @@
 {
-  "extends": "../../packages/config/tsconfig/base.json",
+  "extends": "../../packages/config/tsconfig/node-library.json",
   "compilerOptions": {
     "composite": true,
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
-    "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
     "types": [
@@ -23,6 +22,9 @@
     "**/*.test.tsx"
   ],
   "references": [
+    {
+      "path": "../logging"
+    },
     {
       "path": "../utils"
     }

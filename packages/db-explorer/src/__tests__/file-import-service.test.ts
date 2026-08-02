@@ -89,7 +89,7 @@ vi.mock('@brainstrike/utils/file-explorer-utils', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 

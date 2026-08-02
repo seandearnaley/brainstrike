@@ -17,7 +17,7 @@
  */
 
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { Skill, SkillMetadata, WorkspaceSkills } from '@mastra/core/skills';
 import type { ScannedSkill, SkillDirEntry, SkillReadResult, SkillScanResult } from './skill-scan';
 

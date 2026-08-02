@@ -10,8 +10,8 @@ import {
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
 } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import { EMBEDDING_BACKFILL_CANCELED_MESSAGE } from './embedding-host-shared';
 

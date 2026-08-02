@@ -1,5 +1,5 @@
 import Module from 'node:module';
-import type { LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/logging';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CHUNKING_HOST_CHUNK_BATCH_CHANNEL,

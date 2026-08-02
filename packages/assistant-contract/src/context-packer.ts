@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 
 interface OffsetRange {
   end?: number;

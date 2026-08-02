@@ -1,6 +1,11 @@
 import type { Command, CommandContext } from '@brainstrike/commands';
 import type { ContextTarget } from '@brainstrike/context-actions';
-import { addLogListener, configureLogger, createLogger, type LogRecord } from '@brainstrike/utils';
+import {
+  addLogListener,
+  configureLogger,
+  createLogger,
+  type LogRecord,
+} from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAppCommandContext, createAppCommandRegistry } from '../command-registry';
 import { buildAppActionRegistryParts } from '../context-action-registry';

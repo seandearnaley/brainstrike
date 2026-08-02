@@ -173,13 +173,16 @@ vi.mock('../hooks/use-view-filter-presets', () => ({
 }));
 
 vi.mock('@brainstrike/utils', () => ({
+  isDevEnv: vi.fn(() => false),
+}));
+
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
   })),
-  isDevEnv: vi.fn(() => false),
 }));
 
 // Import after mocks are set up

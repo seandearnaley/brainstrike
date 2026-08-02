@@ -5,7 +5,7 @@ import {
   getFileSizeConfig,
   resetFileSizeConfig,
   setFileSizeConfig,
-} from '../config';
+} from '../config.js';
 
 describe('file size config', () => {
   beforeEach(() => {

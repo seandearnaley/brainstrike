@@ -32,6 +32,7 @@ Detailed subsystem contracts live in `docs/agents/`. **Before changing one of th
 | Embedding workers, local Gemma LLM, hidden hosts — **renderer-only inference is mandatory, never Electron main** | `docs/agents/local-inference.md` |
 | DB migrations, model catalog changes, PGlite construction sites/extensions, browser first-run bootstrap | `docs/agents/database.md` |
 | Agent self-query SQL sandbox, `brainstrike.querySelf`, the read-only role — **`statement_timeout` is inert in PGlite** | `docs/agents/agent-self-query.md` |
+| Code execution (CodeExecutor seam, sandbox backends, run_python) — **no vm→fence downgrade, ever** | `docs/agents/code-execution.md` |
 | Prompt workbench, workspace-instructions injection, user-defined /commands, edit-checkpoint undo | `docs/agents/workspace-context.md` |
 | Explorer Search panel, markdown viewer, Tapestry per-file ranges | `docs/agents/explorer-search-tapestry.md` |
 | Tree views (shared TreeTable), right-click / context action system, z-index of any dialog/popover/menu/tooltip | `docs/agents/ui-conventions.md` |
@@ -41,11 +42,12 @@ Detailed subsystem contracts live in `docs/agents/`. **Before changing one of th
 Cross-cutting invariants (full detail + rationale in the docs):
 
 - Local inference (embeddings + local LLM) runs ONLY in hidden renderer hosts — never in Electron main.
-- Schema/catalog changes register in BOTH migration runners (numbered + drizzle `customMigrations`); new `packages/db` tests add a regex to `dbUnitLaneDefinitions` in `db-test-lane-manifest.mjs` — `test-lanes.mjs` and `coverage-lanes.mjs` both derive from that single manifest, so coverage lane assignment is automatic (only add a `coverageOverridesByLane` entry to override the default).
+- Schema/catalog changes register in BOTH migration runners (numbered + drizzle `customMigrations`). New `packages/db` tests need no lane registration: the recursive Vitest unit-project glob discovers them, and required Unit plus nightly coverage split that one project with the same native `--shard` set. `scripts/__tests__/db-test-discovery-contract.test.mjs` guards the recursive glob and a minimum file floor.
 - Every PGlite construction site loads the full engine-extension set.
 - Feature gating is capability-based (does the bridge exist?) — never `isElectron()` checks in shared code. Web omits desktop-only capabilities rather than stubbing them.
 - Any new persistent store/state must be wired into factory reset.
 - `@mastra/core` is Node-only (its shared chunk statically imports `fs`/`child_process`/`os`) — it MUST stay externalized in browser bundles, and Mastra stays an embedded library runtime with no HTTP surface of its own.
+- Non-native typed libraries build JavaScript and declarations with `tsc -b`. Use tsup only when the package produces a real bundle boundary (workers/assets, required CJS interop, or a deliberately self-contained server bundle); never add tsup just to duplicate plain library emit. Native-addon packages remain `node-gyp` builds. Packages extending `packages/config/tsconfig/node-library.json` use TypeScript's `NodeNext` mode, emit Node-compatible ESM, and use `.js` in relative source specifiers.
 
 ## Stack & style
 

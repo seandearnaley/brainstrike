@@ -1,3 +1,5 @@
+import type { LoggingPreferences } from '@brainstrike/logging';
+import { LogLevel } from '@brainstrike/logging';
 import {
   Badge,
   Button,
@@ -20,8 +22,6 @@ import {
   downloadBlobFile,
   formatTimestampedDownloadFilename,
 } from '@brainstrike/utils/browser-download';
-import { LogLevel } from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import {

@@ -12,7 +12,7 @@ import {
   generateReport,
   generateReportFromAdapter,
   normalizeContextLineRanges,
-} from '../report-generator';
+} from '../report-generator.js';
 
 interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
@@ -1014,7 +1014,7 @@ describe('generateReportFromAdapter', () => {
       }
     }
 
-    const treeModule = await import('../tree-generator');
+    const treeModule = await import('../tree-generator.js');
     let capturedTree: IFileNode[] = [];
     const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
       capturedTree = nodes;
@@ -1132,7 +1132,7 @@ describe('generateReportFromAdapter', () => {
     const customRoot = await customAdapter.requestDirectoryAccess();
 
     // Capture the file tree passed to generateProjectTreeText
-    const treeModule = await import('../tree-generator');
+    const treeModule = await import('../tree-generator.js');
     let captured: import('@brainstrike/types').IFileNode[] = [];
     const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
       captured = nodes;

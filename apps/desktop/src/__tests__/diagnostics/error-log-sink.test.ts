@@ -9,8 +9,8 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { parseDiagnosticEventLine } from '@brainstrike/utils/diagnostics';
-import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createErrorLogSink } from '../../diagnostics/error-log-sink';
 

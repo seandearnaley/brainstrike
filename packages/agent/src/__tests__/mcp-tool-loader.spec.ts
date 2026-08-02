@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpRuntimeClient } from '../mastra/mcp-runtime-client';

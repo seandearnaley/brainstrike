@@ -1,6 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { createLogger } from '@brainstrike/logging';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
 import { useCallback, useMemo, useRef, useState } from 'react';

@@ -15,6 +15,7 @@ import {
   type LocalRuntimeModelCatalogState,
   type RuntimeDiagnosticLogLevel,
 } from '@brainstrike/local-runtime';
+import { createLogger } from '@brainstrike/logging';
 import type {
   AnthropicEffort,
   AssistantProviderSettings,
@@ -25,7 +26,6 @@ import type {
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { StateStorage } from 'zustand/middleware';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';

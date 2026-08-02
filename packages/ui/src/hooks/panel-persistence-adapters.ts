@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getElectronAPI } from '../lib/electron-utils';
 import type { PanelPersistenceState } from '../types/panel';
 

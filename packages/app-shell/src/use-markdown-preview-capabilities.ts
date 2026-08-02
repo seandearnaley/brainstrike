@@ -1,6 +1,6 @@
 import { AdaptersContext } from '@brainstrike/file-explorer-hooks';
 import type { MarkdownPreviewCapabilities } from '@brainstrike/file-explorer-ui';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useContext, useMemo } from 'react';
 
 const logger = createLogger('MarkdownPreviewCapabilities');

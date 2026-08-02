@@ -75,11 +75,15 @@ export {
   type AskUserSelectionMode,
   type AssistantToolResumeAction,
   type AssistantToolSuspendRequest,
+  hasRegisteredSuspendResumeUi,
   isAssistantToolResumeAction,
+  isRediscoveredToolSuspend,
+  type RediscoveredToolSuspend,
   readToolResumeRunConfigAction,
   type SubmitPlanDecision,
   type SubmitPlanPayload,
   type SubmitPlanStep,
+  type SuspendedRunsResponse,
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
   type ToolResumeRunConfigActionReadResult,
@@ -167,7 +171,8 @@ export {
 } from './mastra/agent-runtime';
 export {
   type DiscoveredSuspendedApproval,
-  type ListSuspendedApprovalsResult,
+  type DiscoveredSuspendedPause,
+  type ListSuspendedRunsResult,
   listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
@@ -511,6 +516,20 @@ export {
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
 export {
+  computeExecutionContextFingerprint,
+  resolveRunPythonExecutionContext,
+} from './tools/run-python-approval-context';
+export {
+  createRunPythonTool,
+  projectRunPythonStreams,
+  RUN_PYTHON_DEFAULT_TIMEOUT_MS,
+  RUN_PYTHON_TOOL_ID,
+  type RunPythonResult,
+  type RunPythonToolOptions,
+  type RunPythonUnavailableReason,
+  toRunPythonResult,
+} from './tools/run-python-tool';
+export {
   type AskUserInput,
   AskUserInputSchema,
   type DeleteWorkspaceFileInput,
@@ -554,6 +573,8 @@ export {
   RenameWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
+  type RunPythonInput,
+  RunPythonInputSchema,
   type RunSkillScriptInput,
   RunSkillScriptInputSchema,
   type SelectRootTreeFilesInput,

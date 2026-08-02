@@ -1,0 +1,75 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+function resolveDistModule(moduleName: string): string {
+  return path.resolve(import.meta.dirname, '..', '..', 'dist', moduleName);
+}
+
+describe('built logger modules', () => {
+  it('shares logger state between root exports and logging initializer', async () => {
+    const rootLogging = await import(pathToFileURL(resolveDistModule('index.js')).href);
+    const loggerModule = await import(pathToFileURL(resolveDistModule('logger.js')).href);
+    const loggingInitializerModule = await import(
+      pathToFileURL(resolveDistModule('logging-initializer.js')).href
+    );
+
+    loggerModule.resetLogger();
+
+    const records: string[] = [];
+    const removeListener = rootLogging.addLogListener((record: { message?: string }) => {
+      if (record.message) {
+        records.push(record.message);
+      }
+    });
+
+    try {
+      loggingInitializerModule.initializeLogging({
+        consoleLevel: loggerModule.LogLevel.DEBUG,
+        level: loggerModule.LogLevel.DEBUG,
+        runtime: 'browser',
+      });
+
+      rootLogging.debug('dist initializer marker');
+
+      expect(records).toContain('dist initializer marker');
+    } finally {
+      removeListener();
+      loggerModule.resetLogger();
+    }
+  });
+
+  it('shares logger state between root exports and logging preferences', async () => {
+    const rootLogging = await import(pathToFileURL(resolveDistModule('index.js')).href);
+    const loggerModule = await import(pathToFileURL(resolveDistModule('logger.js')).href);
+    const loggingPreferencesModule = await import(
+      pathToFileURL(resolveDistModule('logging-preferences.js')).href
+    );
+
+    loggerModule.resetLogger();
+
+    const records: string[] = [];
+    const removeListener = rootLogging.addLogListener((record: { message?: string }) => {
+      if (record.message) {
+        records.push(record.message);
+      }
+    });
+
+    try {
+      loggingPreferencesModule.applyLoggingPreferences(
+        loggingPreferencesModule.createDefaultLoggingPreferences({
+          consoleLevel: loggerModule.LogLevel.DEBUG,
+          level: loggerModule.LogLevel.DEBUG,
+        }),
+        'browser'
+      );
+
+      rootLogging.debug('dist preferences marker');
+
+      expect(records).toContain('dist preferences marker');
+    } finally {
+      removeListener();
+      loggerModule.resetLogger();
+    }
+  });
+});

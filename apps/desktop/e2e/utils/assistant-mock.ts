@@ -1,7 +1,7 @@
 import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
-} from '@brainstrike/assistant-contract';
+} from '@brainstrike/assistant-contract/assistant-stream-session';
 import type { Page } from '@playwright/test';
 
 const DEFAULT_MODELS: Record<string, string> = {

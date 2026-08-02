@@ -1,8 +1,7 @@
-// Self-import via the package subpath (not './logger'): tsup builds with
-// `splitting: false`, so a relative import would inline a private logger copy
-// into the dist chunk with its own listener registry. The subpath is in tsup's
-// `external` list and resolves to the shared logger singleton at runtime.
-import { createLogger } from '@brainstrike/utils/logger';
+// Import through the dedicated package so source and
+// emitted ESM both resolve the canonical logger module. That preserves one
+// listener registry and avoids a private relative copy or package-barrel cycle.
+import { createLogger } from '@brainstrike/logging';
 
 export type WorkspaceIndexingQosState =
   | 'balanced'

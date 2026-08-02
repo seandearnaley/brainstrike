@@ -1,8 +1,8 @@
-import type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
-import type { QueueAdapter } from './types';
-import { supportsWorkers } from './util';
+import type { WorkerpoolAdapterOptions } from './browser-workerpool-options.js';
+import type { QueueAdapter } from './types.js';
+import { supportsWorkers } from './util.js';
 
-export type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
+export type { WorkerpoolAdapterOptions } from './browser-workerpool-options.js';
 
 export interface CreateBrowserEmbeddingQueueOptions {
   /**
@@ -59,7 +59,7 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
       return loadedAdapter;
     }
     if (!adapterPromise) {
-      adapterPromise = import('./adapters/browser-workerpool')
+      adapterPromise = import('./adapters/browser-workerpool.js')
         .then(({ createWorkerpoolAdapter }) => {
           const adapter = createWorkerpoolAdapter(options);
           loadedAdapter = adapter;

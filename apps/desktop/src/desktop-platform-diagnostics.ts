@@ -3,7 +3,7 @@ import type {
   DimensionIndexMaintenanceRow,
   DimensionIndexSuspensionRow,
 } from '@brainstrike/db';
-import { LogLevel } from '@brainstrike/utils/logger';
+import { LogLevel } from '@brainstrike/logging';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';

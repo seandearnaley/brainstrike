@@ -55,6 +55,12 @@
       "path": "../text-splitter"
     },
     {
+      "path": "../tokenization"
+    },
+    {
+      "path": "../logging"
+    },
+    {
       "path": "../utils"
     },
     {

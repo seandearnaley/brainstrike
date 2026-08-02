@@ -31,26 +31,6 @@ function migrationSource(symbol, sql) {
   return `export const ${symbol}: Migration = {\n  up: \`${sql}\`,\n};\n`;
 }
 
-const LANE_MANIFEST = [
-  'export const dbUnitLaneDefinitions = [',
-  '  {',
-  '    matches: [',
-  '      /^migration-/,',
-  '      /^migration-002-.*\\.test\\.ts$/,',
-  '    ],',
-  "    name: 'schema-migration',",
-  '  },',
-  '  {',
-  '    matches: [',
-  '      /repository\\.test\\.ts$/,',
-  '      /^shared-/,',
-  '    ],',
-  "    name: 'repository',",
-  '  },',
-  '];',
-  '',
-].join('\n');
-
 function createFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-collector-'));
   const repo = path.join(root, 'brainstrike');
@@ -88,7 +68,6 @@ function createFixture() {
       '',
     ].join('\n')
   );
-  write(repo, 'packages/db/scripts/db-test-lane-manifest.mjs', LANE_MANIFEST);
   write(
     repo,
     'packages/db/src/architecture/db-runtime-baseline.ts',
@@ -213,74 +192,20 @@ test('reports a modified-only delta as requiring review, never a mechanical gap'
   assert.equal(evidence.runtimeBaselineReview.requiredManualReview, true);
 });
 
-test('assigns a test matching multiple regexes within one lane instead of calling it ambiguous', (context) => {
+test('collects migration evidence without the deleted DB lane manifest contract', (context) => {
   const fixture = createFixture();
   context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
 
-  write(
-    fixture.repo,
-    'packages/db/__tests__/migration-002-add-gadgets.test.ts',
-    "it('covers 002', () => {});\n"
-  );
-  commitAll(fixture.repo, 'add lane-covered migration test');
+  registerMigration002(fixture.repo, 'CREATE TABLE gadgets (id TEXT);');
+  registerMigration002InDrizzle(fixture.repo);
+  commitAll(fixture.repo, 'add fully registered migration without a lane manifest');
 
   const result = collect(fixture);
   assert.equal(result.status, 0, result.stderr);
   const evidence = JSON.parse(result.stdout);
-  const assignment = evidence.testLaneAssignments.find(
-    (entry) => entry.path === 'migration-002-add-gadgets.test.ts'
-  );
-  assert.equal(assignment.status, 'assigned');
-  assert.deepEqual(assignment.lanes, ['schema-migration']);
-  assert.equal(assignment.matches.length, 2);
+  assert.equal(evidence.schemaVersion, 2);
   assert.deepEqual(evidence.mechanicalGaps, []);
-});
-
-test('flags a cross-lane match as ambiguous blocking evidence and exits two', (context) => {
-  const fixture = createFixture();
-  context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
-
-  write(
-    fixture.repo,
-    'packages/db/__tests__/migration-repository.test.ts',
-    "it('matches two lanes', () => {});\n"
-  );
-  commitAll(fixture.repo, 'add cross-lane ambiguous test');
-
-  const result = collect(fixture);
-  assert.equal(result.status, 2, result.stderr);
-  const evidence = JSON.parse(result.stdout);
-  const assignment = evidence.testLaneAssignments.find(
-    (entry) => entry.path === 'migration-repository.test.ts'
-  );
-  assert.equal(assignment.status, 'ambiguous');
-  assert.deepEqual(assignment.lanes, ['schema-migration', 'repository']);
-  assert.ok(evidence.mechanicalGaps.some((gap) => gap.kind === 'db-test-lane-ambiguous'));
-});
-
-test('lane-checks renamed DB tests', (context) => {
-  const fixture = createFixture();
-  context.after(() => fs.rmSync(fixture.root, { force: true, recursive: true }));
-
-  run(
-    'git',
-    [
-      'mv',
-      'packages/db/__tests__/widgets-repository.test.ts',
-      'packages/db/__tests__/gadgets-repository.test.ts',
-    ],
-    fixture.repo
-  );
-  commitAll(fixture.repo, 'rename repository test');
-
-  const result = collect(fixture);
-  assert.equal(result.status, 0, result.stderr);
-  const evidence = JSON.parse(result.stdout);
-  const assignment = evidence.testLaneAssignments.find(
-    (entry) => entry.path === 'gadgets-repository.test.ts'
-  );
-  assert.equal(assignment.status, 'assigned');
-  assert.deepEqual(assignment.lanes, ['repository']);
+  assert.equal('testLaneAssignments' in evidence, false);
 });
 
 test('surfaces deleted migrations as removed evidence instead of crashing', (context) => {
