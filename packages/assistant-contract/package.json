@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },

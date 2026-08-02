@@ -81,6 +81,9 @@
       "path": "../text-splitter"
     },
     {
+      "path": "../tokenization"
+    },
+    {
       "path": "../vector-management"
     },
     {

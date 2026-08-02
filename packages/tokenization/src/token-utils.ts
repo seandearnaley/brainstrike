@@ -2,7 +2,7 @@
  * Utility functions for estimating token counts for large language models.
  *
  * Accurate tiktoken runtime logic is owned by ./token-utils-accurate-lite so
- * worker and utility call paths cannot drift independently.
+ * worker and application call paths cannot drift independently.
  */
 
 import { createLogger } from '@brainstrike/logging';

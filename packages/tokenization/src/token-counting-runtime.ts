@@ -2,8 +2,8 @@
  * Lightweight token-counting runtime facade for visible-renderer consumers.
  *
  * The accurate tokenizer path lives in ./token-utils and pulls in the WASM-backed
- * tiktoken runtime. Lightweight heuristics stay inside utils so UI code does not
- * depend on indexing-owned chunking packages.
+ * tiktoken runtime. Lightweight heuristics stay inside the tokenization owner so
+ * UI code does not depend on indexing-owned chunking packages.
  * Keep this facade small so UI code can defer the accurate tokenizer cost until
  * the user explicitly enables accurate counting or requests a token count.
  */

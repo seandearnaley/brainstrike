@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from './token-heuristics';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { TokenCountingMode } from './types';
 
 export interface AccurateTokenUtils {

@@ -15,11 +15,7 @@ import type {
 } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { createLogger } from '@brainstrike/logging';
-import {
-  type CostEstimate,
-  formatTokenCount,
-  formatUsdCost,
-} from '@brainstrike/utils/token-counting-heuristics';
+import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { cn } from '../lib/utils';
 import type { ConversationTokenEstimate } from './context-estimate';
 import type {

@@ -12,7 +12,7 @@ import type {
 } from '@brainstrike/assistant-contract/context-packer';
 import { ContextPacker } from '@brainstrike/assistant-contract/context-packer';
 import { createLogger } from '@brainstrike/logging';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { SemanticSearchResult } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
 import {

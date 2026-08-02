@@ -15,6 +15,12 @@
       ],
       "@brainstrike/assistant-contract/*": [
         "../assistant-contract/dist/*.d.ts"
+      ],
+      "@brainstrike/tokenization": [
+        "../tokenization/dist/index.d.ts"
+      ],
+      "@brainstrike/tokenization/*": [
+        "../tokenization/dist/*.d.ts"
       ]
     },
     "strictNullChecks": true
@@ -37,6 +43,9 @@
     },
     {
       "path": "../text-splitter"
+    },
+    {
+      "path": "../tokenization"
     },
     {
       "path": "../logging"

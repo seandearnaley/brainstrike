@@ -168,7 +168,7 @@ vi.mock('@brainstrike/logging', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/text-splitter', () => ({
+vi.mock('@brainstrike/tokenization', () => ({
   countTokensHeuristic: (value: string) => value.length,
 }));
 

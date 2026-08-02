@@ -901,6 +901,13 @@ explicit verified exact mapping. Anthropic, Google, OpenRouter aliases, local
 runtimes, and unknown tuples keep the four-serialized-characters-per-token
 backstop. Never infer a tokenizer from a model-name substring.
 
+`@brainstrike/tokenization` is the single implementation owner for the shared
+heuristic/cost model, the lazy runtime facade, and the strict o200k counter.
+Consumers import its explicit entrypoints; `text-splitter`, `utils`, and worker
+packages must not carry re-export facades or local copies. The worker bundles
+still inline that one source independently at their real bundle boundaries, so
+neither worker imports the other's runtime graph.
+
 `RunTokenDiagnostics` initializes the declared local tokenizer once while the
 server-side Mastra runtime is built, normalizes the FINAL tool map through
 Mastra's Standard Schema conversion, and observes only already-bounded

@@ -51,6 +51,7 @@ const sharedAliases: Record<string, string> = {
   '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
   '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
   '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
+  '@brainstrike/tokenization': path.resolve(__dirname, '../tokenization/src/index.ts'),
   '@brainstrike/types': path.resolve(__dirname, '../types/src'),
   '@brainstrike/ui': path.resolve(__dirname, '../ui/src'),
   '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),

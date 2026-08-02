@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const UTILS_SRC_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const TOKENIZATION_SRC_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_FILE_EXTENSIONS = new Set(['.ts', '.tsx']);
 
 function collectSourceFiles(directory: string): string[] {
@@ -21,13 +21,13 @@ function collectSourceFiles(directory: string): string[] {
   return files;
 }
 
-describe('utils token counting boundary', () => {
+describe('tokenization domain boundary', () => {
   it('does not import indexing-domain text-splitter code', () => {
     const forbiddenImportPattern =
       /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:['"]|\/)/;
-    const violatingFiles = collectSourceFiles(UTILS_SRC_ROOT)
+    const violatingFiles = collectSourceFiles(TOKENIZATION_SRC_ROOT)
       .filter((filePath) => forbiddenImportPattern.test(readFileSync(filePath, 'utf8')))
-      .map((filePath) => path.relative(UTILS_SRC_ROOT, filePath));
+      .map((filePath) => path.relative(TOKENIZATION_SRC_ROOT, filePath));
 
     expect(violatingFiles).toEqual([]);
   });

@@ -153,6 +153,7 @@
         "@brainstrike/logging",
         "@brainstrike/storage",
         "@brainstrike/test-utils",
+        "@brainstrike/tokenization",
         "@brainstrike/types",
         "@brainstrike/ui",
         "@brainstrike/utils"

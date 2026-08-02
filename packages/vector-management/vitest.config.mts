@@ -61,10 +61,6 @@ export default defineConfig({
         replacement: resolve(__dirname, '../utils/src/report-generator.ts'),
       },
       {
-        find: '@brainstrike/utils/token-counting-runtime',
-        replacement: resolve(__dirname, '../utils/src/token-counting-runtime.ts'),
-      },
-      {
         find: '@brainstrike/utils/env-utils',
         replacement: resolve(__dirname, '../utils/src/env-utils.ts'),
       },

@@ -13,6 +13,7 @@
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "catalog:",

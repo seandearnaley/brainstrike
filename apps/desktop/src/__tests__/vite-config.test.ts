@@ -61,21 +61,36 @@ describe('desktop vite config alias contract', () => {
     expect(readDesktopViteConfig()).not.toMatch(/find:\s*'@brainstrike\/token-cache/);
   });
 
-  it('resolves each text-splitter subpath to its own distinct source file via the registry', () => {
-    for (const [specifier, sourcePath] of [
-      ['@brainstrike/text-splitter/chunking-core', 'chunking-core.ts'],
-      ['@brainstrike/text-splitter/token-counting-heuristics', 'token-counting-heuristics.ts'],
-      ['@brainstrike/text-splitter/token-constants', 'token-constants.ts'],
-      ['@brainstrike/text-splitter/token-utils-accurate-lite', 'token-utils-accurate-lite.ts'],
+  it('resolves text-splitter and tokenization subpaths from their owning packages', () => {
+    for (const [specifier, packageName, sourcePath] of [
+      ['@brainstrike/text-splitter/chunking-core', 'text-splitter', 'chunking-core.ts'],
+      [
+        '@brainstrike/tokenization/token-counting-runtime',
+        'tokenization',
+        'token-counting-runtime.ts',
+      ],
+      [
+        '@brainstrike/tokenization/token-counting-heuristics',
+        'tokenization',
+        'token-counting-heuristics.ts',
+      ],
+      ['@brainstrike/tokenization/token-constants', 'tokenization', 'token-constants.ts'],
+      [
+        '@brainstrike/tokenization/token-utils-accurate-lite',
+        'tokenization',
+        'token-utils-accurate-lite.ts',
+      ],
+      ['@brainstrike/tokenization/token-utils-lite', 'tokenization', 'token-utils-lite.ts'],
     ] as const) {
       expect(resolveThroughAliases(specifier, registryEntries)).toBe(
-        path.resolve(PACKAGES_DIR, `text-splitter/src/${sourcePath}`)
+        path.resolve(PACKAGES_DIR, `${packageName}/src/${sourcePath}`)
       );
     }
     expect(resolveThroughAliases('@brainstrike/text-splitter', registryEntries)).toBe(
       path.resolve(PACKAGES_DIR, 'text-splitter/src/index.ts')
     );
     expect(readDesktopViteConfig()).not.toMatch(/find:\s*'@brainstrike\/text-splitter/);
+    expect(readDesktopViteConfig()).not.toMatch(/find:\s*'@brainstrike\/tokenization/);
   });
 
   it('pins file-tree-worker to source so renderer dev does not load stale dist workers', () => {
