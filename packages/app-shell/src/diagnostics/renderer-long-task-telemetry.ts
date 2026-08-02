@@ -90,7 +90,7 @@ export function createRendererLongTaskTelemetry(
     'mixed'
   > = 'unavailable';
   const listeners = new Set<() => void>();
-  let refreshInterval: ReturnType<typeof setInterval> | null = null;
+  let retentionTimer: ReturnType<typeof setTimeout> | null = null;
   let samples: RendererLongTaskSample[] = [];
   let unavailableReason: string | null = null;
 
@@ -163,6 +163,28 @@ export function createRendererLongTaskTelemetry(
     }
   };
 
+  const scheduleRetentionPrune = (scheduledAt: number): void => {
+    if (retentionTimer !== null) {
+      clearTimeout(retentionTimer);
+      retentionTimer = null;
+    }
+    const oldestSample = samples[0];
+    if (!oldestSample) {
+      return;
+    }
+    const delayMs = Math.max(1, oldestSample.observedAt + windowMs - scheduledAt + 1);
+    retentionTimer = setTimeout(() => {
+      retentionTimer = null;
+      const sampleCountBeforePrune = samples.length;
+      const snapshotAt = now();
+      prune(snapshotAt);
+      scheduleRetentionPrune(snapshotAt);
+      if (samples.length !== sampleCountBeforePrune) {
+        publish();
+      }
+    }, delayMs);
+  };
+
   const record = (metric: RendererLongTaskMetric): void => {
     if (!(Number.isFinite(metric.durationMs) && metric.durationMs >= LONG_TASK_MIN_DURATION_MS)) {
       return;
@@ -184,6 +206,7 @@ export function createRendererLongTaskTelemetry(
     if (samples.length > maxSamples) {
       samples.splice(0, samples.length - maxSamples);
     }
+    scheduleRetentionPrune(observedAt);
     publish();
   };
 
@@ -199,21 +222,8 @@ export function createRendererLongTaskTelemetry(
 
   const subscribe = (listener: () => void): (() => void) => {
     listeners.add(listener);
-    if (refreshInterval === null) {
-      refreshInterval = setInterval(() => {
-        const sampleCountBeforePrune = samples.length;
-        prune(now());
-        if (samples.length !== sampleCountBeforePrune) {
-          publish();
-        }
-      }, 1000);
-    }
     return () => {
       listeners.delete(listener);
-      if (listeners.size === 0 && refreshInterval !== null) {
-        clearInterval(refreshInterval);
-        refreshInterval = null;
-      }
     };
   };
 
@@ -297,6 +307,10 @@ export function createRendererLongTaskTelemetry(
   const reset = (): void => {
     activeObserver?.disconnect();
     activeObserver = null;
+    if (retentionTimer !== null) {
+      clearTimeout(retentionTimer);
+      retentionTimer = null;
+    }
     availability = 'idle';
     currentFeatureFlagContextAvailability = 'unavailable';
     samples = [];

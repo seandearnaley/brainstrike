@@ -7,6 +7,7 @@ import {
 
 describe('renderer-long-task-telemetry', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -235,6 +236,36 @@ describe('renderer-long-task-telemetry', () => {
     expect(now).toHaveBeenCalledTimes(3);
     expect(telemetry.getSnapshot()).toBe(telemetry.getSnapshot());
     expect(now).toHaveBeenCalledTimes(3);
+  });
+
+  it('expires retained samples even without diagnostics subscribers', () => {
+    vi.useFakeTimers();
+    const telemetry = createRendererLongTaskTelemetry({
+      now: () => Date.now(),
+      windowMs: 1000,
+    });
+
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: ['private-preview'],
+      route: 'settings',
+    });
+
+    expect(vi.getTimerCount()).toBe(1);
+
+    const unsubscribe = telemetry.subscribe(vi.fn());
+    unsubscribe();
+
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(1001);
+
+    expect(telemetry.snapshot()).toMatchObject({
+      featureFlags: [],
+      routes: [],
+      sampleCount: 0,
+    });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('does not let direct samples mask a failed observer', () => {
