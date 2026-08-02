@@ -27,7 +27,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../dropdown-menu';
-import { RediscoveredPauseLines, readRediscoveredPauseDisplay } from './rediscovered-pause-lines';
+import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
+import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { formatRunDuration } from './run-python-result-model';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 

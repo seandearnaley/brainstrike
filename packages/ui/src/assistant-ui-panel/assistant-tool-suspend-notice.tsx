@@ -16,7 +16,8 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { Check, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
 import { Button } from '../button';
-import { RediscoveredPauseLines, readRediscoveredPauseDisplay } from './rediscovered-pause-lines';
+import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
+import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 
 const logger = createLogger('AssistantToolSuspendNotice');
 
