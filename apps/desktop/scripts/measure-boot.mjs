@@ -124,8 +124,19 @@ function detectAppCommit(appPath) {
   try {
     const runGit = (args) =>
       execFileSync('git', args, { cwd: appPath, encoding: 'utf8', timeout: 15_000 }).trim();
+    // The harness writes its own results file into this repo before later
+    // labels in the same sitting are captured, so counting that file would
+    // pin `dirty` to true on essentially every capture. Excluding only the
+    // results file keeps the flag meaning "the measured CODE differed from
+    // the recorded sha".
+    const statusArgs = ['status', '--porcelain', '--'];
+    const measuredTreeTop = runGit(['rev-parse', '--show-toplevel']);
+    const resultsInsideMeasuredTree = !path
+      .relative(measuredTreeTop, resultsPath)
+      .startsWith('..');
+    statusArgs.push(resultsInsideMeasuredTree ? `:(exclude)${resultsPath}` : '.');
     return {
-      dirty: runGit(['status', '--porcelain']).length > 0,
+      dirty: runGit(statusArgs).length > 0,
       sha: runGit(['rev-parse', 'HEAD']),
     };
   } catch {
