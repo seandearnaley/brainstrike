@@ -34,7 +34,7 @@ these seams and their paired tests aligned when a query path moves.
 Folder-wide token-cache preloads record duration and failure with zero lookup and
 hit counts, because they are population reads rather than cache-hit decisions.
 
-The pinned PGlite 0.5.3 live-query implementation marks a handle dead before its
+The pinned PGlite 0.5.4 live-query implementation marks a handle dead before its
 unsubscribe transaction settles and clears its callback collection during that
 teardown. Scheduler instrumentation therefore supports exactly one listener,
 releases that local ownership on the first teardown attempt, treats repeated
@@ -45,6 +45,10 @@ dependency cannot honor. The collector latches retention-clock failure per
 instance, logs the first producer failure, stops timer-driven publication, and
 publishes a stable explicit failed snapshot to `useSyncExternalStore` reads.
 Imperative `snapshot()` calls still throw the latched error.
+Count buckets use a boundary-inclusive bucket interval: a count can remain for
+up to one coarse bucket after its individual event crosses the strict duration-
+sample cutoff. A nonzero count with zero retained percentile inputs at that
+boundary is therefore expected.
 
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 

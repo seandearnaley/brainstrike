@@ -598,9 +598,13 @@ Query arrivals, failures, and token lookup/hit totals each use exact bounded
 rolling buckets rather than being reconstructed from the capped percentile
 samples. Overflow buckets use the evicted sample's occurrence time and therefore
 expire with the evicted sample.
-The card renders every per-feature count, failure,
-p50/p95/max, rate, and overflow dimension plus both the raw live-update count
-and rate, so warning attribution and rate inputs are visible.
+Counts use a boundary-inclusive bucket interval and can therefore retain up to
+one coarse bucket of events older than the strict duration-sample cutoff. A
+nonzero count with zero retained percentile inputs at that boundary is expected.
+The card renders every per-feature count, failure, p50/p95/max, and overflow
+dimension plus the raw live-update count, so warning attribution is visible;
+the one-minute count and its derived per-minute rate are deliberately not shown
+together as duplicate values.
 External-store notifications are coalesced to one-second updates; while a
 subscriber is active, reads return the published snapshot identity until the
 coalesced notification publishes a replacement. Producers do not sort or
@@ -636,7 +640,8 @@ including an unavailable timing clock, at error level while preserving and alway
 executing the database operation's original success or rejection. Each producer
 latches an unavailable clock and logs it once rather than emitting an error for
 every subsequent operation. The collector also suppresses repeated timer callbacks
-after its retention clock fails; live-update samples stop, while an explicit
+after its retention clock fails; retained metrics become zero, clock-independent
+live-subscription ownership continues to update, and an explicit
 imperative `snapshot()` read still throws the latched error. External-store reads
 instead return one stable snapshot marked `failed` with the precise reason, so a
 React diagnostics surface can render the failure without crashing. The clock-free
@@ -645,7 +650,9 @@ deliberately no public reset: clearing the singleton could invalidate
 live-subscription ownership held by active proxies. Paired coverage
 lives in
 `packages/db/__tests__/database-query-telemetry.test.ts`,
-`database-work-scheduler.test.ts`, `use-live-query.test.tsx`, the token-cache and
+`database-work-scheduler.test.ts`,
+`database-work-scheduler-live-handle.integration.test.ts`,
+`use-live-query.test.tsx`, the token-cache and
 Drizzle token/file repository tests, and
 `packages/app-shell/src/__tests__/system-diagnostics-panel.test.tsx`.
 

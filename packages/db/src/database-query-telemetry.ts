@@ -140,13 +140,21 @@ function percentile(sorted: readonly number[], ratio: number): number {
   return sorted[Math.max(0, Math.ceil(sorted.length * ratio) - 1)] ?? 0;
 }
 
-function featureSnapshot(
-  samples: readonly QuerySample[],
-  windowMs: number,
-  droppedSampleCount: number,
-  queryCount: number,
-  failureCount: number
-): DatabaseQueryFeatureSnapshot {
+interface FeatureSnapshotOptions {
+  readonly droppedSampleCount: number;
+  readonly failureCount: number;
+  readonly queryCount: number;
+  readonly samples: readonly QuerySample[];
+  readonly windowMs: number;
+}
+
+function featureSnapshot({
+  droppedSampleCount,
+  failureCount,
+  queryCount,
+  samples,
+  windowMs,
+}: FeatureSnapshotOptions): DatabaseQueryFeatureSnapshot {
   const durations = samples.map((sample) => sample.durationMs).sort((a, b) => a - b);
   return {
     droppedSampleCount,
@@ -165,10 +173,34 @@ function createInitialSnapshot(windowMs: number): DatabaseQueryTelemetrySnapshot
     availability: 'active',
     droppedSampleCount: 0,
     features: {
-      'file-tree': featureSnapshot([], windowMs, 0, 0, 0),
-      'live-query': featureSnapshot([], windowMs, 0, 0, 0),
-      'queue-stats': featureSnapshot([], windowMs, 0, 0, 0),
-      'token-estimation': featureSnapshot([], windowMs, 0, 0, 0),
+      'file-tree': featureSnapshot({
+        droppedSampleCount: 0,
+        failureCount: 0,
+        queryCount: 0,
+        samples: [],
+        windowMs,
+      }),
+      'live-query': featureSnapshot({
+        droppedSampleCount: 0,
+        failureCount: 0,
+        queryCount: 0,
+        samples: [],
+        windowMs,
+      }),
+      'queue-stats': featureSnapshot({
+        droppedSampleCount: 0,
+        failureCount: 0,
+        queryCount: 0,
+        samples: [],
+        windowMs,
+      }),
+      'token-estimation': featureSnapshot({
+        droppedSampleCount: 0,
+        failureCount: 0,
+        queryCount: 0,
+        samples: [],
+        windowMs,
+      }),
     },
     liveUpdateCount: 0,
     liveUpdatesPerMinute: 0,
@@ -254,18 +286,16 @@ function readQueryMeasurementClock(feature: DatabaseQueryFeature): number | null
 
 export class DatabaseQueryTelemetry {
   private activeLiveSubscriptions = 0;
+  private readonly countBucketMs: number;
   private currentSnapshot: DatabaseQueryTelemetrySnapshot;
   private dirty = true;
-  private readonly droppedSampleBucketMs: number;
   private readonly droppedSampleBuckets = createFeatureArrays<CountBucket[]>(() => []);
   private readonly failureCountBuckets = createFeatureArrays<CountBucket[]>(() => []);
-  private readonly liveUpdateBucketMs: number;
   private readonly liveUpdateBuckets: CountBucket[] = [];
   private readonly listeners = new Set<() => void>();
   private readonly maxSamples: number;
   private readonly now: () => number;
   private notifyTimeout: ReturnType<typeof setTimeout> | null = null;
-  private readonly queryCountBucketMs: number;
   private readonly queryCountBuckets = createFeatureArrays<CountBucket[]>(() => []);
   private readonly querySamples = createFeatureArrays<QuerySample[]>(() => []);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
@@ -278,12 +308,7 @@ export class DatabaseQueryTelemetry {
   constructor(options: DatabaseQueryTelemetryOptions = {}) {
     this.maxSamples = options.maxSamples ?? DEFAULT_MAX_SAMPLES_PER_FEATURE;
     this.windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
-    this.droppedSampleBucketMs = Math.max(
-      1,
-      Math.min(NOTIFY_INTERVAL_MS, Math.floor(this.windowMs / 60))
-    );
-    this.liveUpdateBucketMs = this.droppedSampleBucketMs;
-    this.queryCountBucketMs = this.droppedSampleBucketMs;
+    this.countBucketMs = Math.max(1, Math.min(NOTIFY_INTERVAL_MS, Math.floor(this.windowMs / 60)));
     this.now = options.now ?? readMonotonicTime;
     this.wallNow = options.wallNow ?? Date.now;
     assertPositiveInteger(this.maxSamples, 'Database query telemetry maxSamples');
@@ -318,12 +343,12 @@ export class DatabaseQueryTelemetry {
       throw new Error('Database query telemetry live subscription count is already zero');
     }
     this.activeLiveSubscriptions -= 1;
-    this.markDirty();
+    this.markLiveSubscriptionCountChanged();
   }
 
   recordLiveSubscriptionStarted(): void {
     this.activeLiveSubscriptions += 1;
-    this.markDirty();
+    this.markLiveSubscriptionCountChanged();
   }
 
   recordLiveUpdate(): void {
@@ -331,12 +356,8 @@ export class DatabaseQueryTelemetry {
     if (recordedAt === null) {
       return;
     }
-    this.recordCount(this.liveUpdateBuckets, this.liveUpdateBucketMs, recordedAt);
-    this.trimCountBuckets(
-      this.liveUpdateBuckets,
-      this.liveUpdateBucketMs,
-      recordedAt - this.windowMs
-    );
+    this.recordCount(this.liveUpdateBuckets, this.countBucketMs, recordedAt);
+    this.trimCountBuckets(this.liveUpdateBuckets, this.countBucketMs, recordedAt - this.windowMs);
     this.markDirty();
   }
 
@@ -366,18 +387,13 @@ export class DatabaseQueryTelemetry {
       return;
     }
     this.trimExpired(recordedAt);
-    this.recordCount(this.queryCountBuckets[feature], this.queryCountBucketMs, recordedAt);
+    this.recordCount(this.queryCountBuckets[feature], this.countBucketMs, recordedAt);
     if (failed === true) {
-      this.recordCount(this.failureCountBuckets[feature], this.queryCountBucketMs, recordedAt);
+      this.recordCount(this.failureCountBuckets[feature], this.countBucketMs, recordedAt);
     }
     if (feature === 'token-estimation') {
-      this.recordCount(
-        this.tokenLookupCountBuckets,
-        this.queryCountBucketMs,
-        recordedAt,
-        lookupCount
-      );
-      this.recordCount(this.tokenHitCountBuckets, this.queryCountBucketMs, recordedAt, hitCount);
+      this.recordCount(this.tokenLookupCountBuckets, this.countBucketMs, recordedAt, lookupCount);
+      this.recordCount(this.tokenHitCountBuckets, this.countBucketMs, recordedAt, hitCount);
     }
     const featureSamples = this.querySamples[feature];
     featureSamples.push({
@@ -395,7 +411,7 @@ export class DatabaseQueryTelemetry {
       }
       this.recordCount(
         this.droppedSampleBuckets[feature],
-        this.droppedSampleBucketMs,
+        this.countBucketMs,
         evictedSample.recordedAt
       );
     }
@@ -453,27 +469,27 @@ export class DatabaseQueryTelemetry {
       samples[feature] = this.querySamples[feature].filter((sample) => sample.recordedAt >= cutoff);
     }
     const liveUpdateCount = this.liveUpdateBuckets
-      .filter((bucket) => bucket.startedAt + this.liveUpdateBucketMs > cutoff)
+      .filter((bucket) => bucket.startedAt + this.countBucketMs > cutoff)
       .reduce((total, bucket) => total + bucket.count, 0);
     const droppedSampleCounts = createFeatureArrays(() => 0);
     const failureCounts = createFeatureArrays(() => 0);
     const queryCounts = createFeatureArrays(() => 0);
     for (const feature of DATABASE_QUERY_FEATURES) {
       droppedSampleCounts[feature] = this.droppedSampleBuckets[feature]
-        .filter((bucket) => bucket.startedAt + this.droppedSampleBucketMs > cutoff)
+        .filter((bucket) => bucket.startedAt + this.countBucketMs > cutoff)
         .reduce((total, bucket) => total + bucket.count, 0);
       queryCounts[feature] = this.queryCountBuckets[feature]
-        .filter((bucket) => bucket.startedAt + this.queryCountBucketMs > cutoff)
+        .filter((bucket) => bucket.startedAt + this.countBucketMs > cutoff)
         .reduce((total, bucket) => total + bucket.count, 0);
       failureCounts[feature] = this.failureCountBuckets[feature]
-        .filter((bucket) => bucket.startedAt + this.queryCountBucketMs > cutoff)
+        .filter((bucket) => bucket.startedAt + this.countBucketMs > cutoff)
         .reduce((total, bucket) => total + bucket.count, 0);
     }
     const lookupCount = this.tokenLookupCountBuckets
-      .filter((bucket) => bucket.startedAt + this.queryCountBucketMs > cutoff)
+      .filter((bucket) => bucket.startedAt + this.countBucketMs > cutoff)
       .reduce((total, bucket) => total + bucket.count, 0);
     const hitCount = this.tokenHitCountBuckets
-      .filter((bucket) => bucket.startedAt + this.queryCountBucketMs > cutoff)
+      .filter((bucket) => bucket.startedAt + this.countBucketMs > cutoff)
       .reduce((total, bucket) => total + bucket.count, 0);
 
     return {
@@ -484,34 +500,34 @@ export class DatabaseQueryTelemetry {
         0
       ),
       features: {
-        'file-tree': featureSnapshot(
-          samples['file-tree'],
-          this.windowMs,
-          droppedSampleCounts['file-tree'],
-          queryCounts['file-tree'],
-          failureCounts['file-tree']
-        ),
-        'live-query': featureSnapshot(
-          samples['live-query'],
-          this.windowMs,
-          droppedSampleCounts['live-query'],
-          queryCounts['live-query'],
-          failureCounts['live-query']
-        ),
-        'queue-stats': featureSnapshot(
-          samples['queue-stats'],
-          this.windowMs,
-          droppedSampleCounts['queue-stats'],
-          queryCounts['queue-stats'],
-          failureCounts['queue-stats']
-        ),
-        'token-estimation': featureSnapshot(
-          samples['token-estimation'],
-          this.windowMs,
-          droppedSampleCounts['token-estimation'],
-          queryCounts['token-estimation'],
-          failureCounts['token-estimation']
-        ),
+        'file-tree': featureSnapshot({
+          droppedSampleCount: droppedSampleCounts['file-tree'],
+          failureCount: failureCounts['file-tree'],
+          queryCount: queryCounts['file-tree'],
+          samples: samples['file-tree'],
+          windowMs: this.windowMs,
+        }),
+        'live-query': featureSnapshot({
+          droppedSampleCount: droppedSampleCounts['live-query'],
+          failureCount: failureCounts['live-query'],
+          queryCount: queryCounts['live-query'],
+          samples: samples['live-query'],
+          windowMs: this.windowMs,
+        }),
+        'queue-stats': featureSnapshot({
+          droppedSampleCount: droppedSampleCounts['queue-stats'],
+          failureCount: failureCounts['queue-stats'],
+          queryCount: queryCounts['queue-stats'],
+          samples: samples['queue-stats'],
+          windowMs: this.windowMs,
+        }),
+        'token-estimation': featureSnapshot({
+          droppedSampleCount: droppedSampleCounts['token-estimation'],
+          failureCount: failureCounts['token-estimation'],
+          queryCount: queryCounts['token-estimation'],
+          samples: samples['token-estimation'],
+          windowMs: this.windowMs,
+        }),
       },
       liveUpdateCount,
       liveUpdatesPerMinute: (liveUpdateCount * 60_000) / this.windowMs,
@@ -542,6 +558,20 @@ export class DatabaseQueryTelemetry {
       this.notifyTimeout = null;
       this.notifyListeners();
     }, NOTIFY_INTERVAL_MS);
+  }
+
+  private markLiveSubscriptionCountChanged(): void {
+    if (this.retentionClockFailure === null) {
+      this.markDirty();
+      return;
+    }
+    this.currentSnapshot = {
+      ...this.currentSnapshot,
+      activeLiveSubscriptions: this.activeLiveSubscriptions,
+    };
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   private notifyListeners(): void {
@@ -612,8 +642,10 @@ export class DatabaseQueryTelemetry {
       this.notifyTimeout = null;
     }
     this.currentSnapshot = {
-      ...this.currentSnapshot,
+      ...createInitialSnapshot(this.windowMs),
+      activeLiveSubscriptions: this.activeLiveSubscriptions,
       availability: 'failed',
+      snapshotAt: this.currentSnapshot.snapshotAt,
       unavailableReason: failure.message,
     };
     this.dirty = false;
@@ -669,26 +701,20 @@ export class DatabaseQueryTelemetry {
         changed = true;
       }
       changed =
-        this.trimCountBuckets(
-          this.droppedSampleBuckets[feature],
-          this.droppedSampleBucketMs,
-          cutoff
-        ) || changed;
-      changed =
-        this.trimCountBuckets(this.queryCountBuckets[feature], this.queryCountBucketMs, cutoff) ||
+        this.trimCountBuckets(this.droppedSampleBuckets[feature], this.countBucketMs, cutoff) ||
         changed;
       changed =
-        this.trimCountBuckets(this.failureCountBuckets[feature], this.queryCountBucketMs, cutoff) ||
+        this.trimCountBuckets(this.queryCountBuckets[feature], this.countBucketMs, cutoff) ||
+        changed;
+      changed =
+        this.trimCountBuckets(this.failureCountBuckets[feature], this.countBucketMs, cutoff) ||
         changed;
     }
     changed =
-      this.trimCountBuckets(this.tokenHitCountBuckets, this.queryCountBucketMs, cutoff) || changed;
+      this.trimCountBuckets(this.tokenHitCountBuckets, this.countBucketMs, cutoff) || changed;
     changed =
-      this.trimCountBuckets(this.tokenLookupCountBuckets, this.queryCountBucketMs, cutoff) ||
-      changed;
-    return (
-      this.trimCountBuckets(this.liveUpdateBuckets, this.liveUpdateBucketMs, cutoff) || changed
-    );
+      this.trimCountBuckets(this.tokenLookupCountBuckets, this.countBucketMs, cutoff) || changed;
+    return this.trimCountBuckets(this.liveUpdateBuckets, this.countBucketMs, cutoff) || changed;
   }
 }
 

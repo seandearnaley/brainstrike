@@ -369,9 +369,9 @@ function DatabaseQueryTelemetrySection({
                 className="font-mono text-[10px]"
                 data-testid={`database-query-${feature}-metrics`}
               >
-                {metrics.queryCount} queries · {Math.round(metrics.queriesPerMinute)} / min ·{' '}
-                {metrics.failureCount} failed · p50 {Math.round(metrics.durationP50Ms)} ms · p95{' '}
-                {Math.round(metrics.durationP95Ms)} ms · max {Math.round(metrics.maxDurationMs)} ms
+                {metrics.queryCount} queries · {metrics.failureCount} failed · p50{' '}
+                {Math.round(metrics.durationP50Ms)} ms · p95 {Math.round(metrics.durationP95Ms)} ms
+                · max {Math.round(metrics.maxDurationMs)} ms
                 {' · '}
                 {metrics.droppedSampleCount} dropped
               </div>
@@ -402,8 +402,7 @@ function DatabaseQueryTelemetrySection({
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Live updates</span>
           <span className="font-mono text-[10px]" data-testid="database-live-update-metrics">
-            {formatCount(snapshot.liveUpdateCount, 'update', 'updates')} ·{' '}
-            {Math.round(snapshot.liveUpdatesPerMinute)} / min
+            {formatCount(snapshot.liveUpdateCount, 'update', 'updates')}
           </span>
         </div>
       </div>

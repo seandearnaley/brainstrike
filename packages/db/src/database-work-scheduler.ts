@@ -759,14 +759,17 @@ function createScheduledLiveQueryHandle<THandle extends object>(
             return Reflect.apply(listener, this, args) as unknown;
           };
           const entry = {
-            counted: false,
+            counted: true,
             listener,
             wrappedListener,
           };
-          const result = Reflect.apply(subscribe as CallableUnknown, target, [
-            entry.wrappedListener,
-          ]);
-          entry.counted = true;
+          let result: unknown;
+          try {
+            result = Reflect.apply(subscribe as CallableUnknown, target, [entry.wrappedListener]);
+          } catch (error) {
+            entry.counted = false;
+            throw error;
+          }
           subscribedListener = entry;
           recordDatabaseLiveSubscriptionStarted();
           return result;
@@ -786,7 +789,7 @@ function createScheduledLiveQueryHandle<THandle extends object>(
               'Scheduled PGlite live-query unsubscribe listener does not match the active listener'
             );
           }
-          // PGlite 0.5.3 marks a live-query handle dead before it awaits the
+          // PGlite 0.5.4 marks a live-query handle dead before it awaits the
           // teardown transaction. Once cleanup starts, even a rejected
           // unsubscribe cannot be retried or re-subscribed on this handle.
           active = false;

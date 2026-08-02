@@ -412,13 +412,10 @@ export async function subscribeViaElectron<T>(
       if (stopPromise) {
         return stopPromise;
       }
+      releaseLocalOnce();
       const attempt = (async () => {
-        try {
-          await bridge.stop(startResult.id);
-          remoteStopped = true;
-        } finally {
-          releaseLocalOnce();
-        }
+        await bridge.stop(startResult.id);
+        remoteStopped = true;
       })();
       let shared: Promise<void>;
       shared = attempt.finally(() => {

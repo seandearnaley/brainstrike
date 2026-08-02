@@ -40,9 +40,12 @@ executions above the sample cap; top-level sample count remains the number of
 retained percentile inputs. Failure and token lookup/hit totals use exact bounded
 rolling buckets rather than capped duration samples. Retention overflow is
 reported only as a numeric dropped-sample count and is timestamped at the evicted
-sample's occurrence so it expires with that sample. Runtime records are
-fail-closed: unsupported keys or malformed values throw before retention, and
-the collector captures each caller field once and
+sample's occurrence so it expires with that sample. Counts are reported over a
+boundary-inclusive bucket interval, which can retain up to one
+coarse bucket of events older than the strict duration-sample cutoff; a nonzero
+count with zero retained percentile inputs at that boundary is expected. Runtime
+records are fail-closed: unsupported keys or malformed values throw before
+retention, and the collector captures each caller field once and
 copies only explicit allowlisted fields into each sample. Selected-file aggregate token queries
 record duration and failure only, with zero lookup and hit counts; live-query
 histograms count start and refresh query executions rather than teardown.
