@@ -579,6 +579,12 @@ export function createRendererLongTaskTelemetry(
         kind: 'invalid',
       };
     }
+    if (entry.duration < 0) {
+      return {
+        error: new Error('PerformanceObserver longtask entry duration cannot be negative.'),
+        kind: 'invalid',
+      };
+    }
     if (!isLongTaskDuration(entry.duration)) {
       return { kind: 'ignored' };
     }

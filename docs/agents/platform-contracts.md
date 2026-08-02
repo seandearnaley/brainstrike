@@ -616,8 +616,8 @@ empty failed snapshot and does not mutate backing storage. The already owned
 retention timer or the next non-render collection/publication entry point
 performs the pending destructive cleanup. Buffered observer entries are retained
 from their occurrence timestamp and deduplicated across observer replay. An
-observer entry whose start maps after
-delivery, whose start time is negative, or whose completion exceeds delivery by
+observer entry whose duration is negative, whose start maps after delivery,
+whose start time is negative, or whose completion exceeds delivery by
 more than the one-millisecond Performance API rounding tolerance, is malformed
 and fails the observation.
 Because the Performance Observer entry has no historical app context, a buffered
@@ -656,10 +656,10 @@ Distinct malformed causes are reported together with their original errors
 preserved. A delivery failure reuses the validated delivery timestamp for the
 failed snapshot rather than probing the clock again. The observer Performance
 clock is read after the delivery epoch clock, conservatively biasing occurrence
-mapping slightly earlier for retention. A non-finite long-task duration or
-injected clock result fails collection visibly. System Diagnostics keeps the
-retained sample count visible on active, idle, and failed cards so aggregates
-always have an explicit denominator. Mixed feature-flag context also exposes the
+mapping slightly earlier for retention. A non-finite or negative long-task
+duration or injected clock result fails collection visibly. System Diagnostics
+keeps the retained sample count visible on active, idle, and failed cards so
+aggregates always have an explicit denominator. Mixed feature-flag context also exposes the
 known-context sample count against the total retained sample count; flag counts
 must never imply they cover samples whose flag context was unavailable.
 Disposing a failed inactive observation preserves its precise reason if the clock

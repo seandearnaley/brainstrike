@@ -143,6 +143,7 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'distinct malformed causes in one batch are reported together',
     'explicit epoch-zero sentinel',
     'one-millisecond completion tolerance',
+    'duration is negative',
     'start time is negative',
     'occurrence mapping is conservatively biased slightly earlier',
     'preserves the precise failure reason',
