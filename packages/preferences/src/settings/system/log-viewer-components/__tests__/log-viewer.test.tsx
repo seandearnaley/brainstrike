@@ -507,6 +507,63 @@ describe('LogViewer', () => {
     expect(screen.getByText('Main timeout')).toBeInTheDocument();
   });
 
+  it('does not project newly excluded records while a search is active', async () => {
+    let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
+    let argumentSerializations = 0;
+    let bindingSerializations = 0;
+    const mainRecord = createMockLogRecord({
+      args: [{ logSource: 'electron-main' }],
+      message: 'Main needle',
+      timestamp: 1,
+    });
+    const excludedRecord = createMockLogRecord({
+      args: [
+        {
+          logSource: 'electron-renderer',
+          toJSON: () => {
+            argumentSerializations += 1;
+            return { detail: 'Renderer needle' };
+          },
+        },
+      ],
+      bindings: {
+        toJSON: () => {
+          bindingSerializations += 1;
+          return { runtime: 'electron-renderer' };
+        },
+      },
+      message: 'Renderer needle',
+      timestamp: 2,
+    });
+    const subscribe = vi.fn((handler: (records: readonly LogRecord[]) => void) => {
+      subscribedHandler = handler;
+      return () => {};
+    });
+    const logSource = {
+      getInitialRecords: async () => [mainRecord],
+      subscribe,
+    };
+    const user = userEvent.setup();
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(screen.getByText('Main needle')).toBeInTheDocument());
+    fireEvent.change(screen.getByPlaceholderText('Search logs...'), {
+      target: { value: 'needle' },
+    });
+    await user.click(screen.getByRole('combobox', { name: 'Source' }));
+    await user.click(screen.getByRole('option', { name: 'electron-main' }));
+    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      subscribedHandler?.([mainRecord, excludedRecord]);
+      await new Promise((resolve) => setTimeout(resolve, 110));
+    });
+
+    expect(argumentSerializations).toBe(0);
+    expect(bindingSerializations).toBe(0);
+  });
+
   it('filters logs to an explicit local time range', async () => {
     const logs = [
       createMockLogRecord({

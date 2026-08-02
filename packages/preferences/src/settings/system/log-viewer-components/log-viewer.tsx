@@ -157,9 +157,6 @@ function shouldIncludeLogRecord(
   if (!matchesScopeSelection(record, scopeSelection)) {
     return false;
   }
-  if (!matchesSearchTerm(record, term, rowCache)) {
-    return false;
-  }
   if (sourceSelection !== ALL_SOURCES_VALUE && getLogRecordSource(record) !== sourceSelection) {
     return false;
   }
@@ -172,7 +169,10 @@ function shouldIncludeLogRecord(
   if (timeStart !== null && record.timestamp < timeStart) {
     return false;
   }
-  return timeEnd === null || record.timestamp <= timeEnd;
+  if (timeEnd !== null && record.timestamp > timeEnd) {
+    return false;
+  }
+  return matchesSearchTerm(record, term, rowCache);
 }
 
 function getRuntimeSource(record: LogRecord): string {
