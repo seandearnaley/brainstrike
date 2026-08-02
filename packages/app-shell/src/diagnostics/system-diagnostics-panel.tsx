@@ -503,6 +503,26 @@ function formatRendererLongTaskStatus(snapshot: RendererLongTaskTelemetrySnapsho
   return 'Idle';
 }
 
+function formatRendererLongTaskFeatureFlags(snapshot: RendererLongTaskTelemetrySnapshot): string {
+  if (snapshot.featureFlagContextAvailability === 'unavailable') {
+    return snapshot.sampleCount === 0
+      ? 'No feature flag source'
+      : 'Unavailable for retained samples';
+  }
+  if (snapshot.sampleCount === 0) {
+    return 'No samples';
+  }
+  const knownFlags = snapshot.featureFlags
+    .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
+    .join(', ');
+  if (snapshot.featureFlagContextAvailability === 'mixed') {
+    return knownFlags.length > 0
+      ? `${knownFlags} · partial context`
+      : 'Partial feature flag context';
+  }
+  return knownFlags.length > 0 ? knownFlags : 'None active';
+}
+
 function RendererLongTaskStatusSection({
   snapshot,
 }: {
@@ -548,15 +568,7 @@ function RendererLongTaskStatusSection({
         <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Feature flags</span>
           <span className="text-right font-mono text-[10px]">
-            {snapshot.featureFlagContextAvailability === 'unavailable'
-              ? 'No feature flag source'
-              : snapshot.sampleCount === 0
-                ? 'No samples'
-                : snapshot.featureFlags.length === 0
-                  ? 'None active'
-                  : snapshot.featureFlags
-                      .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
-                      .join(', ')}
+            {formatRendererLongTaskFeatureFlags(snapshot)}
           </span>
         </div>
         {snapshot.unavailableReason && (

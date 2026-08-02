@@ -602,6 +602,9 @@ placeholder as "no flags active." The observer remains mounted across route
 changes, requests buffered `longtask` entries so pre-effect startup stalls are
 not discarded, and reads current context at delivery time. Feature-registry
 availability changes publish immediately rather than waiting for another stall.
+Availability shown for a non-empty rolling window is derived from the retained
+samples; mixed known/unknown flag context is surfaced as partial and never
+rewritten to "no flags active" by a later registry transition.
 Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
 never silently degrades. Do not write routine

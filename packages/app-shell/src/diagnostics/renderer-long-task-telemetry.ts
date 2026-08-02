@@ -32,7 +32,7 @@ export interface RendererLongTaskTelemetrySnapshot {
   readonly availability: 'active' | 'failed' | 'idle' | 'unsupported';
   readonly durationP50Ms: number | null;
   readonly durationP95Ms: number | null;
-  readonly featureFlagContextAvailability: 'available' | 'unavailable';
+  readonly featureFlagContextAvailability: 'available' | 'mixed' | 'unavailable';
   readonly featureFlags: readonly RendererLongTaskFeatureFlagSummary[];
   readonly maxDurationMs: number | null;
   readonly routes: readonly RendererLongTaskRouteSummary[];
@@ -85,8 +85,10 @@ export function createRendererLongTaskTelemetry(
 
   let availability: RendererLongTaskTelemetrySnapshot['availability'] = 'idle';
   let activeObserver: PerformanceObserver | null = null;
-  let featureFlagContextAvailability: RendererLongTaskTelemetrySnapshot['featureFlagContextAvailability'] =
-    'unavailable';
+  let currentFeatureFlagContextAvailability: Exclude<
+    RendererLongTaskTelemetrySnapshot['featureFlagContextAvailability'],
+    'mixed'
+  > = 'unavailable';
   const listeners = new Set<() => void>();
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
   let samples: RendererLongTaskSample[] = [];
@@ -105,8 +107,15 @@ export function createRendererLongTaskTelemetry(
       .sort((left, right) => left - right);
     const countsByRoute = new Map<RendererDiagnosticSurface, number>();
     const countsByFeatureFlag = new Map<string, number>();
+    let hasAvailableFeatureFlagContext = false;
+    let hasUnavailableFeatureFlagContext = false;
     for (const sample of currentSamples) {
       countsByRoute.set(sample.route, (countsByRoute.get(sample.route) ?? 0) + 1);
+      if (sample.enabledFeatureFlags === null) {
+        hasUnavailableFeatureFlagContext = true;
+      } else {
+        hasAvailableFeatureFlagContext = true;
+      }
       for (const flag of sample.enabledFeatureFlags ?? []) {
         countsByFeatureFlag.set(flag, (countsByFeatureFlag.get(flag) ?? 0) + 1);
       }
@@ -121,7 +130,14 @@ export function createRendererLongTaskTelemetry(
       availability,
       durationP50Ms: readPercentile(durations, 0.5),
       durationP95Ms: readPercentile(durations, 0.95),
-      featureFlagContextAvailability,
+      featureFlagContextAvailability:
+        currentSamples.length === 0
+          ? currentFeatureFlagContextAvailability
+          : hasAvailableFeatureFlagContext && hasUnavailableFeatureFlagContext
+            ? 'mixed'
+            : hasAvailableFeatureFlagContext
+              ? 'available'
+              : 'unavailable',
       featureFlags,
       maxDurationMs: durations.at(-1) ?? null,
       routes,
@@ -152,7 +168,7 @@ export function createRendererLongTaskTelemetry(
       return;
     }
     const observedAt = now();
-    featureFlagContextAvailability =
+    currentFeatureFlagContextAvailability =
       metric.enabledFeatureFlags === null ? 'unavailable' : 'available';
     samples.push({
       ...metric,
@@ -203,10 +219,10 @@ export function createRendererLongTaskTelemetry(
 
   const updateContext = (context: RendererLongTaskContext): void => {
     const nextAvailability = context.enabledFeatureFlags === null ? 'unavailable' : 'available';
-    if (featureFlagContextAvailability === nextAvailability) {
+    if (currentFeatureFlagContextAvailability === nextAvailability) {
       return;
     }
-    featureFlagContextAvailability = nextAvailability;
+    currentFeatureFlagContextAvailability = nextAvailability;
     publish();
   };
 
@@ -231,7 +247,7 @@ export function createRendererLongTaskTelemetry(
       }
 
       const initialContext = getContext();
-      featureFlagContextAvailability =
+      currentFeatureFlagContextAvailability =
         initialContext.enabledFeatureFlags === null ? 'unavailable' : 'available';
 
       const createdObserver = new PerformanceObserver((list) => {
@@ -282,7 +298,7 @@ export function createRendererLongTaskTelemetry(
     activeObserver?.disconnect();
     activeObserver = null;
     availability = 'idle';
-    featureFlagContextAvailability = 'unavailable';
+    currentFeatureFlagContextAvailability = 'unavailable';
     samples = [];
     unavailableReason = null;
     publish();

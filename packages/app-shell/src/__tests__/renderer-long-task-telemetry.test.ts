@@ -132,6 +132,11 @@ describe('renderer-long-task-telemetry', () => {
 
   it('publishes feature-source availability changes before another long task arrives', () => {
     const telemetry = createRendererLongTaskTelemetry();
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: null,
+      route: 'explorer',
+    });
     const listener = vi.fn();
     const unsubscribe = telemetry.subscribe(listener);
 
@@ -142,8 +147,18 @@ describe('renderer-long-task-telemetry', () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(telemetry.getSnapshot()).toMatchObject({
-      featureFlagContextAvailability: 'available',
-      sampleCount: 0,
+      featureFlagContextAvailability: 'unavailable',
+      sampleCount: 1,
+    });
+
+    telemetry.record({
+      durationMs: 80,
+      enabledFeatureFlags: ['diagnostics-v2'],
+      route: 'explorer',
+    });
+    expect(telemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'mixed',
+      sampleCount: 2,
     });
 
     unsubscribe();

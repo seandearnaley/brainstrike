@@ -114,7 +114,35 @@ describe('SystemDiagnosticsPanel', () => {
 
       expect(screen.getByText('Idle')).toBeInTheDocument();
       expect(screen.getAllByText('80 ms')).toHaveLength(3);
-      expect(screen.getByText('No feature flag source')).toBeInTheDocument();
+      expect(screen.getByText('Unavailable for retained samples')).toBeInTheDocument();
+    });
+
+    it('does not treat retained samples with unknown flag context as no flags active', () => {
+      rendererLongTaskTelemetry.record({
+        durationMs: 80,
+        enabledFeatureFlags: null,
+        route: 'explorer',
+      });
+      rendererLongTaskTelemetry.updateContext({
+        enabledFeatureFlags: ['diagnostics-v2'],
+        route: 'explorer',
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Feature flags').parentElement).toHaveTextContent(
+        'Unavailable for retained samples'
+      );
+      act(() => {
+        rendererLongTaskTelemetry.record({
+          durationMs: 90,
+          enabledFeatureFlags: ['diagnostics-v2'],
+          route: 'explorer',
+        });
+      });
+      expect(screen.getByText('Feature flags').parentElement).toHaveTextContent(
+        'diagnostics-v2 (1) · partial context'
+      );
     });
 
     it('labels unsupported long-task collection instead of reporting zero samples', () => {
