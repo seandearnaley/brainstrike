@@ -153,8 +153,10 @@ Embedding runtime telemetry (BST-402):
   values, input text, paths, or content are retained by the telemetry store.
 - On desktop, the hidden embedding-host renderer remains the source of truth. It reports
   a validated snapshot through the existing typed host-status bridge; Electron main
-  stores/relays that snapshot but never observes or runs inference. Web diagnostics read
-  the same renderer-local store directly.
+  stores/relays that snapshot but never observes or runs inference. Stopped host reports
+  retain the current renderer-session snapshot so a latched telemetry-health failure
+  remains visible after an explicit worker stop. Web diagnostics read the same
+  renderer-local store directly.
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts
   to be revisited explicitly.

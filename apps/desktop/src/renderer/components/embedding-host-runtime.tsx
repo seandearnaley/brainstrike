@@ -757,7 +757,16 @@ export function EmbeddingHostRuntime(): null {
         if (disposed) {
           return;
         }
-        reportEmbeddingHostRuntimeStatusForRuntimeId(reportRuntimeId, 'stopped');
+        const embeddingRuntime = embeddingRuntimeRef.current;
+        if (embeddingRuntime) {
+          embeddingRuntimeRef.current = {
+            ...embeddingRuntime,
+            telemetry: getEmbeddingTelemetrySnapshot(),
+          };
+        }
+        reportEmbeddingHostRuntimeStatusForRuntimeId(reportRuntimeId, 'stopped', {
+          embeddingRuntime: embeddingRuntimeRef.current,
+        });
       })();
 
       const trackedStopPromise = stopPromise.finally(() => {

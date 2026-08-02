@@ -1,5 +1,6 @@
 import {
   recordEmbeddingBatchTelemetry,
+  recordEmbeddingTelemetryFailure,
   resetEmbeddingTelemetryForTests,
 } from '@brainstrike/embedding-worker';
 import { act, render, waitFor } from '@testing-library/react';
@@ -402,6 +403,7 @@ describe('EmbeddingHostRuntime', () => {
     reportStatusMock.mockClear();
 
     act(() => {
+      recordEmbeddingTelemetryFailure('workerpool telemetry diagnostic missing');
       recordEmbeddingBatchTelemetry('test-worker', {
         batchIndex: 0,
         endIndex: 1,
@@ -418,7 +420,17 @@ describe('EmbeddingHostRuntime', () => {
 
     await waitFor(() => {
       expect(reportStatusMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ state: 'stopped' })
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              health: {
+                failureCount: 1,
+                lastFailure: 'workerpool telemetry diagnostic missing',
+              },
+            }),
+          }),
+          state: 'stopped',
+        })
       );
     });
     await new Promise((resolve) => setTimeout(resolve, 300));
