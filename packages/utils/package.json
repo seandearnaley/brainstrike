@@ -24,208 +24,167 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./token-counting-runtime": {
       "types": "./dist/token-counting-runtime.d.ts",
-      "import": "./dist/token-counting-runtime.js",
-      "require": "./dist/token-counting-runtime.js"
+      "default": "./dist/token-counting-runtime.js"
     },
     "./token-counting-heuristics": {
       "types": "./dist/token-counting-heuristics.d.ts",
-      "import": "./dist/token-counting-heuristics.js",
-      "require": "./dist/token-counting-heuristics.js"
+      "default": "./dist/token-counting-heuristics.js"
     },
     "./token-constants": {
       "types": "./dist/token-constants.d.ts",
-      "import": "./dist/token-constants.js",
-      "require": "./dist/token-constants.js"
+      "default": "./dist/token-constants.js"
     },
     "./token-utils-accurate-lite": {
       "types": "./dist/token-utils-accurate-lite.d.ts",
-      "import": "./dist/token-utils-accurate-lite.js",
-      "require": "./dist/token-utils-accurate-lite.js"
+      "default": "./dist/token-utils-accurate-lite.js"
     },
     "./diagnostics": {
       "types": "./dist/diagnostics.d.ts",
-      "import": "./dist/diagnostics.js",
-      "require": "./dist/diagnostics.js"
+      "default": "./dist/diagnostics.js"
     },
     "./logger": {
       "types": "./dist/logger.d.ts",
-      "import": "./dist/logger.js",
-      "require": "./dist/logger.js"
+      "default": "./dist/logger.js"
     },
     "./logging-initializer": {
       "types": "./dist/logging-initializer.d.ts",
-      "import": "./dist/logging-initializer.js",
-      "require": "./dist/logging-initializer.js"
+      "default": "./dist/logging-initializer.js"
     },
     "./logging-preferences": {
       "types": "./dist/logging-preferences.d.ts",
-      "import": "./dist/logging-preferences.js",
-      "require": "./dist/logging-preferences.js"
+      "default": "./dist/logging-preferences.js"
     },
     "./console-guard": {
       "types": "./dist/console-guard.d.ts",
-      "import": "./dist/console-guard.js",
-      "require": "./dist/console-guard.js"
+      "default": "./dist/console-guard.js"
     },
     "./color-utils": {
       "types": "./dist/color-utils.d.ts",
-      "import": "./dist/color-utils.js",
-      "require": "./dist/color-utils.js"
+      "default": "./dist/color-utils.js"
     },
     "./browser-download": {
       "types": "./dist/browser-download.d.ts",
-      "import": "./dist/browser-download.js",
-      "require": "./dist/browser-download.js"
+      "default": "./dist/browser-download.js"
     },
     "./collator": {
       "types": "./dist/collator.d.ts",
-      "import": "./dist/collator.js",
-      "require": "./dist/collator.js"
+      "default": "./dist/collator.js"
     },
     "./create-debounce": {
       "types": "./dist/create-debounce.d.ts",
-      "import": "./dist/create-debounce.js",
-      "require": "./dist/create-debounce.js"
+      "default": "./dist/create-debounce.js"
     },
     "./error-utils": {
       "types": "./dist/error-utils.d.ts",
-      "import": "./dist/error-utils.js",
-      "require": "./dist/error-utils.js"
+      "default": "./dist/error-utils.js"
     },
     "./env-utils": {
       "types": "./dist/env-utils.d.ts",
-      "import": "./dist/env-utils.js",
-      "require": "./dist/env-utils.js"
+      "default": "./dist/env-utils.js"
     },
     "./filter-utils": {
       "types": "./dist/filter-utils.d.ts",
-      "import": "./dist/filter-utils.js",
-      "require": "./dist/filter-utils.js"
+      "default": "./dist/filter-utils.js"
     },
     "./file-explorer-utils": {
       "types": "./dist/file-explorer-utils.d.ts",
-      "import": "./dist/file-explorer-utils.js",
-      "require": "./dist/file-explorer-utils.js"
+      "default": "./dist/file-explorer-utils.js"
     },
     "./file-content": {
       "types": "./dist/file-content.d.ts",
-      "import": "./dist/file-content.js",
-      "require": "./dist/file-content.js"
+      "default": "./dist/file-content.js"
     },
     "./file-utils": {
       "types": "./dist/file-utils.d.ts",
-      "import": "./dist/file-utils.js",
-      "require": "./dist/file-utils.js"
+      "default": "./dist/file-utils.js"
     },
     "./log-buffer": {
       "types": "./dist/log-buffer.d.ts",
-      "import": "./dist/log-buffer.js",
-      "require": "./dist/log-buffer.js"
+      "default": "./dist/log-buffer.js"
     },
     "./hmr-utils": {
       "types": "./dist/hmr-utils.d.ts",
-      "import": "./dist/hmr-utils.js",
-      "require": "./dist/hmr-utils.js"
+      "default": "./dist/hmr-utils.js"
     },
     "./bulk-operation-context": {
       "types": "./dist/bulk-operation-context.d.ts",
-      "import": "./dist/bulk-operation-context.js",
-      "require": "./dist/bulk-operation-context.js"
+      "default": "./dist/bulk-operation-context.js"
     },
     "./browser-events": {
       "types": "./dist/browser-events.d.ts",
-      "import": "./dist/browser-events.js",
-      "require": "./dist/browser-events.js"
+      "default": "./dist/browser-events.js"
     },
     "./background-indexing-policy": {
       "types": "./dist/background-indexing-policy.d.ts",
-      "import": "./dist/background-indexing-policy.js",
-      "require": "./dist/background-indexing-policy.js"
+      "default": "./dist/background-indexing-policy.js"
     },
     "./performance-measure-guard": {
       "types": "./dist/performance-measure-guard.d.ts",
-      "import": "./dist/performance-measure-guard.js",
-      "require": "./dist/performance-measure-guard.js"
+      "default": "./dist/performance-measure-guard.js"
     },
     "./install-renderer-error-hooks": {
       "types": "./dist/install-renderer-error-hooks.d.ts",
-      "import": "./dist/install-renderer-error-hooks.js",
-      "require": "./dist/install-renderer-error-hooks.js"
+      "default": "./dist/install-renderer-error-hooks.js"
     },
     "./quick-filter-utils": {
       "types": "./dist/quick-filter-utils.d.ts",
-      "import": "./dist/quick-filter-utils.js",
-      "require": "./dist/quick-filter-utils.js"
+      "default": "./dist/quick-filter-utils.js"
     },
     "./report-generator": {
       "types": "./dist/report-generator.d.ts",
-      "import": "./dist/report-generator.js",
-      "require": "./dist/report-generator.js"
+      "default": "./dist/report-generator.js"
     },
     "./selection-utils": {
       "types": "./dist/selection-utils.d.ts",
-      "import": "./dist/selection-utils.js",
-      "require": "./dist/selection-utils.js"
+      "default": "./dist/selection-utils.js"
     },
     "./string-utils": {
       "types": "./dist/string-utils.d.ts",
-      "import": "./dist/string-utils.js",
-      "require": "./dist/string-utils.js"
+      "default": "./dist/string-utils.js"
     },
     "./tree-generator": {
       "types": "./dist/tree-generator.d.ts",
-      "import": "./dist/tree-generator.js",
-      "require": "./dist/tree-generator.js"
+      "default": "./dist/tree-generator.js"
     },
     "./tree-operations": {
       "types": "./dist/tree-operations.d.ts",
-      "import": "./dist/tree-operations.js",
-      "require": "./dist/tree-operations.js"
+      "default": "./dist/tree-operations.js"
     },
     "./perf-timing": {
       "types": "./dist/perf-timing.d.ts",
-      "import": "./dist/perf-timing.js",
-      "require": "./dist/perf-timing.js"
+      "default": "./dist/perf-timing.js"
     },
     "./path-filter": {
       "types": "./dist/path-filter.d.ts",
-      "import": "./dist/path-filter.js",
-      "require": "./dist/path-filter.js"
+      "default": "./dist/path-filter.js"
     },
     "./path-ancestors": {
       "types": "./dist/path-ancestors.d.ts",
-      "import": "./dist/path-ancestors.js",
-      "require": "./dist/path-ancestors.js"
+      "default": "./dist/path-ancestors.js"
     },
     "./path-utils": {
       "types": "./dist/path-utils.d.ts",
-      "import": "./dist/path-utils.js",
-      "require": "./dist/path-utils.js"
+      "default": "./dist/path-utils.js"
     },
     "./relative-file-path": {
       "types": "./dist/relative-file-path.d.ts",
-      "import": "./dist/relative-file-path.js",
-      "require": "./dist/relative-file-path.js"
+      "default": "./dist/relative-file-path.js"
     },
     "./workspace-indexing-qos": {
       "types": "./dist/workspace-indexing-qos.d.ts",
-      "import": "./dist/workspace-indexing-qos.js",
-      "require": "./dist/workspace-indexing-qos.js"
+      "default": "./dist/workspace-indexing-qos.js"
     },
     "./workspace-indexing-power-snapshot": {
       "types": "./dist/workspace-indexing-power-snapshot.d.ts",
-      "import": "./dist/workspace-indexing-power-snapshot.js",
-      "require": "./dist/workspace-indexing-power-snapshot.js"
+      "default": "./dist/workspace-indexing-power-snapshot.js"
     },
     "./crypto": {
       "types": "./dist/crypto.d.ts",
-      "import": "./dist/crypto.js",
-      "require": "./dist/crypto.js"
+      "default": "./dist/crypto.js"
     }
   },
   "files": [
@@ -240,7 +199,7 @@
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "pnpm run clean && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",

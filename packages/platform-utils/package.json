@@ -12,14 +12,13 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     }
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "scripts": {
-    "build": "pnpm run clean && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput",
     "test": "vitest run",

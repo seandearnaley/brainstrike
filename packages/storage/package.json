@@ -21,13 +21,11 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./electron": {
       "types": "./dist/electron.d.ts",
-      "import": "./dist/electron.js",
-      "require": "./dist/electron.js"
+      "default": "./dist/electron.js"
     }
   },
   "main": "./dist/index.js",

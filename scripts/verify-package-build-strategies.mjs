@@ -2,6 +2,7 @@
 // Guard the R10/BST-1014 build ruling:
 //
 //   * non-native typed TypeScript libraries build with `tsc -b`/`tsc --build`;
+//   * every src-to-dist library prunes stale emit without erasing `.tsbuildinfo`;
 //   * tsup is reserved for packages that deliberately produce bundled runtime
 //     artifacts, and every tsup invocation has one package-local config;
 //   * package-local tsup configs, dependencies, and watch commands may not stay
@@ -12,7 +13,7 @@
 // command remains the single source of truth for classification. Growing the
 // budget requires a reviewed architectural decision, while renames and package
 // moves do not require updating a second identity list.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -25,14 +26,24 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const TSC_BUILD_RE = /\btsc\s+(?:-b\b|--build\b)/;
 const TSUP_INVOCATION_RE = /(?:^|[\s(/])tsup(?:\s|$)/;
 const NATIVE_BUILD_RE = /\bnode-gyp\s+rebuild\b/;
-const NODE_LIBRARY_CONFIG = path.join('packages', 'config', 'tsconfig', 'node-library.json');
-const TS_SOURCE_EXTENSIONS = Object.freeze(['.ts', '.tsx', '.mts', '.cts']);
+const STALE_OUTPUT_PRUNER = 'node ../../scripts/prune-stale-dist.mjs';
+const CANONICAL_TSUP_CONFIG = 'tsup.config.ts';
+const TSUP_CONFIG_BASENAMES = Object.freeze([
+  CANONICAL_TSUP_CONFIG,
+  'tsup.config.mts',
+  'tsup.config.cts',
+  'tsup.config.js',
+  'tsup.config.mjs',
+  'tsup.config.cjs',
+  'tsup.config.json',
+]);
 
 // Anti-vacuity floors. Lowering one is a deliberate architecture change, not a
 // way to make a broken discovery pass.
 export const MIN_TYPED_BUILD_PACKAGES = 41;
 export const MIN_TSC_LIBRARY_PACKAGES = 31;
-export const MIN_NODE_ESM_LIBRARY_PACKAGES = 15;
+export const MIN_PRUNED_TSC_LIBRARY_PACKAGES = 30;
+export const MIN_NODE_ESM_LIBRARY_PACKAGES = 14;
 export const EXPECTED_BUNDLED_PACKAGES = 8;
 
 function parseJsonFile(filePath, label) {
@@ -65,12 +76,50 @@ function isTypedBuildPackage(manifest) {
   );
 }
 
-function resolvesToSharedNodeLibraryConfig(packageDir, repoRoot, tsconfig) {
-  if (typeof tsconfig.extends !== 'string') {
-    return false;
+const diagnosticHost = {
+  getCanonicalFileName: (fileName) => fileName,
+  getCurrentDirectory: () => REPO_ROOT,
+  getNewLine: () => '\n',
+};
+
+function readTypeScriptConfig(tsconfigPath) {
+  const host = {
+    ...ts.sys,
+    onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+      throw new Error(ts.formatDiagnostic(diagnostic, diagnosticHost));
+    },
+  };
+  const parsed = ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, host);
+  if (!parsed) {
+    throw new Error(`verify-package-build-strategies.mjs could not parse ${tsconfigPath}.`);
   }
-  const resolved = path.resolve(packageDir, tsconfig.extends);
-  return resolved === path.join(repoRoot, NODE_LIBRARY_CONFIG);
+  if (parsed.errors.length > 0) {
+    throw new Error(ts.formatDiagnostics(parsed.errors, diagnosticHost));
+  }
+  return parsed;
+}
+
+function isNodeNextConfig(parsedConfig) {
+  return (
+    parsedConfig.options.module === ts.ModuleKind.NodeNext &&
+    parsedConfig.options.moduleResolution === ts.ModuleResolutionKind.NodeNext
+  );
+}
+
+function configuredCodeOutputs(parsedConfig) {
+  const outputs = new Set();
+  for (const fileName of parsedConfig.fileNames) {
+    for (const output of ts.getOutputFileNames(
+      parsedConfig,
+      fileName,
+      !ts.sys.useCaseSensitiveFileNames
+    )) {
+      if (/\.(?:js|mjs|cjs)$/u.test(output)) {
+        outputs.add(path.resolve(output));
+      }
+    }
+  }
+  return outputs;
 }
 
 /** Discover the typed build surface from workspace manifests, never a registry. */
@@ -87,119 +136,47 @@ export function discoverPackageBuildStrategies(repoRoot = REPO_ROOT) {
     const buildScript = manifest.scripts.build;
     const devScript = manifest.scripts?.dev ?? '';
     const tsconfigPath = path.join(packageDir, 'tsconfig.json');
-    const tsupConfigPath = path.join(packageDir, 'tsup.config.ts');
-    const tsconfig = existsSync(tsconfigPath)
-      ? parseJsonFile(tsconfigPath, path.relative(repoRoot, tsconfigPath))
-      : null;
+    const tsupConfigPaths = TSUP_CONFIG_BASENAMES.map((basename) =>
+      path.join(packageDir, basename)
+    ).filter(existsSync);
+    const parsedConfig = existsSync(tsconfigPath) ? readTypeScriptConfig(tsconfigPath) : null;
+    const tsupScriptEntries = Object.entries(manifest.scripts ?? {}).filter(
+      ([, script]) => typeof script === 'string' && TSUP_INVOCATION_RE.test(script)
+    );
 
     packages.push({
       buildScript,
+      codeOutputs: parsedConfig === null ? new Set() : configuredCodeOutputs(parsedConfig),
       devScript,
-      hasNodeLibraryConfig:
-        tsconfig !== null && resolvesToSharedNodeLibraryConfig(packageDir, repoRoot, tsconfig),
+      hasNodeLibraryConfig: parsedConfig !== null && isNodeNextConfig(parsedConfig),
       hasTscBuild: TSC_BUILD_RE.test(buildScript),
-      hasTsupConfig: existsSync(tsupConfigPath),
+      hasTsupConfig: tsupConfigPaths.length > 0,
       hasTsupDependency:
         manifest.dependencies?.tsup !== undefined || manifest.devDependencies?.tsup !== undefined,
       hasTsupInvocation: TSUP_INVOCATION_RE.test(buildScript),
+      hasTsupManifestConfig: manifest.tsup !== undefined,
       isNative: manifest.gypfile === true || NATIVE_BUILD_RE.test(buildScript),
       manifest,
       manifestPath: relativeManifestPath,
       name: manifest.name ?? path.relative(repoRoot, packageDir),
       packageDir,
+      sourceFileCount: parsedConfig?.fileNames.length ?? 0,
+      supportsStaleOutputPruner:
+        parsedConfig !== null &&
+        path.resolve(parsedConfig.options.rootDir ?? '') === path.join(packageDir, 'src') &&
+        path.resolve(parsedConfig.options.outDir ?? '') === path.join(packageDir, 'dist'),
       tsconfigPath,
-      tsupConfigPath,
+      tsupConfigPaths,
+      tsupScriptEntries,
+      usesStaleOutputPruner: buildScript.includes(STALE_OUTPUT_PRUNER),
     });
   }
   return packages;
 }
 
-function readConfiguredSourceFiles(tsconfigPath) {
-  const read = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
-  if (read.error) {
-    throw new Error(ts.formatDiagnostic(read.error, diagnosticHost));
-  }
-  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, path.dirname(tsconfigPath));
-  if (parsed.errors.length > 0) {
-    throw new Error(ts.formatDiagnostics(parsed.errors, diagnosticHost));
-  }
-  return parsed.fileNames.filter((file) => TS_SOURCE_EXTENSIONS.includes(path.extname(file)));
-}
-
-const diagnosticHost = {
-  getCanonicalFileName: (fileName) => fileName,
-  getCurrentDirectory: () => REPO_ROOT,
-  getNewLine: () => '\n',
-};
-
-function relativeSpecifierTargetsTypescript(sourcePath, specifier) {
-  const withoutQuery = specifier.split(/[?#]/u, 1)[0];
-  const absolute = path.resolve(path.dirname(sourcePath), withoutQuery);
-  const direct = TS_SOURCE_EXTENSIONS.some((extension) => existsSync(`${absolute}${extension}`));
-  const indexed =
-    existsSync(absolute) &&
-    statSync(absolute).isDirectory() &&
-    TS_SOURCE_EXTENSIONS.some((extension) => existsSync(path.join(absolute, `index${extension}`)));
-  return direct || indexed;
-}
-
-function collectRelativeModuleSpecifiers(sourcePath) {
-  const source = readFileSync(sourcePath, 'utf8');
-  const sourceFile = ts.createSourceFile(
-    sourcePath,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    sourcePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
-  const specifiers = [];
-  const add = (literal) => {
-    if (literal && ts.isStringLiteralLike(literal) && literal.text.startsWith('.')) {
-      specifiers.push({
-        line: sourceFile.getLineAndCharacterOfPosition(literal.getStart()).line + 1,
-        text: literal.text,
-      });
-    }
-  };
-  const visit = (node) => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      add(node.moduleSpecifier);
-    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      add(node.arguments[0]);
-    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
-      add(node.argument.literal);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return specifiers;
-}
-
-function findNodeLibrarySpecifierViolations(pkg, repoRoot) {
-  const violations = [];
-  const configPaths = [pkg.tsconfigPath, path.join(pkg.packageDir, 'tsconfig.test.json')].filter(
-    existsSync
-  );
-  const sourceFiles = new Set(configPaths.flatMap(readConfiguredSourceFiles));
-  for (const sourcePath of sourceFiles) {
-    for (const specifier of collectRelativeModuleSpecifiers(sourcePath)) {
-      if (!relativeSpecifierTargetsTypescript(sourcePath, specifier.text)) {
-        continue;
-      }
-      violations.push({
-        kind: 'extensionless-node-esm',
-        location: `${path.relative(repoRoot, sourcePath)}:${specifier.line}`,
-        packageName: pkg.name,
-        value: specifier.text,
-      });
-    }
-  }
-  return violations;
-}
-
 function distCodeTargets(value, found = []) {
   if (typeof value === 'string') {
-    if (value.startsWith('./dist/') && /\.(?:mjs|cjs)$/u.test(value)) {
+    if (/^(?:\.\/)?dist\/.*\.(?:js|mjs|cjs)$/u.test(value)) {
       found.push(value);
     }
     return found;
@@ -216,6 +193,22 @@ function distCodeTargets(value, found = []) {
   return found;
 }
 
+function noncanonicalRuntimeConditions(value, found = []) {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      noncanonicalRuntimeConditions(child, found);
+    }
+  } else if (value !== null && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'import' || key === 'require') {
+        found.push(key);
+      }
+      noncanonicalRuntimeConditions(child, found);
+    }
+  }
+  return found;
+}
+
 /** Return every build-strategy violation; floors throw before a vacuous scan. */
 export function findPackageBuildStrategyViolations({
   enforceBudget = true,
@@ -226,6 +219,9 @@ export function findPackageBuildStrategyViolations({
   const bundled = packages.filter((pkg) => pkg.hasTsupInvocation);
   const tscLibraries = packages.filter(
     (pkg) => !pkg.isNative && pkg.hasTscBuild && !pkg.hasTsupInvocation
+  );
+  const prunedTscLibraries = tscLibraries.filter(
+    (pkg) => pkg.supportsStaleOutputPruner && pkg.usesStaleOutputPruner
   );
   const nodeLibraries = packages.filter((pkg) => pkg.hasNodeLibraryConfig);
 
@@ -239,6 +235,13 @@ export function findPackageBuildStrategyViolations({
     throw new Error(
       `Refusing to run: discovered ${tscLibraries.length} tsc-only typed library package(s), below the floor ` +
         `of ${MIN_TSC_LIBRARY_PACKAGES}. The canonical library class may not disappear silently.`
+    );
+  }
+  if (enforceFloors && prunedTscLibraries.length < MIN_PRUNED_TSC_LIBRARY_PACKAGES) {
+    throw new Error(
+      `Refusing to run: discovered ${prunedTscLibraries.length} incremental-safe pruned tsc library ` +
+        `build(s), below the floor of ${MIN_PRUNED_TSC_LIBRARY_PACKAGES}. Clean builds must not erase ` +
+        'TypeScript project-reference state silently.'
     );
   }
   if (enforceFloors && nodeLibraries.length < MIN_NODE_ESM_LIBRARY_PACKAGES) {
@@ -267,15 +270,47 @@ export function findPackageBuildStrategyViolations({
         value: pkg.buildScript,
       });
     }
-    if (pkg.hasTsupConfig && !pkg.hasTsupInvocation) {
+    if (
+      !pkg.isNative &&
+      pkg.hasTscBuild &&
+      !pkg.hasTsupInvocation &&
+      pkg.supportsStaleOutputPruner &&
+      !pkg.usesStaleOutputPruner
+    ) {
       violations.push({
-        kind: 'orphan-tsup-config',
-        location: path.relative(repoRoot, pkg.tsupConfigPath),
+        kind: 'noncanonical-tsc-clean',
+        location: `${pkg.manifestPath} [scripts.build]`,
         packageName: pkg.name,
-        value: 'tsup.config.ts',
+        value: pkg.buildScript,
       });
     }
-    if (pkg.hasTsupInvocation && !pkg.hasTsupConfig) {
+    for (const configPath of pkg.tsupConfigPaths) {
+      const basename = path.basename(configPath);
+      if (!pkg.hasTsupInvocation) {
+        violations.push({
+          kind: 'orphan-tsup-config',
+          location: path.relative(repoRoot, configPath),
+          packageName: pkg.name,
+          value: basename,
+        });
+      } else if (basename !== CANONICAL_TSUP_CONFIG) {
+        violations.push({
+          kind: 'noncanonical-tsup-config',
+          location: path.relative(repoRoot, configPath),
+          packageName: pkg.name,
+          value: basename,
+        });
+      }
+    }
+    if (pkg.hasTsupManifestConfig) {
+      violations.push({
+        kind: 'noncanonical-tsup-config',
+        location: pkg.manifestPath,
+        packageName: pkg.name,
+        value: 'package.json `tsup` block',
+      });
+    }
+    if (pkg.hasTsupInvocation && !pkg.hasTsupConfig && !pkg.hasTsupManifestConfig) {
       violations.push({
         kind: 'missing-tsup-config',
         location: `${pkg.manifestPath} [scripts.build]`,
@@ -307,9 +342,26 @@ export function findPackageBuildStrategyViolations({
         value: pkg.devScript,
       });
     }
+    for (const [scriptName, script] of pkg.tsupScriptEntries) {
+      if (scriptName === 'build' || scriptName === 'dev') {
+        continue;
+      }
+      violations.push({
+        kind: 'noncanonical-tsup-script',
+        location: `${pkg.manifestPath} [scripts.${scriptName}]`,
+        packageName: pkg.name,
+        value: script,
+      });
+    }
 
     if (!pkg.hasNodeLibraryConfig) {
       continue;
+    }
+    if (pkg.sourceFileCount === 0) {
+      throw new Error(
+        `Refusing to run: ${pkg.name} is a NodeNext library but its resolved TypeScript program ` +
+          'contains zero source files. An empty program cannot certify emitted exports.'
+      );
     }
     if (pkg.manifest.type !== 'module' || !pkg.hasTscBuild || pkg.hasTsupInvocation) {
       violations.push({
@@ -319,17 +371,18 @@ export function findPackageBuildStrategyViolations({
         value: `type=${pkg.manifest.type ?? '(absent)'}, build=${pkg.buildScript}`,
       });
     }
-    for (const target of distCodeTargets([
-      pkg.manifest.exports,
-      pkg.manifest.main,
-      pkg.manifest.module,
-    ])) {
-      violations.push({
-        kind: 'bundled-export-in-node-library',
-        location: pkg.manifestPath,
-        packageName: pkg.name,
-        value: target,
-      });
+    for (const target of new Set(
+      distCodeTargets([pkg.manifest.exports, pkg.manifest.main, pkg.manifest.module])
+    )) {
+      const resolvedTarget = path.resolve(pkg.packageDir, target);
+      if (!pkg.codeOutputs.has(resolvedTarget)) {
+        violations.push({
+          kind: 'non-tsc-export-target',
+          location: pkg.manifestPath,
+          packageName: pkg.name,
+          value: target,
+        });
+      }
     }
     if (/dist\/chunk-/u.test(JSON.stringify(pkg.manifest.sideEffects ?? null))) {
       violations.push({
@@ -339,7 +392,14 @@ export function findPackageBuildStrategyViolations({
         value: JSON.stringify(pkg.manifest.sideEffects),
       });
     }
-    violations.push(...findNodeLibrarySpecifierViolations(pkg, repoRoot));
+    for (const condition of new Set(noncanonicalRuntimeConditions(pkg.manifest.exports))) {
+      violations.push({
+        kind: 'noncanonical-node-library-condition',
+        location: pkg.manifestPath,
+        packageName: pkg.name,
+        value: condition,
+      });
+    }
   }
   return violations;
 }
@@ -352,22 +412,30 @@ export function formatPackageBuildStrategyViolations(violations) {
           return `${violation.location} — found ${violation.value} package(s) invoking tsup. Bundling is an explicit architectural budget; migrate ordinary libraries to tsc -b or justify changing the budget.`;
         case 'unsupported-build':
           return `${violation.location} — ${violation.packageName} is a typed non-native package but its build is neither tsc -b nor tsup: ${violation.value}`;
+        case 'noncanonical-tsc-clean':
+          return `${violation.location} — ${violation.packageName} has the canonical src-to-dist TypeScript layout but its build discards incremental state: ${violation.value}. Run ${STALE_OUTPUT_PRUNER} before tsc instead.`;
         case 'orphan-tsup-config':
         case 'orphan-tsup-dependency':
         case 'orphan-tsup-dev-script':
           return `${violation.location} — ${violation.packageName} no longer bundles, but still carries ${violation.value}. Remove the script-shaped tsup residue instead of leaving misleading configuration.`;
+        case 'noncanonical-tsup-script':
+          return `${violation.location} — ${violation.packageName} invokes tsup outside scripts.build/scripts.dev: ${violation.value}. Keep the bundle writer in the declared build strategy; lifecycle hooks must not hide a second emitter.`;
         case 'missing-tsup-config':
           return `${violation.location} — ${violation.packageName} invokes tsup without a package-local tsup.config.ts. Put real bundling semantics in an explicit config; inline one-off flag sets are not a third strategy.`;
+        case 'noncanonical-tsup-config':
+          return `${violation.location} — ${violation.packageName} declares ${violation.value}. BST-1014 accepts one explicit tsup configuration shape: tsup.config.ts.`;
         case 'missing-tsup-dependency':
           return `${violation.location} — ${violation.packageName} invokes tsup without declaring it. Add the catalog-pinned package dependency; a root-hoisted binary is not part of this package's build contract.`;
         case 'invalid-node-library-class':
           return `${violation.location} — ${violation.packageName} extends the node-library config but is not a type=module tsc-only library (${violation.value}).`;
-        case 'bundled-export-in-node-library':
-          return `${violation.location} — ${violation.packageName} is tsc-only but still exports bundled artifact ${violation.value}. Point import/require at the emitted .js module.`;
+        case 'non-tsc-export-target':
+          return `${violation.location} — ${violation.packageName} is tsc-only but exports ${violation.value}, which is not emitted by its TypeScript program. Point the export at a configured source output or restore a real bundle boundary.`;
         case 'bundled-residue-in-node-library':
           return `${violation.location} — ${violation.packageName} is tsc-only but still declares bundler chunk side effects ${violation.value}. TypeScript emits per-source modules; remove the stale chunk pattern.`;
+        case 'noncanonical-node-library-condition':
+          return `${violation.location} — ${violation.packageName} is an ESM-only NodeNext library but declares a ${violation.value} export condition. Use types + default for one truthful runtime artifact; a require condition must point to a real CJS build.`;
         default:
-          return `${violation.location} — ${violation.packageName} imports ${violation.value} without a runtime extension. TypeScript Bundler resolution accepts that spelling but Node ESM does not; use the source-level .js specifier.`;
+          return `${violation.location} — ${violation.packageName} has unsupported build-strategy drift: ${violation.value}`;
       }
     })
     .join('\n');
@@ -389,10 +457,19 @@ export function main(options = {}) {
   ).length;
   const nodeLibraries = packages.filter((pkg) => pkg.hasNodeLibraryConfig).length;
   const native = packages.filter((pkg) => pkg.isNative).length;
+  const prunedTscOnly = packages.filter(
+    (pkg) =>
+      !pkg.isNative &&
+      pkg.hasTscBuild &&
+      !pkg.hasTsupInvocation &&
+      pkg.supportsStaleOutputPruner &&
+      pkg.usesStaleOutputPruner
+  ).length;
   console.log(
-    `Package build strategies hold: ${tscOnly} typed libraries use tsc-only builds, ${bundled} packages ` +
-      `perform explicit bundling, ${native} packages build native addons, and ${nodeLibraries} node-library ` +
-      'packages have Node-compatible ESM specifiers.'
+    `Package build strategies hold: ${tscOnly} typed libraries use tsc-only builds (${prunedTscOnly} ` +
+      `src-to-dist libraries preserve incremental state), ${bundled} packages perform explicit bundling, ` +
+      `${native} packages build native addons, and ${nodeLibraries} node-library packages use ` +
+      'TypeScript-enforced NodeNext ESM.'
   );
 }
 

@@ -1046,10 +1046,16 @@ Non-native typed packages have two JavaScript build classes, derived from
 `scripts.build` rather than from a package registry:
 
 - **Libraries use TypeScript emit.** A plain library builds JavaScript and
-  declarations together with `tsc -b`/`tsc --build`. It does not retain a tsup
-  config, tsup dependency, or tsup watch command. Node 24 can synchronously
-  `require()` ESM, so producing parallel `.mjs`/`.cjs` copies is not a reason to
-  bundle an otherwise ordinary library.
+  declarations together with `tsc -b`. All 30 libraries with the canonical
+  `rootDir: src` / `outDir: dist` layout prepend
+  `node ../../scripts/prune-stale-dist.mjs`; it removes deleted-source artifacts
+  without discarding `.tsbuildinfo`, so a normal build does not turn
+  TypeScript's project-reference builder into a forced clean rebuild. The sole
+  tsc-only layout exception is `workers`: its source files live at the package
+  root, outside the pruner's deliberately narrow safety contract, so it keeps an
+  explicit clean. This is derived from resolved compiler layout, not a package
+  allowlist. A TypeScript-emitted library does not retain a tsup config, tsup
+  dependency, or tsup watch command.
 - **tsup is for real bundle boundaries.** Eight packages require bundling:
   `chunking-worker`, `embedding-worker`, `file-tree-worker`, and `token-cache`
   package browser workers/WASM/assets; `agent` produces the self-contained
@@ -1057,38 +1063,60 @@ Non-native typed packages have two JavaScript build classes, derived from
   surface consumed by the Node16 web API project; and `file-explorer` emits the
   renderer's worker-storage artifact. Adding a ninth bundler is an architectural
   decision, not a convenient way to emit a second module format.
+  This is the compatibility boundary for BST-1014, not an endorsement of tsup as
+  the R10 endpoint: upstream marks tsup unmaintained and recommends tsdown. A
+  replacement must preserve the custom worker/WASM/assets and CJS contracts and
+  carry measured artifact and wall-clock evidence; swapping emitters inside the
+  library migration would combine those risks and make regressions unattributable.
 - **Native addons remain native builds.** `secure-fs-native` and
   `windows-job-native` use `node-gyp`; the build-strategy guard recognizes that
   structural class rather than pretending a TypeScript or tsup command owns the
   native artifact.
-- **Node-compatible emitted ESM is explicit.** Libraries migrated from tsup extend
-  `packages/config/tsconfig/node-library.json`, declare `type: module`, point
-  dist import/require conditions at TypeScript's emitted `.js`, and spell local
-  TypeScript imports as `.js` in source. The shared config retains Bundler
-  resolution because existing workspace declaration graphs use that contract;
-  `scripts/verify-package-build-strategies.mjs` supplies the missing runtime
-  check that Bundler resolution itself does not: an extensionless relative
-  import compiles but fails under Node ESM. A CommonJS composition boundary
-  that consumes one of these libraries uses native dynamic `import()` (and an
-  explicit `resolution-mode: import` for type-only imports) rather than forcing
-  the library back into dual-format bundling; the Vercel assistant route is the
-  live contract case. Playwright's TypeScript loader is a distinct CommonJS
+- **Node-compatible emitted ESM is compiler-enforced.** Libraries migrated from
+  tsup extend `packages/config/tsconfig/node-library.json`, whose `module` and
+  `moduleResolution` are `NodeNext`; declare `type: module`; expose the one emitted
+  runtime artifact through `types` + `default`; and spell local TypeScript imports
+  as `.js` in source. TypeScript therefore rejects extensionless relative imports,
+  directory imports, invalid package-export subpaths, and missing JSON attributes
+  during every editor/type-check/build pass. A `require` export condition is not a
+  synonym for “Node can require synchronous ESM”: it must point to a real CJS
+  artifact. A CommonJS composition boundary that consumes one of these libraries
+  uses native dynamic `import()` (and an explicit `resolution-mode: import` for
+  type-only imports) rather than forcing the library back into dual-format
+  bundling. The Vercel API's Node16 check proves both are load-bearing: a static
+  logger import fails TS1479 and a plain type-only import fails TS1541. The route
+  memoizes the import lazily inside the first request so a failed seam is observed
+  by that request, never left as a module-initialization rejection. Playwright's
+  TypeScript loader is a distinct CommonJS
   transform boundary: a Node-side E2E helper imports the narrowest side-effect-
   free contract subpath it needs instead of a package barrel that transitively
   loads browser-oriented `import.meta` modules. Desktop assistant mocks pin this
   through `@brainstrike/assistant-contract/assistant-stream-session`; the desktop
   smoke lane is the runtime proof.
+- **Browser-only emit keeps Bundler resolution.** `file-explorer-hooks` is a
+  React/Vite library whose public surface imports the browser-only `ui` barrel.
+  That barrel's declarations intentionally model a bundler and contain
+  extensionless re-exports; consuming them under NodeNext loses named exports
+  behind `skipLibCheck` (TS2305 at the hook tests). The package therefore extends
+  the shared Bundler config while still using the same canonical `tsc -b` build.
+  Module resolution follows the runtime that loads the emitted graph; it is not
+  a second build strategy.
 
 `scripts/verify-package-build-strategies.mjs` (alias
 `lint:package-build-strategies`, present in both lint chains) enforces the two
-classes, the native-addon exception, the exact bundler budget, removal of orphan
-tsup files/dependencies/dev commands, the node-library manifest shape, and
-runtime extensions. Discovery comes from workspace package manifests and
-tsconfig consumers; there is no identity mapping file. Its anti-vacuity floors
-cover typed build packages, tsc-only libraries, and node-library consumers. The paired
-`scripts/__tests__/verify-package-build-strategies.test.mjs` money tests mutate
-each protected seam (including the bundler count and extensionless ESM) and
-prove the executable guard exits red with the intended reason.
+classes, the native-addon exception, the exact bundler budget, incremental-safe
+cleanup for every compatible src-to-dist library, removal of every supported tsup config-file
+shape/dependency/dev command, canonical `tsup.config.ts` for current bundles,
+NodeNext manifest conditions, and that every dist code export is an output of
+the package's parsed TypeScript program. TypeScript's config loader resolves
+array and indirect `extends`; the guard does not approximate inheritance or
+re-parse module syntax. Discovery comes from workspace manifests and resolved
+compiler configs; there is no identity mapping file. Its anti-vacuity floors
+cover typed build packages, tsc-only libraries, incremental-safe pruned
+libraries, and NodeNext consumers. The
+paired `scripts/__tests__/verify-package-build-strategies.test.mjs` money tests
+mutate each protected seam, while a real compiler control observes NodeNext
+rejecting an extensionless ESM import with TS2835.
 
 ### Agent declaration build split
 

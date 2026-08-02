@@ -1,5 +1,5 @@
 {
-  "extends": "../../packages/config/tsconfig/node-library.json",
+  "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
     "paths": {
       "@brainstrike/utils/*": [

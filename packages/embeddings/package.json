@@ -29,38 +29,31 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./runtime-config": {
       "types": "./dist/runtime-config.d.ts",
-      "import": "./dist/runtime-config.js",
-      "require": "./dist/runtime-config.js"
+      "default": "./dist/runtime-config.js"
     },
     "./provider-core": {
       "types": "./dist/provider-core.d.ts",
-      "import": "./dist/provider-core.js",
-      "require": "./dist/provider-core.js"
+      "default": "./dist/provider-core.js"
     },
     "./backend": {
       "types": "./dist/backend-entry.d.ts",
-      "import": "./dist/backend-entry.js",
-      "require": "./dist/backend-entry.js"
+      "default": "./dist/backend-entry.js"
     },
     "./factory": {
       "types": "./dist/factory-entry.d.ts",
-      "import": "./dist/factory-entry.js",
-      "require": "./dist/factory-entry.js"
+      "default": "./dist/factory-entry.js"
     },
     "./service": {
       "types": "./dist/service-entry.d.ts",
-      "import": "./dist/service-entry.js",
-      "require": "./dist/service-entry.js"
+      "default": "./dist/service-entry.js"
     },
     "./worker": {
       "types": "./dist/worker-entry.d.ts",
-      "import": "./dist/worker-entry.js",
-      "require": "./dist/worker-entry.js"
+      "default": "./dist/worker-entry.js"
     }
   },
   "files": [
@@ -74,7 +67,7 @@
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "pnpm run clean && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "biome check .",

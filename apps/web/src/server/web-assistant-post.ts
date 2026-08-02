@@ -18,6 +18,9 @@ import {
 } from './web-assistant-runtime';
 import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream';
 
+// This file participates in the Vercel API's Node16/CommonJS compilation.
+// TS1541 requires the import-resolution attribute even though the type is
+// erased; removing it makes `type-check:api` fail before emit.
 type ScopedLogger = import('@brainstrike/utils/logger', { with: {
   'resolution-mode': 'import',
 }}).ScopedLogger;

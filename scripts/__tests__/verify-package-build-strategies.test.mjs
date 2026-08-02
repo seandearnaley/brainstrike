@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -12,12 +12,14 @@ import {
   findPackageBuildStrategyViolations,
   formatPackageBuildStrategyViolations,
   MIN_NODE_ESM_LIBRARY_PACKAGES,
+  MIN_PRUNED_TSC_LIBRARY_PACKAGES,
   MIN_TSC_LIBRARY_PACKAGES,
   MIN_TYPED_BUILD_PACKAGES,
 } from '../verify-package-build-strategies.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const guardScript = path.join(repoRoot, 'scripts', 'verify-package-build-strategies.mjs');
+const tscBin = path.join(repoRoot, 'node_modules', '.bin', 'tsc');
 
 function makeFixture(packages) {
   const dir = mkdtempSync(path.join(tmpdir(), 'build-strategy-guard-'));
@@ -30,39 +32,56 @@ function makeFixture(packages) {
   );
   writeFileSync(
     path.join(dir, 'packages', 'config', 'tsconfig', 'node-library.json'),
-    JSON.stringify({ extends: './base.json' })
+    JSON.stringify({
+      compilerOptions: { module: 'NodeNext', moduleResolution: 'NodeNext' },
+      extends: './base.json',
+    })
   );
 
   for (const [directory, spec] of Object.entries(packages)) {
     const packageDir = path.join(dir, 'packages', directory);
     mkdirSync(path.join(packageDir, 'src'), { recursive: true });
-    const build = spec.build ?? 'pnpm run clean && tsc -b .';
+    const build = spec.build ?? 'node ../../scripts/prune-stale-dist.mjs && tsc -b .';
+    const { scripts: extraScripts = {}, ...manifestOverrides } = spec.manifest ?? {};
     const manifest = {
       exports: spec.exports ?? {
         '.': {
-          import: './dist/index.js',
-          require: './dist/index.js',
+          default: './dist/index.js',
           types: './dist/index.d.ts',
         },
       },
       name: spec.name ?? `@fixture/${directory}`,
-      scripts: { build, ...(spec.dev ? { dev: spec.dev } : {}) },
+      scripts: { build, ...(spec.dev ? { dev: spec.dev } : {}), ...extraScripts },
       type: spec.type ?? 'module',
       types: './dist/index.d.ts',
       ...(spec.dependencies ? { devDependencies: spec.dependencies } : {}),
-      ...(spec.manifest ?? {}),
+      ...manifestOverrides,
     };
     writeFileSync(path.join(packageDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    if (spec.intermediateNodeLibrary) {
+      writeFileSync(
+        path.join(packageDir, 'tsconfig.base.json'),
+        JSON.stringify({ extends: '../config/tsconfig/node-library.json' })
+      );
+    }
     writeFileSync(
       path.join(packageDir, 'tsconfig.json'),
       `${JSON.stringify(
         {
-          compilerOptions: { composite: true, declaration: true, outDir: 'dist', rootDir: 'src' },
+          compilerOptions: {
+            composite: true,
+            declaration: true,
+            outDir: 'dist',
+            rootDir: spec.rootDir ?? 'src',
+          },
           extends:
-            spec.nodeLibrary === false
+            spec.extends ??
+            (spec.nodeLibrary === false
               ? '../config/tsconfig/base.json'
-              : '../config/tsconfig/node-library.json',
-          include: ['src/**/*'],
+              : spec.intermediateNodeLibrary
+                ? './tsconfig.base.json'
+                : '../config/tsconfig/node-library.json'),
+          include: spec.include ?? ['src/**/*'],
         },
         null,
         2
@@ -74,8 +93,9 @@ function makeFixture(packages) {
       spec.source ?? "export { value } from './dep.js';\n"
     );
     if (spec.config) {
+      const configName = typeof spec.config === 'string' ? spec.config : 'tsup.config.ts';
       writeFileSync(
-        path.join(packageDir, 'tsup.config.ts'),
+        path.join(packageDir, configName),
         "import { defineConfig } from 'tsup';\nexport default defineConfig({ entry: ['src/index.ts'] });\n"
       );
     }
@@ -125,7 +145,7 @@ test('the executable guard entrypoint runs and reports every inspected class', (
   assert.match(stdout, /typed libraries use tsc-only builds/);
   assert.match(stdout, /packages perform explicit bundling/);
   assert.match(stdout, /packages build native addons/);
-  assert.match(stdout, /node-library packages have Node-compatible ESM specifiers/);
+  assert.match(stdout, /node-library packages use TypeScript-enforced NodeNext ESM/);
 });
 
 test('the real tree clears every anti-vacuity floor and the bundling budget', () => {
@@ -135,31 +155,77 @@ test('the real tree clears every anti-vacuity floor and the bundling budget', ()
     (pkg) => !pkg.isNative && pkg.hasTscBuild && !pkg.hasTsupInvocation
   );
   const nodeLibraries = packages.filter((pkg) => pkg.hasNodeLibraryConfig);
+  const prunedTscOnly = tscOnly.filter(
+    (pkg) => pkg.supportsStaleOutputPruner && pkg.usesStaleOutputPruner
+  );
   assert.ok(packages.length >= MIN_TYPED_BUILD_PACKAGES);
   assert.ok(tscOnly.length >= MIN_TSC_LIBRARY_PACKAGES);
+  assert.ok(prunedTscOnly.length >= MIN_PRUNED_TSC_LIBRARY_PACKAGES);
   assert.ok(nodeLibraries.length >= MIN_NODE_ESM_LIBRARY_PACKAGES);
   assert.equal(bundled.length, EXPECTED_BUNDLED_PACKAGES);
+  const browserOnly = packages.find((pkg) => pkg.name === '@brainstrike/file-explorer-hooks');
+  assert.equal(browserOnly?.hasNodeLibraryConfig, false);
+  assert.equal(browserOnly?.hasTscBuild, true);
+  const rootLayoutWorker = packages.find((pkg) => pkg.name === '@brainstrike/workers');
+  assert.equal(rootLayoutWorker?.supportsStaleOutputPruner, false);
+  assert.equal(rootLayoutWorker?.usesStaleOutputPruner, false);
 });
 
-test('MONEY TEST: an extensionless Node ESM import FAILS with the runtime reason', () => {
+test('MONEY TEST: TypeScript NodeNext rejects extensionless Node ESM imports itself', () => {
   for (const source of [
     "export { value } from './dep';\n",
     "export type Value = import('./dep').Value;\n",
     "export const load = () => import('./dep');\n",
   ]) {
-    const violations = runFixture({ drifted: { source } });
-    assert.equal(violations.length, 1);
-    assert.equal(violations[0].kind, 'extensionless-node-esm');
-    assert.equal(violations[0].value, './dep');
-    assert.match(formatPackageBuildStrategyViolations(violations), /Node ESM does not/);
+    const dir = makeFixture({ drifted: { source } });
+    try {
+      const result = spawnSync(tscBin, ['--project', 'packages/drifted/tsconfig.json'], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+      assert.notEqual(result.status, 0, 'the compiler control must be observed failing');
+      assert.match(`${result.stdout}${result.stderr}`, /TS2835/);
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
   }
 });
 
 test('MONEY TEST: an orphan tsup config FAILS after the build stops invoking tsup', () => {
-  const violations = runFixture({ drifted: { config: true } });
-  assert.equal(violations.length, 1);
-  assert.equal(violations[0].kind, 'orphan-tsup-config');
-  assert.match(formatPackageBuildStrategyViolations(violations), /script-shaped tsup residue/);
+  for (const config of ['tsup.config.ts', 'tsup.config.mts']) {
+    const violations = runFixture({ drifted: { config } });
+    assert.equal(violations.length, 1);
+    assert.equal(violations[0].kind, 'orphan-tsup-config');
+    assert.match(formatPackageBuildStrategyViolations(violations), /script-shaped tsup residue/);
+  }
+});
+
+test('MONEY TEST: alternate and manifest tsup config shapes FAIL explicitly', () => {
+  const alternate = runFixture({
+    drifted: {
+      build: 'tsup',
+      config: 'tsup.config.mts',
+      dependencies: { tsup: '1.0.0' },
+      nodeLibrary: false,
+    },
+  });
+  assert.deepEqual(
+    alternate.map((entry) => entry.kind),
+    ['noncanonical-tsup-config']
+  );
+
+  const manifest = runFixture({
+    drifted: {
+      build: 'tsup',
+      dependencies: { tsup: '1.0.0' },
+      manifest: { tsup: { entry: ['src/index.ts'] } },
+      nodeLibrary: false,
+    },
+  });
+  assert.deepEqual(
+    manifest.map((entry) => entry.kind),
+    ['noncanonical-tsup-config']
+  );
 });
 
 test('MONEY TEST: stale tsup dependency and watch command each FAIL independently', () => {
@@ -174,6 +240,18 @@ test('MONEY TEST: stale tsup dependency and watch command each FAIL independentl
     dev.map((entry) => entry.kind),
     ['orphan-tsup-dev-script']
   );
+});
+
+test('MONEY TEST: lifecycle hooks cannot hide a second tsup emitter', () => {
+  for (const scriptName of ['postbuild', 'prepare']) {
+    const violations = runFixture({
+      drifted: { manifest: { scripts: { [scriptName]: 'tsup src/index.ts' } } },
+    });
+    assert.deepEqual(
+      violations.map((entry) => entry.kind),
+      ['noncanonical-tsup-script']
+    );
+  }
 });
 
 test('MONEY TEST: inline tsup without a config FAILS as a third strategy', () => {
@@ -240,16 +318,15 @@ test('RULE: node-library packages must be type=module tsc-only packages with .js
     drifted: {
       exports: {
         '.': {
-          import: './dist/index.mjs',
-          require: './dist/index.cjs',
+          default: './dist/generated.js',
           types: './dist/index.d.ts',
         },
       },
     },
   });
-  assert.equal(
-    bundledTarget.filter((entry) => entry.kind === 'bundled-export-in-node-library').length,
-    2
+  assert.deepEqual(
+    bundledTarget.map((entry) => entry.kind),
+    ['non-tsc-export-target']
   );
 
   const staleChunkPattern = runFixture({
@@ -258,6 +335,67 @@ test('RULE: node-library packages must be type=module tsc-only packages with .js
   assert.deepEqual(
     staleChunkPattern.map((entry) => entry.kind),
     ['bundled-residue-in-node-library']
+  );
+});
+
+test('MONEY TEST: NodeNext libraries use one truthful default runtime condition', () => {
+  const violations = runFixture({
+    drifted: {
+      exports: {
+        '.': {
+          import: './dist/index.js',
+          require: './dist/index.js',
+          types: './dist/index.d.ts',
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    violations.map((entry) => entry.kind),
+    ['noncanonical-node-library-condition', 'noncanonical-node-library-condition']
+  );
+});
+
+test('RULE: canonical NodeNext classification follows array and indirect extends', () => {
+  const packages = discoverPackageBuildStrategies(
+    makeFixture({
+      array: { extends: ['../config/tsconfig/node-library.json'] },
+      indirect: { intermediateNodeLibrary: true },
+    })
+  );
+  try {
+    assert.ok(packages.every((pkg) => pkg.hasNodeLibraryConfig));
+  } finally {
+    const fixtureRoot = path.resolve(packages[0].packageDir, '..', '..');
+    rmSync(fixtureRoot, { force: true, recursive: true });
+  }
+});
+
+test('MONEY TEST: deleting incremental state is rejected as a noncanonical library build', () => {
+  const violations = runFixture({ drifted: { build: 'pnpm run clean && tsc -b .' } });
+  assert.deepEqual(
+    violations.map((entry) => entry.kind),
+    ['noncanonical-tsc-clean']
+  );
+});
+
+test('RULE: a package-root TypeScript layout remains a structural cleaning exception', () => {
+  assert.deepEqual(
+    runFixture({
+      worker: {
+        build: 'pnpm run clean && tsc -b .',
+        nodeLibrary: false,
+        rootDir: '.',
+      },
+    }),
+    []
+  );
+});
+
+test('VACUOUS PASS: a NodeNext library with no configured sources throws', () => {
+  assert.throws(
+    () => runFixture({ empty: { include: [] } }),
+    /No inputs were found|resolved TypeScript program contains zero source files/
   );
 });
 

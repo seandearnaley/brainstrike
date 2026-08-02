@@ -3,7 +3,7 @@
   "display": "Node-compatible emitted ESM library",
   "extends": "./base.json",
   "compilerOptions": {
-    "module": "ESNext",
-    "moduleResolution": "Bundler"
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
   }
 }
