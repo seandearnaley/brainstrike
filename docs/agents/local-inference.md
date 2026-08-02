@@ -118,11 +118,13 @@ Embedding runtime telemetry (BST-402):
   workerpool own source-scoped, in-memory telemetry records. The workerpool records the
   unique buffers transferred with each completed result and forwards pipeline-cache
   diagnostics emitted during `runEmbedding`. Each pool worker receives a unique
-  `WorkerOptions.name`; that identity is emitted with cache diagnostics and returned to
-  the pool's termination callback, which clears only the terminated worker's source.
-  Full pool shutdown clears any remaining observed sources. Streaming workers likewise
-  clear their own source during explicit shutdown. No model weights, vector values,
-  input text, paths, or content are retained by the telemetry store.
+  `WorkerOptions.name`; that identity is emitted with cache diagnostics. The same UUID is
+  carried in a fragment on that worker's script URL because workerpool 10.0.3 omits
+  `workerOpts` from its runtime termination callback despite declaring it in the public
+  type. The callback-preserved script identifies and clears only the terminated worker's
+  source. Full pool shutdown clears any remaining observed sources. Streaming workers
+  likewise clear their own source during explicit shutdown. No model weights, vector
+  values, input text, paths, or content are retained by the telemetry store.
 - On desktop, the hidden embedding-host renderer remains the source of truth. It reports
   a validated snapshot through the existing typed host-status bridge; Electron main
   stores/relays that snapshot but never observes or runs inference. Web diagnostics read

@@ -331,7 +331,7 @@ describe('createWorkerpoolAdapter', () => {
           onCreateWorker?: (args: {
             script?: string;
             workerOpts?: WorkerOptions;
-          }) => { workerOpts?: WorkerOptions } | undefined;
+          }) => { script?: string; workerOpts?: WorkerOptions } | undefined;
           onTerminateWorker?: (args: { script?: string; workerOpts?: WorkerOptions }) => void;
         }
       | undefined;
@@ -345,10 +345,21 @@ describe('createWorkerpoolAdapter', () => {
     });
     const firstWorkerOptions = firstWorker?.workerOpts;
     const secondWorkerOptions = secondWorker?.workerOpts;
+    const firstWorkerScript = firstWorker?.script;
+    const secondWorkerScript = secondWorker?.script;
     const firstWorkerName = firstWorkerOptions?.name;
     const secondWorkerName = secondWorkerOptions?.name;
-    if (!(firstWorkerOptions && secondWorkerOptions && firstWorkerName && secondWorkerName)) {
-      throw new Error('Expected workerpool to assign telemetry worker names.');
+    if (
+      !(
+        firstWorkerOptions &&
+        secondWorkerOptions &&
+        firstWorkerName &&
+        secondWorkerName &&
+        firstWorkerScript &&
+        secondWorkerScript
+      )
+    ) {
+      throw new Error('Expected workerpool to assign telemetry worker identities.');
     }
     workerInstanceIds.push(
       firstWorkerName.replace(EMBED_WORKER_INSTANCE_NAME_PREFIX, ''),
@@ -363,8 +374,8 @@ describe('createWorkerpoolAdapter', () => {
     await secondAdd;
 
     poolOptions?.onTerminateWorker?.({
-      script: '/worker.js',
-      workerOpts: firstWorkerOptions,
+      // workerpool 10.0.3 omits workerOpts from real termination callbacks.
+      script: firstWorkerScript,
     });
 
     expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(

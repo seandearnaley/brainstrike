@@ -51,13 +51,42 @@ function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDi
   return record as unknown as EmbedWorkerPipelineCacheDiagnostic;
 }
 
-function readManagedWorkerInstanceId(workerName: string | undefined): string {
-  if (typeof workerName !== 'string' || !workerName.startsWith(EMBED_WORKER_INSTANCE_NAME_PREFIX)) {
-    throw new Error('Terminated embedding worker is missing its managed worker name.');
+const MANAGED_WORKER_SCRIPT_FRAGMENT_KEY = 'brainstrike-embedding-worker-instance';
+
+function tagManagedWorkerScript(
+  workerScript: string | undefined,
+  workerInstanceId: string
+): string {
+  if (!(typeof workerScript === 'string' && workerScript.length > 0)) {
+    throw new Error('Embedding workerpool worker is missing its explicit script URL.');
   }
-  const workerInstanceId = workerName.slice(EMBED_WORKER_INSTANCE_NAME_PREFIX.length);
-  if (workerInstanceId.length === 0) {
-    throw new Error('Terminated embedding worker name is missing its instance identity.');
+
+  const fragmentStart = workerScript.indexOf('#');
+  const existingFragment = fragmentStart === -1 ? '' : workerScript.slice(fragmentStart + 1);
+  const fragmentParams = new URLSearchParams(existingFragment);
+  if (fragmentParams.has(MANAGED_WORKER_SCRIPT_FRAGMENT_KEY)) {
+    throw new Error('Embedding worker script URL already contains a managed instance identity.');
+  }
+
+  const separator = fragmentStart === -1 ? '#' : '&';
+  return `${workerScript}${separator}${MANAGED_WORKER_SCRIPT_FRAGMENT_KEY}=${encodeURIComponent(workerInstanceId)}`;
+}
+
+function readManagedWorkerInstanceId(workerScript: string | undefined): string {
+  if (!(typeof workerScript === 'string' && workerScript.length > 0)) {
+    throw new Error('Terminated embedding worker is missing its managed script URL.');
+  }
+
+  const fragmentStart = workerScript.indexOf('#');
+  if (fragmentStart === -1) {
+    throw new Error('Terminated embedding worker script is missing its instance identity.');
+  }
+
+  const fragmentParams = new URLSearchParams(workerScript.slice(fragmentStart + 1));
+  const workerInstanceIds = fragmentParams.getAll(MANAGED_WORKER_SCRIPT_FRAGMENT_KEY);
+  const workerInstanceId = workerInstanceIds[0];
+  if (workerInstanceIds.length !== 1 || !workerInstanceId) {
+    throw new Error('Terminated embedding worker script has an invalid instance identity.');
   }
   return workerInstanceId;
 }
@@ -175,8 +204,8 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     }
     embeddingTelemetrySourceIds.clear();
   };
-  const removeTerminatedWorkerTelemetrySource = (workerName: string | undefined): void => {
-    const workerInstanceId = readManagedWorkerInstanceId(workerName);
+  const removeTerminatedWorkerTelemetrySource = (workerScriptUrl: string | undefined): void => {
+    const workerInstanceId = readManagedWorkerInstanceId(workerScriptUrl);
     const sourceId = `workerpool-embedding-${workerInstanceId}`;
     if (!embeddingTelemetrySourceIds.delete(sourceId)) {
       return;
@@ -187,14 +216,21 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
     maxWorkers: Math.max(minWorkers, maxWorkers),
     minWorkers,
-    onCreateWorker: ({ workerOpts }) => ({
-      workerOpts: {
-        ...workerOpts,
-        name: `${EMBED_WORKER_INSTANCE_NAME_PREFIX}${globalThis.crypto.randomUUID()}`,
-      },
-    }),
-    onTerminateWorker: ({ workerOpts }) => {
-      removeTerminatedWorkerTelemetrySource(workerOpts?.name);
+    onCreateWorker: ({ script, workerOpts }) => {
+      const workerInstanceId = globalThis.crypto.randomUUID();
+      return {
+        script: tagManagedWorkerScript(script, workerInstanceId),
+        workerOpts: {
+          ...workerOpts,
+          name: `${EMBED_WORKER_INSTANCE_NAME_PREFIX}${workerInstanceId}`,
+        },
+      };
+    },
+    onTerminateWorker: ({ script }) => {
+      // workerpool 10.0.3 omits workerOpts here at runtime. Its per-worker
+      // script value is preserved, so the fragment correlates termination
+      // with the same UUID exposed to the worker through WorkerOptions.name.
+      removeTerminatedWorkerTelemetrySource(script);
     },
     workerOpts: { type: 'module' },
     workerType: 'web',
