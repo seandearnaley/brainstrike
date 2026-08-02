@@ -11,10 +11,11 @@
 // `turbo boundaries` (16 issues, 125 poisoned archives purged).
 //
 // The durable guard is scripts/prune-stale-dist.mjs: before a tsc-based build,
-// delete every dist artifact whose corresponding src file no longer exists.
-// Unlike a full clean this preserves incremental builds AND is safe under
-// concurrent builds of the same package — a concurrent build only emits files
-// that DO have a source counterpart, so the prune set is disjoint from it.
+// delete every dist artifact absent from TypeScript's exact emit plan. Unlike a
+// full clean this preserves incremental builds AND is safe under concurrent
+// builds of the same package — a concurrent build only writes files in that
+// emit plan or the package's declared bundler entrypoints, so the prune set is
+// disjoint from it.
 //
 // Two layers under test here:
 //   1. the prune script's behavior (fixture-driven, including entrypoint
@@ -60,14 +61,17 @@ const { main } = await import(PRUNE_SCRIPT);
 function makeFixture(files) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'prune-stale-dist-'));
   const withConfig = {
+    'package.json': '{}',
     'tsconfig.json': JSON.stringify({
       compilerOptions: {
+        declaration: true,
         module: 'esnext',
         moduleResolution: 'bundler',
         outDir: 'dist',
         resolveJsonModule: true,
         rootDir: 'src',
         skipLibCheck: true,
+        sourceMap: true,
         target: 'es2022',
       },
       include: ['src/**/*', 'src/**/*.json'],
@@ -132,7 +136,7 @@ test('prunes every dist artifact flavor whose source file is gone', () => {
   assert.equal(existsSync(path.join(dir, 'dist', 'sub')), false);
 });
 
-test('keeps artifacts backed by any source flavor (.ts/.tsx/.mts/.js/.json)', () => {
+test('keeps exact TypeScript outputs backed by each source flavor (.ts/.tsx/.mts/.js/.json)', () => {
   const dir = makeFixture({
     'dist/component.d.ts': '',
     'dist/component.js': '',
@@ -154,6 +158,55 @@ test('keeps artifacts backed by any source flavor (.ts/.tsx/.mts/.js/.json)', ()
 
   assert.deepEqual(result.deleted, []);
   assert.equal(listFiles(path.join(dir, 'dist')).length, 9);
+});
+
+test('MONEY TEST: prunes obsolete module formats even when the source basename is live', () => {
+  // BST-1014 moved ordinary libraries from tsup dual emit to tsc ESM emit.
+  // Basename-only liveness kept the old CJS/MJS siblings forever because
+  // src/index.ts still existed, allowing stale imports to poison Turbo caches.
+  const dir = makeFixture({
+    'dist/index.cjs': 'require("@brainstrike/removed-fork")',
+    'dist/index.cjs.map': '',
+    'dist/index.d.cts': '',
+    'dist/index.d.mts': '',
+    'dist/index.d.ts': '',
+    'dist/index.js': '',
+    'dist/index.js.map': '',
+    'dist/index.mjs': '',
+    'dist/index.mjs.map': '',
+    'src/index.ts': 'export {};',
+  });
+
+  const result = main({ log: () => {}, packageDir: dir });
+
+  assert.deepEqual(listFiles(path.join(dir, 'dist')), ['index.d.ts', 'index.js', 'index.js.map']);
+  assert.equal(result.deleted.length, 6);
+});
+
+test('keeps package-declared bundler formats outside the TypeScript emit plan', () => {
+  // agent/file-explorer intentionally run tsc plus a non-splitting tsup bundle
+  // in the same dist. Their package exports are the native source of truth for
+  // the additional format that a concurrent bundle build may be writing.
+  const dir = makeFixture({
+    'dist/index.d.ts': '',
+    'dist/index.js': '',
+    'dist/index.js.map': '',
+    'dist/index.mjs': '',
+    'package.json': JSON.stringify({
+      exports: {
+        '.': {
+          import: './dist/index.mjs',
+          require: './dist/index.js',
+          types: './dist/index.d.ts',
+        },
+      },
+    }),
+    'src/index.ts': 'export {};',
+  });
+
+  const result = main({ log: () => {}, packageDir: dir });
+
+  assert.deepEqual(result.deleted, []);
 });
 
 test('prunes artifacts whose source exists on disk but is excluded from the tsc program', () => {
@@ -179,7 +232,9 @@ test('prunes artifacts whose source exists on disk but is excluded from the tsc 
 
   main({ log: () => {}, packageDir: dir });
 
-  assert.deepEqual(listFiles(path.join(dir, 'dist')), ['keep.d.ts', 'keep.js']);
+  // This fixture's explicit tsconfig does not enable declaration emit, so an
+  // old keep.d.ts is stale even though keep.ts remains in the program.
+  assert.deepEqual(listFiles(path.join(dir, 'dist')), ['keep.js']);
 });
 
 test('keeps outputs of on-disk .js sources outside the program (bundler entries)', () => {
