@@ -1,4 +1,4 @@
-import type { ModelTokenPricing } from '@brainstrike/utils/token-counting-heuristics';
+import type { ModelTokenPricing } from '@brainstrike/tokenization';
 import { describe, expect, it } from 'vitest';
 import type { ModelPricingResolver } from '../../assistant-cross-root-cost';
 import {

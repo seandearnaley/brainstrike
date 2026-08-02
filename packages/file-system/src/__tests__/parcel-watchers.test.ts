@@ -10,13 +10,13 @@ import {
   type ParcelBackendName,
   type ParcelWatcherModule,
   selectParcelBackend,
-} from '../adapters/parcel-backend';
+} from '../adapters/parcel-backend.js';
 import {
   PARCEL_SUBSCRIBE_TIMEOUT_MS,
   ParcelSubscribeTimeoutError,
   startParcelWatch,
-} from '../adapters/parcel-watchers';
-import type { DirectoryHandle, FileSystemChange } from '../types';
+} from '../adapters/parcel-watchers.js';
+import type { DirectoryHandle, FileSystemChange } from '../types.js';
 
 type SubscribeCallback = (
   error: Error | null,
@@ -303,7 +303,7 @@ describe('startParcelWatch', () => {
 
   it('emits starting then healthy health transitions on successful subscribe', async () => {
     const fake = createFakeBinding();
-    const health: import('../types').WatcherHealthTransition[] = [];
+    const health: import('../types.js').WatcherHealthTransition[] = [];
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
       onHealth: (event) => health.push(event),
@@ -316,7 +316,7 @@ describe('startParcelWatch', () => {
 
   it('recovers degraded back to healthy on the next clean batch, per episode', async () => {
     const fake = createFakeBinding();
-    const health: import('../types').WatcherHealthTransition[] = [];
+    const health: import('../types.js').WatcherHealthTransition[] = [];
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
       onHealth: (event) => health.push(event),
@@ -340,7 +340,7 @@ describe('startParcelWatch', () => {
 
   it('emits degraded exactly once across repeated backend errors', async () => {
     const fake = createFakeBinding();
-    const health: import('../types').WatcherHealthTransition[] = [];
+    const health: import('../types.js').WatcherHealthTransition[] = [];
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
       onHealth: (event) => health.push(event),
@@ -361,7 +361,7 @@ describe('startParcelWatch', () => {
     const module = {
       subscribe: () => new Promise(() => undefined),
     } as unknown as ParcelWatcherModule;
-    const health: import('../types').WatcherHealthTransition[] = [];
+    const health: import('../types.js').WatcherHealthTransition[] = [];
     await expect(
       startParcelWatch(makeHandle(root), collect, {
         loadModule: () => Promise.resolve(module),
@@ -379,7 +379,7 @@ describe('startParcelWatch', () => {
 
   it('emits stopped exactly once on dispose', async () => {
     const fake = createFakeBinding();
-    const health: import('../types').WatcherHealthTransition[] = [];
+    const health: import('../types.js').WatcherHealthTransition[] = [];
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
       onHealth: (event) => health.push(event),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAbsolutePath, toRelativePath } from '../paths';
+import { isAbsolutePath, toRelativePath } from '../paths.js';
 
 describe('isAbsolutePath', () => {
   it('detects POSIX absolute paths', () => {

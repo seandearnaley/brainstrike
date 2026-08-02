@@ -2,61 +2,41 @@
   "name": "@brainstrike/text-splitter",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/tokenization": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "default": "./dist/index.js"
     },
     "./chunking-core": {
       "types": "./dist/chunking-core.d.ts",
-      "import": "./dist/chunking-core.js",
-      "require": "./dist/chunking-core.cjs"
-    },
-    "./token-counting-heuristics": {
-      "types": "./dist/token-counting-heuristics.d.ts",
-      "import": "./dist/token-counting-heuristics.js",
-      "require": "./dist/token-counting-heuristics.cjs"
-    },
-    "./token-constants": {
-      "types": "./dist/token-constants.d.ts",
-      "import": "./dist/token-constants.js",
-      "require": "./dist/token-constants.cjs"
-    },
-    "./token-utils-accurate-lite": {
-      "types": "./dist/token-utils-accurate-lite.d.ts",
-      "import": "./dist/token-utils-accurate-lite.js",
-      "require": "./dist/token-utils-accurate-lite.cjs"
+      "default": "./dist/chunking-core.js"
     }
   },
   "files": [
     "dist/**"
   ],
-  "main": "./dist/index.cjs",
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsup --config ./tsup.config.ts --watch",
+    "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
-  "sideEffects": [
-    "dist/chunk-*.js"
-  ],
+  "sideEffects": false,
   "turbo": {
     "outputs": [
       "dist/**"

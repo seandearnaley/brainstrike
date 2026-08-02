@@ -12,10 +12,13 @@ import {
   hasRegisteredSuspendResumeUi,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils/logger';
-import { Check, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
-import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
+import { createLogger } from '@brainstrike/logging';
+import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
+import { createContext, type ReactNode, use, useCallback, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
+import { Checkbox } from '../checkbox';
+import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
+import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 
 const logger = createLogger('AssistantToolSuspendNotice');
 
@@ -297,6 +300,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
       testId="assistant-submit-plan-notice"
       title={plan?.title ? `Plan: ${plan.title}` : 'Plan for your approval'}
     >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       {plan ? (
         <div className="mt-1 space-y-2 text-xs">
           <p className="text-foreground/90">{plan.overview}</p>
@@ -392,6 +396,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
       testId="assistant-ask-user-notice"
       title={payload?.question ?? 'The assistant has a question'}
     >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       {options.length === 0 ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input
@@ -492,6 +497,7 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
       title={`Cannot resume ${request.toolName}`}
       tone="failed"
     >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       <p className="mt-1 text-muted-foreground text-xs">
         This tool paused the run for input, but this build has no resume UI registered for its
         resume schema, so the pause cannot be answered and the run cannot continue here.
@@ -509,6 +515,183 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
 }
 
 /**
+ * Gate B (BST-1070 design §3.3): the `run_python` network escalation. A
+ * DIFFERENT component from the approval card on purpose — destructive chrome,
+ * inverted button order with DENY primary and autofocused, a per-domain
+ * checkbox the affirmative action requires, and NO grant surface at all (this
+ * component never renders ApprovalGrantButtons and never reads
+ * useToolApprovalGrants — a grant would let one answer authorize a future,
+ * unnamed domain list). Deny is the outcome of every non-action.
+ */
+function narrowNetworkSuspendPayload(value: unknown): readonly string[] | null {
+  if (!(isRecord(value) && value['kind'] === 'network')) {
+    return null;
+  }
+  const domains = value['allowedDomains'];
+  if (
+    !(
+      Array.isArray(domains) &&
+      domains.length > 0 &&
+      domains.every((domain) => typeof domain === 'string' && domain.trim().length > 0)
+    )
+  ) {
+    return null;
+  }
+  return domains as readonly string[];
+}
+
+/** "— any host ending in .example.com" for wildcards; exact hosts need no gloss. */
+function wildcardGloss(domain: string): string | null {
+  return domain.startsWith('*.') ? `— any host ending in ${domain.slice(1)}` : null;
+}
+
+function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequest }) {
+  const domainsFieldId = useId();
+  const { submit, locked } = useSuspendResume(request);
+  // Ticking state is LOCAL component state, never persisted, and resets if
+  // the card remounts (design §3.3 point 3) — proportional friction is the
+  // point: every named domain must be individually acknowledged.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const domains = narrowNetworkSuspendPayload(request.suspendPayload);
+
+  const deny = useCallback(() => {
+    submit({ action: 'deny' } satisfies { action: 'deny' }, "You didn't allow internet access.");
+  }, [submit]);
+  const allow = useCallback(() => {
+    if (!domains) {
+      return;
+    }
+    submit(
+      { action: 'allow' } satisfies { action: 'allow' },
+      domains.length === 1 ? `You allowed ${domains[0]}.` : `You allowed ${domains.length} domains.`
+    );
+  }, [domains, submit]);
+
+  if (!domains) {
+    // A registered escalation whose payload cannot be read: never offer Allow
+    // for terms the card cannot state — deny stays available, and the raw
+    // payload is shown so the degradation is visible, not guessed around.
+    return (
+      <NoticeShell
+        icon={<Globe className="size-4" />}
+        testId="assistant-run-python-network-notice"
+        title="This script wants to reach the internet"
+        tone="failed"
+      >
+        <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
+        <p
+          className="mt-1 text-muted-foreground text-xs"
+          data-testid="run-python-network-unreadable"
+        >
+          The request didn't say which domains it needs, so it can't be allowed.
+        </p>
+        <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+          {JSON.stringify(request.suspendPayload, null, 2)}
+        </pre>
+        <div className="mt-2">
+          <Button autoFocus disabled={locked} onClick={deny} size="sm" variant="default">
+            <X className="size-3.5" />
+            Don't allow
+          </Button>
+        </div>
+      </NoticeShell>
+    );
+  }
+
+  const allTicked = domains.every((domain) => ticked.has(domain));
+  const allowLabel =
+    domains.length === 1 ? `Allow ${domains[0]}` : `Allow these ${domains.length} domains`;
+
+  return (
+    <NoticeShell
+      icon={<Globe className="size-4" />}
+      testId="assistant-run-python-network-notice"
+      title="This script wants to reach the internet"
+      tone="failed"
+    >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
+      <p className="mt-1 text-foreground/90 text-xs">
+        You said the code could run. Before it does, it needs your OK to connect out.
+      </p>
+      <p className="mt-2 text-muted-foreground text-xs">It will be able to connect to:</p>
+      <div
+        className="mt-1 max-h-48 space-y-1.5 overflow-auto"
+        data-testid="run-python-network-domains"
+      >
+        {domains.map((domain) => (
+          <div className="flex items-start gap-2 text-xs" key={domain}>
+            <Checkbox
+              checked={ticked.has(domain)}
+              data-testid={`run-python-network-domain-${domain}`}
+              disabled={locked}
+              id={`${domainsFieldId}-${domain}`}
+              onCheckedChange={(checked) => {
+                setTicked((current) => {
+                  const next = new Set(current);
+                  if (checked === true) {
+                    next.add(domain);
+                  } else {
+                    next.delete(domain);
+                  }
+                  return next;
+                });
+              }}
+            />
+            <label className="min-w-0" htmlFor={`${domainsFieldId}-${domain}`}>
+              {/* Never truncate a domain with an ellipsis: pypi.org.evil.com
+                  clipped to pypi.org… is a lie. */}
+              <span className="break-all font-mono text-foreground/90">{domain}</span>
+              {wildcardGloss(domain) ? (
+                <span className="ml-1 text-muted-foreground">{wildcardGloss(domain)}</span>
+              ) : null}
+            </label>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-muted-foreground text-xs">
+        Nothing else. Every other address is blocked.
+      </p>
+      <p className="mt-1 text-foreground/90 text-xs">
+        Once it can connect, it can also send data out — including anything it read from your files.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {/* Deny is FIRST in DOM and tab order, primary, and autofocused: a
+            user clicking where Approve usually sits denies; Enter denies. */}
+        <Button
+          autoFocus
+          data-testid="run-python-network-deny"
+          disabled={locked}
+          onClick={deny}
+          size="sm"
+          variant="default"
+        >
+          <X className="size-3.5" />
+          Don't allow
+        </Button>
+        <Button
+          data-testid="run-python-network-allow"
+          disabled={locked || !allTicked}
+          onClick={allow}
+          size="sm"
+          variant="outline"
+        >
+          <Check className="size-3.5" />
+          {allowLabel}
+        </Button>
+        {allTicked || locked ? null : (
+          <span className="text-muted-foreground text-xs">
+            Tick each domain above to enable this.
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-muted-foreground text-xs">
+        You'll be asked this every time. There is no "always allow" for internet access.
+      </p>
+    </NoticeShell>
+  );
+}
+
+/**
  * The typed suspension UI per REGISTERED suspending tool. Typing it as a total
  * `Record<RegisteredSuspendResumeToolId, …>` makes the contract registry and the
  * rendered branches provably exhaustive at compile time: adding an id to
@@ -520,6 +703,7 @@ const SUSPEND_NOTICE_BY_TOOL_ID: Record<
   (props: { request: AssistantToolSuspendRequest }) => ReactNode
 > = {
   [ASK_USER_TOOL_ID]: AskUserNotice,
+  [NATIVE_TOOL_ID.runPython]: RunPythonNetworkNotice,
   [SUBMIT_PLAN_TOOL_ID]: SubmitPlanNotice,
 };
 

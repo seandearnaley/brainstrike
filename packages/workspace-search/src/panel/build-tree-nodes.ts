@@ -1,5 +1,5 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { TreeNode } from '@brainstrike/ui';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type { SelectedChunk } from '../bridge/chunk-selection-store';
 import type {
   WorkspaceSearchChild,

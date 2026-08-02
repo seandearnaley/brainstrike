@@ -1,12 +1,12 @@
 import { detectPlatform } from '@brainstrike/platform-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MockFileSystemAdapter } from '../adapters/mock-file-system-adapter';
-import { WebFileSystemAdapter } from '../adapters/web-adapter';
+import { MockFileSystemAdapter } from '../adapters/mock-file-system-adapter.js';
+import { WebFileSystemAdapter } from '../adapters/web-adapter.js';
 import {
   createFileSystemAdapter,
   createMockFileSystemAdapter,
   createWebFileSystemAdapter,
-} from '../factory';
+} from '../factory.js';
 
 describe('File System Factory', () => {
   describe('createFileSystemAdapter', () => {

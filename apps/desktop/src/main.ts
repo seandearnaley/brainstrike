@@ -2,23 +2,19 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { LogBuffer } from '@brainstrike/utils/log-buffer';
 import {
   addLogListener,
-  createLogger,
-  type FileTransportConfig,
-  LogLevel,
-} from '@brainstrike/utils/logger';
-import {
-  type InitializeLoggingOptions,
-  initializeLogging,
-} from '@brainstrike/utils/logging-initializer';
-import {
   applyLoggingPreferences,
   createDefaultLoggingPreferences,
+  createLogger,
+  type FileTransportConfig,
+  type InitializeLoggingOptions,
+  initializeLogging,
+  LogBuffer,
   type LoggingPreferences,
-} from '@brainstrike/utils/logging-preferences';
+  LogLevel,
+} from '@brainstrike/logging';
+import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
@@ -32,6 +28,7 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
+import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import {
@@ -491,7 +488,6 @@ const loggingOptions: InitializeLoggingOptions = {
       : {}),
   },
   consoleLevel: initialLoggingPreferences.consoleLevel,
-  enableDebugInProduction: true,
   includeTimestamp: initialLoggingPreferences.includeTimestamp,
   level: initialLoggingPreferences.level,
   runtime: 'electron-main',
@@ -1296,6 +1292,12 @@ if (singleInstanceLockAcquired) {
 
   app.whenReady().then(async () => {
     try {
+      emitBootMeasurementMark('app-ready', app.isPackaged);
+      // Validated up front (before assistant-server startup) so a malformed
+      // value fails loudly and clearly here, instead of being caught by the
+      // assistant-server try/catch below and mislabeled as an assistant
+      // startup failure.
+      const quitAfterBootMeasurement = shouldQuitAfterBootMeasurement(app.isPackaged);
       logger.debug('App ready, starting initialization...');
 
       const launchMode = resolveDesktopRendererLaunchMode({
@@ -1552,7 +1554,16 @@ if (singleInstanceLockAcquired) {
         assistantUrl = url;
         assistantAuthToken = authToken;
         stopAssistantServer = stop;
+        // Emitted here (one microtask after the server's listen callback
+        // resolves) rather than inside startAssistantServer's listen callback:
+        // that promise has no reject path, so anything throwable inside the
+        // callback would wedge the await above instead of failing loudly.
+        emitBootMeasurementMark('assistant-listening', app.isPackaged);
         logger.debug(`Assistant server started at ${assistantUrl}`);
+        if (quitAfterBootMeasurement) {
+          app.quit();
+          return;
+        }
       } catch (err) {
         // Captured and surfaced to the renderer via assistant:get-auth — the
         // availability probe presents it as an error state instead of the app

@@ -20,11 +20,11 @@ import {
   runCoordinatedQueryEmbedding,
   startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
+import { createLogger } from '@brainstrike/logging';
 import {
   ensureVectorPreferencesHydrated,
   useVectorPreferencesStore,
 } from '@brainstrike/preferences/stores/vector-preferences-store';
-import { createLogger } from '@brainstrike/utils/logger';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
   assertEmbeddingHostCommand,

@@ -5,14 +5,10 @@ import {
   getFileSizeConfig,
   getFileTooLargeMessage,
 } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
-import {
-  createLogger,
-  fileContent,
-  fileExplorer,
-  isBinaryExtension,
-  isTextExtension,
-} from '@brainstrike/utils';
+import { fileContent, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
+import { getFileExtension } from '@brainstrike/utils/file-utils';
 
 export interface FileReadRequest {
   compositeKey: string;
@@ -223,7 +219,7 @@ export function createFileContentWorker({
       throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');
     }
 
-    const extension = fileExplorer.getFileExtension(req.path);
+    const extension = getFileExtension(req.path);
 
     if (isBinaryExtension(extension)) {
       throw new FileContentError(BINARY_CONTENT_MESSAGE, req.path, 'BINARY');

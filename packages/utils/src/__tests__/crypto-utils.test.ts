@@ -5,7 +5,7 @@ import {
   generateUUID,
   isCryptoRandomUUIDAvailable,
   isCryptoSubtleAvailable,
-} from '../crypto-utils';
+} from '../crypto-utils.js';
 
 describe('crypto-utils', () => {
   // Store original methods

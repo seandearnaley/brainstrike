@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type StoredRootHandle, WebHandleCache } from '../adapters/web-handle-cache';
+import { type StoredRootHandle, WebHandleCache } from '../adapters/web-handle-cache.js';
 
 const createDirectoryHandle = (name: string) =>
   ({
@@ -100,6 +100,18 @@ describe('WebHandleCache', () => {
     const cache = new WebHandleCache();
     const result = await cache.getRootHandle('missing');
     expect(result).toBeNull();
+  });
+
+  it('rejects incomplete persisted file-handle keys', async () => {
+    const cache = new WebHandleCache();
+    const fileHandle = createFileHandle('file.txt');
+
+    await expect(cache.storeFileHandle('', 'file.txt', fileHandle)).rejects.toThrow(
+      'Both folderId and relativePath are required for a file-handle cache key'
+    );
+    await expect(cache.storeFileHandle('root', '', fileHandle)).rejects.toThrow(
+      'Both folderId and relativePath are required for a file-handle cache key'
+    );
   });
 
   it('removes root handles and associated file handles', async () => {

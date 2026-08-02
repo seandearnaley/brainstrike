@@ -1,4 +1,4 @@
-import { WorkerRateLimitError } from './embedding-provider-runtime';
+import { WorkerRateLimitError } from './embedding-provider-runtime.js';
 
 export interface ClassifiedWorkerFailure {
   backoffMs?: number;

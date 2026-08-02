@@ -54,15 +54,11 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
       },
       // @brainstrike/workers has no src/ dir (worker files at the package root),
-      // so the registry skips it; alias its subpaths explicitly — reached
+      // so the registry skips it; alias its remaining subpath explicitly — reached
       // transitively via file-explorer-hooks/file-explorer-ui src.
       {
         find: '@brainstrike/workers/file-content-worker',
         replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       {
         find: '@brainstrike/file-import/browser-queue-port',

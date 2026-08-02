@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel } from '@brainstrike/logging';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { afterAll, beforeAll, describe, expect, vi } from 'vitest';

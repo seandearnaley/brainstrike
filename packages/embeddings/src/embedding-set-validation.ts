@@ -5,7 +5,7 @@
  * consistency between declared model capabilities and stored embedding sets.
  */
 
-import type { DistanceMetric, ProviderMetadata, Result } from './provider-types';
+import type { DistanceMetric, ProviderMetadata, Result } from './provider-types.js';
 
 /**
  * Parameters required to create an embedding set.

@@ -1,11 +1,11 @@
-import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider';
+import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.js';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   ProviderMetadata,
   Result,
-} from '../../provider-types';
-import type { ModelConfig } from '../../types';
+} from '../../provider-types.js';
+import type { ModelConfig } from '../../types.js';
 
 /** Default distance metric for Cohere embeddings */
 const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';

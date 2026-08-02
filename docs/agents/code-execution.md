@@ -280,14 +280,27 @@ stub executors) and `run-python-tool.integration.spec.ts` (integration lane,
 REAL Seatbelt/bwrap + a real interpreter). Registered by the desktop
 composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
 
-- **NETWORK IS STRUCTURALLY ABSENT, not defaulted off.** The strict input
-  schema has NO domain field and `policy.allowedDomains` is a literal `[]`, so
-  no call can request egress. This is deliberate and should not be "fixed" by
-  adding a domains argument: the network escalation (the BST-1070 design's
-  Gate B) rides the SUSPENSION channel, and suspensions are not rediscovered
-  across a renderer reload — a reload while the prompt was on screen would
-  strand the run silently. Egress becomes expressible when that gap closes,
-  and not before.
+- **NETWORK IS EXPRESSIBLE ONLY THROUGH GATE B (BST-1070, LIVE).** The input
+  schema accepts `allowedDomains` (validated by the seam's exported
+  `policyDomainSchema` — a bare `*` and single-label wildcards never parse),
+  but a request alone opens NOTHING: the tool suspends with the exact domain
+  list BEFORE the host is even resolved, and the policy stays `[]` unless the
+  per-call escalation resumes with an explicit allow. The suspension channel
+  has NO grant surface, so no session grant, per-tool override, or `yolo`
+  posture ever pre-answers it; anything that is not exactly
+  `{action:'allow'}` denies (`network_denied`, carrying `deniedDomains` so
+  the model can rewrite offline), and a missing channel (direct invocation)
+  refuses with `network_confirmation_unavailable` rather than running
+  offline-with-exit-0 or granting silently. Both directions are
+  mutation-proven in `run-python-tool.spec.ts`. The prerequisite that kept
+  this inexpressible (suspend rediscovery across reloads) closed in BST-1084.
+  - **A suspending tool is STORAGE-GATED**: without Mastra workflow storage
+    `run_python` is fail-safe omitted entirely (a pause that cannot resume
+    must never be armed) — which also keeps it off Hosted Web.
+  - **run_python lives in the DEFERRED `execution` discovery namespace**: a
+    scripted test model must load it via `search_tools` first, or the
+    ToolNotFoundError it gets is the discovery surface working, not a
+    suspension bug (see the Gate B integration proof's comment).
   - **Testing the deny is easy to get VACUOUSLY right.** srt enforces
     `allowedDomains` at its HTTP PROXY, so a raw `socket.create_connection` is
     refused by the fence whatever the policy says — a raw-socket assertion
@@ -326,6 +339,20 @@ composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
   to the executor's `stdoutOmittedBytes`/`stderrOmittedBytes`, so the model can
   tell "the script produced 4 MB" from "we showed you the last 10 KB". The tail
   is kept — a traceback ends with the exception.
+- **The approval card's facts are server-computed (BST-1070 Gate A, LIVE).**
+  `run-python-approval-context.ts` derives a `CodeExecutionApprovalContext`
+  (tool-approval contract) from the SAME strict schema + constants execute()
+  uses — network `[]`, scratch under `os.tmpdir()` (only the PARENT is namable
+  pre-mkdtemp, hence `scratchParentDir`), `defaultReadAccess: 'permissive'`
+  (the fence's honest read semantics — see the escape-resistance README), the
+  shared timeout default (single-sourced with the tool via
+  `RUN_PYTHON_DEFAULT_TIMEOUT_MS`). `policyFingerprint` rides the context so
+  approval-time and execute-time terms are COMPARABLE; the execute-time
+  enforcement is deliberately deferred until workspace exec config introduces
+  a real drift input — today both sides are the same pure function of the
+  durable args in the same process, so a compare would be a guard whose
+  failure no test can provoke. Wire path + card behaviour:
+  docs/agents/assistant-runtime.md § PERMISSION ENGINE step 4.
 
 ## Permission engine relationship
 

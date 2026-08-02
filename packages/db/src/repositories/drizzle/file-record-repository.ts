@@ -6,7 +6,8 @@
  */
 
 import type { ResolvedChunkingStrategy } from '@brainstrike/indexing-contract';
-import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import type {

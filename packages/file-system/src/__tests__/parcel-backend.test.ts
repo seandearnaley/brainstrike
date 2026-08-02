@@ -2,7 +2,7 @@
 // No silent fallback anywhere: unsupported platforms and load failures throw
 // typed errors instead of degrading.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ParcelWatcherUnavailableError, selectParcelBackend } from '../adapters/parcel-backend';
+import { ParcelWatcherUnavailableError, selectParcelBackend } from '../adapters/parcel-backend.js';
 
 describe('selectParcelBackend', () => {
   it('maps darwin to fs-events', () => {
@@ -38,7 +38,7 @@ describe('loadParcelWatcher', () => {
 
   it('resolves the real module and caches the promise', async () => {
     vi.resetModules();
-    const { loadParcelWatcher } = await import('../adapters/parcel-backend');
+    const { loadParcelWatcher } = await import('../adapters/parcel-backend.js');
     const first = loadParcelWatcher();
     const second = loadParcelWatcher();
     expect(first).toBe(second);
@@ -52,7 +52,7 @@ describe('loadParcelWatcher', () => {
       throw new Error('No prebuild for exotic-arch');
     });
     const { loadParcelWatcher: load, ParcelWatcherUnavailableError: TypedError } = await import(
-      '../adapters/parcel-backend'
+      '../adapters/parcel-backend.js'
     );
     let thrown: unknown;
     try {

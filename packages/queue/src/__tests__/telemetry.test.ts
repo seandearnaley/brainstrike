@@ -4,7 +4,7 @@ import {
   createQueueTelemetryAggregator,
   emitQueueTelemetry,
   type QueueTelemetryEvent,
-} from '../telemetry';
+} from '../telemetry.js';
 
 describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
   beforeEach(() => {

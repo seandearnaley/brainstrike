@@ -7,6 +7,7 @@
  * Based on Skylark's Variant7Selection pattern with adaptations for Brainstrike.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type {
   CreateViewFilterPresetInput,
   UpdateViewFilterPresetInput,
@@ -15,7 +16,6 @@ import type {
 } from '@brainstrike/types';
 import { PRESET_ICON_OPTIONS } from '@brainstrike/types';
 import { Button, cn, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   Box,
   Check,

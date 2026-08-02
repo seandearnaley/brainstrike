@@ -69,7 +69,7 @@ When running in the browser with `initializeQueueTelemetrySink`, events are batc
 
 ```bash
 pnpm --filter @brainstrike/queue test      # run unit tests
-pnpm --filter @brainstrike/queue run build # clean + tsc + tsup bundle (esm + cjs)
+pnpm --filter @brainstrike/queue run build # clean + tsc project build (JavaScript + declarations)
 ```
 
 `vitest.config.mts` aliases internal packages (`@brainstrike/embedding-worker`, `@brainstrike/utils`) to source paths so tests run without prebuilding.

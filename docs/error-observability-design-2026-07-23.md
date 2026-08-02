@@ -17,10 +17,10 @@ What already exists and is reusable:
 
 | Layer | What exists | Where |
 | --- | --- | --- |
-| Logger | Pino v10 singleton; levels, scoped loggers, 2-layer redaction, `addLogListener` fan-out seam | `packages/utils/src/logger.ts` |
-| In-memory buffers | `LogBuffer` ring buffers: web 500 records, desktop main 3000 | `packages/utils/src/log-buffer.ts`, `apps/web/src/log-buffer.ts`, `apps/desktop/src/main.ts` |
+| Logger | Pino v10 singleton; levels, scoped loggers, 2-layer redaction, `addLogListener` fan-out seam | `packages/logging/src/logger.ts` |
+| In-memory buffers | `LogBuffer` ring buffers: web 500 records, desktop main 3000 | `packages/logging/src/log-buffer.ts`, `apps/web/src/log-buffer.ts`, `apps/desktop/src/main.ts` |
 | Desktop file log | `${logs}/brainstrike.log`, Pino NDJSON, size-rotated at 10 MB × 5 files | `apps/desktop/src/main.ts` (`getLogFilePath`), `apps/desktop/src/diagnostics/main-log-transport.ts` |
-| Renderer error hooks | `window.onerror` + `unhandledrejection` → logger (transient) | `packages/utils/src/logging/install-renderer-error-hooks.ts` |
+| Renderer error hooks | `window.onerror` + `unhandledrejection` → logger (transient) | `packages/logging/src/logging/install-renderer-error-hooks.ts` |
 | Log forwarding IPC | `logging:get-buffered-logs`, `logging:ingest-buffered-record`, `logging:select-destination`, `logging:open-destination` | `apps/desktop/src/platform/logging-api-contract.ts`, `logging-ipc.ts` |
 | Run persistence | `brainstrike_assistant_thread_runs` (status + free-text `error`), `_run_events` (sanitized timeline), `_run_usage` (tokens/cost), `_run_outcomes` (verdicts), `_edit_checkpoints`, `_tool_output_artifacts` | `packages/app-shell/src/assistant-memory-repository.ts` + migrations 046–069 |
 | Error classification | `MastraAgentError` (code/context/cause), `resolveProviderError` / `makeProviderErrorTermination`, `StreamStalledError`, guard/`GuardedToolError`, retry processors | `packages/agent/src/mastra/*`, `packages/agent/src/stream/*`, `packages/agent/src/tools/guard-tool-execution.ts` |

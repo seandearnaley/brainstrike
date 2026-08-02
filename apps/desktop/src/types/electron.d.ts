@@ -6,6 +6,12 @@ import type {
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
+  WorkspaceIndexingIdleState,
+  WorkspaceIndexingPowerSource,
+  WorkspaceIndexingThermalState,
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
+import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
@@ -30,13 +36,6 @@ import type {
   LayoutPersistenceResult,
   PanelPersistenceState,
 } from '@brainstrike/ui';
-import type { LogRecord } from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import type {
-  WorkspaceIndexingIdleState,
-  WorkspaceIndexingPowerSource,
-  WorkspaceIndexingThermalState,
-} from '@brainstrike/utils/workspace-indexing-qos';
 import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,

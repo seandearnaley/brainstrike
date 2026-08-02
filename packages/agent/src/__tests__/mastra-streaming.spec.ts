@@ -14,7 +14,7 @@
  * The fake Mastra stream lives in `./fixtures/mastra-stream-harness`.
  */
 import type { ReadableStream } from 'node:stream/web';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
@@ -1063,6 +1063,7 @@ describe('mastra streaming integration', () => {
       'tool-call-filter',
       'provider-history-compat',
       'openai-tool-search-history-compat',
+      'openai-duplicate-item-compat',
       'token-limiter',
     ]);
   });

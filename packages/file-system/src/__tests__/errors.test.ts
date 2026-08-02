@@ -11,7 +11,7 @@ import {
   isUserCancelledError,
   PermissionError,
   UserCancelledError,
-} from '../errors';
+} from '../errors.js';
 
 // Tests for error class instantiation and properties
 

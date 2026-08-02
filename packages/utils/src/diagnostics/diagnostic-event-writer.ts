@@ -1,4 +1,4 @@
-import type { DiagnosticEvent } from './diagnostic-events';
+import type { DiagnosticEvent } from './diagnostic-events.js';
 
 export interface DiagnosticEventSink {
   insertBatch(events: readonly DiagnosticEvent[]): Promise<void>;

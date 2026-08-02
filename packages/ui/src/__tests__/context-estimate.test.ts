@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { describe, expect, it } from 'vitest';
 import {
   estimateConversationTokens,

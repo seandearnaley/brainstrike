@@ -1,5 +1,5 @@
 {
-  "extends": "../../packages/config/tsconfig/base.json",
+  "extends": "../../packages/config/tsconfig/node-library.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
@@ -8,7 +8,10 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": [
     "src/**/*"

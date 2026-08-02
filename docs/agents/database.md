@@ -96,16 +96,55 @@ extension control file" error on that path only:
 - `pg_textsearch` (BM25 index AM, from
   `@electric-sql/pglite-pg_textsearch`) is a fail-closed, version-qualified
   runtime dependency. The compatible package family is pinned together:
-  `@electric-sql/pglite@0.5.3`,
-  `@electric-sql/pglite-pgvector@0.0.4`, and
-  `@electric-sql/pglite-pg_textsearch@0.0.4`, whose bundled extension reports
-  exactly `pg_textsearch 1.2.0`. Do not independently bump one member.
+  `@electric-sql/pglite@0.5.4`,
+  `@electric-sql/pglite-pgvector@0.0.5`, and
+  `@electric-sql/pglite-pg_textsearch@0.0.6`, whose bundled extension reports
+  exactly `pg_textsearch 1.3.1`. Do not independently bump one member — this
+  is not just a peerDependency lint warning: BST-1063 verified empirically
+  that constructing `new PGlite()` with pglite core 0.5.4 and a held-back
+  `pglite-pg_textsearch@0.0.4` (built against core 0.5.3) throws "PGlite
+  failed to initialize properly" outright, before any SQL runs. The family
+  moves as one unit or not at all.
   pg_textsearch 1.3.x introduced a persisted paged-memtable design and 1.3.1
-  produced invalid BM25 page chains during real `file_chunks` updates.
+  produced invalid BM25 page chains during real `file_chunks` updates when
+  qualified against pglite-pg_textsearch@0.0.5 — that finding quarantined
+  1.3.1 in migration 065/066. BST-1063 re-qualified the *same* extension
+  version 1.3.1 as now bundled by pglite-pg_textsearch@0.0.6 (the PGlite
+  0.5.4 bump left no lower-numbered pg_textsearch option): 6/6 durability-gate
+  runs clean (5 default-config + 1 heavier stress config) plus 3/3 clean
+  trials of the existing-user upgrade path (a BM25 index created under
+  pglite-pg_textsearch@0.0.4/extversion 1.2.0, reopened and further
+  written/read/VACUUMed under the 0.0.6/1.3.1 binary — extversion stayed
+  '1.2.0' in the catalog with no `ALTER EXTENSION UPDATE`, and the index
+  stayed valid throughout). All of that evidence is macOS arm64 only; no CI
+  lane exercises this opt-in gate on any platform, so Linux and Windows
+  remain unproven for this specific engine version. See
+  `packages/db/src/pg-textsearch-compatibility.ts` for the qualification
+  record.
+
+  **The guard protects greenfield installs only — RESOLVED BY RULING
+  (BST-1081, Canceled 2026-08-02): Brainstrike is a greenfield app with no
+  existing installs, so greenfield is the entire population.** The structural
+  facts stand: migration 066's Drizzle ledger key is a fixed string literal
+  (never re-runs for an already-migrated database), nothing calls
+  `ALTER EXTENSION UPDATE`, and no runtime code compares the catalog's
+  extversion against the loaded binary. They simply have nobody to affect —
+  the first public build ships the 0.5.4/1.3.1 family, so every install that
+  will ever exist runs migration 066 under it. Pre-bump DEVELOPMENT databases
+  are the one exception: they land in the 1.2.0-catalog/1.3.1-binary mixed
+  state after upgrading, which is accepted (3/3 clean upgrade-path trials;
+  the BM25 index is derived data) — if such a DB misbehaves in search, reset
+  it or drop/recreate `idx_file_chunks_content_bm25` rather than debugging
+  the mixed state. If an upgrade path from a pre-1.3.1 database is ever
+  shipped, BST-1081's analysis is the spec: `ALTER EXTENSION UPDATE` alone
+  relabels without reconciling index pages (the 1.2.0→1.3.0 upgrade SQL is
+  catalog-only), so the migration must also rebuild the index under the new
+  binary, backed by a committed existing-install test.
   Migration 065 always drops the historical index/extension first; migration
   066 recreates them only after checking
-  `pg_extension.extversion = '1.2.0'`. A package drift therefore aborts
-  migration visibly before BM25 writes begin. The production lexical arm
+  `pg_extension.extversion = '1.3.1'`. A package drift therefore aborts
+  migration visibly before BM25 writes begin **on a greenfield database**.
+  The production lexical arm
   matches through migration 034's generated tsvector + GIN index and orders
   those matches with the migration-066 BM25 index. `rankNormalization` remains
   in the public options type for compatibility but is inert because
@@ -124,6 +163,41 @@ extension control file" error on that path only:
   update the whole peer-compatible package family, pass repeated gate runs on
   every supported desktop platform, and pass the normal
   migration/repository regression suite.
+
+  **Recorded exception (BST-1063, 2026-08-01):** the 1.3.1 re-qualification
+  above shipped on macOS-arm64-only gate evidence, short of the "every
+  supported desktop platform" bar this paragraph states, because the PGlite
+  0.5.4 family leaves no lower-numbered pg_textsearch option to fall back to
+  — see the "family cannot be split" finding earlier in this section. Linux
+  and Windows qualification is owed under BST-1080. This exception covers
+  *platform coverage* only. (The existing-install gap that once also blocked
+  merge is resolved by the BST-1081 greenfield ruling recorded above.)
+
+  PGlite 0.5.4 also fixed Electron process detection to key off
+  `process.type` instead of `process.versions.electron` (upstream commit
+  `7e0d6d1`, PR electric-sql/pglite#1033): the previous guard treated
+  Electron's main and utility processes as non-Node, which could break
+  PGlite's filesystem path there. This lives entirely inside PGlite's own
+  bundled code (`IN_NODE` / `isElectronWebContext`) — Brainstrike has no
+  corresponding workaround in its own source to remove, and
+  `@brainstrike/platform-utils`' `detectPlatform()` is a separate,
+  UI-facing Electron/web classifier unrelated to PGlite's internal Node-FS
+  detection. What BST-1063 actually verified for the construction sites
+  below: the db package's full unit/integration suite (which exercises
+  `wasm-loader.ts` and the worker entries, including under `jsdom`) passed
+  clean post-bump, and a source read confirmed none of the four sites hardcode
+  a PGlite version string, so the bump propagates without code changes. What
+  it did **not** verify: `process.type` is only ever defined inside a real
+  Electron process — a Node or jsdom test run cannot set it, so no test in
+  that suite exercises the exact code path this upstream fix changes. Real
+  main-process host (`apps/desktop/src/db-main.ts`) launch verification under
+  actual Electron is still **owed**, not done — do not read the passing test
+  suite as covering this. The other three construction sites
+  (`pglite-worker-entry.ts`, `browser-first-run-bootstrap-worker.ts`,
+  `wasm-loader.ts`) are worker/renderer hosts where `process.type` is also
+  never `'browser'` (Electron main), so they were never the code path this
+  fix targets in the first place; their coverage by the passing unit suite is
+  real and sufficient.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):

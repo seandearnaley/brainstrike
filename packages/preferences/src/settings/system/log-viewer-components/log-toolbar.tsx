@@ -1,3 +1,4 @@
+import type { LogLevel } from '@brainstrike/logging';
 import {
   Button,
   DropdownMenu,
@@ -12,7 +13,6 @@ import {
   SelectValue,
   Switch,
 } from '@brainstrike/ui';
-import type { LogLevel } from '@brainstrike/utils/logger';
 import type { Table as ReactTableInstance } from '@tanstack/react-table';
 import { Download, RefreshCw, Settings2 } from 'lucide-react';
 import type { ReactNode } from 'react';

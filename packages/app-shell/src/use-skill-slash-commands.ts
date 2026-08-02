@@ -21,10 +21,10 @@ import {
   serializeSkillDirective,
 } from '@brainstrike/assistant-contract';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { createLogger } from '@brainstrike/logging';
 import { useSkillsPreferencesStore } from '@brainstrike/preferences/stores/skills-preferences-store';
 import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 

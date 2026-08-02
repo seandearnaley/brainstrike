@@ -2,7 +2,7 @@ import type {
   EmbedWorkerBatch,
   EmbedWorkerPipelineCacheDiagnostic,
 } from '@brainstrike/indexing-contract';
-import type { EmbeddingDeviceHint } from './types';
+import type { EmbeddingDeviceHint } from './types.js';
 
 export interface WorkerpoolEmbeddingTelemetrySink {
   readonly recordBatch: (sourceId: string, event: EmbedWorkerBatch) => void;

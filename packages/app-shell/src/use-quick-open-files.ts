@@ -4,9 +4,9 @@ import {
   type QuickOpenFileRow,
 } from '@brainstrike/db';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { QuickOpenFileItem } from '@brainstrike/ui';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useMemo } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
 import { useDebouncedQuery } from './use-debounced-query';

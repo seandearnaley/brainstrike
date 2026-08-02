@@ -12,11 +12,7 @@ const mockListAgentProviders = vi.hoisted(() => vi.fn());
 const mockGetSecretsService = vi.hoisted(() => vi.fn());
 const mockIsSupportedProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: () => logger,
-}));
-
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: () => logger,
 }));
 

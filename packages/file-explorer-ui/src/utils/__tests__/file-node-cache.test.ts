@@ -1,5 +1,5 @@
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import { describe, expect, it } from 'vitest';
 import {
   buildFileNodeCache,

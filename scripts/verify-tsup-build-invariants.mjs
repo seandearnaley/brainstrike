@@ -14,32 +14,30 @@
 //
 // WHY A GUARD AND NOT THE ORIGINALLY-PROPOSED FACTORY (BST-746 rescope).
 // BST-746 first proposed a `createTsupConfig` factory in @brainstrike/build-utils.
-// That was measured and rejected: only 9 of the 18 configs are simple, and they
-// genuinely diverge on output-affecting fields (`sourcemap`, `format`, `target`,
-// and `splitting` — tsup defaults `splitting` to TRUE for ESM, so build-utils,
-// embeddings and text-splitter really do split today). Wiring a factory would
+// That was measured and rejected: at the time only 9 of 18 configs were simple,
+// and they genuinely diverged on output-affecting fields (`sourcemap`, `format`,
+// `target`, and `splitting`). Wiring a factory would
 // also either add 8 new build-graph edges (none of those packages depend on
 // build-utils) or land in the config-load hash-gap class that
 // scripts/verify-config-load-hash-coverage.mjs exists to guard. A factory would
 // have unified the 4 fields that must stay different while doing nothing to stop
-// the 2 that must stay the same from drifting. This guard does the opposite: it
-// pins exactly the invariants, and costs the build graph nothing.
+// the 2 that must stay the same from drifting. BST-1014 removed tsup from
+// ordinary libraries instead of abstracting their obsolete configs; this guard
+// pins the invariants for the eight real bundle boundaries left behind.
 //
-// THE INVARIANT IS CONDITIONAL, AND THAT IS MEASURED, NOT ASSUMED. The repo runs
-// two build architectures, and only one of them is governed here:
+// THE INVARIANT IS CONDITIONAL, AND THAT IS MEASURED, NOT ASSUMED. BST-1014
+// reduced tsup to eight real bundlers; they retain two declaration architectures:
 //
-//   TYPESCRIPT-OWNED (17 packages, 14 of them with a tsup.config.ts) — `build`
+//   TYPESCRIPT-OWNED (5 packages, all with a tsup.config.ts) — `build`
 //     runs `tsc -b .` (or `tsc --build`) and then tsup. TypeScript emits the
 //     declarations; tsup emits JS into the same outDir. Both invariants above
-//     apply. Three of them (queue, types, worker-runtime) drive tsup entirely
-//     from CLI flags with no config file, which is why the flag check below is
-//     not optional: a config-file-only scan would skip them completely.
-//   TSUP-OWNED (4 packages: chunking-worker, file-tree-worker, test-utils,
-//     token-cache) — `build` runs tsup ALONE (`type-check` is a separate
+//     apply.
+//   TSUP-OWNED (3 packages: chunking-worker, file-tree-worker, token-cache) —
+//     `build` runs tsup ALONE (`type-check` is a separate
 //     `tsc --noEmit`). Nothing else emits declarations, so tsup MUST enable
 //     declaration emit, and its clean is safe because tsup is the only writer of
-//     that outDir. Stating "every config sets clean/dts false" as a flat rule
-//     would have been false for 4 of 18 configs on the day it was written.
+//     that outDir. Stating "every config sets clean/dts false" as a flat rule is
+//     false for these three configs.
 //
 // The tsup-owned class is not a dumping ground: it carries the INVERSE
 // obligation (declaration emit must actually be enabled, or the package ships no
@@ -155,13 +153,13 @@ export const CLEAN_CLI_FLAGS = Object.freeze(['--clean']);
  * legitimate change drops the real count below a floor, LOWER THE FLOOR
  * DELIBERATELY in a reviewed change; never delete the assertion.
  *
- * MIN_TSUP_CONFIGS guards the file scan (18 configs today).
- * MIN_TYPESCRIPT_OWNED_PACKAGES guards the CLASS the invariant governs (17
+ * MIN_TSUP_CONFIGS guards the file scan (8 configs today).
+ * MIN_TYPESCRIPT_OWNED_PACKAGES guards the CLASS the invariant governs (5
  * today) — a scan that found every config but classified them all as tsup-owned
  * would enumerate plenty of files and still check nothing.
  */
-export const MIN_TSUP_CONFIGS = 12;
-export const MIN_TYPESCRIPT_OWNED_PACKAGES = 8;
+export const MIN_TSUP_CONFIGS = 8;
+export const MIN_TYPESCRIPT_OWNED_PACKAGES = 5;
 
 /** Matches `tsc -b`/`tsc --build`, the marker of TypeScript-owned declarations. */
 const TSC_BUILD_RE = /\btsc\s+(?:-b\b|--build\b)/;
@@ -388,7 +386,7 @@ export function discoverTsupPackages(repoRoot) {
         throw err; // NO SILENT FALLBACK: only a genuinely absent config is skippable
       }
     }
-    if (configSource === null && !TSUP_INVOCATION_RE.test(buildScript)) {
+    if (!TSUP_INVOCATION_RE.test(buildScript)) {
       continue;
     }
     packages.push({
@@ -497,8 +495,8 @@ export function findTsupInvariantViolations({ repoRoot = REPO_ROOT } = {}) {
     throw new Error(
       `Refusing to run: discovered only ${configs.length} tsup.config.ts file(s), below the floor of ` +
         `${MIN_TSUP_CONFIGS}. A near-empty scan would iterate almost nothing and report a vacuous green. Usually ` +
-        'means pnpm-workspace.yaml stopped parsing or discoverTsupPackages() broke, not that 6+ packages ' +
-        'legitimately dropped tsup at once.'
+        'means pnpm-workspace.yaml stopped parsing, discoverTsupPackages() broke, or a real bundler lost its ' +
+        'package-local config.'
     );
   }
   if (typescriptOwned.length < MIN_TYPESCRIPT_OWNED_PACKAGES) {

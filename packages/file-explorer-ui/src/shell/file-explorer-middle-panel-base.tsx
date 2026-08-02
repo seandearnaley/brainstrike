@@ -1,8 +1,8 @@
+import { generateProjectTreeTextResult } from '@brainstrike/file-explorer/project-tree-text';
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { createLogger } from '@brainstrike/logging';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -161,9 +161,9 @@ export const FileExplorerMiddlePanelBase = ({
   const handleDownloadContext = reportActions.handleDownloadContext;
   const handleCopyContext = reportActions.handleCopyContext;
 
-  const projectTreeText = useMemo(
+  const projectTreeResult = useMemo(
     () =>
-      generateProjectTreeText(
+      generateProjectTreeTextResult(
         projectTreeSource,
         projectTreeUsesViewFilters ? includeFilters : [],
         projectTreeUsesViewFilters ? excludeFilters : [],
@@ -179,10 +179,12 @@ export const FileExplorerMiddlePanelBase = ({
       useRegex,
     ]
   );
+  const projectTreeText = projectTreeResult.ok ? projectTreeResult.text : '';
+  const projectTreeValidationError = projectTreeResult.ok ? undefined : projectTreeResult.error;
 
   const { tokenCount: projectTreeTokenCount, loading: projectTreeTokenCountLoading } =
     useTextTokenCount({
-      enabled: selectedFilePaths.size > 0,
+      enabled: selectedFilePaths.size > 0 && projectTreeResult.ok,
       text: projectTreeText,
     });
 
@@ -285,6 +287,7 @@ export const FileExplorerMiddlePanelBase = ({
               projectTreeTokenCount={projectTreeTokenCount}
               projectTreeTokenCountLoading={projectTreeTokenCountLoading}
               projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+              projectTreeValidationError={projectTreeValidationError}
               selectedFiles={selectedFilePaths}
               tokenBudget={tokenBudget}
               tokenCounting={tokenCounting}

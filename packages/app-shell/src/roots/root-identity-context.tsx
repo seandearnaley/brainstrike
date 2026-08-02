@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
 
 const logger = createLogger('RootIdentity');

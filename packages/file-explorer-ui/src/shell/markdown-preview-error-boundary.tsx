@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { Component, type ReactNode } from 'react';
 
 const logger = createLogger('MarkdownPreview');

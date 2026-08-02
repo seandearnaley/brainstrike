@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculatePathDepth, extractPathSegments } from '../path-utils';
+import { calculatePathDepth, extractPathSegments } from '../path-utils.js';
 
 describe('extractPathSegments', () => {
   it('returns an empty array for an empty string', () => {

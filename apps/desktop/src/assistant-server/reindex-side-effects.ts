@@ -12,7 +12,7 @@
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { invalidateManagedCacheEntriesByIdentity } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';

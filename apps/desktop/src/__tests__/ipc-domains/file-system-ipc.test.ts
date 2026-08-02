@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

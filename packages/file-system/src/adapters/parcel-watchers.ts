@@ -16,7 +16,7 @@
 //   resource saving (same names, no broadening).
 import fs from 'node:fs';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_IGNORE_PATTERNS, fileFilter } from '@brainstrike/utils/path-filter';
 import type {
   DirectoryHandle,
@@ -24,9 +24,13 @@ import type {
   WatcherFailure,
   WatcherHealthState,
   WatcherHealthTransition,
-} from '../types';
-import { createFileSystemChangeBatcher } from './electron-watchers';
-import { loadParcelWatcher, type ParcelWatcherModule, selectParcelBackend } from './parcel-backend';
+} from '../types.js';
+import { createFileSystemChangeBatcher } from './electron-watchers.js';
+import {
+  loadParcelWatcher,
+  type ParcelWatcherModule,
+  selectParcelBackend,
+} from './parcel-backend.js';
 
 const logger = createLogger('ParcelWatchers');
 

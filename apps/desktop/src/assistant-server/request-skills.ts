@@ -24,7 +24,7 @@ import type {
 } from '@brainstrike/agent';
 import { createScannedWorkspaceSkills, MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
 import type { SkillsContextRequest } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('AssistantSkills');
 

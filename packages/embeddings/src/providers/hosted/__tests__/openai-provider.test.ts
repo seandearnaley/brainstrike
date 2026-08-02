@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { EmbeddingInput } from '../../../provider-types';
-import { OpenAIEmbeddingProvider } from '../openai-provider';
+import type { EmbeddingInput } from '../../../provider-types.js';
+import { OpenAIEmbeddingProvider } from '../openai-provider.js';
 
 const createMockFetch = (response: Response) => vi.fn(() => Promise.resolve(response));
 

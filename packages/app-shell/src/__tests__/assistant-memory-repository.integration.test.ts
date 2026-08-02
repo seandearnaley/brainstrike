@@ -3,7 +3,11 @@ import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
-import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  type RediscoveredToolSuspend,
+  TOOL_SUSPEND_DATA_NAME,
+  UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -50,6 +54,18 @@ function makeApproval(overrides: Partial<RediscoveredToolApproval>): Rediscovere
     suspendedAt: '2026-04-22T10:05:00.000Z',
     toolCallId: 'call-1',
     toolName: 'brainstrike.executeCommand',
+    ...overrides,
+  };
+}
+
+function makeSuspend(overrides: Partial<RediscoveredToolSuspend>): RediscoveredToolSuspend {
+  return {
+    runId: 'run-suspend-1',
+    stale: false,
+    suspendedAt: '2026-04-22T10:06:00.000Z',
+    suspendPayload: { question: 'Which region?' },
+    toolCallId: 'call-suspend-1',
+    toolName: 'brainstrike.askUser',
     ...overrides,
   };
 }
@@ -378,10 +394,13 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
   it('appends a synthetic approval notice message per rediscovered suspended run', async () => {
     const repository = makeMessagesOnlyRepository();
-    const discoverSuspendedApprovals = vi.fn(async () => [makeApproval({})]);
+    const discoverSuspendedRuns = vi.fn(async () => ({
+      approvals: [makeApproval({})],
+      suspends: [],
+    }));
 
     const adapter = createAssistantThreadHistoryAdapter({
-      discoverSuspendedApprovals,
+      discoverSuspendedRuns,
       repository,
       resourceId: 'workspace-a',
       threadId: 'thread-1',
@@ -389,7 +408,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     const history = await adapter.load();
 
-    expect(discoverSuspendedApprovals).toHaveBeenCalledWith('thread-1', 'workspace-a');
+    expect(discoverSuspendedRuns).toHaveBeenCalledWith('thread-1', 'workspace-a');
     const last = history.messages.at(-1);
     expect(last?.message.id).toBe('suspended-approval:run-1:call-1');
     expect(last?.parentId).toBe('message-1');
@@ -413,10 +432,10 @@ describe('createAssistantThreadHistoryAdapter', () => {
     });
     const repository = makeMessagesOnlyRepository();
     repository.listMessages = vi.fn(() => messagesPromise);
-    const discoverSuspendedApprovals = vi.fn(async () => []);
+    const discoverSuspendedRuns = vi.fn(async () => ({ approvals: [], suspends: [] }));
 
     const adapter = createAssistantThreadHistoryAdapter({
-      discoverSuspendedApprovals,
+      discoverSuspendedRuns,
       repository,
       resourceId: 'workspace-a',
       threadId: 'thread-1',
@@ -425,7 +444,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
     const loadPromise = adapter.load();
     // Discovery must be dispatched without waiting for the (still-pending) history query.
     await Promise.resolve();
-    expect(discoverSuspendedApprovals).toHaveBeenCalledTimes(1);
+    expect(discoverSuspendedRuns).toHaveBeenCalledTimes(1);
 
     resolveMessages([
       {
@@ -450,10 +469,10 @@ describe('createAssistantThreadHistoryAdapter', () => {
       suspendedAt: '2026-04-22T11:00:00.000Z',
       toolCallId: 'call-older',
     });
-    const discoverSuspendedApprovals = vi.fn(async () => [newer, older]);
+    const discoverSuspendedRuns = vi.fn(async () => ({ approvals: [newer, older], suspends: [] }));
 
     const adapter = createAssistantThreadHistoryAdapter({
-      discoverSuspendedApprovals,
+      discoverSuspendedRuns,
       repository,
       resourceId: 'workspace-a',
       threadId: 'thread-1',
@@ -471,6 +490,67 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(history.headId).toBe('suspended-approval:run-newer:call-newer');
   });
 
+  it('appends a synthetic SUSPEND notice message carrying the tool-suspend data part (BST-1084)', async () => {
+    const repository = makeMessagesOnlyRepository();
+    const pause = makeSuspend({});
+    const discoverSuspendedRuns = vi.fn(async () => ({ approvals: [], suspends: [pause] }));
+
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedRuns,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    const last = history.messages.at(-1);
+    expect(last?.message.id).toBe('suspended-pause:run-suspend-1:call-suspend-1');
+    expect(last?.message.role).toBe('assistant');
+    // The data part is IDENTICAL in name to the live-stream mapper's output,
+    // so AssistantToolSuspendNotice renders it and its typed resume action
+    // reuses the stateless resume seam unchanged.
+    expect(last?.message.content).toEqual([
+      { data: pause, name: TOOL_SUSPEND_DATA_NAME, type: 'data' },
+    ]);
+    expect(history.headId).toBe('suspended-pause:run-suspend-1:call-suspend-1');
+  });
+
+  it('interleaves rediscovered approvals and suspends oldest-first by suspendedAt', async () => {
+    const repository = makeMessagesOnlyRepository();
+    const olderSuspend = makeSuspend({
+      runId: 'run-s-old',
+      suspendedAt: '2026-04-22T10:30:00.000Z',
+      toolCallId: 'call-s-old',
+    });
+    const newerApproval = makeApproval({
+      runId: 'run-a-new',
+      suspendedAt: '2026-04-22T11:00:00.000Z',
+      toolCallId: 'call-a-new',
+    });
+    const discoverSuspendedRuns = vi.fn(async () => ({
+      approvals: [newerApproval],
+      suspends: [olderSuspend],
+    }));
+
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedRuns,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+    const pauseIds = history.messages
+      .filter((item) => item.message.id.startsWith('suspended-'))
+      .map((item) => item.message.id);
+    expect(pauseIds).toEqual([
+      'suspended-pause:run-s-old:call-s-old',
+      'suspended-approval:run-a-new:call-a-new',
+    ]);
+    expect(history.headId).toBe('suspended-approval:run-a-new:call-a-new');
+  });
+
   it('is byte-identical to the base hydration when no discovery capability is provided', async () => {
     const repository = makeMessagesOnlyRepository();
     const withoutCapability = await createAssistantThreadHistoryAdapter({
@@ -479,9 +559,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
       threadId: 'thread-1',
     }).load();
 
-    const emptyDiscovery = vi.fn(async () => []);
+    const emptyDiscovery = vi.fn(async () => ({ approvals: [], suspends: [] }));
     const withEmptyDiscovery = await createAssistantThreadHistoryAdapter({
-      discoverSuspendedApprovals: emptyDiscovery,
+      discoverSuspendedRuns: emptyDiscovery,
       repository: makeMessagesOnlyRepository(),
       resourceId: 'workspace-a',
       threadId: 'thread-1',

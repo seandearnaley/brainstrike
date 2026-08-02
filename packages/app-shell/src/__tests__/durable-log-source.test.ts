@@ -1,10 +1,10 @@
 import type { DiagnosticEventsDatabase } from '@brainstrike/db';
+import { LogLevel } from '@brainstrike/logging';
 import {
   type DiagnosticEvent,
   type DiagnosticSeverity,
   parseDiagnosticEventLine,
 } from '@brainstrike/utils/diagnostics';
-import { LogLevel } from '@brainstrike/utils/logger';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createDurableLogSource,

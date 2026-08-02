@@ -1,7 +1,7 @@
 import { type IDatabase, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { startEmbeddingWorker } from '../index.js';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -10,8 +10,8 @@ import type {
   EmbeddingStatus,
   ModelConfig,
   SimilarityResult,
-} from '../types';
-import { clearModelConfigCache } from '../worker/embedding-worker';
+} from '../types.js';
+import { clearModelConfigCache } from '../worker/embedding-worker.js';
 
 const PGLITE_SETUP_TIMEOUT_MS = 90_000;
 const EMBEDDING_WORKER_TEST_TIMEOUT_MS = 30_000;
@@ -33,6 +33,14 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
   return {
     ...actual,
+    generateUUID: () => 'test-uuid',
+  };
+});
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
     createLogger: () => ({
       debug: (...args: unknown[]) => loggerCalls.debug.push(args),
       error: (...args: unknown[]) => loggerCalls.error.push(args),
@@ -40,7 +48,6 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
       trace: (...args: unknown[]) => loggerCalls.trace.push(args),
       warn: (...args: unknown[]) => loggerCalls.warn.push(args),
     }),
-    generateUUID: () => 'test-uuid',
   };
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { accumulateAncestorDirectoryCounts, getAncestorDirectoryPaths } from '../path-ancestors';
+import { accumulateAncestorDirectoryCounts, getAncestorDirectoryPaths } from '../path-ancestors.js';
 
 describe('getAncestorDirectoryPaths', () => {
   it('returns ancestor directories for nested absolute file paths', () => {

@@ -826,8 +826,10 @@ removing it. `topo` hashes the FULL default inputs (no test-file exclusions —
 "never imported cross-package", so narrowing was reviewed out as a stale-green
 vector; test-only over-invalidation is the cheaper failure mode). Explicit build edges survive in per-package
 `turbo.json` where a test genuinely consumes a built artifact:
-`@brainstrike/utils#test` needs its own `build` (logger-dist-singleton test
-imports utils' `dist` by file URL); `@brainstrike/db#test`/`#test:coverage`
+`@brainstrike/logging#test` needs its own `build` (logger-dist-singleton test
+imports logging's `dist` by file URL); `@brainstrike/utils#test` needs its own
+`build` (typescript-build-contract test inspects emitted files);
+`@brainstrike/db#test`/`#test:coverage`
 need `@brainstrike/utils#build` (migration-runner-types test's nested
 `ts.createProgram` resolves utils types from `dist` — vitest aliases can't
 intercept tsc); `@brainstrike/secure-fs-native#test`/`#test:coverage` need
@@ -853,8 +855,9 @@ lane of a native package.
 Because these lanes no longer build inline, invoking them OUTSIDE turbo and
 without a prior build (`pnpm --filter @brainstrike/secure-fs-native test`, or a
 bare `pnpm test:fast` / `test:coverage:base`, which use recursive `pnpm -r`
-rather than turbo) finds no addon. This matches `@brainstrike/utils`, whose
-dist-singleton tests fail the same way without a prior build, and the `check.mjs`
+rather than turbo) finds no addon. This matches `@brainstrike/logging` and
+`@brainstrike/utils`, whose built-artifact tests fail the same way without a
+prior build, and the `check.mjs`
 gate is safe because it runs `build` before the turbo test lanes sequentially
 (BST-1009 replaced its `test:fast`/`test:coverage:split` steps with the same
 `turbo run test` / `turbo run test:integration` invocations CI uses, so the
@@ -1023,7 +1026,11 @@ emits files whose sources are in the current program, so the prune set is
 disjoint from its writes. That disjointness silently depends on tsup NOT
 code-splitting (hashed split chunks have no source counterpart and would be
 pruned out from under a sibling build), so the wiring contract statically
-requires `splitting: false` in every pruned package's tsup config. The pruner
+requires `splitting: false` in every pruned package's tsup config. After
+BST-1014, `agent` and `file-explorer` are the complete live intersection of
+pruned packages and real bundle boundaries; the paired test pins its
+anti-vacuity floor to both while continuing to discover and inspect every future
+intersection member. The pruner
 itself requires `tsconfig.json` with rootDir `src` and outDir `dist` and
 per-file emit — anything else throws, and such a package must clean instead. `ui`'s
 `pnpm run clean:generated` cleans stray compiled JS in `src`, not `dist` — it
@@ -1035,6 +1042,84 @@ before every snapshot-producing build launders dist before archiving. The
 wiring contract, pruner behavior, entrypoint controls, and the `turbo.jsonc`
 `global.inputs` hash entry for the pruner (editing it must invalidate
 cached builds) are guarded by `scripts/__tests__/prune-stale-dist.test.mjs`.
+
+### Canonical package build strategies (BST-1014)
+
+Non-native typed packages have two JavaScript build classes, derived from
+`scripts.build` rather than from a package registry:
+
+- **Libraries use TypeScript emit.** A plain library builds JavaScript and
+  declarations together with `tsc -b`. All 30 libraries with the canonical
+  `rootDir: src` / `outDir: dist` layout prepend
+  `node ../../scripts/prune-stale-dist.mjs`; it removes deleted-source artifacts
+  without discarding `.tsbuildinfo`, so a normal build does not turn
+  TypeScript's project-reference builder into a forced clean rebuild. The sole
+  tsc-only layout exception is `workers`: its source files live at the package
+  root, outside the pruner's deliberately narrow safety contract, so it keeps an
+  explicit clean. This is derived from resolved compiler layout, not a package
+  allowlist. A TypeScript-emitted library does not retain a tsup config, tsup
+  dependency, or tsup watch command.
+- **tsup is for real bundle boundaries.** Eight packages require bundling:
+  `chunking-worker`, `embedding-worker`, `file-tree-worker`, and `token-cache`
+  package browser workers/WASM/assets; `agent` produces the self-contained
+  hosted-web boundary; `assistant-service` and `assistant-wire` retain the CJS
+  surface consumed by the Node16 web API project; and `file-explorer` emits the
+  renderer's worker-storage artifact. Adding a ninth bundler is an architectural
+  decision, not a convenient way to emit a second module format.
+  This is the compatibility boundary for BST-1014, not an endorsement of tsup as
+  the R10 endpoint: upstream marks tsup unmaintained and recommends tsdown. A
+  replacement must preserve the custom worker/WASM/assets and CJS contracts and
+  carry measured artifact and wall-clock evidence; swapping emitters inside the
+  library migration would combine those risks and make regressions unattributable.
+- **Native addons remain native builds.** `secure-fs-native` and
+  `windows-job-native` use `node-gyp`; the build-strategy guard recognizes that
+  structural class rather than pretending a TypeScript or tsup command owns the
+  native artifact.
+- **Node-compatible emitted ESM is compiler-enforced.** Libraries migrated from
+  tsup extend `packages/config/tsconfig/node-library.json`, whose `module` and
+  `moduleResolution` are `NodeNext`; declare `type: module`; expose the one emitted
+  runtime artifact through `types` + `default`; and spell local TypeScript imports
+  as `.js` in source. TypeScript therefore rejects extensionless relative imports,
+  directory imports, invalid package-export subpaths, and missing JSON attributes
+  during every editor/type-check/build pass. A `require` export condition is not a
+  synonym for “Node can require synchronous ESM”: it must point to a real CJS
+  artifact. A CommonJS composition boundary that consumes one of these libraries
+  uses native dynamic `import()` (and an explicit `resolution-mode: import` for
+  type-only imports) rather than forcing the library back into dual-format
+  bundling. The Vercel API's Node16 check proves both are load-bearing: a static
+  logger import fails TS1479 and a plain type-only import fails TS1541. The route
+  memoizes the import lazily inside the first request so a failed seam is observed
+  by that request, never left as a module-initialization rejection. Playwright's
+  TypeScript loader is a distinct CommonJS
+  transform boundary: a Node-side E2E helper imports the narrowest side-effect-
+  free contract subpath it needs instead of a package barrel that transitively
+  loads browser-oriented `import.meta` modules. Desktop assistant mocks pin this
+  through `@brainstrike/assistant-contract/assistant-stream-session`; the desktop
+  smoke lane is the runtime proof.
+- **Browser-only emit keeps Bundler resolution.** `file-explorer-hooks` is a
+  React/Vite library whose public surface imports the browser-only `ui` barrel.
+  That barrel's declarations intentionally model a bundler and contain
+  extensionless re-exports; consuming them under NodeNext loses named exports
+  behind `skipLibCheck` (TS2305 at the hook tests). The package therefore extends
+  the shared Bundler config while still using the same canonical `tsc -b` build.
+  Module resolution follows the runtime that loads the emitted graph; it is not
+  a second build strategy.
+
+`scripts/verify-package-build-strategies.mjs` (alias
+`lint:package-build-strategies`, present in both lint chains) enforces the two
+classes, the native-addon exception, the exact bundler budget, incremental-safe
+cleanup for every compatible src-to-dist library, removal of every supported tsup config-file
+shape/dependency/dev command, canonical `tsup.config.ts` for current bundles,
+NodeNext manifest conditions, and that every dist code export is an output of
+the package's parsed TypeScript program. TypeScript's config loader resolves
+array and indirect `extends`; the guard does not approximate inheritance or
+re-parse module syntax. Discovery comes from workspace manifests and resolved
+compiler configs; there is no identity mapping file. Its anti-vacuity floors
+cover typed build packages, tsc-only libraries, incremental-safe pruned
+libraries, and NodeNext consumers. The
+paired `scripts/__tests__/verify-package-build-strategies.test.mjs` money tests
+mutate each protected seam, while a real compiler control observes NodeNext
+rejecting an extensionless ESM import with TS2835.
 
 ### Agent declaration build split
 
@@ -1069,27 +1154,26 @@ tsup emit declarations (the separate declaration-bundler worker duplicates
 `tsc -b` and causes severe build startup contention).
 
 BST-746 originally proposed a `createTsupConfig` factory in
-`@brainstrike/build-utils`. Measured and REJECTED — do not relitigate: only 9 of
-18 configs are simple, and they genuinely diverge on `sourcemap`, `format`,
-`target` and `splitting` (tsup defaults `splitting` to TRUE for ESM, so
-build-utils/embeddings/text-splitter really do split). A factory would also have
-added 8 build-graph edges (none of those packages depend on build-utils) or hit
-the config-load hash-gap class `verify-config-load-hash-coverage.mjs` guards —
-unifying the 4 fields that must stay different while doing nothing about the 2
-that must stay the same.
+`@brainstrike/build-utils`. Measured and REJECTED — do not relitigate: at that
+time only 9 of 18 configs were simple, and they genuinely diverged on
+`sourcemap`, `format`, `target` and `splitting`. A factory would also have added
+8 build-graph edges or hit the config-load hash-gap class
+`verify-config-load-hash-coverage.mjs` guards. BST-1014 resolved the ordinary
+library duplication by removing tsup from those packages, not by abstracting
+their obsolete configs; the eight remaining configs describe real, divergent
+bundle boundaries.
 
 The invariant is CONDITIONAL, and the class is DERIVED from each package's
-`build` script rather than hand-listed (a list would be a second copy of a fact
-already in the script, free to disagree with it). **TypeScript-owned** (17
-packages, 14 with a config file) runs `tsc -b`/`tsc --build` then tsup, and is
-governed. **tsup-owned** — exactly `chunking-worker`, `file-tree-worker`,
-`test-utils`, `token-cache` — runs tsup ALONE (`type-check` is a separate
-`tsc --noEmit`), so tsup is the only possible declaration emitter and `dts: true`
-is REQUIRED there. A flat "every config sets clean/dts false" rule would have
-been false for those 4 on the day it was written. The exemption carries the
-INVERSE obligation (a tsup-owned package that enables no declaration emit FAILS),
-so it cannot be used as a parking spot to silence a violation; a test pins the
-exempt set to those four names so growing it is a deliberate decision.
+`build` script rather than hand-listed. **TypeScript-owned** — `agent`,
+`assistant-service`, `assistant-wire`, `embedding-worker`, and `file-explorer` —
+runs `tsc -b`/`tsc --build` then tsup, and is governed. **tsup-owned** — exactly
+`chunking-worker`, `file-tree-worker`, and `token-cache` — runs tsup ALONE
+(`type-check` is a separate `tsc --noEmit`), so tsup is the only possible
+declaration emitter and `dts: true` is REQUIRED there. A flat "every config sets
+clean/dts false" rule is false for those three. The exemption carries the
+INVERSE obligation (a tsup-owned package that enables no declaration emit
+FAILS), so it cannot be used as a parking spot to silence a violation; a test
+pins the exempt set to those three names so growing it is deliberate.
 
 Three rulings, all enforced and all with failure-path tests:
 
@@ -1106,9 +1190,9 @@ Three rulings, all enforced and all with failure-path tests:
    which is the problem: `text-splitter` set neither while the guard claimed all
    governed packages were "pinned", an unverified assertion (the vacuous-green
    class the discovery floors exist to prevent), and deleting `clean: false` from
-   a config would have been a silent no-op. Config-LESS packages (`queue`,
-   `types`, `worker-runtime`) are exempt from this — they have nothing to drift
-   and are covered by the CLI check instead.
+   a config would have been a silent no-op. The lower-level guard still models
+   config-less tsup CLI invocations so its own flag detector cannot be bypassed,
+   while the canonical package-build guard rejects that third real-tree shape.
 3. **Every declaration-emit spelling is modelled**, verified against the
    installed tsup 8.5.1 rather than from memory: config keys `dts` AND
    `experimentalDts`, plus four CLI flags — `--dts`, `--dts-only`,
@@ -1117,10 +1201,11 @@ Three rulings, all enforced and all with failure-path tests:
    `--dts-resolve` each enable emit ON THEIR OWN; they are not modifiers of
    `--dts`. `experimentalDts` may be omitted but never enabled.
 
-Discovery floors (`MIN_TSUP_CONFIGS`, `MIN_TYPESCRIPT_OWNED_PACKAGES`) refuse to
-run rather than report a vacuous green — the second catches a collapsed
-classification, where discovery looks healthy but the governed class has emptied
-out. Config parsing is line-shaped with comments blanked (preserving line
+Discovery floors (`MIN_TSUP_CONFIGS` = 8,
+`MIN_TYPESCRIPT_OWNED_PACKAGES` = 5) refuse to run rather than report a vacuous
+green — the second catches a collapsed classification, where discovery looks
+healthy but the governed class has emptied out. Config parsing is line-shaped
+with comments blanked (preserving line
 numbers, which are printed in the report) after normalizing Windows CRLF input
 to LF; a permissive cross-check THROWS on any
 guarded token the line shape did not parse, so an unmodelled shape fails loudly
@@ -1139,8 +1224,16 @@ The browser `o200k_base` table is resolved through Vite's `?url` asset contract
 and fetched only when an accurate-token-counting worker first initializes.
 Keep the table out of JavaScript chunks and out of both apps' initial HTML
 module-preload closure. Heuristic counting must not fetch the table. The
-runtime behavior and both app ceilings are pinned by the utils accurate-runtime
-tests and app Vite-config tests.
+runtime behavior and both app ceilings are pinned by the tokenization package's
+strict-counter/worker-lite tests and app Vite-config tests.
+
+`@brainstrike/tokenization` is an ordinary tsc-only library and the sole source
+owner. Its root exposes only synchronous constants, heuristics, and cost helpers;
+its only public subpaths are the strict-counter and worker-lite modules that have
+real consumers. Importing the root cannot pull tokenizer assets into an eager
+graph. `chunking-worker` and `token-cache` bundle those shared entrypoints into
+their own isolated artifacts; neither owns a source shim or imports the other
+worker package.
 
 The `chunking-worker` and `token-cache` tsup builds must install the shared
 `tokenizerAssetPlugin` so their published worker artifacts preserve that URL

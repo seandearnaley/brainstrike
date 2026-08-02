@@ -1,9 +1,9 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { checkBudget, createTimer } from '@brainstrike/utils';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createPathFilterMatcher } from '@brainstrike/utils/filter-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 
 import { loadDirectoryChildren } from './lazy-tree-loader';
 

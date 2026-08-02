@@ -30,10 +30,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
       {
-        find: '@brainstrike/utils/token-counting-runtime',
-        replacement: resolve(import.meta.dirname, '../utils/src/token-counting-runtime.ts'),
-      },
-      {
         find: '@brainstrike/utils/create-debounce',
         replacement: resolve(import.meta.dirname, '../utils/src/create-debounce.ts'),
       },
@@ -46,20 +42,8 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/filter-utils.ts'),
       },
       {
-        find: '@brainstrike/utils/logger',
-        replacement: resolve(import.meta.dirname, '../utils/src/logger.ts'),
-      },
-      {
-        find: '@brainstrike/utils/logging-preferences',
-        replacement: resolve(import.meta.dirname, '../utils/src/logging-preferences.ts'),
-      },
-      {
         find: '@brainstrike/utils/quick-filter-utils',
         replacement: resolve(import.meta.dirname, '../utils/src/quick-filter-utils.ts'),
-      },
-      {
-        find: '@brainstrike/utils/report-generator',
-        replacement: resolve(import.meta.dirname, '../utils/src/report-generator.ts'),
       },
       {
         find: '@brainstrike/utils/env-utils',
@@ -92,10 +76,6 @@ export default defineConfig({
       {
         find: '@brainstrike/types',
         replacement: resolve(import.meta.dirname, '../types/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       {
         find: '@brainstrike/file-system',

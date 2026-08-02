@@ -4,8 +4,8 @@ import {
   applyManagedCacheBatch as applyManagedCacheBatchStandalone,
   type ManagedCacheBatchMutation,
 } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { generateContentHash } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('ReindexEditedFile');
 

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 
 const logger = createLogger('ToolRegistry');

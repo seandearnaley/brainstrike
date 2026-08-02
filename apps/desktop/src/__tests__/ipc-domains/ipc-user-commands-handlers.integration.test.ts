@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createNodeFsScanDeps } from '../../assistant-server/node-fs-scan-deps';
 import { __resetUserCommandWarningsForTests } from '../../assistant-server/user-slash-commands-loader';

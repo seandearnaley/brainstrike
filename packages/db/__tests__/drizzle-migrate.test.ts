@@ -4,7 +4,7 @@
  * Tests the browser-compatible migration runner.
  */
 
-import { addLogListener } from '@brainstrike/utils';
+import { addLogListener } from '@brainstrike/logging';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';

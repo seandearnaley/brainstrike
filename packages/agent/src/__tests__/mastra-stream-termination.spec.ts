@@ -20,8 +20,9 @@
  *
  * See docs/agents/assistant-runtime.md.
  */
+
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { logRecordToDiagnosticEvent } from '@brainstrike/utils/diagnostics';
-import { addLogListener, type LogRecord } from '@brainstrike/utils/logger';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { streamMastraAgent } from '../mastra/agent-streaming';

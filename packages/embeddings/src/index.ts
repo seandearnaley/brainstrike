@@ -17,16 +17,16 @@ export {
   checkApiKeyAvailability,
   getApiKeyConfigInstructions,
   requiresApiKey,
-} from './api-key-validation';
+} from './api-key-validation.js';
 // Export service implementation
-export { SimpleEmbeddingService } from './bge-m3-service';
+export { SimpleEmbeddingService } from './bge-m3-service.js';
 // Export device detection utilities (BST-169)
 export type {
   DeviceCapabilities,
   DeviceUnavailableGuidance,
   EmbeddingDeviceType,
   WebGPUAdapterInfo,
-} from './device-detection';
+} from './device-detection.js';
 export {
   clearDeviceCapabilitiesCache,
   detectDeviceCapabilities,
@@ -35,36 +35,36 @@ export {
   getDeviceUnavailableGuidance,
   isDeviceAvailable,
   validateDeviceOrThrow,
-} from './device-detection';
+} from './device-detection.js';
 export {
   calculateCosineSimilarity,
   calculateDotProduct,
   calculateL2Distance,
   magnitude,
   normalize,
-} from './embedding-math';
+} from './embedding-math.js';
 export type {
   EmbeddingSetCreateParams,
   EmbeddingSetValidationError,
-} from './embedding-set-validation';
+} from './embedding-set-validation.js';
 // Export embedding set validation utilities (BST-168)
 export {
   createEmbeddingSetParamsFromMetadata,
   isProviderCompatibleWithSet,
   validateEmbeddingDimensions,
   validateEmbeddingSetParams,
-} from './embedding-set-validation';
+} from './embedding-set-validation.js';
 // Export provider abstraction (Phase 2)
-export { EmbeddingProviderFactory } from './factory';
+export { EmbeddingProviderFactory } from './factory.js';
 export type {
   IEmbeddingProvider,
   IHostedEmbeddingProvider,
   ILocalEmbeddingProvider,
-} from './interfaces/provider';
+} from './interfaces/provider.js';
 // Export model dimension helpers
-export { isValidDimension, validateDimensions } from './model-dimensions';
-export { parseModelSizeEstimateBytes } from './model-size-estimate';
-export * from './provider-core';
+export { isValidDimension, validateDimensions } from './model-dimensions.js';
+export { parseModelSizeEstimateBytes } from './model-size-estimate.js';
+export * from './provider-core.js';
 export type {
   DistanceMetric,
   EmbeddingInput,
@@ -77,38 +77,38 @@ export type {
   LocalProviderType,
   ProviderMetadata,
   Result,
-} from './provider-types';
+} from './provider-types.js';
 export {
   hostedProviderRequiresApiKey,
   isLocalProviderType,
   STANDARD_EMBEDDING_DIMENSION,
-} from './provider-types';
+} from './provider-types.js';
 export {
   canonicalizeProviderModelKey,
   formatProviderModelKey,
   isHostedProvider,
   parseProviderModelKey,
-} from './provider-utils';
+} from './provider-utils.js';
+export {
+  clearHostedProviderApiKeyCache,
+  resolveHostedProviderApiKey,
+} from './providers/hosted/api-key-resolver.js';
 export {
   CohereEmbeddingProvider,
   GoogleEmbeddingProvider,
   OpenAIEmbeddingProvider,
   VoyageEmbeddingProvider,
-} from './providers/hosted';
-export {
-  clearHostedProviderApiKeyCache,
-  resolveHostedProviderApiKey,
-} from './providers/hosted/api-key-resolver';
-export { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
+} from './providers/hosted/index.js';
+export { TransformersEmbeddingProvider } from './providers/local/transformers-provider.js';
 export {
   getRegisteredEmbeddingRuntimeConfig,
   registerEmbeddingQueueFactory,
   registerEmbeddingRuntimeConfig,
   resetEmbeddingQueueFactory,
   resetEmbeddingRuntimeConfig,
-} from './runtime-config';
+} from './runtime-config.js';
 // Export backend and utilities
-export { TransformersBackend } from './transformers-backend';
+export { TransformersBackend } from './transformers-backend.js';
 export type {
   EmbeddingConfig,
   EmbeddingExecutionOptions,
@@ -120,14 +120,14 @@ export type {
   ModelRegistry,
   RetrievalMode,
   SimilarityResult,
-} from './types';
+} from './types.js';
 // Export error class
 // Export configuration constants
-export { BGE_M3_CONFIG, EmbeddingError, FALLBACK_MODEL_CONFIG } from './types';
+export { BGE_M3_CONFIG, EmbeddingError, FALLBACK_MODEL_CONFIG } from './types.js';
 export type {
   EmbeddingWorkerController,
   EmbeddingWorkerOptions,
   EmbeddingWorkerPipelineCapacity,
-} from './worker/embedding-worker';
+} from './worker/embedding-worker.js';
 // Worker
-export { startEmbeddingWorker } from './worker/embedding-worker';
+export { startEmbeddingWorker } from './worker/embedding-worker.js';

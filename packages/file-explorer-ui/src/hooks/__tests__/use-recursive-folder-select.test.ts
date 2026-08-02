@@ -43,8 +43,8 @@ vi.mock('../../shell/file-explorer-provider', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({

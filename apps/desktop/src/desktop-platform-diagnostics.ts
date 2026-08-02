@@ -7,7 +7,7 @@ import {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
-import { LogLevel } from '@brainstrike/utils/logger';
+import { LogLevel } from '@brainstrike/logging';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';

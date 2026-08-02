@@ -95,17 +95,8 @@
       "@brainstrike/notes-vault/desktop-contract": [
         "../../packages/notes-vault/dist/desktop/bridge-contract.d.ts"
       ],
-      "@brainstrike/utils/logger": [
-        "../../packages/utils/dist/logger.d.ts"
-      ],
-      "@brainstrike/utils/logging-initializer": [
-        "../../packages/utils/dist/logging-initializer.d.ts"
-      ],
-      "@brainstrike/utils/log-buffer": [
-        "../../packages/utils/dist/log-buffer.d.ts"
-      ],
-      "@brainstrike/utils/logging-preferences": [
-        "../../packages/utils/dist/logging-preferences.d.ts"
+      "@brainstrike/logging": [
+        "../../packages/logging/dist/index.d.ts"
       ],
       "@brainstrike/utils/collator": [
         "../../packages/utils/dist/collator.d.ts"
@@ -116,11 +107,11 @@
       "@brainstrike/utils/crypto": [
         "../../packages/utils/dist/crypto.d.ts"
       ],
-      "@brainstrike/utils/workspace-indexing-qos": [
-        "../../packages/utils/dist/workspace-indexing-qos.d.ts"
+      "@brainstrike/indexing-contract/workspace-indexing-qos": [
+        "../../packages/indexing-contract/dist/workspace-indexing-qos.d.ts"
       ],
-      "@brainstrike/utils/workspace-indexing-power-snapshot": [
-        "../../packages/utils/dist/workspace-indexing-power-snapshot.d.ts"
+      "@brainstrike/indexing-contract/workspace-indexing-power-snapshot": [
+        "../../packages/indexing-contract/dist/workspace-indexing-power-snapshot.d.ts"
       ]
     },
     "strictNullChecks": true

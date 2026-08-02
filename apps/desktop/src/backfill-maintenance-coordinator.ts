@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { EmbeddingHostStatus } from './embedding-host-shared';
 
 const logger = createLogger('BackfillMaintenanceCoordinator');

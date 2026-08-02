@@ -5,21 +5,21 @@ import {
   // GitOperationError, // Removed
   FileContentError,
   PartialRefreshError,
-} from './errors';
+} from './errors.js';
 
-export * from './assistant-provider-settings';
-export * from './electron-api';
-export * from './embedding-constants';
+export * from './assistant-provider-settings.js';
+export * from './electron-api.js';
+export * from './embedding-constants.js';
 // Export types from other files
-export * from './errors';
-export * from './file-explorer-constants';
-export * from './file-explorer-strings';
-export * from './file-explorer-types';
-export * from './file-system'; // Added export for file system types
-export * from './git';
-export * from './tapestry-colors';
-export * from './view-filter-preset-types';
-export * from './workspace-path-utils';
+export * from './errors.js';
+export * from './file-explorer-constants.js';
+export * from './file-explorer-strings.js';
+export * from './file-explorer-types.js';
+export * from './file-system.js'; // Added export for file system types
+export * from './git.js';
+export * from './tapestry-colors.js';
+export * from './view-filter-preset-types.js';
+export * from './workspace-path-utils.js';
 
 // Explicitly re-export the classes as values
 export {

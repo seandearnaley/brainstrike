@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWorkerpoolAdapter as createWorkerpoolAdapterBase } from '../src/adapters/browser-workerpool';
-import { createBrowserEmbeddingQueue } from '../src/browser';
-import type { WorkerpoolAdapterOptions } from '../src/browser-workerpool-options';
+import { createWorkerpoolAdapter as createWorkerpoolAdapterBase } from '../src/adapters/browser-workerpool.js';
+import { createBrowserEmbeddingQueue } from '../src/browser.js';
+import type { WorkerpoolAdapterOptions } from '../src/browser-workerpool-options.js';
 import {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
   emitQueueTelemetry,
   type QueueTelemetryEvent,
-} from '../src/telemetry';
+} from '../src/telemetry.js';
 
 const TEST_WORKER_URL = 'https://example.invalid/embedding.worker.js';
 const TEST_TELEMETRY_SINK = {

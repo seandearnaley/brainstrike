@@ -1,6 +1,5 @@
+import { addLogListener, LogBuffer } from '@brainstrike/logging';
 import { registerBulkOperationPauseCallback } from '@brainstrike/utils/bulk-operation-context';
-import { LogBuffer } from '@brainstrike/utils/log-buffer';
-import { addLogListener } from '@brainstrike/utils/logger';
 
 // Use smaller buffer with arg size limits for better memory performance
 const webLogBuffer = new LogBuffer({

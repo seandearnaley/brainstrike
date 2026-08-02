@@ -19,7 +19,7 @@
 
 import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import type { ScopedLogger } from '@brainstrike/utils';
+import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationConfig } from '@mastra/core/agent';
 
 export const MAX_CONCURRENT_DELEGATIONS = 2;

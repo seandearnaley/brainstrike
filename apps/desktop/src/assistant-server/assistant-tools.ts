@@ -41,7 +41,7 @@ import {
   NATIVE_TOOL_ID,
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveDesktopPythonExecutable } from '../python-runtime';
 import type { CommandSessionManager } from './command-session-manager';

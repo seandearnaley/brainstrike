@@ -7,7 +7,7 @@ const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 

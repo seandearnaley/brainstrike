@@ -70,7 +70,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/utils/selection-utils', () => ({
+vi.mock('@brainstrike/file-explorer/selection', () => ({
   decodeFileSelection: mockDecodeFileSelection,
 }));
 
@@ -82,14 +82,14 @@ vi.mock('@brainstrike/utils/file-content', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils/file-explorer-utils', () => ({
+vi.mock('@brainstrike/file-explorer/file-tree', () => ({
   fileExplorer: {
     findNodeByPath: mockFindNodeByPath,
     getFileExtension: mockGetFileExtension,
   },
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 

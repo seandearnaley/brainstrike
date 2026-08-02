@@ -2,10 +2,11 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { glob } from 'glob';
-import { SimpleEmbeddingService } from '../bge-m3-service';
-import type { EmbeddingProgress, EmbeddingResult, ModelConfig } from '../types';
-import { FALLBACK_MODEL_CONFIG } from '../types';
+import { SimpleEmbeddingService } from '../bge-m3-service.js';
+import type { EmbeddingProgress, EmbeddingResult, ModelConfig } from '../types.js';
+import { FALLBACK_MODEL_CONFIG } from '../types.js';
 
 /**
  * Code file patterns to include in embedding
@@ -601,23 +602,21 @@ function parseArguments(args: string[]): EmbedCodeConfig | null {
 /**
  * CLI entry point
  */
-async function main() {
-  const args = process.argv.slice(2);
+export async function runEmbedCodeCli(args: string[] = process.argv.slice(2)): Promise<void> {
   const config = parseArguments(args);
 
   if (!config) {
-    process.exit(0);
+    return;
   }
 
   const cli = new CodeEmbeddingCLI(config);
   await cli.run();
 }
 
-// Run CLI if this file is executed directly (CJS) — ESM-safe guard
-const canRunDirect =
-  typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module;
-if (canRunDirect) {
-  main().catch((error) => {
+const isDirectExecution =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectExecution) {
+  runEmbedCodeCli().catch((error) => {
     // CLI error handling - output to stderr and exit
     process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);

@@ -5,7 +5,7 @@ import {
   createLoadingQuerySelectionManifest,
   resolveQuerySelection,
 } from '@brainstrike/file-explorer';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useEffect, useMemo, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
 import {

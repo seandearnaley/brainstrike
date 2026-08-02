@@ -9,8 +9,8 @@ import {
   isProviderCompatibleWithSet,
   validateEmbeddingDimensions,
   validateEmbeddingSetParams,
-} from '../embedding-set-validation';
-import type { ProviderMetadata } from '../provider-types';
+} from '../embedding-set-validation.js';
+import type { ProviderMetadata } from '../provider-types.js';
 
 describe('embedding-set-validation', () => {
   const openAIMetadata: ProviderMetadata = {

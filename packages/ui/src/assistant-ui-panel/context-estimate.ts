@@ -12,7 +12,7 @@
  * assistant-ui snapshots keep settled message identities stable and only the
  * streaming tail changes, so live re-walks during a run cost one message.
  */
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { getMessageParts } from './assistant-run-timeline';
 
 export interface ToolTokenAttribution {

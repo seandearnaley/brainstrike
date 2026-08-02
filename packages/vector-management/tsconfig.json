@@ -40,6 +40,9 @@
       "path": "../ui"
     },
     {
+      "path": "../logging"
+    },
+    {
       "path": "../utils"
     },
     {

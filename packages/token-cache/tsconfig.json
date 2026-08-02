@@ -21,7 +21,10 @@
   ],
   "references": [
     {
-      "path": "../text-splitter"
+      "path": "../logging"
+    },
+    {
+      "path": "../tokenization"
     },
     {
       "path": "../utils"

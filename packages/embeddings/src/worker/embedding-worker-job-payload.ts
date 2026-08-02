@@ -1,7 +1,11 @@
 import type { Job } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
-import type { EmbeddingProviderType } from '../provider-types';
-import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
+import type { EmbeddingProviderType } from '../provider-types.js';
+import {
+  formatProviderModelKey,
+  isHostedProvider,
+  parseProviderModelKey,
+} from '../provider-utils.js';
 
 export interface EmbedChunkPayload {
   chunkId: string;

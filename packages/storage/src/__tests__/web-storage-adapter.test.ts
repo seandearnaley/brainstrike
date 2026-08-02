@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { WebStorageAdapter } from '../adapters/web-storage-adapter';
+import { WebStorageAdapter } from '../adapters/web-storage-adapter.js';
 
 class MockStorage implements Storage {
   private readonly store = new Map<string, string>();

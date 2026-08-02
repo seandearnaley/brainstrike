@@ -1,4 +1,5 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type {
   ElectronAPI,
@@ -11,7 +12,6 @@ import type {
   WatcherRetryOutcome,
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('ElectronRendererAdapters');
 

@@ -75,11 +75,15 @@ export {
   type AskUserSelectionMode,
   type AssistantToolResumeAction,
   type AssistantToolSuspendRequest,
+  hasRegisteredSuspendResumeUi,
   isAssistantToolResumeAction,
+  isRediscoveredToolSuspend,
+  type RediscoveredToolSuspend,
   readToolResumeRunConfigAction,
   type SubmitPlanDecision,
   type SubmitPlanPayload,
   type SubmitPlanStep,
+  type SuspendedRunsResponse,
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
   type ToolResumeRunConfigActionReadResult,
@@ -167,7 +171,8 @@ export {
 } from './mastra/agent-runtime';
 export {
   type DiscoveredSuspendedApproval,
-  type ListSuspendedApprovalsResult,
+  type DiscoveredSuspendedPause,
+  type ListSuspendedRunsResult,
   listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
@@ -510,6 +515,10 @@ export {
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
+export {
+  computeExecutionContextFingerprint,
+  resolveRunPythonExecutionContext,
+} from './tools/run-python-approval-context';
 export {
   createRunPythonTool,
   projectRunPythonStreams,

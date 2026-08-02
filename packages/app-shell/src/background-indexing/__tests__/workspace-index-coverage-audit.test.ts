@@ -1,6 +1,6 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildWorkspaceCoverageExpectedFiles,

@@ -8,7 +8,7 @@ import {
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import { runDetachedProcess, type ShellOutputStreamer } from './execute-command-tool';
 import { resolveWorkspaceRoot } from './workspace-roots';

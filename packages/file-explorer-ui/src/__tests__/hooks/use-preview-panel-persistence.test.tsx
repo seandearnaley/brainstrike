@@ -36,7 +36,7 @@ vi.mock('@brainstrike/utils/env-utils', () => ({
 }));
 
 // Mock logger
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),

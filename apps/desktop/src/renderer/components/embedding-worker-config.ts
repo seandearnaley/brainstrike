@@ -11,20 +11,20 @@ import type {
   EmbeddingWorkerPipelineCapacity,
   ForegroundEmbeddingGate,
 } from '@brainstrike/embeddings/worker';
-import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
   type WorkspaceIndexingPowerSnapshot,
-} from '@brainstrike/utils/workspace-indexing-power-snapshot';
+} from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
 import {
   createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
   type WorkspaceIndexingDatabasePressure,
   type WorkspaceIndexingQosInputs,
   type WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import { createLogger } from '@brainstrike/logging';
+import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 
 const logger = createLogger('EmbeddingWorkerConfig');
 // Desktop local embedding runs in a hidden renderer backed by the DB scheduler.

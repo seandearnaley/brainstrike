@@ -1,21 +1,12 @@
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'tsup';
 // @boundaries-ignore build-time config importing repo build tooling from scripts/; never ships in package output. Shared with token-cache's tsup config; a future move into build-utils would need the config-load-resolves-to-dist ordering solved first (BST-745 class).
 import { tokenizerAssetPlugin } from '../../scripts/tiktoken-asset-plugin';
-
-const accurateTokenRuntimeSource = fileURLToPath(
-  new URL('../utils/src/token-utils-accurate-lite.ts', import.meta.url)
-);
 
 export default defineConfig((options) => ({
   clean: !options.watch,
   dts: true,
   entry: ['src/index.ts', 'src/chunking.worker.ts'],
   esbuildOptions(options) {
-    options.alias = {
-      ...options.alias,
-      '@brainstrike/utils/token-utils-accurate-lite': accurateTokenRuntimeSource,
-    };
     // Ensure CJS packages are properly converted to ESM for browser
     options.mainFields = ['browser', 'module', 'main'];
     options.conditions = ['browser', 'import', 'default'];
@@ -28,7 +19,7 @@ export default defineConfig((options) => ({
     '.wasm': 'dataurl',
   },
   // Bundle heavy dependencies into the worker to avoid ESM resolution issues
-  noExternal: ['@babel/parser', '@brainstrike/text-splitter', '@brainstrike/utils', 'tiktoken'],
+  noExternal: ['@babel/parser', '@brainstrike/text-splitter', '@brainstrike/tokenization'],
   outDir: 'dist',
   platform: 'browser', // Force browser-compatible output (no require())
   sourcemap: false,

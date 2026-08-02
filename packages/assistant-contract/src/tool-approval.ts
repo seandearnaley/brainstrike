@@ -18,8 +18,127 @@ export const ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS = 512;
  */
 export const ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS = 512;
 
+/**
+ * Executor kinds / languages mirrored from the agent seam (`EXECUTOR_KINDS`,
+ * `EXEC_LANGUAGES` in `packages/agent/src/code-execution.ts`). This
+ * browser-safe contract cannot import the Node-only agent package, so the
+ * literals are local — the same trade the approval-notice narrowers make.
+ */
+export type CodeExecutionExecutorKind = 'fence' | 'vm';
+export type CodeExecutionLanguage = 'python' | 'javascript' | 'bash';
+
+/**
+ * Server-computed, display-only execution context for a code-execution
+ * approval (BST-1070 design §2.2). NEVER model-supplied: the agent runtime
+ * derives it from the same inputs the tool's execute path will use, the same
+ * way `riskCategory` is stamped from `buildNativeToolRiskMap`. It travels in
+ * THREE places — the approval chunk, the data-stream mapper's rebuilt data
+ * part, and rediscovery's recompute — and the fail-safe for its absence is
+ * that the card shows no fact rows and suppresses grant buttons rather than
+ * guessing.
+ */
+export interface CodeExecutionApprovalContext {
+  /** Effective `ExecPolicy.allowedDomains`. Empty = no network. */
+  readonly allowedDomains: readonly string[];
+  /** Explicit `ExecPolicy.allowRead` entries (absent in the policy ⇒ empty here). */
+  readonly allowRead: readonly string[];
+  /**
+   * Writable entries BEYOND the per-call scratch folder (today always empty).
+   * The scratch folder itself is minted by mkdtemp at execute time, after
+   * approval, so its location travels as {@link scratchParentDir} rather than
+   * as a fabricated not-yet-existing path in this list.
+   */
+  readonly allowWrite: readonly string[];
+  /**
+   * How the sandbox treats reads OUTSIDE `allowRead`. The OS fence is
+   * `'permissive'` — sandboxed code can read broadly, with credential stores
+   * always denied (see the fence's `ALWAYS_DENY_READ_PATHS`); a future VM
+   * backend with granted-folder shares would be `'none'`. Card copy MUST key
+   * on this field, never on `allowRead.length === 0`: an empty allow list
+   * under a permissive default means "everything", not "nothing".
+   */
+  readonly defaultReadAccess: 'permissive' | 'none';
+  readonly executorKind: CodeExecutionExecutorKind;
+  readonly language: CodeExecutionLanguage;
+  /**
+   * Stable hash over every other field, computed by the agent runtime
+   * (`computeExecutionContextFingerprint`). Today the context is a pure
+   * function of the durable tool arguments plus build constants, and the card
+   * is always computed by the same build/process that executes (live = same
+   * process; reload = rediscovery recomputes), so there is no drift input for
+   * an execute-time compare to catch — the enforcement half lands with the
+   * workspace exec config that first introduces real drift (design §2.2).
+   * Carried now so both sides of that future compare already exist.
+   */
+  readonly policyFingerprint: string;
+  /**
+   * The parent directory under which the per-call scratch folder
+   * (`brainstrike-run-python-<random>`) is created. The exact folder is
+   * minted by mkdtemp at execute time, AFTER approval, so the card can only
+   * honestly name its location — never a precise path that does not exist yet.
+   */
+  readonly scratchParentDir: string;
+  readonly timeoutMs: number;
+}
+
+const CODE_EXECUTION_APPROVAL_CONTEXT_KEYS = new Set<PropertyKey>([
+  'allowedDomains',
+  'allowRead',
+  'allowWrite',
+  'defaultReadAccess',
+  'executorKind',
+  'language',
+  'policyFingerprint',
+  'scratchParentDir',
+  'timeoutMs',
+]);
+
+function isNonBlankStringArray(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === 'string' && entry.trim().length > 0)
+  );
+}
+
+/**
+ * Exact-shape guard for {@link CodeExecutionApprovalContext}. Unknown own keys
+ * are rejected (the same wire discipline as `isAssistantToolApprovalAction`):
+ * this object drives a security card, so a shape this code does not fully
+ * understand must fall to the absent-context path (no fact rows, grants
+ * suppressed), never render partially.
+ */
+export function isCodeExecutionApprovalContext(
+  value: unknown
+): value is CodeExecutionApprovalContext {
+  return (
+    isRecord(value) &&
+    Reflect.ownKeys(value).every((key) => CODE_EXECUTION_APPROVAL_CONTEXT_KEYS.has(key)) &&
+    [...CODE_EXECUTION_APPROVAL_CONTEXT_KEYS].every((key) => Object.hasOwn(value, key)) &&
+    isNonBlankStringArray(value['allowedDomains']) &&
+    isNonBlankStringArray(value['allowRead']) &&
+    isNonBlankStringArray(value['allowWrite']) &&
+    (value['defaultReadAccess'] === 'permissive' || value['defaultReadAccess'] === 'none') &&
+    (value['executorKind'] === 'fence' || value['executorKind'] === 'vm') &&
+    (value['language'] === 'python' ||
+      value['language'] === 'javascript' ||
+      value['language'] === 'bash') &&
+    typeof value['policyFingerprint'] === 'string' &&
+    value['policyFingerprint'].length > 0 &&
+    typeof value['scratchParentDir'] === 'string' &&
+    value['scratchParentDir'].length > 0 &&
+    typeof value['timeoutMs'] === 'number' &&
+    Number.isInteger(value['timeoutMs']) &&
+    value['timeoutMs'] > 0
+  );
+}
+
 export interface AssistantToolApprovalRequest {
   args?: unknown;
+  /**
+   * Present only for code-execution tools (today: `brainstrike.runPython`);
+   * absent everywhere else. See {@link CodeExecutionApprovalContext}.
+   */
+  executionContext?: CodeExecutionApprovalContext;
   /**
    * The permission decision that caused the pause. Only `'ask'` is meaningful
    * here (an approval pause is, by definition, an `'ask'`); present so the UI can

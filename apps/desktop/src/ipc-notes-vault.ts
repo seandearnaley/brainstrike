@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { app, dialog, shell } from 'electron';
 import {
   createNotesVaultIpcHandlers,

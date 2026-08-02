@@ -4,7 +4,7 @@ import {
   getTestTimeout,
   getTimeoutMultiplier,
   TEST_TIMEOUTS,
-} from '../test-timeouts';
+} from '../test-timeouts.js';
 
 describe('test timeouts', () => {
   const originalEnv = { ...process.env };

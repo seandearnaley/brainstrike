@@ -1,9 +1,12 @@
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmbeddingInput } from '../../../interfaces/provider';
-import { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } from '../../../runtime-config';
-import { TransformersEmbeddingProvider } from '../transformers-provider';
+import type { EmbeddingInput } from '../../../interfaces/provider.js';
+import {
+  registerEmbeddingQueueFactory,
+  resetEmbeddingQueueFactory,
+} from '../../../runtime-config.js';
+import { TransformersEmbeddingProvider } from '../transformers-provider.js';
 
 // This suite drives TransformersEmbeddingProvider entirely through a MOCKED
 // queue (registerEmbeddingQueueFactory below) — no model is ever downloaded and

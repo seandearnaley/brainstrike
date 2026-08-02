@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useFileFilters } from '../use-file-filters';
+import { useFileFilters } from '../use-file-filters.js';
 
 // Helper to create file nodes
 const dummyHandle = {} as FileSystemFileHandle;

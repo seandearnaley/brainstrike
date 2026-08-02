@@ -1,5 +1,5 @@
+import type { LogRecord } from '@brainstrike/logging';
 import { type DiagnosticCauseEntry, isDiagnosticCauseEntry } from '@brainstrike/utils/diagnostics';
-import type { LogRecord } from '@brainstrike/utils/logger';
 
 const CIRCULAR_REFERENCE_MARKER = '[Circular]';
 

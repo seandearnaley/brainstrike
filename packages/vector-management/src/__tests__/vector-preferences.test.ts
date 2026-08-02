@@ -1,6 +1,6 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { EMBEDDING_SET_UPDATED_EVENT } from '@brainstrike/utils/browser-events';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ACTIVE_EMBEDDING_SET_KEY,

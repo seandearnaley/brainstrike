@@ -11,9 +11,9 @@ import type { RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdaptersProvider } from '../adapters-context';
-import { useFileSystem } from '../use-file-system';
-import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
+import { AdaptersProvider } from '../adapters-context.js';
+import { useFileSystem } from '../use-file-system.js';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
 
 // Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();

@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useEventCallback } from '../use-event-callback';
+import { useEventCallback } from '../use-event-callback.js';
 
 describe('useEventCallback', () => {
   it('returns a stable function that invokes the initial callback', () => {

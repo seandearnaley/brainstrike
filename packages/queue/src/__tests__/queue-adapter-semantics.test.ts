@@ -5,7 +5,7 @@
  * defined in ADR-0002 using a mock adapter implementation.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueueAdapter, QueueResult, TaskPayload } from '../types';
+import type { QueueAdapter, QueueResult, TaskPayload } from '../types.js';
 
 /**
  * Creates a mock QueueAdapter for testing control semantics.

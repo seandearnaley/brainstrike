@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseModelSizeEstimateBytes } from '../model-size-estimate';
+import { parseModelSizeEstimateBytes } from '../model-size-estimate.js';
 
 describe('parseModelSizeEstimateBytes', () => {
   it('parses the model registry size formats into binary byte estimates', () => {

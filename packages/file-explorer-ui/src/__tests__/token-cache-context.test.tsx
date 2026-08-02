@@ -1,5 +1,5 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { TokenCacheEntry, TokenCountingMode } from '@brainstrike/token-cache/cache-runtime';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

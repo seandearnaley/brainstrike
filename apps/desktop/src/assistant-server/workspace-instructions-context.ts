@@ -1,6 +1,6 @@
 import type { AgentMessage, RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from './workspace-roots';
 
 const logger = createLogger('AssistantWorkspaceInstructions');

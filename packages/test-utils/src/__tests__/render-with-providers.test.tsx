@@ -1,7 +1,7 @@
 import type React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const loadModule = async () => import('../render-with-providers');
+const loadModule = async () => import('../render-with-providers.js');
 
 afterEach(() => {
   vi.resetModules();

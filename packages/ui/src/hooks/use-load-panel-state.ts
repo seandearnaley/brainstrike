@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useEffect, useRef, useState } from 'react';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';

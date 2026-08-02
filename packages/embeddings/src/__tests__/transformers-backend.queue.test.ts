@@ -69,9 +69,9 @@ describe('TransformersBackend queue integration', () => {
     const { queue, add } = createQueueStub();
     add.mockResolvedValueOnce(createQueueResult('task', [0.4, 0.6]));
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => queue);
@@ -145,9 +145,9 @@ describe('TransformersBackend queue integration', () => {
         })
     );
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => queue);
@@ -188,9 +188,9 @@ describe('TransformersBackend queue integration', () => {
     const { queue, add } = createQueueStub();
     add.mockRejectedValueOnce(new Error('queue offline'));
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => queue);
@@ -213,7 +213,7 @@ describe('TransformersBackend queue integration', () => {
   });
 
   it('reports device availability across environments', async () => {
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
 
     expect(TransformersBackend.isDeviceAvailable('cpu')).toBe(false);
     expect(TransformersBackend.isDeviceAvailable('wasm')).toBe(false);
@@ -237,9 +237,9 @@ describe('TransformersBackend queue integration', () => {
     add.mockResolvedValueOnce(createQueueResult('first', [0.3, 0.7]));
     add.mockResolvedValueOnce(createQueueResult('second', [0.6, 0.4]));
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => queue);
@@ -287,9 +287,9 @@ describe('TransformersBackend queue integration', () => {
       vectors: Array.from({ length: 10 }, () => Float32Array.from([0.1, 0.2])),
     });
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => queue);
@@ -319,9 +319,9 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('Worker', class {});
 
     const { queue, add } = createQueueStub();
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => queue);
@@ -343,9 +343,9 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('Worker', class {});
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => {
@@ -372,9 +372,9 @@ describe('TransformersBackend queue integration', () => {
     const { queue, add } = createQueueStub();
     add.mockRejectedValueOnce(new Error('runtime explode'));
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend.js');
     const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
-      '../runtime-config'
+      '../runtime-config.js'
     );
 
     registerEmbeddingQueueFactory(() => queue);

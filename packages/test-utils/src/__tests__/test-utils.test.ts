@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resetAllMocks, resetStore } from '../test-utils';
+import { resetAllMocks, resetStore } from '../test-utils.js';
 
 describe('test-utils', () => {
   describe('resetAllMocks', () => {

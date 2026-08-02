@@ -1,5 +1,5 @@
 import type { WorkerFileNode } from '@brainstrike/file-tree-worker';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('FileTreeTelemetry');
 

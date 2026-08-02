@@ -2,7 +2,7 @@ import {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId, deserializeRuntimeError } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {

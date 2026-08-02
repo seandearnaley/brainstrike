@@ -3,7 +3,7 @@ import {
   getAccurateTokenCounter,
   getAccurateTokenCountingFailureReason,
   type SyncAccurateCounter,
-} from '@brainstrike/utils/token-utils-accurate-lite';
+} from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { ToolsInput } from '@mastra/core/agent';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
 

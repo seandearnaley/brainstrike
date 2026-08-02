@@ -9,7 +9,7 @@
  */
 
 import type { AssistantRunEventMetadata, AssistantRunEventStatus } from '@brainstrike/agent';
-import type { ScopedLogger } from '@brainstrike/utils';
+import type { ScopedLogger } from '@brainstrike/logging';
 import { runHooksForEvent } from './executor';
 import {
   type HookEventName,

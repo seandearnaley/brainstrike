@@ -3,8 +3,8 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract/provider
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { emitQueueTelemetry, initializeQueueTelemetrySink, type QueueTelemetryEvent } from '../src';
+import {
+  emitQueueTelemetry,
+  initializeQueueTelemetrySink,
+  type QueueTelemetryEvent,
+} from '../src/index.js';
 
 function createEvent(overrides: Partial<QueueTelemetryEvent> = {}): QueueTelemetryEvent {
   return {

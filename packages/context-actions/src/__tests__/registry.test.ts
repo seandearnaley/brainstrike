@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createActionRegistry } from '../registry';
-import { type ActionOutcome, type ContextTarget, defineContextAction } from '../types';
+import { createActionRegistry } from '../registry.js';
+import { type ActionOutcome, type ContextTarget, defineContextAction } from '../types.js';
 
 const fileTarget: ContextTarget = {
   absolutePath: '/Users/dev/project/docs/notes.md',

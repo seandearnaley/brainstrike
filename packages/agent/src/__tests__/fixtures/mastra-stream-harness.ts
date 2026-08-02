@@ -44,8 +44,9 @@ export interface MockSuspendedRun {
   status: 'suspended';
   suspendedAt: Date;
   toolCalls: Array<{
-    args: Record<string, unknown>;
-    requiresApproval: true;
+    args?: Record<string, unknown>;
+    requiresApproval: boolean;
+    suspendPayload?: unknown;
     toolCallId: string;
     toolName: string;
   }>;

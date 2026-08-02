@@ -65,6 +65,7 @@ const REPO_SWEEP_ROOTS = ['apps', 'packages'];
 /** The only modules allowed to declare a `suspendSchema`, repo-relative. */
 const REGISTERED_SUSPENDING_TOOL_MODULES = [
   'packages/agent/src/tools/ask-user-tool.ts',
+  'packages/agent/src/tools/run-python-tool.ts',
   'packages/agent/src/tools/submit-plan-tool.ts',
 ];
 

@@ -1,13 +1,14 @@
 import { resolveQuerySelection } from '@brainstrike/file-explorer';
+import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
+import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type {
   QuerySelectionManifest,
   SelectionModel,
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
-import { accumulateAncestorDirectoryCounts, isDescendantPath } from '@brainstrike/utils';
+import { accumulateAncestorDirectoryCounts } from '@brainstrike/utils';
 import { processFilter } from '@brainstrike/utils/filter-utils';
 import { fileFilter } from '@brainstrike/utils/path-filter';
-import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 
 interface DescriptorMatchers {
   coveredDirectoryPaths: Set<string>;

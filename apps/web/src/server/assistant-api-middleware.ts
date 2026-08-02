@@ -3,7 +3,7 @@ import {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
   AssistantRequestBodyTooLargeError,
 } from '@brainstrike/agent/hosted-web';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   handleAssistantEndpoint,
   handleChatEndpoint,

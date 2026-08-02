@@ -1,5 +1,6 @@
+import { memoizedFileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection, memoizedFileExplorer } from '@brainstrike/utils';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

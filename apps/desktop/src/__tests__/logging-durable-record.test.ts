@@ -1,13 +1,12 @@
-import type { LogRecord } from '@brainstrike/utils/logger';
+import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import {
+  createDefaultLoggingPreferences,
   LogLevel,
   error as logError,
   info as logInfo,
   resetLogger,
   setLogLevel,
-} from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import { createDefaultLoggingPreferences } from '@brainstrike/utils/logging-preferences';
+} from '@brainstrike/logging';
 import type { IpcMainEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoggingIpcHandlers } from '../logging-ipc';

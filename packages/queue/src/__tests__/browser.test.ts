@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueueAdapter, QueueResult, TaskPayload } from '../types';
+import type { QueueAdapter, QueueResult, TaskPayload } from '../types.js';
 
 const createWorkerpoolAdapterMock = vi.hoisted(() => vi.fn());
 const telemetrySink = {
@@ -81,7 +81,7 @@ describe('createBrowserEmbeddingQueue', () => {
     const adapter = createQueueAdapterStub();
     createWorkerpoolAdapterMock.mockReturnValue(adapter);
 
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -110,7 +110,7 @@ describe('createBrowserEmbeddingQueue', () => {
       })
       .mockReturnValueOnce(adapter);
 
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -146,7 +146,7 @@ describe('createBrowserEmbeddingQueue', () => {
     const adapter = createQueueAdapterStub();
     createWorkerpoolAdapterMock.mockReturnValue(adapter);
 
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -172,7 +172,7 @@ describe('createBrowserEmbeddingQueue', () => {
     const adapter = createQueueAdapterStub();
     createWorkerpoolAdapterMock.mockReturnValue(adapter);
 
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -199,7 +199,7 @@ describe('createBrowserEmbeddingQueue', () => {
       throw new Error('workerpool bootstrap failed');
     });
 
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -222,7 +222,7 @@ describe('createBrowserEmbeddingQueue', () => {
       throw new Error('workerpool bootstrap failed');
     });
 
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -241,7 +241,7 @@ describe('createBrowserEmbeddingQueue', () => {
   });
 
   it('rejects work after dispose even when the lazy adapter was never bootstrapped', async () => {
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -261,7 +261,7 @@ describe('createBrowserEmbeddingQueue', () => {
   });
 
   it('rejects work after cancel even when the lazy adapter was never bootstrapped', async () => {
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });
@@ -290,7 +290,7 @@ describe('createBrowserEmbeddingQueue', () => {
       })
       .mockReturnValueOnce(adapter);
 
-    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
       worker: createWorkerOptions(),
     });

@@ -3,7 +3,7 @@ import {
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
 } from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueueResult, TaskPayload } from '../types';
+import type { QueueResult, TaskPayload } from '../types.js';
 
 const {
   emitQueueTelemetryMock,
@@ -34,9 +34,13 @@ const {
   removeEmbeddingTelemetrySourceMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: vi.fn(() => loggerMock),
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => loggerMock),
+  };
+});
 
 vi.mock('workerpool', () => ({
   default: {
@@ -49,7 +53,7 @@ vi.mock('../telemetry', () => ({
 }));
 
 vi.mock('../util', async () => {
-  const actual = await vi.importActual<typeof import('../util')>('../util');
+  const actual = await vi.importActual<typeof import('../util.js')>('../util');
   return {
     ...actual,
     estimateHardwareConcurrency: vi.fn(() => 4),
@@ -171,7 +175,7 @@ describe('createWorkerpoolAdapter', () => {
   });
 
   it('requires an explicit workerUrl', async () => {
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     expect(() => createWorkerpoolAdapter()).toThrow(
       'createWorkerpoolAdapter requires an explicit workerUrl.'
     );
@@ -179,7 +183,7 @@ describe('createWorkerpoolAdapter', () => {
 
   it('requires worker-lifetime telemetry transport support', async () => {
     vi.stubGlobal('BroadcastChannel', undefined);
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
 
     expect(() => createWorkerpoolAdapter(createWorkerOptions())).toThrow(
       'Embedding workerpool telemetry requires BroadcastChannel support.'
@@ -206,7 +210,7 @@ describe('createWorkerpoolAdapter', () => {
       }
     );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const off = adapter.onProgress(progressListener);
 
@@ -273,7 +277,7 @@ describe('createWorkerpoolAdapter', () => {
       }
     );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const addPromise = adapter.add(createTask('task-cache'));
     resolve(createResult('task-cache'));
@@ -308,7 +312,7 @@ describe('createWorkerpoolAdapter', () => {
       }
     );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
       | {
@@ -355,7 +359,7 @@ describe('createWorkerpoolAdapter', () => {
   });
 
   it('fails the pool when worker-lifetime telemetry is request-scoped or malformed', async () => {
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const telemetryChannel = broadcastChannelInstances[0];
     if (!telemetryChannel) {
@@ -388,7 +392,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const addPromise = adapter.add(createTask('task-without-source'));
     resolve(createResult('task-without-source'));
@@ -423,7 +427,7 @@ describe('createWorkerpoolAdapter', () => {
       }
     );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const addPromise = adapter.add(createTask('task-malformed-worker'));
     resolve(createResult('task-malformed-worker'));
@@ -463,7 +467,7 @@ describe('createWorkerpoolAdapter', () => {
       }
     );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
       | {
@@ -531,7 +535,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     await expect(adapter.add(createTask('task-2'), { signal: controller.signal })).rejects.toThrow(
@@ -558,7 +562,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const addPromise = adapter.add(createTask('task-3'), { signal });
@@ -578,7 +582,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise, reject } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const addPromise = adapter.add(createTask('task-4'));
@@ -606,7 +610,7 @@ describe('createWorkerpoolAdapter', () => {
     const { promise, reject } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const addPromise = adapter.add(createTask('task-5')).catch((error: unknown) => error);
