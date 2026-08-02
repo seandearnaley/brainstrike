@@ -1072,7 +1072,12 @@ Non-native typed packages have two JavaScript build classes, derived from
   that consumes one of these libraries uses native dynamic `import()` (and an
   explicit `resolution-mode: import` for type-only imports) rather than forcing
   the library back into dual-format bundling; the Vercel assistant route is the
-  live contract case.
+  live contract case. Playwright's TypeScript loader is a distinct CommonJS
+  transform boundary: a Node-side E2E helper imports the narrowest side-effect-
+  free contract subpath it needs instead of a package barrel that transitively
+  loads browser-oriented `import.meta` modules. Desktop assistant mocks pin this
+  through `@brainstrike/assistant-contract/assistant-stream-session`; the desktop
+  smoke lane is the runtime proof.
 
 `scripts/verify-package-build-strategies.mjs` (alias
 `lint:package-build-strategies`, present in both lint chains) enforces the two

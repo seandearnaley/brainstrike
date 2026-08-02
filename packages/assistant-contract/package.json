@@ -20,6 +20,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./assistant-stream-session": {
+      "types": "./dist/assistant-stream-session.d.ts",
+      "import": "./dist/assistant-stream-session.js",
+      "require": "./dist/assistant-stream-session.js"
+    },
     "./assistant-request-body-limit": {
       "types": "./dist/assistant-request-body-limit.d.ts",
       "import": "./dist/assistant-request-body-limit.js",
