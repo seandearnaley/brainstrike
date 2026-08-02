@@ -76,7 +76,8 @@
     },
     "./stores/assistant-preferences-store-version": {
       "types": "./dist/stores/assistant-preferences-store-version.d.ts",
-      "import": "./dist/stores/assistant-preferences-store-version.js"
+      "import": "./dist/stores/assistant-preferences-store-version.js",
+      "require": "./dist/stores/assistant-preferences-store-version.js"
     },
     "./stores/background-indexing-preferences-store": {
       "types": "./dist/stores/background-indexing-preferences-store.d.ts",

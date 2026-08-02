@@ -553,6 +553,18 @@ renderer catalog. The app shell must merge it with renderer provider discovery
 so settings-owned, reachable or force-enabled Ollama and LM Studio runtimes
 remain selectable. Hosted Web's fixed provider/default-model set stays
 authoritative and must continue to skip renderer discovery.
+`AssistantProviderSource`, provided at the `AssistantChatPanel` composition root,
+is the required explicit boundary: a missing provider throws. `authoritative`
+is derived synchronously during render, while `discovery` subscribes one shared
+external resource to the secrets-store revision and assistant provider-settings state.
+The first Desktop subscriber starts discovery and the last subscriber tears it
+down, so multiple mounted thread tabs never fan out duplicate runtime probes.
+Every refresh carries a monotonically increasing generation; a superseded or
+unsubscribed request cannot publish late. Unexpected key or runtime discovery
+failures remain visible as a disabled-reason diagnostic while explicit Desktop
+seeds stay rendered; they are never converted to an empty successful result.
+Keep the authority, refresh, ordering, teardown, and failure controls in
+`use-configured-assistant-providers.test.tsx` when this boundary changes.
 
 Desktop status also reports each unreadable stored credential as a validated
 `providerErrors` entry (`provider`, `api_key_unreadable`, typed error code, and

@@ -14,6 +14,7 @@ import { useAssistantComposerCommandStore } from '../assistant-composer-command-
 import { __resetAssistantForegroundActivityForTests } from '../assistant-foreground-activity';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 
 export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
 
@@ -318,8 +319,13 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async () =>
     toolStates: {},
   }));
 
-  const useSecretsStore = <T,>(selector: (state: { secretsVersion: number }) => T): T =>
-    selector({ secretsVersion: 0 });
+  const useSecretsStore = create<{
+    notifySecretsChanged: () => void;
+    secretsVersion: number;
+  }>((set) => ({
+    notifySecretsChanged: () => set((state) => ({ secretsVersion: state.secretsVersion + 1 })),
+    secretsVersion: 0,
+  }));
 
   const useVectorStatusUIStore = <T,>(
     selector: (state: { activeEmbeddingSetId: string | null }) => T
@@ -370,6 +376,7 @@ vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async () =>
       ...defaultAssistantMemoryPreferences,
     });
     useNativeToolPreferencesStore.setState({ toolStates: {} });
+    useSecretsStore.setState({ secretsVersion: 0 });
   };
 
   const usePanelLayoutStore = create<{
@@ -1151,11 +1158,14 @@ export const renderAssistantPanel = async (
   afterRender?: () => Promise<void>
 ) => {
   const renderResult = render(
-    <AssistantUiPanelWrapper
-      initialProviders={providers as SupportedProvider[]}
-      loadLocalLlmBackend={loadTestLocalLlmBackend}
-      providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-    />
+    <AssistantProviderSourceProvider
+      source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
+    >
+      <AssistantUiPanelWrapper
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+        providerKeySources={[{ provider: 'openai', source: 'stored' }]}
+      />
+    </AssistantProviderSourceProvider>
   );
 
   if (afterRender) {
@@ -1171,13 +1181,16 @@ export const renderAssistantThreadPanel = async (
   afterRender?: () => Promise<void>
 ) => {
   const renderResult = render(
-    <AssistantUiPanelWrapper
-      initialProviders={providers as SupportedProvider[]}
-      loadLocalLlmBackend={loadTestLocalLlmBackend}
-      memoryResourceId="/tmp/test-workspace"
-      memoryThreadId={threadId}
-      providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-    />
+    <AssistantProviderSourceProvider
+      source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
+    >
+      <AssistantUiPanelWrapper
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+        memoryResourceId="/tmp/test-workspace"
+        memoryThreadId={threadId}
+        providerKeySources={[{ provider: 'openai', source: 'stored' }]}
+      />
+    </AssistantProviderSourceProvider>
   );
 
   if (afterRender) {

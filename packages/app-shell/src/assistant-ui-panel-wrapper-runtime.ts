@@ -717,7 +717,7 @@ export function toRuntimeWorkspaceContext(
 }
 
 export function resolveAssistantProviderDisabledReason(args: {
-  configuredProviders: SupportedProvider[];
+  configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
   getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
   localRuntimeHint: string | undefined;

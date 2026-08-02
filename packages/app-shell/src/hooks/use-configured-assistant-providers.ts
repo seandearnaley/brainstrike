@@ -1,56 +1,168 @@
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
+import { useAssistantProviderSource } from './assistant-provider-source';
 
-interface UseConfiguredAssistantProvidersOptions {
-  readonly getAvailableProviders: () => Promise<SupportedProvider[]>;
-  readonly initialProviders?: readonly SupportedProvider[];
-  readonly providerSeeds?: readonly SupportedProvider[];
-  readonly secretsVersion: number;
+type AssistantPreferencesStore = ReturnType<typeof useAssistantPreferencesStore.getState>;
+type SecretsState = ReturnType<typeof useSecretsStore.getState>;
+
+type ProviderDiscoverySnapshot =
+  | {
+      readonly providers: readonly SupportedProvider[];
+      readonly state: 'idle' | 'loading' | 'ready';
+    }
+  | {
+      readonly error: string;
+      readonly providers: readonly SupportedProvider[];
+      readonly state: 'error';
+    };
+
+export interface ConfiguredAssistantProviders {
+  readonly discoveryError?: string;
+  readonly providers: readonly SupportedProvider[];
 }
 
-export function useConfiguredAssistantProviders({
-  getAvailableProviders,
-  initialProviders,
-  providerSeeds,
-  secretsVersion,
-}: UseConfiguredAssistantProvidersOptions): SupportedProvider[] {
-  const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(() => [
-    ...(initialProviders ?? providerSeeds ?? []),
-  ]);
+const idleDiscoverySnapshot: ProviderDiscoverySnapshot = {
+  providers: [],
+  state: 'idle',
+};
 
-  useEffect(() => {
-    let cancelled = false;
+let discoverySnapshot: ProviderDiscoverySnapshot = idleDiscoverySnapshot;
+let requestGeneration = 0;
+let unsubscribeFromPreferences: (() => void) | undefined;
+let unsubscribeFromSecrets: (() => void) | undefined;
+const discoveryListeners = new Set<() => void>();
 
-    const loadProviders = async (): Promise<void> => {
-      if (initialProviders !== undefined) {
-        setConfiguredProviders([...initialProviders]);
-        return;
-      }
+/**
+ * Resolve providers without mirroring source props into component state.
+ *
+ * Hosted Web values are render-time authority. Desktop subscribes to one
+ * shared external discovery resource, which refreshes on credential and local
+ * runtime setting changes. That keeps the trigger at the stores where the
+ * events originate and prevents one runtime probe per mounted thread tab.
+ */
+export function useConfiguredAssistantProviders(): ConfiguredAssistantProviders {
+  const source = useAssistantProviderSource();
+  const discoversProviders = source.kind === 'discovery';
+  const snapshot = useSyncExternalStore(
+    discoversProviders ? subscribeToProviderDiscovery : subscribeToInactiveDiscovery,
+    discoversProviders ? getProviderDiscoverySnapshot : getInactiveDiscoverySnapshot,
+    getInactiveDiscoverySnapshot
+  );
 
-      const discoveredProviders = await getAvailableProviders();
-      if (cancelled) {
-        return;
-      }
-      setConfiguredProviders(mergeProviders(providerSeeds, discoveredProviders));
-    };
+  if (source.kind === 'authoritative') {
+    return { providers: source.providers };
+  }
 
-    void loadProviders();
+  const providers = mergeProviders(source.seeds, snapshot.providers);
+  return snapshot.state === 'error' ? { discoveryError: snapshot.error, providers } : { providers };
+}
 
-    return () => {
-      cancelled = true;
-    };
-  }, [getAvailableProviders, initialProviders, providerSeeds, secretsVersion]);
+function getProviderDiscoverySnapshot(): ProviderDiscoverySnapshot {
+  return discoverySnapshot;
+}
 
-  return configuredProviders;
+function getInactiveDiscoverySnapshot(): ProviderDiscoverySnapshot {
+  return idleDiscoverySnapshot;
+}
+
+function subscribeToInactiveDiscovery(): () => void {
+  return () => undefined;
+}
+
+function subscribeToProviderDiscovery(onStoreChange: () => void): () => void {
+  discoveryListeners.add(onStoreChange);
+  if (discoveryListeners.size === 1) {
+    startProviderDiscoverySubscriptions();
+  }
+
+  return () => {
+    discoveryListeners.delete(onStoreChange);
+    if (discoveryListeners.size === 0) {
+      stopProviderDiscoverySubscriptions();
+    }
+  };
+}
+
+function startProviderDiscoverySubscriptions(): void {
+  unsubscribeFromSecrets = useSecretsStore.subscribe(handleSecretsStoreChange);
+  unsubscribeFromPreferences = useAssistantPreferencesStore.subscribe(
+    handleAssistantPreferencesStoreChange
+  );
+  void refreshProviderDiscovery();
+}
+
+function stopProviderDiscoverySubscriptions(): void {
+  requestGeneration += 1;
+  unsubscribeFromPreferences?.();
+  unsubscribeFromPreferences = undefined;
+  unsubscribeFromSecrets?.();
+  unsubscribeFromSecrets = undefined;
+  discoverySnapshot = idleDiscoverySnapshot;
+}
+
+function handleSecretsStoreChange(next: SecretsState, previous: SecretsState): void {
+  if (next.secretsVersion !== previous.secretsVersion) {
+    void refreshProviderDiscovery();
+  }
+}
+
+function handleAssistantPreferencesStoreChange(
+  next: AssistantPreferencesStore,
+  previous: AssistantPreferencesStore
+): void {
+  if (next.providerSettings !== previous.providerSettings) {
+    void refreshProviderDiscovery();
+  }
+}
+
+async function refreshProviderDiscovery(): Promise<void> {
+  const generation = ++requestGeneration;
+  publishProviderDiscovery({
+    providers: discoverySnapshot.providers,
+    state: 'loading',
+  });
+
+  try {
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+    if (generation !== requestGeneration || discoveryListeners.size === 0) {
+      return;
+    }
+    publishProviderDiscovery({ providers, state: 'ready' });
+  } catch (error) {
+    if (generation !== requestGeneration || discoveryListeners.size === 0) {
+      return;
+    }
+    publishProviderDiscovery({
+      error: error instanceof Error ? error.message : String(error),
+      providers: discoverySnapshot.providers,
+      state: 'error',
+    });
+  }
+}
+
+function publishProviderDiscovery(next: ProviderDiscoverySnapshot): void {
+  discoverySnapshot = next;
+  for (const listener of discoveryListeners) {
+    listener();
+  }
 }
 
 function mergeProviders(
   providerSeeds: readonly SupportedProvider[] | undefined,
   discoveredProviders: readonly SupportedProvider[]
-): SupportedProvider[] {
+): readonly SupportedProvider[] {
   const merged = new Set(providerSeeds);
   for (const provider of discoveredProviders) {
     merged.add(provider);
   }
   return [...merged];
+}
+
+/** @internal Test-only reset for the module-scoped external resource. */
+export function __resetConfiguredAssistantProvidersForTests(): void {
+  discoveryListeners.clear();
+  stopProviderDiscoverySubscriptions();
+  requestGeneration = 0;
 }

@@ -323,6 +323,26 @@ describe('assistant-preferences-store', () => {
     expect(providers).toContain('lmstudio');
   });
 
+  it('surfaces unexpected local runtime discovery failures', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockRejectedValue(
+      new Error('runtime probe crashed')
+    );
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    await expect(useAssistantPreferencesStore.getState().getAvailableProviders()).rejects.toThrow(
+      'runtime probe crashed'
+    );
+  });
+
   it('uses local runtime test overrides before probing services', async () => {
     const probeSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
     __setSettingsTestOverridesForTests({

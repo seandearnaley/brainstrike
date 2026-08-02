@@ -123,6 +123,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
@@ -150,13 +151,11 @@ import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   fixedProviderModels?: FixedProviderModels;
-  initialProviders?: readonly SupportedProvider[];
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
-  providerSeeds?: readonly SupportedProvider[];
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
@@ -192,18 +191,16 @@ function hasDesktopAssistantBackend(): boolean {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
   fixedProviderModels,
-  initialProviders,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
   providerReadErrors,
   providerKeySources,
-  providerSeeds,
 }: AssistantUiPanelWrapperProps) {
+  const providerSource = useAssistantProviderSource();
   const {
     setModel,
     clearModel,
-    getAvailableProviders,
     getLocalRuntimeStatuses,
     getLocalRuntimeModels,
     getSelectedModel,
@@ -231,14 +228,11 @@ export function AssistantUiPanelWrapper({
   const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
   const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
 
-  // Subscribe to secrets changes to re-check available providers when API keys change
+  // OpenRouter default initialization still keys its durable attempt on the
+  // same credential revision as provider discovery.
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
-  const configuredProviders = useConfiguredAssistantProviders({
-    getAvailableProviders,
-    ...(initialProviders === undefined ? {} : { initialProviders }),
-    ...(providerSeeds === undefined ? {} : { providerSeeds }),
-    secretsVersion,
-  });
+  const { discoveryError: providerDiscoveryError, providers: configuredProviders } =
+    useConfiguredAssistantProviders();
 
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
@@ -257,7 +251,7 @@ export function AssistantUiPanelWrapper({
     configuredProviders,
     db,
     secretsVersion,
-    initialProviders,
+    providerSource.kind === 'discovery',
     providerReadErrors
   );
 
@@ -1371,7 +1365,12 @@ export function AssistantUiPanelWrapper({
     ]
   );
   const runtimeDisabledReason =
-    memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
+    (providerDiscoveryError
+      ? `Could not refresh available providers: ${providerDiscoveryError}`
+      : undefined) ??
+    memoryDisabledReason ??
+    providerDisabledReason ??
+    openRouterDisabledReason;
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,

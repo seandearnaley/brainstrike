@@ -10,7 +10,14 @@ import {
 import { type ReactElement, useMemo } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
-import type { AssistantProviderReadError } from './hooks/use-assistant-availability';
+import {
+  type AssistantProviderSource,
+  AssistantProviderSourceProvider,
+} from './hooks/assistant-provider-source';
+import type {
+  AssistantAvailabilityStatus,
+  AssistantProviderReadError,
+} from './hooks/use-assistant-availability';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
 
 export interface AssistantChatPanelProps {
@@ -29,6 +36,10 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
     fixedProviderModelsResolution.state === 'ready'
       ? fixedProviderModelsResolution.models
       : undefined;
+  const providerSource = useMemo<AssistantProviderSource>(
+    () => resolveAssistantProviderSource(status),
+    [status]
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">
@@ -67,25 +78,37 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
           </div>
         )}
         {status.state === 'enabled' && fixedProviderModelsResolution.state !== 'error' && (
-          <AssistantUiPanelWrapperLazy
-            {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-            {...(status.provider && status.model
-              ? { initialProviders: status.providers ?? [status.provider] }
-              : status.providers
-                ? { providerSeeds: status.providers }
+          <AssistantProviderSourceProvider source={providerSource}>
+            <AssistantUiPanelWrapperLazy
+              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+              {...(status.providerErrors
+                ? { providerReadErrors: toProviderReadErrors(status.providerErrors) }
                 : {})}
-            {...(status.providerErrors
-              ? { providerReadErrors: toProviderReadErrors(status.providerErrors) }
-              : {})}
-            {...(status.providerKeySources
-              ? { providerKeySources: status.providerKeySources }
-              : {})}
-            {...(fixedProviderModels ? { fixedProviderModels } : {})}
-          />
+              {...(status.providerKeySources
+                ? { providerKeySources: status.providerKeySources }
+                : {})}
+              {...(fixedProviderModels ? { fixedProviderModels } : {})}
+            />
+          </AssistantProviderSourceProvider>
         )}
       </div>
     </div>
   );
+}
+
+function resolveAssistantProviderSource(
+  status: AssistantAvailabilityStatus
+): AssistantProviderSource {
+  if (status.state === 'enabled' && status.provider && status.model) {
+    return {
+      kind: 'authoritative',
+      providers: status.providers ?? [status.provider],
+    };
+  }
+  if (status.state === 'enabled' && status.providers) {
+    return { kind: 'discovery', seeds: status.providers };
+  }
+  return { kind: 'discovery' };
 }
 
 type FixedProviderModelsResolution =

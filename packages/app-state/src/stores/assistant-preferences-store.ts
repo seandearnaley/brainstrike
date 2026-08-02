@@ -699,62 +699,58 @@ async function getProvidersWithConfiguredKeys(): Promise<readonly SupportedProvi
 async function getDetectedRuntimeProviders(
   providerSettings: ProviderSettingsMap
 ): Promise<readonly SupportedProvider[]> {
-  try {
-    const detected: SupportedProvider[] = [];
+  const detected: SupportedProvider[] = [];
 
-    // `on` providers are included up-front so users can select a forced remote
-    // runtime even before (or without) a successful probe. `off` providers are
-    // skipped entirely — no probe, no result in the picker. `auto` is the
-    // default and follows the detection state.
-    const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
-    const autoRuntimes: LocalRuntimeId[] = [];
+  // `on` providers are included up-front so users can select a forced remote
+  // runtime even before (or without) a successful probe. `off` providers are
+  // skipped entirely — no probe, no result in the picker. `auto` is the
+  // default and follows the detection state.
+  const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
+  const autoRuntimes: LocalRuntimeId[] = [];
 
-    for (const runtimeId of runtimeIds) {
-      const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-      const activation = resolveLocalRuntimeActivation(providerSettings[providerId]);
-      if (activation === 'off') {
-        continue;
-      }
-      if (activation === 'on') {
-        detected.push(providerId);
-        continue;
-      }
-      autoRuntimes.push(runtimeId);
+  for (const runtimeId of runtimeIds) {
+    const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+    const activation = resolveLocalRuntimeActivation(providerSettings[providerId]);
+    if (activation === 'off') {
+      continue;
     }
-
-    if (autoRuntimes.length === 0) {
-      return detected;
+    if (activation === 'on') {
+      detected.push(providerId);
+      continue;
     }
-
-    // Probe only the `auto` runtimes. Each probe carries the user's stored
-    // baseUrl and bearer token so "auto" against a remote token-protected
-    // host (Ollama Turbo, LM Studio with auth) still surfaces as available.
-    // Prefer the main-process bridge on desktop to sidestep Chromium CORS.
-    const probes = await Promise.all(
-      autoRuntimes.map(async (runtimeId) => {
-        const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-        const endpoint = await buildLocalRuntimeEndpointConfig(
-          providerId,
-          providerSettings[providerId]
-        );
-        const status = await probeRuntimeViaBridgeOrService(runtimeId, {
-          diagnosticLogLevel: 'debug',
-          ...(endpoint ? { endpoint } : {}),
-        });
-        return { providerId, status };
-      })
-    );
-
-    for (const { providerId, status } of probes) {
-      if (shouldIncludeLocalRuntimeProvider(status)) {
-        detected.push(providerId);
-      }
-    }
-
-    return detected;
-  } catch {
-    return [];
+    autoRuntimes.push(runtimeId);
   }
+
+  if (autoRuntimes.length === 0) {
+    return detected;
+  }
+
+  // Probe only the `auto` runtimes. Each probe carries the user's stored
+  // baseUrl and bearer token so "auto" against a remote token-protected
+  // host (Ollama Turbo, LM Studio with auth) still surfaces as available.
+  // Prefer the main-process bridge on desktop to sidestep Chromium CORS.
+  const probes = await Promise.all(
+    autoRuntimes.map(async (runtimeId) => {
+      const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+      const endpoint = await buildLocalRuntimeEndpointConfig(
+        providerId,
+        providerSettings[providerId]
+      );
+      const status = await probeRuntimeViaBridgeOrService(runtimeId, {
+        diagnosticLogLevel: 'debug',
+        ...(endpoint ? { endpoint } : {}),
+      });
+      return { providerId, status };
+    })
+  );
+
+  for (const { providerId, status } of probes) {
+    if (shouldIncludeLocalRuntimeProvider(status)) {
+      detected.push(providerId);
+    }
+  }
+
+  return detected;
 }
 
 function orderProvidersByRegistry(providers: ReadonlySet<SupportedProvider>): SupportedProvider[] {

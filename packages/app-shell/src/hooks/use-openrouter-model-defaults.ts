@@ -28,7 +28,7 @@ export function useOpenRouterDefaults(
   configuredProviders: readonly SupportedProvider[],
   db: DbHandle | null,
   secretsVersion: number,
-  initialProviders?: readonly string[],
+  providerDiscoveryEnabled = true,
   providerReadErrors?: Partial<Record<SupportedProvider, string>>
 ): void {
   const hasLoaded = useModelRegistryStore((state) => state.hasLoaded);
@@ -41,7 +41,7 @@ export function useOpenRouterDefaults(
 
   useEffect(() => {
     if (
-      !(initialProviders === undefined && db && hasLoaded) ||
+      !(providerDiscoveryEnabled && db && hasLoaded) ||
       registryError ||
       providerReadErrors?.openrouter ||
       !configuredProviders.includes('openrouter')
@@ -71,8 +71,8 @@ export function useOpenRouterDefaults(
     configuredProviders,
     db,
     hasLoaded,
-    initialProviders,
     initializeProviderModelDefaults,
+    providerDiscoveryEnabled,
     providerReadErrors?.openrouter,
     registryError,
     secretsVersion,

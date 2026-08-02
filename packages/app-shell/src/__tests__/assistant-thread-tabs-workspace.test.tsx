@@ -83,7 +83,7 @@ function renderWorkspace(): ReturnType<typeof createTestActionRegistry> {
   const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
   render(
     <ActionRegistryProvider registry={actionRegistry.registry}>
-      <AssistantThreadTabsWorkspace initialProviders={['openai']} />
+      <AssistantThreadTabsWorkspace />
     </ActionRegistryProvider>
   );
   return actionRegistry;
@@ -174,10 +174,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     ];
     render(
       <ActionRegistryProvider registry={actionRegistry.registry}>
-        <AssistantThreadTabsWorkspace
-          initialProviders={['openai']}
-          providerKeySources={providerKeySources}
-        />
+        <AssistantThreadTabsWorkspace providerKeySources={providerKeySources} />
       </ActionRegistryProvider>
     );
 

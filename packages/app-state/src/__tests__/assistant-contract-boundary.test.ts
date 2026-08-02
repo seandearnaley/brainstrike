@@ -74,12 +74,25 @@ function exportedSourceViolations(packageJson: {
 
 function readPackageJson(): {
   dependencies?: Record<string, string>;
-  exports?: Record<string, { import?: string; types?: string }>;
+  exports?: Record<string, { import?: string; require?: string; types?: string }>;
 } {
   return JSON.parse(readFileSync(path.join(APP_STATE_PACKAGE_ROOT, 'package.json'), 'utf8')) as {
     dependencies?: Record<string, string>;
-    exports?: Record<string, { import?: string; types?: string }>;
+    exports?: Record<string, { import?: string; require?: string; types?: string }>;
   };
+}
+
+function playwrightStoreVersionExportViolation(
+  packageJson: ReturnType<typeof readPackageJson>
+): string | undefined {
+  const target = packageJson.exports?.['./stores/assistant-preferences-store-version'];
+  if (!target) {
+    return 'Playwright store-version export is missing';
+  }
+  if (target.require !== target.import) {
+    return 'Playwright store-version export must resolve identically for import and require';
+  }
+  return;
 }
 
 describe('app-state package boundary', () => {
@@ -96,6 +109,7 @@ describe('app-state package boundary', () => {
 
     expect(Object.keys(packageJson.exports ?? {}).length).toBeGreaterThanOrEqual(35);
     expect(exportedSourceViolations(packageJson)).toEqual([]);
+    expect(playwrightStoreVersionExportViolation(packageJson)).toBeUndefined();
   });
 
   it('money controls detect a forbidden UI import and an unresolved export target', () => {
@@ -125,6 +139,23 @@ describe('app-state package boundary', () => {
     };
     expect(exportedSourceViolations(mutatedPackageJson)).toContain(
       `${subpath}: ./dist/control-missing.js has no source module`
+    );
+
+    const storeVersionExport =
+      packageJson.exports?.['./stores/assistant-preferences-store-version'];
+    expect(storeVersionExport).toBeDefined();
+    const { require: removedRequire, ...storeVersionExportWithoutRequire } =
+      storeVersionExport ?? {};
+    expect(removedRequire).toBe(storeVersionExport?.import);
+    const mutatedPlaywrightPackageJson = {
+      ...packageJson,
+      exports: {
+        ...packageJson.exports,
+        './stores/assistant-preferences-store-version': storeVersionExportWithoutRequire,
+      },
+    };
+    expect(playwrightStoreVersionExportViolation(mutatedPlaywrightPackageJson)).toBe(
+      'Playwright store-version export must resolve identically for import and require'
     );
   });
 });
