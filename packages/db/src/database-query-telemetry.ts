@@ -122,7 +122,11 @@ function readMonotonicTime(): number {
   if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
     throw new Error('Database query telemetry requires the Performance monotonic clock');
   }
-  return performance.now();
+  const timestamp = performance.now();
+  if (!Number.isFinite(timestamp) || timestamp < 0) {
+    throw new Error('Database query telemetry monotonic clock must be finite and non-negative');
+  }
+  return timestamp;
 }
 
 function percentile(sorted: readonly number[], ratio: number): number {
@@ -228,7 +232,9 @@ function readQueryMeasurementClock(feature: DatabaseQueryFeature): number | null
   }
   try {
     const timestamp = readMonotonicTime();
-    failedQueryMeasurementClock = null;
+    if (failedQueryMeasurementClock !== null) {
+      failedQueryMeasurementClock = null;
+    }
     return timestamp;
   } catch (error) {
     failedQueryMeasurementClock = { clock, read };
@@ -254,6 +260,7 @@ export class DatabaseQueryTelemetry {
   private notifyTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly querySamples = createFeatureArrays<QuerySample[]>(() => []);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
+  private retentionClockFailure: Error | null = null;
   private readonly wallNow: () => number;
   private readonly windowMs: number;
 
@@ -273,6 +280,9 @@ export class DatabaseQueryTelemetry {
   }
 
   readonly getSnapshot = (): DatabaseQueryTelemetrySnapshot => {
+    if (this.retentionClockFailure !== null) {
+      throw this.retentionClockFailure;
+    }
     if (this.listeners.size > 0) {
       return this.currentSnapshot;
     }
@@ -300,7 +310,10 @@ export class DatabaseQueryTelemetry {
   }
 
   recordLiveUpdate(): void {
-    const recordedAt = this.readRetentionNow();
+    const recordedAt = this.tryReadRetentionNow('live-update');
+    if (recordedAt === null) {
+      return;
+    }
     this.recordCount(this.liveUpdateBuckets, this.liveUpdateBucketMs, recordedAt);
     this.trimCountBuckets(
       this.liveUpdateBuckets,
@@ -359,7 +372,8 @@ export class DatabaseQueryTelemetry {
     this.listeners.add(listener);
     if (this.refreshInterval === null) {
       this.refreshInterval = setInterval(() => {
-        if (!this.trimExpired()) {
+        const retentionAt = this.tryReadRetentionNow('refresh-snapshot');
+        if (retentionAt === null || !this.trimExpired(retentionAt)) {
           return;
         }
         this.dirty = true;
@@ -463,7 +477,11 @@ export class DatabaseQueryTelemetry {
   }
 
   private notifyListeners(): void {
-    this.publishSnapshot(this.readRetentionNow());
+    const retentionAt = this.tryReadRetentionNow('notify-listeners');
+    if (retentionAt === null) {
+      return;
+    }
+    this.publishSnapshot(retentionAt);
     for (const listener of this.listeners) {
       listener();
     }
@@ -476,11 +494,38 @@ export class DatabaseQueryTelemetry {
   }
 
   private readRetentionNow(): number {
-    const retentionAt = this.now();
-    if (!Number.isFinite(retentionAt) || retentionAt < 0) {
-      throw new Error('Database query telemetry monotonic clock must be finite and non-negative');
+    if (this.retentionClockFailure !== null) {
+      throw this.retentionClockFailure;
     }
-    return retentionAt;
+    try {
+      const retentionAt = this.now();
+      if (!Number.isFinite(retentionAt) || retentionAt < 0) {
+        throw new Error('Database query telemetry monotonic clock must be finite and non-negative');
+      }
+      return retentionAt;
+    } catch (error) {
+      this.retentionClockFailure =
+        error instanceof Error ? error : new Error(getErrorMessage(error));
+      throw this.retentionClockFailure;
+    }
+  }
+
+  private tryReadRetentionNow(operation: string): number | null {
+    if (this.retentionClockFailure !== null) {
+      return null;
+    }
+    try {
+      return this.readRetentionNow();
+    } catch (error) {
+      logger.error(
+        'Database query telemetry retention timing unavailable; samples will not be recorded',
+        {
+          error: getErrorMessage(error),
+          operation,
+        }
+      );
+      return null;
+    }
   }
 
   private readWallNow(): number {
@@ -514,7 +559,7 @@ export class DatabaseQueryTelemetry {
     return changed;
   }
 
-  private trimExpired(snapshotAt = this.readRetentionNow()): boolean {
+  private trimExpired(snapshotAt: number): boolean {
     const cutoff = snapshotAt - this.windowMs;
     let changed = false;
     for (const feature of DATABASE_QUERY_FEATURES) {

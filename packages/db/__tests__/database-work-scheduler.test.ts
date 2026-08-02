@@ -635,27 +635,39 @@ describe('DatabaseWorkScheduler', () => {
     );
   });
 
-  it('retains and reactivates the wrapped listener after rejected cleanup', async () => {
+  it('requires a fresh PGlite live-query handle after teardown starts', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     let subscribedListener: ((...args: unknown[]) => unknown) | null = null;
-    let unsubscribeAttempt = 0;
+    let dead = false;
     const liveHandle = {
       initialResults: { rows: [] },
       refresh: vi.fn(async () => undefined),
       subscribe: vi.fn((listener: (...args: unknown[]) => unknown) => {
+        if (dead) {
+          throw new Error('Live query is no longer active and cannot be subscribed to');
+        }
         subscribedListener = listener;
       }),
       unsubscribe: vi.fn(async () => {
-        unsubscribeAttempt += 1;
-        if (unsubscribeAttempt === 1) {
-          throw new Error('database is closing');
-        }
+        // PGlite 0.5.3 marks a query dead before awaiting its teardown transaction.
+        dead = true;
+        subscribedListener = null;
+        throw new Error('database is closing');
       }),
+    };
+    const replacementLiveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(async () => undefined),
     };
     const rawDb = {
       live: {
-        incrementalQuery: vi.fn(async () => liveHandle),
-        query: vi.fn(async () => liveHandle),
+        incrementalQuery: vi.fn(async () => replacementLiveHandle),
+        query: vi
+          .fn()
+          .mockResolvedValueOnce(liveHandle)
+          .mockResolvedValueOnce(replacementLiveHandle),
       },
       query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
         rows: [] as T[],
@@ -672,25 +684,28 @@ describe('DatabaseWorkScheduler', () => {
     expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
       telemetryBefore.activeLiveSubscriptions
     );
-    expect(liveHandle.unsubscribe).toHaveBeenNthCalledWith(1, subscribedListener);
     const liveUpdatesAfterFailedCleanup = databaseQueryTelemetry.snapshot().liveUpdateCount;
     subscribedListener?.({ rows: [] });
     expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(liveUpdatesAfterFailedCleanup);
 
-    handle.subscribe(listener);
+    expect(() => handle.subscribe(listener)).toThrow(
+      'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
+    );
+    await expect(handle.unsubscribe(listener)).rejects.toThrow(
+      'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
+    );
+    expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
+    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
 
-    expect(liveHandle.subscribe).toHaveBeenNthCalledWith(2, subscribedListener);
+    const replacementHandle = await scheduled.live.query({ query: 'SELECT 1' });
+    replacementHandle.subscribe(listener);
     expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
       telemetryBefore.activeLiveSubscriptions + 1
     );
-    subscribedListener?.({ rows: [] });
-    expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(
-      liveUpdatesAfterFailedCleanup + 1
-    );
-
-    await expect(handle.unsubscribe(listener)).resolves.toBeUndefined();
-
-    expect(liveHandle.unsubscribe).toHaveBeenNthCalledWith(2, subscribedListener);
+    await replacementHandle.unsubscribe(listener);
     expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
       telemetryBefore.activeLiveSubscriptions
     );

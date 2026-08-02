@@ -109,7 +109,9 @@ testWithContract('BST-403 documents fail-closed aggregate and live-query boundar
     'zero lookup and hit counts',
     'start and refresh query executions rather than teardown',
     'release local subscription ownership exactly once',
-    'never prevents the wrapped database',
+    'terminal when teardown starts',
+    'snapshot reads continue to fail loudly',
+    'operation always runs',
   ]) {
     assertContractIncludes(term);
   }

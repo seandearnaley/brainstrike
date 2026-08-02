@@ -43,10 +43,12 @@ record duration and failure only, with zero lookup and hit counts; live-query
 histograms count start and refresh query executions rather than teardown.
 Direct and Electron teardown release local subscription ownership exactly once,
 even when remote cleanup rejects or callers invoke unsubscribe repeatedly. Direct
-listeners can be reactivated after rejected cleanup, and concurrent Electron
-callers share a retryable remote-stop attempt without reacquiring local ownership.
-A missing telemetry clock is logged visibly once per producer, but never prevents
-the wrapped database or token-cache operation from running.
+PGlite handles become terminal when teardown starts and must be recreated after a
+rejection; concurrent Electron callers share a retryable remote-stop attempt without
+reacquiring local ownership. A missing telemetry clock is logged visibly once per
+producer, timer callbacks stop attempting telemetry publication, and explicit
+snapshot reads continue to fail loudly, but the wrapped database or token-cache
+operation always runs.
 
 ## Prohibited By Default
 

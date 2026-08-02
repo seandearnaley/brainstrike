@@ -1,3 +1,4 @@
+import { addLogListener } from '@brainstrike/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseQueryTelemetryRecord } from '../src/database-query-telemetry';
 import {
@@ -336,6 +337,63 @@ describe('DatabaseQueryTelemetry', () => {
     const now = vi.fn(() => {
       throw new Error('measurement clock unavailable');
     });
+    vi.stubGlobal('performance', { now });
+    const work = vi.fn(async () => 'query result');
+    const recordQuery = vi.spyOn(databaseQueryTelemetry, 'recordQuery');
+
+    await expect(measureDatabaseQuery('file-tree', work)).resolves.toBe('query result');
+    await expect(measureDatabaseQuery('queue-stats', work)).resolves.toBe('query result');
+
+    expect(work).toHaveBeenCalledTimes(2);
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(recordQuery).not.toHaveBeenCalled();
+  });
+
+  it('latches a failed retention clock across live updates and subscriber timers', async () => {
+    vi.useFakeTimers();
+    let clockAvailable = true;
+    const now = vi.fn(() => {
+      if (!clockAvailable) {
+        throw new Error('retention clock unavailable');
+      }
+      return 1000;
+    });
+    const telemetry = new DatabaseQueryTelemetry({ now });
+    const listener = vi.fn();
+    const telemetryErrors: string[] = [];
+    const removeLogListener = addLogListener((record) => {
+      if (record.scope === 'DatabaseQueryTelemetry' && record.level === 'error') {
+        telemetryErrors.push(record.message ?? '');
+      }
+    });
+    const unsubscribe = telemetry.subscribe(listener);
+    clockAvailable = false;
+
+    try {
+      telemetry.recordLiveSubscriptionStarted();
+      telemetry.recordLiveUpdate();
+      telemetry.recordLiveUpdate();
+      telemetry.recordLiveUpdate();
+      await vi.advanceTimersByTimeAsync(3000);
+      telemetry.recordLiveSubscriptionEnded();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(now).toHaveBeenCalledTimes(2);
+      expect(listener).not.toHaveBeenCalled();
+      expect(telemetryErrors).toEqual([
+        'Database query telemetry retention timing unavailable; samples will not be recorded',
+      ]);
+      expect(() => telemetry.getSnapshot()).toThrow('retention clock unavailable');
+    } finally {
+      unsubscribe();
+      removeLogListener();
+    }
+
+    expect(() => telemetry.getSnapshot()).toThrow('retention clock unavailable');
+  });
+
+  it('latches a non-finite measurement clock while preserving every operation', async () => {
+    const now = vi.fn(() => Number.NaN);
     vi.stubGlobal('performance', { now });
     const work = vi.fn(async () => 'query result');
     const recordQuery = vi.spyOn(databaseQueryTelemetry, 'recordQuery');

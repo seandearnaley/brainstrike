@@ -710,10 +710,18 @@ function createScheduledLiveQueryHandle<THandle extends object>(
   scheduler: DatabaseWorkScheduler,
   refreshPriority: DatabaseWorkPriority
 ): THandle {
+  let active = true;
   const subscribedListeners = new Map<
     CallableUnknown,
     { counted: boolean; wrappedListener: CallableUnknown }
   >();
+  const assertActive = (): void => {
+    if (!active) {
+      throw new Error(
+        'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
+      );
+    }
+  };
   return new Proxy(handle, {
     get(target, property, receiver) {
       if (property === 'refresh') {
@@ -721,8 +729,9 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         if (typeof refresh !== 'function') {
           return refresh;
         }
-        return async (...args: unknown[]) =>
-          await measureDatabaseQuery(
+        return async (...args: unknown[]) => {
+          assertActive();
+          return await measureDatabaseQuery(
             'live-query',
             async () =>
               await scheduler.run(
@@ -730,6 +739,7 @@ function createScheduledLiveQueryHandle<THandle extends object>(
                 { label: 'live query refresh', priority: refreshPriority }
               )
           );
+        };
       }
       if (property === 'subscribe') {
         const subscribe = Reflect.get(target, property, receiver);
@@ -737,16 +747,10 @@ function createScheduledLiveQueryHandle<THandle extends object>(
           return subscribe;
         }
         return (listener: CallableUnknown) => {
+          assertActive();
           const existing = subscribedListeners.get(listener);
           if (existing) {
-            const result = Reflect.apply(subscribe as CallableUnknown, target, [
-              existing.wrappedListener,
-            ]);
-            if (!existing.counted) {
-              existing.counted = true;
-              recordDatabaseLiveSubscriptionStarted();
-            }
-            return result;
+            return Reflect.apply(subscribe as CallableUnknown, target, [existing.wrappedListener]);
           }
           const wrappedListener = function (this: unknown, ...args: unknown[]) {
             if (entry.counted) {
@@ -772,23 +776,26 @@ function createScheduledLiveQueryHandle<THandle extends object>(
           return unsubscribe;
         }
         return async (listener: CallableUnknown) => {
+          assertActive();
+          // PGlite 0.5.3 marks a live-query handle dead before it awaits the
+          // teardown transaction. Once cleanup starts, even a rejected
+          // unsubscribe cannot be retried or re-subscribed on this handle.
+          active = false;
           const entry = subscribedListeners.get(listener);
-          if (!entry) {
-            return await Reflect.apply(unsubscribe as CallableUnknown, target, [listener]);
-          }
           try {
-            const result = await Reflect.apply(unsubscribe as CallableUnknown, target, [
-              entry.wrappedListener,
+            return await Reflect.apply(unsubscribe as CallableUnknown, target, [
+              entry?.wrappedListener ?? listener,
             ]);
-            subscribedListeners.delete(listener);
-            return result;
           } finally {
-            // Retain a failed cleanup's wrapper so the caller can retry it or
-            // reactivate the same listener without creating a second wrapper.
-            if (entry.counted) {
-              entry.counted = false;
-              recordDatabaseLiveSubscriptionEnded();
+            // The pinned PGlite lifecycle clears every downstream callback
+            // before teardown. Release every locally counted listener too.
+            for (const subscribed of subscribedListeners.values()) {
+              if (subscribed.counted) {
+                subscribed.counted = false;
+                recordDatabaseLiveSubscriptionEnded();
+              }
             }
+            subscribedListeners.clear();
           }
         };
       }

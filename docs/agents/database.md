@@ -23,6 +23,16 @@ read methods report the coarse `file-tree` feature, including full and
 metadata-only managed-cache listings on both repository implementations. Keep
 these seams and their paired tests aligned when a query path moves.
 
+The pinned PGlite 0.5.3 live-query implementation marks a handle dead before its
+unsubscribe transaction settles. Scheduler instrumentation must therefore release
+all local listener ownership on the first teardown attempt and reject later
+subscribe, refresh, or unsubscribe calls on that handle; a caller that wants to
+continue must create a fresh live-query handle. Do not add same-handle retry or
+reactivation semantics that the underlying dependency cannot honor. The collector
+latches retention-clock failure per instance, logs the first producer failure,
+and stops timer-driven publication without hiding the failure at explicit snapshot
+read boundaries.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.

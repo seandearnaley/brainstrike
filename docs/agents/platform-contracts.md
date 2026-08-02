@@ -615,18 +615,21 @@ are measured alongside the other production reads; SUM samples contribute
 duration and failure data with zero lookup and hit counts. Live-query histogram
 samples represent start and refresh query executions on both renderer and
 Electron paths; subscription lifecycle, update delivery, and teardown are
-tracked separately. A rejected direct unsubscribe retains its registered
-wrapper for a possible cleanup retry, but releases local subscription ownership
-exactly once on the first teardown attempt and suppresses later update accounting.
-Re-subscribing that listener reuses the wrapper and reacquires ownership only
-after the underlying subscription succeeds; a cleanup retry cannot double-decrement
-the counter. Concurrent Electron teardown callers share one remote stop attempt;
+tracked separately. A direct unsubscribe terminalizes the pinned PGlite
+live-query handle before its async teardown settles, so the scheduler releases
+every locally counted listener exactly once on the first teardown attempt. A
+rejected teardown cannot be retried or re-subscribed on that dead handle; callers
+must create a fresh live-query handle, and the wrapper throws if they try to reuse
+the old one. Concurrent Electron teardown callers share one remote stop attempt;
 a rejected stop remains retryable while renderer-local listener and counter
 ownership release exactly once. Production wrappers log telemetry failures,
 including an unavailable timing clock, at error level while preserving and always
 executing the database operation's original success or rejection. Each producer
 latches an unavailable clock and logs it once rather than emitting an error for
-every subsequent operation. The clock-free
+every subsequent operation. The collector also suppresses repeated timer callbacks
+after its retention clock fails; live-update samples stop, while an explicit
+snapshot read still throws the latched error rather than returning stale data as
+current. The clock-free
 package regression imports the public database package entrypoint. There is
 deliberately no public reset: clearing the singleton could invalidate
 live-subscription ownership held by active proxies. Paired coverage
