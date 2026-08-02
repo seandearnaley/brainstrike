@@ -850,6 +850,10 @@ export interface EmbedWorkerPipelineCacheEntryDiagnostic {
 /** Worker name prefix used to carry a pool-assigned identity through termination callbacks. */
 export const EMBED_WORKER_INSTANCE_NAME_PREFIX = 'brainstrike-embedding-worker:';
 
+/** Worker-script fragment key carrying the pool's worker-lifetime telemetry channel. */
+export const EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY =
+  'brainstrike-embedding-worker-telemetry-channel';
+
 interface EmbedWorkerPipelineCacheDiagnosticBase {
   readonly cacheSize: number;
   readonly diagnostic: 'pipeline-cache';

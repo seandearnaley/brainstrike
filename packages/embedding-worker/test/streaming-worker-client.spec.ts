@@ -425,6 +425,48 @@ describe('StreamingEmbeddingWorkerClient', () => {
     await expect(client.stream(createRequest())).rejects.toThrow('batch ack failed');
   });
 
+  it('rejects a queued stream before posting when the active stream terminally fails', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+
+    const firstOutcome = client
+      .stream(createRequest(), {
+        onBatch: async () => {
+          throw new Error('active batch failed');
+        },
+      })
+      .catch((error: unknown) => error);
+    const secondOutcome = client
+      .stream({ ...createRequest(), id: 'embed-2' })
+      .catch((error: unknown) => error);
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      batchIndex: 0,
+      endIndex: 1,
+      id: 'embed-1',
+      peakVectorsInFlight: 1,
+      startIndex: 0,
+      transferBytes: 12,
+      type: 'batch',
+      vectors: [new Float32Array([1, 2, 3])],
+      vectorsInFlight: 1,
+    } satisfies EmbedWorkerBatch);
+
+    await expect(firstOutcome).resolves.toMatchObject({ message: 'active batch failed' });
+    await flushMicrotasks();
+    const postedRequestIds = worker.postMessage.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message?.type === 'stream-embed')
+      .map((message) => message.request.id);
+
+    client.terminate();
+
+    await expect(secondOutcome).resolves.toMatchObject({ message: 'active batch failed' });
+    expect(postedRequestIds).toEqual(['embed-1']);
+    expect(worker.terminate).toHaveBeenCalledTimes(2);
+  });
+
   it('latches worker error events as terminal failures', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);

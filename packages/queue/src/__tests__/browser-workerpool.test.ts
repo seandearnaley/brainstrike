@@ -1,4 +1,7 @@
-import { EMBED_WORKER_INSTANCE_NAME_PREFIX } from '@brainstrike/indexing-contract';
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+} from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueueResult, TaskPayload } from '../types';
 
@@ -55,6 +58,24 @@ vi.mock('../util', async () => {
 
 interface CancelablePromise<T> extends Promise<T> {
   cancel: ReturnType<typeof vi.fn>;
+}
+
+const broadcastChannelInstances: MockBroadcastChannel[] = [];
+
+class MockBroadcastChannel {
+  readonly close = vi.fn();
+  readonly name: string;
+  onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+  readonly postMessage = vi.fn();
+
+  constructor(name: string) {
+    this.name = name;
+    broadcastChannelInstances.push(this);
+  }
+
+  emit(data: unknown): void {
+    this.onmessage?.({ data } as MessageEvent<unknown>);
+  }
 }
 
 function createCancelablePromise<T>(): {
@@ -116,6 +137,11 @@ function createWorkerOptions() {
 
 describe('createWorkerpoolAdapter', () => {
   beforeEach(() => {
+    broadcastChannelInstances.length = 0;
+    vi.stubGlobal(
+      'BroadcastChannel',
+      MockBroadcastChannel as unknown as typeof globalThis.BroadcastChannel
+    );
     emitQueueTelemetryMock.mockReset();
     loggerMock.debug.mockReset();
     loggerMock.error.mockReset();
@@ -141,12 +167,22 @@ describe('createWorkerpoolAdapter', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('requires an explicit workerUrl', async () => {
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
     expect(() => createWorkerpoolAdapter()).toThrow(
       'createWorkerpoolAdapter requires an explicit workerUrl.'
+    );
+  });
+
+  it('requires worker-lifetime telemetry transport support', async () => {
+    vi.stubGlobal('BroadcastChannel', undefined);
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+
+    expect(() => createWorkerpoolAdapter(createWorkerOptions())).toThrow(
+      'Embedding workerpool telemetry requires BroadcastChannel support.'
     );
   });
 
@@ -251,6 +287,101 @@ describe('createWorkerpoolAdapter', () => {
       cacheDiagnostic
     );
     expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(sourceId);
+    expect(broadcastChannelInstances[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('records an idle cache eviction after its workerpool request has settled', async () => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    const workerInstanceId = 'worker-idle-cache';
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        options?.on?.({
+          cacheSize: 1,
+          diagnostic: 'pipeline-cache',
+          emittedAt: 100,
+          event: 'loaded',
+          id: 'task-idle-cache',
+          type: 'diagnostic',
+          workerInstanceId,
+        });
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
+      | {
+          onCreateWorker?: (args: {
+            script?: string;
+            workerOpts?: WorkerOptions;
+          }) => { script?: string; workerOpts?: WorkerOptions } | undefined;
+        }
+      | undefined;
+    const createdWorker = poolOptions?.onCreateWorker?.({
+      script: '/worker.js',
+      workerOpts: { type: 'module' },
+    });
+    const telemetryChannel = broadcastChannelInstances[0];
+    if (!(createdWorker?.script && telemetryChannel)) {
+      throw new Error('Expected managed worker telemetry channel setup.');
+    }
+    const workerScriptFragment = new URLSearchParams(createdWorker.script.split('#')[1]);
+    expect(workerScriptFragment.get(EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY)).toBe(
+      telemetryChannel.name
+    );
+
+    const addPromise = adapter.add(createTask('task-idle-cache'));
+    resolve(createResult('task-idle-cache'));
+    await addPromise;
+    recordEmbeddingPipelineCacheTelemetryMock.mockClear();
+
+    telemetryChannel.emit({
+      cacheSize: 0,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 300_100,
+      entries: [],
+      event: 'evicted',
+      reason: 'idle-timeout',
+      type: 'diagnostic',
+      workerInstanceId,
+    });
+
+    expect(recordEmbeddingPipelineCacheTelemetryMock).toHaveBeenCalledWith(
+      `workerpool-embedding-${workerInstanceId}`,
+      expect.objectContaining({ event: 'evicted', reason: 'idle-timeout' })
+    );
+    await adapter.dispose?.();
+  });
+
+  it('fails the pool when worker-lifetime telemetry is request-scoped or malformed', async () => {
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const telemetryChannel = broadcastChannelInstances[0];
+    if (!telemetryChannel) {
+      throw new Error('Expected managed worker telemetry channel setup.');
+    }
+
+    telemetryChannel.emit({
+      cacheSize: 0,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      event: 'evicted',
+      id: 'request-scoped-event',
+      reason: 'idle-timeout',
+      type: 'diagnostic',
+      workerInstanceId: 'worker-invalid-lifetime-event',
+    });
+
+    await expect(adapter.add(createTask('task-after-telemetry-failure'))).rejects.toThrow(
+      'Embedding worker-lifetime telemetry requires an id-less pipeline-cache diagnostic.'
+    );
+    expect(recordEmbeddingTelemetryFailureMock).toHaveBeenCalledWith(
+      'Embedding worker-lifetime telemetry requires an id-less pipeline-cache diagnostic.'
+    );
+    expect(poolTerminateMock).toHaveBeenCalledWith(true);
+    expect(telemetryChannel.close).toHaveBeenCalledTimes(1);
+    expect(poolExecMock).not.toHaveBeenCalled();
   });
 
   it('surfaces missing live-worker telemetry without rejecting valid vectors', async () => {

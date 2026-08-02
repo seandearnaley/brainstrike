@@ -1,6 +1,9 @@
 /// <reference lib="webworker" />
 
-import { EMBED_WORKER_INSTANCE_NAME_PREFIX } from '@brainstrike/indexing-contract';
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+} from '@brainstrike/indexing-contract';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
   FeatureExtractionPipeline,
@@ -48,6 +51,43 @@ function resolveEmbeddingWorkerInstanceId(): string {
 }
 
 const embeddingWorkerInstanceId = resolveEmbeddingWorkerInstanceId();
+
+function resolveWorkerpoolTelemetryChannelName(): string | null {
+  const workerLocation = (
+    globalThis as typeof globalThis & { readonly location?: { readonly hash?: unknown } }
+  ).location;
+  if (!(workerLocation && typeof workerLocation.hash === 'string')) {
+    return null;
+  }
+
+  const fragment = workerLocation.hash.startsWith('#')
+    ? workerLocation.hash.slice(1)
+    : workerLocation.hash;
+  const channelNames = new URLSearchParams(fragment).getAll(
+    EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY
+  );
+  if (channelNames.length === 0) {
+    return null;
+  }
+  const channelName = channelNames[0];
+  if (channelNames.length !== 1 || !channelName) {
+    throw new Error('Embedding worker has an invalid worker-lifetime telemetry channel.');
+  }
+  return channelName;
+}
+
+function createWorkerpoolTelemetryChannel(): BroadcastChannel | null {
+  const channelName = resolveWorkerpoolTelemetryChannelName();
+  if (channelName === null) {
+    return null;
+  }
+  if (typeof BroadcastChannel === 'undefined') {
+    throw new Error('Embedding workerpool telemetry requires BroadcastChannel support.');
+  }
+  return new BroadcastChannel(channelName);
+}
+
+const workerpoolTelemetryChannel = createWorkerpoolTelemetryChannel();
 
 function debugLog(message: string, data?: Record<string, unknown>): void {
   void message;
@@ -483,6 +523,16 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
 
   if (options.sink) {
     options.sink(event);
+    return;
+  }
+  if (event.id === undefined) {
+    if (workerpoolTelemetryChannel) {
+      workerpoolTelemetryChannel.postMessage(event);
+    } else {
+      // Streaming workers do not carry a workerpool channel. Their owning client listens
+      // directly for worker-global diagnostics after the request-scoped stream has settled.
+      postStreamEvent(event);
+    }
     return;
   }
   workerEmit(event);

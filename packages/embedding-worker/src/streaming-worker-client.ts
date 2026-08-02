@@ -143,8 +143,11 @@ export class StreamingEmbeddingWorkerClient {
     options: StreamingEmbedOptions = {}
   ): Promise<EmbedWorkerComplete['metadata']> {
     this.runtime.throwIfFailed();
-    const run = async (): Promise<EmbedWorkerComplete['metadata']> =>
-      await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
+    const run = async (): Promise<EmbedWorkerComplete['metadata']> => {
+      // A prior stream can fail while this request is waiting on executionChain. Recheck at
+      // execution time so a queued request never posts to the worker after onFailure terminates it.
+      this.runtime.throwIfFailed();
+      return await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
         const cleanup = this.transport.onMessage((message) => {
           if (!isStreamEvent(message)) {
             return;
@@ -172,6 +175,7 @@ export class StreamingEmbeddingWorkerClient {
           type: 'stream-embed',
         });
       });
+    };
 
     const execution = this.executionChain.then(run, run);
     this.executionChain = execution.then(

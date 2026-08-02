@@ -117,7 +117,13 @@ Embedding runtime telemetry (BST-402):
 - `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
   workerpool own source-scoped, in-memory telemetry records. The workerpool records the
   unique buffers transferred with each completed result and forwards pipeline-cache
-  diagnostics emitted during `runEmbedding`. Each pool worker receives a unique
+  diagnostics emitted during `runEmbedding`. Worker-global diagnostics that occur after
+  an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
+  `BroadcastChannel`; its name is carried in the managed worker script fragment. The
+  adapter requires that capability, validates that channel traffic is an id-less cache
+  diagnostic, terminates the affected pool on malformed traffic, and closes the channel
+  during pool teardown. Streaming workers without that fragment deliver worker-global
+  diagnostics over their direct worker message transport. Each pool worker receives a unique
   `WorkerOptions.name`; that identity is emitted with cache diagnostics. The same UUID is
   carried in a fragment on that worker's script URL because workerpool 10.0.3 omits
   `workerOpts` from its runtime termination callback despite declaring it in the public

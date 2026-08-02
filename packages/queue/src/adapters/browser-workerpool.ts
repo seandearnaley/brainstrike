@@ -1,5 +1,6 @@
 import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerPipelineCacheDiagnostic,
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/utils';
@@ -52,12 +53,14 @@ function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDi
 }
 
 const MANAGED_WORKER_SCRIPT_FRAGMENT_KEY = 'brainstrike-embedding-worker-instance';
+const WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX = 'brainstrike-embedding-worker-telemetry:';
 const MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON =
   'Workerpool result arrived without a pipeline-cache source diagnostic.';
 
 function tagManagedWorkerScript(
   workerScript: string | undefined,
-  workerInstanceId: string
+  workerInstanceId: string,
+  telemetryChannelName: string
 ): string {
   if (!(typeof workerScript === 'string' && workerScript.length > 0)) {
     throw new Error('Embedding workerpool worker is missing its explicit script URL.');
@@ -69,9 +72,15 @@ function tagManagedWorkerScript(
   if (fragmentParams.has(MANAGED_WORKER_SCRIPT_FRAGMENT_KEY)) {
     throw new Error('Embedding worker script URL already contains a managed instance identity.');
   }
+  if (fragmentParams.has(EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY)) {
+    throw new Error('Embedding worker script URL already contains a managed telemetry channel.');
+  }
 
-  const separator = fragmentStart === -1 ? '#' : '&';
-  return `${workerScript}${separator}${MANAGED_WORKER_SCRIPT_FRAGMENT_KEY}=${encodeURIComponent(workerInstanceId)}`;
+  fragmentParams.append(MANAGED_WORKER_SCRIPT_FRAGMENT_KEY, workerInstanceId);
+  fragmentParams.append(EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY, telemetryChannelName);
+  const scriptWithoutFragment =
+    fragmentStart === -1 ? workerScript : workerScript.slice(0, fragmentStart);
+  return `${scriptWithoutFragment}#${fragmentParams.toString()}`;
 }
 
 function readManagedWorkerInstanceId(workerScript: string | undefined): string {
@@ -182,6 +191,9 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     throw new Error('createWorkerpoolAdapter requires an explicit workerUrl.');
   }
   assertWorkerpoolEmbeddingTelemetrySink(options.telemetry);
+  if (typeof BroadcastChannel === 'undefined') {
+    throw new Error('Embedding workerpool telemetry requires BroadcastChannel support.');
+  }
   const embeddingTelemetry = options.telemetry;
   const hardwareConcurrency = estimateHardwareConcurrency();
   // MDN documents `navigator.hardwareConcurrency` as the number of logical
@@ -200,6 +212,16 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
   const embeddingTelemetrySourceIds = new Set<string>();
+  const telemetryChannelName = `${WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX}${globalThis.crypto.randomUUID()}`;
+  const telemetryChannel = new BroadcastChannel(telemetryChannelName);
+  let telemetryChannelClosed = false;
+  const closeTelemetryChannel = (): void => {
+    if (telemetryChannelClosed) {
+      return;
+    }
+    telemetryChannelClosed = true;
+    telemetryChannel.close();
+  };
   const clearEmbeddingTelemetrySources = (): void => {
     for (const sourceId of embeddingTelemetrySourceIds) {
       embeddingTelemetry.removeSource(sourceId);
@@ -214,6 +236,14 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     }
     embeddingTelemetry.removeSource(sourceId);
   };
+  const recordPipelineCacheDiagnostic = (
+    diagnostic: EmbedWorkerPipelineCacheDiagnostic
+  ): string => {
+    const sourceId = `workerpool-embedding-${diagnostic.workerInstanceId}`;
+    embeddingTelemetrySourceIds.add(sourceId);
+    embeddingTelemetry.recordPipelineCache(sourceId, diagnostic);
+    return sourceId;
+  };
   const poolOptions: WorkerPoolOptions = {
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
     maxWorkers: Math.max(minWorkers, maxWorkers),
@@ -221,7 +251,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     onCreateWorker: ({ script, workerOpts }) => {
       const workerInstanceId = globalThis.crypto.randomUUID();
       return {
-        script: tagManagedWorkerScript(script, workerInstanceId),
+        script: tagManagedWorkerScript(script, workerInstanceId, telemetryChannelName),
         workerOpts: {
           ...workerOpts,
           name: `${EMBED_WORKER_INSTANCE_NAME_PREFIX}${workerInstanceId}`,
@@ -237,7 +267,55 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     workerOpts: { type: 'module' },
     workerType: 'web',
   };
-  const pool: Pool = workerpool.pool(workerScript, poolOptions);
+  let pool: Pool;
+  try {
+    pool = workerpool.pool(workerScript, poolOptions);
+  } catch (error) {
+    closeTelemetryChannel();
+    throw error;
+  }
+  let workerLifetimeTelemetryFailure: Error | null = null;
+  const failWorkerLifetimeTelemetry = (error: unknown): void => {
+    if (workerLifetimeTelemetryFailure !== null) {
+      return;
+    }
+    workerLifetimeTelemetryFailure =
+      error instanceof Error
+        ? error
+        : new Error('Embedding worker-lifetime telemetry validation failed.');
+    embeddingTelemetry.recordFailure(workerLifetimeTelemetryFailure.message);
+    logger.error('Embedding worker-lifetime telemetry failed.', {
+      reason: workerLifetimeTelemetryFailure.message,
+    });
+    closeTelemetryChannel();
+    void (async (): Promise<void> => {
+      try {
+        await pool.terminate(true);
+      } catch (terminationError) {
+        logger.error('Embedding workerpool termination after telemetry failure failed.', {
+          reason:
+            terminationError instanceof Error
+              ? terminationError.message
+              : 'Unknown workerpool termination error.',
+        });
+      } finally {
+        clearEmbeddingTelemetrySources();
+      }
+    })();
+  };
+  telemetryChannel.onmessage = (event: MessageEvent<unknown>): void => {
+    try {
+      const diagnostic = readPipelineCacheDiagnostic(event.data);
+      if (diagnostic === null || diagnostic.id !== undefined) {
+        throw new Error(
+          'Embedding worker-lifetime telemetry requires an id-less pipeline-cache diagnostic.'
+        );
+      }
+      recordPipelineCacheDiagnostic(diagnostic);
+    } catch (error) {
+      failWorkerLifetimeTelemetry(error);
+    }
+  };
 
   let paused = false;
   let terminalState: 'active' | 'canceled' | 'disposed' = 'active';
@@ -343,10 +421,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
           return;
         }
         if (diagnostic) {
-          const sourceId = `workerpool-embedding-${diagnostic.workerInstanceId}`;
-          telemetrySource.current = sourceId;
-          embeddingTelemetrySourceIds.add(sourceId);
-          embeddingTelemetry.recordPipelineCache(sourceId, diagnostic);
+          telemetrySource.current = recordPipelineCacheDiagnostic(diagnostic);
         }
       },
     }) as WorkerPoolPromise<QueueResult>;
@@ -472,6 +547,9 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   };
 
   const assertAcceptingWork = (): void => {
+    if (workerLifetimeTelemetryFailure !== null) {
+      throw workerLifetimeTelemetryFailure;
+    }
     if (terminalState === 'canceled') {
       throw new Error('Adapter has been canceled');
     }
@@ -497,6 +575,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
         });
       }
     } finally {
+      closeTelemetryChannel();
       clearEmbeddingTelemetrySources();
     }
     logger.debug(`Workerpool adapter ${nextState}`);

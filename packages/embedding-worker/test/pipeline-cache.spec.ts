@@ -1,4 +1,7 @@
-import { EMBED_WORKER_INSTANCE_NAME_PREFIX } from '@brainstrike/indexing-contract';
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+} from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   installMockOrtWebGpuDevice,
@@ -330,6 +333,52 @@ describe('pipeline cache metadata and dispose', () => {
         workerInstanceId: 'pool-worker-a',
       }),
     ]);
+  });
+
+  it('broadcasts idle cache eviction telemetry outside a workerpool request', async () => {
+    vi.useFakeTimers({ now: 1000 });
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}pool-worker-idle`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=pool-idle-telemetry`,
+    });
+    const channelMessages: unknown[] = [];
+    class MockBroadcastChannel {
+      constructor(readonly name: string) {}
+
+      postMessage(message: unknown): void {
+        channelMessages.push(message);
+      }
+    }
+    vi.stubGlobal(
+      'BroadcastChannel',
+      MockBroadcastChannel as unknown as typeof globalThis.BroadcastChannel
+    );
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'idle-cache-load',
+      model: 'idle-cache-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    workerEmitMock.mockClear();
+
+    await vi.advanceTimersByTimeAsync(330_000);
+
+    expect(channelMessages).toContainEqual(
+      expect.objectContaining({
+        cacheSize: 0,
+        event: 'evicted',
+        reason: 'idle-timeout',
+        type: 'diagnostic',
+        workerInstanceId: 'pool-worker-idle',
+      })
+    );
+    expect(workerEmitMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'evicted', reason: 'idle-timeout' })
+    );
   });
 
   it('keeps inference available when cached model-size telemetry changes', async () => {
