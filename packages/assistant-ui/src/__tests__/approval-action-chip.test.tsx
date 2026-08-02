@@ -1,4 +1,5 @@
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -22,7 +23,11 @@ function approvalMessage(action: 'approve' | 'decline', toolName?: string): unkn
   };
 }
 
-function suspendMessage(resumeData: unknown, text = 'Approved the plan.'): unknown {
+function suspendMessage(
+  resumeData: unknown,
+  text = 'Approved the plan.',
+  toolName: string | undefined = NATIVE_TOOL_ID.submitPlan
+): unknown {
   return {
     content: [{ text, type: 'text' }],
     id: 'suspend-user-1',
@@ -32,12 +37,17 @@ function suspendMessage(resumeData: unknown, text = 'Approved the plan.'): unkno
           resumeData,
           runId: 'run-plan-1',
           toolCallId: 'call-plan-1',
-          toolName: 'brainstrike.submitPlan',
+          ...(toolName === undefined ? {} : { toolName }),
         },
       },
     },
     role: 'user',
   };
+}
+
+/** A Gate B network resume, as the run_python notice actually produces it. */
+function networkMessage(resumeData: unknown, text = 'You allowed example.com.'): unknown {
+  return suspendMessage(resumeData, text, NATIVE_TOOL_ID.runPython);
 }
 
 describe('readApprovalActionChipProps (approval marker)', () => {
@@ -142,15 +152,16 @@ describe('readApprovalActionChipProps (suspend marker — plan/askUser resumes)'
     // fell through to a full prompt bubble, so the thread read
     // "You allowed example.com." as if the user had typed it — directly above a
     // card already naming the same domains. The chip is the consistent surface.
-    expect(
-      readApprovalActionChipProps(suspendMessage({ action: 'allow' }, 'You allowed example.com.'))
-    ).toEqual({ label: 'Allowed internet access', tone: 'approve' });
+    expect(readApprovalActionChipProps(networkMessage({ action: 'allow' }))).toEqual({
+      label: 'Allowed internet access',
+      tone: 'approve',
+    });
   });
 
   it('reads a run_python network denial into a decline-tone chip', () => {
     expect(
       readApprovalActionChipProps(
-        suspendMessage({ action: 'deny' }, "You didn't allow internet access.")
+        networkMessage({ action: 'deny' }, "You didn't allow internet access.")
       )
     ).toEqual({ label: "Didn't allow internet access", tone: 'decline' });
   });
@@ -159,10 +170,33 @@ describe('readApprovalActionChipProps (suspend marker — plan/askUser resumes)'
     // The resume payload deliberately carries ONLY the decision — the Gate B
     // resume schema is strict and the tool's fail-safe requires exactly one key
     // — so a domain-naming chip would have to invent or re-plumb them.
-    const props = readApprovalActionChipProps(
-      suspendMessage({ action: 'allow' }, 'You allowed example.com.')
-    );
+    const props = readApprovalActionChipProps(networkMessage({ action: 'allow' }));
     expect(props?.label).not.toContain('example.com');
+  });
+
+  it('refuses an allow payload carrying extra keys (matches the tool fail-safe)', () => {
+    // `readNetworkDecision` (run-python-tool.ts) treats any object without
+    // EXACTLY one own key as DENY, and the Gate B resume schema is .strict().
+    // A looser reader would chip "Allowed internet access" for a payload the run
+    // actually denied — asserting a grant that never happened, which is the one
+    // direction that matters for a security gate.
+    expect(readApprovalActionChipProps(networkMessage({ action: 'allow', extra: 1 }))).toBeNull();
+    expect(readApprovalActionChipProps(networkMessage({ action: 'deny', extra: 1 }))).toBeNull();
+  });
+
+  it('only reads the network vocabulary for a run_python resume', () => {
+    // `{action: 'allow'}` is meaningful only for run_python's Gate B. The suspend
+    // contract narrows suspendPayload BY TOOL NAME, and the notice dispatches the
+    // same way — so a future suspending tool reusing this vocabulary must not
+    // silently inherit the network label.
+    expect(
+      readApprovalActionChipProps(
+        suspendMessage({ action: 'allow' }, 'Allowed something else.', 'brainstrike.someOtherTool')
+      )
+    ).toBeNull();
+    expect(
+      readApprovalActionChipProps(suspendMessage({ action: 'allow' }, 'No tool name.', undefined))
+    ).toBeNull();
   });
 
   it('falls through to the bubble (null) for malformed resumeData — never chips on a guess', () => {
@@ -223,9 +257,7 @@ describe('ApprovalActionChip', () => {
   });
 
   it('renders a network-outcome chip end to end, replacing the prompt bubble', () => {
-    const props = readApprovalActionChipProps(
-      suspendMessage({ action: 'allow' }, 'You allowed example.com.')
-    );
+    const props = readApprovalActionChipProps(networkMessage({ action: 'allow' }));
     if (!props) {
       throw new Error('expected network chip props');
     }
