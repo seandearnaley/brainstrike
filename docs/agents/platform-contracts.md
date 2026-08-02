@@ -619,10 +619,15 @@ retention boundary because wall-clock adjustments would split the clocks. The
 module singleton is constructed without reading that clock: the first observer,
 record, or external-store read validates it, and observer setup publishes a
 local `failed` snapshot if the timing capability is unavailable instead of
-failing shell import. Injected retention clocks remain coherent with real
-`PerformanceEntry.startTime` values by mapping each entry age into the injected
-clock domain. Buffered-entry dedupe keys survive sample-cap eviction until the
-entry leaves the rolling window, so replay cannot create a spurious publish.
+failing shell import. An initial external-store read before the observer effect
+mounts follows the same explicit failed-snapshot path. Injected retention clocks
+remain coherent with real `PerformanceEntry.startTime` values by mapping each
+entry age into the injected clock domain. Buffered-entry dedupe keys survive
+sample-cap eviction until the entry leaves the rolling window, so replay cannot
+create a spurious publish.
+They use stable Performance entry identity (`startTime` plus duration), never
+the delivery-time clock mapping, because replacement observers can deliver the
+same buffered entry at different times.
 Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
 never silently degrades. Do not write routine

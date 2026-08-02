@@ -219,10 +219,10 @@ export function createRendererLongTaskTelemetry(
     }
   };
 
-  const publishFailedSnapshot = (error: unknown): void => {
+  const setFailedSnapshot = (error: unknown, notifyListeners: boolean): void => {
     availability = 'failed';
     unavailableReason = error instanceof Error ? error.message : String(error);
-    let snapshotAt: number;
+    let snapshotAt = 0;
     try {
       snapshotAt = now();
     } catch (clockError) {
@@ -233,14 +233,18 @@ export function createRendererLongTaskTelemetry(
       samples = [];
       performanceEntryKeys.clear();
       unavailableReason = clockError instanceof Error ? clockError.message : String(clockError);
-      currentSnapshot = buildSnapshot(0);
-      snapshotDirty = false;
+    }
+    currentSnapshot = buildSnapshot(snapshotAt);
+    snapshotDirty = false;
+    if (notifyListeners) {
       for (const listener of listeners) {
         listener();
       }
-      return;
     }
-    publishSnapshot(snapshotAt);
+  };
+
+  const publishFailedSnapshot = (error: unknown): void => {
+    setFailedSnapshot(error, true);
   };
 
   const publish = (): void => {
@@ -354,8 +358,14 @@ export function createRendererLongTaskTelemetry(
 
   const getSnapshot = (): RendererLongTaskTelemetrySnapshot => {
     if (snapshotDirty) {
-      currentSnapshot = buildSnapshot(now());
-      snapshotDirty = false;
+      try {
+        currentSnapshot = buildSnapshot(now());
+        snapshotDirty = false;
+      } catch (error) {
+        // External-store reads must surface a coherent local failure snapshot;
+        // notifying subscribers from inside a React render would be unsafe.
+        setFailedSnapshot(error, false);
+      }
     }
     return currentSnapshot;
   };
@@ -403,7 +413,7 @@ export function createRendererLongTaskTelemetry(
         { ...getContext(), durationMs: entry.duration },
         observedAt,
         deliveredAt,
-        `${observedAt}:${entry.duration}`
+        `${entry.startTime}:${entry.duration}`
       );
     }
   };

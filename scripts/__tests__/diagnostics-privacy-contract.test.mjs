@@ -106,6 +106,8 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'single monotonic epoch clock',
     'Module construction is clock-free',
     'failed in-memory snapshot',
+    'initial external-store read',
+    'stable Performance entry identity',
   ]) {
     assertContractIncludes(term);
   }

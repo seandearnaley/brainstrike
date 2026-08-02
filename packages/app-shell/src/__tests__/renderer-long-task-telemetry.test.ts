@@ -31,6 +31,14 @@ describe('renderer-long-task-telemetry', () => {
     const telemetryModule = await import('../diagnostics/renderer-long-task-telemetry');
     const telemetry = telemetryModule.createRendererLongTaskTelemetry();
 
+    expect(() => telemetry.getSnapshot()).not.toThrow();
+    expect(telemetry.getSnapshot()).toMatchObject({
+      availability: 'failed',
+      sampleCount: 0,
+      snapshotAt: 0,
+      unavailableReason: 'Renderer long-task telemetry requires the Performance timing API.',
+    });
+
     telemetry.observe(() => ({ enabledFeatureFlags: [], route: 'explorer' }));
 
     expect(telemetry.getSnapshot()).toMatchObject({
@@ -250,6 +258,61 @@ describe('renderer-long-task-telemetry', () => {
     callback(entryList, {} as PerformanceObserver);
     listener.mockClear();
     callback(entryList, {} as PerformanceObserver);
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(telemetry.getSnapshot().sampleCount).toBe(1);
+  });
+
+  it('deduplicates a buffered entry when delivery timing changes across observers', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {}
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+    vi.stubGlobal('performance', {
+      now: vi.fn().mockReturnValueOnce(2000).mockReturnValueOnce(2003),
+      timeOrigin: 498_000,
+    });
+    let now = 500_000;
+    const telemetry = createRendererLongTaskTelemetry({
+      now: () => now,
+      windowMs: 1000,
+    });
+    const entryList = {
+      getEntries: () => [
+        { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
+      ],
+    } as PerformanceObserverEntryList;
+    const getContext = (): RendererLongTaskContext => ({
+      enabledFeatureFlags: [],
+      route: 'explorer',
+    });
+
+    const disposeFirstObserver = telemetry.observe(getContext);
+    const firstCallback = callbacks.at(0);
+    if (!firstCallback) {
+      throw new Error('Expected the first PerformanceObserver callback to be registered.');
+    }
+    firstCallback(entryList, {} as PerformanceObserver);
+    disposeFirstObserver();
+
+    now += 10;
+    telemetry.observe(getContext);
+    const secondCallback = callbacks.at(1);
+    if (!secondCallback) {
+      throw new Error('Expected the replacement PerformanceObserver callback to be registered.');
+    }
+    const listener = vi.fn();
+    telemetry.subscribe(listener);
+    secondCallback(entryList, {} as PerformanceObserver);
 
     expect(listener).not.toHaveBeenCalled();
     expect(telemetry.getSnapshot().sampleCount).toBe(1);

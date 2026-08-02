@@ -106,6 +106,9 @@ a single monotonic epoch clock, never the adjustable wall clock.
 Module construction is clock-free; collection validates timing, and a missing
 timing capability is
 reported through a failed in-memory snapshot instead of breaking app-shell
-module evaluation.
+module evaluation. The initial external-store read also returns that explicit
+failed snapshot before the observer effect mounts. Buffered replay deduplication
+uses stable Performance entry identity rather than delivery-time clock mapping,
+so replacing an observer cannot count the same buffered entry twice.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.
