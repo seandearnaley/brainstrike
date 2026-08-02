@@ -60,11 +60,16 @@ function parseSuspendedRuns(payload: unknown): SuspendedRunDiscoveryResult {
     }
     logger.warn('Dropping a malformed suspended approval entry from discovery response');
   }
-  // `suspends` is ADDITIVE (BST-1084): absent from an older server is simply
-  // empty, but a present-and-malformed entry is dropped loudly like approvals.
+  // `suspends` is ADDITIVE (BST-1084): ABSENT from an older server is simply
+  // empty, but a PRESENT malformed value — non-array or malformed entries —
+  // is reported loudly like approvals, never silently treated as empty.
   const suspends: RediscoveredToolSuspend[] = [];
   const rawSuspends = payload['suspends'];
-  if (Array.isArray(rawSuspends)) {
+  if (rawSuspends !== undefined && !Array.isArray(rawSuspends)) {
+    logger.warn('Suspended-runs response has a non-array suspends field', {
+      suspendsType: typeof rawSuspends,
+    });
+  } else if (Array.isArray(rawSuspends)) {
     for (const entry of rawSuspends) {
       if (isRediscoveredToolSuspend(entry)) {
         suspends.push(entry);

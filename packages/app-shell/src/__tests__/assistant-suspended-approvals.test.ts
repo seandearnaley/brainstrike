@@ -170,6 +170,25 @@ describe('suspend() pause parsing (BST-1084)', () => {
     expect(await discover('thread-1', 'workspace-1')).toEqual({ approvals: [], suspends: [] });
   });
 
+  it('warns loudly on a PRESENT non-array suspends value instead of silently treating it as empty', async () => {
+    const warnings: string[] = [];
+    const removeListener = addLogListener((entry) => {
+      if (entry.level === 'warn') {
+        warnings.push(entry.message ?? '');
+      }
+    });
+    try {
+      const fetchImpl = vi.fn(() =>
+        Promise.resolve(makeResponse(200, { approvals: [], suspends: 'not-an-array' }))
+      );
+      const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
+      expect(await discover('thread-1', 'workspace-1')).toEqual({ approvals: [], suspends: [] });
+      expect(warnings.some((message) => /non-array suspends/i.test(message))).toBe(true);
+    } finally {
+      removeListener();
+    }
+  });
+
   it('drops a malformed suspend entry with a warning but keeps the valid ones', async () => {
     const fetchImpl = vi.fn(() =>
       Promise.resolve(
