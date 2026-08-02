@@ -105,9 +105,9 @@ performs the pending destructive cleanup. Dedupe-key expiry is scanned on every
 retention pass even when no sample expires. Buffered long-task entries use
 their occurrence timestamp for the rolling window and are deduplicated across
 observer replay, including after an in-window sample-cap eviction. Performance
-entries whose start maps after callback delivery, or whose completion exceeds
-delivery by more than one millisecond, fail observation as malformed timing
-instead of recording an impossible sample. The one-millisecond completion
+entries whose start maps after callback delivery, whose start time is negative,
+or whose completion exceeds delivery by more than one millisecond fail
+observation as malformed timing instead of recording an impossible sample. The one-millisecond completion
 tolerance covers sub-millisecond Performance API rounding only. Performance
 Observer does not preserve historical app context, so buffered
 samples carry delivery-time route and feature-flag context and diagnostics

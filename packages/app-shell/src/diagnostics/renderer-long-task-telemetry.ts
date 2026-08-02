@@ -588,6 +588,12 @@ export function createRendererLongTaskTelemetry(
         kind: 'invalid',
       };
     }
+    if (entry.startTime < 0) {
+      return {
+        error: new Error('PerformanceObserver longtask entry start time cannot be negative.'),
+        kind: 'invalid',
+      };
+    }
     const completedAt = entry.startTime + entry.duration;
     // Buffered entries may be stale, but a completed entry cannot arrive before
     // its end time on the same Performance timeline. One millisecond covers

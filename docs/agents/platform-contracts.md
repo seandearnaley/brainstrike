@@ -617,8 +617,9 @@ retention timer or the next non-render collection/publication entry point
 performs the pending destructive cleanup. Buffered observer entries are retained
 from their occurrence timestamp and deduplicated across observer replay. An
 observer entry whose start maps after
-delivery, or whose completion exceeds delivery by more than the one-millisecond
-Performance API rounding tolerance, is malformed and fails the observation.
+delivery, whose start time is negative, or whose completion exceeds delivery by
+more than the one-millisecond Performance API rounding tolerance, is malformed
+and fails the observation.
 Because the Performance Observer entry has no historical app context, a buffered
 sample explicitly carries delivery-time route and feature-flag context; System
 Diagnostics labels those fields as delivery-time context and must not imply that

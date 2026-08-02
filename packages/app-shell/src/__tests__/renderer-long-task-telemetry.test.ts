@@ -233,6 +233,7 @@ describe('renderer-long-task-telemetry', () => {
     if (!callback) {
       throw new Error('Expected PerformanceObserver callback to be registered.');
     }
+    vi.advanceTimersByTime(200);
     const entryStartTime = performance.now() - 100;
     callback(
       {
@@ -340,6 +341,7 @@ describe('renderer-long-task-telemetry', () => {
         getEntries: () => [
           { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
           { duration: 80, entryType: 'longtask', startTime: Number.NaN } as PerformanceEntry,
+          { duration: 80, entryType: 'longtask', startTime: -1 } as PerformanceEntry,
           { duration: 75, entryType: 'longtask', startTime: 1950 } as PerformanceEntry,
           { duration: 90, entryType: 'longtask', startTime: 1850 } as PerformanceEntry,
         ],
@@ -356,7 +358,7 @@ describe('renderer-long-task-telemetry', () => {
       sampleCount: 2,
       snapshotAt: 500_000,
       unavailableReason:
-        'PerformanceObserver longtask batch contains multiple invalid entries: PerformanceObserver longtask entry start time is unavailable. PerformanceObserver longtask entry completed after delivery.',
+        'PerformanceObserver longtask batch contains multiple invalid entries: PerformanceObserver longtask entry start time is unavailable. PerformanceObserver longtask entry start time cannot be negative. PerformanceObserver longtask entry completed after delivery.',
     });
     expect(now).toHaveBeenCalledTimes(2);
   });
@@ -1615,6 +1617,7 @@ describe('renderer-long-task-telemetry', () => {
     }
     vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
     vi.setSystemTime(performance.timeOrigin + 86_400_000);
+    vi.advanceTimersByTime(200);
     const telemetry = createRendererLongTaskTelemetry({ windowMs: 1000 });
     telemetry.observe(() => ({
       enabledFeatureFlags: ['diagnostics-v2'],
