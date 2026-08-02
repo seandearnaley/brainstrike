@@ -75,6 +75,7 @@ export interface RendererLongTaskTelemetrySnapshot {
   readonly durationP50Ms: number | null;
   readonly durationP95Ms: number | null;
   readonly featureFlagContextAvailability: 'available' | 'mixed' | 'unavailable';
+  readonly featureFlagContextSampleCount: number;
   readonly featureFlags: readonly RendererLongTaskFeatureFlagSummary[];
   readonly maxDurationMs: number | null;
   readonly routes: readonly RendererLongTaskRouteSummary[];
@@ -188,6 +189,7 @@ export function createRendererLongTaskTelemetry(
       .sort((left, right) => left - right);
     const countsByRoute = new Map<RendererDiagnosticSurface, number>();
     const countsByFeatureFlag = new Map<string, number>();
+    let featureFlagContextSampleCount = 0;
     let hasAvailableFeatureFlagContext = false;
     let hasUnavailableFeatureFlagContext = false;
     for (const sample of currentSamples) {
@@ -196,6 +198,7 @@ export function createRendererLongTaskTelemetry(
         hasUnavailableFeatureFlagContext = true;
       } else {
         hasAvailableFeatureFlagContext = true;
+        featureFlagContextSampleCount += 1;
       }
       for (const flag of sample.enabledFeatureFlags ?? []) {
         countsByFeatureFlag.set(flag, (countsByFeatureFlag.get(flag) ?? 0) + 1);
@@ -219,6 +222,7 @@ export function createRendererLongTaskTelemetry(
             : hasAvailableFeatureFlagContext
               ? 'available'
               : 'unavailable',
+      featureFlagContextSampleCount,
       featureFlags,
       maxDurationMs: durations.at(-1) ?? null,
       routes,
@@ -239,6 +243,7 @@ export function createRendererLongTaskTelemetry(
     durationP50Ms: null,
     durationP95Ms: null,
     featureFlagContextAvailability: currentFeatureFlagContextAvailability,
+    featureFlagContextSampleCount: 0,
     featureFlags: [],
     maxDurationMs: null,
     routes: [],
@@ -476,9 +481,6 @@ export function createRendererLongTaskTelemetry(
     observedAt: number,
     performanceEntryKey?: string
   ): boolean => {
-    if (!Number.isFinite(observedAt)) {
-      throw new Error('Renderer long-task telemetry observedAt must be finite.');
-    }
     if (performanceEntryKey !== undefined && performanceEntryKeys.has(performanceEntryKey)) {
       return false;
     }
@@ -518,6 +520,9 @@ export function createRendererLongTaskTelemetry(
       throw new Error(
         `Cannot record renderer long-task telemetry while observation is ${availability}.`
       );
+    }
+    if (!Number.isFinite(metric.durationMs)) {
+      throw new Error('Renderer long-task telemetry duration must be finite.');
     }
     if (!isLongTaskDuration(metric.durationMs)) {
       return;

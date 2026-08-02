@@ -153,6 +153,7 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'non-finite injected clock result',
     'same explicit rejection applies after observation has failed',
     'explicit denominator',
+    'known-context sample count against the total retained sample count',
   ]) {
     assertContractIncludes(term);
   }

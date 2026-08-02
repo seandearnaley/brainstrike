@@ -615,16 +615,16 @@ A render-phase `getSnapshot` clock failure is the one exception: it publishes an
 empty failed snapshot and does not mutate backing storage. The already owned
 retention timer or the next non-render collection/publication entry point
 performs the pending destructive cleanup. Buffered observer entries are retained
-from their occurrence timestamp
-and deduplicated across observer replay. An observer entry whose start maps after
+from their occurrence timestamp and deduplicated across observer replay. An
+observer entry whose start maps after
 delivery, or whose completion exceeds delivery by more than the one-millisecond
 Performance API rounding tolerance, is malformed and fails the observation.
 Because the Performance Observer entry has no historical app context, a buffered
 sample explicitly carries delivery-time route and feature-flag context; System
 Diagnostics labels those fields as delivery-time context and must not imply that
 context was captured at the original stall time. Occurrence timestamps, window
-pruning, and retention deadlines share the
-Performance timeline's monotonic epoch clock; `Date.now()` must not drive this
+pruning, and retention deadlines share the Performance timeline's monotonic epoch
+clock; `Date.now()` must not drive this
 retention boundary because wall-clock adjustments would split the clocks. The
 module singleton is constructed without reading that clock: the first observer,
 record, or external-store read validates it, and observer setup publishes a
@@ -658,12 +658,14 @@ clock is read after the delivery epoch clock, conservatively biasing occurrence
 mapping slightly earlier for retention. A non-finite long-task duration or
 injected clock result fails collection visibly. System Diagnostics keeps the
 retained sample count visible on active, idle, and failed cards so aggregates
-always have an explicit denominator.
+always have an explicit denominator. Mixed feature-flag context also exposes the
+known-context sample count against the total retained sample count; flag counts
+must never imply they cover samples whose flag context was unavailable.
 Disposing a failed inactive observation preserves its precise reason if the clock
 is still unusable rather than claiming recovery. Reset always clears retained
 context; when the timing clock is unusable, the failed state remains latched
-instead of claiming an idle collector. Do not write routine
-performance samples into
+instead of claiming an idle collector. Do not write routine performance samples
+into
 `brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
 failure signals, drives the unseen-error chip, and is the wrong cardinality and
 severity model for continuous performance measurements.

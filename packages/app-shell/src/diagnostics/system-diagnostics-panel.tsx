@@ -516,9 +516,10 @@ function formatRendererLongTaskFeatureFlags(snapshot: RendererLongTaskTelemetryS
     .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
     .join(', ');
   if (snapshot.featureFlagContextAvailability === 'mixed') {
+    const denominator = `${snapshot.featureFlagContextSampleCount} of ${snapshot.sampleCount} samples`;
     return knownFlags.length > 0
-      ? `${knownFlags} · partial context`
-      : 'Partial feature flag context';
+      ? `${knownFlags} · partial context, ${denominator}`
+      : `Partial feature flag context, ${denominator}`;
   }
   return knownFlags.length > 0 ? knownFlags : 'None active';
 }

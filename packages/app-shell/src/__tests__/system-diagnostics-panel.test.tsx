@@ -143,7 +143,26 @@ describe('SystemDiagnosticsPanel', () => {
         });
       });
       expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
-        'diagnostics-v2 (1) · partial context'
+        'diagnostics-v2 (1) · partial context, 1 of 2 samples'
+      );
+    });
+
+    it('shows the known-context denominator when mixed samples have no active flags', () => {
+      rendererLongTaskTelemetry.record({
+        durationMs: 80,
+        enabledFeatureFlags: null,
+        route: 'explorer',
+      });
+      rendererLongTaskTelemetry.record({
+        durationMs: 90,
+        enabledFeatureFlags: [],
+        route: 'explorer',
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Delivery-time feature flags').parentElement).toHaveTextContent(
+        'Partial feature flag context, 1 of 2 samples'
       );
     });
 

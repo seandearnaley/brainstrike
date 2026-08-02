@@ -151,8 +151,9 @@ delivery epoch clock, so occurrence mapping is conservatively biased slightly
 earlier for retention. Disposing a failed inactive observation cannot claim
 recovery while that clock remains unusable, and therefore preserves the precise
 failure reason. Active, idle, and failed diagnostics labels retain the sample
-count so every displayed aggregate has an explicit denominator.
-Reset clears all
-identifiers but keeps a clock failure latched rather than reporting idle.
+count so every displayed aggregate has an explicit denominator. Mixed
+feature-flag context separately reports the known-context sample count against
+the total retained sample count. Reset clears all identifiers but keeps a clock
+failure latched rather than reporting idle.
 The snapshot is visible in System Diagnostics and is discarded with the
 renderer process, so it adds no persistence or factory-reset obligation.

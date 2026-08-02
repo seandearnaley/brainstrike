@@ -114,6 +114,26 @@ describe('renderer-long-task-telemetry', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('rejects a non-finite duration passed to record (%s)', (durationMs) => {
+    const telemetry = createRendererLongTaskTelemetry();
+
+    expect(() =>
+      telemetry.record({
+        durationMs,
+        enabledFeatureFlags: [],
+        route: 'settings',
+      })
+    ).toThrow('Renderer long-task telemetry duration must be finite.');
+    expect(telemetry.getSnapshot()).toMatchObject({
+      availability: 'idle',
+      sampleCount: 0,
+    });
+  });
+
   it('aggregates a bounded rolling window by coarse route and surface', () => {
     let now = 1000;
     const telemetry = createRendererLongTaskTelemetry({
@@ -892,6 +912,7 @@ describe('renderer-long-task-telemetry', () => {
     expect(listener).toHaveBeenCalledTimes(1);
     expect(telemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'unavailable',
+      featureFlagContextSampleCount: 0,
       sampleCount: 1,
     });
 
@@ -902,6 +923,7 @@ describe('renderer-long-task-telemetry', () => {
     });
     expect(telemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'mixed',
+      featureFlagContextSampleCount: 1,
       sampleCount: 2,
     });
 
