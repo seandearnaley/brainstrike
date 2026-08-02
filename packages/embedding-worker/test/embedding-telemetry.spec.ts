@@ -6,6 +6,7 @@ import {
   removeEmbeddingTelemetrySource,
   resetEmbeddingTelemetryForTests,
   subscribeEmbeddingTelemetry,
+  subscribeEmbeddingTelemetryThrottled,
 } from '../src/embedding-telemetry';
 import type { EmbedWorkerBatch, EmbedWorkerPipelineCacheDiagnostic } from '../src/shared';
 
@@ -53,6 +54,34 @@ describe('embedding telemetry store', () => {
     expect(listener).toHaveBeenCalledTimes(2);
 
     unsubscribe();
+  });
+
+  it('coalesces throttled subscribers while retaining every batch', async () => {
+    vi.useFakeTimers();
+    const listener = vi.fn();
+    const unsubscribe = subscribeEmbeddingTelemetryThrottled(listener);
+
+    for (let batchIndex = 0; batchIndex < 2; batchIndex += 1) {
+      recordEmbeddingBatchTelemetry('worker-a', {
+        batchIndex,
+        endIndex: batchIndex + 1,
+        id: 'embed-1',
+        peakVectorsInFlight: 1,
+        startIndex: batchIndex,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      } satisfies EmbedWorkerBatch);
+    }
+
+    expect(listener).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(getEmbeddingTelemetrySnapshot().batchTransfer.batchCount).toBe(2);
+
+    unsubscribe();
+    vi.useRealTimers();
   });
 
   it('tracks resident model bytes by device and removes terminated worker state', () => {

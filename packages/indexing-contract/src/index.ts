@@ -829,7 +829,11 @@ export interface EmbedWorkerProgress {
 export interface EmbedWorkerPipelineCacheMemoryDiagnostic {
   readonly gpuBytes: number | null;
   readonly heapBytes: number | null;
-  readonly reason: 'browser-runtime-unavailable' | 'measured' | 'model-size-estimate';
+  readonly reason:
+    | 'browser-runtime-unavailable'
+    | 'measured'
+    | 'model-size-estimate'
+    | 'model-size-unknown';
 }
 
 export interface EmbedWorkerPipelineCacheEntryDiagnostic {

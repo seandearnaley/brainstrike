@@ -1,4 +1,4 @@
-import type { EmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
+import type { EmbeddingTelemetrySnapshot } from '@brainstrike/embeddings';
 
 export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
   return {
@@ -22,6 +22,10 @@ export function getEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
 }
 
 export function subscribeEmbeddingTelemetry(_listener: () => void): () => void {
+  return () => {};
+}
+
+export function subscribeEmbeddingTelemetryThrottled(_listener: () => void): () => void {
   return () => {};
 }
 

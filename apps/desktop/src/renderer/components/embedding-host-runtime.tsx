@@ -685,22 +685,22 @@ export function EmbeddingHostRuntime(): null {
       activeRef
     );
     const unsubscribeEmbeddingTelemetry = subscribeEmbeddingTelemetry(() => {
-      const currentMetadata = embeddingRuntimeRef.current;
-      if (!currentMetadata) {
+      if (!embeddingRuntimeRef.current) {
         return;
       }
-      embeddingRuntimeRef.current = {
-        ...currentMetadata,
-        telemetry: getEmbeddingTelemetrySnapshot(),
-      };
       if (telemetryReportTimeout !== null) {
         return;
       }
       telemetryReportTimeout = setTimeout(() => {
         telemetryReportTimeout = null;
-        if (disposed) {
+        const currentMetadata = embeddingRuntimeRef.current;
+        if (disposed || controllerRef.current === null || !currentMetadata) {
           return;
         }
+        embeddingRuntimeRef.current = {
+          ...currentMetadata,
+          telemetry: getEmbeddingTelemetrySnapshot(),
+        };
         const fatalError = fatalErrorRef.current;
         reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
           active: fatalError ? false : activeRef.current,

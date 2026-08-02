@@ -3,6 +3,7 @@ export {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingBatchTransferTelemetry,
   type EmbeddingPipelineCacheTelemetry,
+  type EmbeddingPipelineCacheTelemetryEntry,
   type EmbeddingTelemetrySnapshot,
   getEmbeddingTelemetrySnapshot,
   recordEmbeddingBatchTelemetry,
@@ -10,6 +11,7 @@ export {
   removeEmbeddingTelemetrySource,
   resetEmbeddingTelemetryForTests,
   subscribeEmbeddingTelemetry,
+  subscribeEmbeddingTelemetryThrottled,
 } from './embedding-telemetry';
 export type {
   EmbeddingDevice,

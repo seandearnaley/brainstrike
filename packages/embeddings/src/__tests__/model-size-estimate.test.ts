@@ -5,6 +5,8 @@ describe('parseModelSizeEstimateBytes', () => {
   it('parses the model registry size formats into binary byte estimates', () => {
     expect(parseModelSizeEstimateBytes('~300MB')).toBe(300 * 1024 * 1024);
     expect(parseModelSizeEstimateBytes('1.5 GB')).toBe(1.5 * 1024 * 1024 * 1024);
+    expect(parseModelSizeEstimateBytes('~1.2GB')).toBe(Math.round(1.2 * 1024 ** 3));
+    expect(parseModelSizeEstimateBytes('~22.7MB')).toBe(Math.round(22.7 * 1024 ** 2));
     expect(parseModelSizeEstimateBytes('512KB')).toBe(512 * 1024);
   });
 

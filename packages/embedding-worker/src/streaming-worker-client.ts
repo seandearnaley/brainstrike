@@ -69,6 +69,7 @@ export class StreamingEmbeddingWorkerClient {
   private readonly runtime: ReturnType<typeof createWorkerRuntimeClient>;
   private readonly transport: ReturnType<typeof createWorkerRuntimeClient>['transport'];
   private executionChain: Promise<void> = Promise.resolve();
+  private telemetryCleanup: (() => void) | null = null;
   private readonly telemetrySourceId = `streaming-embedding-worker-${nextTelemetrySourceId++}`;
 
   /**
@@ -100,11 +101,18 @@ export class StreamingEmbeddingWorkerClient {
           activeStream.cleanup();
           activeStream.reject(error);
         }
+        this.cleanupTelemetryListener();
         this.worker.terminate();
         removeEmbeddingTelemetrySource(this.telemetrySourceId);
       },
     });
     this.transport = this.runtime.transport;
+    this.telemetryCleanup = this.transport.onMessage((message) => {
+      if (!(isStreamEvent(message) && message.type === 'diagnostic' && message.id === undefined)) {
+        return;
+      }
+      recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, message);
+    });
   }
 
   async embed(
@@ -181,6 +189,7 @@ export class StreamingEmbeddingWorkerClient {
       activeStream.reject(new Error('Embedding worker terminated during an active stream.'));
     }
     this.runtime.clearFailure();
+    this.cleanupTelemetryListener();
     this.runtime.dispose();
     this.worker.terminate();
     removeEmbeddingTelemetrySource(this.telemetrySourceId);
@@ -204,7 +213,9 @@ export class StreamingEmbeddingWorkerClient {
     }
 
     if (payload.type === 'diagnostic') {
-      recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, payload);
+      if (payload.id !== undefined) {
+        recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, payload);
+      }
       options.onDiagnostic?.(payload);
       return;
     }
@@ -226,6 +237,15 @@ export class StreamingEmbeddingWorkerClient {
     }
 
     this.handleStreamBatch(payload, request, options, cleanup, reject);
+  }
+
+  private cleanupTelemetryListener(): void {
+    const cleanup = this.telemetryCleanup;
+    if (cleanup === null) {
+      return;
+    }
+    this.telemetryCleanup = null;
+    cleanup();
   }
 
   private handleStreamBatch(

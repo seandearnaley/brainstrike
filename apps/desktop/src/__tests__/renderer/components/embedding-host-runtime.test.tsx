@@ -2,7 +2,7 @@ import {
   recordEmbeddingBatchTelemetry,
   resetEmbeddingTelemetryForTests,
 } from '@brainstrike/embedding-worker';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEmbeddingHostCommand } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
@@ -381,6 +381,50 @@ describe('EmbeddingHostRuntime', () => {
         })
       );
     });
+  });
+
+  it('does not let a pending telemetry report revive a stopped host', async () => {
+    storeState.hasHydrated = true;
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'webgpu',
+        dtype: 'fp16',
+        fallbackApplied: false,
+      });
+      return { stop: stopMock };
+    });
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(expect.objectContaining({ state: 'running' }));
+    });
+    reportStatusMock.mockClear();
+
+    act(() => {
+      recordEmbeddingBatchTelemetry('test-worker', {
+        batchIndex: 0,
+        endIndex: 1,
+        id: 'embed-test',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+      commandListenerRef.current?.(createEmbeddingHostCommand('stop', 'test-runtime'));
+    });
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: 'stopped' })
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(reportStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
   });
 
   it('resets the worker when it receives a strict reset command envelope', async () => {

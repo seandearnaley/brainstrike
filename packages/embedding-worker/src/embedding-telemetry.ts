@@ -1,5 +1,13 @@
 import type { EmbedWorkerBatch, EmbedWorkerPipelineCacheDiagnostic } from './shared';
 
+type EmbeddingPipelineCacheDiagnosticEntry = NonNullable<
+  EmbedWorkerPipelineCacheDiagnostic['entries']
+>[number];
+
+export type EmbeddingPipelineCacheTelemetryEntry = EmbeddingPipelineCacheDiagnosticEntry & {
+  readonly sourceId: string;
+};
+
 export interface EmbeddingBatchTransferTelemetry {
   readonly batchCount: number;
   readonly lastBytes: number;
@@ -8,7 +16,7 @@ export interface EmbeddingBatchTransferTelemetry {
 }
 
 export interface EmbeddingPipelineCacheTelemetry {
-  readonly entries: readonly NonNullable<EmbedWorkerPipelineCacheDiagnostic['entries']>[number][];
+  readonly entries: readonly EmbeddingPipelineCacheTelemetryEntry[];
   readonly estimatedGpuBytes: number;
   readonly estimatedHeapBytes: number;
   readonly memoryEstimateUnavailableCount: number;
@@ -24,7 +32,7 @@ export interface EmbeddingTelemetrySnapshot {
 
 interface EmbeddingTelemetrySourceState {
   batchCount: number;
-  cacheEntries: Map<string, EmbeddingPipelineCacheTelemetry['entries'][number]>;
+  cacheEntries: Map<string, EmbeddingPipelineCacheDiagnosticEntry>;
   lastBatchSequence: number;
   lastBytes: number;
   peakBytes: number;
@@ -37,8 +45,10 @@ type EmbeddingTelemetryListener = () => void;
 const sources = new Map<string, EmbeddingTelemetrySourceState>();
 const listeners = new Set<EmbeddingTelemetryListener>();
 
-let snapshot = createEmptyEmbeddingTelemetrySnapshot();
+let snapshot: EmbeddingTelemetrySnapshot;
 let nextBatchSequence = 1;
+let snapshotDirty = false;
+let lastMutationAt: number | null = null;
 
 export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
   return {
@@ -60,6 +70,8 @@ export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnaps
   };
 }
 
+snapshot = createEmptyEmbeddingTelemetrySnapshot();
+
 function assertNonNegativeNumber(value: unknown, path: string): number {
   if (!(typeof value === 'number' && Number.isFinite(value) && value >= 0)) {
     throw new Error(`${path} must be a non-negative finite number.`);
@@ -80,6 +92,7 @@ function assertCacheEntry(
   const dtype = candidate['dtype'];
   const memory = candidate['memory'];
   const model = candidate['model'];
+  const sourceId = candidate['sourceId'];
   if (!(typeof cacheKey === 'string' && cacheKey.length > 0)) {
     throw new Error(`Embedding telemetry cache.entries[${index}].cacheKey must be non-empty.`);
   }
@@ -92,6 +105,9 @@ function assertCacheEntry(
   if (!(typeof model === 'string' && model.length > 0)) {
     throw new Error(`Embedding telemetry cache.entries[${index}].model must be non-empty.`);
   }
+  if (!(typeof sourceId === 'string' && sourceId.length > 0)) {
+    throw new Error(`Embedding telemetry cache.entries[${index}].sourceId must be non-empty.`);
+  }
   if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
     throw new Error(`Embedding telemetry cache.entries[${index}].memory must be an object.`);
   }
@@ -100,7 +116,8 @@ function assertCacheEntry(
   if (
     reason !== 'browser-runtime-unavailable' &&
     reason !== 'measured' &&
-    reason !== 'model-size-estimate'
+    reason !== 'model-size-estimate' &&
+    reason !== 'model-size-unknown'
   ) {
     throw new Error(`Embedding telemetry cache.entries[${index}].memory.reason is invalid.`);
   }
@@ -132,6 +149,7 @@ function assertCacheEntry(
       candidate['residencyMs'],
       `Embedding telemetry cache.entries[${index}].residencyMs`
     ),
+    sourceId,
   };
 }
 
@@ -237,7 +255,7 @@ function rebuildSnapshot(): void {
   let totalBytes = 0;
   const entries: EmbeddingPipelineCacheTelemetry['entries'][number][] = [];
 
-  for (const source of sources.values()) {
+  for (const [sourceId, source] of sources) {
     batchCount += source.batchCount;
     if (source.lastBatchSequence > lastBatchSequence) {
       lastBatchSequence = source.lastBatchSequence;
@@ -247,7 +265,7 @@ function rebuildSnapshot(): void {
     peakVectorsInFlight = Math.max(peakVectorsInFlight, source.peakVectorsInFlight);
     totalBytes += source.totalBytes;
     for (const entry of source.cacheEntries.values()) {
-      entries.push(entry);
+      entries.push({ ...entry, sourceId });
       if (entry.memory.gpuBytes === null && entry.memory.heapBytes === null) {
         memoryEstimateUnavailableCount += 1;
         continue;
@@ -266,9 +284,15 @@ function rebuildSnapshot(): void {
       memoryEstimateUnavailableCount,
       residentCount: entries.length,
     },
-    lastUpdatedAt: Date.now(),
+    lastUpdatedAt: lastMutationAt,
     peakVectorsInFlight,
   };
+  snapshotDirty = false;
+}
+
+function markSnapshotDirty(): void {
+  snapshotDirty = true;
+  lastMutationAt = Date.now();
   for (const listener of listeners) {
     listener();
   }
@@ -286,7 +310,7 @@ export function recordEmbeddingBatchTelemetry(sourceId: string, event: EmbedWork
     event.vectorsInFlight
   );
   source.totalBytes += event.transferBytes;
-  rebuildSnapshot();
+  markSnapshotDirty();
 }
 
 export function recordEmbeddingPipelineCacheTelemetry(
@@ -303,17 +327,20 @@ export function recordEmbeddingPipelineCacheTelemetry(
       source.cacheEntries.set(event.entry.cacheKey, event.entry);
     }
   }
-  rebuildSnapshot();
+  markSnapshotDirty();
 }
 
 export function removeEmbeddingTelemetrySource(sourceId: string): void {
   if (!sources.delete(sourceId)) {
     return;
   }
-  rebuildSnapshot();
+  markSnapshotDirty();
 }
 
 export function getEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
+  if (snapshotDirty) {
+    rebuildSnapshot();
+  }
   return snapshot;
 }
 
@@ -324,9 +351,37 @@ export function subscribeEmbeddingTelemetry(listener: EmbeddingTelemetryListener
   };
 }
 
+export function subscribeEmbeddingTelemetryThrottled(
+  listener: EmbeddingTelemetryListener,
+  intervalMs = 250
+): () => void {
+  if (!(Number.isSafeInteger(intervalMs) && intervalMs > 0)) {
+    throw new Error('Embedding telemetry subscription interval must be a positive integer.');
+  }
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const unsubscribe = subscribeEmbeddingTelemetry(() => {
+    if (timeout !== null) {
+      return;
+    }
+    timeout = setTimeout(() => {
+      timeout = null;
+      listener();
+    }, intervalMs);
+  });
+  return () => {
+    unsubscribe();
+    if (timeout !== null) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+  };
+}
+
 export function resetEmbeddingTelemetryForTests(): void {
   sources.clear();
   listeners.clear();
+  lastMutationAt = null;
   nextBatchSequence = 1;
   snapshot = createEmptyEmbeddingTelemetrySnapshot();
+  snapshotDirty = false;
 }

@@ -42,6 +42,7 @@ describe('SystemDiagnosticsPanel', () => {
 
   describe('rendering', () => {
     it('surfaces embedding transfer, residency, and memory telemetry', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
         getSnapshot: vi.fn(async () => ({
           collectedAt: '2026-08-01T00:00:00.000Z',
@@ -89,12 +90,28 @@ describe('SystemDiagnosticsPanel', () => {
                     },
                     model: 'model-a',
                     residencyMs: 60_000,
+                    sourceId: 'worker-a',
+                  },
+                  {
+                    cacheKey: 'model-a|webgpu|fp16',
+                    createdAt: 0,
+                    device: 'webgpu',
+                    dtype: 'fp16',
+                    lastUsedAt: 60_000,
+                    memory: {
+                      gpuBytes: 300 * 1024 * 1024,
+                      heapBytes: 0,
+                      reason: 'model-size-estimate',
+                    },
+                    model: 'model-a-copy',
+                    residencyMs: 60_000,
+                    sourceId: 'worker-b',
                   },
                 ],
                 estimatedGpuBytes: 300 * 1024 * 1024,
                 estimatedHeapBytes: 0,
                 memoryEstimateUnavailableCount: 0,
-                residentCount: 1,
+                residentCount: 2,
               },
               lastUpdatedAt: 1000,
               peakVectorsInFlight: 4,
@@ -106,11 +123,15 @@ describe('SystemDiagnosticsPanel', () => {
       render(<SystemDiagnosticsPanel />);
 
       expect(await screen.findByText('Embedding Runtime')).toBeInTheDocument();
-      expect(screen.getByText('1 resident')).toBeInTheDocument();
+      expect(screen.getByText('2 resident')).toBeInTheDocument();
       expect(screen.getByText('28 KiB')).toBeInTheDocument();
       expect(screen.getByText('300 MiB')).toBeInTheDocument();
       expect(screen.getByText('model-a')).toBeInTheDocument();
+      expect(screen.getByText('model-a-copy')).toBeInTheDocument();
       expect(screen.getByText('4 vectors')).toBeInTheDocument();
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain(
+        'Encountered two children with the same key'
+      );
     });
 
     it('renders header with title and description', () => {

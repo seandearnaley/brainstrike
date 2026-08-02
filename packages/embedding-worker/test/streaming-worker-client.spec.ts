@@ -276,6 +276,66 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(onDiagnostic).toHaveBeenCalledWith(diagnostic);
   });
 
+  it('records id-less cache eviction diagnostics after a stream completes', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const streamPromise = client.stream(createRequest());
+    await flushMicrotasks();
+
+    const entry = {
+      cacheKey: 'local:test-model|wasm|fp32',
+      createdAt: 1000,
+      device: 'wasm' as const,
+      dtype: 'fp32' as const,
+      lastUsedAt: 1000,
+      memory: {
+        gpuBytes: 0,
+        heapBytes: 128,
+        reason: 'model-size-estimate' as const,
+      },
+      model: 'local:test-model',
+      residencyMs: 0,
+    };
+    worker.emitMessage({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1000,
+      entries: [entry],
+      event: 'loaded',
+      id: 'embed-1',
+      type: 'diagnostic',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
+    worker.emitMessage({
+      id: 'embed-1',
+      metadata: {
+        batchSize: 1,
+        device: 'wasm',
+        dimensions: 3,
+        dtype: 'fp32',
+        elapsedMs: 12,
+        fallbackApplied: false,
+        model: 'local:test-model',
+      },
+      type: 'complete',
+    });
+    await streamPromise;
+    expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(1);
+
+    worker.emitMessage({
+      cacheSize: 0,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 301_000,
+      entries: [],
+      entry,
+      event: 'evicted',
+      reason: 'idle-timeout',
+      type: 'diagnostic',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
+
+    expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);
+    client.terminate();
+  });
+
   it('ignores unrelated messages and rejects on worker error payloads', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);

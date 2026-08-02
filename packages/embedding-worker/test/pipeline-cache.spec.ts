@@ -328,6 +328,62 @@ describe('pipeline cache metadata and dispose', () => {
     ]);
   });
 
+  it('keeps inference available when cached model-size telemetry changes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      estimatedModelBytes: 100,
+      id: 'size-first',
+      model: 'size-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        estimatedModelBytes: 200,
+        id: 'size-second',
+        model: 'size-model',
+        texts: ['world'],
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ vectors: expect.any(Array) });
+
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[EmbeddingWorker]',
+      'Embedding model size metadata changed for a cached pipeline; keeping the original estimate',
+      expect.objectContaining({ cachedBytes: 100, requestedBytes: 200 })
+    );
+  });
+
+  it('labels missing model-size metadata separately from runtime memory support', async () => {
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'size-unknown',
+      model: 'unknown-size-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({
+            memory: expect.objectContaining({ reason: 'model-size-unknown' }),
+          }),
+        ],
+        event: 'loaded',
+      })
+    );
+  });
+
   it('loadPipeline removes entry on failure so retry works', async () => {
     pipelineMock.mockRejectedValueOnce(new Error('network error'));
     const runEmbedding = await loadWorker();

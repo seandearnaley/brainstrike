@@ -3,10 +3,12 @@
 // Re-export power broadcast channel name for renderer ↔ worker coordination
 export {
   createEmptyEmbeddingTelemetrySnapshot,
+  type EmbeddingPipelineCacheTelemetryEntry,
   type EmbeddingTelemetrySnapshot,
   getEmbeddingTelemetrySnapshot,
   POWER_BROADCAST_CHANNEL,
   subscribeEmbeddingTelemetry,
+  subscribeEmbeddingTelemetryThrottled,
 } from '@brainstrike/embedding-worker';
 // Export API key validation utilities
 export {

@@ -32,7 +32,7 @@ export function parseModelSizeEstimateBytes(value: string | undefined): number |
   if (!unit) {
     throw new Error(`Embedding model size metadata is missing a unit: "${value}".`);
   }
-  const bytes = magnitude * resolveBinaryUnitBytes(unit.toUpperCase());
+  const bytes = Math.round(magnitude * resolveBinaryUnitBytes(unit.toUpperCase()));
   if (!(Number.isSafeInteger(bytes) && bytes > 0)) {
     throw new Error(
       `Embedding model size estimate is outside the supported byte range: "${value}".`

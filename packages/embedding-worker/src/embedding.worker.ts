@@ -35,7 +35,7 @@ function debugLog(message: string, data?: Record<string, unknown>): void {
 }
 
 function warnLog(message: string, data?: Record<string, unknown>): void {
-  // biome-ignore lint/suspicious/noConsole: Worker warnings are only surfaced for high-signal device-loss paths.
+  // biome-ignore lint/suspicious/noConsole: Worker warnings surface high-signal runtime and telemetry inconsistencies.
   console.warn('[EmbeddingWorker]', message, data ?? '');
 }
 
@@ -372,7 +372,7 @@ function resolvePipelineMemory(
     return {
       gpuBytes: null,
       heapBytes: null,
-      reason: 'browser-runtime-unavailable',
+      reason: 'model-size-unknown',
     };
   }
   if (entry.device === 'webgpu') {
@@ -887,8 +887,13 @@ async function loadPipeline(
       existing.estimatedModelBytes !== null &&
       existing.estimatedModelBytes !== estimatedModelBytes
     ) {
-      throw new Error(
-        `Embedding model size metadata changed for cached pipeline "${cacheKey}": ${existing.estimatedModelBytes} -> ${estimatedModelBytes} bytes.`
+      warnLog(
+        'Embedding model size metadata changed for a cached pipeline; keeping the original estimate',
+        {
+          cachedBytes: existing.estimatedModelBytes,
+          cacheKey,
+          requestedBytes: estimatedModelBytes,
+        }
       );
     }
     if (existing.estimatedModelBytes === null && estimatedModelBytes !== null) {

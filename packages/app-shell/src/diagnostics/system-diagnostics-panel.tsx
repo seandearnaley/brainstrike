@@ -14,7 +14,7 @@ import {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
   getEmbeddingTelemetrySnapshot,
-  subscribeEmbeddingTelemetry,
+  subscribeEmbeddingTelemetryThrottled,
 } from '@brainstrike/embeddings';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import {
@@ -408,7 +408,10 @@ function EmbeddingRuntimeDiagnosticsCard({
           </span>
         </div>
         {telemetry.cache.entries.map((entry) => (
-          <div className="flex items-center justify-between" key={entry.cacheKey}>
+          <div
+            className="flex items-center justify-between"
+            key={`${entry.sourceId}:${entry.cacheKey}`}
+          >
             <span className="max-w-48 truncate text-muted-foreground">{entry.model}</span>
             <span className="font-mono text-[10px]">{entry.device}</span>
           </div>
@@ -600,7 +603,7 @@ export function SystemDiagnosticsPanel({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localEmbeddingTelemetry = useSyncExternalStore(
-    subscribeEmbeddingTelemetry,
+    subscribeEmbeddingTelemetryThrottled,
     getEmbeddingTelemetrySnapshot,
     () => EMPTY_EMBEDDING_TELEMETRY
   );
