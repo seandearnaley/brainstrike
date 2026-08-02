@@ -1164,6 +1164,9 @@ importers:
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
       '@brainstrike/db-explorer':
         specifier: workspace:*
         version: link:../db-explorer
@@ -1249,9 +1252,6 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7
     devDependencies:
-      '@brainstrike/db':
-        specifier: workspace:*
-        version: link:../db
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

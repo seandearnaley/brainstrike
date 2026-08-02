@@ -2,6 +2,54 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before adding migrations, models, PGlite construction sites, or touching browser bootstrap. Keep updated with the code.
 
+## QUERY TELEMETRY BOUNDARY
+
+Database performance instrumentation uses the typed, memory-only collector in
+`packages/db/src/database-query-telemetry.ts`. Feature ownership is declared at
+the call site; never classify queries by parsing SQL or parameters. Producers
+may record duration/failure counts, live subscription/update counts, and token
+lookup/hit totals only. SQL, parameters, rows, paths, filenames, queue names,
+and content are prohibited. The collector rejects unsupported runtime record
+keys and materializes retained samples from an explicit field allowlist, so an
+untyped caller cannot smuggle caller data into the in-memory buffer.
+Per-feature query arrivals use their own bounded rolling count buckets, separate
+from the capped duration samples used for percentiles. `queryCount` and
+`queriesPerMinute` therefore report bounded-bucket rolling executions above the
+sample cap, while top-level `sampleCount` reports retained percentile inputs and
+`droppedSampleCount` exposes overflow. Failure counts and token lookup/hit totals
+use the same exact rolling bucket model; none of those totals are reconstructed
+from the capped percentile samples. Overflow is attributed to the evicted
+sample's occurrence time so it expires with that sample, not with the later query
+that forced the eviction.
+`docs/diagnostics-privacy-contract.md` is the cross-cutting privacy authority.
+
+The in-renderer live-query scheduler and Electron live-query bridge both wrap
+creation/refresh and listener lifecycle; the single embedding queue poller wraps
+its stats read. The production `@brainstrike/token-cache` store exposes a narrow
+lookup telemetry port that the file-explorer composition layer wires to this
+collector, avoiding a package dependency back to `@brainstrike/db`. File-record
+read methods report the coarse `file-tree` feature, including full and
+metadata-only managed-cache listings on both repository implementations. Keep
+these seams and their paired tests aligned when a query path moves.
+Folder-wide token-cache preloads record duration and failure with zero lookup and
+hit counts, because they are population reads rather than cache-hit decisions.
+
+The pinned PGlite 0.5.4 live-query implementation marks a handle dead before its
+unsubscribe transaction settles and clears its callback collection during that
+teardown. Scheduler instrumentation therefore supports exactly one listener,
+releases that local ownership on the first teardown attempt, treats repeated
+unsubscribe as idempotent, and rejects later subscribe or refresh calls on the
+dead handle; a caller that wants to continue must create a fresh live-query
+handle. Do not add same-handle retry or reactivation semantics that the underlying
+dependency cannot honor. The collector latches retention-clock failure per
+instance, logs the first producer failure, stops timer-driven publication, and
+publishes a stable explicit failed snapshot to `useSyncExternalStore` reads.
+Imperative `snapshot()` calls still throw the latched error.
+Count buckets use a boundary-inclusive bucket interval: a count can remain for
+up to one coarse bucket after its individual event crosses the strict duration-
+sample cutoff. A nonzero count with zero retained percentile inputs at that
+boundary is therefore expected.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.

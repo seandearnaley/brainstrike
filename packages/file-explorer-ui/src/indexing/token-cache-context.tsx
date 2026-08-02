@@ -18,6 +18,7 @@
  * ```
  */
 
+import { databaseQueryTelemetry } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import {
   tokenPreferencesSelectors,
@@ -25,6 +26,7 @@ import {
 } from '@brainstrike/preferences/stores/token-preferences-store';
 import type {
   TokenCacheEntry,
+  TokenCacheLookupTelemetryRecord,
   TokenCountingMode,
   TokenCountRequest,
   TokenCountResult,
@@ -50,6 +52,14 @@ import {
 import { resolveTokenCacheWorkerUrlHref } from './resolve-token-cache-worker-url';
 
 const logger = createLogger('TokenCacheContext');
+const tokenCacheDatabaseQueryTelemetry = {
+  recordLookup(record: TokenCacheLookupTelemetryRecord): void {
+    databaseQueryTelemetry.recordQuery({
+      ...record,
+      feature: 'token-estimation',
+    });
+  },
+};
 
 /**
  * PGlite database type (subset of @electric-sql/pglite)
@@ -477,7 +487,8 @@ export function TokenCacheProvider({
     }
 
     const persistentStore = new TokenCacheStore(
-      db as unknown as ConstructorParameters<typeof TokenCacheStore>[0]
+      db as unknown as ConstructorParameters<typeof TokenCacheStore>[0],
+      { telemetry: tokenCacheDatabaseQueryTelemetry }
     );
     persistentStoreRef.current = {
       query: db.query,
