@@ -321,7 +321,9 @@ export function createRendererLongTaskTelemetry(
     currentFeatureFlagContextAvailability = 'unavailable';
     samples = [];
     unavailableReason = null;
-    publish();
+    // Reset is a privacy boundary: rebuild even without listeners so the
+    // external-store cache releases all previously retained identifiers now.
+    publishSnapshot(now());
   };
 
   return { getSnapshot, observe, record, reset, snapshot, subscribe, updateContext };

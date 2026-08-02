@@ -274,6 +274,38 @@ describe('renderer-long-task-telemetry', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('clears cached identifiers immediately when reset without diagnostics subscribers', () => {
+    const now = vi.fn(() => 1000);
+    const telemetry = createRendererLongTaskTelemetry({ now });
+
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: ['private-preview'],
+      route: 'settings',
+    });
+
+    const populatedSnapshot = telemetry.getSnapshot();
+    expect(populatedSnapshot).toMatchObject({
+      featureFlags: [{ count: 1, flag: 'private-preview' }],
+      routes: [{ count: 1, route: 'settings' }],
+      sampleCount: 1,
+    });
+
+    const nowCallsBeforeReset = now.mock.calls.length;
+    telemetry.reset();
+
+    expect(now).toHaveBeenCalledTimes(nowCallsBeforeReset + 1);
+    const nowCallsAfterReset = now.mock.calls.length;
+    const resetSnapshot = telemetry.getSnapshot();
+    expect(resetSnapshot).not.toBe(populatedSnapshot);
+    expect(resetSnapshot).toMatchObject({
+      featureFlags: [],
+      routes: [],
+      sampleCount: 0,
+    });
+    expect(now).toHaveBeenCalledTimes(nowCallsAfterReset);
+  });
+
   it('does not let direct samples mask a failed observer', () => {
     class ThrowingPerformanceObserver {
       static readonly supportedEntryTypes = ['longtask'];
