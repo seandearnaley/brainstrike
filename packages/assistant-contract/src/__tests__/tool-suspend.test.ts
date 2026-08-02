@@ -7,6 +7,7 @@ import {
 import {
   type AssistantToolResumeAction,
   isAssistantToolResumeAction,
+  isRediscoveredToolSuspend,
   readToolResumeRunConfigAction,
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
@@ -198,5 +199,53 @@ describe('tool-suspend contract', () => {
     expect(isAssistantToolResumeAction({ resumeData: 'ok', runId: 'r', toolCallId: 't' })).toBe(
       true
     );
+  });
+});
+
+describe('isRediscoveredToolSuspend', () => {
+  const base = {
+    runId: 'run-suspend-1',
+    stale: false,
+    suspendedAt: '2026-08-01T10:00:00.000Z',
+    suspendPayload: { question: 'Which file?' },
+    toolCallId: 'call-suspend-1',
+    toolName: 'brainstrike.askUser',
+  };
+
+  it('accepts a fully-formed rediscovered suspend, with or without optional fields', () => {
+    expect(isRediscoveredToolSuspend(base)).toBe(true);
+    const { suspendPayload: _payload, ...withoutPayload } = base;
+    expect(isRediscoveredToolSuspend(withoutPayload)).toBe(true);
+    expect(isRediscoveredToolSuspend({ ...base, resumeSupported: false, stale: true })).toBe(true);
+  });
+
+  it('rejects a missing base identifier or wrong-typed rediscovery fields', () => {
+    const { runId: _runId, ...withoutRunId } = base;
+    const { toolCallId: _toolCallId, ...withoutToolCallId } = base;
+    const { toolName: _toolName, ...withoutToolName } = base;
+    const { suspendedAt: _suspendedAt, ...withoutSuspendedAt } = base;
+    const { stale: _stale, ...withoutStale } = base;
+    expect(isRediscoveredToolSuspend(withoutRunId)).toBe(false);
+    expect(isRediscoveredToolSuspend(withoutToolCallId)).toBe(false);
+    expect(isRediscoveredToolSuspend(withoutToolName)).toBe(false);
+    expect(isRediscoveredToolSuspend(withoutSuspendedAt)).toBe(false);
+    expect(isRediscoveredToolSuspend(withoutStale)).toBe(false);
+    expect(isRediscoveredToolSuspend({ ...base, suspendedAt: 123 })).toBe(false);
+    expect(isRediscoveredToolSuspend({ ...base, stale: 'yes' })).toBe(false);
+    expect(isRediscoveredToolSuspend({ ...base, runId: '' })).toBe(false);
+  });
+
+  it('keeps an otherwise-valid pause whatever resumeSupported holds — the flag is advisory', () => {
+    // Rejecting a real pause over an unrecognized advisory value would
+    // re-create the silent stranding this contract exists to remove: the
+    // renderer dispatches on toolName, never on this field.
+    expect(isRediscoveredToolSuspend({ ...base, resumeSupported: true })).toBe(true);
+    expect(isRediscoveredToolSuspend({ ...base, resumeSupported: 'no' })).toBe(true);
+  });
+
+  it('rejects non-records', () => {
+    expect(isRediscoveredToolSuspend(undefined)).toBe(false);
+    expect(isRediscoveredToolSuspend(null)).toBe(false);
+    expect(isRediscoveredToolSuspend([base])).toBe(false);
   });
 });

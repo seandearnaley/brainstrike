@@ -2,10 +2,14 @@ import {
   isRediscoveredToolApproval,
   type RediscoveredToolApproval,
 } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  isRediscoveredToolSuspend,
+  type RediscoveredToolSuspend,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantAuthHeaders } from './hooks/use-assistant-availability';
 
-const logger = createLogger('SuspendedApprovals');
+const logger = createLogger('SuspendedRuns');
 
 /**
  * Hard ceiling on the discovery round-trip. The endpoint is a local loopback GET,
@@ -15,16 +19,25 @@ const logger = createLogger('SuspendedApprovals');
  */
 const DISCOVERY_TIMEOUT_MS = 3000;
 
+export interface SuspendedRunDiscoveryResult {
+  readonly approvals: readonly RediscoveredToolApproval[];
+  /** Non-approval suspend() pauses (BST-1084) — plan/question cards. */
+  readonly suspends: readonly RediscoveredToolSuspend[];
+}
+
 /**
- * Rediscover pending tool approvals for a thread from the desktop assistant
- * server (`GET /assistant/suspended-runs`). Best-effort UI enhancement: the run
- * is still resumable once the user re-sends, so a transport failure returns `[]`
- * — but the failure is LOGGED, never swallowed as a silent success.
+ * Rediscover pending tool approvals AND suspend() pauses for a thread from the
+ * desktop assistant server (`GET /assistant/suspended-runs`). Best-effort UI
+ * enhancement: the run is still resumable once the user re-sends, so a
+ * transport failure returns empty arrays — but the failure is LOGGED, never
+ * swallowed as a silent success.
  */
-export type SuspendedApprovalDiscovery = (
+export type SuspendedRunDiscovery = (
   threadId: string,
   resourceId: string
-) => Promise<readonly RediscoveredToolApproval[]>;
+) => Promise<SuspendedRunDiscoveryResult>;
+
+const EMPTY_DISCOVERY: SuspendedRunDiscoveryResult = { approvals: [], suspends: [] };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -32,12 +45,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
-function parseSuspendedApprovals(payload: unknown): readonly RediscoveredToolApproval[] {
+function parseSuspendedRuns(payload: unknown): SuspendedRunDiscoveryResult {
   if (!(isRecord(payload) && Array.isArray(payload['approvals']))) {
-    logger.warn('Suspended approval response is missing an approvals array', {
+    logger.warn('Suspended-runs response is missing an approvals array', {
       payloadType: typeof payload,
     });
-    return [];
+    return EMPTY_DISCOVERY;
   }
   const approvals: RediscoveredToolApproval[] = [];
   for (const entry of payload['approvals']) {
@@ -47,18 +60,36 @@ function parseSuspendedApprovals(payload: unknown): readonly RediscoveredToolApp
     }
     logger.warn('Dropping a malformed suspended approval entry from discovery response');
   }
-  return approvals;
+  // `suspends` is ADDITIVE (BST-1084): ABSENT from an older server is simply
+  // empty, but a PRESENT malformed value — non-array or malformed entries —
+  // is reported loudly like approvals, never silently treated as empty.
+  const suspends: RediscoveredToolSuspend[] = [];
+  const rawSuspends = payload['suspends'];
+  if (rawSuspends !== undefined && !Array.isArray(rawSuspends)) {
+    logger.warn('Suspended-runs response has a non-array suspends field', {
+      suspendsType: typeof rawSuspends,
+    });
+  } else if (Array.isArray(rawSuspends)) {
+    for (const entry of rawSuspends) {
+      if (isRediscoveredToolSuspend(entry)) {
+        suspends.push(entry);
+        continue;
+      }
+      logger.warn('Dropping a malformed suspended pause entry from discovery response');
+    }
+  }
+  return { approvals, suspends };
 }
 
-export function createSuspendedApprovalDiscovery(
+export function createSuspendedRunDiscovery(
   resolveBaseUrl: () => Promise<string>,
   fetchImpl: typeof fetch = globalThis.fetch,
   timeoutMs: number = DISCOVERY_TIMEOUT_MS,
   resolveAuthHeaders: () => Promise<Record<string, string>> = resolveAssistantAuthHeaders
-): SuspendedApprovalDiscovery {
+): SuspendedRunDiscovery {
   return async (threadId, resourceId) => {
     if (!(threadId && resourceId)) {
-      return [];
+      return EMPTY_DISCOVERY;
     }
     try {
       const base = trimTrailingSlash(await resolveBaseUrl());
@@ -70,15 +101,15 @@ export function createSuspendedApprovalDiscovery(
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) {
-        logger.warn('Suspended approval discovery request failed', { status: response.status });
-        return [];
+        logger.warn('Suspended-runs discovery request failed', { status: response.status });
+        return EMPTY_DISCOVERY;
       }
-      return parseSuspendedApprovals(await response.json());
+      return parseSuspendedRuns(await response.json());
     } catch (error) {
       // Best-effort enhancement: a transport failure/timeout yields zero cards and
       // a single warning — never an error state for the thread (still resumable).
-      logger.warn('Suspended approval discovery failed', { error });
-      return [];
+      logger.warn('Suspended-runs discovery failed', { error });
+      return EMPTY_DISCOVERY;
     }
   };
 }

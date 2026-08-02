@@ -1303,20 +1303,25 @@ scripted model's synchronous stream starves the event loop during the
 PGlite-backed resume; the test drains with a per-chunk `setImmediate` yield
 (mirrors real streaming) — a harness concern, not a production bug.
 
-Restart-safe rediscovery (a run suspended for approval survives a desktop
-restart / renderer reload, but the LIVE approval notice — a never-persisted
-stream data part — is gone on reload): on thread open the desktop history
-adapter rediscovers pending approvals and re-surfaces a working notice, REUSING
-the (already restart-safe) `streamMastraToolApprovalAction` resume seam
-untouched. Flow:
+Restart-safe rediscovery (a run suspended for approval OR by a tool's
+`suspend()` survives a desktop restart / renderer reload, but the LIVE notice —
+a never-persisted stream data part — is gone on reload): on thread open the
+desktop history adapter rediscovers both pause kinds and re-surfaces working
+notices, REUSING the (already restart-safe, stateless)
+`streamMastraToolApprovalAction` / `streamMastraToolResumeAction` resume seams
+untouched. Unified since BST-1084 — the previous "non-approval pauses are
+tolerated + skipped" behavior is GONE, and with it the silent stranding path
+that blocked run_python's Gate B. Flow:
 - `listSuspendedMastraRuns(filter, options)` (`agent-streaming.ts`) wraps
   `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
-  returns approval-gated tool calls only (`requiresApproval === true`) with
-  `toolName` mapped back to the ORIGINAL dotted form (see NAME-FORM CONTRACT
-  above);
-  non-approval `suspend()` pauses (submitPlan/askUser) and delegation-thread runs
-  are tolerated + skipped (debug-logged) — a unified suspend rediscovery is a
-  follow-up. Discovery is CONTEXT-FREE + KEYLESS: the stable agent id
+  returns `{ approvals, suspends }`: approval-gated calls
+  (`requiresApproval === true`) and non-approval `suspend()` pauses
+  (submitPlan/askUser), both with `toolName` mapped back to the ORIGINAL dotted
+  form (see NAME-FORM CONTRACT above), suspends carrying the tool-defined
+  `suspendPayload` recovered from the durable snapshot (so a rediscovered
+  plan/question renders its real content). Only a call missing its ids (e.g. a
+  delegation-thread run) is tolerated + skipped (debug-logged). Discovery is
+  CONTEXT-FREE + KEYLESS: the stable agent id
   (`brainstrike-assistant`) is provider-independent, so listing constructs a
   keyless `ollama` agent (no provider/apiKey from the renderer, no inference).
   Desktop constructs the paired PGlite memory/storage with observational memory
@@ -1325,19 +1330,29 @@ untouched. Flow:
   before the inert listing model is reached, violating the keyless contract.
 - Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
   (`apps/desktop/src/assistant-server/status-endpoints.ts`): recomputes `riskCategory` from
-  `buildNativeToolRiskMap()` and stamps `stale` against
-  `BRAINSTRIKE_APPROVAL_STALE_MS`. Missing thread ctx → 400; no storage → 503.
-- Renderer client `createSuspendedApprovalDiscovery` (app-shell,
+  `buildNativeToolRiskMap()` (approvals), stamps `stale` against
+  `BRAINSTRIKE_APPROVAL_STALE_MS` (both kinds), and flags a suspend whose tool
+  has no `hasRegisteredSuspendResumeUi` with `resumeSupported: false` + a loud
+  warning — the live path's honesty contract, never a silent drop. Missing
+  thread ctx → 400; no storage → 503. Response is `SuspendedRunsResponse`
+  (`suspends` is ADDITIVE; a client that only knows approvals ignores it).
+- Renderer client `createSuspendedRunDiscovery` (app-shell,
   desktop-capability-gated — web omits it, no `isElectron()`) → hydration
-  injection `appendSuspendedApprovalMessages` appends one synthetic trailing
-  assistant message per approval carrying a `TOOL_APPROVAL_DATA_NAME` data part
-  identical to the live mapper's output; the existing notice + its
-  Approve/Decline resume render unchanged. Staleness is display-only (D5): a
-  muted "Pending since <relative>" line always, an amber advisory when `stale`,
-  both buttons enabled, NO auto-decline.
-- Restart proof extends the same spec: a run suspended under `openai` is
+  injection `appendSuspendedPauseMessages` appends one synthetic trailing
+  assistant message per pause — `TOOL_APPROVAL_DATA_NAME` for approvals,
+  `TOOL_SUSPEND_DATA_NAME` for suspends, interleaved oldest-first — identical
+  to the live mapper's output; the existing notices + their resume seams render
+  unchanged (an unregistered suspend gets the same dead-end notice as live).
+  Staleness is display-only (D5) via the SHARED `RediscoveredPauseLines`
+  (`packages/ui/src/assistant-ui-panel/rediscovered-pause-lines.tsx`, used by
+  both notice kinds): a muted "Pending since <relative>" line always, an amber
+  advisory when `stale`, controls enabled, NO auto-decline / auto-answer.
+- Restart proofs extend the same specs: a run suspended under `openai` is
   rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
-  to execution by a THIRD fresh runtime.
+  to execution by a THIRD fresh runtime — for approvals
+  (mastra-tool-approval-suspend.integration.spec.ts) AND for suspend() pauses
+  with their payload (mastra-tool-suspend-resume.integration.spec.ts, the
+  BST-1084 headline proof).
 - **Corrupt snapshot rows (BST-558, settled — do not relitigate.)** Every
   TARGETED snapshot read in `PgliteWorkflowsStore`
   (`loadWorkflowSnapshot`, `getWorkflowRunById`, `updateWorkflowResults`)

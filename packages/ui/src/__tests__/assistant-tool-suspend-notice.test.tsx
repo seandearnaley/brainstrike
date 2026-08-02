@@ -273,3 +273,74 @@ describe('AssistantToolSuspendNotice', () => {
     });
   });
 });
+
+describe('rediscovered suspend pauses (BST-1084)', () => {
+  it('renders pending-since and a stale advisory on a rediscovered STALE pause, keeping controls enabled', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          runId: 'run-redisc-1',
+          stale: true,
+          suspendedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          suspendPayload: { question: 'Which region?' },
+          toolCallId: 'call-redisc-1',
+          toolName: 'brainstrike.askUser',
+        }}
+      />
+    );
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending a while/i)).toBeInTheDocument();
+    // Advisory only — the answer control stays usable (surface, never auto-decline).
+    // (Send itself stays disabled until text is entered, which is its normal state.)
+    expect(screen.getByRole('textbox', { name: /your answer/i })).toBeEnabled();
+  });
+
+  it('renders pending-since but no advisory for a fresh rediscovered pause', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          runId: 'run-redisc-2',
+          stale: false,
+          suspendedAt: new Date(Date.now() - 30 * 1000).toISOString(),
+          suspendPayload: { question: 'Which region?' },
+          toolCallId: 'call-redisc-2',
+          toolName: 'brainstrike.askUser',
+        }}
+      />
+    );
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a LIVE pause (no suspendedAt) without the rediscovery lines', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          runId: 'run-live-1',
+          suspendPayload: { question: 'Which region?' },
+          toolCallId: 'call-live-1',
+          toolName: 'brainstrike.askUser',
+        }}
+      />
+    );
+    expect(screen.queryByText(/pending since/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the dead-end notice with rediscovery lines for an unregistered rediscovered pause', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          resumeSupported: false,
+          runId: 'run-redisc-3',
+          stale: true,
+          suspendedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+          suspendPayload: { question: 'why?' },
+          toolCallId: 'call-redisc-3',
+          toolName: 'brainstrike.someFutureSuspendingTool',
+        }}
+      />
+    );
+    expect(screen.getByTestId('assistant-tool-suspend-unsupported-notice')).toBeInTheDocument();
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+  });
+});
