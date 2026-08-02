@@ -453,6 +453,30 @@ describe('DatabaseQueryTelemetry', () => {
     );
   });
 
+  it('records attempted token lookups with zero hits when a measured query fails', async () => {
+    const queryError = new Error('query failed');
+    const recordQuery = vi.spyOn(databaseQueryTelemetry, 'recordQuery');
+
+    await expect(
+      measureDatabaseQuery(
+        'token-estimation',
+        async () => {
+          throw queryError;
+        },
+        { hitCount: () => 3, lookupCount: 3 }
+      )
+    ).rejects.toBe(queryError);
+
+    expect(recordQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failed: true,
+        feature: 'token-estimation',
+        hitCount: 0,
+        lookupCount: 3,
+      })
+    );
+  });
+
   it('never changes successful query results when telemetry collection fails', async () => {
     vi.spyOn(databaseQueryTelemetry, 'recordQuery').mockImplementation(() => {
       throw new Error('telemetry unavailable');

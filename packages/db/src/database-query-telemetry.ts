@@ -770,6 +770,7 @@ export async function measureDatabaseQuery<T>(
             durationMs: completedAt - startedAt,
             failed: true,
             feature,
+            ...(counts ? { hitCount: 0, lookupCount: counts.lookupCount } : undefined),
           });
         });
       }
