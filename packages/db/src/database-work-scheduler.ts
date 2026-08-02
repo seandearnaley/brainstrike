@@ -758,12 +758,12 @@ function createScheduledLiveQueryHandle<THandle extends object>(
           if (!wrappedListener) {
             return await Reflect.apply(unsubscribe as CallableUnknown, target, [listener]);
           }
-          const result = await Reflect.apply(unsubscribe as CallableUnknown, target, [
-            wrappedListener,
-          ]);
-          subscribedListeners.delete(listener);
-          recordDatabaseLiveSubscriptionEnded();
-          return result;
+          try {
+            return await Reflect.apply(unsubscribe as CallableUnknown, target, [wrappedListener]);
+          } finally {
+            subscribedListeners.delete(listener);
+            recordDatabaseLiveSubscriptionEnded();
+          }
         };
       }
       return Reflect.get(target, property, receiver);

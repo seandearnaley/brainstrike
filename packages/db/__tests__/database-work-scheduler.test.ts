@@ -635,6 +635,38 @@ describe('DatabaseWorkScheduler', () => {
     );
   });
 
+  it('releases direct live-query telemetry when unsubscribe rejects', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(async () => {
+        throw new Error('database is closing');
+      }),
+    };
+    const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => liveHandle),
+        query: vi.fn(async () => liveHandle),
+      },
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+    };
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    const listener = vi.fn();
+    handle.subscribe(listener);
+
+    await expect(handle.unsubscribe(listener)).rejects.toThrow('database is closing');
+
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
   it('does not let foreground-handle live query refreshes extend the background quiet window', async () => {
     vi.useFakeTimers();
     try {
