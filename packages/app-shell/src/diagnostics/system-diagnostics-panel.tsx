@@ -162,7 +162,7 @@ function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
   };
 
   return (
-    <Badge className="h-5 px-2 text-[10px]" variant={variantMap[status]}>
+    <Badge className="h-5 px-2 text-[10px]" data-status={status} variant={variantMap[status]}>
       {label}
     </Badge>
   );
@@ -342,6 +342,10 @@ function DatabaseQueryTelemetrySection({
     (total, feature) => total + feature.failureCount,
     0
   );
+  const totalQueries = Object.values(snapshot.features).reduce(
+    (total, feature) => total + feature.queryCount,
+    0
+  );
   const cacheHitLabel =
     snapshot.tokenEstimation.cacheHitRate === null
       ? 'No lookups'
@@ -351,8 +355,8 @@ function DatabaseQueryTelemetrySection({
     <DiagnosticCard
       description="Rolling one-minute coarse query histograms"
       icon={<Database className="h-4 w-4 text-primary" />}
-      status={failures > 0 || snapshot.droppedSampleCount > 0 ? 'warning' : 'success'}
-      statusLabel={formatCount(snapshot.sampleCount, 'query', 'queries')}
+      status={snapshot.availability === 'failed' ? 'error' : failures > 0 ? 'warning' : 'success'}
+      statusLabel={formatCount(totalQueries, 'query', 'queries')}
       title="Database Queries"
     >
       <div className="space-y-2 text-xs">
@@ -385,9 +389,14 @@ function DatabaseQueryTelemetrySection({
           </span>
         </div>
         {snapshot.droppedSampleCount > 0 ? (
-          <div className="flex items-center justify-between text-warning">
+          <div className="flex items-center justify-between text-muted-foreground">
             <span>Retention overflow</span>
             <span>{formatCount(snapshot.droppedSampleCount, 'sample', 'samples')} dropped</span>
+          </div>
+        ) : null}
+        {snapshot.availability === 'failed' ? (
+          <div className="text-destructive" role="alert">
+            Query telemetry unavailable: {snapshot.unavailableReason}
           </div>
         ) : null}
         <div className="flex items-center justify-between">

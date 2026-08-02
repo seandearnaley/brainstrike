@@ -107,15 +107,21 @@ testWithContract('BST-403 documents fail-closed aggregate and live-query boundar
   for (const term of [
     'captures each caller field once',
     'arrival-count bucket stream',
+    'Failure and token lookup/hit totals',
+    'exact bounded',
     'bounded-bucket rolling',
     'sample cap',
     'retained percentile inputs',
     'zero lookup and hit counts',
+    'Folder-wide token-cache preloads',
     'start and refresh query executions rather than teardown',
-    'release local subscription ownership exactly once',
+    'support exactly one listener',
+    'make repeated unsubscribe idempotent',
     'terminal when teardown starts',
-    'snapshot reads continue to fail loudly',
-    'operation always runs',
+    'imperative snapshot reads continue to fail loudly',
+    'stable failed snapshot with the precise reason',
+    'Measurement-clock failure remains latched',
+    'wrapped database or token-cache operation',
   ]) {
     assertContractIncludes(term);
   }

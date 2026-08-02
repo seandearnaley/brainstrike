@@ -594,6 +594,10 @@ rate therefore remain independent of the duration-sample cap; sample count
 remains the number of retained percentile inputs. The collector exposes counts,
 failures, p50/p95/max duration, live subscription/update frequency, token-cache
 hit rate, and an explicit retained-sample overflow count to System Diagnostics.
+Query arrivals, failures, and token lookup/hit totals each use exact bounded
+rolling buckets rather than being reconstructed from the capped percentile
+samples. Overflow buckets use the evicted sample's occurrence time and therefore
+expire with the evicted sample.
 The card renders every per-feature count, failure,
 p50/p95/max, rate, and overflow dimension plus both the raw live-update count
 and rate, so warning attribution and rate inputs are visible.
@@ -621,10 +625,11 @@ samples represent start and refresh query executions on both renderer and
 Electron paths; subscription lifecycle, update delivery, and teardown are
 tracked separately. A direct unsubscribe terminalizes the pinned PGlite
 live-query handle before its async teardown settles, so the scheduler releases
-every locally counted listener exactly once on the first teardown attempt. A
-rejected teardown cannot be retried or re-subscribed on that dead handle; callers
-must create a fresh live-query handle, and the wrapper throws if they try to reuse
-the old one. Concurrent Electron teardown callers share one remote stop attempt;
+its one supported locally counted listener exactly once on the first teardown
+attempt. Repeated unsubscribe is idempotent, while subscribe and refresh reject
+on that dead handle; callers must create a fresh live-query handle. Folder-wide
+token-cache preloads record duration/failure with zero lookup and hit counts.
+Concurrent Electron teardown callers share one remote stop attempt;
 a rejected stop remains retryable while renderer-local listener and counter
 ownership release exactly once. Production wrappers log telemetry failures,
 including an unavailable timing clock, at error level while preserving and always
@@ -632,8 +637,9 @@ executing the database operation's original success or rejection. Each producer
 latches an unavailable clock and logs it once rather than emitting an error for
 every subsequent operation. The collector also suppresses repeated timer callbacks
 after its retention clock fails; live-update samples stop, while an explicit
-snapshot read still throws the latched error rather than returning stale data as
-current. The clock-free
+imperative `snapshot()` read still throws the latched error. External-store reads
+instead return one stable snapshot marked `failed` with the precise reason, so a
+React diagnostics surface can render the failure without crashing. The clock-free
 package regression imports the public database package entrypoint. There is
 deliberately no public reset: clearing the singleton could invalidate
 live-subscription ownership held by active proxies. Paired coverage

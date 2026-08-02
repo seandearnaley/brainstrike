@@ -37,21 +37,27 @@ memory-only; it is not written to the diagnostic event store or exported. Each
 feature has an independent bounded duration-sample buffer and a separate bounded
 arrival-count bucket stream. Query count and rate report bounded-bucket rolling
 executions above the sample cap; top-level sample count remains the number of
-retained percentile inputs, and retention overflow is reported only as a
-numeric dropped-sample count. Runtime records are
+retained percentile inputs. Failure and token lookup/hit totals use exact bounded
+rolling buckets rather than capped duration samples. Retention overflow is
+reported only as a numeric dropped-sample count and is timestamped at the evicted
+sample's occurrence so it expires with that sample. Runtime records are
 fail-closed: unsupported keys or malformed values throw before retention, and
 the collector captures each caller field once and
 copies only explicit allowlisted fields into each sample. Selected-file aggregate token queries
 record duration and failure only, with zero lookup and hit counts; live-query
 histograms count start and refresh query executions rather than teardown.
-Direct and Electron teardown release local subscription ownership exactly once,
-even when remote cleanup rejects or callers invoke unsubscribe repeatedly. Direct
-PGlite handles become terminal when teardown starts and must be recreated after a
-rejection; concurrent Electron callers share a retryable remote-stop attempt without
+Folder-wide token-cache preloads also report zero lookup and hit counts. Direct
+PGlite wrappers support exactly one listener, release that ownership exactly once,
+and make repeated unsubscribe idempotent even when cleanup rejects. Subscribe and
+refresh become terminal when teardown starts, so the handle must be recreated;
+concurrent Electron callers share a retryable remote-stop attempt without
 reacquiring local ownership. A missing telemetry clock is logged visibly once per
 producer, timer callbacks stop attempting telemetry publication, and explicit
-snapshot reads continue to fail loudly, but the wrapped database or token-cache
-operation always runs.
+imperative snapshot reads continue to fail loudly. External-store reads expose a
+stable failed snapshot with the precise reason so diagnostics can render the
+failure without crashing, while the wrapped database or token-cache operation
+always runs. Measurement-clock failure remains latched for the failed clock
+identity; token-cache timing failure remains latched for that store.
 
 ## Prohibited By Default
 

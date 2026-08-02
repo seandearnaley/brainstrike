@@ -190,6 +190,34 @@ describe('DatabaseQueryTelemetry', () => {
     });
   });
 
+  it('expires exact failure and token totals with their rolling buckets', () => {
+    let now = 0;
+    const telemetry = new DatabaseQueryTelemetry({ now: () => now, windowMs: 1000 });
+
+    telemetry.recordQuery({
+      durationMs: 1,
+      failed: true,
+      feature: 'token-estimation',
+      hitCount: 3,
+      lookupCount: 4,
+    });
+    now = 1017;
+
+    expect(telemetry.snapshot()).toMatchObject({
+      features: {
+        'token-estimation': {
+          failureCount: 0,
+          queryCount: 0,
+        },
+      },
+      tokenEstimation: {
+        cacheHitRate: null,
+        hitCount: 0,
+        lookupCount: 0,
+      },
+    });
+  });
+
   it('uses sub-window buckets so expired query arrivals do not over-report', () => {
     let now = 0;
     const telemetry = new DatabaseQueryTelemetry({
@@ -484,7 +512,7 @@ describe('DatabaseQueryTelemetry', () => {
       await vi.advanceTimersByTimeAsync(1000);
 
       expect(now).toHaveBeenCalledTimes(2);
-      expect(listener).not.toHaveBeenCalled();
+      expect(listener).toHaveBeenCalledTimes(1);
       expect(telemetryErrors).toEqual([
         'Database query telemetry retention timing unavailable; samples will not be recorded',
       ]);
@@ -492,6 +520,8 @@ describe('DatabaseQueryTelemetry', () => {
         availability: 'failed',
         unavailableReason: 'retention clock unavailable',
       });
+      const failedSnapshot = telemetry.getSnapshot();
+      expect(telemetry.getSnapshot()).toBe(failedSnapshot);
     } finally {
       unsubscribe();
       removeLogListener();

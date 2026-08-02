@@ -115,12 +115,30 @@ describe('SystemDiagnosticsPanel', () => {
         ...baseline,
         droppedSampleCount: 4,
         features: {
-          ...baseline.features,
           'file-tree': {
             ...baseline.features['file-tree'],
             droppedSampleCount: 4,
+            failureCount: 0,
             queriesPerMinute: 5,
             queryCount: 5,
+          },
+          'live-query': {
+            ...baseline.features['live-query'],
+            failureCount: 0,
+            queriesPerMinute: 0,
+            queryCount: 0,
+          },
+          'queue-stats': {
+            ...baseline.features['queue-stats'],
+            failureCount: 0,
+            queriesPerMinute: 0,
+            queryCount: 0,
+          },
+          'token-estimation': {
+            ...baseline.features['token-estimation'],
+            failureCount: 0,
+            queriesPerMinute: 0,
+            queryCount: 0,
           },
         },
         sampleCount: 1,
@@ -137,6 +155,30 @@ describe('SystemDiagnosticsPanel', () => {
         expect(screen.getByText('Retention overflow').parentElement).toHaveClass(
           'text-muted-foreground'
         );
+      } finally {
+        getSnapshot.mockRestore();
+        subscribe.mockRestore();
+      }
+    });
+
+    it('renders an explicit failed query-telemetry snapshot without throwing', () => {
+      const baseline = databaseQueryTelemetry.snapshot();
+      const getSnapshot = vi.spyOn(databaseQueryTelemetry, 'getSnapshot').mockReturnValue({
+        ...baseline,
+        availability: 'failed',
+        unavailableReason: 'retention clock unavailable',
+      });
+      const subscribe = vi
+        .spyOn(databaseQueryTelemetry, 'subscribe')
+        .mockImplementation(() => () => undefined);
+
+      try {
+        render(<SystemDiagnosticsPanel />);
+
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          'Query telemetry unavailable: retention clock unavailable'
+        );
+        expect(screen.getByText(/^\d+ queries?$/)).toHaveAttribute('data-status', 'error');
       } finally {
         getSnapshot.mockRestore();
         subscribe.mockRestore();

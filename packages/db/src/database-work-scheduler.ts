@@ -711,10 +711,11 @@ function createScheduledLiveQueryHandle<THandle extends object>(
   refreshPriority: DatabaseWorkPriority
 ): THandle {
   let active = true;
-  const subscribedListeners = new Map<
-    CallableUnknown,
-    { counted: boolean; wrappedListener: CallableUnknown }
-  >();
+  let subscribedListener: {
+    counted: boolean;
+    readonly listener: CallableUnknown;
+    readonly wrappedListener: CallableUnknown;
+  } | null = null;
   const assertActive = (): void => {
     if (!active) {
       throw new Error(
@@ -748,9 +749,8 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         }
         return (listener: CallableUnknown) => {
           assertActive();
-          const existing = subscribedListeners.get(listener);
-          if (existing) {
-            return Reflect.apply(subscribe as CallableUnknown, target, [existing.wrappedListener]);
+          if (subscribedListener !== null) {
+            throw new Error('Scheduled PGlite live-query handles support exactly one listener');
           }
           const wrappedListener = function (this: unknown, ...args: unknown[]) {
             if (entry.counted) {
@@ -759,13 +759,15 @@ function createScheduledLiveQueryHandle<THandle extends object>(
             return Reflect.apply(listener, this, args) as unknown;
           };
           const entry = {
-            counted: true,
+            counted: false,
+            listener,
             wrappedListener,
           };
           const result = Reflect.apply(subscribe as CallableUnknown, target, [
             entry.wrappedListener,
           ]);
-          subscribedListeners.set(listener, entry);
+          entry.counted = true;
+          subscribedListener = entry;
           recordDatabaseLiveSubscriptionStarted();
           return result;
         };
@@ -776,26 +778,31 @@ function createScheduledLiveQueryHandle<THandle extends object>(
           return unsubscribe;
         }
         return async (listener: CallableUnknown) => {
-          assertActive();
+          if (!active) {
+            return;
+          }
+          if (subscribedListener !== null && subscribedListener.listener !== listener) {
+            throw new Error(
+              'Scheduled PGlite live-query unsubscribe listener does not match the active listener'
+            );
+          }
           // PGlite 0.5.3 marks a live-query handle dead before it awaits the
           // teardown transaction. Once cleanup starts, even a rejected
           // unsubscribe cannot be retried or re-subscribed on this handle.
           active = false;
-          const entry = subscribedListeners.get(listener);
+          const entry = subscribedListener;
           try {
             return await Reflect.apply(unsubscribe as CallableUnknown, target, [
               entry?.wrappedListener ?? listener,
             ]);
           } finally {
             // The pinned PGlite lifecycle clears every downstream callback
-            // before teardown. Release every locally counted listener too.
-            for (const subscribed of subscribedListeners.values()) {
-              if (subscribed.counted) {
-                subscribed.counted = false;
-                recordDatabaseLiveSubscriptionEnded();
-              }
+            // before teardown. Release the one supported local owner too.
+            if (entry?.counted) {
+              entry.counted = false;
+              recordDatabaseLiveSubscriptionEnded();
             }
-            subscribedListeners.clear();
+            subscribedListener = null;
           }
         };
       }

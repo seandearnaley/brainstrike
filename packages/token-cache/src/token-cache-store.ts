@@ -326,12 +326,17 @@ export class TokenCacheStore {
    * Get all cached entries for a folder.
    */
   async getAllForFolder(folderId: string): Promise<TokenCacheEntry[]> {
-    const result = await this.db.query<TokenCacheRow>(
-      'SELECT * FROM file_token_cache WHERE folder_id = $1',
-      [folderId]
+    return await this.measureLookup(
+      async () => {
+        const result = await this.db.query<TokenCacheRow>(
+          'SELECT * FROM file_token_cache WHERE folder_id = $1',
+          [folderId]
+        );
+        return result.rows.map(rowToEntry);
+      },
+      () => ({ hitCount: 0, lookupCount: 0 }),
+      { hitCount: 0, lookupCount: 0 }
     );
-
-    return result.rows.map(rowToEntry);
   }
 
   /**
