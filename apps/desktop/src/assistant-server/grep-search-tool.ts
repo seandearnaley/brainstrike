@@ -85,12 +85,13 @@ interface MergedGrepResult {
  * (these are the FRESH lines the index would miss after an edit). When both have
  * the line, the LIVE row wins for content (it reflects the file as it is now).
  *
- * `totalMatches` preserves the index's UNCAPPED unique count as a floor and adds
- * the live-only contributions (live keys absent from the index's MATERIALIZED
- * set), so pagination stays monotonic and the cap-terminal hint still fires; when
- * the live pass returns nothing, `totalMatches` equals the index total exactly
- * (the pre-hybrid behaviour is unchanged). `truncated` ORs both passes' own
- * truncation flags so the existing budget logic drives the continuation hint.
+ * `totalMatches` preserves the index's UNCAPPED unique count as a floor; when the
+ * live pass returns nothing it equals the index total exactly (the pre-hybrid
+ * behaviour is unchanged). `truncated` ORs both passes' own truncation flags so
+ * the existing budget logic drives the continuation hint.
+ *
+ * Counting the live-only contribution depends on whether the index arm
+ * MATERIALIZED everything it counted (see {@link resolveTotalMatches}).
  */
 function mergeGrepMatches(
   indexResult: GrepSearchResult,
@@ -152,9 +153,11 @@ function mergeGrepMatches(
         a.line - b.line
     );
 
-  // Floor at the index's uncapped total (so a result the live pass doesn't change
-  // keeps the index pagination semantics), then add the fresh live-only rows.
-  const totalMatches = indexResult.totalMatches + liveOnlyAdded;
+  const totalMatches = resolveTotalMatches({
+    indexResult,
+    liveOnlyAdded,
+    mergedCount: matches.length,
+  });
 
   return {
     candidatesTruncated: indexResult.candidatesTruncated,
@@ -167,6 +170,39 @@ function mergeGrepMatches(
     truncated: indexResult.truncated || liveResult.truncated,
     ...(liveResult.note ? { liveNote: liveResult.note } : {}),
   };
+}
+
+/**
+ * The merged unique-match total.
+ *
+ * The index arm reports an UNCAPPED unique count (`indexResult.totalMatches`)
+ * but materializes only `offset + maxResults` rows, so "live rows with no twin
+ * among the materialized index rows" is only a count of NEW lines while the
+ * index materialized everything it counted.
+ *
+ * When the index arm was capped, that attribution breaks: every on-disk line the
+ * index counted but did not materialize looks live-only, so it is counted twice
+ * — once inside the index total, once as a live-only addition. Measured against
+ * a 61-hit file: `maxResults: 20` reported 102 and `maxResults: 5` reported 117,
+ * while `outputMode: 'files'` (whose larger internal cap materialized every row)
+ * reported the true 61. That also made the total shrink toward the truth as the
+ * caller paged, so page 1 advertised matches paging could never reach.
+ *
+ * With the index capped we cannot attribute the unmaterialized remainder, so
+ * take the larger of the two floors we actually know: the index's own uncapped
+ * count, and the merged set we materialized. Both are real matches, so neither
+ * can over-report, and the live-only rows are still counted because they are
+ * part of the merged set.
+ */
+function resolveTotalMatches(args: {
+  indexResult: GrepSearchResult;
+  liveOnlyAdded: number;
+  mergedCount: number;
+}): number {
+  if (args.indexResult.truncated) {
+    return Math.max(args.indexResult.totalMatches, args.mergedCount);
+  }
+  return args.indexResult.totalMatches + args.liveOnlyAdded;
 }
 
 /** Fold a new match's source into a file summary's running source label. */
