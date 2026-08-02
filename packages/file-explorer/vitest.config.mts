@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -33,6 +34,7 @@ export default defineConfig({
         find: '@brainstrike/platform-utils',
         replacement: path.resolve(import.meta.dirname, '../platform-utils/src'),
       },
+      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
     ],
   },
   test: {

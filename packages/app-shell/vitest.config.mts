@@ -21,7 +21,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
       },
       {
-        find: '@brainstrike/indexing-contract',
+        find: /^@brainstrike\/indexing-contract$/,
         replacement: path.resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
       {
