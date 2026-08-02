@@ -1,4 +1,4 @@
-import { addLogListener } from '@brainstrike/utils';
+import { addLogListener } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseQueryTelemetryRecord } from '../src/database-query-telemetry';
 import {
@@ -500,24 +500,55 @@ describe('DatabaseQueryTelemetry', () => {
       }
     });
     const unsubscribe = telemetry.subscribe(listener);
+    telemetry.recordQuery({
+      durationMs: 12,
+      failed: true,
+      feature: 'queue-stats',
+    });
+    telemetry.recordLiveSubscriptionStarted();
+    telemetry.recordLiveUpdate();
+    expect(telemetry.snapshot()).toMatchObject({
+      activeLiveSubscriptions: 1,
+      features: {
+        'queue-stats': { failureCount: 1, queryCount: 1 },
+      },
+      liveUpdateCount: 1,
+      sampleCount: 1,
+    });
     clockAvailable = false;
 
     try {
-      telemetry.recordLiveSubscriptionStarted();
       telemetry.recordLiveUpdate();
+      const clockCallsAfterFailure = now.mock.calls.length;
       telemetry.recordLiveUpdate();
       telemetry.recordLiveUpdate();
       await vi.advanceTimersByTimeAsync(3000);
       telemetry.recordLiveSubscriptionEnded();
       await vi.advanceTimersByTimeAsync(1000);
 
-      expect(now).toHaveBeenCalledTimes(2);
-      expect(listener).toHaveBeenCalledTimes(1);
+      expect(now).toHaveBeenCalledTimes(clockCallsAfterFailure);
+      expect(listener).toHaveBeenCalledTimes(2);
       expect(telemetryErrors).toEqual([
         'Database query telemetry retention timing unavailable; samples will not be recorded',
       ]);
       expect(telemetry.getSnapshot()).toMatchObject({
+        activeLiveSubscriptions: 0,
         availability: 'failed',
+        droppedSampleCount: 0,
+        features: {
+          'file-tree': { failureCount: 0, queryCount: 0 },
+          'live-query': { failureCount: 0, queryCount: 0 },
+          'queue-stats': { failureCount: 0, queryCount: 0 },
+          'token-estimation': { failureCount: 0, queryCount: 0 },
+        },
+        liveUpdateCount: 0,
+        liveUpdatesPerMinute: 0,
+        sampleCount: 0,
+        tokenEstimation: {
+          cacheHitRate: null,
+          hitCount: 0,
+          lookupCount: 0,
+        },
         unavailableReason: 'retention clock unavailable',
       });
       const failedSnapshot = telemetry.getSnapshot();
@@ -577,7 +608,7 @@ describe('DatabaseQueryTelemetry', () => {
       .mockReturnValueOnce(40);
     vi.stubGlobal('performance', { now });
     const [{ addLogListener: addFreshLogListener }, telemetryModule] = await Promise.all([
-      import('@brainstrike/utils'),
+      import('@brainstrike/logging'),
       import('../src/database-query-telemetry'),
     ]);
     const telemetryErrors: string[] = [];

@@ -110,6 +110,7 @@ testWithContract('BST-403 documents fail-closed aggregate and live-query boundar
     'Failure and token lookup/hit totals',
     'exact bounded',
     'bounded-bucket rolling',
+    'boundary-inclusive bucket interval',
     'sample cap',
     'retained percentile inputs',
     'zero lookup and hit counts',

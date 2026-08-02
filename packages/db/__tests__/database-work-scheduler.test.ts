@@ -748,6 +748,37 @@ describe('DatabaseWorkScheduler', () => {
     );
   });
 
+  it('counts a live update delivered synchronously during subscription', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn((listener: () => void) => listener()),
+      unsubscribe: vi.fn(async () => undefined),
+    };
+    const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => liveHandle),
+        query: vi.fn(async () => liveHandle),
+      },
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+    };
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    const listener = vi.fn();
+
+    handle.subscribe(listener);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().liveUpdateCount).toBe(
+      telemetryBefore.liveUpdateCount + 1
+    );
+    await handle.unsubscribe(listener);
+  });
+
   it('does not let foreground-handle live query refreshes extend the background quiet window', async () => {
     vi.useFakeTimers();
     try {

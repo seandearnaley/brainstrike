@@ -304,6 +304,10 @@ describe('Electron Live Query', () => {
     await Promise.resolve();
 
     expect(concurrentSettled).toBe(false);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
     rejectStop?.(new Error('database host is resetting'));
     await expect(firstCleanup).rejects.toThrow('database host is resetting');
     await expect(concurrentCleanup).rejects.toThrow('database host is resetting');

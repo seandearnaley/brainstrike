@@ -99,10 +99,14 @@ describe('SystemDiagnosticsPanel', () => {
         expect(screen.getByText('75% cache hit')).toBeInTheDocument();
         expect(screen.getByText('1 active')).toBeInTheDocument();
         expect(screen.getByTestId('database-live-update-metrics')).toHaveTextContent(
-          `${telemetrySnapshot.liveUpdateCount} ${telemetrySnapshot.liveUpdateCount === 1 ? 'update' : 'updates'} · ${Math.round(telemetrySnapshot.liveUpdatesPerMinute)} / min`
+          `${telemetrySnapshot.liveUpdateCount} ${telemetrySnapshot.liveUpdateCount === 1 ? 'update' : 'updates'}`
         );
+        expect(screen.getByTestId('database-live-update-metrics')).not.toHaveTextContent('/ min');
         expect(screen.getByTestId('database-query-queue-stats-metrics')).toHaveTextContent(
-          `${queueMetrics.queryCount} queries · ${Math.round(queueMetrics.queriesPerMinute)} / min · ${queueMetrics.failureCount} failed · p50 ${Math.round(queueMetrics.durationP50Ms)} ms · p95 ${Math.round(queueMetrics.durationP95Ms)} ms · max ${Math.round(queueMetrics.maxDurationMs)} ms · ${queueMetrics.droppedSampleCount} dropped`
+          `${queueMetrics.queryCount} queries · ${queueMetrics.failureCount} failed · p50 ${Math.round(queueMetrics.durationP50Ms)} ms · p95 ${Math.round(queueMetrics.durationP95Ms)} ms · max ${Math.round(queueMetrics.maxDurationMs)} ms · ${queueMetrics.droppedSampleCount} dropped`
+        );
+        expect(screen.getByTestId('database-query-queue-stats-metrics')).not.toHaveTextContent(
+          '/ min'
         );
       } finally {
         databaseQueryTelemetry.recordLiveSubscriptionEnded();
