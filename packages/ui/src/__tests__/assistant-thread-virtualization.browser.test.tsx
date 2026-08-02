@@ -380,7 +380,15 @@ describe('crossing the virtualization threshold mid-session (BST-897)', () => {
     const viewport = await waitForOverflowingViewport();
     // The library pins a freshly opened thread; land there before scrolling
     // away, so the scroll-up is a real disengage rather than a write issued
-    // while the library is still pinning.
+    // while the library is still pinning. WRITTEN, not merely waited for: with
+    // `scrollToBottomOnInitialize={false}` the opening pin is a side effect of
+    // resize-driven follow, so a coalesced ResizeObserver notification would
+    // leave waitForPinnedToEnd nothing to converge on — a second timing
+    // assumption is the last thing a determinism fix should rest on. The raw
+    // scrollTo, not the scrollTo() helper: the helper asserts `scrollTop ≈ top`,
+    // which never holds for `scrollHeight` once the browser clamps it. Matches
+    // the sibling test above.
+    viewport.scrollTo({ behavior: 'instant', top: viewport.scrollHeight });
     await waitForPinnedToEnd(viewport);
     await scrollTo(viewport, 0);
     // scrollTo only proves the DOM moved — `scrollTop` is written synchronously,
