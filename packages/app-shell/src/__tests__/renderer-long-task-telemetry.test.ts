@@ -341,6 +341,7 @@ describe('renderer-long-task-telemetry', () => {
         getEntries: () => [
           { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
           { duration: 80, entryType: 'longtask', startTime: Number.NaN } as PerformanceEntry,
+          { duration: -1, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
           { duration: 80, entryType: 'longtask', startTime: -1 } as PerformanceEntry,
           { duration: 75, entryType: 'longtask', startTime: 1950 } as PerformanceEntry,
           { duration: 90, entryType: 'longtask', startTime: 1850 } as PerformanceEntry,
@@ -358,7 +359,7 @@ describe('renderer-long-task-telemetry', () => {
       sampleCount: 2,
       snapshotAt: 500_000,
       unavailableReason:
-        'PerformanceObserver longtask batch contains multiple invalid entries: PerformanceObserver longtask entry start time is unavailable. PerformanceObserver longtask entry start time cannot be negative. PerformanceObserver longtask entry completed after delivery.',
+        'PerformanceObserver longtask batch contains multiple invalid entries: PerformanceObserver longtask entry start time is unavailable. PerformanceObserver longtask entry duration cannot be negative. PerformanceObserver longtask entry start time cannot be negative. PerformanceObserver longtask entry completed after delivery.',
     });
     expect(now).toHaveBeenCalledTimes(2);
   });
