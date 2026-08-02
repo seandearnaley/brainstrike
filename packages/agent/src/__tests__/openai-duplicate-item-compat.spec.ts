@@ -171,6 +171,116 @@ describe('OpenAIDuplicateItemCompat', () => {
     expect(processPrompt(new OpenAIDuplicateItemCompat(), prompt)).toBeUndefined();
   });
 
+  it('never leaves a tool output without a preceding call when only the call is duplicated', () => {
+    // The re-keyed copy was pushed while the tool was in flight, so only the
+    // earlier row carries the result: keeping "newest call" naively would put
+    // the surviving output BEFORE its call — a different Responses 400.
+    const prompt = [
+      {
+        content: [
+          {
+            input: { pattern: 'hero' },
+            toolCallId: TOOL_CALL_ID,
+            toolName: 'grep_tool',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'json', value: { files: ['index.html'] } },
+            toolCallId: TOOL_CALL_ID,
+            toolName: 'grep_tool',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+      {
+        content: [
+          {
+            providerOptions: { openai: { itemId: 'rs_live_only' } },
+            text: 'Retrying the read.',
+            type: 'reasoning',
+          },
+          {
+            input: { pattern: 'hero' },
+            toolCallId: TOOL_CALL_ID,
+            toolName: 'grep_tool',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+    ] as Prompt;
+
+    const result = processPrompt(new OpenAIDuplicateItemCompat(), prompt);
+
+    expect(result).toBeDefined();
+    const canonical = result?.prompt ?? [];
+    // The complete call+output pair survives; the outputless duplicate call is
+    // dropped and its now-orphaned reasoning is swept with it.
+    expect(canonical.map((message) => message.role)).toEqual(['assistant', 'tool']);
+    const assistant = canonical[0];
+    if (!(assistant && assistant.role === 'assistant' && Array.isArray(assistant.content))) {
+      throw new Error('expected assistant message');
+    }
+    expect(assistant.content.map((part) => part.type)).toEqual(['tool-call']);
+  });
+
+  it('dedupes provider-executed results carried on assistant messages (native web search shape)', () => {
+    // Provider-native tools (web search) keep BOTH the call and the result on
+    // the assistant message, often without an `openai.itemId`; the serializer
+    // replays the result by `toolCallId`. The stale copy must fall away too.
+    const providerExecutedPair = () => [
+      {
+        input: { query: 'brainstrike' },
+        providerExecuted: true,
+        toolCallId: 'ws_dup_search',
+        toolName: 'web_search',
+        type: 'tool-call',
+      },
+      {
+        output: { type: 'json', value: { results: [] } },
+        providerExecuted: true,
+        toolCallId: 'ws_dup_search',
+        toolName: 'web_search',
+        type: 'tool-result',
+      },
+    ];
+    const prompt = [
+      { content: providerExecutedPair(), role: 'assistant' },
+      {
+        content: [
+          ...providerExecutedPair(),
+          {
+            providerOptions: { openai: { itemId: LIVE_TEXT_ITEM_ID } },
+            text: 'Search done.',
+            type: 'text',
+          },
+        ],
+        role: 'assistant',
+      },
+    ] as Prompt;
+
+    const result = processPrompt(new OpenAIDuplicateItemCompat(), prompt);
+
+    expect(result).toBeDefined();
+    const canonical = result?.prompt ?? [];
+    expect(canonical.map((message) => message.role)).toEqual(['assistant']);
+    const assistant = canonical[0];
+    if (!(assistant && assistant.role === 'assistant' && Array.isArray(assistant.content))) {
+      throw new Error('expected assistant message');
+    }
+    expect(assistant.content.map((part) => part.type)).toEqual([
+      'tool-call',
+      'tool-result',
+      'text',
+    ]);
+  });
+
   it('serializes each OpenAI item id exactly once after canonicalization', async () => {
     let capturedBody: unknown;
     const provider = createOpenAI({

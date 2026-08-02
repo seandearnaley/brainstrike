@@ -362,17 +362,26 @@ function createReadThenAnswerModel(capturedPrompts: LanguageModelV2Prompt[]): La
   };
 }
 
-function readOpenAIItemId(part: { providerOptions?: unknown }): string | undefined {
-  const providerOptions = part.providerOptions;
-  if (!(providerOptions && typeof providerOptions === 'object')) {
-    return;
+// Mirrors the production reader in openai-duplicate-item-compat.ts: check
+// `providerOptions` THEN `providerMetadata`, so a hydration change that moves
+// the carrier cannot silently empty the spread and let the guard pass
+// vacuously.
+function readOpenAIItemId(part: object): string | undefined {
+  for (const carrier of ['providerOptions', 'providerMetadata'] as const) {
+    const options = (part as Record<string, unknown>)[carrier];
+    if (!(options && typeof options === 'object')) {
+      continue;
+    }
+    const openai = (options as Record<string, unknown>)['openai'];
+    if (!(openai && typeof openai === 'object')) {
+      continue;
+    }
+    const itemId = (openai as Record<string, unknown>)['itemId'];
+    if (typeof itemId === 'string' && itemId.length > 0) {
+      return itemId;
+    }
   }
-  const openai = (providerOptions as Record<string, unknown>)['openai'];
-  if (!(openai && typeof openai === 'object')) {
-    return;
-  }
-  const itemId = (openai as Record<string, unknown>)['itemId'];
-  return typeof itemId === 'string' ? itemId : undefined;
+  return;
 }
 
 /**
@@ -620,6 +629,13 @@ describe('double-persisted assistant history (BST-1095, real agent loop + real P
     ).toBe(true);
 
     expect(capturedPrompts.length).toBeGreaterThanOrEqual(2);
+    // Guard against a vacuous pass: the seeded references must actually reach
+    // the model boundary before "each spans one message" means anything.
+    const observedKeys = new Set(
+      capturedPrompts.flatMap((prompt) => [...providerItemSpread(prompt).keys()])
+    );
+    expect(observedKeys).toContain('item:rs-duplicated-summary');
+    expect(observedKeys).toContain('call:assistant:call-duplicated-read');
     // Both persisted copies are in the window; without canonicalization the
     // prompt carries rs-duplicated-empty / rs-duplicated-summary /
     // call-duplicated-read twice and OpenAI rejects the request.

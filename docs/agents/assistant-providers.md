@@ -434,11 +434,14 @@
 - OpenAI Responses item-id uniqueness has a second provider-boundary seam,
   `openai-duplicate-item-compat.ts` (BST-1095): when durable history holds the
   same assistant response under two message ids (Mastra sealed-boundary re-key
-  double-persistence), the OpenAI-only `processLLMRequest` processor keeps each
-  duplicated `rs_`/`fc_`/`call_` reference's newest occurrence and drops the
-  stale parts from the transient prompt, so the request no longer 400s with
-  "Duplicate item found". Within-message repeats (multi-summary reasoning) are
-  untouched; durable history is never mutated. See
+  double-persistence), the OpenAI-only `processLLMRequest` processor drops the
+  stale duplicated `rs_`/`fc_`/`call_` references from the transient prompt so
+  the request no longer 400s with "Duplicate item found" — keeping the result
+  structurally valid: reasoning/text ids keep their newest occurrence, tool
+  call+output survive as the newest complete pair (covering assistant-carried
+  provider-executed results, e.g. native web search), and orphaned trailing
+  reasoning in edited messages is swept. Within-message repeats (multi-summary
+  reasoning) are untouched; durable history is never mutated. See
   `docs/agents/assistant-runtime.md` for its position in the input-processor
   chain.
 - OpenRouter reasoning controls are model-capability-aware when the Models API

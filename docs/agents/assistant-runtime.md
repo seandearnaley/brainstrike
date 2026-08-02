@@ -391,11 +391,16 @@ every other provider; token limiting is always last. OpenAIDuplicateItemCompat
 boundary — Mastra's sealed-boundary re-key can double-persist one assistant
 response under two message ids, and a prompt carrying both copies serializes
 two input items per `rs_`/`fc_`/`call_` id, which OpenAI rejects with
-"Duplicate item found". It keeps the newest occurrence, drops earlier duplicate
-parts (and messages emptied by that), never touches within-message repeats
-(multi-summary reasoning merges provider-side), and never mutates durable
-history. It runs after the other compat rewrites so it sees the item references
-they produce. Initial streams, approval resumes, and suspending-tool resumes reuse the
+"Duplicate item found". Canonicalization must not trade that 400 for another:
+reasoning/text ids keep their newest occurrence; a tool call and its output
+(tool-role for client tools, assistant-role for provider-executed tools like
+native web search) are kept as the newest COMPLETE pair so no
+`function_call_output` survives without a preceding call; reasoning left
+trailing in an edited message is swept ("reasoning without its required
+following item" is also a 400); emptied messages are removed. Within-message
+repeats are untouched (multi-summary reasoning merges provider-side) and
+durable history is never mutated. It runs after the other compat rewrites so
+it sees the item references they produce. Initial streams, approval resumes, and suspending-tool resumes reuse the
 same discovery and history-filter processor instances so same-process approval
 executors remain available while persisted discovery results provide restart
 reconstruction.
