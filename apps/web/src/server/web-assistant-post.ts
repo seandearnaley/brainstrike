@@ -4,7 +4,6 @@ import {
   prepareAssistantPostRequest,
 } from '@brainstrike/assistant-service/request';
 import type { AssistantRejectionPayload } from '@brainstrike/assistant-wire';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
 import {
   resolveAssistantProviderConfig,
   resolveAssistantProviderConfigs,
@@ -18,6 +17,10 @@ import {
   InvalidWebAssistantRuntimeDataError,
 } from './web-assistant-runtime';
 import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream';
+
+type ScopedLogger = import('@brainstrike/utils/logger', { with: {
+  'resolution-mode': 'import',
+}}).ScopedLogger;
 
 export interface WebAssistantPostRejection {
   readonly kind: 'rejection';

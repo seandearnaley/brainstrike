@@ -4,7 +4,6 @@ import {
   readRequestBodyText,
 } from '@brainstrike/agent/hosted-web';
 import { createAssistantRejectionResponse } from '@brainstrike/assistant-service/http';
-import { createLogger } from '@brainstrike/utils/logger';
 import { resolveWebAssistantRequestBodyLimitBytes } from '../../../server/web-assistant-body-limit';
 import { runWebAssistantPost } from '../../../server/web-assistant-post';
 import {
@@ -12,7 +11,12 @@ import {
   WEB_ASSISTANT_STREAM_REPLAY_UNAVAILABLE,
 } from '../../../server/web-assistant-request';
 
-const logger = createLogger('WebAssistantRoute');
+// This route is compiled as CommonJS by the Vercel function contract while
+// utils is an emitted-ESM library. Dynamic import is the native CJS→ESM seam;
+// retaining the promise preserves one scope-cached logger for the process.
+const loggerPromise = import('@brainstrike/utils/logger').then(({ createLogger }) =>
+  createLogger('WebAssistantRoute')
+);
 const assistantRequestBodyLimitBytes = resolveWebAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
@@ -48,6 +52,7 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
+  const logger = await loggerPromise;
   const outcome = await runWebAssistantPost({ bodyText, logger, signal: req.signal });
   if (outcome.kind === 'rejection') {
     return createAssistantRejectionResponse({

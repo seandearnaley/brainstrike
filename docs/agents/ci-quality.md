@@ -1068,7 +1068,11 @@ Non-native typed packages have two JavaScript build classes, derived from
   resolution because existing workspace declaration graphs use that contract;
   `scripts/verify-package-build-strategies.mjs` supplies the missing runtime
   check that Bundler resolution itself does not: an extensionless relative
-  import compiles but fails under Node ESM.
+  import compiles but fails under Node ESM. A CommonJS composition boundary
+  that consumes one of these libraries uses native dynamic `import()` (and an
+  explicit `resolution-mode: import` for type-only imports) rather than forcing
+  the library back into dual-format bundling; the Vercel assistant route is the
+  live contract case.
 
 `scripts/verify-package-build-strategies.mjs` (alias
 `lint:package-build-strategies`, present in both lint chains) enforces the two
