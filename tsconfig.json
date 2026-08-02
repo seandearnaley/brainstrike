@@ -32,6 +32,9 @@
       "@brainstrike/hooks": [
         "./packages/hooks/src"
       ],
+      "@brainstrike/logging": [
+        "./packages/logging/src"
+      ],
       "@brainstrike/ui": [
         "./packages/ui/src"
       ],
@@ -208,6 +211,9 @@
     },
     {
       "path": "./packages/text-splitter"
+    },
+    {
+      "path": "./packages/logging"
     },
     {
       "path": "./packages/utils"
