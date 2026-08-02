@@ -57,8 +57,12 @@ vi.mock('../mastra/subagent-delegation', async (importActual) => {
   };
 });
 
-const { streamMastraAgent, streamMastraToolApprovalAction, streamMastraToolResumeAction } =
-  await import('../mastra/agent-streaming');
+const {
+  listSuspendedMastraRuns,
+  streamMastraAgent,
+  streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
+} = await import('../mastra/agent-streaming');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { createSubmitPlanTool } = await import('../tools/submit-plan-tool');
 const { createAskUserTool } = await import('../tools/ask-user-tool');
@@ -469,6 +473,115 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     );
     expect(toolSuccessOutputs(multiResume)).toContain('a, b');
     await dbB.close();
+  });
+
+  it('RESTART (BST-1084): listSuspendedMastraRuns rediscovers a suspend() pause WITH its payload, and a FRESH runtime resumes it', async () => {
+    // The suspend-side twin of the approval RESTART proof. Phase 1 suspends an
+    // askUser over `database`. Phase 2 simulates a process restart — a
+    // brand-new memory/storage/Agent over the SAME PGlite DB rediscovers the
+    // pause via the KEYLESS listing route (the exact desktop /suspended-runs
+    // shape), including the tool-defined suspendPayload recovered from the
+    // durable snapshot — the fact that makes the rediscovered notice able to
+    // render the real question instead of a placeholder. Phase 3 feeds the
+    // discovered runId+toolCallId into a fresh streamMastraToolResumeAction
+    // and the answer reaches the tool.
+    const database = new PGlite();
+    const thread = { resourceId: 'resource-susp-rst-1', threadId: 'thread-susp-rst-1' } as const;
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Thanks after restart.',
+      input: JSON.stringify({ question: 'Which region?' }),
+      toolCallId: 'call-ask-restart-susp-1',
+      toolName: 'brainstrike_askUser',
+    });
+
+    // ── Phase 1: SUSPEND (first "process") ──
+    const firstBoot = await makeMemory(database);
+    const liveSuspend = findSuspendChunk(
+      await drainYielding(
+        await streamMastraAgent(
+          [{ id: 'u-susp-rst-1', parts: [{ text: 'ask me', type: 'text' }], role: 'user' }],
+          {
+            memory: firstBoot.memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+              provider: 'openai',
+            },
+            storage: firstBoot.storage,
+            tools: { 'brainstrike.askUser': createAskUserTool() },
+          }
+        )
+      )
+    );
+    expect(liveSuspend?.toolName).toBe('brainstrike.askUser');
+
+    // ── Phase 2: RESTART SIMULATION — keyless discovery over the same DB ──
+    const secondBoot = await makeMemory(database);
+    const discovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: thread.threadId },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+    // The pause lands in `suspends`, NEVER in `approvals` — misclassifying it
+    // as an approval would offer Approve/Decline for a question.
+    expect(discovery.approvals).toHaveLength(0);
+    expect(discovery.suspends).toHaveLength(1);
+    const rediscovered = discovery.suspends[0];
+    expect(rediscovered?.runId).toBe(liveSuspend?.runId);
+    expect(rediscovered?.toolCallId).toBe(liveSuspend?.toolCallId);
+    // The ORIGINAL dotted name, mapped through the KEYLESS route's static
+    // native reverse map (no tools are registered on the listing runtime).
+    expect(rediscovered?.toolName).toBe('brainstrike.askUser');
+    // The durable snapshot carries the tool-defined payload.
+    expect(rediscovered?.suspendPayload).toMatchObject({ question: 'Which region?' });
+    expect(Number.isNaN(Date.parse(rediscovered?.suspendedAt ?? 'x'))).toBe(false);
+
+    // A different thread sees nothing (scope filter).
+    const emptyDiscovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: 'thread-other' },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: 'thread-other' },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+    expect(emptyDiscovery.suspends).toHaveLength(0);
+
+    // ── Phase 3: RESUME from a THIRD fresh runtime with the discovered ids ──
+    const thirdBoot = await makeMemory(database);
+    const resumeChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: 'EU West',
+          runId: rediscovered?.runId ?? '',
+          toolCallId: rediscovered?.toolCallId ?? '',
+          toolName: rediscovered?.toolName ?? '',
+        },
+        {
+          memory: thirdBoot.memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            provider: 'openai',
+          },
+          storage: thirdBoot.storage,
+          tools: { 'brainstrike.askUser': createAskUserTool() },
+        }
+      )
+    );
+    expect(toolSuccessOutputs(resumeChunks)).toContain('EU West');
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
   });
 
   it('FAIL-SAFE: without storage submitPlan is omitted from the Agent and resume throws', async () => {

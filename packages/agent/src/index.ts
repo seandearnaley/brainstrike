@@ -167,6 +167,7 @@ export {
 } from './mastra/agent-runtime';
 export {
   type DiscoveredSuspendedApproval,
+  type DiscoveredSuspendedPause,
   type ListSuspendedApprovalsResult,
   listSuspendedMastraRuns,
   streamMastraAgent,

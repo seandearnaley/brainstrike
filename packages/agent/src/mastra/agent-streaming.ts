@@ -1642,8 +1642,26 @@ export interface DiscoveredSuspendedApproval {
   readonly toolName: string;
 }
 
+/**
+ * A non-approval `suspend()` pause discovered from workflow storage
+ * (BST-1084): a tool that called `suspend()` (submitPlan/askUser) whose run
+ * survived a restart/reload. `suspendPayload` comes off the durable snapshot
+ * (Mastra's `AgentRunToolCall.suspendPayload`), so the rediscovered notice
+ * renders the real plan/question. `toolName` is the ORIGINAL dotted name,
+ * mapped exactly like approvals.
+ */
+export interface DiscoveredSuspendedPause {
+  readonly runId: string;
+  readonly suspendedAt: string;
+  readonly suspendPayload?: unknown;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
 export interface ListSuspendedApprovalsResult {
   readonly approvals: readonly DiscoveredSuspendedApproval[];
+  /** Non-approval suspend() pauses (BST-1084). Same ordering as approvals. */
+  readonly suspends: readonly DiscoveredSuspendedPause[];
 }
 
 /**
@@ -1688,11 +1706,12 @@ function resolveDiscoveredApprovalToolName(
  * it works after a process restart / renderer reload given only the thread
  * context. It is INERT: listing performs no inference and never resumes a run.
  *
- * Returns ONLY approval-gated tool calls (`requiresApproval === true`) that carry
- * a `toolCallId` + `toolName`. Non-approval `suspend()` pauses (submitPlan/askUser)
- * and delegation-thread runs are tolerated and skipped without error (logged at
- * debug) — a unified suspend rediscovery is a follow-up. Storage is REQUIRED (no
- * storage ⇒ no discovery, never a silent empty result).
+ * Returns approval-gated tool calls (`requiresApproval === true`) in
+ * `approvals` AND non-approval `suspend()` pauses (submitPlan/askUser) in
+ * `suspends` (BST-1084) — both requiring a `toolCallId` + `toolName`, both
+ * name-mapped to the original dotted form. Only a call missing its ids (e.g.
+ * a delegation-thread run) is tolerated + skipped (logged at debug). Storage
+ * is REQUIRED (no storage ⇒ no discovery, never a silent empty result).
  */
 export async function listSuspendedMastraRuns(
   filter: { readonly threadId: string; readonly resourceId: string },
@@ -1722,11 +1741,12 @@ export async function listSuspendedMastraRuns(
     });
 
     const approvals: DiscoveredSuspendedApproval[] = [];
+    const suspends: DiscoveredSuspendedPause[] = [];
     for (const run of runs) {
       const suspendedAt = run.suspendedAt.toISOString();
       for (const toolCall of run.toolCalls) {
-        if (!(toolCall.requiresApproval && toolCall.toolCallId && toolCall.toolName)) {
-          logger.debug('skipping non-approval suspended tool call', {
+        if (!(toolCall.toolCallId && toolCall.toolName)) {
+          logger.debug('skipping suspended tool call without ids', {
             code: 'mastra_agent_suspended_run_skipped',
             requiresApproval: toolCall.requiresApproval,
             runId: run.runId,
@@ -1734,33 +1754,52 @@ export async function listSuspendedMastraRuns(
           });
           continue;
         }
-        approvals.push({
+        // Snapshots store the REGISTERED (sanitized) id; every client-facing
+        // surface is keyed by the ORIGINAL name — map it back here so the
+        // desktop route's riskByTool lookup and per-tool overrides match.
+        const toolName = resolveDiscoveredApprovalToolName(
+          toolCall.toolName,
+          runtime.toolNameMap,
+          run.runId
+        );
+        if (toolCall.requiresApproval) {
+          approvals.push({
+            runId: run.runId,
+            suspendedAt,
+            toolCallId: toolCall.toolCallId,
+            toolName,
+            ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
+          });
+          continue;
+        }
+        // BST-1084: a tool that called suspend() — carry its durable payload
+        // so the rediscovered notice renders the real plan/question.
+        suspends.push({
           runId: run.runId,
           suspendedAt,
           toolCallId: toolCall.toolCallId,
-          // Snapshots store the REGISTERED (sanitized) id; every client-facing
-          // surface is keyed by the ORIGINAL name — map it back here so the
-          // desktop route's riskByTool lookup and per-tool overrides match.
-          toolName: resolveDiscoveredApprovalToolName(
-            toolCall.toolName,
-            runtime.toolNameMap,
-            run.runId
-          ),
-          ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
+          toolName,
+          ...(toolCall.suspendPayload === undefined
+            ? {}
+            : { suspendPayload: toolCall.suspendPayload }),
         });
       }
     }
 
-    approvals.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+    const bySuspendedAt = (a: { suspendedAt: string }, b: { suspendedAt: string }): number =>
+      Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt);
+    approvals.sort(bySuspendedAt);
+    suspends.sort(bySuspendedAt);
 
     logger.info('discovered suspended approvals', {
       approvalCount: approvals.length,
       code: 'mastra_agent_suspended_runs_discovered',
       runCount: runs.length,
+      suspendCount: suspends.length,
       threadId: filter.threadId,
     });
 
-    return { approvals };
+    return { approvals, suspends };
   } finally {
     await runtime.dispose();
   }
