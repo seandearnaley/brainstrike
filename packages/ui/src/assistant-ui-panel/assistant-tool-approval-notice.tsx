@@ -27,6 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../dropdown-menu';
+import { RediscoveredPauseLines, readRediscoveredPauseDisplay } from './rediscovered-pause-lines';
 import { formatRunDuration } from './run-python-result-model';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
@@ -798,82 +799,6 @@ function resolveGrantCategory(approval: AssistantToolApprovalRequest): ToolRiskC
   return isToolRiskCategory(approval.riskCategory) ? approval.riskCategory : null;
 }
 
-/**
- * Rediscovery metadata carried ONLY by an approval re-surfaced from workflow
- * storage after a restart/reload (see RediscoveredToolApproval). A live-stream
- * approval has neither field, so the extra lines are absent on the live path.
- */
-interface RediscoveredApprovalDisplay {
-  readonly stale: boolean;
-  readonly suspendedAt: string;
-}
-
-function readRediscoveredDisplay(data: unknown): RediscoveredApprovalDisplay | null {
-  if (!isRecord(data)) {
-    return null;
-  }
-  const suspendedAt = data['suspendedAt'];
-  const stale = data['stale'];
-  if (typeof suspendedAt !== 'string' || typeof stale !== 'boolean') {
-    return null;
-  }
-  return { stale, suspendedAt };
-}
-
-const RELATIVE_TIME_UNITS: ReadonlyArray<readonly [Intl.RelativeTimeFormatUnit, number]> = [
-  ['day', 86_400_000],
-  ['hour', 3_600_000],
-  ['minute', 60_000],
-];
-
-// Building an Intl formatter is expensive; hoist a single shared instance.
-const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
-/** "Pending since <relative>" text; null when the timestamp is unparseable. */
-function formatPendingSince(suspendedAt: string, now: number): string | null {
-  const suspendedMs = Date.parse(suspendedAt);
-  if (Number.isNaN(suspendedMs)) {
-    return null;
-  }
-  const elapsedMs = Math.max(0, now - suspendedMs);
-  for (const [unit, unitMs] of RELATIVE_TIME_UNITS) {
-    if (elapsedMs >= unitMs) {
-      return RELATIVE_TIME_FORMATTER.format(-Math.floor(elapsedMs / unitMs), unit);
-    }
-  }
-  return RELATIVE_TIME_FORMATTER.format(-Math.floor(elapsedMs / 1000), 'second');
-}
-
-/**
- * The two additive lines a REDISCOVERED approval renders (a live approval passes
- * `display === null` and renders nothing extra). Display-only per D5 — it never
- * disables the Approve/Decline buttons.
- */
-function RediscoveredApprovalLines({ display }: { display: RediscoveredApprovalDisplay | null }) {
-  // Freeze the reference clock at mount (lazy initializer runs once) so render
-  // stays pure — "pending since" is a mount-anchored relative time, it does not
-  // need to tick, and this keeps React Compiler able to memoize the component.
-  const [renderedAt] = useState(() => Date.now());
-  if (!display) {
-    return null;
-  }
-  const pendingSince = formatPendingSince(display.suspendedAt, renderedAt);
-  return (
-    <>
-      {pendingSince ? (
-        <p className="mt-0.5 truncate text-muted-foreground text-xs">
-          Pending since {pendingSince}
-        </p>
-      ) : null}
-      {display.stale ? (
-        <p className="mt-0.5 text-amber-700 text-xs dark:text-amber-400">
-          This approval has been pending a while — re-running the request may be safer.
-        </p>
-      ) : null}
-    </>
-  );
-}
-
 function formatJsonValue(value: unknown): string {
   if (typeof value === 'string') {
     return value;
@@ -1122,7 +1047,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   const previewPolicy = approval ? resolveApprovalPreviewPolicy(approval) : null;
   const grantCategory =
     approval && !previewPolicy?.suppressGrants ? resolveGrantCategory(approval) : null;
-  const rediscovered = approval ? readRediscoveredDisplay(data) : null;
+  const rediscovered = approval ? readRediscoveredPauseDisplay(data) : null;
   const approvalRunOutcomeKey = useAuiState((state) =>
     toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
   );
@@ -1233,7 +1158,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
               Requires approval: {approvalReason}
             </p>
           ) : null}
-          <RediscoveredApprovalLines display={rediscovered} />
+          <RediscoveredPauseLines display={rediscovered} />
           <ApprovalPreview approval={approval} />
           <div className="mt-3 flex flex-wrap gap-2">
             <Button

@@ -16,6 +16,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { Check, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
 import { Button } from '../button';
+import { RediscoveredPauseLines, readRediscoveredPauseDisplay } from './rediscovered-pause-lines';
 
 const logger = createLogger('AssistantToolSuspendNotice');
 
@@ -297,6 +298,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
       testId="assistant-submit-plan-notice"
       title={plan?.title ? `Plan: ${plan.title}` : 'Plan for your approval'}
     >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       {plan ? (
         <div className="mt-1 space-y-2 text-xs">
           <p className="text-foreground/90">{plan.overview}</p>
@@ -392,6 +394,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
       testId="assistant-ask-user-notice"
       title={payload?.question ?? 'The assistant has a question'}
     >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       {options.length === 0 ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input
@@ -492,6 +495,7 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
       title={`Cannot resume ${request.toolName}`}
       tone="failed"
     >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       <p className="mt-1 text-muted-foreground text-xs">
         This tool paused the run for input, but this build has no resume UI registered for its
         resume schema, so the pause cannot be answered and the run cannot continue here.

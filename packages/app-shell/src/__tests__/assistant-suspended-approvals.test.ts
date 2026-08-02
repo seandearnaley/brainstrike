@@ -1,6 +1,6 @@
 import { addLogListener, LogLevel, setLogLevel } from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSuspendedApprovalDiscovery } from '../assistant-suspended-approvals';
+import { createSuspendedRunDiscovery } from '../assistant-suspended-approvals';
 
 interface CapturedLog {
   readonly level: string;
@@ -15,7 +15,7 @@ function makeResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-describe('createSuspendedApprovalDiscovery', () => {
+describe('createSuspendedRunDiscovery', () => {
   const resolveBaseUrl = (): Promise<string> => Promise.resolve('http://127.0.0.1:9999/');
   let logs: CapturedLog[];
   let removeLogListener: () => void;
@@ -42,10 +42,10 @@ describe('createSuspendedApprovalDiscovery', () => {
     };
     const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(200, { approvals: [approval] })));
 
-    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl);
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread a', 'workspace/1');
 
-    expect(result).toEqual([approval]);
+    expect(result).toEqual({ approvals: [approval], suspends: [] });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const requestedUrl = String((fetchImpl.mock.calls[0] as unknown[])[0]);
     expect(requestedUrl).toBe(
@@ -57,7 +57,7 @@ describe('createSuspendedApprovalDiscovery', () => {
     const token = 't'.repeat(64);
     const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(200, { approvals: [] })));
 
-    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl, undefined, () =>
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl, undefined, () =>
       Promise.resolve({ 'x-brainstrike-assistant-token': token })
     );
     await discover('thread-1', 'workspace-1');
@@ -83,30 +83,30 @@ describe('createSuspendedApprovalDiscovery', () => {
       )
     );
 
-    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl);
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual([valid]);
+    expect(result).toEqual({ approvals: [valid], suspends: [] });
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
   it('returns [] and logs a warning on a non-ok HTTP response (never a silent success)', async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(500, { error: 'boom' })));
 
-    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl);
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ approvals: [], suspends: [] });
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
   it('returns [] and logs a warning when fetch rejects', async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new Error('network down')));
 
-    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl);
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ approvals: [], suspends: [] });
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
@@ -123,10 +123,10 @@ describe('createSuspendedApprovalDiscovery', () => {
         })
     );
 
-    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl, 20);
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl, 20);
     const result = await discover('thread-1', 'workspace-1');
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ approvals: [], suspends: [] });
     const init = (fetchImpl.mock.calls[0] as unknown[])[1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
@@ -135,9 +135,54 @@ describe('createSuspendedApprovalDiscovery', () => {
   it('short-circuits to [] without a request when thread context is empty', async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(200, { approvals: [] })));
 
-    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl);
-    expect(await discover('', 'workspace-1')).toEqual([]);
-    expect(await discover('thread-1', '')).toEqual([]);
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
+    expect(await discover('', 'workspace-1')).toEqual({ approvals: [], suspends: [] });
+    expect(await discover('thread-1', '')).toEqual({ approvals: [], suspends: [] });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('suspend() pause parsing (BST-1084)', () => {
+  const resolveBaseUrl = (): Promise<string> => Promise.resolve('http://127.0.0.1:9999/');
+  const suspend = {
+    runId: 'run-suspend-1',
+    stale: false,
+    suspendedAt: '2026-08-01T10:00:00.000Z',
+    suspendPayload: { question: 'Which region?' },
+    toolCallId: 'call-suspend-1',
+    toolName: 'brainstrike.askUser',
+  };
+
+  it('parses the additive suspends array alongside approvals', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(makeResponse(200, { approvals: [], suspends: [suspend] }))
+    );
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
+    expect(await discover('thread-1', 'workspace-1')).toEqual({
+      approvals: [],
+      suspends: [suspend],
+    });
+  });
+
+  it('treats an ABSENT suspends field (older server) as empty, never an error', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(200, { approvals: [] })));
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
+    expect(await discover('thread-1', 'workspace-1')).toEqual({ approvals: [], suspends: [] });
+  });
+
+  it('drops a malformed suspend entry with a warning but keeps the valid ones', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(
+        makeResponse(200, {
+          approvals: [],
+          suspends: [{ runId: 'run-broken' }, suspend, { ...suspend, resumeSupported: true }],
+        })
+      )
+    );
+    const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
+    expect(await discover('thread-1', 'workspace-1')).toEqual({
+      approvals: [],
+      suspends: [suspend],
+    });
   });
 });
