@@ -1063,6 +1063,7 @@ describe('mastra streaming integration', () => {
       'tool-call-filter',
       'provider-history-compat',
       'openai-tool-search-history-compat',
+      'openai-duplicate-item-compat',
       'token-limiter',
     ]);
   });
