@@ -18,6 +18,7 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/log
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
@@ -1290,5 +1291,90 @@ describe('run_python approval executionContext stamping (BST-1070)', () => {
     );
     expect(approval).toBeDefined();
     expect(approval && 'executionContext' in approval).toBe(false);
+  });
+});
+
+describe('listSuspendedMastraRuns classification (BST-1084)', () => {
+  beforeEach(() => {
+    resetMastraStreamHarness();
+  });
+
+  it('classifies a mixed run: approval-gated calls to approvals, suspend() pauses to suspends, id-less skipped', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-mixed-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-01T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { command: 'echo hi' },
+            requiresApproval: true,
+            toolCallId: 'call-approval-1',
+            toolName: 'brainstrike_executeCommand',
+          },
+          {
+            requiresApproval: false,
+            suspendPayload: { question: 'Which region?' },
+            toolCallId: 'call-suspend-1',
+            toolName: 'brainstrike_askUser',
+          },
+          {
+            // A delegation-thread style entry without ids: tolerated + skipped.
+            requiresApproval: false,
+            toolCallId: '',
+            toolName: '',
+          },
+        ],
+      },
+    ]);
+
+    const result = await listSuspendedMastraRuns(
+      { resourceId: 'workspace-a', threadId: 'thread-1' },
+      { runtime: { apiKey: 'test-key', provider: 'openai' }, storage: {} as never }
+    );
+
+    expect(result.approvals).toHaveLength(1);
+    expect(result.approvals[0]).toMatchObject({
+      toolCallId: 'call-approval-1',
+      toolName: 'brainstrike.executeCommand',
+    });
+    expect(result.suspends).toHaveLength(1);
+    expect(result.suspends[0]).toMatchObject({
+      suspendPayload: { question: 'Which region?' },
+      toolCallId: 'call-suspend-1',
+      toolName: 'brainstrike.askUser',
+    });
+  });
+
+  it('CANARY: a call listed as both approval and suspend yields ONE approval card, never two cards', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-dup-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-01T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { code: 'print(1)' },
+            requiresApproval: true,
+            toolCallId: 'call-dup-1',
+            toolName: 'brainstrike_runPython',
+          },
+          {
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'call-dup-1',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+
+    const result = await listSuspendedMastraRuns(
+      { resourceId: 'workspace-a', threadId: 'thread-1' },
+      { runtime: { apiKey: 'test-key', provider: 'openai' }, storage: {} as never }
+    );
+
+    expect(result.approvals).toHaveLength(1);
+    expect(result.suspends).toHaveLength(0);
   });
 });

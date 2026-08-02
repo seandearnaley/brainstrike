@@ -84,7 +84,7 @@ import {
   normalizeWriteBackFilePaths,
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
-import { createSuspendedApprovalDiscovery } from './assistant-suspended-approvals';
+import { createSuspendedRunDiscovery } from './assistant-suspended-approvals';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   type AssistantRunUsagePayload,
@@ -1029,7 +1029,7 @@ export function AssistantUiPanelWrapper({
       resourceId: memoryResourceId,
       threadId: selectedMemoryThreadId,
       ...(desktopAssistantBackendAvailable
-        ? { discoverSuspendedApprovals: createSuspendedApprovalDiscovery(resolveAssistantBaseUrl) }
+        ? { discoverSuspendedRuns: createSuspendedRunDiscovery(resolveAssistantBaseUrl) }
         : {}),
     });
   }, [
