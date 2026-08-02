@@ -62,7 +62,6 @@ import {
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
   type CumulativeUsageDisplay,
@@ -208,13 +207,9 @@ export function AssistantUiPanelWrapper({
     getSelectedProvider,
     setProviderSettings,
   } = useAssistantPreferencesStore();
-  const localRuntimeSettingsRefreshKey = useAssistantPreferencesStore(
-    useShallow((state) => [state.providerSettings.lmstudio, state.providerSettings.ollama] as const)
-  );
   const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
     getLocalRuntimeModels,
     getLocalRuntimeStatuses,
-    refreshKey: localRuntimeSettingsRefreshKey,
   });
   const selectedModel = useAssistantPreferencesStore((state) => state.selectedModel);
   const recentModels = useAssistantPreferencesStore((state) => state.recentModels);

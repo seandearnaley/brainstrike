@@ -1,4 +1,6 @@
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   LOCAL_RUNTIME_PROVIDER_IDS,
   type LocalRuntimeModelCatalogMap,
@@ -12,11 +14,6 @@ interface UseAssistantLocalRuntimeCatalogArgs {
   readonly getLocalRuntimeStatuses: (options?: {
     readonly diagnosticLogLevel?: 'debug' | 'warn';
   }) => Promise<LocalRuntimeStatusMap>;
-  /**
-   * Immutable settings snapshot whose identity changes when a runtime URL,
-   * token, or activation setting changes.
-   */
-  readonly refreshKey: object;
 }
 
 interface UseAssistantLocalRuntimeCatalogResult {
@@ -60,8 +57,10 @@ async function loadReachableRuntimeCatalog(
 export function useAssistantLocalRuntimeCatalog({
   getLocalRuntimeModels,
   getLocalRuntimeStatuses,
-  refreshKey,
 }: UseAssistantLocalRuntimeCatalogArgs): UseAssistantLocalRuntimeCatalogResult {
+  const refreshKey = useAssistantPreferencesStore(
+    useShallow((state) => [state.providerSettings.lmstudio, state.providerSettings.ollama] as const)
+  );
   const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
     null
   );

@@ -1,5 +1,9 @@
-import { renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import {
+  __resetAssistantPreferencesStoreForTests,
+  useAssistantPreferencesStore,
+} from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   LocalRuntimeModelCatalogMap,
   LocalRuntimeStatusMap,
@@ -47,8 +51,6 @@ const ollamaModelCatalog: LocalRuntimeModelCatalogMap = {
   },
 };
 
-const unchangedSettings = {};
-
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
   const promise = new Promise<T>((resolvePromise) => {
@@ -58,6 +60,10 @@ function deferred<T>() {
 }
 
 describe('useAssistantLocalRuntimeCatalog', () => {
+  beforeEach(() => {
+    __resetAssistantPreferencesStoreForTests();
+  });
+
   it('loads model catalogs for reachable local runtimes and returns a model-count hint', async () => {
     const getLocalRuntimeStatuses = vi.fn().mockResolvedValue(availableOllamaStatus);
     const getLocalRuntimeModels = vi.fn().mockResolvedValue(ollamaModelCatalog);
@@ -66,7 +72,6 @@ describe('useAssistantLocalRuntimeCatalog', () => {
       useAssistantLocalRuntimeCatalog({
         getLocalRuntimeModels,
         getLocalRuntimeStatuses,
-        refreshKey: unchangedSettings,
       })
     );
 
@@ -102,7 +107,6 @@ describe('useAssistantLocalRuntimeCatalog', () => {
       useAssistantLocalRuntimeCatalog({
         getLocalRuntimeModels,
         getLocalRuntimeStatuses,
-        refreshKey: unchangedSettings,
       })
     );
 
@@ -135,7 +139,6 @@ describe('useAssistantLocalRuntimeCatalog', () => {
       useAssistantLocalRuntimeCatalog({
         getLocalRuntimeModels,
         getLocalRuntimeStatuses,
-        refreshKey: unchangedSettings,
       })
     );
 
@@ -168,21 +171,19 @@ describe('useAssistantLocalRuntimeCatalog', () => {
       .fn()
       .mockImplementationOnce(() => firstCatalog.promise)
       .mockImplementationOnce(() => secondCatalog.promise);
-    const initialRefreshKey = {};
-    const updatedRefreshKey = {};
-
-    const { rerender, result } = renderHook(
-      ({ refreshKey }) =>
-        useAssistantLocalRuntimeCatalog({
-          getLocalRuntimeModels,
-          getLocalRuntimeStatuses,
-          refreshKey,
-        }),
-      { initialProps: { refreshKey: initialRefreshKey } }
+    const { result } = renderHook(() =>
+      useAssistantLocalRuntimeCatalog({
+        getLocalRuntimeModels,
+        getLocalRuntimeStatuses,
+      })
     );
     await waitFor(() => expect(getLocalRuntimeModels).toHaveBeenCalledTimes(1));
 
-    rerender({ refreshKey: updatedRefreshKey });
+    act(() => {
+      useAssistantPreferencesStore.getState().setProviderSettings('ollama', {
+        localRuntimeBaseUrl: 'http://new-host:11434',
+      });
+    });
     await waitFor(() => expect(getLocalRuntimeModels).toHaveBeenCalledTimes(2));
     secondCatalog.resolve(ollamaModelCatalog);
     await waitFor(() => expect(result.current.localRuntimeModels).toBe(ollamaModelCatalog));
