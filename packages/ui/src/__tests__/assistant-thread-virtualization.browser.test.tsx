@@ -378,7 +378,23 @@ describe('crossing the virtualization threshold mid-session (BST-897)', () => {
   test('a reader scrolled up on the static tier is not yanked by the switch', async () => {
     render(<MutableThreadHarness initialCount={THREAD_VIRTUALIZATION_THRESHOLD - 1} />);
     const viewport = await waitForOverflowingViewport();
+    // The library pins a freshly opened thread; land there before scrolling
+    // away, so the scroll-up is a real disengage rather than a write issued
+    // while the library is still pinning.
+    await waitForPinnedToEnd(viewport);
     await scrollTo(viewport, 0);
+    // scrollTo only proves the DOM moved — `scrollTop` is written synchronously,
+    // so its waitFor passes on the first check. The LIBRARY's pinned state, which
+    // is what the tier swap records as `pinnedWhileStatic`, trails it by a frame
+    // (scroll listener → store → render): measured, the button is still DISABLED
+    // in the same task the scroll lands. Appending inside that window makes the
+    // swap take the "was pinned" branch and scrollToEnd() onto the newest
+    // message — and that state is terminal, so the assertion below then sees 0
+    // for its whole window and no amount of waiting recovers it — the same
+    // one-frame lag as BST-1042, read by a different consumer.
+    await waitFor(() => {
+      expect(getButton()).toBeEnabled();
+    });
 
     fireEvent.click(screen.getByTestId('append'));
 
@@ -390,7 +406,9 @@ describe('crossing the virtualization threshold mid-session (BST-897)', () => {
     await waitFor(() => {
       expect(distanceFromBottom(viewport)).toBeGreaterThan(VIEWPORT_HEIGHT_PX);
     });
-    expect(getButton()).toBeEnabled();
+    await waitFor(() => {
+      expect(getButton()).toBeEnabled();
+    });
   });
 });
 
