@@ -131,9 +131,7 @@ function detectAppCommit(appPath) {
     // the recorded sha".
     const statusArgs = ['status', '--porcelain', '--'];
     const measuredTreeTop = runGit(['rev-parse', '--show-toplevel']);
-    const resultsInsideMeasuredTree = !path
-      .relative(measuredTreeTop, resultsPath)
-      .startsWith('..');
+    const resultsInsideMeasuredTree = !path.relative(measuredTreeTop, resultsPath).startsWith('..');
     statusArgs.push(resultsInsideMeasuredTree ? `:(exclude)${resultsPath}` : '.');
     return {
       dirty: runGit(statusArgs).length > 0,
