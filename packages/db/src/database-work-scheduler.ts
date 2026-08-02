@@ -739,7 +739,14 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         return (listener: CallableUnknown) => {
           const existing = subscribedListeners.get(listener);
           if (existing) {
-            return Reflect.apply(subscribe as CallableUnknown, target, [existing.wrappedListener]);
+            const result = Reflect.apply(subscribe as CallableUnknown, target, [
+              existing.wrappedListener,
+            ]);
+            if (!existing.counted) {
+              existing.counted = true;
+              recordDatabaseLiveSubscriptionStarted();
+            }
+            return result;
           }
           const wrappedListener = function (this: unknown, ...args: unknown[]) {
             if (entry.counted) {
@@ -776,6 +783,8 @@ function createScheduledLiveQueryHandle<THandle extends object>(
             subscribedListeners.delete(listener);
             return result;
           } finally {
+            // Retain a failed cleanup's wrapper so the caller can retry it or
+            // reactivate the same listener without creating a second wrapper.
             if (entry.counted) {
               entry.counted = false;
               recordDatabaseLiveSubscriptionEnded();

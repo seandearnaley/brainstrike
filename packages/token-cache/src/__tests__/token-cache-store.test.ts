@@ -312,7 +312,7 @@ describe('TokenCacheStore', () => {
       );
 
       expect(recordLookup).not.toHaveBeenCalled();
-      expect(mockLoggerError).toHaveBeenCalledTimes(3);
+      expect(mockLoggerError).toHaveBeenCalledTimes(1);
     });
 
     it('stores and retrieves a single entry', async () => {

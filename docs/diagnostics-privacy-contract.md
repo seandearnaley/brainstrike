@@ -42,9 +42,11 @@ copies only explicit allowlisted fields into each sample. Selected-file aggregat
 record duration and failure only, with zero lookup and hit counts; live-query
 histograms count start and refresh query executions rather than teardown.
 Direct and Electron teardown release local subscription ownership exactly once,
-even when remote cleanup rejects or callers invoke unsubscribe repeatedly. A
-missing telemetry clock is logged visibly but never prevents the wrapped database
-or token-cache operation from running.
+even when remote cleanup rejects or callers invoke unsubscribe repeatedly. Direct
+listeners can be reactivated after rejected cleanup, and concurrent Electron
+callers share a retryable remote-stop attempt without reacquiring local ownership.
+A missing telemetry clock is logged visibly once per producer, but never prevents
+the wrapped database or token-cache operation from running.
 
 ## Prohibited By Default
 

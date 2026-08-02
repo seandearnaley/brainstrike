@@ -196,10 +196,42 @@ function safelyRecordTelemetry(operation: string, record: () => void): void {
   }
 }
 
-function readQueryMeasurementStart(feature: DatabaseQueryFeature): number | null {
+interface FailedQueryMeasurementClock {
+  readonly clock: Performance | null;
+  readonly read: unknown;
+}
+
+const FAILED_CLOCK_READ = Symbol('failed-clock-read');
+let failedQueryMeasurementClock: FailedQueryMeasurementClock | null = null;
+
+function readQueryMeasurementClock(feature: DatabaseQueryFeature): number | null {
+  const clock = typeof performance === 'undefined' ? null : performance;
+  let read: unknown;
   try {
-    return readMonotonicTime();
+    read = clock?.now;
   } catch (error) {
+    if (
+      failedQueryMeasurementClock?.clock === clock &&
+      failedQueryMeasurementClock.read === FAILED_CLOCK_READ
+    ) {
+      return null;
+    }
+    failedQueryMeasurementClock = { clock, read: FAILED_CLOCK_READ };
+    logger.error('Database query telemetry timing unavailable; query will continue', {
+      error: getErrorMessage(error),
+      operation: `${feature}-query`,
+    });
+    return null;
+  }
+  if (failedQueryMeasurementClock?.clock === clock && failedQueryMeasurementClock.read === read) {
+    return null;
+  }
+  try {
+    const timestamp = readMonotonicTime();
+    failedQueryMeasurementClock = null;
+    return timestamp;
+  } catch (error) {
+    failedQueryMeasurementClock = { clock, read };
     logger.error('Database query telemetry timing unavailable; query will continue', {
       error: getErrorMessage(error),
       operation: `${feature}-query`,
@@ -529,30 +561,36 @@ export async function measureDatabaseQuery<T>(
   work: () => Promise<T>,
   counts?: { readonly hitCount: (result: T) => number; readonly lookupCount: number }
 ): Promise<T> {
-  const startedAt = readQueryMeasurementStart(feature);
+  const startedAt = readQueryMeasurementClock(feature);
   try {
     const result = await work();
     if (startedAt !== null) {
-      safelyRecordTelemetry(`${feature}-query`, () => {
-        databaseQueryTelemetry.recordQuery({
-          durationMs: readMonotonicTime() - startedAt,
-          feature,
-          ...(counts
-            ? { hitCount: counts.hitCount(result), lookupCount: counts.lookupCount }
-            : undefined),
+      const completedAt = readQueryMeasurementClock(feature);
+      if (completedAt !== null) {
+        safelyRecordTelemetry(`${feature}-query`, () => {
+          databaseQueryTelemetry.recordQuery({
+            durationMs: completedAt - startedAt,
+            feature,
+            ...(counts
+              ? { hitCount: counts.hitCount(result), lookupCount: counts.lookupCount }
+              : undefined),
+          });
         });
-      });
+      }
     }
     return result;
   } catch (error) {
     if (startedAt !== null) {
-      safelyRecordTelemetry(`${feature}-query-failed`, () => {
-        databaseQueryTelemetry.recordQuery({
-          durationMs: readMonotonicTime() - startedAt,
-          failed: true,
-          feature,
+      const completedAt = readQueryMeasurementClock(feature);
+      if (completedAt !== null) {
+        safelyRecordTelemetry(`${feature}-query-failed`, () => {
+          databaseQueryTelemetry.recordQuery({
+            durationMs: completedAt - startedAt,
+            failed: true,
+            feature,
+          });
         });
-      });
+      }
     }
     throw error;
   }

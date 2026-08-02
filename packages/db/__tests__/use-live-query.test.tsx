@@ -273,6 +273,55 @@ describe('Electron Live Query', () => {
     );
   });
 
+  it('shares concurrent Electron cleanup and retries a rejected remote stop', async () => {
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    let rejectStop: ((error: Error) => void) | undefined;
+    mockBridge.stop
+      .mockImplementationOnce(
+        async () =>
+          await new Promise<void>((_resolve, reject) => {
+            rejectStop = reject;
+          })
+      )
+      .mockResolvedValueOnce(undefined);
+    const subscription = await subscribeViaElectron(
+      mockBridge,
+      { mode: 'query', query: 'SELECT * FROM test' },
+      vi.fn()
+    );
+
+    const firstCleanup = subscription.unsubscribe();
+    const concurrentCleanup = subscription.unsubscribe();
+    let concurrentSettled = false;
+    void concurrentCleanup.then(
+      () => {
+        concurrentSettled = true;
+      },
+      () => {
+        concurrentSettled = true;
+      }
+    );
+    await Promise.resolve();
+
+    expect(concurrentSettled).toBe(false);
+    rejectStop?.(new Error('database host is resetting'));
+    await expect(firstCleanup).rejects.toThrow('database host is resetting');
+    await expect(concurrentCleanup).rejects.toThrow('database host is resetting');
+    expect(mockBridge.stop).toHaveBeenCalledTimes(1);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+
+    await expect(subscription.unsubscribe()).resolves.toBeUndefined();
+
+    expect(mockBridge.stop).toHaveBeenCalledTimes(2);
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
   it('tracks Electron live updates and refresh queries', async () => {
     const telemetryBefore = databaseQueryTelemetry.snapshot();
     const { result, unmount } = renderHook(() =>

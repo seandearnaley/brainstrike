@@ -332,14 +332,19 @@ describe('DatabaseQueryTelemetry', () => {
     ).resolves.toBe('result');
   });
 
-  it('runs the database operation when the measurement clock is unavailable', async () => {
-    vi.stubGlobal('performance', undefined);
+  it('runs every database operation but probes a failed measurement clock once', async () => {
+    const now = vi.fn(() => {
+      throw new Error('measurement clock unavailable');
+    });
+    vi.stubGlobal('performance', { now });
     const work = vi.fn(async () => 'query result');
     const recordQuery = vi.spyOn(databaseQueryTelemetry, 'recordQuery');
 
     await expect(measureDatabaseQuery('file-tree', work)).resolves.toBe('query result');
+    await expect(measureDatabaseQuery('queue-stats', work)).resolves.toBe('query result');
 
-    expect(work).toHaveBeenCalledTimes(1);
+    expect(work).toHaveBeenCalledTimes(2);
+    expect(now).toHaveBeenCalledTimes(1);
     expect(recordQuery).not.toHaveBeenCalled();
   });
 });

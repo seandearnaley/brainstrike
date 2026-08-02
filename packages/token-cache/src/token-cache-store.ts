@@ -127,6 +127,7 @@ function rowToEntry(row: TokenCacheRow): TokenCacheEntry {
  */
 export class TokenCacheStore {
   private readonly db: PGlite;
+  private telemetryClockUnavailable = false;
   private readonly transactionRetryBaseDelayMs: number;
   private readonly transactionRetryMaxAttempts: number;
   private readonly telemetry: TokenCacheStoreTelemetry | null;
@@ -158,6 +159,9 @@ export class TokenCacheStore {
   }
 
   private readLookupTelemetryClock(): number | null {
+    if (this.telemetryClockUnavailable) {
+      return null;
+    }
     try {
       if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
         throw new Error('Token cache telemetry requires the Performance monotonic clock');
@@ -168,6 +172,7 @@ export class TokenCacheStore {
       }
       return timestamp;
     } catch (error) {
+      this.telemetryClockUnavailable = true;
       logger.error('Token cache telemetry timing unavailable; lookup will continue', {
         error: getErrorMessage(error),
       });

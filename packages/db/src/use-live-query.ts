@@ -375,7 +375,21 @@ export async function subscribeViaElectron<T>(
     onUpdate(payload.results as LiveQueryResults<T>);
   });
   recordDatabaseLiveSubscriptionStarted();
-  let released = false;
+  let localReleased = false;
+  let remoteStopped = false;
+  let stopPromise: Promise<void> | null = null;
+
+  const releaseLocalOnce = (): void => {
+    if (localReleased) {
+      return;
+    }
+    localReleased = true;
+    try {
+      unsubscribeUpdates();
+    } finally {
+      recordDatabaseLiveSubscriptionEnded();
+    }
+  };
 
   return {
     initialResults: startResult.initialResults,
@@ -391,20 +405,29 @@ export async function subscribeViaElectron<T>(
         await bridge.refresh(refreshPayload);
       });
     },
-    unsubscribe: async () => {
-      if (released) {
-        return;
+    unsubscribe: () => {
+      if (remoteStopped) {
+        return Promise.resolve();
       }
-      released = true;
-      try {
-        await bridge.stop(startResult.id);
-      } finally {
+      if (stopPromise) {
+        return stopPromise;
+      }
+      const attempt = (async () => {
         try {
-          unsubscribeUpdates();
+          await bridge.stop(startResult.id);
+          remoteStopped = true;
         } finally {
-          recordDatabaseLiveSubscriptionEnded();
+          releaseLocalOnce();
         }
-      }
+      })();
+      let shared: Promise<void>;
+      shared = attempt.finally(() => {
+        if (stopPromise === shared) {
+          stopPromise = null;
+        }
+      });
+      stopPromise = shared;
+      return shared;
     },
   };
 }
