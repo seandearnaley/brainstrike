@@ -128,6 +128,67 @@ describe('embedding telemetry store', () => {
     );
   });
 
+  it('rejects inconsistent cache aggregates at the process boundary', () => {
+    const empty = createEmptyEmbeddingTelemetrySnapshot();
+    const snapshot = {
+      ...empty,
+      cache: {
+        entries: [
+          {
+            cacheKey: 'model-a|webgpu|fp16',
+            createdAt: 100,
+            device: 'webgpu',
+            dtype: 'fp16',
+            lastUsedAt: 200,
+            memory: {
+              gpuBytes: 1024,
+              heapBytes: 0,
+              reason: 'model-size-estimate',
+            },
+            model: 'model-a',
+            residencyMs: 100,
+            sourceId: 'worker-a',
+          },
+          {
+            cacheKey: 'model-b|wasm|q4',
+            createdAt: 100,
+            device: 'wasm',
+            dtype: 'q4',
+            lastUsedAt: 200,
+            memory: {
+              gpuBytes: null,
+              heapBytes: null,
+              reason: 'model-size-unknown',
+            },
+            model: 'model-b',
+            residencyMs: 100,
+            sourceId: 'worker-b',
+          },
+        ],
+        estimatedGpuBytes: 1024,
+        estimatedHeapBytes: 0,
+        memoryEstimateUnavailableCount: 1,
+        residentCount: 2,
+      },
+    } as const;
+
+    const inconsistentAggregates = [
+      ['estimatedGpuBytes', 1023],
+      ['estimatedHeapBytes', 1],
+      ['memoryEstimateUnavailableCount', 0],
+      ['residentCount', 1],
+    ] as const;
+
+    for (const [field, value] of inconsistentAggregates) {
+      expect(() =>
+        assertEmbeddingTelemetrySnapshot({
+          ...snapshot,
+          cache: { ...snapshot.cache, [field]: value },
+        })
+      ).toThrow(`Embedding telemetry cache.${field} does not match cache.entries.`);
+    }
+  });
+
   it('tracks resident model bytes by device and removes terminated worker state', () => {
     recordEmbeddingPipelineCacheTelemetry('worker-a', {
       cacheSize: 2,

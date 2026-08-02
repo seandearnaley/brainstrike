@@ -165,6 +165,43 @@ function assertCacheEntry(
   };
 }
 
+type EmbeddingCacheAggregateField = Exclude<keyof EmbeddingPipelineCacheTelemetry, 'entries'>;
+
+function calculateCacheAggregates(
+  entries: EmbeddingPipelineCacheTelemetry['entries']
+): Omit<EmbeddingPipelineCacheTelemetry, 'entries'> {
+  let estimatedGpuBytes = 0;
+  let estimatedHeapBytes = 0;
+  let memoryEstimateUnavailableCount = 0;
+
+  for (const entry of entries) {
+    estimatedGpuBytes += entry.memory.gpuBytes ?? 0;
+    estimatedHeapBytes += entry.memory.heapBytes ?? 0;
+    if (entry.memory.gpuBytes === null && entry.memory.heapBytes === null) {
+      memoryEstimateUnavailableCount += 1;
+    }
+  }
+
+  return {
+    estimatedGpuBytes,
+    estimatedHeapBytes,
+    memoryEstimateUnavailableCount,
+    residentCount: entries.length,
+  };
+}
+
+function assertMatchingCacheAggregate(
+  candidate: Record<string, unknown>,
+  field: EmbeddingCacheAggregateField,
+  expected: number
+): number {
+  const actual = assertNonNegativeNumber(candidate[field], `Embedding telemetry cache.${field}`);
+  if (actual !== expected) {
+    throw new Error(`Embedding telemetry cache.${field} does not match cache.entries.`);
+  }
+  return actual;
+}
+
 export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelemetrySnapshot {
   if (!(value && typeof value === 'object' && !Array.isArray(value))) {
     throw new Error('Embedding telemetry snapshot must be an object.');
@@ -189,6 +226,8 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
   if (!Array.isArray(entries)) {
     throw new Error('Embedding telemetry cache.entries must be an array.');
   }
+  const validatedEntries = entries.map(assertCacheEntry);
+  const expectedCacheAggregates = calculateCacheAggregates(validatedEntries);
   const lastUpdatedAt = candidate['lastUpdatedAt'];
   if (!(lastUpdatedAt === null || typeof lastUpdatedAt === 'number')) {
     throw new Error('Embedding telemetry lastUpdatedAt must be a number or null.');
@@ -238,22 +277,26 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
       ),
     },
     cache: {
-      entries: entries.map(assertCacheEntry),
-      estimatedGpuBytes: assertNonNegativeNumber(
-        cacheCandidate['estimatedGpuBytes'],
-        'Embedding telemetry cache.estimatedGpuBytes'
+      entries: validatedEntries,
+      estimatedGpuBytes: assertMatchingCacheAggregate(
+        cacheCandidate,
+        'estimatedGpuBytes',
+        expectedCacheAggregates.estimatedGpuBytes
       ),
-      estimatedHeapBytes: assertNonNegativeNumber(
-        cacheCandidate['estimatedHeapBytes'],
-        'Embedding telemetry cache.estimatedHeapBytes'
+      estimatedHeapBytes: assertMatchingCacheAggregate(
+        cacheCandidate,
+        'estimatedHeapBytes',
+        expectedCacheAggregates.estimatedHeapBytes
       ),
-      memoryEstimateUnavailableCount: assertNonNegativeNumber(
-        cacheCandidate['memoryEstimateUnavailableCount'],
-        'Embedding telemetry cache.memoryEstimateUnavailableCount'
+      memoryEstimateUnavailableCount: assertMatchingCacheAggregate(
+        cacheCandidate,
+        'memoryEstimateUnavailableCount',
+        expectedCacheAggregates.memoryEstimateUnavailableCount
       ),
-      residentCount: assertNonNegativeNumber(
-        cacheCandidate['residentCount'],
-        'Embedding telemetry cache.residentCount'
+      residentCount: assertMatchingCacheAggregate(
+        cacheCandidate,
+        'residentCount',
+        expectedCacheAggregates.residentCount
       ),
     },
     health: {

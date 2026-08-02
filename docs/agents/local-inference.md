@@ -154,7 +154,9 @@ Embedding runtime telemetry (BST-402):
   callback terminally fails and terminates its worker so the unacknowledged stream and its
   telemetry source cannot remain alive. Every malformed streaming request receives a
   request-scoped terminal error event, including failures detected while building or
-  validating its context. No model weights, vector
+  validating its context. Cross-process telemetry snapshot validation derives the expected
+  cache residency, unavailable-memory count, and byte totals from the validated entries and
+  rejects mismatched aggregates rather than normalizing them. No model weights, vector
   values, input text, paths, or content are retained by the telemetry store.
 - On desktop, the hidden embedding-host renderer remains the source of truth. It reports
   a validated snapshot through the existing typed host-status bridge; Electron main
