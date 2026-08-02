@@ -9,8 +9,8 @@ const mockLogger = vi.hoisted(() => ({
   error: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: vi.fn(() => mockLogger),

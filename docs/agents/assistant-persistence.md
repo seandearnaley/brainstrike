@@ -556,7 +556,7 @@ Runtime invariants:
   settled message object in a WeakMap. The v1 text-only walk read coding threads absurdly low
   (tool output is ~90% of context) — never regress to a text-only walk. Heuristic accuracy is
   pinned against the REAL o200k tokenizer in
-  `packages/utils/src/__tests__/token-counting-heuristic-accuracy.test.ts` (code ≈ +4%,
+  `packages/tokenization/src/__tests__/token-counting-heuristic-accuracy.test.ts` (code ≈ +4%,
   tool JSON ≈ −22%, repetitive prose ≤ +45%).
 - Display selection is `resolveDisplayedContextUsage` (same module): idle+exact → exact; while a
   run streams → LIVE estimate (server breakdown baseline: system + task list + tool definitions,

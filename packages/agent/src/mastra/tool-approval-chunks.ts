@@ -13,13 +13,17 @@
  * bookkeeping. See docs/agents/assistant-runtime.md (PERMISSION ENGINE, tool
  * suspend/resume).
  */
-import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  denormalizeNativeToolName,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import {
   hasRegisteredSuspendResumeUi,
   REGISTERED_SUSPEND_RESUME_TOOL_IDS,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { resolveRunPythonExecutionContext } from '../tools/run-python-approval-context';
 import type { StreamChunk } from '../types';
 import { type PermissionAskToolMetadata, resolveAskToolMetadata } from './permission-tool-gate';
 import {
@@ -240,6 +244,22 @@ export function makeApprovalRequiredChunks(
     });
   }
 
+  // BST-1070: a code-execution approval carries a server-computed display
+  // context (scratch location, read semantics, timeout) derived from the same
+  // inputs execute() will use — the model's args cannot carry host facts, and
+  // the card must not guess them. Absence is the deliberate fail-safe: the
+  // card shows no fact rows and suppresses grant buttons, so the degradation
+  // is visible on the surface it affects. Logged so the drop is traceable too.
+  const executionContext =
+    toolName === NATIVE_TOOL_ID.runPython ? resolveRunPythonExecutionContext(args) : undefined;
+  if (toolName === NATIVE_TOOL_ID.runPython && executionContext === undefined) {
+    logger.warn('run_python approval args did not parse; approval surfaced without context', {
+      code: 'mastra_agent_run_python_approval_context_unresolved',
+      runId,
+      toolCallId,
+    });
+  }
+
   logger.info('mastra tool approval pause surfaced for client approval', {
     code: 'mastra_agent_tool_approval_required',
     runId,
@@ -257,6 +277,7 @@ export function makeApprovalRequiredChunks(
       ...(askMetadata ? { policyDecision: 'ask', riskCategory: askMetadata.riskCategory } : {}),
       ...(args === undefined ? {} : { args }),
       ...(resumeSchema === undefined ? {} : { resumeSchema }),
+      ...(executionContext === undefined ? {} : { executionContext }),
     },
     makeToolCallsFinishChunk(),
   ];

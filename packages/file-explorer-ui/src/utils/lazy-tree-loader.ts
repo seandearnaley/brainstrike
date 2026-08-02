@@ -7,13 +7,6 @@
  * Generic tree operations are imported from @brainstrike/utils.
  */
 
-import type {
-  DirectoryHandle,
-  DirectoryLoadState,
-  FileSystemAdapter,
-  IFileNode,
-} from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils/path-filter';
 import {
   findNodeByPath as findNodeByPathGeneric,
   isLoading as isLoadingGeneric,
@@ -21,7 +14,14 @@ import {
   setNodeLoadState as setNodeLoadStateGeneric,
   sortTreeNodes,
   updateNodeChildren as updateNodeChildrenGeneric,
-} from '@brainstrike/utils/tree-operations';
+} from '@brainstrike/file-tree-worker';
+import type {
+  DirectoryHandle,
+  DirectoryLoadState,
+  FileSystemAdapter,
+  IFileNode,
+} from '@brainstrike/types';
+import { fileFilter } from '@brainstrike/utils/path-filter';
 
 export interface LazyLoadOptions {
   /** AbortSignal for cancellation support */

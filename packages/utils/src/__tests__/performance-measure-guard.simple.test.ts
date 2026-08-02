@@ -27,7 +27,7 @@ describe('Performance Measure Guard - Simple Tests', () => {
     const clearMeasuresSpy = vi.spyOn(globalThis.performance, 'clearMeasures');
     const clearMarksSpy = vi.spyOn(globalThis.performance, 'clearMarks');
 
-    const { installPerformanceMeasureGuard } = await import('../performance-measure-guard');
+    const { installPerformanceMeasureGuard } = await import('../performance-measure-guard.js');
     installPerformanceMeasureGuard();
 
     expect(() => {
@@ -44,7 +44,7 @@ describe('Performance Measure Guard - Simple Tests', () => {
     }) as typeof globalThis.performance.measure;
     setMeasureImplementation(throwingMeasure);
 
-    const { installPerformanceMeasureGuard } = await import('../performance-measure-guard');
+    const { installPerformanceMeasureGuard } = await import('../performance-measure-guard.js');
     installPerformanceMeasureGuard();
 
     expect(() => {
@@ -59,7 +59,7 @@ describe('Performance Measure Guard - Simple Tests', () => {
     ) as typeof globalThis.performance.measure;
     setMeasureImplementation(passthroughMeasure);
 
-    const { installPerformanceMeasureGuard } = await import('../performance-measure-guard');
+    const { installPerformanceMeasureGuard } = await import('../performance-measure-guard.js');
     installPerformanceMeasureGuard();
     installPerformanceMeasureGuard();
     installPerformanceMeasureGuard();

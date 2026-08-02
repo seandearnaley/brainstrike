@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getFolderColor } from '../color-utils';
+import { getFolderColor } from '../color-utils.js';
 
 describe('color-utils', () => {
   describe('getFolderColor', () => {

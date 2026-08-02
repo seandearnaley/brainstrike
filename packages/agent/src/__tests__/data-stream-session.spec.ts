@@ -2053,3 +2053,47 @@ interface DataStreamUsage {
   inputTokens: number;
   outputTokens: number;
 }
+
+it('forwards executionContext through the LIVE approval data part (BST-1070 §2.2 transport)', async () => {
+  // handleToolApprovalRequired rebuilds the approval data part FIELD BY
+  // FIELD, so a field it does not spread is silently dropped — and the
+  // failure mode is precisely backwards (live approvals degrade while
+  // rediscovered ones, recomputed server-side, keep working). This test is
+  // the live-stream transport proof the design requires.
+  const executionContext = {
+    allowedDomains: [],
+    allowRead: [],
+    allowWrite: [],
+    defaultReadAccess: 'permissive',
+    executorKind: 'fence',
+    language: 'python',
+    policyFingerprint: 'fp-live-transport',
+    scratchParentDir: '/tmp',
+    timeoutMs: 30_000,
+  } as const;
+  const chunks: StreamChunk[] = [
+    {
+      args: { code: 'print(1)' },
+      executionContext,
+      runId: 'run-live-context',
+      toolCallId: 'call-live-context',
+      toolName: 'brainstrike.runPython',
+      type: 'tool-approval-required',
+    },
+    { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+  ];
+
+  const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+    messageId: 'msg-live-context',
+    sessionId: 'sess-live-context',
+  });
+
+  const parsed = parseLines(await readResponse(session.createResponse()));
+  const approvalPart = parsed.find(
+    (entry) =>
+      entry.code === 'aui-data' && JSON.stringify(entry.value).includes('brainstrike.tool-approval')
+  );
+  expect(approvalPart).toBeDefined();
+  const data = (approvalPart?.value as { data?: Record<string, unknown> })?.data;
+  expect(data?.['executionContext']).toStrictEqual(executionContext);
+});

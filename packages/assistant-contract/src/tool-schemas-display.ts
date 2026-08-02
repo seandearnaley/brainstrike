@@ -519,8 +519,15 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
 
   'brainstrike.runPython': {
     description:
-      "Run Python source you write, inside an OS-level sandbox on the user's machine. The sandbox has NO network access of any kind — a script that tries to reach the internet fails — and can only WRITE inside a fresh per-call scratch directory that is deleted when the call finishes, so nothing it writes persists. Reads are not restricted, so treat anything it reads as sensitive. Requires approval (execute-risk). Use it for computation, parsing, and data wrangling; stdout and stderr come back to you.",
+      "Run Python source you write, inside an OS-level sandbox on the user's machine. Network is CLOSED unless you list exact domains in allowedDomains — and even then the user must explicitly approve those domains for THAT run (there is no standing grant; a deny returns network_denied so you can rewrite the script to work offline). Writes are confined to a fresh per-call scratch directory deleted when the call finishes, so nothing it writes persists. Reads are not restricted, so treat anything it reads as sensitive. Requires approval (execute-risk). Use it for computation, parsing, and data wrangling; stdout and stderr come back to you.",
     parameters: [
+      {
+        description:
+          'Exact domains the script may reach (e.g. "pypi.org", "*.example.com"). Omit for no network. A bare "*" is not expressible. Each listed domain requires explicit per-run user approval.',
+        name: 'allowedDomains',
+        required: false,
+        type: 'array',
+      },
       {
         description:
           'Python source to execute. Runs as a script, not a REPL — print() to return values.',
@@ -538,7 +545,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'A discriminated result: completed (exitCode, stdout, stderr, per-stream omitted byte counts), timed_out, killed, cancelled (partial output), or unavailable (no sandbox on this machine).',
+      'A discriminated result: completed (exitCode, stdout, stderr, per-stream omitted byte counts), timed_out, killed, cancelled (partial output), network_denied (deniedDomains — rewrite offline), or unavailable (no sandbox on this machine).',
     toolId: 'brainstrike.runPython',
   },
 

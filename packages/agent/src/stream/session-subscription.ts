@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { StoredChunk } from './data-stream-codes';
 
 const logger = createLogger('AgentDataStream');

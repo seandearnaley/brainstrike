@@ -56,10 +56,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  */
 export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
   // (currently empty — every checked lane resolves workspace imports from src.
-  // The TWO B4 dependsOn exceptions are both outside this guard's scope by
-  // construction, because neither goes through a workspace import specifier:
-  //  - packages/utils logger-dist-singleton.test.ts imports its own dist via a
+  // The THREE B4 dependsOn exceptions are outside this guard's scope by
+  // construction, because none goes through a workspace import specifier:
+  //  - packages/logging logger-dist-singleton.test.ts imports its own dist via a
   //    file URL (intentional built-artifact regression test);
+  //  - packages/utils typescript-build-contract.test.ts inspects its own dist
+  //    through node:fs;
   //  - packages/db __tests__/migration-runner-types.test.ts runs a nested
   //    ts.createProgram whose COMPILER resolution reads @brainstrike/utils
   //    types from dist/index.d.ts — vitest aliases cannot intercept tsc.)

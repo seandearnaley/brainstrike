@@ -4,8 +4,8 @@ import type { FileSystemAdapter, WatcherRootHealthEvent } from '@brainstrike/typ
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { AdaptersProvider } from '../adapters-context';
-import { useWatcherHealth } from '../use-watcher-health';
+import { AdaptersProvider } from '../adapters-context.js';
+import { useWatcherHealth } from '../use-watcher-health.js';
 
 function makeEvent(
   rootPath: string,

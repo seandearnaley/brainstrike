@@ -113,8 +113,8 @@ vi.mock('electron', async () => {
 
 import fs from 'node:fs'; // Import mocked fs
 import path from 'node:path';
-import type { LoggingPreferences } from '@brainstrike/utils';
-import { LogLevel } from '@brainstrike/utils';
+import type { LoggingPreferences } from '@brainstrike/logging';
+import { LogLevel } from '@brainstrike/logging';
 import { ipcRenderer } from 'electron';
 
 // Mock other dependencies
@@ -145,8 +145,8 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-vi.mock('@brainstrike/utils', async () => {
-  const actual = await vi.importActual('@brainstrike/utils');
+vi.mock('@brainstrike/logging', async () => {
+  const actual = await vi.importActual('@brainstrike/logging');
   return {
     ...actual,
     createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),

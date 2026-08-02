@@ -94,7 +94,8 @@ describe('AssistantToolApprovalNotice', () => {
     render(<AssistantToolApprovalNotice data={approvalWithRisk} />);
 
     expect(screen.getByText(/Requires approval/i)).toBeInTheDocument();
-    expect(screen.getByText(/runs a command/i)).toBeInTheDocument();
+    // BST-1070 §6.1: the shared execute reason line covers code as well as commands.
+    expect(screen.getByText(/runs commands or code on your computer/i)).toBeInTheDocument();
   });
 
   it('shows a "pending since" line and a stale advisory for a rediscovered stale approval, keeping both buttons enabled', () => {

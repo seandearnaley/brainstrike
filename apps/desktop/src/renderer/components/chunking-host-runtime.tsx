@@ -1,6 +1,6 @@
 import type { ChunkingRequestOptions, ChunkResult } from '@brainstrike/file-import';
 import { getChunkingStrategy, useChunkingWorkerContext } from '@brainstrike/file-import';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { serializeRuntimeError } from '@brainstrike/worker-runtime';
 import { useEffect, useRef } from 'react';
 import type {

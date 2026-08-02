@@ -6,8 +6,8 @@ import {
 } from '@brainstrike/db';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { createLogger } from '@brainstrike/logging';
 import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useMemo } from 'react';
 import { type RootIdentity, useOptionalRootIdentity } from './roots/root-identity-context';
 import { useDebouncedQuery } from './use-debounced-query';

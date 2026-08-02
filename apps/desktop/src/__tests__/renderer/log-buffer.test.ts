@@ -10,29 +10,26 @@ vi.mock('@brainstrike/utils', () => ({
   registerBulkOperationPauseCallback: vi.fn(() => vi.fn()),
 }));
 
-vi.mock('@brainstrike/utils/log-buffer', () => ({
-  LogBuffer: class {
-    size: number;
-    maxArgSize: number;
-    pause = pauseSpy;
-    resume = resumeSpy;
-    push = pushSpy;
-    constructor(options: { size: number; maxArgSize: number }) {
-      this.size = options.size;
-      this.maxArgSize = options.maxArgSize;
-      logBufferInstances.push(this);
-    }
-  },
-}));
-
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     addLogListener: vi.fn((listener: (record: unknown) => void) => {
       listener({ level: 'info', msg: 'test' });
       return vi.fn();
     }),
+    LogBuffer: class {
+      size: number;
+      maxArgSize: number;
+      pause = pauseSpy;
+      resume = resumeSpy;
+      push = pushSpy;
+      constructor(options: { size: number; maxArgSize: number }) {
+        this.size = options.size;
+        this.maxArgSize = options.maxArgSize;
+        logBufferInstances.push(this);
+      }
+    },
   };
 });
 

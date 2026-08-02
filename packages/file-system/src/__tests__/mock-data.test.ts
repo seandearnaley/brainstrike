@@ -3,7 +3,7 @@ import {
   getTestDirectoryStructure,
   TEST_DIRECTORY_HANDLE_ID,
   TEST_DIRECTORY_PATH,
-} from '../testing/mock-data';
+} from '../testing/mock-data.js';
 
 describe('mock file-system test data', () => {
   it('builds the default fixture with expected paths and handle metadata', () => {

@@ -3,8 +3,8 @@ import { createStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdaptersProvider } from '../adapters-context';
-import { useRestoreAccess } from '../use-restore-access';
+import { AdaptersProvider } from '../adapters-context.js';
+import { useRestoreAccess } from '../use-restore-access.js';
 
 const createWrapper = (adapter: FileSystemAdapter) => {
   const storageAdapter = createStorageAdapter('web');

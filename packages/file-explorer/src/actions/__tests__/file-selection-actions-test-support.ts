@@ -2,8 +2,8 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import { type Mock, vi } from 'vitest';
 
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({
@@ -15,7 +15,7 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/utils/selection-utils', () => ({
+vi.mock('../../selection.js', () => ({
   encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,
 }));
 

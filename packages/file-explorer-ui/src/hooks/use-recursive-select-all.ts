@@ -8,13 +8,13 @@ import {
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
+import { createLogger } from '@brainstrike/logging';
 import type {
   IFileNode,
   QuerySelectionManifest,
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {

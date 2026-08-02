@@ -9,7 +9,7 @@ import {
   mergeAssistantProviderSettings,
   mergeProviderSettings,
   type ProviderSettingsUpdate,
-} from '../src/assistant-provider-settings';
+} from '../src/assistant-provider-settings.js';
 
 describe('Gemini thinking-level helpers', () => {
   it('recognizes the Gemini 3.x Pro line (current + legacy IDs)', () => {

@@ -1,15 +1,16 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, fileNodeCollator } from '@brainstrike/utils';
-import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
+import { fileNodeCollator } from '@brainstrike/utils';
+import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.js';
 import {
   createMetadataCache,
   type MetadataCache,
   type MetadataCacheConfig,
   type MetadataCacheStats,
-} from '../metadata-cache';
-import { resolveValidatedPath } from '../path-validation';
+} from '../metadata-cache.js';
+import { resolveValidatedPath } from '../path-validation.js';
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
@@ -20,10 +21,10 @@ import type {
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
   WatcherHealthTransition,
-} from '../types';
-import { validateDirectoryPath } from '../utils';
-import { normalizeDirectoryReadOptions } from '../utils-browser';
-import { startParcelWatch } from './parcel-watchers';
+} from '../types.js';
+import { validateDirectoryPath } from '../utils.js';
+import { normalizeDirectoryReadOptions } from '../utils-browser.js';
+import { startParcelWatch } from './parcel-watchers.js';
 
 const logger = createLogger('ElectronFileSystemAdapter');
 

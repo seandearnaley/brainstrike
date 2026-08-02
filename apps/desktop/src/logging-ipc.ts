@@ -1,5 +1,5 @@
-import { addLogListener, createLogger, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import type { LoggingPreferences } from '@brainstrike/logging';
+import { addLogListener, createLogger, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';

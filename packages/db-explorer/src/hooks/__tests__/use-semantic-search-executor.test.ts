@@ -5,16 +5,10 @@ import type {
   FileChunk,
   FileRecord,
 } from '@brainstrike/db';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import type { SearchConfig } from '@brainstrike/ui';
-import {
-  addLogListener,
-  configureLogger,
-  LogLevel,
-  type LogRecord,
-  setLogLevel,
-} from '@brainstrike/utils';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import { act, renderHook as baseRenderHook, type RenderHookOptions } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -160,7 +154,6 @@ interface AvailabilityHookProps {
 describe('useSemanticSearchExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.DEBUG);
     mockDb.query.mockResolvedValue({
       rows: [

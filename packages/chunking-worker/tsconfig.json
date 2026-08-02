@@ -24,7 +24,7 @@
       "path": "../text-splitter"
     },
     {
-      "path": "../utils"
+      "path": "../tokenization"
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 
 export type MigrationTransactionalDb = Pick<PGlite, 'exec' | 'query'>;

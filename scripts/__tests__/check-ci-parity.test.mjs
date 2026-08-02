@@ -844,7 +844,16 @@ test('CONTROL: a fifth Unit test step without timeout policy turns the discovery
 
 test('CONTROL: Nightly Coverage without explicit timeout policy turns the guard red', () => {
   const source = readFileSync(nightlyCoverageWorkflowPath, 'utf8');
-  const mutated = source.replace('          TEST_TIMEOUT_MULTIPLIER: "2"\n', '');
+  // Anchor the mutation inside a COVERAGE step's env block: a bare
+  // TEST_TIMEOUT_MULTIPLIER line is no longer unique (the pg-textsearch
+  // durability job carries one too, and it is deliberately OUTSIDE the
+  // guard's turbo-run-test:coverage scope), and replace() strips the first
+  // occurrence — which must be a step the guard actually inspects for this
+  // control to prove anything.
+  const mutated = source.replace(
+    '          COVERAGE: "true"\n          NODE_ENV: test\n          TEST_TIMEOUT_MULTIPLIER: "2"\n',
+    '          COVERAGE: "true"\n          NODE_ENV: test\n'
+  );
   assert.notEqual(mutated, source, 'the Nightly Coverage control mutation matched nothing');
   assert.throws(
     () => assertNightlyCoverageTimeoutPolicy(mutated),

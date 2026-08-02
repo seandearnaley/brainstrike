@@ -1,4 +1,5 @@
 import { useAssistantBudgetPreferencesStore } from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
+import { buildTokenUsageCounts, computeCost, formatUsdCost } from '@brainstrike/tokenization';
 import {
   Badge,
   Button,
@@ -14,11 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from '@brainstrike/ui';
-import {
-  buildTokenUsageCounts,
-  computeCost,
-  formatUsdCost,
-} from '@brainstrike/utils/token-counting-heuristics';
 import { ListChecks, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback } from 'react';
 import type {

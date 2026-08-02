@@ -1,7 +1,7 @@
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
-import { MockFileSystemAdapter } from './adapters/mock-file-system-adapter';
-import { WebFileSystemAdapter } from './adapters/web-adapter';
-import type { FileSystemAdapter } from './types';
+import { MockFileSystemAdapter } from './adapters/mock-file-system-adapter.js';
+import { WebFileSystemAdapter } from './adapters/web-adapter.js';
+import type { FileSystemAdapter } from './types.js';
 
 export function createWebFileSystemAdapter(): FileSystemAdapter {
   return new WebFileSystemAdapter();

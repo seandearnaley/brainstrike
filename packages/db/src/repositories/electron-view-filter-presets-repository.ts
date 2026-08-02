@@ -5,12 +5,13 @@
  * for view filter presets CRUD operations.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type {
   CreateViewFilterPresetInput,
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils';
 import type { ElectronDbAPI } from './electron-file-record-repository.js';
 import type { IViewFilterPresetsRepository } from './interfaces.js';
 

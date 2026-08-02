@@ -1,3 +1,4 @@
+import { LogLevel } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createBulkOperationContext,
@@ -7,8 +8,7 @@ import {
   resetBulkOperationState,
   withBulkOperation,
   withBulkOperationSync,
-} from '../../src/bulk-operation-context';
-import { LogLevel } from '../../src/logger';
+} from '../../src/bulk-operation-context.js';
 
 describe('bulk-operation-context', () => {
   afterEach(() => {

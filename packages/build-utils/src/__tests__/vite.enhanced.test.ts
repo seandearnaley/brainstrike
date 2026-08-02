@@ -13,7 +13,7 @@ const {
   getHeavyRuntimeOptimizeDepsExclude,
   getWorkerpoolBrowserStubAliases,
   getLazySurfaceOptimizeDepsEntries,
-} = await import('../vite');
+} = await import('../vite.js');
 
 function createWorkspacePaths(prefix: string) {
   const root = mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -132,7 +132,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       process.env['NODE_ENV'] = 'development';
       vi.resetModules();
       const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-      const { findPGliteWasm: findPGliteWasmInDevelopment } = await import('../vite');
+      const { findPGliteWasm: findPGliteWasmInDevelopment } = await import('../vite.js');
 
       const { appDir } = createWorkspacePaths('pglite-dev-');
       const wasmDir = path.join(appDir, 'node_modules/@electric-sql/pglite/dist');

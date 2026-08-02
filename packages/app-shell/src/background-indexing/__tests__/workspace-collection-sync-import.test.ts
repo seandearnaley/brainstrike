@@ -6,8 +6,8 @@ import type {
 import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
 import { runEnhancedImport } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import { describe, expect, it, vi } from 'vitest';
 import { buildRootFolderCacheIdentityKey } from '../root-folder-cache-reconciliation';
 import {

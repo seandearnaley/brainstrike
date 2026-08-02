@@ -3,9 +3,9 @@
  * Prevents errors from propagating to users when they haven't configured required API keys.
  */
 
-import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types';
-import { isHostedProvider, parseProviderModelKey } from './provider-utils';
-import { resolveHostedProviderApiKey } from './providers/hosted/api-key-resolver';
+import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types.js';
+import { isHostedProvider, parseProviderModelKey } from './provider-utils.js';
+import { resolveHostedProviderApiKey } from './providers/hosted/api-key-resolver.js';
 
 /**
  * Result of API key validation check

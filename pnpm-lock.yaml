@@ -31,14 +31,14 @@ catalogs:
       specifier: ^8.0.0
       version: 8.0.0
     '@electric-sql/pglite':
-      specifier: 0.5.3
-      version: 0.5.3
+      specifier: 0.5.4
+      version: 0.5.4
     '@electric-sql/pglite-pg_textsearch':
-      specifier: 0.0.4
-      version: 0.0.4
+      specifier: 0.0.6
+      version: 0.0.6
     '@electric-sql/pglite-pgvector':
-      specifier: 0.0.4
-      version: 0.0.4
+      specifier: 0.0.5
+      version: 0.0.5
     '@fontsource-variable/geist':
       specifier: ^5.2.9
       version: 5.2.9
@@ -429,9 +429,15 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../../packages/indexing-contract
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../../packages/local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../../packages/logging
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
@@ -453,6 +459,9 @@ importers:
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../../packages/text-splitter
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../../packages/tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -467,13 +476,13 @@ importers:
         version: link:../../packages/worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       '@electric-sql/pglite-pg_textsearch':
         specifier: 'catalog:'
-        version: 0.0.4(@electric-sql/pglite@0.5.3)
+        version: 0.0.6(@electric-sql/pglite@0.5.4)
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.4(@electric-sql/pglite@0.5.3)
+        version: 0.0.5(@electric-sql/pglite@0.5.4)
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.2.9
@@ -781,6 +790,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../../packages/logging
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
@@ -807,10 +819,10 @@ importers:
         version: link:../../packages/utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.4(@electric-sql/pglite@0.5.3)
+        version: 0.0.5(@electric-sql/pglite@0.5.4)
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.2.9
@@ -1061,9 +1073,15 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1100,10 +1118,10 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.4(@electric-sql/pglite@0.5.3)
+        version: 0.0.5(@electric-sql/pglite@0.5.4)
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
@@ -1155,6 +1173,9 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../file-explorer
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../file-explorer-hooks
@@ -1173,6 +1194,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../notes-vault
@@ -1188,6 +1212,9 @@ importers:
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1261,6 +1288,12 @@ importers:
 
   packages/assistant-contract:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1292,6 +1325,9 @@ importers:
       '@brainstrike/assistant-wire':
         specifier: workspace:*
         version: link:../assistant-wire
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -1347,9 +1383,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1368,12 +1401,9 @@ importers:
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
-      '@brainstrike/utils':
+      '@brainstrike/tokenization':
         specifier: workspace:*
-        version: link:../utils
-      tiktoken:
-        specifier: 'catalog:'
-        version: 1.0.22
+        version: link:../tokenization
       web-tree-sitter:
         specifier: ^0.25.10
         version: 0.25.10
@@ -1424,9 +1454,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1472,9 +1499,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1490,9 +1514,15 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1501,16 +1531,16 @@ importers:
         version: link:../utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       '@electric-sql/pglite-pg_textsearch':
         specifier: 'catalog:'
-        version: 0.0.4(@electric-sql/pglite@0.5.3)
+        version: 0.0.6(@electric-sql/pglite@0.5.4)
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.4(@electric-sql/pglite@0.5.3)
+        version: 0.0.5(@electric-sql/pglite@0.5.4)
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.2(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)
+        version: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.1)
       react:
         specifier: ^19.2.4
         version: 19.2.7
@@ -1596,6 +1626,9 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../file-explorer
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../file-explorer-hooks
@@ -1617,6 +1650,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/pipeline':
         specifier: workspace:*
         version: link:../pipeline
@@ -1635,6 +1671,9 @@ importers:
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1757,6 +1796,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1784,16 +1826,13 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1806,6 +1845,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -1815,6 +1857,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      minimatch:
+        specifier: 'catalog:'
+        version: 10.2.5
       react:
         specifier: ^19.2.4
         version: 19.2.7
@@ -1867,6 +1912,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1919,9 +1967,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1952,6 +1997,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1967,6 +2015,9 @@ importers:
       '@brainstrike/token-cache':
         specifier: workspace:*
         version: link:../token-cache
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1981,7 +2032,7 @@ importers:
         version: link:../workers
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.2(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)
+        version: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.1)
       react:
         specifier: ^19.2.4
         version: 19.2.7
@@ -2000,7 +2051,7 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       '@testing-library/jest-dom':
         specifier: 'catalog:'
         version: 6.9.1
@@ -2049,6 +2100,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -2073,7 +2127,7 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
@@ -2104,6 +2158,9 @@ importers:
 
   packages/file-system:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -2147,9 +2204,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2193,6 +2247,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2254,9 +2311,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2266,6 +2320,9 @@ importers:
 
   packages/indexing-contract:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2288,10 +2345,35 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
+  packages/logging:
+    dependencies:
+      pino:
+        specifier: 'catalog:'
+        version: 10.3.1
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
@@ -2307,6 +2389,9 @@ importers:
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
@@ -2396,9 +2481,6 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2420,6 +2502,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -2481,6 +2566,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -2497,9 +2585,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2541,6 +2626,9 @@ importers:
 
   packages/storage:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -2569,9 +2657,6 @@ importers:
       playwright:
         specifier: 'catalog:'
         version: 1.61.1
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2633,9 +2718,6 @@ importers:
       react:
         specifier: ^19.2.4
         version: 19.2.7
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2645,9 +2727,9 @@ importers:
 
   packages/text-splitter:
     dependencies:
-      '@brainstrike/utils':
+      '@brainstrike/tokenization':
         specifier: workspace:*
-        version: link:../utils
+        version: link:../tokenization
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
@@ -2658,9 +2740,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2673,9 +2752,12 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
-      '@brainstrike/text-splitter':
+      '@brainstrike/logging':
         specifier: workspace:*
-        version: link:../text-splitter
+        version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -2684,10 +2766,7 @@ importers:
         version: link:../worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
-      tiktoken:
-        specifier: 'catalog:'
-        version: 1.0.22
+        version: 0.5.4
       xxhash-wasm:
         specifier: 'catalog:'
         version: 1.1.0
@@ -2713,6 +2792,28 @@ importers:
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
+  packages/tokenization:
+    dependencies:
+      tiktoken:
+        specifier: 'catalog:'
+        version: 1.0.22
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2764,6 +2865,12 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2945,18 +3052,15 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
       minimatch:
         specifier: 'catalog:'
         version: 10.2.5
-      pino:
-        specifier: 'catalog:'
-        version: 10.3.1
-      tiktoken:
-        specifier: 'catalog:'
-        version: 1.0.22
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
@@ -2979,9 +3083,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3003,6 +3104,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
@@ -3023,7 +3127,7 @@ importers:
         version: link:../worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.3
+        version: 0.5.4
       lucide-react:
         specifier: 'catalog:'
         version: 1.23.0(react@19.2.7)
@@ -3080,6 +3184,9 @@ importers:
 
   packages/worker-runtime:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -3093,9 +3200,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
-      tsup:
-        specifier: 'catalog:'
-        version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3108,6 +3212,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -3148,6 +3255,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../file-explorer
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui
@@ -3999,18 +4109,18 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@electric-sql/pglite-pg_textsearch@0.0.4':
-    resolution: {integrity: sha512-EElRliKJzBfBCyIXj+CivkyBdw9GSZt9yl1fht/wgljjd4aZQwSg/eGspK79J5BaLJQcQayYkIl4YZ5Dv9vuIw==}
+  '@electric-sql/pglite-pg_textsearch@0.0.6':
+    resolution: {integrity: sha512-n5lTjivQn/ZvVFdMoW3Rn9u30S0LeAh/sOmjKptnF0nsTa1zIZxa0mAuynzIKrMoUQ0wOFHyB3mj1lIK2UWHUA==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.3
+      '@electric-sql/pglite': 0.5.4
 
-  '@electric-sql/pglite-pgvector@0.0.4':
-    resolution: {integrity: sha512-oHOQlYMzgxmoFWRbKhhoV0UNfoNUdbTHUD/z/nujr8LrUe4HdiSAUY2+Mv+Z033hZO9UWqOuj3Be2KztwK79ow==}
+  '@electric-sql/pglite-pgvector@0.0.5':
+    resolution: {integrity: sha512-KEPAkD/3FN6WlDM6XPi2Ko1Xk0ecjOU9OfzCoclVkiRoEVNRYwKo1iO+tlkelMgp07SszmSC4JdSBueH2p7uOQ==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.3
+      '@electric-sql/pglite': 0.5.4
 
-  '@electric-sql/pglite@0.5.3':
-    resolution: {integrity: sha512-iTTYbA5Uesrl+N7zss0J5LopT7KE4j9aymYo+EZZh+rZbARQCUQOs+n2pay64JRUpc3fCkpfrniTNJnvYzOE+g==}
+  '@electric-sql/pglite@0.5.4':
+    resolution: {integrity: sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g==}
 
   '@electron-internal/extract-zip@1.0.4':
     resolution: {integrity: sha512-Zr1Vs7E9tpCNhZHDAbFVXc2gEVCG9RqPDjrno5+bdgB6LRAuvgyMHJut4NCVyYwtAieapMzc3fiQ3CSTi75ARg==}
@@ -15362,15 +15472,15 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@electric-sql/pglite-pg_textsearch@0.0.4(@electric-sql/pglite@0.5.3)':
+  '@electric-sql/pglite-pg_textsearch@0.0.6(@electric-sql/pglite@0.5.4)':
     dependencies:
-      '@electric-sql/pglite': 0.5.3
+      '@electric-sql/pglite': 0.5.4
 
-  '@electric-sql/pglite-pgvector@0.0.4(@electric-sql/pglite@0.5.3)':
+  '@electric-sql/pglite-pgvector@0.0.5(@electric-sql/pglite@0.5.4)':
     dependencies:
-      '@electric-sql/pglite': 0.5.3
+      '@electric-sql/pglite': 0.5.4
 
-  '@electric-sql/pglite@0.5.3': {}
+  '@electric-sql/pglite@0.5.4': {}
 
   '@electron-internal/extract-zip@1.0.4': {}
 
@@ -20955,9 +21065,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.0
 
-  drizzle-orm@0.45.2(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1):
+  drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.1):
     optionalDependencies:
-      '@electric-sql/pglite': 0.5.3
+      '@electric-sql/pglite': 0.5.4
       '@opentelemetry/api': 1.9.1
 
   dunder-proto@1.0.1:

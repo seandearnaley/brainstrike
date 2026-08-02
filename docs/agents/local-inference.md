@@ -81,6 +81,17 @@ Foreground query coordination (desktop):
   `embedding-host-runtime.tsx` (gate per runtime, threaded to the worker config + query
   handler). Constants: FOREGROUND_GATE_REOPEN_MS (250), QUERY_DRAIN_TIMEOUT_MS (5000).
 
+Workspace indexing QoS ownership:
+- `@brainstrike/indexing-contract/workspace-indexing-qos` is the canonical,
+  renderer-safe policy shared by app-shell scheduling and the desktop embedding
+  host. `@brainstrike/indexing-contract/workspace-indexing-power-snapshot` owns
+  the plain-data power snapshot contract and normalization.
+- Keep these contracts in `indexing-contract`, not a general utilities package
+  or a platform implementation. Desktop supplies capabilities and snapshots;
+  the shared policy remains free of Electron imports.
+- Invalid power snapshots throw through the shared normalization/validation
+  contract. Do not add implicit environment defaults at an import boundary.
+
 Embedding queue factory registration (visible renderer):
 - `TransformersBackend.initialize` (local-model semantic search, prompt-library
   embedding, …) requires a queue factory registered in

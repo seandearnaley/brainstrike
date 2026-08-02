@@ -3,8 +3,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import type { EmbeddingInput } from '../../../provider-types';
-import { VoyageEmbeddingProvider } from '../voyage-provider';
+import type { EmbeddingInput } from '../../../provider-types.js';
+import { VoyageEmbeddingProvider } from '../voyage-provider.js';
 
 // Mock fetch implementation
 const createMockFetch = (response: Response) => vi.fn(() => Promise.resolve(response));

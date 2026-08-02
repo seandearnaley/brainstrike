@@ -1,6 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
 import { createDebounce } from '@brainstrike/utils/create-debounce';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('UseSavePanelState');
 

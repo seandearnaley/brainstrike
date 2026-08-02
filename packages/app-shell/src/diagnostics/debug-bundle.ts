@@ -3,8 +3,8 @@ import {
   type DiagnosticEventsDatabase,
   DiagnosticEventsRepository,
 } from '@brainstrike/db';
+import { redactSensitiveLogValue } from '@brainstrike/logging';
 import type { DiagnosticEvent } from '@brainstrike/utils/diagnostics';
-import { redactSensitiveLogValue } from '@brainstrike/utils/logger';
 import { getDiagnosticSessionId } from './diagnostic-sink-session';
 import { scrubLikelySecretValues } from './secret-scrub';
 

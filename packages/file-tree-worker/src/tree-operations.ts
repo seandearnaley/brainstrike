@@ -1,8 +1,7 @@
 /**
  * Tree Operations
  *
- * Worker-specific tree operations that extend the shared utilities.
- * Generic operations are imported from @brainstrike/utils.
+ * Worker-specific tree operations that extend this package's generic tree core.
  */
 
 import {
@@ -14,7 +13,7 @@ import {
   setNodeLoadState as setNodeLoadStateGeneric,
   sortTreeNodes,
   updateNodeChildren as updateNodeChildrenGeneric,
-} from '@brainstrike/utils/tree-operations';
+} from './generic-tree-operations';
 import type { BatchLoadResult, DirectoryLoadState, WorkerFileNode } from './types';
 
 // Re-export generic functions typed for WorkerFileNode

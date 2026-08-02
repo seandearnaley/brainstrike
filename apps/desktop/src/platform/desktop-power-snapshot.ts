@@ -2,8 +2,8 @@ import {
   normalizeWorkspaceIndexingIdleState,
   normalizeWorkspaceIndexingThermalState,
   type WorkspaceIndexingPowerSnapshot,
-} from '@brainstrike/utils/workspace-indexing-power-snapshot';
-import type { WorkspaceIndexingPowerSource } from '@brainstrike/utils/workspace-indexing-qos';
+} from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
+import type { WorkspaceIndexingPowerSource } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 
 const IDLE_THRESHOLD_SECONDS = 60;
 

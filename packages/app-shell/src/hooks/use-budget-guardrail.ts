@@ -1,6 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
 import { useAssistantBudgetPreferencesStore } from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
 import type { BudgetGuardrailContextValue } from '@brainstrike/ui/assistant-ui-panel';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDailySpend } from '../cost-tracking/use-daily-spend';
 

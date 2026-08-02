@@ -1,14 +1,14 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileContentLoading } from '../use-file-content-loading';
-import { useFileExplorer } from '../use-file-explorer';
-import { useFileSystem } from '../use-file-system';
-import { useFileTree } from '../use-file-tree';
+import { useFileContentLoading } from '../use-file-content-loading.js';
+import { useFileExplorer } from '../use-file-explorer.js';
+import { useFileSystem } from '../use-file-system.js';
+import { useFileTree } from '../use-file-tree.js';
 
 vi.mock('@brainstrike/file-explorer', () => ({ useFileExplorerStore: vi.fn() }));
 vi.mock('../use-file-system', () => ({ useFileSystem: vi.fn() }));

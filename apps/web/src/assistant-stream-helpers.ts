@@ -7,7 +7,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createStatelessAssistantDataStreamResponse } from '@brainstrike/agent/hosted-web';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   resolveAssistantProviderConfig,
   resolveAssistantProviderConfigs,

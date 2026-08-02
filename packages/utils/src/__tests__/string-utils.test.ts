@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sliceCodePoints } from '../string-utils';
+import { sliceCodePoints } from '../string-utils.js';
 
 describe('sliceCodePoints', () => {
   it('slices by Unicode code point without splitting surrogate pairs', () => {

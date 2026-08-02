@@ -18,11 +18,11 @@ const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 
-vi.mock('@brainstrike/utils/selection-utils', () => ({
+vi.mock('../../selection.js', () => ({
   createLogger: vi.fn(() => mockLogger),
   decodeFileSelection: vi.fn((compositeKey: string) => {
     // Simple mock: compositeKey format is "folderId::path"
@@ -173,7 +173,7 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       // Mock decodeFileSelection to return empty values for invalid key
-      const { decodeFileSelection } = await import('@brainstrike/utils/selection-utils');
+      const { decodeFileSelection } = await import('../../selection.js');
       vi.mocked(decodeFileSelection).mockReturnValueOnce({ folderId: '', path: '' });
 
       const result = await restoreTabFileHandle('tab-1', 'invalid', cache);
@@ -187,7 +187,7 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       // Mock decodeFileSelection to throw for corrupted/legacy keys
-      const { decodeFileSelection } = await import('@brainstrike/utils/selection-utils');
+      const { decodeFileSelection } = await import('../../selection.js');
       vi.mocked(decodeFileSelection).mockImplementationOnce(() => {
         throw new Error('Invalid separator in composite key');
       });
@@ -526,7 +526,7 @@ describe('tab-persistence', () => {
         removeFileHandle: vi.fn(),
       };
 
-      const { decodeFileSelection } = await import('@brainstrike/utils/selection-utils');
+      const { decodeFileSelection } = await import('../../selection.js');
       vi.mocked(decodeFileSelection).mockImplementationOnce(() => {
         // biome-ignore lint/style/useThrowOnlyError: intentionally throwing non-Error to test handler
         throw 'raw string error';
@@ -544,7 +544,7 @@ describe('tab-persistence', () => {
         removeFileHandle: vi.fn(),
       };
 
-      const { decodeFileSelection } = await import('@brainstrike/utils/selection-utils');
+      const { decodeFileSelection } = await import('../../selection.js');
       vi.mocked(decodeFileSelection).mockReturnValueOnce({ folderId: 'folder1', path: '' });
 
       const result = await restoreTabFileHandle('tab-1', 'folder1::', cache);

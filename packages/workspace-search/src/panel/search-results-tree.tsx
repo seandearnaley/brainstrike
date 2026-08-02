@@ -1,3 +1,4 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   Badge,
   Checkbox,
@@ -6,7 +7,6 @@ import {
   TreeTable,
   type TreeTableCheckboxNextState,
 } from '@brainstrike/ui';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { File as FileIcon, TextQuote } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useMemo } from 'react';

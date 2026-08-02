@@ -9,7 +9,7 @@ import {
   runNextDimensionIndexMaintenance,
   withIndexBuildMaintenanceWorkMem,
 } from '@brainstrike/db';
-import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/utils/workspace-indexing-power-snapshot';
+import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
 import type { DimensionIndexBuildStrategy } from './dimension-index-maintenance-capabilities';
 
 const DEFAULT_DIMENSION_INDEX_MAINTENANCE_INITIAL_DELAY_MS = 45_000;

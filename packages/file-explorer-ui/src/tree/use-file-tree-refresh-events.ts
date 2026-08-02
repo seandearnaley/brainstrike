@@ -41,8 +41,9 @@
  * (electron-watchers) and use-file-system-context debounces dispatches at
  * 300ms, so a build burst arrives as one event with many changes.
  */
+
+import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
 import {
   FILE_EXPLORER_REFRESH_EVENT,

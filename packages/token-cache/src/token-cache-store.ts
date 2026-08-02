@@ -5,7 +5,8 @@
  * Provides efficient batch queries and aggregations.
  */
 
-import { createLogger, validateRelativeFilePath } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { validateRelativeFilePath } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type {
   TokenCacheEntry,

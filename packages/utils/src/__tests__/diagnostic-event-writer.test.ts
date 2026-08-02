@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DiagnosticEventWriter } from '../diagnostics/diagnostic-event-writer';
-import type { DiagnosticEvent } from '../diagnostics/diagnostic-events';
+import { DiagnosticEventWriter } from '../diagnostics/diagnostic-event-writer.js';
+import type { DiagnosticEvent } from '../diagnostics/diagnostic-events.js';
 
 function makeEvent(id: string): DiagnosticEvent {
   return {

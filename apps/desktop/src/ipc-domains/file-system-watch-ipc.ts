@@ -11,12 +11,12 @@
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type {
   FileSystemChange,
   WatcherHealthEvent,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';

@@ -9,7 +9,7 @@
  * are token-budgeted with truncated + hint.
  */
 import type { WebSearchInput } from '@brainstrike/agent';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   runWebSearch,

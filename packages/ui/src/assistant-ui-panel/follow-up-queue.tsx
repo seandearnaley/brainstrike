@@ -25,7 +25,7 @@
  * the chip's remove control is the user's veto while the run is active.
  */
 import { useAui, useAuiState, useThreadViewportStore } from '@assistant-ui/react';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';

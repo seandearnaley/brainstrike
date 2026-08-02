@@ -1,6 +1,6 @@
 import { usePGliteDatabase } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
 import { Badge, Button, Card, Input, Label, Progress, Switch, useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';

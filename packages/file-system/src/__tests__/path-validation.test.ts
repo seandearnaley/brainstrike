@@ -9,7 +9,7 @@ import {
   isPathInsideRoot,
   normalizeRootDir,
   resolveValidatedPath,
-} from '../path-validation';
+} from '../path-validation.js';
 
 const home = process.env['HOME'] ?? process.env['USERPROFILE'];
 const isWin32 = process.platform === 'win32';

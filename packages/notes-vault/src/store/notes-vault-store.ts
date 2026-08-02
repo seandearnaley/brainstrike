@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { createStore } from 'zustand/vanilla';
 import { createVaultNote } from '../core/create-note';
 import { createVaultFolder, deleteVaultEntry, renameVaultEntry } from '../core/entry-ops';

@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CodeEmbeddingCLI as CodeEmbeddingCLIType } from '../cli/embed-code';
-import { FALLBACK_MODEL_CONFIG } from '../types';
+import type { CodeEmbeddingCLI as CodeEmbeddingCLIType } from '../cli/embed-code.js';
+import { FALLBACK_MODEL_CONFIG } from '../types.js';
 
 // Spy on fs methods used by CLI
 const writeFileSync = vi.fn();
@@ -43,8 +43,14 @@ describe('CodeEmbeddingCLI basics', () => {
     vi.clearAllMocks();
   });
 
+  it('exports a callable ESM entry point for the package bin shim', async () => {
+    const { runEmbedCodeCli } = await import('../cli/embed-code.js');
+
+    await expect(runEmbedCodeCli(['--help'])).resolves.toBeUndefined();
+  });
+
   it('splits content into chunks with overlap and detects language', async () => {
-    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code.js');
     const cli = new CodeEmbeddingCLI({
       chunkOverlap: 1,
       format: 'json',
@@ -62,7 +68,7 @@ describe('CodeEmbeddingCLI basics', () => {
   });
 
   it('preserves explicit zero chunk overlap', async () => {
-    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code.js');
     const cli = new CodeEmbeddingCLI({
       chunkOverlap: 0,
       format: 'json',
@@ -78,7 +84,7 @@ describe('CodeEmbeddingCLI basics', () => {
   });
 
   it('rejects chunk overlap values that cannot advance between chunks', async () => {
-    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code.js');
 
     expect(
       () =>
@@ -93,7 +99,7 @@ describe('CodeEmbeddingCLI basics', () => {
   });
 
   it('processes files and saves JSON and CSV outputs', async () => {
-    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code.js');
     const cli = new CodeEmbeddingCLI({
       chunkOverlap: 0,
       format: 'json',
@@ -138,7 +144,7 @@ describe('CodeEmbeddingCLI basics', () => {
   });
 
   it('escapes quotes in every CSV text field', async () => {
-    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code.js');
     type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
     const cli = new CodeEmbeddingCLI({
       format: 'csv',
@@ -171,7 +177,7 @@ describe('CodeEmbeddingCLI basics', () => {
   });
 
   it('serializes pgvector SQL text fields without dollar-quote delimiters', async () => {
-    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code.js');
     type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
     const cli = new CodeEmbeddingCLI({
       format: 'pgvector',
@@ -210,7 +216,7 @@ describe('CodeEmbeddingCLI basics', () => {
   });
 
   it('rejects pgvector SQL text fields containing NUL bytes', async () => {
-    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code.js');
     type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
     const cli = new CodeEmbeddingCLI({
       format: 'pgvector',

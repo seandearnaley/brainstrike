@@ -5,7 +5,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { type MastraDBMessage, MessageList, type ToolsInput } from '@mastra/core/agent';
 import { ToolSearchProcessor } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY } from '@mastra/core/request-context';

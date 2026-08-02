@@ -7,7 +7,7 @@ import {
   createSafeStorageAdapter,
   type PersistenceIssue,
   type StorageError,
-} from '../safe-storage';
+} from '../safe-storage.js';
 
 const KEY = 'safe-storage.test';
 

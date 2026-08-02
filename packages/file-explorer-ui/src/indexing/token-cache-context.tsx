@@ -19,6 +19,7 @@
  */
 
 import { databaseQueryTelemetry } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
@@ -37,7 +38,6 @@ import {
   TokenCacheStore,
   useTokenCache,
 } from '@brainstrike/token-cache/cache-runtime';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   createContext,
   type ReactNode,

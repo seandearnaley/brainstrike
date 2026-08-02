@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createClipboardService } from '../clipboard';
+import { createClipboardService } from '../clipboard.js';
 
 interface BridgeResult {
   error?: string;

@@ -1,8 +1,8 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EmbeddingProviderFactory } from '../factory';
-import type { ILocalEmbeddingProvider } from '../interfaces/provider';
-import type { EmbeddingProviderConfig } from '../provider-types';
+import { EmbeddingProviderFactory } from '../factory.js';
+import type { ILocalEmbeddingProvider } from '../interfaces/provider.js';
+import type { EmbeddingProviderConfig } from '../provider-types.js';
 
 const originalFetch = globalThis.fetch;
 

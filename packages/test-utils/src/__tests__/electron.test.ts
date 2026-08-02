@@ -6,7 +6,7 @@ import {
   createIpcRendererMock,
   installElectronCjsMocks,
   installElectronModuleMocks,
-} from '../electron';
+} from '../electron.js';
 
 describe('electron test utilities', () => {
   afterEach(() => {

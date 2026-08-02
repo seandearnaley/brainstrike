@@ -15,7 +15,7 @@ import type {
   LanguageModelV2CallWarning,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { LocalProviderOptions } from '../../types';
 import type {
   LocalLlmHostClient,

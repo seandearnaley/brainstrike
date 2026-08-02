@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { PGlite } from '@electric-sql/pglite';
 import { migrate } from '../migrations/bootstrap.js';
 import type { FileChunkInsert } from '../models/file-chunk.js';

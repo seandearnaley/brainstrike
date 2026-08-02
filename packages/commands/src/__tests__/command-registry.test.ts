@@ -6,10 +6,10 @@ import {
   defineContextAction,
 } from '@brainstrike/context-actions';
 import { describe, expect, it, vi } from 'vitest';
-import { bridgeActionToCommand } from '../bridge-action-to-command';
-import { createCommandRegistry } from '../command-registry';
-import { createGlobalCommands } from '../global-commands';
-import type { Command, CommandCapability, CommandContext } from '../types';
+import { bridgeActionToCommand } from '../bridge-action-to-command.js';
+import { createCommandRegistry } from '../command-registry.js';
+import { createGlobalCommands } from '../global-commands.js';
+import type { Command, CommandCapability, CommandContext } from '../types.js';
 
 const EMPTY_SERVICES: ActionServices = {};
 

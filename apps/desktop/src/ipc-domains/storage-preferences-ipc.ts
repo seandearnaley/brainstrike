@@ -1,6 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';

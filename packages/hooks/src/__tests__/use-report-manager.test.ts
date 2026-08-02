@@ -1,7 +1,7 @@
 import { FileExplorerStrings } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useReportManager } from '../use-report-manager';
+import { useReportManager } from '../use-report-manager.js';
 
 // Mock file-saver
 vi.mock('file-saver', () => ({

@@ -3,9 +3,9 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import type { DbHandle } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
 
 const logger = createLogger('OpenRouterModelDefaults');

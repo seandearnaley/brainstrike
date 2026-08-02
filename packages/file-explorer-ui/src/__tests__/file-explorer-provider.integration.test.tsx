@@ -1,11 +1,12 @@
 /**
  * @vitest-environment happy-dom
  */
+
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { flushAllTimersAndMicrotasks } from '@brainstrike/test-utils';
-import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';

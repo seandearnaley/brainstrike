@@ -2,8 +2,8 @@ import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EmbeddingProviderFactory, startEmbeddingWorker } from '../index';
-import type { IEmbeddingProvider } from '../interfaces/provider';
+import { EmbeddingProviderFactory, startEmbeddingWorker } from '../index.js';
+import type { IEmbeddingProvider } from '../interfaces/provider.js';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -11,7 +11,7 @@ import type {
   EmbeddingService,
   EmbeddingStatus,
   SimilarityResult,
-} from '../types';
+} from '../types.js';
 
 // Increase timeouts to reduce flakiness under workspace-wide runs
 vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });

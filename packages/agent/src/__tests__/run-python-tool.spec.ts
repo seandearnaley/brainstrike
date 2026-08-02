@@ -341,12 +341,20 @@ describe('createRunPythonTool', () => {
     // Mastra validates against inputSchema BEFORE execute() runs and returns a
     // validation-error payload rather than throwing — so this asserts the
     // returned shape, not a rejection.
-    const withUnknownKey = await tool.execute({
-      allowedDomains: ['evil.example.com'],
+    // A bare "*" wildcard is the safety-critical rejection: allowedDomains is
+    // a real field now (Gate B), but unrestricted egress stays inexpressible
+    // at the SCHEMA, before execute() ever runs.
+    const withBareWildcard = await tool.execute({
+      allowedDomains: ['*'],
       code: 'pass',
     } as never);
+    expect(withBareWildcard).toMatchObject({ error: true });
+    expect(JSON.stringify(withBareWildcard)).toContain('allowedDomains');
+    const withUnknownKey = await tool.execute({
+      code: 'pass',
+      unknownField: true,
+    } as never);
     expect(withUnknownKey).toMatchObject({ error: true });
-    expect(JSON.stringify(withUnknownKey)).toContain('allowedDomains');
 
     const withEmptyCode = await tool.execute({ code: '' });
     expect(withEmptyCode).toMatchObject({ error: true });
@@ -533,5 +541,170 @@ describe('sliceTailCodePoints', () => {
     expect(sliceTailCodePoints('abcdef', 3)).toBe('def');
     expect(sliceTailCodePoints('abc', 10)).toBe('abc');
     expect(sliceTailCodePoints('abc', 0)).toBe('');
+  });
+});
+
+describe('Gate B network escalation (BST-1070)', () => {
+  interface SuspendContext {
+    abortSignal?: AbortSignal;
+    agent?: { resumeData?: unknown; suspend?: (payload: unknown) => Promise<unknown> };
+  }
+
+  function runToolWithContext(
+    host: CodeExecutorHostCapabilities,
+    input: { allowedDomains?: string[]; code: string; timeoutMs?: number },
+    context?: SuspendContext
+  ) {
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(host) });
+    return tool.execute(input, context as never);
+  }
+
+  it('suspends BEFORE any executor work when domains are requested, with the exact domains in the payload', async () => {
+    const stub = stubFence(async () => execResult());
+    let resolveCalled = false;
+    const tool = createRunPythonTool({
+      resolveHost: async () => {
+        resolveCalled = true;
+        return hostWith(stub);
+      },
+    });
+    const suspend = vi.fn(async () => undefined);
+    const result = await tool.execute(
+      { allowedDomains: ['pypi.org', '*.example.com'], code: 'print(1)' },
+      { agent: { suspend } } as never
+    );
+
+    // Mastra's createTool wrapper forwards an extra options argument, so
+    // assert the payload positionally rather than the whole call shape.
+    expect(suspend).toHaveBeenCalledTimes(1);
+    expect(suspend.mock.calls[0]?.[0]).toEqual({
+      allowedDomains: ['pypi.org', '*.example.com'],
+      kind: 'network',
+    });
+    // The pause happens before the sandbox is even resolved: no executor, no
+    // scratch dir, no spawn — nothing to leak if the run is never resumed.
+    expect(resolveCalled).toBe(false);
+    expect(stub.inputs).toHaveLength(0);
+    expect(result).toBeUndefined();
+  });
+
+  it('DENY on the resume leg returns network_denied and never touches the executor', async () => {
+    const stub = stubFence(async () => execResult());
+    const result = await runToolWithContext(
+      hostWith(stub),
+      { allowedDomains: ['pypi.org'], code: 'print(1)' },
+      { agent: { resumeData: { action: 'deny' } } }
+    );
+    expect(result).toEqual({ deniedDomains: ['pypi.org'], kind: 'network_denied' });
+    expect(stub.inputs).toHaveLength(0);
+    expect(stub.dispose).not.toHaveBeenCalled();
+  });
+
+  it('UNRECOGNISED resumeData NEVER executes and NEVER grants — junk is rejected or denied, both fail safe', async () => {
+    // Two layers fail safe here and this pins the PROPERTY, not the layer:
+    // Mastra's createTool wrapper rejects resume data that fails the strict
+    // resumeSchema (an error-shaped result, execute never runs), and the
+    // tool's own readNetworkDecision treats anything that is not EXACTLY
+    // {action:'allow'} as deny. Either way: no executor call, no grant.
+    const stub = stubFence(async () => execResult());
+    for (const junk of [
+      { action: 'approved' },
+      { action: 'allow', extra: true },
+      'allow',
+      { allow: true },
+      null,
+    ]) {
+      const result = (await runToolWithContext(
+        hostWith(stub),
+        { allowedDomains: ['pypi.org'], code: 'print(1)' },
+        { agent: { resumeData: junk } }
+      )) as { error?: boolean; kind?: string };
+      const failedSafe = result?.error === true || result?.kind === 'network_denied';
+      expect(failedSafe).toBe(true);
+    }
+    expect(stub.inputs).toHaveLength(0);
+  });
+
+  it('ALLOW on the resume leg executes with EXACTLY the requested domains in the policy', async () => {
+    const stub = stubFence(async () => execResult({ exitCode: 0, stdout: 'ok\n' }));
+    const result = await runToolWithContext(
+      hostWith(stub),
+      { allowedDomains: ['pypi.org', '*.example.com'], code: 'print(1)' },
+      { agent: { resumeData: { action: 'allow' } } }
+    );
+    expect(result).toMatchObject({ kind: 'completed' });
+    expect(stub.inputs).toHaveLength(1);
+    expect(stub.inputs[0]?.policy.allowedDomains).toEqual(['pypi.org', '*.example.com']);
+  });
+
+  it('a NO-domains call never consults resumeData and always runs with an empty domain policy', async () => {
+    const stub = stubFence(async () => execResult());
+    const result = await runToolWithContext(
+      hostWith(stub),
+      { code: 'print(1)' },
+      // Even a (nonsensical) allow-shaped resumeData must not grant network to
+      // a call that never requested it.
+      { agent: { resumeData: { action: 'allow' } } }
+    );
+    expect(result).toMatchObject({ kind: 'completed' });
+    expect(stub.inputs[0]?.policy.allowedDomains).toEqual([]);
+  });
+
+  it('NO suspension channel + domains requested returns unavailable, never a silent offline run and never a silent grant', async () => {
+    const stub = stubFence(async () => execResult());
+    const result = await runToolWithContext(hostWith(stub), {
+      allowedDomains: ['pypi.org'],
+      code: 'print(1)',
+    });
+    expect(result).toMatchObject({
+      kind: 'unavailable',
+      reason: 'network_confirmation_unavailable',
+    });
+    expect(stub.inputs).toHaveLength(0);
+  });
+
+  it('carries suspend/resume schemas so the registered Tool object arms the suspension channel', () => {
+    const tool = createRunPythonTool({
+      resolveHost: resolveHostFor(hostWith(stubFence(async () => execResult()))),
+    });
+    expect((tool as { suspendSchema?: unknown }).suspendSchema).toBeTruthy();
+    expect((tool as { resumeSchema?: unknown }).resumeSchema).toBeTruthy();
+  });
+});
+
+describe('Gate B hardening (#2225 review)', () => {
+  it('an explicit EMPTY allowedDomains runs offline without suspending (OpenAI strict mode)', async () => {
+    const stub = stubFence(async () => execResult());
+    const suspend = vi.fn(async () => undefined);
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    const result = await tool.execute({ allowedDomains: [], code: 'print(1)' }, {
+      agent: { suspend },
+    } as never);
+    expect(suspend).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: 'completed' });
+    expect(stub.inputs[0]?.policy.allowedDomains).toEqual([]);
+  });
+
+  it('deduplicates repeated domains before suspending and before the policy', async () => {
+    const stub = stubFence(async () => execResult());
+    const suspend = vi.fn(async () => undefined);
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    await tool.execute({ allowedDomains: ['pypi.org', 'pypi.org'], code: 'print(1)' }, {
+      agent: { suspend },
+    } as never);
+    expect(suspend.mock.calls[0]?.[0]).toEqual({ allowedDomains: ['pypi.org'], kind: 'network' });
+  });
+
+  it('rejects localhost, .local, and IP-literal targets at the schema', async () => {
+    const stub = stubFence(async () => execResult());
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    for (const local of ['localhost', '127.0.0.1', '10.0.0.5', 'printer.local', '*.localhost']) {
+      const result = (await tool.execute(
+        { allowedDomains: [local], code: 'print(1)' },
+        undefined as never
+      )) as { error?: boolean };
+      expect(result?.error).toBe(true);
+    }
+    expect(stub.inputs).toHaveLength(0);
   });
 });

@@ -32,6 +32,9 @@
       "@brainstrike/hooks": [
         "./packages/hooks/src"
       ],
+      "@brainstrike/logging": [
+        "./packages/logging/src"
+      ],
       "@brainstrike/ui": [
         "./packages/ui/src"
       ],
@@ -46,6 +49,15 @@
       ],
       "@brainstrike/text-splitter/*": [
         "./packages/text-splitter/src/*"
+      ],
+      "@brainstrike/tokenization": [
+        "./packages/tokenization/src"
+      ],
+      "@brainstrike/tokenization/token-utils-accurate-lite": [
+        "./packages/tokenization/src/token-utils-accurate-lite.ts"
+      ],
+      "@brainstrike/tokenization/token-utils-lite": [
+        "./packages/tokenization/src/token-utils-lite.ts"
       ],
       "@brainstrike/file-explorer": [
         "./packages/file-explorer/src"
@@ -208,6 +220,12 @@
     },
     {
       "path": "./packages/text-splitter"
+    },
+    {
+      "path": "./packages/tokenization"
+    },
+    {
+      "path": "./packages/logging"
     },
     {
       "path": "./packages/utils"

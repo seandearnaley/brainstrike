@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDebouncedStorageAdapter } from '../debounced-storage';
+import { createDebouncedStorageAdapter } from '../debounced-storage.js';
 
 interface TestStorage {
   getItem: (key: string) => string | null;

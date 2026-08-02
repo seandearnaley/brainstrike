@@ -6,8 +6,8 @@
 // The chunk-cycle guard cannot see it — one chunk has no cross-chunk edge to
 // flag — so `scripts/verify-no-source-cycles.mjs` enforces it instead (BST-890).
 
+import { createLogger } from '@brainstrike/logging';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Button } from './button';

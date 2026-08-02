@@ -7,9 +7,9 @@ import {
 } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
+import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RootDescriptor } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';

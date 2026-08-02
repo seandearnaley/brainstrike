@@ -5,7 +5,7 @@ import {
   type DimensionIndexMaintenanceStrategy,
   JobQueue,
 } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { createRequestId } from '@brainstrike/worker-runtime';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import {

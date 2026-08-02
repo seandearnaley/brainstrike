@@ -1,11 +1,11 @@
+import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, PartialRefreshError } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { renderHook } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_TOAST_DURATION_MS, useToastManager } from '../use-toast-manager';
+import { DEFAULT_TOAST_DURATION_MS, useToastManager } from '../use-toast-manager.js';
 
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;
@@ -44,7 +44,7 @@ vi.mock('@brainstrike/ui', () => ({
   useToast: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 

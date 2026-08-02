@@ -1,3 +1,4 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { TapestryRange } from '@brainstrike/file-explorer-ui';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
@@ -5,7 +6,6 @@ import {
   useFileExplorerStoreContext,
 } from '@brainstrike/file-explorer-ui/shell';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';

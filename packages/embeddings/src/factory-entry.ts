@@ -1,1 +1,1 @@
-export { EmbeddingProviderFactory } from './factory';
+export { EmbeddingProviderFactory } from './factory.js';

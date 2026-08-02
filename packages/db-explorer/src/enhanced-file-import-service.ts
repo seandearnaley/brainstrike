@@ -21,13 +21,13 @@ import { backfillEmbeddingSetAssignments } from '@brainstrike/file-import';
 import { createBrowserEmbeddingQueuePort } from '@brainstrike/file-import/browser-queue-port';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { runEnhancedImport } from '@brainstrike/file-import/enhanced-import';
+import { createLogger } from '@brainstrike/logging';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
 import { onQueueProgress, type QueueProgressEventDetail } from '@brainstrike/utils/browser-events';
-import { createLogger } from '@brainstrike/utils/logger';
 import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import {
   type Dispatch,

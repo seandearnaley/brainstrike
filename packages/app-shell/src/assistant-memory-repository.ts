@@ -33,9 +33,13 @@ import {
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  type RediscoveredToolSuspend,
+  TOOL_SUSPEND_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
-import type { SuspendedApprovalDiscovery } from './assistant-suspended-approvals';
+import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
 
 export interface AssistantMemoryThread {
   readonly createdAt: Date;
@@ -2403,34 +2407,66 @@ function toHistoryRepository(
   };
 }
 
+interface RediscoveredPauseMessageSource {
+  readonly data: RediscoveredToolApproval | RediscoveredToolSuspend;
+  readonly dataName: typeof TOOL_APPROVAL_DATA_NAME | typeof TOOL_SUSPEND_DATA_NAME;
+  readonly idPrefix: 'suspended-approval' | 'suspended-pause';
+  readonly runId: string;
+  readonly suspendedAt: string;
+  readonly toolCallId: string;
+}
+
 /**
- * Append one synthetic trailing assistant message per rediscovered suspended
- * approval, each carrying a single `TOOL_APPROVAL_DATA_NAME` data part identical
- * to the live-stream mapper's output — so the existing approval notice renders
- * and its Approve/Decline reuses the (restart-safe) resume seam unchanged.
- * Ordered oldest-first (by `suspendedAt`) and chained onto the current head so
+ * Append one synthetic trailing assistant message per rediscovered pause —
+ * suspended APPROVALS (`TOOL_APPROVAL_DATA_NAME`) and, since BST-1084,
+ * suspend() PAUSES (`TOOL_SUSPEND_DATA_NAME`) — each carrying a single data
+ * part identical to the live-stream mapper's output, so the existing notices
+ * render and their Approve/Decline / typed-resume actions reuse the
+ * (restart-safe, stateless) resume seams unchanged. Ordered oldest-first (by
+ * `suspendedAt`, both kinds interleaved) and chained onto the current head so
  * the notices sit at the bottom of the thread. `toHistoryRepository` stays
  * untouched (its many existing tests keep passing).
  */
-function appendSuspendedApprovalMessages(
+function appendSuspendedPauseMessages(
   result: AssistantHistoryLoadResult,
-  approvals: readonly RediscoveredToolApproval[]
+  approvals: readonly RediscoveredToolApproval[],
+  suspends: readonly RediscoveredToolSuspend[]
 ): AssistantHistoryLoadResult {
-  if (approvals.length === 0) {
+  if (approvals.length === 0 && suspends.length === 0) {
     return result;
   }
+  const sources: RediscoveredPauseMessageSource[] = [
+    ...approvals.map(
+      (approval): RediscoveredPauseMessageSource => ({
+        data: approval,
+        dataName: TOOL_APPROVAL_DATA_NAME,
+        idPrefix: 'suspended-approval',
+        runId: approval.runId,
+        suspendedAt: approval.suspendedAt,
+        toolCallId: approval.toolCallId,
+      })
+    ),
+    ...suspends.map(
+      (pause): RediscoveredPauseMessageSource => ({
+        data: pause,
+        dataName: TOOL_SUSPEND_DATA_NAME,
+        idPrefix: 'suspended-pause',
+        runId: pause.runId,
+        suspendedAt: pause.suspendedAt,
+        toolCallId: pause.toolCallId,
+      })
+    ),
+  ].sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+
   const messages: AssistantHistoryRepositoryMessages = [...result.messages];
-  const sorted = [...approvals].sort(
-    (a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt)
-  );
   let parentId: string | null = result.headId ?? null;
   let headId: string | null = result.headId ?? null;
-  for (const approval of sorted) {
-    const id = `suspended-approval:${approval.runId}:${approval.toolCallId}`;
+  for (const source of sources) {
+    const id = `${source.idPrefix}:${source.runId}:${source.toolCallId}`;
     messages.push({
       message: {
-        content: [{ data: approval, name: TOOL_APPROVAL_DATA_NAME, type: 'data' }],
-        createdAt: new Date(approval.suspendedAt),
+        content: [{ data: source.data, name: source.dataName, type: 'data' }],
+        createdAt: new Date(source.suspendedAt),
         id,
         metadata: {
           custom: {},
@@ -3235,18 +3271,19 @@ export function createPgliteAssistantThreadRepository(
 }
 
 export function createAssistantThreadHistoryAdapter({
-  discoverSuspendedApprovals,
+  discoverSuspendedRuns,
   repository,
   resourceId,
   threadId,
 }: {
   /**
-   * Desktop-only capability: rediscover approvals stranded by a restart/reload
-   * (see assistant-suspended-approvals.ts). Omitted on web (no assistant server /
-   * storage, so web never suspends), where its absence means "no suspended
-   * approvals" and hydration is byte-identical to today.
+   * Desktop-only capability: rediscover approvals AND suspend() pauses
+   * stranded by a restart/reload (see assistant-suspended-approvals.ts).
+   * Omitted on web (no assistant server / storage, so web never suspends),
+   * where its absence means "no suspended pauses" and hydration is
+   * byte-identical to today.
    */
-  readonly discoverSuspendedApprovals?: SuspendedApprovalDiscovery;
+  readonly discoverSuspendedRuns?: SuspendedRunDiscovery;
   readonly repository: AssistantThreadRepository;
   readonly resourceId: string;
   readonly threadId: string;
@@ -3271,22 +3308,19 @@ export function createAssistantThreadHistoryAdapter({
       // assistant-suspended-approvals.ts) and the rare case, so it runs
       // CONCURRENTLY with the history queries instead of gating them: thread
       // render waits at most max(history, discovery-timeout), never their sum.
-      const [messages, runEvents, approvals] = await Promise.all([
+      const [messages, runEvents, discovery] = await Promise.all([
         repository.listMessages(threadId, resourceId, {
           limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
         }),
         repository.listThreadRunEvents(threadId, resourceId, {
           limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
         }),
-        discoverSuspendedApprovals
-          ? discoverSuspendedApprovals(threadId, resourceId)
-          : Promise.resolve<readonly RediscoveredToolApproval[]>([]),
+        discoverSuspendedRuns
+          ? discoverSuspendedRuns(threadId, resourceId)
+          : Promise.resolve({ approvals: [], suspends: [] } as const),
       ]);
       const base = toHistoryRepository(messages, runEvents);
-      if (approvals.length === 0) {
-        return base;
-      }
-      return appendSuspendedApprovalMessages(base, approvals);
+      return appendSuspendedPauseMessages(base, discovery.approvals, discovery.suspends);
     },
   };
 }

@@ -18,7 +18,7 @@ import {
   type RuntimeData,
   recordKnownFileMtime,
 } from '@brainstrike/agent';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import {
   READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH,
   type ReadWorkspaceFileCursorRegistry,

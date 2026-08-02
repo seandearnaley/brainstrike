@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   recordDesktopResetCompleted,
   recordDesktopResetFailed,

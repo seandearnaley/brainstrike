@@ -1,8 +1,8 @@
 import type { ManagedCacheEntryMetadata } from '@brainstrike/db';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   WorkspaceCollectionSyncService,

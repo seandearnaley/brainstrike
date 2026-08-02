@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { JobState } from '../queue/job-queue.js';
 import { JobQueue } from '../queue/job-queue.js';
 /*

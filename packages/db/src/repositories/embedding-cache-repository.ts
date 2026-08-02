@@ -1,4 +1,5 @@
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import { drizzle, extractPGlite } from '../drizzle/database.js';
 import type { EmbeddingCacheEntry } from '../schema/index.js';
 import type { CreateEmbeddingCacheRepositoryOptions } from './_shared.js';

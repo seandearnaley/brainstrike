@@ -1,8 +1,8 @@
+import { memoizedFileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FlattenedNode } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
-import { memoizedFileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyDirectorySelectionMutation,

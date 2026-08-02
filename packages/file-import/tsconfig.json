@@ -38,6 +38,9 @@
       "path": "../text-splitter"
     },
     {
+      "path": "../logging"
+    },
+    {
       "path": "../utils"
     },
     {

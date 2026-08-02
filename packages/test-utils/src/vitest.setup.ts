@@ -3,7 +3,7 @@ import { Blob as NodeBlob } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
-import { resetStore } from './test-utils';
+import { resetStore } from './test-utils.js';
 
 // Configure React's act() environment for Zustand store updates
 // Keep React's warnings observable: tests must wrap state updates instead of

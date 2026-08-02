@@ -1,10 +1,51 @@
 # `run_python` approval UX + network escalation — design spec (BST-1070)
 
-> **Status: DESIGN ONLY, 2026-08-01.** Nothing here is implemented. The tool
-> `brainstrike.runPython` does not exist yet (BST-1067); the executor backend
-> does not exist yet (BST-1062). This document is written against the MERGED
-> seam `packages/agent/src/code-execution.ts` (BST-1060) and the MERGED
-> permission engine, so that implementation is wiring rather than invention.
+> **Status: IMPLEMENTED, 2026-08-02.** Gate A (§2), the result surface (§4),
+> AND Gate B (§3, the network escalation) are LIVE. The §3.2c prerequisite
+> (unified suspend rediscovery) closed in BST-1084, after which Gate B shipped:
+> `allowedDomains` on the input schema (seam-validated), the resume-first
+> suspension flow with fail-safe deny, the §3.3 escalation card
+> (`RunPythonNetworkNotice` — deny primary/autofocused, per-domain checkboxes
+> all required, no grant surface), and the `network_denied` result arm. A
+> rediscovered escalation re-renders the same card with reset ticks.
+>
+> **Deviations the implementation made deliberately (contract-grounded, not
+> drift):**
+>
+> 1. **§6.2's empty-`allowRead` copy ("Nothing — it can't read your files")
+>    was WRONG for the fence and is not shipped.** The fence's reads are
+>    permissive by default (escape-resistance README; credential stores always
+>    denied), so the contract type carries an explicit
+>    `defaultReadAccess: 'permissive' | 'none'` and the card says "Most files
+>    on this computer…" under the fence. The original copy applies only under
+>    a `'none'` default (the future VM backend).
+> 2. **`scratchDir` became `scratchParentDir`.** The per-call folder is minted
+>    by mkdtemp AT EXECUTE TIME, after approval — the card can only honestly
+>    name its parent, never a precise path that does not exist yet.
+>    `allowWrite` in the context is correspondingly "entries BEYOND the
+>    scratch folder" (today always empty).
+> 3. **`policyFingerprint` ships; its execute-time enforcement does not.**
+>    Today the context is a pure function of the durable args plus build
+>    constants, and the displayed card is always computed by the same
+>    build/process that executes (live = same process; reload = rediscovery
+>    recomputes). There is no drift input for a compare to catch, so shipping
+>    the check would be a guard whose failure no test can provoke — banned
+>    here as decoration. The enforcement lands WITH workspace exec config,
+>    which is what first introduces real drift (and will need a resume-side
+>    channel for the approved value).
+> 4. The card-level tool status gained a `stopped` state so
+>    cancelled/timed-out/killed results do not show the generic green check
+>    (§4.4's "cancelled never renders as success", applied one level up).
+> 5. `formatOmittedBytes` uses decimal units (1000-based), matching what the
+>    OS shows users; §4.5's example values were unit-ambiguous.
+> 6. §6.4's unavailable table is extended for the shipped reasons
+>    (`interpreter_unavailable`, `resolve_timed_out`) and
+>    `executor_kind_unavailable`'s copy is generalized (the shipped tool only
+>    ever requests the fence, so the "set to a virtual machine" phrasing would
+>    have claimed a configuration that cannot exist yet).
+>
+> This document remains the authority for Gate B and everything §3/§5 rules
+> on; read the deviations above as amendments to §2/§4/§6.
 >
 > Read with: `docs/agents/code-execution.md` (the seam contract),
 > `docs/agents/assistant-runtime.md` § PERMISSION ENGINE and § PLAN MODE & TOOL
@@ -496,19 +537,21 @@ armed) and needs no new code — but it means **Hosted Web never gets
 `WebNativeToolId` already excluding `runSkillScript`. Add `runPython` to that
 `Exclude<…>` union.
 
-**(c) Cross-reload rediscovery does not yet cover suspensions.**
+**(c) Cross-reload rediscovery does not yet cover suspensions — CLOSED by
+BST-1084 (PR #2223), and Gate B shipped on top of it.** The paragraphs below
+are the original blocking analysis, kept for the record; suspensions ARE now
+rediscovered (unified, both pause kinds) and a reloaded escalation re-renders
+the same card with reset ticks.**
 `listSuspendedMastraRuns` returns approval-gated calls only; non-approval
 `suspend()` pauses are "tolerated + skipped (debug-logged)", and unified
 suspend rediscovery is already a documented follow-up. So a renderer reload
 while a network escalation is on screen strands the run: the transient
 `brainstrike.tool-suspend` part is gone and nothing re-surfaces it.
 
-The **direction** is safe — the run stays suspended, the executor is never
-reached, no code runs, no packet leaves. But it is silent, which this project
-does not accept. **BST-1070 implementation is blocked on unified suspend
-rediscovery** (or on a scoped version of it that covers
-`REGISTERED_SUSPEND_RESUME_TOOL_IDS`). File it as a dependency; do not ship the
-escalation with a silent stranding path.
+The **direction** was safe — the run stays suspended, the executor is never
+reached, no code runs, no packet leaves. But it was silent, which this project
+does not accept. That is why Gate B waited for BST-1084; with unified suspend
+rediscovery merged, the stranding path is gone and the escalation shipped.
 
 ### 3.3 What the user sees
 

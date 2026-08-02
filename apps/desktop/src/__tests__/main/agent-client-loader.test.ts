@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerWarn = vi.fn();
 
-vi.mock('@brainstrike/utils', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),

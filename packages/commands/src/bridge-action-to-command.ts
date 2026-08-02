@@ -4,7 +4,7 @@ import type {
   ContextTarget,
   ContextTargetKind,
 } from '@brainstrike/context-actions';
-import type { Command, CommandGroup } from './types';
+import type { Command, CommandGroup } from './types.js';
 
 /**
  * One-way projection: context-actions `ActionGroup` → palette `CommandGroup`.

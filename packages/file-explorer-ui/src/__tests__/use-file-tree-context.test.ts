@@ -4,7 +4,7 @@ import type {
   BatchLoadResult,
   WorkerFileNode,
 } from '@brainstrike/file-tree-worker';
-import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike/utils';
+import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike/logging';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,10 +44,14 @@ const mockWorkerPort = {
 };
 
 // Mock the file-tree-worker to avoid Worker instantiation in tests
-vi.mock('@brainstrike/file-tree-worker', () => ({
-  createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
-  resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
-}));
+vi.mock('@brainstrike/file-tree-worker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-tree-worker')>();
+  return {
+    ...actual,
+    createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
+    resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
+  };
+});
 
 // Mock global Worker for jsdom environment
 vi.stubGlobal(

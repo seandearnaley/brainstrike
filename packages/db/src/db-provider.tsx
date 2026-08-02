@@ -7,8 +7,9 @@ import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
-import { createLogger, isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
 import {

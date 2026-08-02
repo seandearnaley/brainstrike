@@ -3,7 +3,7 @@ import {
   type CostEstimate,
   computeCost,
   type ModelTokenPricing,
-} from '@brainstrike/utils/token-counting-heuristics';
+} from '@brainstrike/tokenization';
 import type { CrossRootUsageRow } from './assistant-memory-repository';
 
 /** Label for the bucket of usage that had no focused root at request start. */

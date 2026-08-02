@@ -28,7 +28,7 @@
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { net, protocol } from 'electron';
 import type { WorkspaceRootResolver } from './workspace-root-cwd';
 

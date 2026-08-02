@@ -14,7 +14,7 @@ import {
   createForegroundEmbeddingGate,
   runCoordinatedQueryEmbedding,
   waitForWorkerIdle,
-} from '../foreground-embedding-gate';
+} from '../foreground-embedding-gate.js';
 
 describe('createForegroundEmbeddingGate', () => {
   it('is inactive initially and waitUntilInactive resolves immediately', async () => {

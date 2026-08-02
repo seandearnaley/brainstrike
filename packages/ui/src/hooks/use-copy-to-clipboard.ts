@@ -1,5 +1,5 @@
 import { createClipboardService } from '@brainstrike/context-actions';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useEffect, useRef, useState } from 'react';
 
 const logger = createLogger('UseCopyToClipboard');

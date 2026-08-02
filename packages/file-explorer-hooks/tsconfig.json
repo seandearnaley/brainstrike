@@ -10,7 +10,6 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
-    "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
@@ -46,6 +45,9 @@
     },
     {
       "path": "../ui"
+    },
+    {
+      "path": "../logging"
     },
     {
       "path": "../utils"
