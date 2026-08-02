@@ -87,8 +87,10 @@ describe('SystemDiagnosticsPanel', () => {
           lookupCount: 4,
         });
         databaseQueryTelemetry.recordLiveSubscriptionStarted();
+        databaseQueryTelemetry.recordLiveUpdate();
 
-        const queueMetrics = databaseQueryTelemetry.getSnapshot().features['queue-stats'];
+        const telemetrySnapshot = databaseQueryTelemetry.getSnapshot();
+        const queueMetrics = telemetrySnapshot.features['queue-stats'];
         render(<SystemDiagnosticsPanel />);
 
         expect(screen.getByText('Database Queries')).toBeInTheDocument();
@@ -96,6 +98,9 @@ describe('SystemDiagnosticsPanel', () => {
         expect(screen.getByText('Token estimation')).toBeInTheDocument();
         expect(screen.getByText('75% cache hit')).toBeInTheDocument();
         expect(screen.getByText('1 active')).toBeInTheDocument();
+        expect(screen.getByTestId('database-live-update-metrics')).toHaveTextContent(
+          `${telemetrySnapshot.liveUpdateCount} ${telemetrySnapshot.liveUpdateCount === 1 ? 'update' : 'updates'} · ${Math.round(telemetrySnapshot.liveUpdatesPerMinute)} / min`
+        );
         expect(screen.getByTestId('database-query-queue-stats-metrics')).toHaveTextContent(
           `${queueMetrics.queryCount} queries · ${Math.round(queueMetrics.queriesPerMinute)} / min · ${queueMetrics.failureCount} failed · p50 ${Math.round(queueMetrics.durationP50Ms)} ms · p95 ${Math.round(queueMetrics.durationP95Ms)} ms · max ${Math.round(queueMetrics.maxDurationMs)} ms · ${queueMetrics.droppedSampleCount} dropped`
         );

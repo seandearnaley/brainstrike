@@ -464,8 +464,12 @@ describe('DrizzleFileRecordRepository', () => {
         updatedAt: now,
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       expect(await repository.count()).toBe(2);
       expect(await repository.countWithContent()).toBe(1);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 2
+      );
     });
   });
 

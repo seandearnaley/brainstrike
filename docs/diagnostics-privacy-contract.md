@@ -37,7 +37,10 @@ memory-only; it is not written to the diagnostic event store or exported. Each
 feature has an independent bounded sample buffer, and retention overflow is
 reported only as a numeric dropped-sample count. Runtime records are
 fail-closed: unsupported keys or malformed values throw before retention, and
-the collector copies only its explicit allowlisted fields into each sample.
+the collector captures each caller field once and
+copies only explicit allowlisted fields into each sample. Selected-file aggregate token queries
+record duration and failure only, with zero lookup and hit counts; live-query
+histograms count start and refresh query executions rather than teardown.
 
 ## Prohibited By Default
 

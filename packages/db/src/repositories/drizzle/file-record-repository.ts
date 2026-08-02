@@ -492,16 +492,20 @@ export class DrizzleFileRecordRepository {
   }
 
   async count(): Promise<number> {
-    const [result] = await this.db.select({ count: count() }).from(fileRecords);
-    return result?.count ?? 0;
+    return await measureDatabaseQuery('file-tree', async () => {
+      const [result] = await this.db.select({ count: count() }).from(fileRecords);
+      return result?.count ?? 0;
+    });
   }
 
   async countWithContent(): Promise<number> {
-    const [result] = await this.db
-      .select({ count: count() })
-      .from(fileRecords)
-      .where(isNotNull(fileRecords.content));
-    return result?.count ?? 0;
+    return await measureDatabaseQuery('file-tree', async () => {
+      const [result] = await this.db
+        .select({ count: count() })
+        .from(fileRecords)
+        .where(isNotNull(fileRecords.content));
+      return result?.count ?? 0;
+    });
   }
 
   async bulkImport(

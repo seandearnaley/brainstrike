@@ -102,3 +102,13 @@ testWithContract('diagnostics privacy contract links related performance telemet
     assertContractIncludes(issueId, '');
   }
 });
+
+testWithContract('BST-403 documents fail-closed aggregate and live-query boundaries', () => {
+  for (const term of [
+    'captures each caller field once',
+    'zero lookup and hit counts',
+    'start and refresh query executions rather than teardown',
+  ]) {
+    assertContractIncludes(term);
+  }
+});

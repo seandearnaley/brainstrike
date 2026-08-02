@@ -349,4 +349,16 @@ describe('FileRecordRepository', () => {
       }),
     ]);
   });
+
+  it('reports file-record count queries to the file-tree histogram', async () => {
+    const record = createTestRecord({ content: 'const value = 1;' });
+    await repo.createWithContent(record);
+    const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
+
+    expect(await repo.count()).toBe(1);
+    expect(await repo.countWithContent()).toBe(1);
+    expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+      telemetryBefore + 2
+    );
+  });
 });

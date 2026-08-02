@@ -378,29 +378,33 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async count(): Promise<number> {
-    const sql = `SELECT COUNT(*) as count FROM ${this.tableName}`;
-    const result = await this.db.query(sql);
-    const row = result.rows[0];
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT COUNT(*) as count FROM ${this.tableName}`;
+      const result = await this.db.query(sql);
+      const row = result.rows[0];
 
-    if (!row || typeof row !== 'object') {
-      return 0;
-    }
+      if (!row || typeof row !== 'object') {
+        return 0;
+      }
 
-    const countRow = row as Record<string, unknown>;
-    return Number(countRow['count'] || 0);
+      const countRow = row as Record<string, unknown>;
+      return Number(countRow['count'] || 0);
+    });
   }
 
   async countWithContent(): Promise<number> {
-    const sql = `SELECT COUNT(*) as count FROM ${this.tableName} WHERE content IS NOT NULL`;
-    const result = await this.db.query(sql);
-    const row = result.rows[0];
+    return await measureDatabaseQuery('file-tree', async () => {
+      const sql = `SELECT COUNT(*) as count FROM ${this.tableName} WHERE content IS NOT NULL`;
+      const result = await this.db.query(sql);
+      const row = result.rows[0];
 
-    if (!row || typeof row !== 'object') {
-      return 0;
-    }
+      if (!row || typeof row !== 'object') {
+        return 0;
+      }
 
-    const countRow = row as Record<string, unknown>;
-    return Number(countRow['count'] || 0);
+      const countRow = row as Record<string, unknown>;
+      return Number(countRow['count'] || 0);
+    });
   }
 
   async bulkImport(

@@ -392,7 +392,8 @@ function DatabaseQueryTelemetrySection({
         ) : null}
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Live updates</span>
-          <span className="font-mono text-[10px]">
+          <span className="font-mono text-[10px]" data-testid="database-live-update-metrics">
+            {formatCount(snapshot.liveUpdateCount, 'update', 'updates')} ·{' '}
             {Math.round(snapshot.liveUpdatesPerMinute)} / min
           </span>
         </div>

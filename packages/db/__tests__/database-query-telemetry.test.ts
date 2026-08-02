@@ -8,6 +8,7 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -212,6 +213,35 @@ describe('DatabaseQueryTelemetry', () => {
     expect(telemetry.getSnapshot().sampleCount).toBe(0);
   });
 
+  it('captures caller-supplied fields once before validation and retention', () => {
+    const telemetry = new DatabaseQueryTelemetry();
+    let failedReads = 0;
+    const record = {
+      durationMs: 1,
+      get failed(): boolean | string {
+        failedReads += 1;
+        return failedReads === 1 ? true : 'yes';
+      },
+      feature: 'file-tree',
+    } as unknown as DatabaseQueryTelemetryRecord;
+
+    telemetry.recordQuery(record);
+
+    expect(failedReads).toBe(1);
+    expect(telemetry.getSnapshot().features['file-tree'].failureCount).toBe(1);
+  });
+
+  it('does not read the monotonic clock while importing the database package', async () => {
+    vi.resetModules();
+    vi.stubGlobal('performance', undefined);
+
+    const telemetryModule = await import('../src/database-query-telemetry');
+
+    expect(() => telemetryModule.databaseQueryTelemetry.snapshot()).toThrow(
+      'Database query telemetry requires the Performance monotonic clock'
+    );
+  });
+
   it('aggregates token-estimation cache hits from lookup counts', () => {
     const telemetry = new DatabaseQueryTelemetry();
 
@@ -252,7 +282,7 @@ describe('DatabaseQueryTelemetry', () => {
 
     expect(listener).not.toHaveBeenCalled();
     expect(telemetry.getSnapshot()).toBe(initialSnapshot);
-    expect(now).toHaveBeenCalledTimes(4);
+    expect(now).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(listener).toHaveBeenCalledTimes(1);

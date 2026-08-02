@@ -273,6 +273,8 @@ describe('Electron Live Query', () => {
     expect(databaseQueryTelemetry.snapshot().features['live-query'].queryCount).toBe(
       queryCountBeforeRefresh + 1
     );
+    const queryCountBeforeStop =
+      databaseQueryTelemetry.snapshot().features['live-query'].queryCount;
 
     unmount();
     await vi.waitFor(() => {
@@ -280,6 +282,9 @@ describe('Electron Live Query', () => {
         telemetryBefore.activeLiveSubscriptions
       );
     });
+    expect(databaseQueryTelemetry.snapshot().features['live-query'].queryCount).toBe(
+      queryCountBeforeStop
+    );
   });
 });
 

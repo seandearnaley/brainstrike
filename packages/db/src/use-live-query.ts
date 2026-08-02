@@ -392,9 +392,7 @@ async function subscribeViaElectron<T>(
     },
     unsubscribe: async () => {
       try {
-        await measureDatabaseQuery('live-query', async () => {
-          await bridge.stop(startResult.id);
-        });
+        await bridge.stop(startResult.id);
       } finally {
         try {
           unsubscribeUpdates();

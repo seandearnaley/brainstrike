@@ -420,12 +420,30 @@ export class TokenCacheStore {
     const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
     const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
-    const result = await this.db.query<{ total: string }>(
-      `SELECT COALESCE(SUM(token_count), 0) as total
-       FROM file_token_cache
-       WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-      [folderId, ...validatedPaths]
-    );
+    const startedAt = performance.now();
+    let result: { rows: { total: string }[] };
+    try {
+      result = await this.db.query<{ total: string }>(
+        `SELECT COALESCE(SUM(token_count), 0) as total
+         FROM file_token_cache
+         WHERE folder_id = $1 AND file_path IN (${placeholders})`,
+        [folderId, ...validatedPaths]
+      );
+    } catch (error) {
+      this.recordLookupTelemetry({
+        durationMs: performance.now() - startedAt,
+        failed: true,
+        hitCount: 0,
+        lookupCount: 0,
+      });
+      throw error;
+    }
+
+    this.recordLookupTelemetry({
+      durationMs: performance.now() - startedAt,
+      hitCount: 0,
+      lookupCount: 0,
+    });
 
     return Number(result.rows[0]?.total ?? 0);
   }

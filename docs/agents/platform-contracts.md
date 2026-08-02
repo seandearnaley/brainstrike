@@ -592,23 +592,33 @@ independent rolling one-minute buffer of at most 512 samples **per feature** and
 exposes counts, failures, p50/p95/max duration, live subscription/update
 frequency, token-cache hit rate, and an explicit retained-sample overflow count
 to System Diagnostics. The card renders every per-feature count, failure,
-p50/p95/max, rate, and overflow dimension so warning attribution is visible.
+p50/p95/max, rate, and overflow dimension plus both the raw live-update count
+and rate, so warning attribution and rate inputs are visible.
 External-store notifications are coalesced to one-second updates; while a
 subscriber is active, reads return the published snapshot identity until the
 coalesced notification publishes a replacement. Producers do not sort or
 rebuild snapshots on every query. A monotonic Performance clock owns sample and
 count-bucket retention; the wall clock is used only for the externally reported
 `snapshotAt`. The per-feature cap therefore evicts the oldest arrival directly,
-and overflow events are bucketed at the arrival that exceeded the cap.
+and overflow events are bucketed at the arrival that exceeded the cap. Module
+construction is clock-free; the first collection or external-store read
+validates the monotonic clock and fails loudly if it is unavailable.
 
 The collector is memory-only and deliberately process-local. It retains no SQL,
 parameters, rows, paths, filenames, queue names, or content, and requires no
 factory-reset wiring. Runtime records accept only the declared feature,
 duration, failure, lookup, and hit fields; unknown keys and malformed values
-throw before a sample is retained. Query duration and retention both use the
-monotonic performance clock. Production wrappers log telemetry failures at
-error level while preserving the database operation's original success or
-rejection. There is deliberately no public reset: clearing the singleton could
+throw before a sample is retained, and caller fields are captured exactly once
+before validation and retention. Query duration and retention both use the
+monotonic performance clock. File-record counts and selected-file token SUMs
+are measured alongside the other production reads; SUM samples contribute
+duration and failure data with zero lookup and hit counts. Live-query histogram
+samples represent start and refresh query executions on both renderer and
+Electron paths; subscription lifecycle, update delivery, and teardown are
+tracked separately. A rejected direct unsubscribe retains its registered
+wrapper and active-subscription ownership until a retry succeeds. Production
+wrappers log telemetry failures at error level while preserving the database
+operation's original success or rejection. There is deliberately no public reset: clearing the singleton could
 invalidate live-subscription ownership held by active proxies. Paired coverage
 lives in
 `packages/db/__tests__/database-query-telemetry.test.ts`,

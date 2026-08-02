@@ -251,14 +251,19 @@ export class DrizzleTokenCacheStore {
     }
     const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
-    const [result] = await this.db
-      .select({ total: sum(fileTokenCache.tokenCount) })
-      .from(fileTokenCache)
-      .where(
-        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, validatedPaths))
-      );
+    return await measureDatabaseQuery('token-estimation', async () => {
+      const [result] = await this.db
+        .select({ total: sum(fileTokenCache.tokenCount) })
+        .from(fileTokenCache)
+        .where(
+          and(
+            eq(fileTokenCache.folderId, folderId),
+            inArray(fileTokenCache.filePath, validatedPaths)
+          )
+        );
 
-    return Number(result?.total ?? 0);
+      return Number(result?.total ?? 0);
+    });
   }
 
   /**

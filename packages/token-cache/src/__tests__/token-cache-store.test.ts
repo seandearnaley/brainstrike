@@ -679,6 +679,39 @@ describe('TokenCacheStore', () => {
       const total = await store.getTotalTokens('folder-1', ['file1.ts', 'non-existent.ts']);
       expect(total).toBe(100);
     });
+
+    it('reports aggregate query duration without changing lookup or hit counts', async () => {
+      const recordLookup = vi.fn();
+      const instrumentedStore = new TokenCacheStore(mockDb as any, {
+        telemetry: { recordLookup },
+      });
+
+      await instrumentedStore.getTotalTokens('folder-1', ['file1.ts']);
+
+      expect(recordLookup).toHaveBeenCalledWith({
+        durationMs: expect.any(Number),
+        hitCount: 0,
+        lookupCount: 0,
+      });
+    });
+
+    it('reports aggregate query failures without changing the rejection', async () => {
+      const recordLookup = vi.fn();
+      const instrumentedStore = new TokenCacheStore(mockDb as any, {
+        telemetry: { recordLookup },
+      });
+      mockDb.query.mockRejectedValueOnce(new Error('sum failed'));
+
+      await expect(instrumentedStore.getTotalTokens('folder-1', ['file1.ts'])).rejects.toThrow(
+        'sum failed'
+      );
+      expect(recordLookup).toHaveBeenCalledWith({
+        durationMs: expect.any(Number),
+        failed: true,
+        hitCount: 0,
+        lookupCount: 0,
+      });
+    });
   });
 
   describe('getStats', () => {

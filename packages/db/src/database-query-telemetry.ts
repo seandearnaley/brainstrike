@@ -71,7 +71,7 @@ const DATABASE_QUERY_FEATURES: readonly DatabaseQueryFeature[] = [
 const DEFAULT_MAX_SAMPLES_PER_FEATURE = 512;
 const DEFAULT_WINDOW_MS = 60_000;
 const NOTIFY_INTERVAL_MS = 1000;
-const DATABASE_QUERY_FEATURE_SET = new Set(DATABASE_QUERY_FEATURES);
+const DATABASE_QUERY_FEATURE_SET: ReadonlySet<string> = new Set(DATABASE_QUERY_FEATURES);
 const DATABASE_QUERY_RECORD_FIELDS = new Set([
   'durationMs',
   'failed',
@@ -93,7 +93,9 @@ function assertCount(value: number, label: string): void {
   }
 }
 
-function assertDatabaseQueryRecord(record: DatabaseQueryTelemetryRecord): void {
+function assertDatabaseQueryRecordShape(
+  record: unknown
+): asserts record is DatabaseQueryTelemetryRecord {
   if (typeof record !== 'object' || record === null || Array.isArray(record)) {
     throw new Error('Database query telemetry record must be an object');
   }
@@ -102,21 +104,26 @@ function assertDatabaseQueryRecord(record: DatabaseQueryTelemetryRecord): void {
       throw new Error(`Database query telemetry record contains unsupported field: ${String(key)}`);
     }
   }
-  if (!DATABASE_QUERY_FEATURE_SET.has(record.feature)) {
-    throw new Error(`Database query telemetry feature is unsupported: ${String(record.feature)}`);
+}
+
+function assertDatabaseQueryRecordValues(
+  failed: unknown,
+  feature: unknown
+): asserts feature is DatabaseQueryFeature {
+  if (!(typeof feature === 'string' && DATABASE_QUERY_FEATURE_SET.has(feature))) {
+    throw new Error(`Database query telemetry feature is unsupported: ${String(feature)}`);
   }
-  if (record.failed !== undefined && typeof record.failed !== 'boolean') {
+  if (failed !== undefined && typeof failed !== 'boolean') {
     throw new Error('Database query telemetry failed must be a boolean when provided');
   }
 }
 
-const readMonotonicTime = (() => {
+function readMonotonicTime(): number {
   if (typeof performance === 'undefined' || typeof performance.now !== 'function') {
     throw new Error('Database query telemetry requires the Performance monotonic clock');
   }
-  const performanceNow = performance.now.bind(performance);
-  return (): number => performanceNow();
-})();
+  return performance.now();
+}
 
 function percentile(sorted: readonly number[], ratio: number): number {
   if (sorted.length === 0) {
@@ -139,6 +146,29 @@ function featureSnapshot(
     maxDurationMs: durations.at(-1) ?? 0,
     queriesPerMinute: (samples.length * 60_000) / windowMs,
     queryCount: samples.length,
+  };
+}
+
+function createInitialSnapshot(windowMs: number): DatabaseQueryTelemetrySnapshot {
+  return {
+    activeLiveSubscriptions: 0,
+    droppedSampleCount: 0,
+    features: {
+      'file-tree': featureSnapshot([], windowMs, 0),
+      'live-query': featureSnapshot([], windowMs, 0),
+      'queue-stats': featureSnapshot([], windowMs, 0),
+      'token-estimation': featureSnapshot([], windowMs, 0),
+    },
+    liveUpdateCount: 0,
+    liveUpdatesPerMinute: 0,
+    sampleCount: 0,
+    snapshotAt: 0,
+    tokenEstimation: {
+      cacheHitRate: null,
+      hitCount: 0,
+      lookupCount: 0,
+    },
+    windowMs,
   };
 }
 
@@ -169,7 +199,7 @@ function safelyRecordTelemetry(operation: string, record: () => void): void {
 export class DatabaseQueryTelemetry {
   private activeLiveSubscriptions = 0;
   private currentSnapshot: DatabaseQueryTelemetrySnapshot;
-  private dirty = false;
+  private dirty = true;
   private readonly droppedSampleBucketMs: number;
   private readonly droppedSampleBuckets = createFeatureArrays<CountBucket[]>(() => []);
   private readonly liveUpdateBucketMs: number;
@@ -195,7 +225,7 @@ export class DatabaseQueryTelemetry {
     this.wallNow = options.wallNow ?? Date.now;
     assertPositiveInteger(this.maxSamples, 'Database query telemetry maxSamples');
     assertPositiveInteger(this.windowMs, 'Database query telemetry windowMs');
-    this.currentSnapshot = this.buildSnapshot(this.readRetentionNow());
+    this.currentSnapshot = createInitialSnapshot(this.windowMs);
   }
 
   readonly getSnapshot = (): DatabaseQueryTelemetrySnapshot => {
@@ -237,12 +267,20 @@ export class DatabaseQueryTelemetry {
   }
 
   recordQuery(record: DatabaseQueryTelemetryRecord): void {
-    assertDatabaseQueryRecord(record);
-    if (!Number.isFinite(record.durationMs) || record.durationMs < 0) {
+    assertDatabaseQueryRecordShape(record);
+    const {
+      durationMs,
+      failed,
+      feature,
+      hitCount: suppliedHitCount,
+      lookupCount: suppliedLookupCount,
+    } = record;
+    assertDatabaseQueryRecordValues(failed, feature);
+    if (!Number.isFinite(durationMs) || durationMs < 0) {
       throw new Error('Database query telemetry durationMs must be finite and non-negative');
     }
-    const lookupCount = record.lookupCount ?? 0;
-    const hitCount = record.hitCount ?? 0;
+    const lookupCount = suppliedLookupCount ?? 0;
+    const hitCount = suppliedHitCount ?? 0;
     assertCount(lookupCount, 'Database query telemetry lookupCount');
     assertCount(hitCount, 'Database query telemetry hitCount');
     if (hitCount > lookupCount) {
@@ -251,22 +289,18 @@ export class DatabaseQueryTelemetry {
 
     const recordedAt = this.readRetentionNow();
     this.trimExpired(recordedAt);
-    const featureSamples = this.querySamples[record.feature];
+    const featureSamples = this.querySamples[feature];
     featureSamples.push({
-      durationMs: record.durationMs,
-      feature: record.feature,
+      durationMs,
+      feature,
       hitCount,
       lookupCount,
       recordedAt,
-      ...(record.failed === undefined ? {} : { failed: record.failed }),
+      ...(failed === undefined ? {} : { failed }),
     });
     if (featureSamples.length > this.maxSamples) {
       featureSamples.shift();
-      this.recordCount(
-        this.droppedSampleBuckets[record.feature],
-        this.droppedSampleBucketMs,
-        recordedAt
-      );
+      this.recordCount(this.droppedSampleBuckets[feature], this.droppedSampleBucketMs, recordedAt);
     }
     this.markDirty();
   }
@@ -483,12 +517,12 @@ export async function measureDatabaseQuery<T>(
   work: () => Promise<T>,
   counts?: { readonly hitCount: (result: T) => number; readonly lookupCount: number }
 ): Promise<T> {
-  const startedAt = performance.now();
+  const startedAt = readMonotonicTime();
   try {
     const result = await work();
     safelyRecordTelemetry(`${feature}-query`, () => {
       databaseQueryTelemetry.recordQuery({
-        durationMs: performance.now() - startedAt,
+        durationMs: readMonotonicTime() - startedAt,
         feature,
         ...(counts
           ? { hitCount: counts.hitCount(result), lookupCount: counts.lookupCount }
@@ -499,7 +533,7 @@ export async function measureDatabaseQuery<T>(
   } catch (error) {
     safelyRecordTelemetry(`${feature}-query-failed`, () => {
       databaseQueryTelemetry.recordQuery({
-        durationMs: performance.now() - startedAt,
+        durationMs: readMonotonicTime() - startedAt,
         failed: true,
         feature,
       });

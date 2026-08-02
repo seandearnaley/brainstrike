@@ -277,9 +277,16 @@ describe('DrizzleTokenCacheStore', () => {
       await store.set(createEntry({ filePath: 'src/file2.ts', tokenCount: 200 }));
       await store.set(createEntry({ filePath: 'src/file3.ts', tokenCount: 300 }));
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot();
       const total = await store.getTotalTokens(testFolderId, ['src/file1.ts', 'src/file2.ts']);
 
       expect(total).toBe(300);
+      const telemetryAfter = databaseQueryTelemetry.snapshot();
+      expect(
+        telemetryAfter.features['token-estimation'].queryCount -
+          telemetryBefore.features['token-estimation'].queryCount
+      ).toBe(1);
+      expect(telemetryAfter.tokenEstimation).toEqual(telemetryBefore.tokenEstimation);
     });
 
     it('should return 0 for empty paths', async () => {

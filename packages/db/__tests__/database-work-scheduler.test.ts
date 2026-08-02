@@ -635,14 +635,21 @@ describe('DatabaseWorkScheduler', () => {
     );
   });
 
-  it('releases direct live-query telemetry when unsubscribe rejects', async () => {
+  it('retains the wrapped listener and subscription ownership until unsubscribe succeeds', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    let subscribedListener: ((...args: unknown[]) => unknown) | null = null;
+    let unsubscribeAttempt = 0;
     const liveHandle = {
       initialResults: { rows: [] },
       refresh: vi.fn(async () => undefined),
-      subscribe: vi.fn(),
+      subscribe: vi.fn((listener: (...args: unknown[]) => unknown) => {
+        subscribedListener = listener;
+      }),
       unsubscribe: vi.fn(async () => {
-        throw new Error('database is closing');
+        unsubscribeAttempt += 1;
+        if (unsubscribeAttempt === 1) {
+          throw new Error('database is closing');
+        }
       }),
     };
     const rawDb = {
@@ -662,6 +669,14 @@ describe('DatabaseWorkScheduler', () => {
 
     await expect(handle.unsubscribe(listener)).rejects.toThrow('database is closing');
 
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions + 1
+    );
+    expect(liveHandle.unsubscribe).toHaveBeenNthCalledWith(1, subscribedListener);
+
+    await expect(handle.unsubscribe(listener)).resolves.toBeUndefined();
+
+    expect(liveHandle.unsubscribe).toHaveBeenNthCalledWith(2, subscribedListener);
     expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
       telemetryBefore.activeLiveSubscriptions
     );
