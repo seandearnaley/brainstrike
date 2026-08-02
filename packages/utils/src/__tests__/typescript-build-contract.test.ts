@@ -42,7 +42,7 @@ function runtimeSubpathExportNames(): string[] {
     .sort();
 }
 
-describe('utils TypeScript build contract', () => {
+describe('utils emitted TypeScript build contract', () => {
   it('emits every runtime package subpath declared by the export map', () => {
     for (const exportName of runtimeSubpathExportNames()) {
       const exportConfig = packageJson.exports[`./${exportName}`];

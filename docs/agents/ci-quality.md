@@ -1036,6 +1036,47 @@ wiring contract, pruner behavior, entrypoint controls, and the `turbo.jsonc`
 `global.inputs` hash entry for the pruner (editing it must invalidate
 cached builds) are guarded by `scripts/__tests__/prune-stale-dist.test.mjs`.
 
+### Canonical package build strategies (BST-1014)
+
+Non-native typed packages have two JavaScript build classes, derived from
+`scripts.build` rather than from a package registry:
+
+- **Libraries use TypeScript emit.** A plain library builds JavaScript and
+  declarations together with `tsc -b`/`tsc --build`. It does not retain a tsup
+  config, tsup dependency, or tsup watch command. Node 24 can synchronously
+  `require()` ESM, so producing parallel `.mjs`/`.cjs` copies is not a reason to
+  bundle an otherwise ordinary library.
+- **tsup is for real bundle boundaries.** Eight packages require bundling:
+  `chunking-worker`, `embedding-worker`, `file-tree-worker`, and `token-cache`
+  package browser workers/WASM/assets; `agent` produces the self-contained
+  hosted-web boundary; `assistant-service` and `assistant-wire` retain the CJS
+  surface consumed by the Node16 web API project; and `file-explorer` emits the
+  renderer's worker-storage artifact. Adding a ninth bundler is an architectural
+  decision, not a convenient way to emit a second module format.
+- **Native addons remain native builds.** `secure-fs-native` and
+  `windows-job-native` use `node-gyp`; the build-strategy guard recognizes that
+  structural class rather than pretending a TypeScript or tsup command owns the
+  native artifact.
+- **Node-compatible emitted ESM is explicit.** Libraries migrated from tsup extend
+  `packages/config/tsconfig/node-library.json`, declare `type: module`, point
+  dist import/require conditions at TypeScript's emitted `.js`, and spell local
+  TypeScript imports as `.js` in source. The shared config retains Bundler
+  resolution because existing workspace declaration graphs use that contract;
+  `scripts/verify-package-build-strategies.mjs` supplies the missing runtime
+  check that Bundler resolution itself does not: an extensionless relative
+  import compiles but fails under Node ESM.
+
+`scripts/verify-package-build-strategies.mjs` (alias
+`lint:package-build-strategies`, present in both lint chains) enforces the two
+classes, the native-addon exception, the exact bundler budget, removal of orphan
+tsup files/dependencies/dev commands, the node-library manifest shape, and
+runtime extensions. Discovery comes from workspace package manifests and
+tsconfig consumers; there is no identity mapping file. Its anti-vacuity floors
+cover typed build packages, tsc-only libraries, and node-library consumers. The paired
+`scripts/__tests__/verify-package-build-strategies.test.mjs` money tests mutate
+each protected seam (including the bundler count and extensionless ESM) and
+prove the executable guard exits red with the intended reason.
+
 ### Agent declaration build split
 
 `@brainstrike/agent` declarations are emitted by the package's composite
@@ -1069,27 +1110,26 @@ tsup emit declarations (the separate declaration-bundler worker duplicates
 `tsc -b` and causes severe build startup contention).
 
 BST-746 originally proposed a `createTsupConfig` factory in
-`@brainstrike/build-utils`. Measured and REJECTED — do not relitigate: only 9 of
-18 configs are simple, and they genuinely diverge on `sourcemap`, `format`,
-`target` and `splitting` (tsup defaults `splitting` to TRUE for ESM, so
-build-utils/embeddings/text-splitter really do split). A factory would also have
-added 8 build-graph edges (none of those packages depend on build-utils) or hit
-the config-load hash-gap class `verify-config-load-hash-coverage.mjs` guards —
-unifying the 4 fields that must stay different while doing nothing about the 2
-that must stay the same.
+`@brainstrike/build-utils`. Measured and REJECTED — do not relitigate: at that
+time only 9 of 18 configs were simple, and they genuinely diverged on
+`sourcemap`, `format`, `target` and `splitting`. A factory would also have added
+8 build-graph edges or hit the config-load hash-gap class
+`verify-config-load-hash-coverage.mjs` guards. BST-1014 resolved the ordinary
+library duplication by removing tsup from those packages, not by abstracting
+their obsolete configs; the eight remaining configs describe real, divergent
+bundle boundaries.
 
 The invariant is CONDITIONAL, and the class is DERIVED from each package's
-`build` script rather than hand-listed (a list would be a second copy of a fact
-already in the script, free to disagree with it). **TypeScript-owned** (17
-packages, 14 with a config file) runs `tsc -b`/`tsc --build` then tsup, and is
-governed. **tsup-owned** — exactly `chunking-worker`, `file-tree-worker`,
-`test-utils`, `token-cache` — runs tsup ALONE (`type-check` is a separate
-`tsc --noEmit`), so tsup is the only possible declaration emitter and `dts: true`
-is REQUIRED there. A flat "every config sets clean/dts false" rule would have
-been false for those 4 on the day it was written. The exemption carries the
-INVERSE obligation (a tsup-owned package that enables no declaration emit FAILS),
-so it cannot be used as a parking spot to silence a violation; a test pins the
-exempt set to those four names so growing it is a deliberate decision.
+`build` script rather than hand-listed. **TypeScript-owned** — `agent`,
+`assistant-service`, `assistant-wire`, `embedding-worker`, and `file-explorer` —
+runs `tsc -b`/`tsc --build` then tsup, and is governed. **tsup-owned** — exactly
+`chunking-worker`, `file-tree-worker`, and `token-cache` — runs tsup ALONE
+(`type-check` is a separate `tsc --noEmit`), so tsup is the only possible
+declaration emitter and `dts: true` is REQUIRED there. A flat "every config sets
+clean/dts false" rule is false for those three. The exemption carries the
+INVERSE obligation (a tsup-owned package that enables no declaration emit
+FAILS), so it cannot be used as a parking spot to silence a violation; a test
+pins the exempt set to those three names so growing it is deliberate.
 
 Three rulings, all enforced and all with failure-path tests:
 
@@ -1106,9 +1146,9 @@ Three rulings, all enforced and all with failure-path tests:
    which is the problem: `text-splitter` set neither while the guard claimed all
    governed packages were "pinned", an unverified assertion (the vacuous-green
    class the discovery floors exist to prevent), and deleting `clean: false` from
-   a config would have been a silent no-op. Config-LESS packages (`queue`,
-   `types`, `worker-runtime`) are exempt from this — they have nothing to drift
-   and are covered by the CLI check instead.
+   a config would have been a silent no-op. The lower-level guard still models
+   config-less tsup CLI invocations so its own flag detector cannot be bypassed,
+   while the canonical package-build guard rejects that third real-tree shape.
 3. **Every declaration-emit spelling is modelled**, verified against the
    installed tsup 8.5.1 rather than from memory: config keys `dts` AND
    `experimentalDts`, plus four CLI flags — `--dts`, `--dts-only`,
@@ -1117,10 +1157,11 @@ Three rulings, all enforced and all with failure-path tests:
    `--dts-resolve` each enable emit ON THEIR OWN; they are not modifiers of
    `--dts`. `experimentalDts` may be omitted but never enabled.
 
-Discovery floors (`MIN_TSUP_CONFIGS`, `MIN_TYPESCRIPT_OWNED_PACKAGES`) refuse to
-run rather than report a vacuous green — the second catches a collapsed
-classification, where discovery looks healthy but the governed class has emptied
-out. Config parsing is line-shaped with comments blanked (preserving line
+Discovery floors (`MIN_TSUP_CONFIGS` = 8,
+`MIN_TYPESCRIPT_OWNED_PACKAGES` = 5) refuse to run rather than report a vacuous
+green — the second catches a collapsed classification, where discovery looks
+healthy but the governed class has emptied out. Config parsing is line-shaped
+with comments blanked (preserving line
 numbers, which are printed in the report) after normalizing Windows CRLF input
 to LF; a permissive cross-check THROWS on any
 guarded token the line shape did not parse, so an unmodelled shape fails loudly
