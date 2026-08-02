@@ -539,7 +539,9 @@ describe('suspended-runs endpoint', () => {
     (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
       approvals: [
         {
-          args: { allowedDomains: ['exfil.example.com'], code: 'print(1)' },
+          // A bare "*" fails the seam's policyDomainSchema — unrestricted
+          // egress stays inexpressible even on the rediscovery recompute.
+          args: { allowedDomains: ['*'], code: 'print(1)' },
           runId: 'run-python-restart-2',
           suspendedAt: new Date().toISOString(),
           toolCallId: 'call-python-restart-2',
