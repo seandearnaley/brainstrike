@@ -93,7 +93,7 @@ describe('SystemDiagnosticsPanel', () => {
       render(<SystemDiagnosticsPanel />);
 
       expect(screen.getByText('Renderer Long Tasks')).toBeInTheDocument();
-      expect(screen.getByText('Idle')).toBeInTheDocument();
+      expect(screen.getByText('Idle · 1 sample')).toBeInTheDocument();
       expect(screen.getAllByText('125 ms')).toHaveLength(3);
       expect(screen.getByText('Delivery-time routes')).toBeInTheDocument();
       expect(screen.getByText('Delivery-time feature flags')).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe('SystemDiagnosticsPanel', () => {
         });
       });
 
-      expect(screen.getByText('Idle')).toBeInTheDocument();
+      expect(screen.getByText('Idle · 1 sample')).toBeInTheDocument();
       expect(screen.getAllByText('80 ms')).toHaveLength(3);
       expect(screen.getByText('Unavailable for retained samples')).toBeInTheDocument();
     });
@@ -162,6 +162,33 @@ describe('SystemDiagnosticsPanel', () => {
       expect(
         screen.getByText('PerformanceObserver is unavailable in this renderer.')
       ).toBeInTheDocument();
+    });
+
+    it('keeps the retained sample count visible when observation fails', () => {
+      class ThrowingPerformanceObserver {
+        static readonly supportedEntryTypes = ['longtask'];
+
+        constructor(_callback: PerformanceObserverCallback) {
+          throw new Error('observer construction failed');
+        }
+      }
+      rendererLongTaskTelemetry.record({
+        durationMs: 80,
+        enabledFeatureFlags: [],
+        route: 'settings',
+      });
+      vi.stubGlobal('PerformanceObserver', ThrowingPerformanceObserver);
+      act(() => {
+        rendererLongTaskTelemetry.observe(() => ({
+          enabledFeatureFlags: [],
+          route: 'settings',
+        }));
+      });
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(screen.getByText('Failed · 1 sample')).toBeInTheDocument();
+      expect(screen.getByText('observer construction failed')).toBeInTheDocument();
     });
 
     it('distinguishes no samples from no active feature flags', () => {

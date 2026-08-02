@@ -495,12 +495,12 @@ function formatRendererLongTaskStatus(snapshot: RendererLongTaskTelemetrySnapsho
     return formatCount(snapshot.sampleCount, 'sample', 'samples');
   }
   if (snapshot.availability === 'failed') {
-    return 'Failed';
+    return `Failed · ${formatCount(snapshot.sampleCount, 'sample', 'samples')}`;
   }
   if (snapshot.availability === 'unsupported') {
     return 'Unsupported';
   }
-  return 'Idle';
+  return `Idle · ${formatCount(snapshot.sampleCount, 'sample', 'samples')}`;
 }
 
 function formatRendererLongTaskFeatureFlags(snapshot: RendererLongTaskTelemetrySnapshot): string {

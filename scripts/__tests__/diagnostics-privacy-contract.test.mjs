@@ -31,9 +31,13 @@ test('platform contract exists in the repo docs', () => {
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const assertContractIncludes = (term, flags = 'i') => {
+const buildPhrasePattern = (term, flags = 'i') => {
   const whitespaceAgnosticTerm = escapeRegExp(term).replaceAll(' ', '\\s+');
-  assert.match(contractSource, new RegExp(whitespaceAgnosticTerm, flags));
+  return new RegExp(whitespaceAgnosticTerm, flags);
+};
+
+const assertContractIncludes = (term, flags = 'i') => {
+  assert.match(contractSource, buildPhrasePattern(term, flags));
 };
 
 const contractSection = (heading) => {
@@ -48,7 +52,7 @@ const contractSection = (heading) => {
 };
 
 const assertSectionIncludes = (section, term, flags = 'i') => {
-  assert.match(section, new RegExp(escapeRegExp(term), flags));
+  assert.match(section, buildPhrasePattern(term, flags));
 };
 
 const testWithContract = (name, callback) => {
@@ -143,6 +147,12 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'preserves the precise failure reason',
     'valid sibling',
     'keeps a clock failure latched',
+    'expiry timer remains owned',
+    'original errors preserved',
+    'validated delivery timestamp',
+    'non-finite injected clock result',
+    'same explicit rejection applies after observation has failed',
+    'explicit denominator',
   ]) {
     assertContractIncludes(term);
   }
@@ -165,6 +175,6 @@ test('platform contract documents the non-destructive render-phase retention exc
     'dedupe keys and the retention timer',
     'before publishing an explicitly empty window',
   ]) {
-    assert.match(platformContractSource, new RegExp(escapeRegExp(term), 'i'));
+    assert.match(platformContractSource, buildPhrasePattern(term));
   }
 });

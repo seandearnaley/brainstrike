@@ -20,7 +20,8 @@ are:
 - byte sizes
 - process labels
 - feature names
-- coarse route or surface identifiers
+- coarse route or surface
+  identifiers
 - queue depths, retry counts, and bounded error categories
 - cache entry counts, eviction reasons, and residency durations
 
@@ -137,13 +138,20 @@ failure and appends the clock failure instead of discarding the originating caus
 Unsupported observation releases retained samples, dedupe keys, and the retention
 timer before publishing an explicitly empty window without reading the clock.
 Direct recording after observation is known to be unsupported throws instead of
-creating a hidden retained window. A malformed or future-dated observer entry
-fails collection visibly while valid sibling entries in that delivery remain
-available in the failed snapshot; distinct malformed causes in one batch are
-reported together. The observer Performance clock is read after the delivery
-epoch clock, so occurrence mapping is conservatively biased slightly earlier for
-retention. Disposing a failed inactive observation cannot claim recovery while
-that clock remains unusable, and therefore preserves the precise failure reason.
+creating a hidden retained window, and the same explicit rejection applies after
+observation has failed. A malformed, non-finite-duration, or future-dated
+observer entry fails collection visibly while valid sibling entries in that
+delivery remain available in the failed snapshot. Their expiry timer remains
+owned even if a later batch insertion fails. Distinct malformed causes in one
+batch are reported together with their original errors preserved. A delivery
+failure reuses the validated delivery timestamp for its failed snapshot instead
+of probing the clock a second time; any non-finite injected clock result takes the
+normal failed-snapshot path. The observer Performance clock is read after the
+delivery epoch clock, so occurrence mapping is conservatively biased slightly
+earlier for retention. Disposing a failed inactive observation cannot claim
+recovery while that clock remains unusable, and therefore preserves the precise
+failure reason. Active, idle, and failed diagnostics labels retain the sample
+count so every displayed aggregate has an explicit denominator.
 Reset clears all
 identifiers but keeps a clock failure latched rather than reporting idle.
 The snapshot is visible in System Diagnostics and is discarded with the

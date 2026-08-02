@@ -611,11 +611,11 @@ external-store read. Any retention-clock failure outside a render-phase
 `getSnapshot` releases retained samples and dedupe keys immediately, even if the
 failure is transient, so an aborted timer cannot leave identifiers resident
 without a replacement expiry deadline.
-A render-phase `getSnapshot` clock failure is the one exception: it publishes
-an empty failed snapshot and does not mutate backing storage. The already owned
-retention timer or the next
-non-render collection/publication entry point performs the pending destructive
-cleanup. Buffered observer entries are retained from their occurrence timestamp
+A render-phase `getSnapshot` clock failure is the one exception: it publishes an
+empty failed snapshot and does not mutate backing storage. The already owned
+retention timer or the next non-render collection/publication entry point
+performs the pending destructive cleanup. Buffered observer entries are retained
+from their occurrence timestamp
 and deduplicated across observer replay. An observer entry whose start maps after
 delivery, or whose completion exceeds delivery by more than the one-millisecond
 Performance API rounding tolerance, is malformed and fails the observation.
@@ -638,20 +638,27 @@ create a spurious publish.
 They use stable Performance entry identity (`startTime` plus duration), never
 the delivery-time clock mapping, because replacement observers can deliver the
 same buffered entry at different times.
-Unsupported or failed
-`PerformanceObserver` setup is represented explicitly in the snapshot; it
-never silently degrades. Unsupported observation releases retained samples,
-dedupe keys and the retention timer before publishing an explicitly empty window
-without consulting the timing clock; disposing that inactive observation repeats
-the release before the caller sees the idle state. The empty snapshot carries
+Unsupported or failed `PerformanceObserver` setup is represented explicitly in
+the snapshot; it never silently degrades. Unsupported observation releases
+retained samples, dedupe keys and the retention timer before publishing an
+explicitly empty window without consulting the timing clock; disposing that
+inactive observation repeats the release before the caller sees the idle state.
+The empty snapshot carries
 the last successful monotonic timestamp rather than fabricating a new clock read,
 or the explicit epoch-zero sentinel if no clock read has succeeded yet. Direct
 recording after unsupported observation is known throws instead of creating a
-hidden retained window. A malformed entry fails and disconnects its observer
-loudly, but valid sibling entries from the same delivered batch are retained and
-published with that failed snapshot; distinct malformed causes are reported
-together. The observer Performance clock is read after the delivery epoch clock,
-conservatively biasing occurrence mapping slightly earlier for retention.
+hidden retained window, and failed observation has the same explicit rejection.
+A malformed entry fails and disconnects its observer loudly, but valid sibling
+entries from the same delivered batch are retained and published with that failed
+snapshot; their expiry timer remains owned even if a later batch insertion fails.
+Distinct malformed causes are reported together with their original errors
+preserved. A delivery failure reuses the validated delivery timestamp for the
+failed snapshot rather than probing the clock again. The observer Performance
+clock is read after the delivery epoch clock, conservatively biasing occurrence
+mapping slightly earlier for retention. A non-finite long-task duration or
+injected clock result fails collection visibly. System Diagnostics keeps the
+retained sample count visible on active, idle, and failed cards so aggregates
+always have an explicit denominator.
 Disposing a failed inactive observation preserves its precise reason if the clock
 is still unusable rather than claiming recovery. Reset always clears retained
 context; when the timing clock is unusable, the failed state remains latched
