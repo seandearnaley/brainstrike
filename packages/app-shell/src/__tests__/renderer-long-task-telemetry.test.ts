@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createRendererLongTaskTelemetry,
@@ -6,7 +6,12 @@ import {
 } from '../diagnostics/renderer-long-task-telemetry';
 
 describe('renderer-long-task-telemetry', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
   afterEach(() => {
+    vi.clearAllTimers();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -43,7 +48,7 @@ describe('renderer-long-task-telemetry', () => {
       route: 'terminal',
     });
 
-    expect(telemetry.snapshot()).toMatchObject({
+    expect(telemetry.getSnapshot()).toMatchObject({
       availability: 'idle',
       durationP50Ms: 100,
       durationP95Ms: 120,
@@ -61,7 +66,8 @@ describe('renderer-long-task-telemetry', () => {
     });
 
     now += 1001;
-    expect(telemetry.snapshot()).toMatchObject({
+    vi.advanceTimersByTime(1001);
+    expect(telemetry.getSnapshot()).toMatchObject({
       durationP50Ms: null,
       durationP95Ms: null,
       featureFlags: [],
@@ -109,18 +115,19 @@ describe('renderer-long-task-telemetry', () => {
     if (!callback) {
       throw new Error('Expected PerformanceObserver callback to be registered.');
     }
+    const entryStartTime = Date.now() - performance.timeOrigin;
     callback(
       {
         getEntries: () => [
-          { duration: 49, entryType: 'longtask' } as PerformanceEntry,
-          { duration: 75, entryType: 'paint' } as PerformanceEntry,
-          { duration: 90, entryType: 'longtask' } as PerformanceEntry,
+          { duration: 49, entryType: 'longtask', startTime: entryStartTime } as PerformanceEntry,
+          { duration: 75, entryType: 'paint', startTime: entryStartTime } as PerformanceEntry,
+          { duration: 90, entryType: 'longtask', startTime: entryStartTime } as PerformanceEntry,
         ],
       } as PerformanceObserverEntryList,
       {} as PerformanceObserver
     );
 
-    expect(telemetry.snapshot()).toMatchObject({
+    expect(telemetry.getSnapshot()).toMatchObject({
       availability: 'active',
       featureFlags: [{ count: 1, flag: 'settings-redesign' }],
       routes: [{ count: 1, route: 'settings' }],
@@ -163,6 +170,32 @@ describe('renderer-long-task-telemetry', () => {
     });
 
     unsubscribe();
+  });
+
+  it('keeps current feature-source ownership in updateContext after samples expire', () => {
+    const telemetry = createRendererLongTaskTelemetry({ windowMs: 100 });
+    telemetry.updateContext({
+      enabledFeatureFlags: null,
+      route: 'explorer',
+    });
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: ['diagnostics-v2'],
+      route: 'settings',
+    });
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'available',
+      sampleCount: 1,
+    });
+
+    vi.advanceTimersByTime(101);
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'unavailable',
+      sampleCount: 0,
+    });
+    expect('snapshot' in telemetry).toBe(false);
   });
 
   it('disconnects the active observer when telemetry is reset', () => {
@@ -239,7 +272,6 @@ describe('renderer-long-task-telemetry', () => {
   });
 
   it('expires retained samples even without diagnostics subscribers', () => {
-    vi.useFakeTimers();
     const now = vi.fn(() => Date.now());
     const telemetry = createRendererLongTaskTelemetry({
       now,
@@ -270,7 +302,10 @@ describe('renderer-long-task-telemetry', () => {
       routes: [],
       sampleCount: 0,
     });
-    expect(now).toHaveBeenCalledTimes(nowCallsAfterExpiry);
+    expect(now).toHaveBeenCalledTimes(nowCallsAfterExpiry + 1);
+    const nowCallsAfterRead = now.mock.calls.length;
+    expect(telemetry.getSnapshot()).toBe(expiredSnapshot);
+    expect(now).toHaveBeenCalledTimes(nowCallsAfterRead);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -325,7 +360,7 @@ describe('renderer-long-task-telemetry', () => {
       route: 'terminal',
     });
 
-    const nowCallsAfterEviction = now.mock.calls.length;
+    const nowCallsBeforeRead = now.mock.calls.length;
     const cappedSnapshot = telemetry.getSnapshot();
     expect(cappedSnapshot).not.toBe(populatedSnapshot);
     expect(cappedSnapshot).toMatchObject({
@@ -333,7 +368,40 @@ describe('renderer-long-task-telemetry', () => {
       routes: [{ count: 1, route: 'terminal' }],
       sampleCount: 1,
     });
-    expect(now).toHaveBeenCalledTimes(nowCallsAfterEviction);
+    expect(now).toHaveBeenCalledTimes(nowCallsBeforeRead + 1);
+    const nowCallsAfterRead = now.mock.calls.length;
+    expect(telemetry.getSnapshot()).toBe(cappedSnapshot);
+    expect(now).toHaveBeenCalledTimes(nowCallsAfterRead);
+  });
+
+  it('scrubs identifiers when record-time pruning beats an overdue retention timer', () => {
+    let currentTime = 1000;
+    const now = vi.fn(() => currentTime);
+    const telemetry = createRendererLongTaskTelemetry({ now, windowMs: 100 });
+    const unsubscribe = telemetry.subscribe(vi.fn());
+
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: ['private-preview'],
+      route: 'settings',
+    });
+    const populatedSnapshot = telemetry.getSnapshot();
+    unsubscribe();
+
+    currentTime = 1101;
+    telemetry.record({
+      durationMs: 90,
+      enabledFeatureFlags: ['terminal-preview'],
+      route: 'terminal',
+    });
+
+    const prunedSnapshot = telemetry.getSnapshot();
+    expect(prunedSnapshot).not.toBe(populatedSnapshot);
+    expect(prunedSnapshot).toMatchObject({
+      featureFlags: [{ count: 1, flag: 'terminal-preview' }],
+      routes: [{ count: 1, route: 'terminal' }],
+      sampleCount: 1,
+    });
   });
 
   it('does not let direct samples mask a failed observer', () => {
@@ -357,7 +425,7 @@ describe('renderer-long-task-telemetry', () => {
       route: 'settings',
     });
 
-    expect(telemetry.snapshot()).toMatchObject({
+    expect(telemetry.getSnapshot()).toMatchObject({
       availability: 'failed',
       sampleCount: 1,
       unavailableReason: 'observer construction failed',
@@ -371,7 +439,7 @@ describe('renderer-long-task-telemetry', () => {
       enabledFeatureFlags: [],
       route: 'explorer',
     }));
-    expect(unsupported.snapshot()).toMatchObject({
+    expect(unsupported.getSnapshot()).toMatchObject({
       availability: 'unsupported',
       unavailableReason: 'PerformanceObserver is unavailable in this renderer.',
     });
@@ -389,7 +457,7 @@ describe('renderer-long-task-telemetry', () => {
       enabledFeatureFlags: [],
       route: 'explorer',
     }));
-    expect(failed.snapshot()).toMatchObject({
+    expect(failed.getSnapshot()).toMatchObject({
       availability: 'failed',
       unavailableReason: 'observer construction failed',
     });
@@ -413,9 +481,89 @@ describe('renderer-long-task-telemetry', () => {
     }));
 
     expect(observe).not.toHaveBeenCalled();
-    expect(telemetry.snapshot()).toMatchObject({
+    expect(telemetry.getSnapshot()).toMatchObject({
       availability: 'unsupported',
       unavailableReason: 'This renderer does not support PerformanceObserver longtask entries.',
+    });
+  });
+
+  it('treats a missing supported entry type list as explicitly unsupported', () => {
+    const observe = vi.fn();
+    class UnsupportedPerformanceObserver {
+      static readonly supportedEntryTypes = undefined;
+
+      observe(): void {
+        observe();
+      }
+    }
+    vi.stubGlobal('PerformanceObserver', UnsupportedPerformanceObserver);
+    const telemetry = createRendererLongTaskTelemetry();
+
+    telemetry.observe(() => ({
+      enabledFeatureFlags: [],
+      route: 'explorer',
+    }));
+
+    expect(observe).not.toHaveBeenCalled();
+    expect(telemetry.getSnapshot()).toMatchObject({
+      availability: 'unsupported',
+      unavailableReason: 'This renderer does not support PerformanceObserver longtask entries.',
+    });
+  });
+
+  it('retains buffered entries from occurrence time and deduplicates observer replay', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {}
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+    const timeOrigin = performance.timeOrigin;
+    vi.setSystemTime(timeOrigin + 10_000);
+    const telemetry = createRendererLongTaskTelemetry({ windowMs: 1000 });
+    telemetry.observe(() => ({
+      enabledFeatureFlags: ['diagnostics-v2'],
+      route: 'settings',
+    }));
+    const callback = callbacks.at(0);
+    if (!callback) {
+      throw new Error('Expected PerformanceObserver callback to be registered.');
+    }
+    const currentEntry = {
+      duration: 75,
+      entryType: 'longtask',
+      startTime: 9500,
+    } as PerformanceEntry;
+    const expiredEntry = {
+      duration: 80,
+      entryType: 'longtask',
+      startTime: 8000,
+    } as PerformanceEntry;
+    const entryList = {
+      getEntries: () => [expiredEntry, currentEntry],
+    } as PerformanceObserverEntryList;
+
+    callback(entryList, {} as PerformanceObserver);
+    callback(entryList, {} as PerformanceObserver);
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      featureFlags: [{ count: 1, flag: 'diagnostics-v2' }],
+      routes: [{ count: 1, route: 'settings' }],
+      sampleCount: 1,
+    });
+
+    vi.advanceTimersByTime(501);
+    expect(telemetry.getSnapshot()).toMatchObject({
+      featureFlags: [],
+      routes: [],
+      sampleCount: 0,
     });
   });
 });

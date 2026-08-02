@@ -605,6 +605,14 @@ availability changes publish immediately rather than waiting for another stall.
 Availability shown for a non-empty rolling window is derived from the retained
 samples; mixed known/unknown flag context is surfaced as partial and never
 rewritten to "no flags active" by a later registry transition.
+Retention is owned by the telemetry store, including prompt removal of route
+and feature identifiers from its cached external-store snapshot; expiry and
+cap eviction do not depend on a diagnostics subscriber. Buffered observer
+entries are retained from their occurrence timestamp and deduplicated across
+observer replay. Because the Performance Observer entry has no historical app
+context, a buffered sample explicitly carries delivery-time route and
+feature-flag context; diagnostics must not imply that context was captured at
+the original stall time.
 Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
 never silently degrades. Do not write routine

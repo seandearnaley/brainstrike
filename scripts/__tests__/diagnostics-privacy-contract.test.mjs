@@ -95,3 +95,14 @@ testWithContract('diagnostics privacy contract links related performance telemet
     assertContractIncludes(issueId, '');
   }
 });
+
+testWithContract('BST-400 documents retention ownership and buffered attribution', () => {
+  for (const term of [
+    'cached external-store snapshot',
+    'does not depend on a diagnostics subscriber',
+    'occurrence timestamp',
+    'delivery-time route and feature-flag context',
+  ]) {
+    assertContractIncludes(term);
+  }
+});

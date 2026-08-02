@@ -2,6 +2,10 @@ const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_MAX_SAMPLES = 512;
 const LONG_TASK_MIN_DURATION_MS = 50;
 
+function isLongTaskDuration(durationMs: number): boolean {
+  return Number.isFinite(durationMs) && durationMs >= LONG_TASK_MIN_DURATION_MS;
+}
+
 export type RendererDiagnosticSurface = 'explorer' | 'git' | 'notes' | 'settings' | 'terminal';
 
 export interface RendererLongTaskContext {
@@ -16,6 +20,7 @@ export interface RendererLongTaskMetric extends RendererLongTaskContext {
 
 interface RendererLongTaskSample extends RendererLongTaskMetric {
   readonly observedAt: number;
+  readonly performanceEntryKey?: string;
 }
 
 export interface RendererLongTaskRouteSummary {
@@ -54,7 +59,6 @@ export interface RendererLongTaskTelemetry {
   readonly record: (metric: RendererLongTaskMetric) => void;
   /** Disconnects collection, clears retained samples, and restores the idle state. */
   readonly reset: () => void;
-  readonly snapshot: () => RendererLongTaskTelemetrySnapshot;
   readonly subscribe: (listener: () => void) => () => void;
   readonly updateContext: (context: RendererLongTaskContext) => void;
 }
@@ -68,6 +72,13 @@ function readPercentile(sortedValues: readonly number[], percentile: number): nu
     Math.max(0, Math.ceil(percentile * sortedValues.length) - 1)
   );
   return sortedValues[index] ?? null;
+}
+
+function normalizeFeatureFlags(flags: readonly string[] | null): readonly string[] | null {
+  if (flags === null) {
+    return null;
+  }
+  return [...new Set(flags)].sort((left, right) => left.localeCompare(right));
 }
 
 export function createRendererLongTaskTelemetry(
@@ -94,9 +105,11 @@ export function createRendererLongTaskTelemetry(
   let samples: RendererLongTaskSample[] = [];
   let unavailableReason: string | null = null;
 
-  const prune = (snapshotAt: number): void => {
+  const prune = (snapshotAt: number): boolean => {
     const threshold = snapshotAt - windowMs;
+    const sampleCountBeforePrune = samples.length;
     samples = samples.filter((sample) => sample.observedAt >= threshold);
+    return samples.length !== sampleCountBeforePrune;
   };
 
   const buildSnapshot = (snapshotAt: number): RendererLongTaskTelemetrySnapshot => {
@@ -151,6 +164,17 @@ export function createRendererLongTaskTelemetry(
   let currentSnapshot = buildSnapshot(now());
   let snapshotDirty = false;
 
+  const releaseCachedSampleContext = (snapshotAt: number): void => {
+    currentSnapshot = {
+      ...currentSnapshot,
+      featureFlags: [],
+      routes: [],
+      sampleCount: 0,
+      snapshotAt,
+    };
+    snapshotDirty = true;
+  };
+
   const publishSnapshot = (snapshotAt: number): void => {
     currentSnapshot = buildSnapshot(snapshotAt);
     snapshotDirty = false;
@@ -179,52 +203,80 @@ export function createRendererLongTaskTelemetry(
     const delayMs = Math.max(1, oldestSample.observedAt + windowMs - scheduledAt + 1);
     retentionTimer = setTimeout(() => {
       retentionTimer = null;
-      const sampleCountBeforePrune = samples.length;
       const snapshotAt = now();
-      prune(snapshotAt);
+      const pruned = prune(snapshotAt);
       scheduleRetentionPrune(snapshotAt);
-      if (samples.length !== sampleCountBeforePrune) {
-        // Expiry must rebuild even without listeners so the store itself does
-        // not retain feature identifiers in its cached external-store snapshot.
+      if (!pruned) {
+        return;
+      }
+      releaseCachedSampleContext(snapshotAt);
+      if (listeners.size > 0) {
         publishSnapshot(snapshotAt);
       }
     }, delayMs);
   };
 
-  const record = (metric: RendererLongTaskMetric): void => {
-    if (!(Number.isFinite(metric.durationMs) && metric.durationMs >= LONG_TASK_MIN_DURATION_MS)) {
+  const insertSample = (sample: RendererLongTaskSample): void => {
+    const latestSample = samples.at(-1);
+    if (!latestSample || latestSample.observedAt <= sample.observedAt) {
+      samples.push(sample);
       return;
     }
-    const observedAt = now();
-    currentFeatureFlagContextAvailability =
-      metric.enabledFeatureFlags === null ? 'unavailable' : 'available';
-    samples.push({
+    const insertionIndex = samples.findIndex(
+      (retainedSample) => retainedSample.observedAt > sample.observedAt
+    );
+    if (insertionIndex < 0) {
+      throw new Error('Renderer long-task telemetry sample ordering invariant failed.');
+    }
+    samples.splice(insertionIndex, 0, sample);
+  };
+
+  const recordAt = (
+    metric: RendererLongTaskMetric,
+    observedAt: number,
+    scheduledAt: number,
+    performanceEntryKey?: string
+  ): void => {
+    if (!Number.isFinite(observedAt)) {
+      throw new Error('Renderer long-task telemetry observedAt must be finite.');
+    }
+    if (
+      performanceEntryKey !== undefined &&
+      samples.some((sample) => sample.performanceEntryKey === performanceEntryKey)
+    ) {
+      return;
+    }
+
+    const sample: RendererLongTaskSample = {
       ...metric,
-      enabledFeatureFlags:
-        metric.enabledFeatureFlags === null
-          ? null
-          : [...new Set(metric.enabledFeatureFlags)].sort((left, right) =>
-              left.localeCompare(right)
-            ),
+      enabledFeatureFlags: normalizeFeatureFlags(metric.enabledFeatureFlags),
       observedAt,
-    });
-    prune(observedAt);
+      ...(performanceEntryKey === undefined ? {} : { performanceEntryKey }),
+    };
+    insertSample(sample);
+
+    const pruned = prune(scheduledAt);
     let sampleCapEvicted = false;
     if (samples.length > maxSamples) {
       samples.splice(0, samples.length - maxSamples);
       sampleCapEvicted = true;
     }
-    scheduleRetentionPrune(observedAt);
-    if (sampleCapEvicted && listeners.size === 0) {
-      // The cached external-store snapshot is part of the retention boundary:
-      // release identifiers evicted by the hard sample cap immediately.
-      publishSnapshot(observedAt);
-      return;
+    if (pruned || sampleCapEvicted) {
+      // Releasing cached identifiers is O(1); the next read rebuilds the full
+      // snapshot lazily, while an observed store rebuilds once in publish().
+      releaseCachedSampleContext(scheduledAt);
     }
+    scheduleRetentionPrune(scheduledAt);
     publish();
   };
 
-  const snapshot = (): RendererLongTaskTelemetrySnapshot => buildSnapshot(now());
+  const record = (metric: RendererLongTaskMetric): void => {
+    if (!isLongTaskDuration(metric.durationMs)) {
+      return;
+    }
+    const observedAt = now();
+    recordAt(metric, observedAt, observedAt);
+  };
 
   const getSnapshot = (): RendererLongTaskTelemetrySnapshot => {
     if (snapshotDirty) {
@@ -250,6 +302,32 @@ export function createRendererLongTaskTelemetry(
     publish();
   };
 
+  const recordPerformanceEntries = (
+    list: PerformanceObserverEntryList,
+    getContext: () => RendererLongTaskContext
+  ): void => {
+    for (const entry of list.getEntries()) {
+      if (entry.entryType !== 'longtask' || !isLongTaskDuration(entry.duration)) {
+        continue;
+      }
+      const deliveredAt = now();
+      const timeOrigin = performance.timeOrigin;
+      if (!(Number.isFinite(timeOrigin) && Number.isFinite(entry.startTime))) {
+        throw new Error('PerformanceObserver longtask entry timing is unavailable.');
+      }
+      const observedAt = timeOrigin + entry.startTime;
+      if (observedAt < deliveredAt - windowMs) {
+        continue;
+      }
+      recordAt(
+        { ...getContext(), durationMs: entry.duration },
+        observedAt,
+        deliveredAt,
+        `${observedAt}:${entry.duration}`
+      );
+    }
+  };
+
   const observe = (getContext: () => RendererLongTaskContext): (() => void) => {
     if (activeObserver !== null) {
       throw new Error('Renderer long-task telemetry observer is already active.');
@@ -263,7 +341,7 @@ export function createRendererLongTaskTelemetry(
     let observer: PerformanceObserver | null = null;
     try {
       const supportedEntryTypes = PerformanceObserver.supportedEntryTypes;
-      if (!supportedEntryTypes.includes('longtask')) {
+      if (!(Array.isArray(supportedEntryTypes) && supportedEntryTypes.includes('longtask'))) {
         availability = 'unsupported';
         unavailableReason = 'This renderer does not support PerformanceObserver longtask entries.';
         publish();
@@ -276,12 +354,7 @@ export function createRendererLongTaskTelemetry(
 
       const createdObserver = new PerformanceObserver((list) => {
         try {
-          for (const entry of list.getEntries()) {
-            if (entry.entryType !== 'longtask' || entry.duration < LONG_TASK_MIN_DURATION_MS) {
-              continue;
-            }
-            record({ ...getContext(), durationMs: entry.duration });
-          }
+          recordPerformanceEntries(list, getContext);
         } catch (error) {
           createdObserver.disconnect();
           if (activeObserver === createdObserver) {
@@ -334,7 +407,7 @@ export function createRendererLongTaskTelemetry(
     publishSnapshot(now());
   };
 
-  return { getSnapshot, observe, record, reset, snapshot, subscribe, updateContext };
+  return { getSnapshot, observe, record, reset, subscribe, updateContext };
 }
 
 export const rendererLongTaskTelemetry = createRendererLongTaskTelemetry();

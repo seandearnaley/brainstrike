@@ -298,7 +298,7 @@ describe('RootLayoutContent', () => {
     const view = renderComponent({
       gitPageContent: <div data-testid="git-page">Git</div>,
     });
-    expect(rendererLongTaskTelemetry.snapshot()).toMatchObject({
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'unavailable',
     });
     view.rerender(
@@ -310,7 +310,7 @@ describe('RootLayoutContent', () => {
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
       />
     );
-    expect(rendererLongTaskTelemetry.snapshot()).toMatchObject({
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'available',
       sampleCount: 0,
     });
@@ -326,13 +326,19 @@ describe('RootLayoutContent', () => {
     act(() => {
       callback(
         {
-          getEntries: () => [{ duration: 90, entryType: 'longtask' } as PerformanceEntry],
+          getEntries: () => [
+            {
+              duration: 90,
+              entryType: 'longtask',
+              startTime: Date.now() - performance.timeOrigin,
+            } as PerformanceEntry,
+          ],
         } as PerformanceObserverEntryList,
         {} as PerformanceObserver
       );
     });
 
-    expect(rendererLongTaskTelemetry.snapshot()).toMatchObject({
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'available',
       featureFlags: [{ count: 1, flag: 'diagnostics-v2' }],
       routes: [{ count: 1, route: 'git' }],
