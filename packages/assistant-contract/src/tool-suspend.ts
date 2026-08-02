@@ -113,12 +113,15 @@ export interface AssistantToolSuspendRequest {
  */
 export interface RediscoveredToolSuspend extends AssistantToolSuspendRequest {
   /**
-   * Present (and only ever the literal `false`) when this build has no
-   * registered resume UI for the tool — the same narrowing-only-to-false
-   * contract as the live chunk, so the renderer's dead-end notice logic
-   * applies unchanged.
+   * ADVISORY resumability flag. The desktop endpoint only ever writes the
+   * literal `false` (no registered resume UI in this build), mirroring the
+   * live chunk's narrowing-only-to-false contract — but the renderer
+   * dispatches on `toolName`, never on this field, so the guard below does
+   * NOT validate it: rejecting an otherwise-valid pause over an unrecognized
+   * advisory value would re-create the silent stranding this contract exists
+   * to remove (#2223 review).
    */
-  readonly resumeSupported?: false;
+  readonly resumeSupported?: boolean;
   /** True when older than BRAINSTRIKE_APPROVAL_STALE_MS (advisory only). */
   readonly stale: boolean;
   /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
@@ -142,8 +145,7 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS) &&
     typeof value['suspendedAt'] === 'string' &&
-    typeof value['stale'] === 'boolean' &&
-    (!('resumeSupported' in value) || value['resumeSupported'] === false)
+    typeof value['stale'] === 'boolean'
   );
 }
 

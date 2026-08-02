@@ -27,7 +27,7 @@ export function RediscoveredPauseLines({ display }: { display: RediscoveredPause
       ) : null}
       {display.stale ? (
         <p className="mt-0.5 text-amber-700 text-xs dark:text-amber-400">
-          This has been pending a while — re-running the request may be safer.
+          This request has been pending a while — re-running it may be safer.
         </p>
       ) : null}
     </>

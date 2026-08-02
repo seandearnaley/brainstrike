@@ -603,6 +603,45 @@ describe('suspended-runs endpoint', () => {
     expect(body.suspends[1]).toMatchObject({ stale: true, toolName: 'brainstrike.submitPlan' });
   });
 
+  it('GET /assistant/suspended-runs caps suspends at the newest 10 with a logged truncation (#2223)', async () => {
+    const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+    const suspends = Array.from({ length: 12 }, (_, index) => ({
+      runId: `run-cap-${index}`,
+      // Oldest-first, matching discovery's sort contract.
+      suspendedAt: new Date(Date.now() - (12 - index) * 60_000).toISOString(),
+      suspendPayload: { question: `q${index}` },
+      toolCallId: `call-cap-${index}`,
+      toolName: 'brainstrike.askUser',
+    }));
+    (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({ approvals: [], suspends });
+    const warnSpy = vi.spyOn(desktopAssistantServerLogger, 'warn').mockImplementation(() => {
+      // Silence expected warning output.
+    });
+
+    try {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+      });
+
+      expect(response.status).toBe(200);
+      const body = JSON.parse(response.body);
+      // Newest 10 kept: the two OLDEST are dropped.
+      expect(body.suspends).toHaveLength(10);
+      expect(body.suspends[0]).toMatchObject({ runId: 'run-cap-2' });
+      expect(body.suspends[9]).toMatchObject({ runId: 'run-cap-11' });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          code: 'assistant_suspended_pause_cap_applied',
+          droppedCount: 2,
+        })
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('GET /assistant/suspended-runs flags an UNREGISTERED suspend as resumeSupported:false instead of dropping it', async () => {
     const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
     (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({

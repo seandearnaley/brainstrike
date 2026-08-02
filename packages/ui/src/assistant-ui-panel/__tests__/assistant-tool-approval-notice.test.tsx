@@ -333,7 +333,7 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.getByTestId('approval-command-code').textContent).toBe('pnpm build');
     expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent('/workspace');
     expect(screen.getByTestId('approval-command-timeout')).toHaveTextContent('600000 ms');
-    expect(screen.getByText(/This has been pending a while/i)).toBeInTheDocument();
+    expect(screen.getByText(/This request has been pending a while/i)).toBeInTheDocument();
   });
 });
 

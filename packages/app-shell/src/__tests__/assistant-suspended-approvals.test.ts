@@ -194,6 +194,8 @@ describe('suspend() pause parsing (BST-1084)', () => {
       Promise.resolve(
         makeResponse(200, {
           approvals: [],
+          // resumeSupported is ADVISORY: an unrecognized value must not drop
+          // an otherwise-valid pause (that would re-create silent stranding).
           suspends: [{ runId: 'run-broken' }, suspend, { ...suspend, resumeSupported: true }],
         })
       )
@@ -201,7 +203,7 @@ describe('suspend() pause parsing (BST-1084)', () => {
     const discover = createSuspendedRunDiscovery(resolveBaseUrl, fetchImpl);
     expect(await discover('thread-1', 'workspace-1')).toEqual({
       approvals: [],
-      suspends: [suspend],
+      suspends: [suspend, { ...suspend, resumeSupported: true }],
     });
   });
 });

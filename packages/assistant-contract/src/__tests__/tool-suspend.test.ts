@@ -235,12 +235,12 @@ describe('isRediscoveredToolSuspend', () => {
     expect(isRediscoveredToolSuspend({ ...base, runId: '' })).toBe(false);
   });
 
-  it('rejects a resumeSupported value other than the literal false', () => {
-    // The live chunk only ever NARROWS to false (an omitted flag means
-    // resumable); a rediscovered part claiming `true` would be asserting
-    // something the contract never states.
-    expect(isRediscoveredToolSuspend({ ...base, resumeSupported: true })).toBe(false);
-    expect(isRediscoveredToolSuspend({ ...base, resumeSupported: 'no' })).toBe(false);
+  it('keeps an otherwise-valid pause whatever resumeSupported holds — the flag is advisory', () => {
+    // Rejecting a real pause over an unrecognized advisory value would
+    // re-create the silent stranding this contract exists to remove: the
+    // renderer dispatches on toolName, never on this field.
+    expect(isRediscoveredToolSuspend({ ...base, resumeSupported: true })).toBe(true);
+    expect(isRediscoveredToolSuspend({ ...base, resumeSupported: 'no' })).toBe(true);
   });
 
   it('rejects non-records', () => {

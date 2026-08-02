@@ -172,7 +172,7 @@ export {
 export {
   type DiscoveredSuspendedApproval,
   type DiscoveredSuspendedPause,
-  type ListSuspendedApprovalsResult,
+  type ListSuspendedRunsResult,
   listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,

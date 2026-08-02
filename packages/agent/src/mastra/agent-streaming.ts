@@ -1658,7 +1658,7 @@ export interface DiscoveredSuspendedPause {
   readonly toolName: string;
 }
 
-export interface ListSuspendedApprovalsResult {
+export interface ListSuspendedRunsResult {
   readonly approvals: readonly DiscoveredSuspendedApproval[];
   /** Non-approval suspend() pauses (BST-1084). Same ordering as approvals. */
   readonly suspends: readonly DiscoveredSuspendedPause[];
@@ -1699,6 +1699,86 @@ function resolveDiscoveredApprovalToolName(
   return registeredToolName;
 }
 
+type SuspendedRunsForClassification = Awaited<ReturnType<Agent['listSuspendedRuns']>>['runs'];
+
+/**
+ * Classify a suspended run's tool calls into approvals vs suspend() pauses.
+ *
+ * Mastra's documented contract: `run.toolCalls` contains only calls the run is
+ * CURRENTLY suspended on ("A suspended tool call inside a suspended agent run
+ * — either waiting on a tool-call approval or on resume data for a tool that
+ * called suspend()", AgentRunToolCall). A call can be suspended for exactly
+ * ONE reason at a time — even a tool that is both approval-gated and
+ * suspending composes the two transports SERIALLY (pinned by the BOTH-FLAGS
+ * integration proof). The id set below is a CANARY for that contract: if an
+ * upstream change ever lists one call in both roles, the approval (the
+ * earlier gate) wins and the duplicate is logged loudly instead of producing
+ * two cards for one call. Only a call missing its ids (e.g. a
+ * delegation-thread run) is tolerated + skipped.
+ */
+function classifySuspendedToolCalls(
+  runs: SuspendedRunsForClassification,
+  toolNameMap: ReadonlyMap<string, string>
+): { approvals: DiscoveredSuspendedApproval[]; suspends: DiscoveredSuspendedPause[] } {
+  const approvals: DiscoveredSuspendedApproval[] = [];
+  const suspends: DiscoveredSuspendedPause[] = [];
+  const approvalToolCallIds = new Set<string>();
+  for (const run of runs) {
+    const suspendedAt = run.suspendedAt.toISOString();
+    for (const toolCall of run.toolCalls) {
+      if (!(toolCall.toolCallId && toolCall.toolName)) {
+        logger.debug('skipping suspended tool call without ids', {
+          code: 'mastra_agent_suspended_run_skipped',
+          requiresApproval: toolCall.requiresApproval,
+          runId: run.runId,
+          toolName: toolCall.toolName,
+        });
+        continue;
+      }
+      // Snapshots store the REGISTERED (sanitized) id; every client-facing
+      // surface is keyed by the ORIGINAL name — map it back here so the
+      // desktop route's riskByTool lookup and per-tool overrides match.
+      const toolName = resolveDiscoveredApprovalToolName(toolCall.toolName, toolNameMap, run.runId);
+      if (toolCall.requiresApproval) {
+        approvalToolCallIds.add(toolCall.toolCallId);
+        approvals.push({
+          runId: run.runId,
+          suspendedAt,
+          toolCallId: toolCall.toolCallId,
+          toolName,
+          ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
+        });
+        continue;
+      }
+      if (approvalToolCallIds.has(toolCall.toolCallId)) {
+        logger.warn('suspended tool call listed as BOTH approval and suspend; approval wins', {
+          code: 'mastra_agent_suspended_run_duplicate_tool_call',
+          runId: run.runId,
+          toolCallId: toolCall.toolCallId,
+          toolName,
+        });
+        continue;
+      }
+      // BST-1084: a tool that called suspend() — carry its durable payload
+      // so the rediscovered notice renders the real plan/question.
+      suspends.push({
+        runId: run.runId,
+        suspendedAt,
+        toolCallId: toolCall.toolCallId,
+        toolName,
+        ...(toolCall.suspendPayload === undefined
+          ? {}
+          : { suspendPayload: toolCall.suspendPayload }),
+      });
+    }
+  }
+  const bySuspendedAt = (a: { suspendedAt: string }, b: { suspendedAt: string }): number =>
+    Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt);
+  approvals.sort(bySuspendedAt);
+  suspends.sort(bySuspendedAt);
+  return { approvals, suspends };
+}
+
 /**
  * Restart-safe discovery of pending tool approvals for a thread. Rebuilds a
  * FRESH runtime (like {@link streamMastraToolApprovalAction}) and calls the
@@ -1716,7 +1796,7 @@ function resolveDiscoveredApprovalToolName(
 export async function listSuspendedMastraRuns(
   filter: { readonly threadId: string; readonly resourceId: string },
   options: MastraAgentRuntimeOptions = {}
-): Promise<ListSuspendedApprovalsResult> {
+): Promise<ListSuspendedRunsResult> {
   assertNoUnsupportedDirectStreamOptions(options);
   if (!options.storage) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
@@ -1740,56 +1820,7 @@ export async function listSuspendedMastraRuns(
       threadId: filter.threadId,
     });
 
-    const approvals: DiscoveredSuspendedApproval[] = [];
-    const suspends: DiscoveredSuspendedPause[] = [];
-    for (const run of runs) {
-      const suspendedAt = run.suspendedAt.toISOString();
-      for (const toolCall of run.toolCalls) {
-        if (!(toolCall.toolCallId && toolCall.toolName)) {
-          logger.debug('skipping suspended tool call without ids', {
-            code: 'mastra_agent_suspended_run_skipped',
-            requiresApproval: toolCall.requiresApproval,
-            runId: run.runId,
-            toolName: toolCall.toolName,
-          });
-          continue;
-        }
-        // Snapshots store the REGISTERED (sanitized) id; every client-facing
-        // surface is keyed by the ORIGINAL name — map it back here so the
-        // desktop route's riskByTool lookup and per-tool overrides match.
-        const toolName = resolveDiscoveredApprovalToolName(
-          toolCall.toolName,
-          runtime.toolNameMap,
-          run.runId
-        );
-        if (toolCall.requiresApproval) {
-          approvals.push({
-            runId: run.runId,
-            suspendedAt,
-            toolCallId: toolCall.toolCallId,
-            toolName,
-            ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
-          });
-          continue;
-        }
-        // BST-1084: a tool that called suspend() — carry its durable payload
-        // so the rediscovered notice renders the real plan/question.
-        suspends.push({
-          runId: run.runId,
-          suspendedAt,
-          toolCallId: toolCall.toolCallId,
-          toolName,
-          ...(toolCall.suspendPayload === undefined
-            ? {}
-            : { suspendPayload: toolCall.suspendPayload }),
-        });
-      }
-    }
-
-    const bySuspendedAt = (a: { suspendedAt: string }, b: { suspendedAt: string }): number =>
-      Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt);
-    approvals.sort(bySuspendedAt);
-    suspends.sort(bySuspendedAt);
+    const { approvals, suspends } = classifySuspendedToolCalls(runs, runtime.toolNameMap);
 
     logger.info('discovered suspended approvals', {
       approvalCount: approvals.length,
