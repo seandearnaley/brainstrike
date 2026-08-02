@@ -599,7 +599,10 @@ retained. The app shell accepts feature flags only from an authoritative
 app-owned registry; when no registry is wired, the snapshot and System
 Diagnostics say that the context is unavailable instead of treating an empty
 placeholder as "no flags active." The observer remains mounted across route
-changes and reads current context at delivery time. Unsupported or failed
+changes, requests buffered `longtask` entries so pre-effect startup stalls are
+not discarded, and reads current context at delivery time. Feature-registry
+availability changes publish immediately rather than waiting for another stall.
+Unsupported or failed
 `PerformanceObserver` setup is represented explicitly in the snapshot; it
 never silently degrades. Do not write routine
 performance samples into

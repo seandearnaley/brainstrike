@@ -56,6 +56,7 @@ export interface RendererLongTaskTelemetry {
   readonly reset: () => void;
   readonly snapshot: () => RendererLongTaskTelemetrySnapshot;
   readonly subscribe: (listener: () => void) => () => void;
+  readonly updateContext: (context: RendererLongTaskContext) => void;
 }
 
 function readPercentile(sortedValues: readonly number[], percentile: number): number | null {
@@ -200,6 +201,15 @@ export function createRendererLongTaskTelemetry(
     };
   };
 
+  const updateContext = (context: RendererLongTaskContext): void => {
+    const nextAvailability = context.enabledFeatureFlags === null ? 'unavailable' : 'available';
+    if (featureFlagContextAvailability === nextAvailability) {
+      return;
+    }
+    featureFlagContextAvailability = nextAvailability;
+    publish();
+  };
+
   const observe = (getContext: () => RendererLongTaskContext): (() => void) => {
     if (activeObserver !== null) {
       throw new Error('Renderer long-task telemetry observer is already active.');
@@ -244,7 +254,7 @@ export function createRendererLongTaskTelemetry(
       });
       observer = createdObserver;
       activeObserver = createdObserver;
-      createdObserver.observe({ entryTypes: ['longtask'] });
+      createdObserver.observe({ buffered: true, type: 'longtask' });
       availability = 'active';
       unavailableReason = null;
       publish();
@@ -278,7 +288,7 @@ export function createRendererLongTaskTelemetry(
     publish();
   };
 
-  return { getSnapshot, observe, record, reset, snapshot, subscribe };
+  return { getSnapshot, observe, record, reset, snapshot, subscribe, updateContext };
 }
 
 export const rendererLongTaskTelemetry = createRendererLongTaskTelemetry();

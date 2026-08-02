@@ -436,6 +436,7 @@ export function RootLayoutContent({
       enabledFeatureFlags: diagnosticFeatureFlags ?? null,
       route: diagnosticSurface,
     };
+    rendererLongTaskTelemetry.updateContext(longTaskContextRef.current);
   }, [diagnosticFeatureFlags, diagnosticSurface]);
 
   useEffect(() => rendererLongTaskTelemetry.observe(() => longTaskContextRef.current), []);

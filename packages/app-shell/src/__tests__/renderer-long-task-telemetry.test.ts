@@ -73,6 +73,7 @@ describe('renderer-long-task-telemetry', () => {
   it('observes only longtask entries and reads fresh context for every delivery', () => {
     const callbacks: PerformanceObserverCallback[] = [];
     const disconnect = vi.fn();
+    const observe = vi.fn();
     class MockPerformanceObserver {
       static readonly supportedEntryTypes = ['longtask'];
 
@@ -80,7 +81,9 @@ describe('renderer-long-task-telemetry', () => {
         callbacks.push(nextCallback);
       }
 
-      observe(): void {}
+      observe(options: PerformanceObserverInit): void {
+        observe(options);
+      }
 
       disconnect(): void {
         disconnect();
@@ -94,6 +97,8 @@ describe('renderer-long-task-telemetry', () => {
     };
     const telemetry = createRendererLongTaskTelemetry();
     const dispose = telemetry.observe(() => context);
+
+    expect(observe).toHaveBeenCalledWith({ buffered: true, type: 'longtask' });
 
     context = {
       enabledFeatureFlags: ['settings-redesign'],
@@ -123,6 +128,25 @@ describe('renderer-long-task-telemetry', () => {
 
     dispose();
     expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes feature-source availability changes before another long task arrives', () => {
+    const telemetry = createRendererLongTaskTelemetry();
+    const listener = vi.fn();
+    const unsubscribe = telemetry.subscribe(listener);
+
+    telemetry.updateContext({
+      enabledFeatureFlags: ['diagnostics-v2'],
+      route: 'explorer',
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(telemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'available',
+      sampleCount: 0,
+    });
+
+    unsubscribe();
   });
 
   it('disconnects the active observer when telemetry is reset', () => {

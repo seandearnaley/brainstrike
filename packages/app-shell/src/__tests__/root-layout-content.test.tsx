@@ -296,8 +296,23 @@ describe('RootLayoutContent', () => {
     vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
 
     const view = renderComponent({
-      diagnosticFeatureFlags: ['diagnostics-v2'],
       gitPageContent: <div data-testid="git-page">Git</div>,
+    });
+    expect(rendererLongTaskTelemetry.snapshot()).toMatchObject({
+      featureFlagContextAvailability: 'unavailable',
+    });
+    view.rerender(
+      <RootLayoutContent
+        contextExplorerPageContent={<div data-testid="context-explorer-page">Context Explorer</div>}
+        diagnosticFeatureFlags={['diagnostics-v2']}
+        gitPageContent={<div data-testid="git-page">Git</div>}
+        navigationItems={navigationItems}
+        settingsPageContent={<div data-testid="settings-page">Settings</div>}
+      />
+    );
+    expect(rendererLongTaskTelemetry.snapshot()).toMatchObject({
+      featureFlagContextAvailability: 'available',
+      sampleCount: 0,
     });
     act(() => {
       mockHandlers.onNavigationClick('/git');
