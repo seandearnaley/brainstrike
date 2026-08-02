@@ -281,6 +281,87 @@ describe('OpenAIDuplicateItemCompat', () => {
     ]);
   });
 
+  it('handles pathological shapes: duplicated outputs without a call, orphans without item ids', () => {
+    // Outputs duplicated with NO surviving call occurrence (keep-last), and an
+    // orphaned trailing reasoning that carries no itemId (fallback drop key).
+    const prompt = [
+      {
+        content: [
+          {
+            output: { type: 'json', value: { files: [] } },
+            toolCallId: 'call_no_call',
+            toolName: 'grep_tool',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+      {
+        content: [
+          {
+            output: { type: 'json', value: { files: ['index.html'] } },
+            toolCallId: 'call_no_call',
+            toolName: 'grep_tool',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+      {
+        content: [
+          {
+            input: { pattern: 'hero' },
+            toolCallId: TOOL_CALL_ID,
+            toolName: 'grep_tool',
+            type: 'tool-call',
+          },
+          { text: 'no item id on this reasoning', type: 'reasoning' },
+        ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            input: { pattern: 'hero' },
+            toolCallId: TOOL_CALL_ID,
+            toolName: 'grep_tool',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'json', value: { files: [] } },
+            toolCallId: TOOL_CALL_ID,
+            toolName: 'grep_tool',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+    ] as Prompt;
+
+    const result = processPrompt(new OpenAIDuplicateItemCompat(), prompt);
+
+    expect(result).toBeDefined();
+    const canonical = result?.prompt ?? [];
+    // Duplicated call: the pair (msg3 call, msg4 output) survives; msg2's call
+    // is dropped and its id-less trailing reasoning is swept, emptying msg2.
+    // Duplicated outputs without any call keep only the last occurrence.
+    expect(canonical.map((message) => message.role)).toEqual(['tool', 'assistant', 'tool']);
+    const orphanOutputs = canonical.filter(
+      (message) =>
+        message.role === 'tool' &&
+        Array.isArray(message.content) &&
+        message.content.some(
+          (part) => part.type === 'tool-result' && part.toolCallId === 'call_no_call'
+        )
+    );
+    expect(orphanOutputs).toHaveLength(1);
+  });
+
   it('serializes each OpenAI item id exactly once after canonicalization', async () => {
     let capturedBody: unknown;
     const provider = createOpenAI({
