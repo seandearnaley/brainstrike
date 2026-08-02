@@ -52,11 +52,19 @@ function toModelFacingMatch(match: LabeledGrepMatch): ModelFacingGrepMatch {
 
 const DEFAULT_CONTENT_MATCHES = 50;
 /**
- * Internal match cap for 'files' mode aggregation. The service caps the
- * candidate pool at 500 files regardless, so this only bounds per-file match
- * counting, not the file scan itself.
+ * Internal match cap requested from the index pass, in BOTH output modes. The
+ * service caps the candidate pool at 500 files regardless, so this only bounds
+ * how many matches are materialized, not the file scan itself.
+ *
+ * Content mode used to request only `offset + maxResults`. That bought nothing
+ * — `GrepSearchService.search` accumulates every match from its candidates and
+ * `maxResults` only slices the finished array, so a smaller request skips no DB
+ * or matching work — while creating the merge's attribution hole: with the index
+ * arm capped, its unmaterialized matches are indistinguishable from lines the
+ * live pass discovered fresh. It also contradicted the model-facing hint, which
+ * already reports THIS constant as the pagination cap.
  */
-const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
+const INTERNAL_MATCH_CAP = 2000;
 const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
 
 /**
@@ -85,12 +93,13 @@ interface MergedGrepResult {
  * (these are the FRESH lines the index would miss after an edit). When both have
  * the line, the LIVE row wins for content (it reflects the file as it is now).
  *
- * `totalMatches` preserves the index's UNCAPPED unique count as a floor and adds
- * the live-only contributions (live keys absent from the index's MATERIALIZED
- * set), so pagination stays monotonic and the cap-terminal hint still fires; when
- * the live pass returns nothing, `totalMatches` equals the index total exactly
- * (the pre-hybrid behaviour is unchanged). `truncated` ORs both passes' own
- * truncation flags so the existing budget logic drives the continuation hint.
+ * `totalMatches` preserves the index's UNCAPPED unique count as a floor; when the
+ * live pass returns nothing it equals the index total exactly (the pre-hybrid
+ * behaviour is unchanged). `truncated` ORs both passes' own truncation flags so
+ * the existing budget logic drives the continuation hint.
+ *
+ * Counting the live-only contribution depends on whether the index arm
+ * MATERIALIZED everything it counted (see {@link resolveTotalMatches}).
  */
 function mergeGrepMatches(
   indexResult: GrepSearchResult,
@@ -152,9 +161,11 @@ function mergeGrepMatches(
         a.line - b.line
     );
 
-  // Floor at the index's uncapped total (so a result the live pass doesn't change
-  // keeps the index pagination semantics), then add the fresh live-only rows.
-  const totalMatches = indexResult.totalMatches + liveOnlyAdded;
+  const totalMatches = resolveTotalMatches({
+    indexResult,
+    liveOnlyAdded,
+    mergedCount: matches.length,
+  });
 
   return {
     candidatesTruncated: indexResult.candidatesTruncated,
@@ -167,6 +178,42 @@ function mergeGrepMatches(
     truncated: indexResult.truncated || liveResult.truncated,
     ...(liveResult.note ? { liveNote: liveResult.note } : {}),
   };
+}
+
+/**
+ * The merged unique-match total.
+ *
+ * The index arm reports an UNCAPPED unique count (`indexResult.totalMatches`)
+ * but materializes at most `INTERNAL_MATCH_CAP` rows, so "live rows with no twin
+ * among the materialized index rows" counts NEW lines only while the index
+ * materialized everything it counted. That is now the normal case for both
+ * modes, so the exact sum is the normal path.
+ *
+ * Beyond the cap the attribution genuinely breaks: an on-disk line the index
+ * counted but did not materialize is indistinguishable from a fresh live-only
+ * one. Two bounds are still known to be real, so take the larger:
+ *
+ * - `indexResult.totalMatches` — the index's own uncapped count.
+ * - `mergedCount` — distinct locations actually materialized here.
+ *
+ * Neither can over-report. This is deliberately a BOUND, not the union: with the
+ * index capped and the live pass ALSO limited (its per-file `--max-count`, size
+ * caps, or the candidate cap), the merged set can sit below the index total
+ * while still holding fresh live-only rows, and those are then absorbed rather
+ * than added. Raising `INTERNAL_MATCH_CAP` is what shrinks that window; adding
+ * `liveOnlyAdded` on top of a capped index total is what over-counted before
+ * (measured on a 61-hit file: 117 at `maxResults: 5`, 102 at 20, 72 at the
+ * default 50) and must not come back.
+ */
+function resolveTotalMatches(args: {
+  indexResult: GrepSearchResult;
+  liveOnlyAdded: number;
+  mergedCount: number;
+}): number {
+  if (args.indexResult.truncated) {
+    return Math.max(args.indexResult.totalMatches, args.mergedCount);
+  }
+  return args.indexResult.totalMatches + args.liveOnlyAdded;
 }
 
 /** Fold a new match's source into a file summary's running source label. */
@@ -489,13 +536,9 @@ export async function runGrepSearch(
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
   const requestedMatches = input.maxResults ?? DEFAULT_CONTENT_MATCHES;
-  // The service slices its accumulated matches to maxResults, so pagination
-  // must request offset + page size; files mode counts matches per file and
-  // needs the larger internal cap to keep counts meaningful.
-  const serviceMaxResults =
-    outputMode === 'files'
-      ? FILES_MODE_INTERNAL_MATCH_CAP
-      : Math.min(offset + requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP);
+  // Both modes request the same internal cap: the page size bounds what is
+  // RETURNED, never what the index pass materializes for the merge.
+  const serviceMaxResults = INTERNAL_MATCH_CAP;
 
   const isRegex = input.isRegex ?? false;
   const caseSensitive = input.caseSensitive ?? false;
@@ -563,7 +606,7 @@ export async function runGrepSearch(
     return parseGrepToolResult(
       outputMode === 'files'
         ? buildFilesResult(merged, offset)
-        : buildContentResult(merged, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP)
+        : buildContentResult(merged, offset, requestedMatches, INTERNAL_MATCH_CAP)
     );
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
