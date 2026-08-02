@@ -20,7 +20,8 @@ are:
 - byte sizes
 - process labels
 - feature names
-- coarse route or surface identifiers
+- coarse route or surface
+  identifiers
 - queue depths, retry counts, and bounded error categories
 - cache entry counts, eviction reasons, and residency durations
 
@@ -84,3 +85,76 @@ Current and planned telemetry work should reference this contract:
 These tickets may add metrics covered by the default allowed list. If a ticket
 needs anything outside that list, it must document the consent and export path
 before implementation.
+
+BST-400 is implemented by
+`packages/app-shell/src/diagnostics/renderer-long-task-telemetry.ts`. It keeps a
+bounded, one-minute in-memory window of durations, coarse app routes, and
+enabled feature-flag identifiers only; it never records attribution data, DOM
+selectors, paths, filenames, or content. Feature-flag identifiers are accepted
+only from an explicitly injected authoritative registry. If an app has no such
+registry, diagnostics reports the feature context as unavailable rather than
+recording a fabricated empty list.
+The telemetry store owns expiry and cap eviction: stale context is removed
+without a diagnostics subscriber and released no later than the next
+external-store read. A retention-clock failure outside `getSnapshot` releases
+samples and dedupe keys immediately, including when a retrying read succeeds, so
+no identifier loses its expiry owner. A render-phase `getSnapshot` clock failure
+publishes an empty failed snapshot without mutating backing storage; the already
+owned retention timer or the next non-render collection/publication entry point
+performs the pending destructive cleanup. Dedupe-key expiry is scanned on every
+retention pass even when no sample expires. Buffered long-task entries use
+their occurrence timestamp for the rolling window and are deduplicated across
+observer replay, including after an in-window sample-cap eviction. Performance
+entries whose duration is negative, whose start maps after callback delivery,
+whose start time is negative, or whose completion exceeds delivery by more than
+one millisecond fail observation as malformed timing instead of recording an
+impossible sample. The one-millisecond completion tolerance covers sub-millisecond
+Performance API rounding only. Performance
+Observer does not preserve historical app context, so buffered
+samples carry delivery-time route and feature-flag context and diagnostics
+labels them as delivery-time context rather than stall-time attribution.
+Occurrence timestamps and the one-minute retention boundary use
+a single monotonic epoch clock, never the adjustable wall clock.
+Module construction is clock-free; collection validates timing, and a missing
+timing capability is
+reported through a failed in-memory snapshot instead of breaking app-shell
+module evaluation. The initial external-store read also returns that explicit
+failed snapshot before the observer effect mounts. A failed clock read is not
+immediately retried to fabricate a timestamp; the snapshot uses the last
+successful monotonic timestamp and keeps the failure latched. An unsupported
+snapshot published before any successful clock read therefore carries the
+explicit epoch-zero sentinel. Buffered replay
+deduplication uses stable Performance entry identity rather than delivery-time
+clock mapping, so replacing an observer cannot count the same buffered entry
+twice. Dedupe-key capacity eviction uses occurrence time rather than callback
+delivery order.
+A delivered PerformanceObserver batch performs retention, cap eviction, timer
+scheduling, snapshot rebuilding, and listener publication once after inserting
+all eligible entries; startup replay therefore produces one snapshot publication
+per delivered batch instead of one per sample. Clock failures from collection,
+external-store publication, direct recording, reset, or retention expiry all
+converge on the same failed snapshot without escaping through renderer effects.
+When an operation and the clock both fail, diagnostics preserves the operation
+failure and appends the clock failure instead of discarding the originating cause.
+Unsupported observation releases retained samples, dedupe keys, and the retention
+timer before publishing an explicitly empty window without reading the clock.
+Direct recording after observation is known to be unsupported throws instead of
+creating a hidden retained window, and the same explicit rejection applies after
+observation has failed. A malformed, non-finite-duration, or future-dated
+observer entry fails collection visibly while valid sibling entries in that
+delivery remain available in the failed snapshot. Their expiry timer remains
+owned even if a later batch insertion fails. Distinct malformed causes in one
+batch are reported together with their original errors preserved. A delivery
+failure reuses the validated delivery timestamp for its failed snapshot instead
+of probing the clock a second time; any non-finite injected clock result takes the
+normal failed-snapshot path. The observer Performance clock is read after the
+delivery epoch clock, so occurrence mapping is conservatively biased slightly
+earlier for retention. Disposing a failed inactive observation cannot claim
+recovery while that clock remains unusable, and therefore preserves the precise
+failure reason. Active, idle, and failed diagnostics labels retain the sample
+count so every displayed aggregate has an explicit denominator. Mixed
+feature-flag context separately reports the known-context sample count against
+the total retained sample count. Reset clears all identifiers but keeps a clock
+failure latched rather than reporting idle.
+The snapshot is visible in System Diagnostics and is discarded with the
+renderer process, so it adds no persistence or factory-reset obligation.
