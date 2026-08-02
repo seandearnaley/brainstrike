@@ -1,285 +1,285 @@
 {
   "labels": {
     "after-43.1.1": {
+      "appCommit": {
+        "dirty": false,
+        "sha": "48cea8b013715a25deda3fa9dc87054e417dde04"
+      },
       "appPath": "apps/desktop",
       "binaryPath": "node_modules/.pnpm/electron@43.1.1_supports-color@10.2.2/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
-      "capturedAt": "2026-08-02T12:46:52.937Z",
-      "conditions": "Not a controlled benchmark host: see the PR/commit that captured this label for concurrent-load caveats. Treat as indicative, not authoritative -- do not diff a future clean-host label against this one without capturing both under matching conditions.",
+      "capturedAt": "2026-08-02T13:16:43.606Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
       "electronVersion": "v43.1.1",
       "n": 10,
       "nodeVersion": "v24.18.0",
       "platform": "darwin-arm64",
       "runs": [
         {
-          "appReadyMs": 853.812,
-          "assistantListeningMs": 870.375
+          "appReadyMs": 827.82,
+          "assistantListeningMs": 844.523
         },
         {
-          "appReadyMs": 844.078,
-          "assistantListeningMs": 861.144
+          "appReadyMs": 842.222,
+          "assistantListeningMs": 859.411
         },
         {
-          "appReadyMs": 848.785,
-          "assistantListeningMs": 866.708
+          "appReadyMs": 831.408,
+          "assistantListeningMs": 849.081
         },
         {
-          "appReadyMs": 843.387,
-          "assistantListeningMs": 859.741
+          "appReadyMs": 823.55,
+          "assistantListeningMs": 841.234
         },
         {
-          "appReadyMs": 838.948,
-          "assistantListeningMs": 856.214
+          "appReadyMs": 840.222,
+          "assistantListeningMs": 857.015
         },
         {
-          "appReadyMs": 851.681,
-          "assistantListeningMs": 868.488
+          "appReadyMs": 828.377,
+          "assistantListeningMs": 846.059
         },
         {
-          "appReadyMs": 840.814,
-          "assistantListeningMs": 858.367
+          "appReadyMs": 854.876,
+          "assistantListeningMs": 872.232
         },
         {
-          "appReadyMs": 832.682,
-          "assistantListeningMs": 850.579
+          "appReadyMs": 859.474,
+          "assistantListeningMs": 878.951
         },
         {
-          "appReadyMs": 816.595,
-          "assistantListeningMs": 833.872
+          "appReadyMs": 875.735,
+          "assistantListeningMs": 893.819
         },
         {
-          "appReadyMs": 833.895,
-          "assistantListeningMs": 851.395
+          "appReadyMs": 886.202,
+          "assistantListeningMs": 904.425
         }
       ],
       "summaries": {
         "appReady": {
-          "maxMs": 853.812,
-          "medianMs": 842.1005,
-          "minMs": 816.595,
-          "p10Ms": 816.595,
-          "p90Ms": 851.681,
-          "stdevMs": 10.34744037963012
+          "maxMs": 886.202,
+          "medianMs": 841.222,
+          "minMs": 823.55,
+          "stdevMs": 20.38774102837292
         },
         "assistantListening": {
-          "maxMs": 870.375,
-          "medianMs": 859.054,
-          "minMs": 833.872,
-          "p10Ms": 833.872,
-          "p90Ms": 868.488,
-          "stdevMs": 10.173958993921703
+          "maxMs": 904.425,
+          "medianMs": 858.213,
+          "minMs": 841.234,
+          "stdevMs": 20.789528214945122
         }
       },
       "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
     },
     "before-41.10.0": {
+      "appCommit": {
+        "dirty": true,
+        "sha": "ec9aeb3fa51670e42285b80a00b0429f739c7df3"
+      },
       "appPath": "desktop",
       "binaryPath": "Electron",
-      "capturedAt": "2026-08-02T12:46:36.138Z",
-      "conditions": "Not a controlled benchmark host: see the PR/commit that captured this label for concurrent-load caveats. Treat as indicative, not authoritative -- do not diff a future clean-host label against this one without capturing both under matching conditions.",
+      "capturedAt": "2026-08-02T13:16:26.681Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
       "electronVersion": "v41.10.0",
       "n": 10,
       "nodeVersion": "v24.18.0",
       "platform": "darwin-arm64",
       "runs": [
         {
-          "appReadyMs": 914.285,
-          "assistantListeningMs": 1567.461
+          "appReadyMs": 894.634,
+          "assistantListeningMs": 1512.617
         },
         {
-          "appReadyMs": 922.707,
-          "assistantListeningMs": 1571.737
+          "appReadyMs": 899.712,
+          "assistantListeningMs": 1524.401
         },
         {
-          "appReadyMs": 931.237,
-          "assistantListeningMs": 1585.411
+          "appReadyMs": 902.554,
+          "assistantListeningMs": 1521.935
         },
         {
-          "appReadyMs": 912.428,
-          "assistantListeningMs": 1655.656
+          "appReadyMs": 894.091,
+          "assistantListeningMs": 1513.127
         },
         {
-          "appReadyMs": 899.16,
-          "assistantListeningMs": 1526.28
+          "appReadyMs": 891.897,
+          "assistantListeningMs": 1509.865
         },
         {
-          "appReadyMs": 910.211,
-          "assistantListeningMs": 1557.02
+          "appReadyMs": 904.128,
+          "assistantListeningMs": 1526.314
         },
         {
-          "appReadyMs": 897.499,
-          "assistantListeningMs": 1523.994
+          "appReadyMs": 885.969,
+          "assistantListeningMs": 1499.992
         },
         {
-          "appReadyMs": 906.982,
-          "assistantListeningMs": 1523.527
+          "appReadyMs": 901.629,
+          "assistantListeningMs": 1522.118
         },
         {
-          "appReadyMs": 902.658,
-          "assistantListeningMs": 1529.12
+          "appReadyMs": 896.211,
+          "assistantListeningMs": 1517.903
         },
         {
-          "appReadyMs": 926.698,
-          "assistantListeningMs": 1549.396
+          "appReadyMs": 901.349,
+          "assistantListeningMs": 1524.579
         }
       ],
       "summaries": {
         "appReady": {
-          "maxMs": 931.237,
-          "medianMs": 911.3195000000001,
-          "minMs": 897.499,
-          "p10Ms": 897.499,
-          "p90Ms": 926.698,
-          "stdevMs": 10.93362802778656
+          "maxMs": 904.128,
+          "medianMs": 897.9615,
+          "minMs": 885.969,
+          "stdevMs": 5.39708612493815
         },
         "assistantListening": {
-          "maxMs": 1655.656,
-          "medianMs": 1553.208,
-          "minMs": 1523.527,
-          "p10Ms": 1523.527,
-          "p90Ms": 1585.411,
-          "stdevMs": 38.49292258013154
+          "maxMs": 1526.314,
+          "medianMs": 1519.9189999999999,
+          "minMs": 1499.992,
+          "stdevMs": 7.898787773449813
         }
       },
       "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
     },
     "before-41.10.0-aba-recheck": {
+      "appCommit": {
+        "dirty": true,
+        "sha": "ec9aeb3fa51670e42285b80a00b0429f739c7df3"
+      },
       "appPath": "desktop",
       "binaryPath": "Electron",
-      "capturedAt": "2026-08-02T12:47:10.360Z",
-      "conditions": "Not a controlled benchmark host: see the PR/commit that captured this label for concurrent-load caveats. Treat as indicative, not authoritative -- do not diff a future clean-host label against this one without capturing both under matching conditions.",
+      "capturedAt": "2026-08-02T13:17:01.739Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
       "electronVersion": "v41.10.0",
       "n": 10,
       "nodeVersion": "v24.18.0",
       "platform": "darwin-arm64",
       "runs": [
         {
-          "appReadyMs": 898.259,
-          "assistantListeningMs": 1519.467
+          "appReadyMs": 938.376,
+          "assistantListeningMs": 1587.321
         },
         {
-          "appReadyMs": 901.141,
-          "assistantListeningMs": 1522.667
+          "appReadyMs": 922.474,
+          "assistantListeningMs": 1572.406
         },
         {
-          "appReadyMs": 907.208,
-          "assistantListeningMs": 1526.281
+          "appReadyMs": 931.952,
+          "assistantListeningMs": 1558.412
         },
         {
-          "appReadyMs": 908.887,
-          "assistantListeningMs": 1531.769
+          "appReadyMs": 896.416,
+          "assistantListeningMs": 1507.231
         },
         {
-          "appReadyMs": 900.193,
-          "assistantListeningMs": 1519.103
+          "appReadyMs": 884.947,
+          "assistantListeningMs": 1499.958
         },
         {
-          "appReadyMs": 898.06,
-          "assistantListeningMs": 1520.045
+          "appReadyMs": 899.839,
+          "assistantListeningMs": 1510.931
         },
         {
-          "appReadyMs": 891.969,
-          "assistantListeningMs": 1528.919
+          "appReadyMs": 889.995,
+          "assistantListeningMs": 1513.188
         },
         {
-          "appReadyMs": 895.836,
-          "assistantListeningMs": 1518.409
+          "appReadyMs": 920.388,
+          "assistantListeningMs": 1561.63
         },
         {
-          "appReadyMs": 899.36,
-          "assistantListeningMs": 1517.316
+          "appReadyMs": 892.052,
+          "assistantListeningMs": 1507.683
         },
         {
-          "appReadyMs": 901.125,
-          "assistantListeningMs": 1522.58
+          "appReadyMs": 884.081,
+          "assistantListeningMs": 1505.698
         }
       ],
       "summaries": {
         "appReady": {
-          "maxMs": 908.887,
-          "medianMs": 899.7764999999999,
-          "minMs": 891.969,
-          "p10Ms": 891.969,
-          "p90Ms": 907.208,
-          "stdevMs": 4.713423189148177
+          "maxMs": 938.376,
+          "medianMs": 898.1275,
+          "minMs": 884.081,
+          "stdevMs": 19.24650860805668
         },
         "assistantListening": {
-          "maxMs": 1531.769,
-          "medianMs": 1521.3125,
-          "minMs": 1517.316,
-          "p10Ms": 1517.316,
-          "p90Ms": 1528.919,
-          "stdevMs": 4.5998034566707116
+          "maxMs": 1587.321,
+          "medianMs": 1512.0595,
+          "minMs": 1499.958,
+          "stdevMs": 31.603322717081472
         }
       },
       "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
     },
     "electron41-binary-current-app": {
+      "appCommit": {
+        "dirty": false,
+        "sha": "48cea8b013715a25deda3fa9dc87054e417dde04"
+      },
       "appPath": "apps/desktop",
       "binaryPath": "Electron",
-      "capturedAt": "2026-08-02T12:47:27.573Z",
-      "conditions": "Not a controlled benchmark host: see the PR/commit that captured this label for concurrent-load caveats. Treat as indicative, not authoritative -- do not diff a future clean-host label against this one without capturing both under matching conditions.",
+      "capturedAt": "2026-08-02T13:17:19.245Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
       "electronVersion": "v41.10.0",
       "n": 10,
       "nodeVersion": "v24.18.0",
       "platform": "darwin-arm64",
       "runs": [
         {
-          "appReadyMs": 910.071,
-          "assistantListeningMs": 930.066
+          "appReadyMs": 906.257,
+          "assistantListeningMs": 927.159
         },
         {
-          "appReadyMs": 908.977,
-          "assistantListeningMs": 929.609
+          "appReadyMs": 928.728,
+          "assistantListeningMs": 950.149
         },
         {
-          "appReadyMs": 917.882,
-          "assistantListeningMs": 938.305
+          "appReadyMs": 914.235,
+          "assistantListeningMs": 935.423
         },
         {
-          "appReadyMs": 923.598,
-          "assistantListeningMs": 944.691
+          "appReadyMs": 916.512,
+          "assistantListeningMs": 937.277
         },
         {
-          "appReadyMs": 923.14,
-          "assistantListeningMs": 944.226
+          "appReadyMs": 912.151,
+          "assistantListeningMs": 932.994
         },
         {
-          "appReadyMs": 916.682,
-          "assistantListeningMs": 937.479
+          "appReadyMs": 903.597,
+          "assistantListeningMs": 924.348
         },
         {
-          "appReadyMs": 918.804,
-          "assistantListeningMs": 939.734
+          "appReadyMs": 912.341,
+          "assistantListeningMs": 933.005
         },
         {
-          "appReadyMs": 920.841,
-          "assistantListeningMs": 941.776
+          "appReadyMs": 929.083,
+          "assistantListeningMs": 951.112
         },
         {
-          "appReadyMs": 925.1,
-          "assistantListeningMs": 945.949
+          "appReadyMs": 925.927,
+          "assistantListeningMs": 947.686
         },
         {
-          "appReadyMs": 913.179,
-          "assistantListeningMs": 934.126
+          "appReadyMs": 975.301,
+          "assistantListeningMs": 997.839
         }
       ],
       "summaries": {
         "appReady": {
-          "maxMs": 925.1,
-          "medianMs": 918.343,
-          "minMs": 908.977,
-          "p10Ms": 908.977,
-          "p90Ms": 923.598,
-          "stdevMs": 5.346621853095653
+          "maxMs": 975.301,
+          "medianMs": 915.3734999999999,
+          "minMs": 903.597,
+          "stdevMs": 19.538091947782434
         },
         "assistantListening": {
-          "maxMs": 945.949,
-          "medianMs": 939.0195,
-          "minMs": 929.609,
-          "p10Ms": 929.609,
-          "p90Ms": 944.691,
-          "stdevMs": 5.560218672858096
+          "maxMs": 997.839,
+          "medianMs": 936.35,
+          "minMs": 924.348,
+          "stdevMs": 20.075648332245727
         }
       },
       "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
