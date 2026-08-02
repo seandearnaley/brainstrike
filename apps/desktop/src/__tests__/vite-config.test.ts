@@ -65,17 +65,6 @@ describe('desktop vite config alias contract', () => {
     for (const [specifier, packageName, sourcePath] of [
       ['@brainstrike/text-splitter/chunking-core', 'text-splitter', 'chunking-core.ts'],
       [
-        '@brainstrike/tokenization/token-counting-runtime',
-        'tokenization',
-        'token-counting-runtime.ts',
-      ],
-      [
-        '@brainstrike/tokenization/token-counting-heuristics',
-        'tokenization',
-        'token-counting-heuristics.ts',
-      ],
-      ['@brainstrike/tokenization/token-constants', 'tokenization', 'token-constants.ts'],
-      [
         '@brainstrike/tokenization/token-utils-accurate-lite',
         'tokenization',
         'token-utils-accurate-lite.ts',

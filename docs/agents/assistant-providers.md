@@ -902,8 +902,9 @@ runtimes, and unknown tuples keep the four-serialized-characters-per-token
 backstop. Never infer a tokenizer from a model-name substring.
 
 `@brainstrike/tokenization` is the single implementation owner for the shared
-heuristic/cost model, the lazy runtime facade, and the strict o200k counter.
-Consumers import its explicit entrypoints; `text-splitter`, `utils`, and worker
+heuristic and cost modules plus the strict o200k counter. The root is the eager,
+asset-free surface; the only public subpaths are the strict-counter and
+worker-lite modules with real consumers. `text-splitter`, `utils`, and worker
 packages must not carry re-export facades or local copies. The worker bundles
 still inline that one source independently at their real bundle boundaries, so
 neither worker imports the other's runtime graph.

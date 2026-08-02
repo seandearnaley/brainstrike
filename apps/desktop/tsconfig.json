@@ -88,9 +88,6 @@
       "@brainstrike/tokenization": [
         "../../packages/tokenization/src"
       ],
-      "@brainstrike/tokenization/*": [
-        "../../packages/tokenization/src/*"
-      ],
       "@brainstrike/db": [
         "../../packages/db/src"
       ],

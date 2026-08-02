@@ -53,8 +53,11 @@
       "@brainstrike/tokenization": [
         "./packages/tokenization/src"
       ],
-      "@brainstrike/tokenization/*": [
-        "./packages/tokenization/src/*"
+      "@brainstrike/tokenization/token-utils-accurate-lite": [
+        "./packages/tokenization/src/token-utils-accurate-lite.ts"
+      ],
+      "@brainstrike/tokenization/token-utils-lite": [
+        "./packages/tokenization/src/token-utils-lite.ts"
       ],
       "@brainstrike/file-explorer": [
         "./packages/file-explorer/src"

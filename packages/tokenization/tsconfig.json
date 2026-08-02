@@ -20,10 +20,5 @@
     "dist",
     "node_modules",
     "**/*.test.ts"
-  ],
-  "references": [
-    {
-      "path": "../logging"
-    }
   ]
 }

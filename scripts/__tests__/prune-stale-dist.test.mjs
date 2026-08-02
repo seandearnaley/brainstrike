@@ -200,6 +200,7 @@ test('keeps package-declared bundler formats outside the TypeScript emit plan', 
           types: './dist/index.d.ts',
         },
       },
+      scripts: { build: 'node ../../scripts/prune-stale-dist.mjs && tsc -b . && tsup' },
     }),
     'src/index.ts': 'export {};',
   });
@@ -207,6 +208,41 @@ test('keeps package-declared bundler formats outside the TypeScript emit plan', 
   const result = main({ log: () => {}, packageDir: dir });
 
   assert.deepEqual(result.deleted, []);
+});
+
+test('MONEY TEST: declared-but-sourceless artifacts are pruned, even in a bundler package', () => {
+  // package.json is a routing contract, not proof that a source still exists.
+  // Letting it define liveness would keep a deleted export's stale JS/types in
+  // dist forever and allow Turbo to cache the orphan.
+  const dir = makeFixture({
+    'dist/collator.d.ts': '',
+    'dist/collator.js': '',
+    'dist/collator.mjs': '',
+    'dist/index.d.ts': '',
+    'dist/index.js': '',
+    'dist/index.mjs': '',
+    'package.json': JSON.stringify({
+      exports: {
+        '.': {
+          import: './dist/index.mjs',
+          require: './dist/index.js',
+          types: './dist/index.d.ts',
+        },
+        './collator': {
+          import: './dist/collator.mjs',
+          require: './dist/collator.js',
+          types: './dist/collator.d.ts',
+        },
+      },
+      scripts: { build: 'node ../../scripts/prune-stale-dist.mjs && tsc -b . && tsup' },
+    }),
+    'src/index.ts': 'export {};',
+  });
+
+  const result = main({ log: () => {}, packageDir: dir });
+
+  assert.deepEqual(listFiles(path.join(dir, 'dist')), ['index.d.ts', 'index.js', 'index.mjs']);
+  assert.equal(result.deleted.length, 3);
 });
 
 test('prunes artifacts whose source exists on disk but is excluded from the tsc program', () => {

@@ -25,9 +25,11 @@
 // when a package moves from tsup dual emit to tsc ESM emit).
 //
 // Two deliberate carve-outs:
-//   - Artifacts named by package.json exports/main/module/types, plus outputs
-//     of on-disk `.js`/`.jsx` sources outside the program, are kept as bundler
-//     outputs. Pruning them would erode the concurrent-build disjointness above.
+//   - A package that actually runs tsup may keep a declared alternate-format
+//     artifact only while the same source base remains in TypeScript's emit
+//     plan. Package metadata alone is not liveness: a stale export must not
+//     immortalize a sourceless compiled module. Outputs of on-disk `.js`/`.jsx`
+//     sources outside the program are also kept as bundler outputs.
 //   - `.json` pruning activates only when the program itself contains json
 //     sources (tsc copies included json verbatim — packages/db's
 //     drizzle/migrations.json). In packages whose tsc does not own json, a
@@ -75,8 +77,8 @@ function splitArtifact(relPath) {
   return null;
 }
 
-/** Collect exact dist artifacts declared through Node/package-tool entrypoint fields. */
-function resolveDeclaredArtifacts(packageDir, distDir) {
+/** Collect live alternate-format artifacts produced by a real tsup build step. */
+function resolveDeclaredBundlerArtifacts(packageDir, distDir, liveArtifactBases) {
   const packageJsonPath = path.join(packageDir, 'package.json');
   let packageJson;
   try {
@@ -87,6 +89,17 @@ function resolveDeclaredArtifacts(packageDir, distDir) {
     );
   }
 
+  const buildScript = packageJson.scripts?.build;
+  const runsTsup =
+    typeof buildScript === 'string' &&
+    buildScript
+      .split('&&')
+      .map((step) => step.trim())
+      .some((step) => /^(?:pnpm exec )?tsup(?:\s|$)/u.test(step));
+  if (!runsTsup) {
+    return new Set();
+  }
+
   const declaredArtifacts = new Set();
   const visit = (value) => {
     if (typeof value === 'string') {
@@ -95,7 +108,11 @@ function resolveDeclaredArtifacts(packageDir, distDir) {
       }
       const abs = path.resolve(packageDir, value);
       if (abs.startsWith(distDir + path.sep)) {
-        declaredArtifacts.add(path.relative(distDir, abs));
+        const relPath = path.relative(distDir, abs);
+        const artifact = splitArtifact(relPath);
+        if (artifact && liveArtifactBases.has(artifact.base)) {
+          declaredArtifacts.add(relPath);
+        }
       }
       return;
     }
@@ -161,6 +178,7 @@ function resolveProgram(packageDir, srcDir, distDir) {
   }
 
   const liveArtifacts = new Set();
+  const liveArtifactBases = new Set();
   let hasJsonSources = false;
   for (const fileName of parsed.fileNames) {
     const abs = path.resolve(fileName);
@@ -177,11 +195,20 @@ function resolveProgram(packageDir, srcDir, distDir) {
     )) {
       const outputAbs = path.resolve(outputFile);
       if (outputAbs.startsWith(distDir + path.sep)) {
-        liveArtifacts.add(path.relative(distDir, outputAbs));
+        const relPath = path.relative(distDir, outputAbs);
+        liveArtifacts.add(relPath);
+        const artifact = splitArtifact(relPath);
+        if (artifact) {
+          liveArtifactBases.add(artifact.base);
+        }
       }
     }
   }
-  for (const declaredArtifact of resolveDeclaredArtifacts(packageDir, distDir)) {
+  for (const declaredArtifact of resolveDeclaredBundlerArtifacts(
+    packageDir,
+    distDir,
+    liveArtifactBases
+  )) {
     liveArtifacts.add(declaredArtifact);
   }
   return { hasJsonSources, liveArtifacts };

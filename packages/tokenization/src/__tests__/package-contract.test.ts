@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import * as tokenization from '../index.js';
 
 interface PackageJson {
   readonly exports: Record<
@@ -21,13 +22,7 @@ const packageJson = JSON.parse(
   readFileSync(path.join(packageRoot, 'package.json'), 'utf8')
 ) as PackageJson;
 
-const EXPECTED_RUNTIME_SUBPATHS = [
-  'token-constants',
-  'token-counting-heuristics',
-  'token-counting-runtime',
-  'token-utils-accurate-lite',
-  'token-utils-lite',
-] as const;
+const EXPECTED_RUNTIME_SUBPATHS = ['token-utils-accurate-lite', 'token-utils-lite'] as const;
 
 function validateRuntimeSubpaths(exportsMap: PackageJson['exports']): string[] {
   const actual = Object.keys(exportsMap)
@@ -73,7 +68,7 @@ describe('@brainstrike/tokenization package contract', () => {
     );
 
     expect(validateRuntimeSubpaths(mutatedExports)).toContain(
-      'expected token-constants, token-counting-heuristics, token-counting-runtime, token-utils-accurate-lite, token-utils-lite, found token-constants, token-counting-heuristics, token-counting-runtime, token-utils-accurate-lite'
+      'expected token-utils-accurate-lite, token-utils-lite, found token-utils-accurate-lite'
     );
   });
 
@@ -85,7 +80,15 @@ describe('@brainstrike/tokenization package contract', () => {
   it('keeps the root entrypoint free of the accurate runtime', () => {
     const indexSource = readFileSync(path.join(packageRoot, 'src/index.ts'), 'utf8');
 
-    expect(indexSource).not.toContain('token-counting-runtime');
     expect(indexSource).not.toContain('token-utils');
+  });
+
+  it('exports the synchronous constants, heuristics, and cost model from the root', () => {
+    expect(tokenization.ACCURATE_TOKEN_ENCODING).toBe('o200k_base');
+    expect(tokenization.countTokensHeuristic('abcde')).toBe(2);
+    expect(tokenization.computeCost(null, undefined)).toEqual({
+      available: false,
+      reason: 'usage_unavailable',
+    });
   });
 });

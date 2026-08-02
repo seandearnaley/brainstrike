@@ -19,8 +19,8 @@
       "@brainstrike/tokenization": [
         "../tokenization/dist/index.d.ts"
       ],
-      "@brainstrike/tokenization/*": [
-        "../tokenization/dist/*.d.ts"
+      "@brainstrike/tokenization/token-utils-accurate-lite": [
+        "../tokenization/dist/token-utils-accurate-lite.d.ts"
       ]
     },
     "strictNullChecks": true
