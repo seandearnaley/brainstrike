@@ -1,6 +1,7 @@
 import {
   recordEmbeddingBatchTelemetry,
   recordEmbeddingTelemetryFailure,
+  removeEmbeddingTelemetrySource,
   resetEmbeddingTelemetryForTests,
 } from '@brainstrike/embedding-worker';
 import { act, render, waitFor } from '@testing-library/react';
@@ -137,6 +138,7 @@ vi.mock('../../../renderer/components/embedding-worker-config', () => ({
 describe('EmbeddingHostRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
     currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
@@ -508,6 +510,9 @@ describe('EmbeddingHostRuntime', () => {
 
   it('stops automatic WebGPU device-loss restarts after repeated fatal errors', async () => {
     storeState.hasHydrated = true;
+    stopMock.mockImplementation(async () => {
+      removeEmbeddingTelemetrySource('terminal-worker');
+    });
 
     render(<EmbeddingHostRuntime />);
 
@@ -540,11 +545,40 @@ describe('EmbeddingHostRuntime', () => {
     await waitFor(() => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3);
     });
+    act(() => {
+      recordEmbeddingBatchTelemetry('terminal-worker', {
+        batchIndex: 0,
+        endIndex: 1,
+        id: 'terminal-worker-batch',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+    });
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({ batchCount: 1 }),
+            }),
+          }),
+        })
+      );
+    });
     await triggerDeviceLoss(2);
 
     await waitFor(() => {
       expect(reportStatusMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({ batchCount: 0 }),
+            }),
+          }),
           lastError: expect.stringContaining('repeated WebGPU device loss'),
           state: 'error',
         })

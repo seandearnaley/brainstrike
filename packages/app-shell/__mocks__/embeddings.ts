@@ -1,5 +1,12 @@
 import type { EmbeddingTelemetrySnapshot } from '@brainstrike/embeddings';
 
+export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelemetrySnapshot {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding telemetry snapshot must be an object.');
+  }
+  return value as EmbeddingTelemetrySnapshot;
+}
+
 export function createEmptyEmbeddingTelemetrySnapshot(): EmbeddingTelemetrySnapshot {
   return {
     batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },

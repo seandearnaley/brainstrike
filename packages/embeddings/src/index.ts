@@ -2,6 +2,7 @@
 
 // Re-export power broadcast channel name for renderer ↔ worker coordination
 export {
+  assertEmbeddingTelemetrySnapshot,
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingPipelineCacheTelemetryEntry,
   type EmbeddingTelemetrySnapshot,

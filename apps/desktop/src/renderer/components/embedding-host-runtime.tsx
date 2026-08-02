@@ -184,6 +184,40 @@ function reportEmbeddingHostRuntimeStatusForRuntimeId(
   reportStatus(createEmbeddingHostStatus(runtimeId, state, options));
 }
 
+async function stopEmbeddingHostAfterRestartLimit(options: {
+  readonly controller: EmbeddingWorkerController | null;
+  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
+  readonly isDisposed: () => boolean;
+  readonly runtimeIdRef: MutableRefObject<string>;
+  readonly terminalError: string;
+}): Promise<void> {
+  const { controller, embeddingRuntimeRef, isDisposed, runtimeIdRef, terminalError } = options;
+  if (controller) {
+    try {
+      await controller.stop();
+    } catch (error) {
+      logger.error('Embedding host worker stop after restart limit failed', {
+        error: error instanceof Error ? error.message : String(error),
+        runtimeId: runtimeIdRef.current,
+      });
+    }
+  }
+  const currentMetadata = embeddingRuntimeRef.current;
+  if (currentMetadata) {
+    embeddingRuntimeRef.current = {
+      ...currentMetadata,
+      telemetry: getEmbeddingTelemetrySnapshot(),
+    };
+  }
+  if (isDisposed()) {
+    return;
+  }
+  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+    embeddingRuntime: embeddingRuntimeRef.current,
+    lastError: terminalError,
+  });
+}
+
 function createFatalErrorHandler(
   runtimeIdRef: MutableRefObject<string>,
   embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>,
@@ -793,17 +827,14 @@ export function EmbeddingHostRuntime(): null {
         activeRef.current = false;
         const controller = controllerRef.current;
         controllerRef.current = null;
-        if (controller) {
-          void Promise.resolve(controller.stop()).catch((error: unknown) => {
-            logger.error('Embedding host worker stop after restart limit failed', {
-              error: error instanceof Error ? error.message : String(error),
-              runtimeId: runtimeIdRef.current,
-            });
-          });
-        }
-        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-          embeddingRuntime: embeddingRuntimeRef.current,
-          lastError: terminalError,
+        restartAfterFatalErrorPromise = stopEmbeddingHostAfterRestartLimit({
+          controller,
+          embeddingRuntimeRef,
+          isDisposed: () => disposed,
+          runtimeIdRef,
+          terminalError,
+        }).finally(() => {
+          restartAfterFatalErrorPromise = null;
         });
         return;
       }

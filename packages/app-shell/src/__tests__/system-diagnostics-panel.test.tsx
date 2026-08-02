@@ -199,15 +199,12 @@ describe('SystemDiagnosticsPanel', () => {
           },
         };
       };
-      const getSnapshot = vi
-        .fn()
-        .mockResolvedValueOnce(createSnapshot(0))
-        .mockResolvedValueOnce(createSnapshot(8 * 1024));
-      const statusListenerRef: { current: (() => void) | null } = { current: null };
+      const getSnapshot = vi.fn().mockResolvedValueOnce(createSnapshot(0));
+      const statusListenerRef: { current: ((status: unknown) => void) | null } = { current: null };
       const unsubscribe = vi.fn();
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = { getSnapshot };
       (window as Window & { embeddingHost?: unknown }).embeddingHost = {
-        onStatus: vi.fn((listener: () => void) => {
+        onStatus: vi.fn((listener: (status: unknown) => void) => {
           statusListenerRef.current = listener;
           return unsubscribe;
         }),
@@ -221,10 +218,14 @@ describe('SystemDiagnosticsPanel', () => {
       if (!statusListener) {
         throw new Error('Expected the diagnostics panel to subscribe to embedding host status.');
       }
-      act(() => statusListener());
+      const updatedTelemetry = createSnapshot(8 * 1024).telemetry.embedding;
+      act(() => statusListener({ embeddingRuntime: { telemetry: updatedTelemetry } }));
 
       await waitFor(() => {
-        expect(getSnapshot).toHaveBeenCalledTimes(2);
+        expect(
+          screen.queryByText(/Embedding host status telemetry is invalid:/)
+        ).not.toBeInTheDocument();
+        expect(getSnapshot).toHaveBeenCalledTimes(1);
         expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
       });
       unmount();

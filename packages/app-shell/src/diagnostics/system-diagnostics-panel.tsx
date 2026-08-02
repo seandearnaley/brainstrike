@@ -12,6 +12,7 @@
 
 import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
 import {
+  assertEmbeddingTelemetrySnapshot,
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
   getEmbeddingTelemetrySnapshot,
@@ -137,7 +138,7 @@ interface DesktopDiagnosticsBridge {
 }
 
 interface EmbeddingHostStatusSubscriptionBridge {
-  readonly onStatus: (callback: () => void) => () => void;
+  readonly onStatus: (callback: (status: unknown) => void) => () => void;
 }
 
 function getDesktopDiagnosticsBridge(): DesktopDiagnosticsBridge | null {
@@ -170,6 +171,24 @@ function getEmbeddingHostStatusSubscriptionBridge(): EmbeddingHostStatusSubscrip
     return candidate as EmbeddingHostStatusSubscriptionBridge;
   }
   return null;
+}
+
+function readEmbeddingTelemetryFromHostStatus(status: unknown): EmbeddingTelemetrySnapshot | null {
+  if (!(status && typeof status === 'object' && !Array.isArray(status))) {
+    throw new Error('Embedding host status must be an object.');
+  }
+  const embeddingRuntime = (status as Record<string, unknown>)['embeddingRuntime'];
+  if (embeddingRuntime === undefined) {
+    return null;
+  }
+  if (
+    !(embeddingRuntime && typeof embeddingRuntime === 'object' && !Array.isArray(embeddingRuntime))
+  ) {
+    throw new Error('Embedding host status embeddingRuntime must be an object.');
+  }
+  return assertEmbeddingTelemetrySnapshot(
+    (embeddingRuntime as Record<string, unknown>)['telemetry']
+  );
 }
 
 interface DiagnosticsSettingsCategory {
@@ -809,6 +828,8 @@ export function SystemDiagnosticsPanel({
   const [desktopSnapshot, setDesktopSnapshot] = useState<DesktopPlatformDiagnosticsSnapshot | null>(
     null
   );
+  const [desktopEmbeddingTelemetry, setDesktopEmbeddingTelemetry] =
+    useState<EmbeddingTelemetrySnapshot | null>(null);
   const [desktopDiagnosticsError, setDesktopDiagnosticsError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -818,7 +839,8 @@ export function SystemDiagnosticsPanel({
     getEmbeddingTelemetrySnapshot,
     () => EMPTY_EMBEDDING_TELEMETRY
   );
-  const embeddingTelemetry = desktopSnapshot?.telemetry?.embedding ?? localEmbeddingTelemetry;
+  const embeddingTelemetry =
+    desktopEmbeddingTelemetry ?? desktopSnapshot?.telemetry?.embedding ?? localEmbeddingTelemetry;
   const databaseQuerySnapshot = useSyncExternalStore(
     databaseQueryTelemetry.subscribe,
     databaseQueryTelemetry.getSnapshot,
@@ -845,6 +867,7 @@ export function SystemDiagnosticsPanel({
     const bridge = getDesktopDiagnosticsBridge();
     if (!bridge) {
       setDesktopSnapshot(null);
+      setDesktopEmbeddingTelemetry(null);
       setDesktopDiagnosticsError(null);
       return () => {
         cancelled = true;
@@ -858,30 +881,42 @@ export function SystemDiagnosticsPanel({
         cancelled = true;
       };
     }
-    let snapshotRequestId = 0;
-    const refreshDesktopSnapshot = (): void => {
-      snapshotRequestId += 1;
-      const currentRequestId = snapshotRequestId;
-      void bridge.getSnapshot().then(
-        (snapshot) => {
-          if (!(cancelled || currentRequestId !== snapshotRequestId)) {
-            setDesktopSnapshot(snapshot);
-            setDesktopDiagnosticsError(null);
-          }
-        },
-        (error: unknown) => {
-          if (!(cancelled || currentRequestId !== snapshotRequestId)) {
-            setDesktopSnapshot(null);
-            setDesktopDiagnosticsError(error instanceof Error ? error.message : String(error));
-          }
+    const unsubscribe = hostStatusBridge.onStatus((status) => {
+      if (cancelled) {
+        return;
+      }
+      try {
+        const telemetry = readEmbeddingTelemetryFromHostStatus(status);
+        if (telemetry) {
+          setDesktopEmbeddingTelemetry(telemetry);
+          setDesktopDiagnosticsError(null);
         }
-      );
-    };
-    const unsubscribe = hostStatusBridge.onStatus(refreshDesktopSnapshot);
-    refreshDesktopSnapshot();
+      } catch (error) {
+        setDesktopDiagnosticsError(
+          `Embedding host status telemetry is invalid: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    });
+    void bridge.getSnapshot().then(
+      (snapshot) => {
+        if (!cancelled) {
+          setDesktopSnapshot(snapshot);
+          setDesktopDiagnosticsError((currentError) =>
+            currentError?.startsWith('Embedding host status telemetry is invalid:')
+              ? currentError
+              : null
+          );
+        }
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          setDesktopSnapshot(null);
+          setDesktopDiagnosticsError(error instanceof Error ? error.message : String(error));
+        }
+      }
+    );
     return () => {
       cancelled = true;
-      snapshotRequestId += 1;
       unsubscribe();
     };
   }, [refreshKey]);

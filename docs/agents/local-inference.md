@@ -156,10 +156,14 @@ Embedding runtime telemetry (BST-402):
   a validated snapshot through the existing typed host-status bridge; Electron main
   stores/relays that snapshot but never observes or runs inference. Stopped host reports
   retain the current renderer-session snapshot so a latched telemetry-health failure
-  remains visible after an explicit worker stop. While desktop System Diagnostics is open,
-  it subscribes to embedding-host status events and refetches the platform snapshot with
-  stale-request suppression so live telemetry never remains pinned to the initial read. Web
-  diagnostics read the same renderer-local store directly.
+  remains visible after an explicit worker stop. A terminal repeated-device-loss report
+  likewise awaits controller teardown and captures a fresh post-teardown snapshot, so it
+  cannot advertise stale worker residency. While desktop System Diagnostics is open, it
+  reads the full platform snapshot only on mount or explicit refresh; embedding-host status
+  events carry a complete telemetry snapshot that the panel validates and applies directly.
+  This avoids turning the host's frequent status cadence into overlapping full diagnostics
+  reads. Invalid status telemetry is surfaced visibly. Web diagnostics read the same
+  renderer-local store directly.
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts
   to be revisited explicitly.
