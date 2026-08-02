@@ -1,11 +1,13 @@
 # `run_python` approval UX + network escalation — design spec (BST-1070)
 
-> **Status: PARTIALLY IMPLEMENTED, 2026-08-01.** Gate A (§2, the pre-run
-> approval card with the three-place `executionContext` forwarding) and the
-> result surface (§4) are LIVE. **Gate B (§3, the network escalation) remains
-> unbuilt and BLOCKED on unified suspend rediscovery (§3.2c)** — consistent
-> with the shipped tool, whose input schema has no domains field at all, so
-> Gate B is structurally unreachable until that gap closes.
+> **Status: IMPLEMENTED, 2026-08-02.** Gate A (§2), the result surface (§4),
+> AND Gate B (§3, the network escalation) are LIVE. The §3.2c prerequisite
+> (unified suspend rediscovery) closed in BST-1084, after which Gate B shipped:
+> `allowedDomains` on the input schema (seam-validated), the resume-first
+> suspension flow with fail-safe deny, the §3.3 escalation card
+> (`RunPythonNetworkNotice` — deny primary/autofocused, per-domain checkboxes
+> all required, no grant surface), and the `network_denied` result arm. A
+> rediscovered escalation re-renders the same card with reset ticks.
 >
 > **Deviations the implementation made deliberately (contract-grounded, not
 > drift):**

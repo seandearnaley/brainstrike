@@ -1396,7 +1396,11 @@ NOTE: the per-tool approval gate is SEPARATE from tool SUSPENSION (submitPlan /
 askUser) — see PLAN MODE & TOOL SUSPENSION below. Approval pauses BEFORE a tool
 runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
 pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
-`resumeStream`). submitPlan/askUser are classified `riskCategory:'read'` so the
+`resumeStream`). run_python's Gate B network escalation (BST-1070) is the
+third registered suspending tool: per-call, argument-aware, and structurally
+ungrantable — the escalation card (`RunPythonNetworkNotice`) requires every
+named domain individually ticked, renders deny primary/autofocused, and has
+no grant surface at all. submitPlan/askUser are classified `riskCategory:'read'` so the
 permission engine never stacks an approval prompt on top of their own suspend.
 
 Desktop request initialization validates `enabledNativeToolIds` against the
