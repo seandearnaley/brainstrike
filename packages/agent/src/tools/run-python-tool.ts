@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
+import type { RunPythonNetworkSuspendPayload } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
@@ -52,6 +53,7 @@ export type RunPythonUnavailableReason =
   | 'executor_tier_mismatch'
   | 'interpreter_unavailable'
   | 'language_unsupported'
+  | 'network_confirmation_unavailable'
   | 'network_unsupported'
   | 'no_sandbox_configured'
   | 'resolve_timed_out';
@@ -61,9 +63,9 @@ export type RunPythonUnavailableReason =
  * with nullable fields: `exitCode` exists ONLY on `completed`, so it is
  * impossible to render `0` for a signal-terminated run — the failure mode the
  * seam's `exitCode: number | null` convention exists to prevent.
- * Mirrors the BST-1070 design spec §4.2, minus the `network_denied` and
- * `policy_changed` arms, which belong to the not-yet-buildable network
- * escalation (see the tool doc comment).
+ * Mirrors the BST-1070 design spec §4.2 (the `policy_changed` arm stays
+ * deferred with the fingerprint enforcement — see the design doc's status
+ * header).
  */
 export type RunPythonResult = (
   | {
@@ -103,6 +105,11 @@ export type RunPythonResult = (
       readonly processStarted: boolean;
       readonly stderrOmittedBytes: number;
       readonly stdoutOmittedBytes: number;
+    }
+  | {
+      /** The exact domains the user declined. The model can rewrite offline. */
+      readonly deniedDomains: readonly string[];
+      readonly kind: 'network_denied';
     }
   | {
       readonly detail: string;
@@ -356,6 +363,41 @@ async function removeScratchDir(scratchDir: string): Promise<RunPythonScratchCle
   return {};
 }
 
+/**
+ * Gate B transport schemas (BST-1070). Mastra validates `suspend()` payloads
+ * and resume data against these; the payload mirrors
+ * {@link RunPythonNetworkSuspendPayload} and the resume shape mirrors
+ * `RunPythonNetworkDecision` from the contract.
+ */
+const RunPythonNetworkSuspendSchema = z
+  .object({
+    allowedDomains: z.array(z.string().min(1)).min(1),
+    kind: z.literal('network'),
+  })
+  .strict();
+
+const RunPythonNetworkResumeSchema = z.object({ action: z.enum(['allow', 'deny']) }).strict();
+
+/**
+ * Narrows the Gate B resume data to a decision, treating ANYTHING
+ * unrecognised as DENY. Mastra already validates against
+ * {@link RunPythonNetworkResumeSchema}, but this layer must fail SAFE on its
+ * own: a schema drift or a hand-crafted resume must never become a silent
+ * network grant (design §3.1).
+ */
+function readNetworkDecision(resume: unknown): 'allow' | 'deny' {
+  if (
+    resume !== null &&
+    typeof resume === 'object' &&
+    !Array.isArray(resume) &&
+    Reflect.ownKeys(resume).length === 1 &&
+    (resume as { action?: unknown }).action === 'allow'
+  ) {
+    return 'allow';
+  }
+  return 'deny';
+}
+
 export interface RunPythonToolOptions {
   /**
    * Resolves the host's executor capabilities for THIS call. Async because the
@@ -371,25 +413,73 @@ export interface RunPythonToolOptions {
 /**
  * `run_python` — runs agent-authored Python inside the OS fence (BST-1067).
  *
- * **Network is structurally absent, not defaulted off.** The input schema has
- * no domain field and `policy.allowedDomains` is a frozen empty array, so no
- * call can request egress. That is deliberate: the network escalation (the
- * BST-1070 design's "Gate B") rides the suspension channel, and suspensions
- * are NOT rediscovered across a renderer reload — a reload while the prompt
- * was on screen would strand the run silently. Shipping the escalation before
- * that gap is closed would add exactly the kind of silent path this codebase
- * refuses, so network stays inexpressible until then.
+ * **Network is expressible ONLY through Gate B (BST-1070).** A call may
+ * request `allowedDomains`, but the request alone opens nothing: the policy
+ * stays `[]` unless the per-call suspension-channel escalation resumes with
+ * an explicit allow — a channel with NO grant surface, so no session grant,
+ * per-tool override, or `yolo` posture ever pre-answers it. The prerequisite
+ * that kept this inexpressible (suspensions were not rediscovered across a
+ * renderer reload) closed in BST-1084.
  *
  * Registered as the factory-returned Mastra Tool object (never re-wrapped in
- * the desktop registry's `{description, execute, id, inputSchema}` literal),
- * which is also what BST-1070 will need once it adds `suspendSchema` — the
- * literal shape silently drops it.
+ * the desktop registry's `{description, execute, id, inputSchema}` literal) —
+ * the literal shape silently drops `suspendSchema`, and without it Gate B
+ * never fires: the script would run with a non-empty `allowedDomains` and no
+ * prompt at all.
  */
 export function createRunPythonTool(options: RunPythonToolOptions) {
   return createTool({
     description: TOOL_DESCRIPTIONS[RUN_PYTHON_TOOL_ID],
-    execute: async (input, context): Promise<RunPythonResult> => {
+    execute: async (input, context): Promise<RunPythonResult | undefined> => {
       const parsed = RunPythonInputSchema.parse(input);
+      const requestedDomains = parsed.allowedDomains ?? [];
+
+      // ── Gate B (BST-1070 design §3.1), resume-FIRST. `suspend()` returns
+      // Promise<void> and never resolves to the decision: Mastra re-runs this
+      // execute from the top with the answer in `context.agent.resumeData`
+      // (the `createAskUserTool` control flow). The pause fires BEFORE the
+      // host is resolved — no executor, no scratch dir, nothing to leak if
+      // the run is never resumed — and only when this call actually asked for
+      // domains: an offline call never consults resumeData, so a stray
+      // allow-shaped resume cannot grant network to a call that never
+      // requested it.
+      let networkGranted = false;
+      if (requestedDomains.length > 0) {
+        const agentContext = (
+          context as
+            | {
+                agent?: {
+                  resumeData?: unknown;
+                  suspend?: (payload: unknown) => Promise<unknown>;
+                };
+              }
+            | undefined
+        )?.agent;
+        if (agentContext && 'resumeData' in agentContext && agentContext.resumeData !== undefined) {
+          if (readNetworkDecision(agentContext.resumeData) !== 'allow') {
+            return { deniedDomains: requestedDomains, kind: 'network_denied' };
+          }
+          networkGranted = true;
+        } else if (agentContext?.suspend) {
+          await agentContext.suspend({
+            allowedDomains: requestedDomains,
+            kind: 'network',
+          } satisfies RunPythonNetworkSuspendPayload);
+          return;
+        } else {
+          // Direct invocation outside an agent run. askUser degrades to a
+          // readable answer here; run_python MUST NOT — degrading would run
+          // the script with network and no prompt, the exact bypass Gate B
+          // exists to prevent (and running it offline instead would be a
+          // wrong result dressed as a stronger sandbox).
+          return {
+            detail: 'No suspension channel is available, so network access could not be confirmed.',
+            kind: 'unavailable',
+            reason: 'network_confirmation_unavailable',
+          };
+        }
+      }
+
       const timeoutMs = parsed.timeoutMs ?? RUN_PYTHON_DEFAULT_TIMEOUT_MS;
       // The seam REQUIRES a real AbortSignal so user Stop kills the process
       // tree. A run without one would leave Python executing until timeoutMs.
@@ -435,8 +525,9 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
             language: 'python',
             maxOutputBytes: RUN_PYTHON_MAX_OUTPUT_BYTES,
             policy: {
-              // Empty and unreachable from input: see the doc comment above.
-              allowedDomains: [],
+              // Non-empty ONLY on a Gate B allow-resumed leg; every other
+              // path (offline call, deny, junk resume) stays [].
+              allowedDomains: networkGranted ? requestedDomains : [],
               allowWrite: [scratchDir],
             },
             scratchDir,
@@ -490,5 +581,7 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
     id: RUN_PYTHON_TOOL_ID,
     inputSchema: RunPythonInputSchema,
     outputSchema: RunPythonOutputSchema,
+    resumeSchema: RunPythonNetworkResumeSchema,
+    suspendSchema: RunPythonNetworkSuspendSchema,
   });
 }
