@@ -31,37 +31,23 @@
  * substitute for the doc's "every supported desktop platform" bar before
  * loosening this guard further.
  *
- * UNRESOLVED, BLOCKS MERGE OF PR #2206 — existing installs are not covered
- * by this guard at all. `customMigration('custom-066-...', ...)` in
- * `packages/db/src/drizzle/migrate.ts` keys migration 066 in the Drizzle
- * ledger with a fixed string literal, not a digest of this migration's SQL
- * body. Any database that already recorded migration 66 will never re-run
- * it, no matter how this file's qualified version changes. That database's
- * `pg_extension.extversion` stays whatever it was when the extension was
- * first created (`'1.2.0'` for anyone who installed before this bump) —
- * nothing calls `ALTER EXTENSION UPDATE` — while the actual pg_textsearch
- * binary loaded at every PGlite construction site is now 1.3.1, because the
- * package pin is global. No runtime code anywhere compares the catalog's
- * recorded extversion against the loaded binary version; this constant is
- * referenced only by migration 066 and two tests, none of which run again
- * for an already-migrated database. Confirmed by reading
- * `packages/db/src/drizzle/migrate.ts` and `migration-runner.ts` directly,
- * not assumed. The 3-trial upgrade-path script above is suggestive that this
- * specific mismatch (1.3.1 binary operating on a 1.2.0-labeled, 1.2.0-built
- * index) does not corrupt data — but it is 3 runs on one platform with a
- * synthetic table, not the real `file_chunks` schema/repository code path,
- * and it is not committed. Separately: `pg_textsearch--1.2.0--1.3.0.sql`'s
- * real upgrade script (verified by extracting the actual npm tarball) only
- * creates/drops/alters SQL functions — it never touches index pages — so
- * even adding an explicit `ALTER EXTENSION UPDATE` migration would relabel
- * `extversion` without doing anything to reconcile the physical BM25 index
- * format between engines. A real fix needs one of: a runtime
- * catalog-vs-binary check that fails visibly instead of silently operating
- * on a mismatched index, or an explicit upgrade migration that updates the
- * extension AND rebuilds the index under the new binary, backed by a
- * COMMITTED test of the existing-install path — not more greenfield
- * evidence. Tracked as BST-1081 (blocking), filed against BST-1063's PR
- * (github.com/seandearnaley/brainstrike/pull/2206); do not merge that PR
- * until this is closed.
+ * EXISTING-INSTALL GAP: RESOLVED BY RULING, not by code (BST-1081,
+ * Canceled 2026-08-02). The structural facts below remain true — migration
+ * 066 is keyed by a fixed ledger string and never re-runs for an
+ * already-migrated database, nothing calls `ALTER EXTENSION UPDATE`, and no
+ * runtime code compares the catalog's extversion against the loaded binary.
+ * The ruling: Brainstrike is a GREENFIELD app with no existing installs, so
+ * the population that gap could affect is empty. The first public build
+ * ships this 0.5.4/1.3.1 family, every future install runs migration 066
+ * against it, and no install can ever be in the 1.2.0-catalog/1.3.1-binary
+ * mixed state. The only databases predating this bump are development ones;
+ * if a pre-bump dev DB misbehaves in search, reset it (or drop and recreate
+ * `idx_file_chunks_content_bm25`) rather than debugging the mixed state —
+ * the BM25 index is derived data. If Brainstrike ever ships an upgrade path
+ * from a pre-1.3.1 database (it has not), BST-1081's analysis is the spec
+ * for what that migration must do: `ALTER EXTENSION UPDATE` alone relabels
+ * without reconciling index pages (the 1.2.0→1.3.0 upgrade SQL is
+ * catalog-only, verified against the npm tarball) — the index must be
+ * rebuilt under the new binary, backed by a committed existing-install test.
  */
 export const QUALIFIED_PG_TEXTSEARCH_VERSION = '1.3.1';

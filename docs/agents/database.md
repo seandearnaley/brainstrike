@@ -122,28 +122,24 @@ extension control file" error on that path only:
   `packages/db/src/pg-textsearch-compatibility.ts` for the qualification
   record.
 
-  **KNOWN GAP, tracked as BST-1081 (blocking, urgent), unresolved as of
-  BST-1063 — do not merge PR #2206 until this is closed:** the guard below
-  only protects *greenfield* installs. Migration
-  066's Drizzle ledger key (`customMigration('custom-066-...', ...)` in
-  `drizzle/migrate.ts`) is a fixed string literal, not a content digest of the
-  migration's SQL — confirmed by reading the code. An existing install that
-  already recorded migration 66 will **never re-run it**, so the guard never
-  executes again for that database. Its `pg_extension.extversion` stays
-  `'1.2.0'` forever (nothing calls `ALTER EXTENSION UPDATE`), while the
-  actual loaded binary is now 1.3.1 — no runtime code anywhere compares
-  catalog-recorded version against the loaded binary
-  (`QUALIFIED_PG_TEXTSEARCH_VERSION` is referenced only by migration 066 and
-  two tests). The 6/6 durability-gate runs above are greenfield and do not
-  exercise this; the 3/3 upgrade-path trials do exercise roughly this shape
-  and came back clean, but that script was never committed as a repeatable
-  test — see `packages/db/src/pg-textsearch-compatibility.ts` for the current
-  status of closing this gap. Separately: `pg_textsearch--1.2.0--1.3.0.sql`'s
-  upgrade script (read from the real npm tarball) is catalog/function-only —
-  it creates/drops/alters SQL functions and never touches index pages — so
-  even an explicit `ALTER EXTENSION UPDATE` migration would relabel
-  `extversion` without doing anything to reconcile the physical BM25 index
-  format. A real remediation needs to pair that with an index rebuild, tested.
+  **The guard protects greenfield installs only — RESOLVED BY RULING
+  (BST-1081, Canceled 2026-08-02): Brainstrike is a greenfield app with no
+  existing installs, so greenfield is the entire population.** The structural
+  facts stand: migration 066's Drizzle ledger key is a fixed string literal
+  (never re-runs for an already-migrated database), nothing calls
+  `ALTER EXTENSION UPDATE`, and no runtime code compares the catalog's
+  extversion against the loaded binary. They simply have nobody to affect —
+  the first public build ships the 0.5.4/1.3.1 family, so every install that
+  will ever exist runs migration 066 under it. Pre-bump DEVELOPMENT databases
+  are the one exception: they land in the 1.2.0-catalog/1.3.1-binary mixed
+  state after upgrading, which is accepted (3/3 clean upgrade-path trials;
+  the BM25 index is derived data) — if such a DB misbehaves in search, reset
+  it or drop/recreate `idx_file_chunks_content_bm25` rather than debugging
+  the mixed state. If an upgrade path from a pre-1.3.1 database is ever
+  shipped, BST-1081's analysis is the spec: `ALTER EXTENSION UPDATE` alone
+  relabels without reconciling index pages (the 1.2.0→1.3.0 upgrade SQL is
+  catalog-only), so the migration must also rebuild the index under the new
+  binary, backed by a committed existing-install test.
   Migration 065 always drops the historical index/extension first; migration
   066 recreates them only after checking
   `pg_extension.extversion = '1.3.1'`. A package drift therefore aborts
