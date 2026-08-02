@@ -205,7 +205,7 @@ export class DatabaseQueryTelemetry {
     const recordedAt = this.now();
     this.trimExpired(recordedAt);
     const featureSamples = this.querySamples[record.feature];
-    featureSamples.push({
+    this.insertQuerySample(featureSamples, {
       ...record,
       hitCount,
       lookupCount,
@@ -315,6 +315,30 @@ export class DatabaseQueryTelemetry {
     };
   }
 
+  private insertQuerySample(samples: QuerySample[], sample: QuerySample): void {
+    const latestSample = samples.at(-1);
+    if (!latestSample || latestSample.recordedAt <= sample.recordedAt) {
+      samples.push(sample);
+      return;
+    }
+
+    let lowerBound = 0;
+    let upperBound = samples.length;
+    while (lowerBound < upperBound) {
+      const middle = Math.floor((lowerBound + upperBound) / 2);
+      const middleSample = samples[middle];
+      if (!middleSample) {
+        throw new Error('Database query telemetry sample ordering invariant failed');
+      }
+      if (middleSample.recordedAt <= sample.recordedAt) {
+        lowerBound = middle + 1;
+      } else {
+        upperBound = middle;
+      }
+    }
+    samples.splice(lowerBound, 0, sample);
+  }
+
   private markDirty(): void {
     this.dirty = true;
     if (this.listeners.size === 0 || this.notifyTimeout !== null) {
@@ -335,12 +359,36 @@ export class DatabaseQueryTelemetry {
 
   private recordCount(buckets: CountBucket[], bucketMs: number, recordedAt: number): void {
     const startedAt = Math.floor(recordedAt / bucketMs) * bucketMs;
-    const currentBucket = buckets.at(-1);
-    if (currentBucket?.startedAt === startedAt) {
-      currentBucket.count += 1;
+    const latestBucket = buckets.at(-1);
+    if (!latestBucket || latestBucket.startedAt < startedAt) {
+      buckets.push({ count: 1, startedAt });
       return;
     }
-    buckets.push({ count: 1, startedAt });
+    if (latestBucket.startedAt === startedAt) {
+      latestBucket.count += 1;
+      return;
+    }
+
+    let lowerBound = 0;
+    let upperBound = buckets.length;
+    while (lowerBound < upperBound) {
+      const middle = Math.floor((lowerBound + upperBound) / 2);
+      const middleBucket = buckets[middle];
+      if (!middleBucket) {
+        throw new Error('Database query telemetry count-bucket ordering invariant failed');
+      }
+      if (middleBucket.startedAt < startedAt) {
+        lowerBound = middle + 1;
+      } else {
+        upperBound = middle;
+      }
+    }
+    const matchingBucket = buckets[lowerBound];
+    if (matchingBucket?.startedAt === startedAt) {
+      matchingBucket.count += 1;
+      return;
+    }
+    buckets.splice(lowerBound, 0, { count: 1, startedAt });
   }
 
   private trimCountBuckets(buckets: CountBucket[], bucketMs: number, cutoff: number): boolean {

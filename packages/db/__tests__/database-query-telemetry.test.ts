@@ -126,6 +126,51 @@ describe('DatabaseQueryTelemetry', () => {
     expect(telemetry.snapshot().liveUpdateCount).toBe(0);
   });
 
+  it('keeps rolling count buckets ordered when the wall clock moves backwards', () => {
+    let now = 120_000;
+    const telemetry = new DatabaseQueryTelemetry({ now: () => now, windowMs: 60_000 });
+
+    telemetry.recordLiveUpdate();
+    now = 0;
+    telemetry.recordLiveUpdate();
+    now = 61_000;
+
+    expect(telemetry.getSnapshot().liveUpdateCount).toBe(1);
+    expect(
+      (
+        telemetry as unknown as {
+          readonly liveUpdateBuckets: readonly unknown[];
+        }
+      ).liveUpdateBuckets
+    ).toHaveLength(1);
+  });
+
+  it('retains the newest bounded query samples when the wall clock moves backwards', () => {
+    let now = 120_000;
+    const telemetry = new DatabaseQueryTelemetry({
+      maxSamples: 2,
+      now: () => now,
+      windowMs: 60_000,
+    });
+
+    telemetry.recordQuery({ durationMs: 1, feature: 'file-tree' });
+    now = 0;
+    telemetry.recordQuery({ durationMs: 2, feature: 'file-tree' });
+    now = 61_000;
+    telemetry.recordQuery({ durationMs: 3, feature: 'file-tree' });
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      droppedSampleCount: 0,
+      features: {
+        'file-tree': {
+          droppedSampleCount: 0,
+          durationP95Ms: 3,
+          queryCount: 2,
+        },
+      },
+    });
+  });
+
   it('aggregates token-estimation cache hits from lookup counts', () => {
     const telemetry = new DatabaseQueryTelemetry();
 
