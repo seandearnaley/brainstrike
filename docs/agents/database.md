@@ -170,8 +170,8 @@ extension control file" error on that path only:
   0.5.4 family leaves no lower-numbered pg_textsearch option to fall back to
   — see the "family cannot be split" finding earlier in this section. Linux
   and Windows qualification is owed under BST-1080. This exception covers
-  *platform coverage* only; it does not cover the existing-install gap above,
-  which is a separate, more severe open question blocking merge on its own.
+  *platform coverage* only. (The existing-install gap that once also blocked
+  merge is resolved by the BST-1081 greenfield ruling recorded above.)
 
   PGlite 0.5.4 also fixed Electron process detection to key off
   `process.type` instead of `process.versions.electron` (upstream commit
