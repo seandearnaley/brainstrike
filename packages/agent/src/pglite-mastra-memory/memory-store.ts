@@ -1,4 +1,5 @@
-import { createLogger, getErrorMessage } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { getErrorMessage } from '@brainstrike/utils';
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
 import type {

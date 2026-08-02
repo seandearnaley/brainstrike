@@ -1,8 +1,8 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { isWithinRoot } from './workspace-path';
 
 const logger = createLogger('AssistantWorkspaceFileWalk');

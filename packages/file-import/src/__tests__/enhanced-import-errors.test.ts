@@ -5,7 +5,7 @@ import {
   LogLevel,
   type LogRecord,
   setLogLevel,
-} from '@brainstrike/utils/logger';
+} from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import { runEnhancedImport } from '../enhanced-import';
 

@@ -11,9 +11,9 @@ import type {
   ContextPackerResult,
 } from '@brainstrike/assistant-contract/context-packer';
 import { ContextPacker } from '@brainstrike/assistant-contract/context-packer';
+import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type { SemanticSearchResult } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo } from 'react';
 import {
   formatPackedContext,

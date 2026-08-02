@@ -28,6 +28,9 @@
     },
     {
       "path": "../../packages/platform-utils"
+    },
+    {
+      "path": "../logging"
     }
   ]
 }

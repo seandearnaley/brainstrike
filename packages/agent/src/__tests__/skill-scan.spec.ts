@@ -10,7 +10,7 @@
  * description 1–1024 chars).
  */
 
-import { addLogListener, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetSkillScanWarningsForTests,

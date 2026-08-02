@@ -18,6 +18,7 @@ import {
   defineContextAction,
 } from '@brainstrike/context-actions';
 import type { FileChunk } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import {
   ActionContextMenu,
@@ -41,7 +42,6 @@ import {
   TablePagination,
   useContextMenuTarget,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   ChevronLeft,
   ChevronRight,

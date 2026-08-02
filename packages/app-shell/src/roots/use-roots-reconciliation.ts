@@ -1,6 +1,6 @@
 import type { DbHandle } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { reconcileRoots } from './root-registry';
 

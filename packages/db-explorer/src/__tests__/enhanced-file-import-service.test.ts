@@ -117,17 +117,20 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     createBulkOperationContext: createBulkOperationContextMock,
-    createLogger: vi.fn(() => ({
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-    })),
     fileExplorer: {
       getFileExtension: vi.fn(() => 'ts'),
     },
   };
 });
+
+vi.mock('@brainstrike/logging', () => ({
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  })),
+}));
 
 vi.mock('@brainstrike/utils/bulk-operation-context', () => ({
   createBulkOperationContext: createBulkOperationContextMock,

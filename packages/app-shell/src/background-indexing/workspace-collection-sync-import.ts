@@ -25,11 +25,11 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';

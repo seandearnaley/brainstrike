@@ -1,4 +1,4 @@
-import type { LogRecord } from '@brainstrike/utils/logger';
+import type { LogRecord } from './logger.js';
 
 export type LogBufferSubscriber = (records: readonly LogRecord[]) => void;
 

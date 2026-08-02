@@ -1,4 +1,4 @@
-import { LogLevel } from '@brainstrike/utils/logger';
+import { LogLevel } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import { collectDesktopPlatformDiagnostics } from '../desktop-platform-diagnostics';
 

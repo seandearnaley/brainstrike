@@ -26,7 +26,7 @@
  * ```
  */
 
-import { LogLevel, setLogLevel } from '@brainstrike/utils/logger';
+import { LogLevel, setLogLevel } from '@brainstrike/logging';
 
 export interface BulkOperationOptions {
   /**

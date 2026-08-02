@@ -1,8 +1,9 @@
 import type { ClaimedJob, IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service.js';
 import type {
   EmbeddingProviderError,

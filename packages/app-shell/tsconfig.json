@@ -182,6 +182,9 @@
     },
     {
       "path": "../context-actions"
+    },
+    {
+      "path": "../logging"
     }
   ]
 }

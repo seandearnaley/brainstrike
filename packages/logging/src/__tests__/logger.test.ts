@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as envUtils from '../env-utils.js';
 import {
   __loggerTesting,
   addLogListener,
@@ -69,24 +68,18 @@ function collectLogs(callback: () => void): LogRecord[] {
   return records;
 }
 
-function setEnvironment(isDev: boolean): void {
-  vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(isDev);
-  resetLogger();
-}
-
 describe('logger', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    resetLogger();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  describe('environment sensitive levels', () => {
-    it('suppresses debug logs in production by default', () => {
-      setEnvironment(false);
-
+  describe('default and explicit levels', () => {
+    it('suppresses debug logs at the default INFO level', () => {
       const records = collectLogs(() => {
         debug('debug message');
         info('info message');
@@ -102,7 +95,6 @@ describe('logger', () => {
     });
 
     it('enables debug logging in production when configured with explicit level', () => {
-      setEnvironment(false);
       configureLogger({ enableInProduction: true, level: LogLevel.DEBUG });
 
       const records = collectLogs(() => {
@@ -117,7 +109,7 @@ describe('logger', () => {
 
   describe('log level overrides', () => {
     beforeEach(() => {
-      setEnvironment(true);
+      resetLogger();
     });
 
     it('filters logs below the configured level', () => {
@@ -146,9 +138,7 @@ describe('logger', () => {
   });
 
   describe('structured metadata', () => {
-    beforeEach(() => {
-      setEnvironment(true);
-    });
+    beforeEach(() => {});
 
     it('adds global bindings when configured', () => {
       configureLogger({
@@ -286,7 +276,6 @@ describe('logger', () => {
     });
 
     it('disables node transport output without disabling log listeners', () => {
-      setEnvironment(true);
       configureLogger({ console: false });
 
       expect(__loggerTesting.isRootTransportEnabled()).toBe(false);
@@ -312,9 +301,7 @@ describe('logger', () => {
   });
 
   describe('listeners', () => {
-    beforeEach(() => {
-      setEnvironment(true);
-    });
+    beforeEach(() => {});
 
     it('allows listeners to unsubscribe cleanly', () => {
       const captured: LogRecord[] = [];
@@ -359,9 +346,7 @@ describe('logger', () => {
   });
 
   describe('legacy aliases', () => {
-    beforeEach(() => {
-      setEnvironment(true);
-    });
+    beforeEach(() => {});
 
     it('continues to emit records for legacy helpers', () => {
       // Note: log() is an alias for debug(), which requires DEBUG level
@@ -394,7 +379,6 @@ describe('logger', () => {
 
   describe('trace and fatal levels', () => {
     beforeEach(() => {
-      setEnvironment(true);
       setLogLevel(LogLevel.TRACE);
     });
 
@@ -436,9 +420,7 @@ describe('logger', () => {
   });
 
   describe('logger caching', () => {
-    beforeEach(() => {
-      setEnvironment(true);
-    });
+    beforeEach(() => {});
 
     it('returns the same logger instance for the same scope', () => {
       const logger1 = createLogger('CachedScope');
@@ -457,7 +439,6 @@ describe('logger', () => {
 
   describe('environment variable log level', () => {
     beforeEach(() => {
-      setEnvironment(true);
       resetLogger();
     });
 
@@ -509,9 +490,7 @@ describe('logger', () => {
   });
 
   describe('listener error handling', () => {
-    beforeEach(() => {
-      setEnvironment(true);
-    });
+    beforeEach(() => {});
 
     it('logs listener errors to console without breaking logging', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

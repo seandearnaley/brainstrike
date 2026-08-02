@@ -5,7 +5,7 @@
  * Enables proper WebGPU validation and user-friendly error messages.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('device-detection');
 

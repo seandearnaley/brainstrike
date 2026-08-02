@@ -22,12 +22,12 @@ import {
   type UpdateWorkspaceContextSelectionInput,
   type UpdateWorkspaceTapestrySelectionsInput,
 } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';

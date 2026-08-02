@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { resetAssistantBudgetPreferencesStoreToDefaults } from '../../stores/assistant-budget-preferences-store';
 import { resetDiagnosticsRetentionStoreToDefaults } from '../../stores/diagnostics-retention-store';
 import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';

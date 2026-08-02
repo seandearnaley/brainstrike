@@ -28,7 +28,7 @@ import {
   type ManageTaskListResult,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { Agent } from '@mastra/core/agent';
 import { RegexFilterProcessor } from '@mastra/core/processors';
 import { createTool } from '@mastra/core/tools';

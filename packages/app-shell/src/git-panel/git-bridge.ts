@@ -9,6 +9,7 @@
  * bridge. Web never sees it — there is no `isElectron()` check anywhere.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type {
   GitAheadBehind,
   GitCommitFile,
@@ -22,7 +23,6 @@ import type {
   GitStatus,
   GitSwitchBranchResult,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
 
 export type {
   GitAheadBehind,

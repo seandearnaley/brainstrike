@@ -1,5 +1,12 @@
 import type { EmbeddingSet } from '@brainstrike/db';
 import {
+  addLogListener,
+  configureLogger,
+  LogLevel,
+  type LogRecord,
+  setLogLevel,
+} from '@brainstrike/logging';
+import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
@@ -18,13 +25,6 @@ import {
   getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
 import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
-import {
-  addLogListener,
-  configureLogger,
-  LogLevel,
-  type LogRecord,
-  setLogLevel,
-} from '@brainstrike/utils/logger';
 import type {
   WorkspaceIndexingQosInputs,
   WorkspaceIndexingQosPolicy,

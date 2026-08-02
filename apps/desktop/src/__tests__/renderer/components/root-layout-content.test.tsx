@@ -189,10 +189,9 @@ vi.mock('@brainstrike/embeddings', () => ({
   startEmbeddingWorker: vi.fn(async () => ({ stop: vi.fn(async () => {}) })),
 }));
 
-vi.mock('@brainstrike/utils/logger', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
-    '@brainstrike/utils/logger'
-  );
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
   return {
     ...actual,
     createLogger: () => ({

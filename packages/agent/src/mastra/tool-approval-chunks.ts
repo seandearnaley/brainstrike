@@ -22,7 +22,7 @@ import {
   REGISTERED_SUSPEND_RESUME_TOOL_IDS,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { resolveRunPythonExecutionContext } from '../tools/run-python-approval-context';
 import type { StreamChunk } from '../types';
 import { type PermissionAskToolMetadata, resolveAskToolMetadata } from './permission-tool-gate';

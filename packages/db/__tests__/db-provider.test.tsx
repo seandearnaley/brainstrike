@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import type { LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/logging';
+import * as loggingModule from '@brainstrike/logging';
 import * as utilsModule from '@brainstrike/utils';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
@@ -65,7 +66,7 @@ describe('DbProvider', () => {
     // a bare CJS require() bypasses vite aliases (native node resolution) and
     // resets the DIST logger copy instead of the src instance under test
     // (incident #1066 class; surfaced by the threads-pool mutation lane).
-    utilsModule.resetLogger();
+    loggingModule.resetLogger();
   });
 
   afterEach(async () => {
@@ -185,7 +186,7 @@ describe('DbProvider', () => {
 
   it('returns null and logs error when initialization fails', async () => {
     const error = new Error('init failed');
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
+    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
     configureLogger({ enableInProduction: true });
 
     const captured: LogRecord[] = [];
@@ -223,7 +224,7 @@ describe('DbProvider', () => {
     // Mock production environment but enable logging for the test
     const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
     // Configure logger to enable logging in production for this test
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
+    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/logging');
     configureLogger({ enableInProduction: true });
 
     const captured: LogRecord[] = [];

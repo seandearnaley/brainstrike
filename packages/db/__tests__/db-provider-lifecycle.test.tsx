@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import * as loggingModule from '@brainstrike/logging';
 import * as utilsModule from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
@@ -87,7 +88,7 @@ function clearWindowElectronAPI(): void {
 
 describe('DbProvider lifecycle', () => {
   beforeEach(() => {
-    const { resetLogger } = utilsModule;
+    const { resetLogger } = loggingModule;
     resetLogger();
   });
 

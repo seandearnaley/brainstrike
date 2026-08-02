@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import type {
   FileExplorerData,
   FileExplorerState,
@@ -12,7 +13,6 @@ import {
   DEFAULT_MAX_SELECTION_COUNT,
   LEGACY_DEFAULT_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('Persistence');
 const MAX_PERSISTED_STRING_ARRAY_LENGTH = 50_000;

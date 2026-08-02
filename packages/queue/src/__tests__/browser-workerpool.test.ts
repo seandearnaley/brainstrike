@@ -22,7 +22,7 @@ const {
   poolTerminateMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => loggerMock),
 }));
 

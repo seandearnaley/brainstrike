@@ -1,5 +1,5 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('getRootFolderId');
 

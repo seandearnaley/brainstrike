@@ -259,7 +259,7 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
       }
       return text.length;
     });
-    const utilsLogger = await import('@brainstrike/utils/logger');
+    const utilsLogger = await import('@brainstrike/logging');
     const createLoggerSpy = vi.spyOn(utilsLogger, 'createLogger').mockReturnValue({
       child: vi.fn(),
       debug: vi.fn(),

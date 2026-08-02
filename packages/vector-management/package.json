@@ -6,6 +6,7 @@
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",

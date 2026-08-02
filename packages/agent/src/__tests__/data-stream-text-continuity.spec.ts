@@ -8,7 +8,7 @@
  * boundary (tool start, finish). Parallel tool calls (Mastra executes up to
  * 10 concurrently) must map interleaved per-call chunks without cross-talk.
  */
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import type { StreamChunk } from '../index';
 import { AssistantDataStreamSession } from '../stream/data-stream';

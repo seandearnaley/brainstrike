@@ -826,8 +826,10 @@ removing it. `topo` hashes the FULL default inputs (no test-file exclusions —
 "never imported cross-package", so narrowing was reviewed out as a stale-green
 vector; test-only over-invalidation is the cheaper failure mode). Explicit build edges survive in per-package
 `turbo.json` where a test genuinely consumes a built artifact:
-`@brainstrike/utils#test` needs its own `build` (logger-dist-singleton test
-imports utils' `dist` by file URL); `@brainstrike/db#test`/`#test:coverage`
+`@brainstrike/logging#test` needs its own `build` (logger-dist-singleton test
+imports logging's `dist` by file URL); `@brainstrike/utils#test` needs its own
+`build` (typescript-build-contract test inspects emitted files);
+`@brainstrike/db#test`/`#test:coverage`
 need `@brainstrike/utils#build` (migration-runner-types test's nested
 `ts.createProgram` resolves utils types from `dist` — vitest aliases can't
 intercept tsc); `@brainstrike/secure-fs-native#test`/`#test:coverage` need
@@ -853,8 +855,9 @@ lane of a native package.
 Because these lanes no longer build inline, invoking them OUTSIDE turbo and
 without a prior build (`pnpm --filter @brainstrike/secure-fs-native test`, or a
 bare `pnpm test:fast` / `test:coverage:base`, which use recursive `pnpm -r`
-rather than turbo) finds no addon. This matches `@brainstrike/utils`, whose
-dist-singleton tests fail the same way without a prior build, and the `check.mjs`
+rather than turbo) finds no addon. This matches `@brainstrike/logging` and
+`@brainstrike/utils`, whose built-artifact tests fail the same way without a
+prior build, and the `check.mjs`
 gate is safe because it runs `build` before the turbo test lanes sequentially
 (BST-1009 replaced its `test:fast`/`test:coverage:split` steps with the same
 `turbo run test` / `turbo run test:integration` invocations CI uses, so the

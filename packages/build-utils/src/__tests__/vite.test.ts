@@ -232,7 +232,7 @@ describe('assistant vite helpers', () => {
     expect(isBrowserEventsModule('/workspace/node_modules/utils/src/browser-events.js')).toBe(
       false
     );
-    expect(isBrowserEventsModule('/workspace/packages/utils/src/logger.ts')).toBe(false);
+    expect(isBrowserEventsModule('/workspace/packages/logging/src/logger.ts')).toBe(false);
   });
 
   test('classifies only the installed zustand package as its vendor chunk', () => {

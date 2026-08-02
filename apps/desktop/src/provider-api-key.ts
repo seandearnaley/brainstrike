@@ -1,7 +1,7 @@
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
 import { getSecretsService, SecretReadError, type SecretReadErrorCode } from './secrets';
 

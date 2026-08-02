@@ -10,6 +10,7 @@
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",

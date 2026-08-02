@@ -21,8 +21,8 @@
 import path from 'node:path';
 import type { SkillContentDeps } from '@brainstrike/agent';
 import { MAX_SKILL_ASSET_BYTES, MAX_SKILL_CONTENT_FILE_CHARS } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/logging';
 import { SecureRoot } from '@brainstrike/secure-fs-native';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('AssistantSkills');
 

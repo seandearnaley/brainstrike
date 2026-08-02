@@ -3,6 +3,8 @@ import {
   useDiagnosticsPurge,
   useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
+import type { LoggingPreferences } from '@brainstrike/logging';
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
@@ -16,8 +18,6 @@ import {
   CardTitle,
   useToast,
 } from '@brainstrike/ui';
-import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
 import { getRendererLogBuffer } from '../../log-buffer';

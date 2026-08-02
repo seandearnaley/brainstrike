@@ -15,7 +15,7 @@
 import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import {

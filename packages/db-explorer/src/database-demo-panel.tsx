@@ -12,6 +12,7 @@ import {
   registerEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
+import { createLogger } from '@brainstrike/logging';
 import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
@@ -33,7 +34,6 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   CreateEmbeddingSetDialog,
   DeleteEmbeddingSetDialog,

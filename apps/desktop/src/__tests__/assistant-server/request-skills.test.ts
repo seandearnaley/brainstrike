@@ -11,7 +11,7 @@
  */
 
 import type { RuntimeData, SkillScanDeps } from '@brainstrike/agent';
-import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import { prepareRequestSkills } from '../../assistant-server/request-skills';
 

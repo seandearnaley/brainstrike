@@ -2,8 +2,9 @@
   "name": "@brainstrike/assistant-contract",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/utils": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

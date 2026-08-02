@@ -1,4 +1,5 @@
-import { createLogger, encodeFileSelection } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { encodeFileSelection } from '@brainstrike/utils';
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 
 const logger = createLogger('WebHandleCache');

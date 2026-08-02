@@ -6,7 +6,7 @@ import {
   saveToolPreferences,
   type ToolPreferences,
 } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { disposeClients, getClient, initClients } from './mcp';
 import {

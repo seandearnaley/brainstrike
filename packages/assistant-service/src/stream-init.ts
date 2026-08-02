@@ -23,7 +23,7 @@ import {
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
+import type { ScopedLogger } from '@brainstrike/logging';
 import {
   collectLocalLlmWarmupModelIds,
   isLocalChatProvider,

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { IEmbeddingProvider } from './interfaces/provider.js';
 import type {
   EmbeddingProviderConfig,

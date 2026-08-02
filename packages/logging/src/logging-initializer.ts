@@ -1,11 +1,11 @@
-import type { CustomTransportConfig } from '@brainstrike/utils/logger';
+import type { CustomTransportConfig } from './logger.js';
 import {
   type ConsoleTransportConfig,
   configureLogger,
   type FileTransportConfig,
   type LoggerConfig,
   type LogLevel,
-} from '@brainstrike/utils/logger';
+} from './logger.js';
 
 export type LoggerRuntime = 'browser' | 'electron-main' | 'electron-renderer';
 

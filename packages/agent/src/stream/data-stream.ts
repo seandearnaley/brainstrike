@@ -1,4 +1,5 @@
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import type { StreamChunk } from '../types';
 import { type EncodedChunk, encodeChunk, type StoredChunk } from './data-stream-codes';
 import { DataStreamMapper, type DataStreamTerminalOutcome } from './data-stream-mapper';

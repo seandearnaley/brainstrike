@@ -1,6 +1,6 @@
 /**
  * Minimal structural interface for a logger. Matches the shape produced by
- * `@brainstrike/utils/logger` without importing it, so tests can pass plain
+ * `@brainstrike/logging` without importing it, so tests can pass plain
  * mocks and the discovery/catalog services stay decoupled from the logging
  * implementation.
  */

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { app, session } from 'electron';
 import { getCSP } from './csp-utils';
 

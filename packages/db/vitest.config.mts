@@ -47,6 +47,7 @@ const sharedAliases: Record<string, string> = {
   '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),
   '@brainstrike/file-explorer-ui': path.resolve(__dirname, '../file-explorer-ui/src'),
   '@brainstrike/indexing-contract': path.resolve(__dirname, '../indexing-contract/src/index.ts'),
+  '@brainstrike/logging': path.resolve(__dirname, '../logging/src/index.ts'),
   '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
   '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
   '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),

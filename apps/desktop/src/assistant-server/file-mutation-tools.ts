@@ -26,7 +26,7 @@ import {
   withFileLock,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   ensureContainedDirectory,
   resolveWorkspaceWritePath,

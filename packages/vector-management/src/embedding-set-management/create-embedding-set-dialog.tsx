@@ -1,5 +1,6 @@
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import { parseEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 import {
   Button,
   Dialog,
@@ -15,7 +16,6 @@ import {
   type ModelPickerProvider,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { type FormEvent, useEffect, useReducer, useRef } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 import { setActiveEmbeddingSetId } from '../vector-preferences';

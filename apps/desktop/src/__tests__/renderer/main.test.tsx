@@ -197,7 +197,7 @@ describe('renderer main entry', () => {
     window.history.replaceState({}, '', '/?mode=llm-host&runtimeId=llm-host:test');
     await import('../../renderer/main.tsx');
     const { logRecordToDiagnosticEvent } = await import('@brainstrike/utils/diagnostics');
-    const { configureLogger, createLogger } = await import('@brainstrike/utils/logger');
+    const { configureLogger, createLogger } = await import('@brainstrike/logging');
     const ingestBufferedRecord = window.logging?.ingestBufferedRecord;
     if (!ingestBufferedRecord) {
       throw new Error('Expected the buffered-log ingestion capability');

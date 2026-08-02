@@ -15,8 +15,8 @@ import type {
   LocalLlmMessage,
   LocalLlmToolCall,
 } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   type AssistantContentPart,
   type AssistantDataContentPart,

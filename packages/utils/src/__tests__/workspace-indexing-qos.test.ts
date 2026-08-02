@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
 import {
   addLogListener,
   configureLogger,
   LogLevel,
   type LogRecord,
   setLogLevel,
-} from '../logger.js';
+} from '@brainstrike/logging';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,

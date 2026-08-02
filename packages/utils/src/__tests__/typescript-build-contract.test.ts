@@ -56,7 +56,7 @@ function runtimeConditionViolations(exportsMap: PackageJson['exports']): string[
 describe('utils emitted TypeScript build contract', () => {
   it('emits every runtime package subpath declared by the export map', () => {
     const exportNames = runtimeSubpathExportNames();
-    expect(exportNames.length).toBeGreaterThanOrEqual(40);
+    expect(exportNames.length).toBeGreaterThanOrEqual(34);
     expect(runtimeConditionViolations(packageJson.exports)).toEqual([]);
     for (const exportName of exportNames) {
       const exportConfig = packageJson.exports[`./${exportName}`];
@@ -69,11 +69,11 @@ describe('utils emitted TypeScript build contract', () => {
 
   it('MONEY TEST: rejects a fake CommonJS condition without a CJS artifact', () => {
     const mutatedExports = structuredClone(packageJson.exports);
-    mutatedExports['./logger'] = {
-      ...mutatedExports['./logger'],
-      require: './dist/logger.js',
+    mutatedExports['./collator'] = {
+      ...mutatedExports['./collator'],
+      require: './dist/collator.js',
     };
-    expect(runtimeConditionViolations(mutatedExports)).toContain('./logger declares require');
+    expect(runtimeConditionViolations(mutatedExports)).toContain('./collator declares require');
   });
 
   it('uses the canonical tsc-only Node ESM library shape', () => {

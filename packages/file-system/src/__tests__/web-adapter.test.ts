@@ -1,4 +1,4 @@
-import { addLogListener } from '@brainstrike/utils';
+import { addLogListener } from '@brainstrike/logging';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebFileSystemAdapter } from '../adapters/web-adapter.js';

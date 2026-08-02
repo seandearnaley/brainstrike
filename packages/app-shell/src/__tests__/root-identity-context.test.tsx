@@ -1,4 +1,4 @@
-import { addLogListener, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';

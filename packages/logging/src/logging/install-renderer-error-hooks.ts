@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '../logger.js';
 
 export interface RendererErrorEventPayload {
   column?: number;

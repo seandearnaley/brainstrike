@@ -1,5 +1,5 @@
-import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import type { LoggingPreferences } from '@brainstrike/logging';
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
 
 export const LOGGING_API_CHANNELS = {
   durableRecord: 'logging:durable-record',

@@ -1,3 +1,4 @@
+import { addLogListener, LogLevel, type LogRecord, error as logError } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import {
   computeDiagnosticFingerprint,
@@ -5,7 +6,6 @@ import {
   deriveDiagnosticRecordSource,
   logRecordToDiagnosticEvent,
 } from '../diagnostics/diagnostic-events.js';
-import { addLogListener, LogLevel, type LogRecord, error as logError } from '../logger.js';
 
 const ENV = {
   appVersion: '1.0.0-test',

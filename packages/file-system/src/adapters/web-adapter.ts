@@ -1,5 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode, RootDescriptor, RootPermissionState } from '@brainstrike/types';
-import { createLogger, fileNodeCollator } from '@brainstrike/utils';
+import { fileNodeCollator } from '@brainstrike/utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { formatFileSize, getFileSizeConfig } from '../config.js';
 import { AccessError } from '../errors.js';

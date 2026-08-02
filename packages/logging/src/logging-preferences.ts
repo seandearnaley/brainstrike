@@ -4,7 +4,7 @@ import {
   type FileTransportConfig,
   type LoggerConfig,
   LogLevel,
-} from '@brainstrike/utils/logger';
+} from './logger.js';
 import type { LoggerRuntime } from './logging-initializer.js';
 
 export interface FileLoggingPreferences {

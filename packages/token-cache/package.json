@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",

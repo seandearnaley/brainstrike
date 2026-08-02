@@ -1,8 +1,8 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils/collator';
-import { createLogger } from '@brainstrike/utils/logger';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { finalPath as getFinalPath } from '@brainstrike/utils/path-utils';
 import { useCallback, useEffect, useRef, useState } from 'react';

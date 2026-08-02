@@ -14,7 +14,7 @@ import {
   NATIVE_TOOL_ID,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, ShieldCheck, Timer, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Badge } from '../badge';

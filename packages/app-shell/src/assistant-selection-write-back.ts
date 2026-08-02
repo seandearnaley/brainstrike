@@ -1,6 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
 import type { AssistantWorkspaceTapestryUpdatePayload } from '@brainstrike/types';
 import { normalizeWorkspaceLookupPath } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { buildAssistantTapestryRange } from './assistant-ui-panel-wrapper-runtime';
 

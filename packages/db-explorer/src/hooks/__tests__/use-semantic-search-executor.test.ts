@@ -5,16 +5,16 @@ import type {
   FileChunk,
   FileRecord,
 } from '@brainstrike/db';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import type { SearchConfig } from '@brainstrike/ui';
 import {
   addLogListener,
   configureLogger,
   LogLevel,
   type LogRecord,
   setLogLevel,
-} from '@brainstrike/utils';
+} from '@brainstrike/logging';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import type { SearchConfig } from '@brainstrike/ui';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import { act, renderHook as baseRenderHook, type RenderHookOptions } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

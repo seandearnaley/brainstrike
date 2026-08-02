@@ -4,7 +4,7 @@ import { createReadStream, constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('PythonRuntime');
 const execFileAsync = promisify(execFile);

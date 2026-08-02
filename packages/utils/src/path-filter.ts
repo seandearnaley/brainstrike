@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { Minimatch } from 'minimatch';
 
 /**

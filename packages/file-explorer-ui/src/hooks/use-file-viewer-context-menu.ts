@@ -1,11 +1,11 @@
 import type { TargetOf } from '@brainstrike/context-actions';
+import { createLogger } from '@brainstrike/logging';
 import {
   type CodeSurfaceContextMenuSelection,
   type ContextMenuTargetController,
   useContextMenuTarget,
 } from '@brainstrike/ui';
 import type { MarkdownSurfaceContextMenuSelection } from '@brainstrike/ui/markdown-surface';
-import { createLogger } from '@brainstrike/utils';
 import { useCallback } from 'react';
 import { type FileSurfaceTab, fileViewerToTarget } from '../context-actions/file-surface-target';
 

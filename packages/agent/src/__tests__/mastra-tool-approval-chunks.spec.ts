@@ -14,7 +14,7 @@
  *
  * See docs/agents/assistant-runtime.md (PERMISSION ENGINE, tool suspend/resume).
  */
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

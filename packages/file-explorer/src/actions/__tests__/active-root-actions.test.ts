@@ -2,7 +2,7 @@ import type { FileExplorerState, StoredRootDescriptor } from '@brainstrike/types
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerWarn = vi.hoisted(() => vi.fn());
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),

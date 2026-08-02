@@ -31,8 +31,8 @@ import {
   resolveHostedProviderApiKey,
   VoyageEmbeddingProvider,
 } from '@brainstrike/embeddings/provider-core';
+import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
-import { createLogger } from '@brainstrike/utils/logger';
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService, SecretReadError } from '../secrets';
