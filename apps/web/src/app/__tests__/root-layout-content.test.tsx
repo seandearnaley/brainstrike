@@ -78,6 +78,7 @@ vi.mock('@brainstrike/vector-management', () => ({
 }));
 
 vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
+  ensureVectorPreferencesHydrated: startupMocks.ensureVectorPreferencesHydrated,
   useVectorPreferencesStore: (
     selector: (state: {
       devicePref: string;
@@ -112,10 +113,6 @@ vi.mock('../../create-embedding-queue', () => ({
 vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', () => ({
   ensureBackgroundIndexingPreferencesHydrated:
     startupMocks.ensureBackgroundIndexingPreferencesHydrated,
-}));
-
-vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
-  ensureVectorPreferencesHydrated: startupMocks.ensureVectorPreferencesHydrated,
 }));
 
 // Mock the indexing barrel to prevent token worker startup in unit tests.
