@@ -187,6 +187,18 @@ describe('DrizzleTokenCacheStore', () => {
       expect(telemetryAfter.lookupCount - telemetryBefore.lookupCount).toBe(2);
     });
 
+    it('counts each requested duplicate path as a cache hit', async () => {
+      await store.set(createEntry({ filePath: 'src/file1.ts', tokenCount: 100 }));
+
+      const telemetryBefore = databaseQueryTelemetry.snapshot().tokenEstimation;
+      const result = await store.getBatch(testFolderId, ['src/file1.ts', 'src/file1.ts']);
+
+      expect(result.size).toBe(1);
+      const telemetryAfter = databaseQueryTelemetry.snapshot().tokenEstimation;
+      expect(telemetryAfter.hitCount - telemetryBefore.hitCount).toBe(2);
+      expect(telemetryAfter.lookupCount - telemetryBefore.lookupCount).toBe(2);
+    });
+
     it('should return empty map for empty paths', async () => {
       const result = await store.getBatch(testFolderId, []);
       expect(result.size).toBe(0);

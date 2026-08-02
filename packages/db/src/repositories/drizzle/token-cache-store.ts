@@ -112,7 +112,14 @@ export class DrizzleTokenCacheStore {
 
         return map;
       },
-      { hitCount: (result) => result.size, lookupCount: validatedPaths.length }
+      {
+        hitCount: (result) =>
+          validatedPaths.reduce(
+            (hitCount, validatedPath) => hitCount + (result.has(validatedPath) ? 1 : 0),
+            0
+          ),
+        lookupCount: validatedPaths.length,
+      }
     );
   }
 
