@@ -366,6 +366,11 @@ describe('grepSearch hybrid — totalMatches when the index pass is capped', () 
   });
 
   it('reports the same total on the first page as on the last', async () => {
+    // The two pages are deliberately NOT symmetric: only the page SIZE differs,
+    // and both now request the same internal cap from the index arm, so this
+    // pins that the reported total is independent of where the caller is in the
+    // page sequence. Before the fix these disagreed (117 on page 1 vs 61 on the
+    // last), which is what made the advertised total unusable.
     const root = await makeIndexCappedWorkspace();
 
     const firstPage = await runGrepSearch(
@@ -388,6 +393,44 @@ describe('grepSearch hybrid — totalMatches when the index pass is capped', () 
     // cannot act on: page 1 advertises matches that paging can never reach.
     expect(firstPage.totalMatches).toBe(lastPage.totalMatches);
     expect(firstPage.totalMatches).toBe(CAPPED_LINE_COUNT);
+  });
+
+  it('counts fresh live-only lines even when the merged set is SMALLER than the index total', async () => {
+    // The lossy shape both PR #2233 reviewers identified. The index counts more
+    // than the live pass can see — a STALE index (the file has since been
+    // trimmed on disk) is the cheapest way to produce it, but the live pass's
+    // own caps (per-file --max-count, --max-filesize, the candidate cap) reach
+    // the same state on a fresh index.
+    //
+    // Here the merged set stays well BELOW `indexResult.totalMatches`, so any
+    // total derived only from the index count silently absorbs the genuinely
+    // fresh, live-only file — the exact over-correction a `max()` of the two
+    // floors would make. Pinned so nobody "simplifies" it back.
+    const indexedContent = `${Array.from(
+      { length: CAPPED_LINE_COUNT },
+      (_unused, index) => `PAGED_TOKEN row ${index + 1}`
+    ).join('\n')}\n`;
+    const root = await makeWorkspace({
+      // On disk the file now holds only the first 5 of the indexed lines...
+      'docs/big.txt': `${Array.from({ length: 5 }, (_unused, index) => `PAGED_TOKEN row ${index + 1}`).join('\n')}\n`,
+      // ...and this file is on disk ONLY — the index has never seen it.
+      'src/fresh.ts': 'const PAGED_TOKEN = "brand new";\n',
+    });
+    queryMock.mockResolvedValue({
+      rows: [{ content: indexedContent, path: 'docs/big.txt', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch(
+      { maxResults: 5, outputMode: 'content', pattern: 'PAGED_TOKEN' },
+      singleRoot(root)
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content result');
+    }
+    // The fresh file is a CONFIRMED location neither pass can double-count, so
+    // it must appear in the total. (It sorts after `docs/`, so it lands on a
+    // later page rather than this one — that is paging, not counting.)
+    expect(result.totalMatches).toBe(CAPPED_LINE_COUNT + 1);
   });
 
   it('still counts genuinely fresh live-only lines on top of the index total', async () => {

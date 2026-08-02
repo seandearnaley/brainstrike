@@ -52,11 +52,19 @@ function toModelFacingMatch(match: LabeledGrepMatch): ModelFacingGrepMatch {
 
 const DEFAULT_CONTENT_MATCHES = 50;
 /**
- * Internal match cap for 'files' mode aggregation. The service caps the
- * candidate pool at 500 files regardless, so this only bounds per-file match
- * counting, not the file scan itself.
+ * Internal match cap requested from the index pass, in BOTH output modes. The
+ * service caps the candidate pool at 500 files regardless, so this only bounds
+ * how many matches are materialized, not the file scan itself.
+ *
+ * Content mode used to request only `offset + maxResults`. That bought nothing
+ * — `GrepSearchService.search` accumulates every match from its candidates and
+ * `maxResults` only slices the finished array, so a smaller request skips no DB
+ * or matching work — while creating the merge's attribution hole: with the index
+ * arm capped, its unmaterialized matches are indistinguishable from lines the
+ * live pass discovered fresh. It also contradicted the model-facing hint, which
+ * already reports THIS constant as the pagination cap.
  */
-const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
+const INTERNAL_MATCH_CAP = 2000;
 const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
 
 /**
@@ -176,23 +184,26 @@ function mergeGrepMatches(
  * The merged unique-match total.
  *
  * The index arm reports an UNCAPPED unique count (`indexResult.totalMatches`)
- * but materializes only `offset + maxResults` rows, so "live rows with no twin
- * among the materialized index rows" is only a count of NEW lines while the
- * index materialized everything it counted.
+ * but materializes at most `INTERNAL_MATCH_CAP` rows, so "live rows with no twin
+ * among the materialized index rows" counts NEW lines only while the index
+ * materialized everything it counted. That is now the normal case for both
+ * modes, so the exact sum is the normal path.
  *
- * When the index arm was capped, that attribution breaks: every on-disk line the
- * index counted but did not materialize looks live-only, so it is counted twice
- * — once inside the index total, once as a live-only addition. Measured against
- * a 61-hit file: `maxResults: 20` reported 102 and `maxResults: 5` reported 117,
- * while `outputMode: 'files'` (whose larger internal cap materialized every row)
- * reported the true 61. That also made the total shrink toward the truth as the
- * caller paged, so page 1 advertised matches paging could never reach.
+ * Beyond the cap the attribution genuinely breaks: an on-disk line the index
+ * counted but did not materialize is indistinguishable from a fresh live-only
+ * one. Two bounds are still known to be real, so take the larger:
  *
- * With the index capped we cannot attribute the unmaterialized remainder, so
- * take the larger of the two floors we actually know: the index's own uncapped
- * count, and the merged set we materialized. Both are real matches, so neither
- * can over-report, and the live-only rows are still counted because they are
- * part of the merged set.
+ * - `indexResult.totalMatches` — the index's own uncapped count.
+ * - `mergedCount` — distinct locations actually materialized here.
+ *
+ * Neither can over-report. This is deliberately a BOUND, not the union: with the
+ * index capped and the live pass ALSO limited (its per-file `--max-count`, size
+ * caps, or the candidate cap), the merged set can sit below the index total
+ * while still holding fresh live-only rows, and those are then absorbed rather
+ * than added. Raising `INTERNAL_MATCH_CAP` is what shrinks that window; adding
+ * `liveOnlyAdded` on top of a capped index total is what over-counted before
+ * (measured on a 61-hit file: 117 at `maxResults: 5`, 102 at 20, 72 at the
+ * default 50) and must not come back.
  */
 function resolveTotalMatches(args: {
   indexResult: GrepSearchResult;
@@ -525,13 +536,9 @@ export async function runGrepSearch(
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
   const requestedMatches = input.maxResults ?? DEFAULT_CONTENT_MATCHES;
-  // The service slices its accumulated matches to maxResults, so pagination
-  // must request offset + page size; files mode counts matches per file and
-  // needs the larger internal cap to keep counts meaningful.
-  const serviceMaxResults =
-    outputMode === 'files'
-      ? FILES_MODE_INTERNAL_MATCH_CAP
-      : Math.min(offset + requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP);
+  // Both modes request the same internal cap: the page size bounds what is
+  // RETURNED, never what the index pass materializes for the merge.
+  const serviceMaxResults = INTERNAL_MATCH_CAP;
 
   const isRegex = input.isRegex ?? false;
   const caseSensitive = input.caseSensitive ?? false;
@@ -599,7 +606,7 @@ export async function runGrepSearch(
     return parseGrepToolResult(
       outputMode === 'files'
         ? buildFilesResult(merged, offset)
-        : buildContentResult(merged, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP)
+        : buildContentResult(merged, offset, requestedMatches, INTERNAL_MATCH_CAP)
     );
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
