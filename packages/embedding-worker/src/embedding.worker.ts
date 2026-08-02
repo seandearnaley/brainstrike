@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { EMBED_WORKER_INSTANCE_NAME_PREFIX } from '@brainstrike/indexing-contract';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
   FeatureExtractionPipeline,
@@ -29,7 +30,24 @@ import {
   vectorsFromPipelineOutput,
 } from './shared';
 
-const embeddingWorkerInstanceId = globalThis.crypto.randomUUID();
+function resolveEmbeddingWorkerInstanceId(): string {
+  const workerName = (globalThis as typeof globalThis & { readonly name?: unknown }).name;
+  if (workerName === undefined || workerName === '') {
+    return globalThis.crypto.randomUUID();
+  }
+  if (
+    !(typeof workerName === 'string' && workerName.startsWith(EMBED_WORKER_INSTANCE_NAME_PREFIX))
+  ) {
+    throw new Error('Embedding worker name does not match the managed identity contract.');
+  }
+  const workerInstanceId = workerName.slice(EMBED_WORKER_INSTANCE_NAME_PREFIX.length);
+  if (workerInstanceId.length === 0) {
+    throw new Error('Embedding worker name is missing its required instance identity.');
+  }
+  return workerInstanceId;
+}
+
+const embeddingWorkerInstanceId = resolveEmbeddingWorkerInstanceId();
 
 function debugLog(message: string, data?: Record<string, unknown>): void {
   void message;

@@ -1,3 +1,4 @@
+import { EMBED_WORKER_INSTANCE_NAME_PREFIX } from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueueResult, TaskPayload } from '../types';
 
@@ -263,7 +264,10 @@ describe('createWorkerpoolAdapter', () => {
     expect(recordEmbeddingBatchTelemetryMock).not.toHaveBeenCalled();
   });
 
-  it('clears every observed worker source when workerpool terminates a worker', async () => {
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+  ])('rejects a pipeline-cache diagnostic with a %s worker identity', async (_case, workerId) => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
     poolExecMock.mockImplementation(
       (_method, _args, options?: { on?: (event: unknown) => void }) => {
@@ -272,9 +276,9 @@ describe('createWorkerpoolAdapter', () => {
           diagnostic: 'pipeline-cache',
           emittedAt: 100,
           event: 'hit',
-          id: 'task-worker-fault',
+          id: 'task-malformed-worker',
           type: 'diagnostic',
-          workerInstanceId: 'worker-fault',
+          ...(workerId === undefined ? {} : { workerInstanceId: workerId }),
         });
         return promise;
       }
@@ -282,17 +286,92 @@ describe('createWorkerpoolAdapter', () => {
 
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
-    const addPromise = adapter.add(createTask('task-worker-fault'));
-    resolve(createResult('task-worker-fault'));
-    await addPromise;
+    const addPromise = adapter.add(createTask('task-malformed-worker'));
+    resolve(createResult('task-malformed-worker'));
 
+    await expect(addPromise).rejects.toThrow(
+      'Embedding worker pipeline-cache diagnostic requires a non-empty workerInstanceId.'
+    );
+    expect(promise.cancel).toHaveBeenCalledTimes(1);
+    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+  });
+
+  it('removes only the telemetry source for the workerpool worker that terminates', async () => {
+    const executions = [
+      createCancelablePromise<QueueResult>(),
+      createCancelablePromise<QueueResult>(),
+    ];
+    const workerInstanceIds: string[] = [];
+    let executionIndex = 0;
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        const execution = executions[executionIndex];
+        const workerInstanceId = workerInstanceIds[executionIndex];
+        executionIndex += 1;
+        if (!(execution && workerInstanceId)) {
+          throw new Error('Expected a configured worker execution.');
+        }
+        options?.on?.({
+          cacheSize: 1,
+          diagnostic: 'pipeline-cache',
+          emittedAt: 100,
+          event: 'hit',
+          id: `task-${workerInstanceId}`,
+          type: 'diagnostic',
+          workerInstanceId,
+        });
+        return execution.promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
     const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
-      | { onTerminateWorker?: () => void }
+      | {
+          onCreateWorker?: (args: {
+            script?: string;
+            workerOpts?: WorkerOptions;
+          }) => { workerOpts?: WorkerOptions } | undefined;
+          onTerminateWorker?: (args: { script?: string; workerOpts?: WorkerOptions }) => void;
+        }
       | undefined;
-    poolOptions?.onTerminateWorker?.();
+    const firstWorker = poolOptions?.onCreateWorker?.({
+      script: '/worker.js',
+      workerOpts: { type: 'module' },
+    });
+    const secondWorker = poolOptions?.onCreateWorker?.({
+      script: '/worker.js',
+      workerOpts: { type: 'module' },
+    });
+    const firstWorkerOptions = firstWorker?.workerOpts;
+    const secondWorkerOptions = secondWorker?.workerOpts;
+    const firstWorkerName = firstWorkerOptions?.name;
+    const secondWorkerName = secondWorkerOptions?.name;
+    if (!(firstWorkerOptions && secondWorkerOptions && firstWorkerName && secondWorkerName)) {
+      throw new Error('Expected workerpool to assign telemetry worker names.');
+    }
+    workerInstanceIds.push(
+      firstWorkerName.replace(EMBED_WORKER_INSTANCE_NAME_PREFIX, ''),
+      secondWorkerName.replace(EMBED_WORKER_INSTANCE_NAME_PREFIX, '')
+    );
+
+    const firstAdd = adapter.add(createTask('task-worker-a'));
+    executions[0]?.resolve(createResult('task-worker-a'));
+    await firstAdd;
+    const secondAdd = adapter.add(createTask('task-worker-b'));
+    executions[1]?.resolve(createResult('task-worker-b'));
+    await secondAdd;
+
+    poolOptions?.onTerminateWorker?.({
+      script: '/worker.js',
+      workerOpts: firstWorkerOptions,
+    });
 
     expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(
-      'workerpool-embedding-worker-fault'
+      `workerpool-embedding-${workerInstanceIds[0]}`
+    );
+    expect(removeEmbeddingTelemetrySourceMock).not.toHaveBeenCalledWith(
+      `workerpool-embedding-${workerInstanceIds[1]}`
     );
   });
 

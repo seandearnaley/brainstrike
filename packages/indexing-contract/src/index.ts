@@ -847,6 +847,9 @@ export interface EmbedWorkerPipelineCacheEntryDiagnostic {
   readonly residencyMs: number;
 }
 
+/** Worker name prefix used to carry a pool-assigned identity through termination callbacks. */
+export const EMBED_WORKER_INSTANCE_NAME_PREFIX = 'brainstrike-embedding-worker:';
+
 interface EmbedWorkerPipelineCacheDiagnosticBase {
   readonly cacheSize: number;
   readonly diagnostic: 'pipeline-cache';

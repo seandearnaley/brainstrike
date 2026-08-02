@@ -1,3 +1,4 @@
+import { EMBED_WORKER_INSTANCE_NAME_PREFIX } from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   installMockOrtWebGpuDevice,
@@ -262,6 +263,7 @@ describe('pipeline cache metadata and dispose', () => {
 
   it('emits pipeline cache diagnostics for cache load and hit timestamps', async () => {
     vi.useFakeTimers({ now: 1000 });
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}pool-worker-a`);
 
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const runEmbedding = await loadWorker();
@@ -311,6 +313,7 @@ describe('pipeline cache metadata and dispose', () => {
         event: 'loaded',
         id: 'cache-diagnostics-load',
         type: 'diagnostic',
+        workerInstanceId: 'pool-worker-a',
       }),
       expect.objectContaining({
         cacheSize: 1,
@@ -324,6 +327,7 @@ describe('pipeline cache metadata and dispose', () => {
         event: 'hit',
         id: 'cache-diagnostics-hit',
         type: 'diagnostic',
+        workerInstanceId: 'pool-worker-a',
       }),
     ]);
   });

@@ -1,4 +1,7 @@
-import type { EmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  type EmbedWorkerPipelineCacheDiagnostic,
+} from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/utils';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
 import workerpool from 'workerpool';
@@ -32,17 +35,31 @@ function isWorkerEvent(value: unknown): value is WorkerEvent {
   return typeValue === 'progress' || typeValue === 'error';
 }
 
-function isPipelineCacheDiagnostic(value: unknown): value is EmbedWorkerPipelineCacheDiagnostic {
+function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDiagnostic | null {
   if (typeof value !== 'object' || value === null) {
-    return false;
+    return null;
   }
   const record = value as Record<string, unknown>;
-  return (
-    record['diagnostic'] === 'pipeline-cache' &&
-    record['type'] === 'diagnostic' &&
-    typeof record['workerInstanceId'] === 'string' &&
-    record['workerInstanceId'].length > 0
-  );
+  if (!(record['diagnostic'] === 'pipeline-cache' && record['type'] === 'diagnostic')) {
+    return null;
+  }
+  if (!(typeof record['workerInstanceId'] === 'string' && record['workerInstanceId'].length > 0)) {
+    throw new Error(
+      'Embedding worker pipeline-cache diagnostic requires a non-empty workerInstanceId.'
+    );
+  }
+  return record as unknown as EmbedWorkerPipelineCacheDiagnostic;
+}
+
+function readManagedWorkerInstanceId(workerName: string | undefined): string {
+  if (typeof workerName !== 'string' || !workerName.startsWith(EMBED_WORKER_INSTANCE_NAME_PREFIX)) {
+    throw new Error('Terminated embedding worker is missing its managed worker name.');
+  }
+  const workerInstanceId = workerName.slice(EMBED_WORKER_INSTANCE_NAME_PREFIX.length);
+  if (workerInstanceId.length === 0) {
+    throw new Error('Terminated embedding worker name is missing its instance identity.');
+  }
+  return workerInstanceId;
 }
 
 function calculateTransferBytes(vectors: QueueResult['vectors']): number {
@@ -158,11 +175,27 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     }
     embeddingTelemetrySourceIds.clear();
   };
+  const removeTerminatedWorkerTelemetrySource = (workerName: string | undefined): void => {
+    const workerInstanceId = readManagedWorkerInstanceId(workerName);
+    const sourceId = `workerpool-embedding-${workerInstanceId}`;
+    if (!embeddingTelemetrySourceIds.delete(sourceId)) {
+      return;
+    }
+    embeddingTelemetry.removeSource(sourceId);
+  };
   const poolOptions: WorkerPoolOptions = {
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
     maxWorkers: Math.max(minWorkers, maxWorkers),
     minWorkers,
-    onTerminateWorker: clearEmbeddingTelemetrySources,
+    onCreateWorker: ({ workerOpts }) => ({
+      workerOpts: {
+        ...workerOpts,
+        name: `${EMBED_WORKER_INSTANCE_NAME_PREFIX}${globalThis.crypto.randomUUID()}`,
+      },
+    }),
+    onTerminateWorker: ({ workerOpts }) => {
+      removeTerminatedWorkerTelemetrySource(workerOpts?.name);
+    },
     workerOpts: { type: 'module' },
     workerType: 'web',
   };
@@ -247,20 +280,56 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     const startedAt = now();
     const request = toWorkerRequest(task);
     const telemetrySource: { current: string | null } = { current: null };
-    const execPromise = pool.exec('runEmbedding', [request], {
+    const telemetryError: { current: Error | null } = { current: null };
+    let rejectTelemetryError!: (error: Error) => void;
+    const telemetryFailure = new Promise<never>((_resolve, reject) => {
+      rejectTelemetryError = reject;
+    });
+    let cancelable: WorkerPoolPromise<QueueResult> | null = null;
+    cancelable = pool.exec('runEmbedding', [request], {
       on: (event: unknown) => {
         if (isWorkerEvent(event)) {
           emitter.emit(event);
           return;
         }
-        if (isPipelineCacheDiagnostic(event)) {
-          const sourceId = `workerpool-embedding-${event.workerInstanceId}`;
+        let diagnostic: EmbedWorkerPipelineCacheDiagnostic | null = null;
+        try {
+          diagnostic = readPipelineCacheDiagnostic(event);
+        } catch (error) {
+          telemetryError.current =
+            error instanceof Error
+              ? error
+              : new Error('Embedding worker telemetry validation failed.');
+          rejectTelemetryError(telemetryError.current);
+          cancelable?.cancel();
+          return;
+        }
+        if (diagnostic) {
+          const sourceId = `workerpool-embedding-${diagnostic.workerInstanceId}`;
           telemetrySource.current = sourceId;
           embeddingTelemetrySourceIds.add(sourceId);
-          embeddingTelemetry.recordPipelineCache(sourceId, event);
+          embeddingTelemetry.recordPipelineCache(sourceId, diagnostic);
         }
       },
     }) as WorkerPoolPromise<QueueResult>;
+    if (telemetryError.current) {
+      cancelable.cancel();
+    }
+    const checkedExecution = cancelable.then(
+      (result) => {
+        if (telemetryError.current) {
+          throw telemetryError.current;
+        }
+        return result;
+      },
+      (error: unknown) => {
+        if (telemetryError.current) {
+          throw telemetryError.current;
+        }
+        throw error;
+      }
+    );
+    const promise = Promise.race([telemetryFailure, checkedExecution]);
 
     const pendingTasks = readPendingTasks();
     const statsMetadata = readStatsMetadata();
@@ -276,7 +345,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     };
     emitQueueTelemetry(telemetry);
 
-    return { cancelable: execPromise, promise: execPromise, startedAt, telemetrySource };
+    return { cancelable, promise, startedAt, telemetrySource };
   };
 
   const onTaskComplete = (task: TaskPayload, startedAt: number) => {
