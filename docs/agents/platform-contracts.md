@@ -592,7 +592,11 @@ independent rolling one-minute buffer of at most 512 samples **per feature** and
 exposes counts, failures, p50/p95/max duration, live subscription/update
 frequency, token-cache hit rate, and an explicit retained-sample overflow count
 to System Diagnostics. External-store notifications are coalesced to one-second
-updates; producers do not sort or rebuild snapshots on every query.
+updates; producers do not sort or rebuild snapshots on every query. Wall-clock
+timestamps order expiry, while the per-feature cap evicts by arrival order so a
+clock rollback cannot discard newly observed queries. Overflow events are
+bucketed at the arrival that exceeded the cap, not at the evicted sample's
+wall-clock timestamp.
 
 The collector is memory-only and deliberately process-local. It retains no SQL,
 parameters, rows, paths, filenames, queue names, or content, and requires no

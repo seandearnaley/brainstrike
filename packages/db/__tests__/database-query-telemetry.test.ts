@@ -171,6 +171,33 @@ describe('DatabaseQueryTelemetry', () => {
     });
   });
 
+  it('evicts the oldest arrival when a full query buffer receives a post-rollback sample', () => {
+    let now = 120_000;
+    const telemetry = new DatabaseQueryTelemetry({
+      maxSamples: 2,
+      now: () => now,
+      windowMs: 60_000,
+    });
+
+    telemetry.recordQuery({ durationMs: 1, feature: 'file-tree' });
+    now += 1;
+    telemetry.recordQuery({ durationMs: 2, feature: 'file-tree' });
+    now = 0;
+    telemetry.recordQuery({ durationMs: 3, feature: 'file-tree' });
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      droppedSampleCount: 1,
+      features: {
+        'file-tree': {
+          droppedSampleCount: 1,
+          durationP50Ms: 2,
+          durationP95Ms: 3,
+          queryCount: 2,
+        },
+      },
+    });
+  });
+
   it('aggregates token-estimation cache hits from lookup counts', () => {
     const telemetry = new DatabaseQueryTelemetry();
 

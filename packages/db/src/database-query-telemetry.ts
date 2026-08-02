@@ -52,6 +52,7 @@ interface CountBucket {
 
 interface QuerySample extends DatabaseQueryTelemetryRecord {
   readonly recordedAt: number;
+  readonly sequence: number;
 }
 
 const DATABASE_QUERY_FEATURES: readonly DatabaseQueryFeature[] = [
@@ -135,6 +136,7 @@ export class DatabaseQueryTelemetry {
   private readonly liveUpdateBuckets: CountBucket[] = [];
   private readonly listeners = new Set<() => void>();
   private readonly maxSamples: number;
+  private nextQuerySequence = 0;
   private readonly now: () => number;
   private notifyTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly querySamples = createFeatureArrays<QuerySample[]>(() => []);
@@ -210,16 +212,16 @@ export class DatabaseQueryTelemetry {
       hitCount,
       lookupCount,
       recordedAt,
+      sequence: this.nextQuerySequence,
     });
+    this.nextQuerySequence += 1;
     if (featureSamples.length > this.maxSamples) {
-      const droppedSample = featureSamples.shift();
-      if (droppedSample) {
-        this.recordCount(
-          this.droppedSampleBuckets[record.feature],
-          this.droppedSampleBucketMs,
-          droppedSample.recordedAt
-        );
-      }
+      this.evictOldestArrival(featureSamples);
+      this.recordCount(
+        this.droppedSampleBuckets[record.feature],
+        this.droppedSampleBucketMs,
+        recordedAt
+      );
     }
     this.markDirty();
   }
@@ -337,6 +339,21 @@ export class DatabaseQueryTelemetry {
       }
     }
     samples.splice(lowerBound, 0, sample);
+  }
+
+  private evictOldestArrival(samples: QuerySample[]): void {
+    let oldestIndex = 0;
+    for (let index = 1; index < samples.length; index += 1) {
+      const candidate = samples[index];
+      const oldest = samples[oldestIndex];
+      if (!(candidate && oldest)) {
+        throw new Error('Database query telemetry arrival ordering invariant failed');
+      }
+      if (candidate.sequence < oldest.sequence) {
+        oldestIndex = index;
+      }
+    }
+    samples.splice(oldestIndex, 1);
   }
 
   private markDirty(): void {
