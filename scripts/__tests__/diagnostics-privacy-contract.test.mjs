@@ -3,8 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 const contractPath = new URL('../../docs/diagnostics-privacy-contract.md', import.meta.url);
+const platformContractPath = new URL('../../docs/agents/platform-contracts.md', import.meta.url);
 let contractSource = '';
 let contractReadError = null;
+let platformContractSource = '';
+let platformContractReadError = null;
 
 try {
   contractSource = await readFile(contractPath, 'utf8');
@@ -12,8 +15,18 @@ try {
   contractReadError = error;
 }
 
+try {
+  platformContractSource = await readFile(platformContractPath, 'utf8');
+} catch (error) {
+  platformContractReadError = error;
+}
+
 test('diagnostics privacy contract exists in the repo docs', () => {
   assert.equal(contractReadError, null, `${contractPath.pathname} should exist`);
+});
+
+test('platform contract exists in the repo docs', () => {
+  assert.equal(platformContractReadError, null, `${platformContractPath.pathname} should exist`);
 });
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -127,5 +140,23 @@ testWithContract('BST-400 documents retention ownership and buffered attribution
     'keeps a clock failure latched',
   ]) {
     assertContractIncludes(term);
+  }
+});
+
+test('platform contract documents the non-destructive render-phase retention exception', (context) => {
+  if (platformContractReadError !== null) {
+    context.skip(`${platformContractPath.pathname} is unavailable`);
+    return;
+  }
+
+  for (const term of [
+    'render-phase `getSnapshot` clock failure',
+    'one exception',
+    'does not mutate backing storage',
+    'already owned',
+    'retention timer',
+    'non-render collection/publication entry point',
+  ]) {
+    assert.match(platformContractSource, new RegExp(escapeRegExp(term), 'i'));
   }
 });

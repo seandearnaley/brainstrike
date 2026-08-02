@@ -330,7 +330,7 @@ describe('RootLayoutContent', () => {
             {
               duration: 90,
               entryType: 'longtask',
-              startTime: Date.now() - performance.timeOrigin,
+              startTime: performance.now() - 100,
             } as PerformanceEntry,
           ],
         } as PerformanceObserverEntryList,

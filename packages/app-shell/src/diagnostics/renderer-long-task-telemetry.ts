@@ -505,6 +505,13 @@ export function createRendererLongTaskTelemetry(
         kind: 'invalid',
       };
     }
+    const completedAt = entry.startTime + entry.duration;
+    if (!(Number.isFinite(completedAt) && completedAt <= elapsedMs)) {
+      return {
+        error: new Error('PerformanceObserver longtask entry timing is unavailable.'),
+        kind: 'invalid',
+      };
+    }
     const observedAt = deliveredAt - (elapsedMs - entry.startTime);
     if (!(Number.isFinite(observedAt) && observedAt <= deliveredAt)) {
       return {

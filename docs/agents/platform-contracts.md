@@ -607,15 +607,22 @@ samples; mixed known/unknown flag context is surfaced as partial and never
 rewritten to "no flags active" by a later registry transition.
 Retention is owned by the telemetry store: expiry and cap eviction remove stale
 context without a diagnostics subscriber and release it no later than the next
-external-store read. Any retention-clock failure releases retained samples and
-dedupe keys immediately, even if the failure is transient, so an aborted timer
-cannot leave identifiers resident without a replacement expiry deadline. Buffered observer
-entries are retained from their occurrence timestamp and deduplicated across
-observer replay. Because the Performance Observer entry has no historical app
-context, a buffered sample explicitly carries delivery-time route and
-feature-flag context; System Diagnostics labels those fields as delivery-time
-context and must not imply that context was captured at the original stall
-time. Occurrence timestamps, window pruning, and retention deadlines share the
+external-store read. Any retention-clock failure outside a render-phase
+`getSnapshot` releases retained samples and dedupe keys immediately, even if the
+failure is transient, so an aborted timer cannot leave identifiers resident
+without a replacement expiry deadline.
+A render-phase `getSnapshot` clock failure is the one exception: it publishes
+an empty failed snapshot and does not mutate backing storage. The already owned
+retention timer or the next
+non-render collection/publication entry point performs the pending destructive
+cleanup. Buffered observer entries are retained from their occurrence timestamp
+and deduplicated across observer replay. An observer entry whose start or end
+maps after delivery is a malformed timing capability and fails the observation.
+Because the Performance Observer entry has no historical app context, a buffered
+sample explicitly carries delivery-time route and feature-flag context; System
+Diagnostics labels those fields as delivery-time context and must not imply that
+context was captured at the original stall time. Occurrence timestamps, window
+pruning, and retention deadlines share the
 Performance timeline's monotonic epoch clock; `Date.now()` must not drive this
 retention boundary because wall-clock adjustments would split the clocks. The
 module singleton is constructed without reading that clock: the first observer,

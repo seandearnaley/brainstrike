@@ -201,7 +201,7 @@ describe('renderer-long-task-telemetry', () => {
     if (!callback) {
       throw new Error('Expected PerformanceObserver callback to be registered.');
     }
-    const entryStartTime = Date.now() - performance.timeOrigin;
+    const entryStartTime = performance.now() - 100;
     callback(
       {
         getEntries: () => [
@@ -258,9 +258,9 @@ describe('renderer-long-task-telemetry', () => {
     callback(
       {
         getEntries: () => [
-          { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
-          { duration: 80, entryType: 'longtask', startTime: 1950 } as PerformanceEntry,
-          { duration: 90, entryType: 'longtask', startTime: 1990 } as PerformanceEntry,
+          { duration: 75, entryType: 'longtask', startTime: 1800 } as PerformanceEntry,
+          { duration: 80, entryType: 'longtask', startTime: 1850 } as PerformanceEntry,
+          { duration: 90, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
         ],
       } as PerformanceObserverEntryList,
       {} as PerformanceObserver
@@ -309,7 +309,7 @@ describe('renderer-long-task-telemetry', () => {
         getEntries: () => [
           { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
           { duration: 80, entryType: 'longtask', startTime: Number.NaN } as PerformanceEntry,
-          { duration: 90, entryType: 'longtask', startTime: 1950 } as PerformanceEntry,
+          { duration: 90, entryType: 'longtask', startTime: 1850 } as PerformanceEntry,
         ],
       } as PerformanceObserverEntryList,
       {} as PerformanceObserver
@@ -364,6 +364,60 @@ describe('renderer-long-task-telemetry', () => {
       {
         getEntries: () => [
           { duration: 75, entryType: 'longtask', startTime: 2001 } as PerformanceEntry,
+        ],
+      } as PerformanceObserverEntryList,
+      {} as PerformanceObserver
+    );
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(telemetry.getSnapshot()).toMatchObject({
+      availability: 'failed',
+      featureFlags: [],
+      routes: [],
+      sampleCount: 0,
+      unavailableReason: 'PerformanceObserver longtask entry timing is unavailable.',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('rejects a buffered entry whose completion maps after its delivery', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    const disconnect = vi.fn();
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {
+        disconnect();
+      }
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+    vi.stubGlobal('performance', {
+      now: vi.fn(() => 2000),
+      timeOrigin: 498_000,
+    });
+    const telemetry = createRendererLongTaskTelemetry({
+      now: () => 500_000,
+      windowMs: 1000,
+    });
+    telemetry.observe(() => ({
+      enabledFeatureFlags: ['diagnostics-v2'],
+      route: 'settings',
+    }));
+    const callback = callbacks.at(0);
+    if (!callback) {
+      throw new Error('Expected PerformanceObserver callback to be registered.');
+    }
+
+    callback(
+      {
+        getEntries: () => [
+          { duration: 75, entryType: 'longtask', startTime: 1950 } as PerformanceEntry,
         ],
       } as PerformanceObserverEntryList,
       {} as PerformanceObserver
@@ -460,7 +514,7 @@ describe('renderer-long-task-telemetry', () => {
     const entryList = {
       getEntries: () => [
         { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
-        { duration: 80, entryType: 'longtask', startTime: 1950 } as PerformanceEntry,
+        { duration: 80, entryType: 'longtask', startTime: 1920 } as PerformanceEntry,
       ],
     } as PerformanceObserverEntryList;
 
@@ -542,13 +596,13 @@ describe('renderer-long-task-telemetry', () => {
     }
     vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
     vi.stubGlobal('performance', {
-      now: vi.fn(() => 2000),
+      now: vi.fn(() => 2100),
       timeOrigin: 498_000,
     });
     const telemetry = createRendererLongTaskTelemetry({
       maxSamples: 1,
       now: () => 500_000,
-      windowMs: 50,
+      windowMs: 150,
     });
     const listener = vi.fn();
     telemetry.subscribe(listener);
@@ -1091,7 +1145,7 @@ describe('renderer-long-task-telemetry', () => {
     callback(
       {
         getEntries: () => [
-          { duration: 75, entryType: 'longtask', startTime: 1990 } as PerformanceEntry,
+          { duration: 75, entryType: 'longtask', startTime: 1900 } as PerformanceEntry,
         ],
       } as PerformanceObserverEntryList,
       {} as PerformanceObserver
@@ -1282,7 +1336,7 @@ describe('renderer-long-task-telemetry', () => {
           {
             duration: 75,
             entryType: 'longtask',
-            startTime: performance.now(),
+            startTime: performance.now() - 100,
           } as PerformanceEntry,
         ],
       } as PerformanceObserverEntryList,
