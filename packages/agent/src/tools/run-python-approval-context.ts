@@ -61,8 +61,9 @@ export function computeExecutionContextFingerprint(
  * buttons rather than describing a call it cannot read.
  *
  * Every value mirrors what `run-python-tool.ts` will actually do:
- * `allowedDomains` is a literal empty array (network is structurally
- * inexpressible — BST-1067), the only writable path is a fresh mkdtemp folder
+ * `allowedDomains` echoes the model's requested domains (empty = no network;
+ * a non-empty list still requires the per-call Gate B escalation before any
+ * socket opens — BST-1070), the only writable path is a fresh mkdtemp folder
  * under `os.tmpdir()` (minted at execute time, so only its PARENT is namable
  * here), reads are the fence's permissive default, and the timeout falls back
  * to {@link RUN_PYTHON_DEFAULT_TIMEOUT_MS}.
@@ -75,7 +76,10 @@ export function resolveRunPythonExecutionContext(
     return;
   }
   const fields: Omit<CodeExecutionApprovalContext, 'policyFingerprint'> = {
-    allowedDomains: [],
+    // Gate B (BST-1070): the domains the model requested — the approval card
+    // shows "Wants to reach N domains" plus the forewarning that a separate
+    // escalation follows; the escalation itself rides the suspension channel.
+    allowedDomains: parsed.data.allowedDomains ?? [],
     allowRead: [],
     // Entries BEYOND the per-call scratch folder (today: none). The scratch
     // folder itself cannot be listed — mkdtemp mints it after approval — so

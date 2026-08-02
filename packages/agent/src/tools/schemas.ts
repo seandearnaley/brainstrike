@@ -7,7 +7,12 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
-import { MAX_EXEC_CODE_LENGTH, MAX_EXEC_TIMEOUT_MS } from '../code-execution';
+import {
+  MAX_EXEC_CODE_LENGTH,
+  MAX_EXEC_TIMEOUT_MS,
+  MAX_POLICY_ENTRIES,
+  policyDomainSchema,
+} from '../code-execution';
 import { ReadToolOutputArtifactCursorInputSchema } from '../mastra/tool-output-artifact-reader';
 
 const WORKSPACE_SEARCH_ROOT_DESCRIPTION =
@@ -791,6 +796,14 @@ const StrictRootRelativePathSchema = z
 
 export const RunPythonInputSchema = z
   .object({
+    allowedDomains: z
+      .array(policyDomainSchema)
+      .min(1)
+      .max(MAX_POLICY_ENTRIES)
+      .optional()
+      .describe(
+        'Exact domains the script may reach (e.g. "pypi.org", "*.example.com"); omit for no network. Each requires explicit user approval per call.'
+      ),
     code: z
       .string()
       .min(1)

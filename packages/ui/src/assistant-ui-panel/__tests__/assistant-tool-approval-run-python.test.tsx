@@ -265,7 +265,7 @@ describe('run_python approval card — fail-safe paths', () => {
     renderNotice(
       {
         ...baseApproval,
-        args: { allowedDomains: ['exfil.example.com'], code: 'print(1)' },
+        args: { code: 'print(1)', unknownField: true },
         executionContext: undefined,
       },
       makeHandlers()

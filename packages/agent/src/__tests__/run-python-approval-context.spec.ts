@@ -37,6 +37,18 @@ describe('resolveRunPythonExecutionContext', () => {
     });
   });
 
+  it('carries requested domains into the context with a distinct fingerprint (Gate B)', () => {
+    const context = resolveRunPythonExecutionContext({
+      allowedDomains: ['pypi.org', '*.githubusercontent.com'],
+      code: 'print(1)',
+    });
+    expect(context).toMatchObject({
+      allowedDomains: ['pypi.org', '*.githubusercontent.com'],
+    });
+    const offline = resolveRunPythonExecutionContext({ code: 'print(1)' });
+    expect(context?.policyFingerprint).not.toBe(offline?.policyFingerprint);
+  });
+
   it('respects an explicit timeout', () => {
     expect(
       resolveRunPythonExecutionContext({ code: 'print(1)', timeoutMs: 120_000 })
@@ -53,11 +65,21 @@ describe('resolveRunPythonExecutionContext', () => {
     expect(resolveRunPythonExecutionContext({})).toBeUndefined();
     expect(resolveRunPythonExecutionContext({ code: '' })).toBeUndefined();
     expect(resolveRunPythonExecutionContext({ code: 42 })).toBeUndefined();
-    // Unknown key: the schema is .strict(), and a call carrying a field this
-    // build does not understand (e.g. a future allowedDomains) must not be
-    // described as if it were understood.
+    // Unknown key: the schema is .strict() — a field this build does not
+    // understand must not be described as if it were understood.
     expect(
-      resolveRunPythonExecutionContext({ allowedDomains: ['pypi.org'], code: 'print(1)' })
+      resolveRunPythonExecutionContext({ code: 'print(1)', unknownField: true })
+    ).toBeUndefined();
+    // Gate B: domain SHAPES the seam rejects fail resolution too — a bare
+    // wildcard or single-label wildcard must never reach a card.
+    expect(
+      resolveRunPythonExecutionContext({ allowedDomains: ['*'], code: 'print(1)' })
+    ).toBeUndefined();
+    expect(
+      resolveRunPythonExecutionContext({ allowedDomains: ['*.com'], code: 'print(1)' })
+    ).toBeUndefined();
+    expect(
+      resolveRunPythonExecutionContext({ allowedDomains: [], code: 'print(1)' })
     ).toBeUndefined();
     expect(
       resolveRunPythonExecutionContext({ code: 'print(1)', timeoutMs: MAX_EXEC_TIMEOUT_MS + 1 })

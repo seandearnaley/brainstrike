@@ -344,3 +344,117 @@ describe('rediscovered suspend pauses (BST-1084)', () => {
     expect(screen.getByText(/pending since/i)).toBeInTheDocument();
   });
 });
+
+describe('run_python network escalation — Gate B (BST-1070)', () => {
+  const networkRequest = {
+    runId: 'run-net-1',
+    suspendPayload: {
+      allowedDomains: ['pypi.org', '*.githubusercontent.com'],
+      kind: 'network',
+    },
+    toolCallId: 'call-net-1',
+    toolName: 'brainstrike.runPython',
+  };
+
+  beforeEach(() => {
+    appendMessageMock.mockClear();
+    threadMessagesMock.splice(0);
+  });
+
+  it('renders the escalation with deny primary-and-first and allow disabled until EVERY domain is ticked', async () => {
+    const user = userEvent.setup();
+    render(<AssistantToolSuspendNotice data={networkRequest} />);
+
+    expect(screen.getByText('This script wants to reach the internet')).toBeInTheDocument();
+    expect(screen.getByText(/every other address is blocked/i)).toBeInTheDocument();
+    expect(screen.getByText(/it can also send data out/i)).toBeInTheDocument();
+    expect(screen.getByText(/no "always allow" for internet access/i)).toBeInTheDocument();
+    // Wildcard gloss, exact host bare.
+    expect(screen.getByText('— any host ending in .githubusercontent.com')).toBeInTheDocument();
+
+    const deny = screen.getByTestId('run-python-network-deny');
+    const allow = screen.getByTestId('run-python-network-allow');
+    // Deny precedes allow in DOM order (a click where Approve usually sits denies).
+    expect(deny.compareDocumentPosition(allow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(allow).toBeDisabled();
+    expect(allow).toHaveTextContent('Allow these 2 domains');
+    expect(screen.getByText(/tick each domain above/i)).toBeInTheDocument();
+
+    // One tick is not enough.
+    await user.click(screen.getByTestId('run-python-network-domain-pypi.org'));
+    expect(allow).toBeDisabled();
+    await user.click(screen.getByTestId('run-python-network-domain-*.githubusercontent.com'));
+    expect(allow).toBeEnabled();
+  });
+
+  it('never renders grant buttons — there is no grant surface on this channel', () => {
+    render(<AssistantToolSuspendNotice data={networkRequest} />);
+    expect(screen.queryByTestId('approval-grant-tool-always')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('approval-grant-category-session')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('approval-grant-overflow')).not.toBeInTheDocument();
+  });
+
+  it('deny resumes with {action:"deny"} and needs no ticks', async () => {
+    const user = userEvent.setup();
+    render(<AssistantToolSuspendNotice data={networkRequest} />);
+    await user.click(screen.getByTestId('run-python-network-deny'));
+    expect(lastResumeAction()).toMatchObject({
+      resumeData: { action: 'deny' },
+      runId: 'run-net-1',
+      toolCallId: 'call-net-1',
+    });
+  });
+
+  it('allow (after ticking all) resumes with {action:"allow"} and names the count', async () => {
+    const user = userEvent.setup();
+    render(<AssistantToolSuspendNotice data={networkRequest} />);
+    await user.click(screen.getByTestId('run-python-network-domain-pypi.org'));
+    await user.click(screen.getByTestId('run-python-network-domain-*.githubusercontent.com'));
+    await user.click(screen.getByTestId('run-python-network-allow'));
+    expect(lastResumeAction()).toMatchObject({ resumeData: { action: 'allow' } });
+    const appended = appendMessageMock.mock.calls.at(-1)?.[0] as {
+      content: Array<{ text: string }>;
+    };
+    expect(appended.content[0]?.text).toBe('You allowed 2 domains.');
+  });
+
+  it('a single domain names it on the allow button', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...networkRequest,
+          suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+        }}
+      />
+    );
+    expect(screen.getByTestId('run-python-network-allow')).toHaveTextContent('Allow pypi.org');
+  });
+
+  it('an unreadable payload offers deny ONLY — never an allow for terms it cannot state', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{ ...networkRequest, suspendPayload: { kind: 'network' } }}
+      />
+    );
+    expect(screen.getByTestId('run-python-network-unreadable')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-run-python-network-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-python-network-allow')).not.toBeInTheDocument();
+  });
+
+  it('a REDISCOVERED escalation renders the same card with the pending-since lines', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...networkRequest,
+          stale: true,
+          suspendedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        }}
+      />
+    );
+    expect(screen.getByText('This script wants to reach the internet')).toBeInTheDocument();
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending a while/i)).toBeInTheDocument();
+    // Ticks reset across remounts, so allow starts disabled post-reload too.
+    expect(screen.getByTestId('run-python-network-allow')).toBeDisabled();
+  });
+});
