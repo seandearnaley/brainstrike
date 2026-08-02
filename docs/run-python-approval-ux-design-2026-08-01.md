@@ -537,19 +537,21 @@ armed) and needs no new code — but it means **Hosted Web never gets
 `WebNativeToolId` already excluding `runSkillScript`. Add `runPython` to that
 `Exclude<…>` union.
 
-**(c) Cross-reload rediscovery does not yet cover suspensions.**
+**(c) Cross-reload rediscovery does not yet cover suspensions — CLOSED by
+BST-1084 (PR #2223), and Gate B shipped on top of it.** The paragraphs below
+are the original blocking analysis, kept for the record; suspensions ARE now
+rediscovered (unified, both pause kinds) and a reloaded escalation re-renders
+the same card with reset ticks.**
 `listSuspendedMastraRuns` returns approval-gated calls only; non-approval
 `suspend()` pauses are "tolerated + skipped (debug-logged)", and unified
 suspend rediscovery is already a documented follow-up. So a renderer reload
 while a network escalation is on screen strands the run: the transient
 `brainstrike.tool-suspend` part is gone and nothing re-surfaces it.
 
-The **direction** is safe — the run stays suspended, the executor is never
-reached, no code runs, no packet leaves. But it is silent, which this project
-does not accept. **BST-1070 implementation is blocked on unified suspend
-rediscovery** (or on a scoped version of it that covers
-`REGISTERED_SUSPEND_RESUME_TOOL_IDS`). File it as a dependency; do not ship the
-escalation with a silent stranding path.
+The **direction** was safe — the run stays suspended, the executor is never
+reached, no code runs, no packet leaves. But it was silent, which this project
+does not accept. That is why Gate B waited for BST-1084; with unified suspend
+rediscovery merged, the stranding path is gone and the escalation shipped.
 
 ### 3.3 What the user sees
 

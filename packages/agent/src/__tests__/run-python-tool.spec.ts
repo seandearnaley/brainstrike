@@ -671,3 +671,40 @@ describe('Gate B network escalation (BST-1070)', () => {
     expect((tool as { resumeSchema?: unknown }).resumeSchema).toBeTruthy();
   });
 });
+
+describe('Gate B hardening (#2225 review)', () => {
+  it('an explicit EMPTY allowedDomains runs offline without suspending (OpenAI strict mode)', async () => {
+    const stub = stubFence(async () => execResult());
+    const suspend = vi.fn(async () => undefined);
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    const result = await tool.execute({ allowedDomains: [], code: 'print(1)' }, {
+      agent: { suspend },
+    } as never);
+    expect(suspend).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: 'completed' });
+    expect(stub.inputs[0]?.policy.allowedDomains).toEqual([]);
+  });
+
+  it('deduplicates repeated domains before suspending and before the policy', async () => {
+    const stub = stubFence(async () => execResult());
+    const suspend = vi.fn(async () => undefined);
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    await tool.execute({ allowedDomains: ['pypi.org', 'pypi.org'], code: 'print(1)' }, {
+      agent: { suspend },
+    } as never);
+    expect(suspend.mock.calls[0]?.[0]).toEqual({ allowedDomains: ['pypi.org'], kind: 'network' });
+  });
+
+  it('rejects localhost, .local, and IP-literal targets at the schema', async () => {
+    const stub = stubFence(async () => execResult());
+    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    for (const local of ['localhost', '127.0.0.1', '10.0.0.5', 'printer.local', '*.localhost']) {
+      const result = (await tool.execute(
+        { allowedDomains: [local], code: 'print(1)' },
+        undefined as never
+      )) as { error?: boolean };
+      expect(result?.error).toBe(true);
+    }
+    expect(stub.inputs).toHaveLength(0);
+  });
+});

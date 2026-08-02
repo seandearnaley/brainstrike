@@ -794,15 +794,45 @@ const StrictRootRelativePathSchema = z
     'Must be a canonical root-relative path without traversal'
   );
 
+/**
+ * run_python's domain grammar: the seam's `policyDomainSchema` PLUS a
+ * public-host requirement (#2225 review). The generic policy grammar accepts
+ * anything hostname-shaped, which includes `localhost`, bare IPv4 literals
+ * (`127.0.0.1`, `192.168.1.10`, `169.254.169.254`), and mDNS `.local` names —
+ * all of which the escalation card would present as "the internet" while the
+ * actual grant is services on the user's own machine or network (a local
+ * Ollama, a dev database, a cloud metadata endpoint). Model-authored code
+ * gets no such grant: name a public domain or run offline.
+ */
+const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const runPythonDomainSchema = policyDomainSchema
+  .refine((value) => !IPV4_LITERAL_PATTERN.test(value), {
+    message: 'IP literals are not allowed; name a public domain',
+  })
+  .refine(
+    (value) => {
+      const host = value.startsWith('*.') ? value.slice(2) : value;
+      return !(
+        host === 'localhost' ||
+        host.endsWith('.localhost') ||
+        host === 'local' ||
+        host.endsWith('.local')
+      );
+    },
+    { message: 'localhost and .local addresses are not allowed; name a public domain' }
+  );
+
 export const RunPythonInputSchema = z
   .object({
     allowedDomains: z
-      .array(policyDomainSchema)
-      .min(1)
+      .array(runPythonDomainSchema)
+      // No .min(1): OpenAI's strict function-calling emits EVERY declared
+      // property, so an offline call must be representable as an explicit
+      // empty array (#2225 review). [] and omitted both mean no network.
       .max(MAX_POLICY_ENTRIES)
       .optional()
       .describe(
-        'Exact domains the script may reach (e.g. "pypi.org", "*.example.com"); omit for no network. Each requires explicit user approval per call.'
+        'Public domains the script may reach, by name (e.g. "pypi.org", "*.example.com"); [] or omitted for no network. IP literals, localhost, and .local are not allowed. Each domain requires explicit user approval per call.'
       ),
     code: z
       .string()

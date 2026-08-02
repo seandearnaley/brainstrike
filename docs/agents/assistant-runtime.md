@@ -1769,8 +1769,9 @@ termination so it fails visibly.
 
 **Unknown resume schemas are REJECTED VISIBLY and NON-TERMINALLY (BST-558):** only
 tools listed in `REGISTERED_SUSPEND_RESUME_TOOL_IDS`
-(`@brainstrike/assistant-contract/tool-suspend` — today `askUser` + `submitPlan`)
-have a registered typed suspension UI. A well-formed pause from any OTHER tool
+(`@brainstrike/assistant-contract/tool-suspend` — today `askUser`, `runPython`
+(the BST-1070 Gate B network escalation), and `submitPlan`) have a registered
+typed suspension UI. A well-formed pause from any OTHER tool
 still becomes a `tool-suspend-required` chunk, but
 `makeUnregisteredSuspendResumeNoticeChunk` PREPENDS a durable
 `tool.resume.unsupported` run event

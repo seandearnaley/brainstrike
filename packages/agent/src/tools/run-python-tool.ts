@@ -432,7 +432,10 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
     description: TOOL_DESCRIPTIONS[RUN_PYTHON_TOOL_ID],
     execute: async (input, context): Promise<RunPythonResult | undefined> => {
       const parsed = RunPythonInputSchema.parse(input);
-      const requestedDomains = parsed.allowedDomains ?? [];
+      // Deduplicated at the SOURCE so the suspend payload, the escalation
+      // card's checkbox list (keyed by domain), and ExecPolicy.allowedDomains
+      // all agree — a repeated host is harmless intent, not a reason to fail.
+      const requestedDomains = [...new Set(parsed.allowedDomains ?? [])];
 
       // ── Gate B (BST-1070 design §3.1), resume-FIRST. `suspend()` returns
       // Promise<void> and never resolves to the decision: Mastra re-runs this

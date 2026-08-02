@@ -69,6 +69,11 @@ function unavailableCopy(reason: string): { headline: string; sub?: string } | n
       };
     case 'language_unsupported':
       return { headline: "Nothing ran — this sandbox can't run Python." };
+    case 'network_confirmation_unavailable':
+      return {
+        headline:
+          'Nothing ran — this script wanted internet access and there was no way to ask you about it.',
+      };
     case 'network_unsupported':
       return {
         headline:

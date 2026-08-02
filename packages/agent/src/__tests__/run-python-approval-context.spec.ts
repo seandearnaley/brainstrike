@@ -78,9 +78,26 @@ describe('resolveRunPythonExecutionContext', () => {
     expect(
       resolveRunPythonExecutionContext({ allowedDomains: ['*.com'], code: 'print(1)' })
     ).toBeUndefined();
+    // Local / IP-literal targets are rejected at run_python's own grammar
+    // (#2225 review): the card would call them "the internet" while the real
+    // grant is services on the user's machine or network.
+    for (const local of [
+      'localhost',
+      'db.localhost',
+      'printer.local',
+      '127.0.0.1',
+      '192.168.1.10',
+      '169.254.169.254',
+    ]) {
+      expect(
+        resolveRunPythonExecutionContext({ allowedDomains: [local], code: 'print(1)' })
+      ).toBeUndefined();
+    }
+    // An explicit [] is VALID — OpenAI strict mode emits every declared
+    // property, so offline must be representable.
     expect(
       resolveRunPythonExecutionContext({ allowedDomains: [], code: 'print(1)' })
-    ).toBeUndefined();
+    ).toMatchObject({ allowedDomains: [] });
     expect(
       resolveRunPythonExecutionContext({ code: 'print(1)', timeoutMs: MAX_EXEC_TIMEOUT_MS + 1 })
     ).toBeUndefined();

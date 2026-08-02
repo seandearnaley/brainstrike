@@ -70,7 +70,7 @@ const RUN_PYTHON_MAX_TIMEOUT_MS = 600_000;
 // second drifting regex would be a way to disagree with the thing that
 // actually enforces it (design §2.5); this narrowing only bounds size.
 const RUN_PYTHON_MAX_DOMAINS = 256;
-const RUN_PYTHON_MAX_DOMAIN_CHARS = 255;
+const RUN_PYTHON_MAX_DOMAIN_CHARS = 253;
 const RUN_SKILL_SCRIPT_ARG_KEYS = new Set([
   'args',
   'cwd',
@@ -269,12 +269,13 @@ interface RunPythonApprovalArgs {
 
 /**
  * Structural guard mirroring the agent-package `RunPythonInputSchema`
- * (strict: `code` + optional `timeoutMs`, nothing else). One deliberate
- * display-side difference: an EMPTY `code` passes here so the card can say
- * "this script is empty" instead of a parse error — the agent schema still
- * rejects it at execute time. An unknown key (e.g. a future `allowedDomains`
- * from a newer build) fails narrowing: a call carrying a field this build
- * does not understand must not be described as if it were understood.
+ * (strict: `code` + optional `timeoutMs` + optional `allowedDomains`, nothing
+ * else). One deliberate display-side difference: an EMPTY `code` passes here
+ * so the card can say "this script is empty" instead of a parse error — the
+ * agent schema still rejects it at execute time. An unknown key (e.g. an
+ * `unknownField` from a newer build) fails narrowing: a call carrying a field
+ * this build does not understand must not be described as if it were
+ * understood.
  */
 function narrowRunPythonArgs(value: unknown): RunPythonApprovalArgs | null {
   if (!isRecord(value) || Object.keys(value).some((key) => !RUN_PYTHON_ARG_KEYS.has(key))) {
@@ -288,7 +289,7 @@ function narrowRunPythonArgs(value: unknown): RunPythonApprovalArgs | null {
     allowedDomains !== undefined &&
     !(
       Array.isArray(allowedDomains) &&
-      allowedDomains.length > 0 &&
+      // [] is the OpenAI-strict-mode spelling of "no network" — valid.
       allowedDomains.length <= RUN_PYTHON_MAX_DOMAINS &&
       allowedDomains.every(
         (domain) =>
