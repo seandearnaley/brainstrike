@@ -17,6 +17,7 @@ export interface DatabaseQueryTelemetryRecord {
 }
 
 export interface DatabaseQueryFeatureSnapshot {
+  /** Rolling overflow count aggregated into bounded buckets of at most one second. */
   readonly droppedSampleCount: number;
   readonly durationP50Ms: number;
   readonly durationP95Ms: number;
@@ -28,6 +29,7 @@ export interface DatabaseQueryFeatureSnapshot {
 
 export interface DatabaseQueryTelemetrySnapshot {
   readonly activeLiveSubscriptions: number;
+  /** Rolling overflow count aggregated into bounded buckets of at most one second. */
   readonly droppedSampleCount: number;
   readonly features: Record<DatabaseQueryFeature, DatabaseQueryFeatureSnapshot>;
   /** Rolling count aggregated into buckets of at most one second. */
@@ -43,7 +45,7 @@ export interface DatabaseQueryTelemetrySnapshot {
   readonly windowMs: number;
 }
 
-interface LiveUpdateBucket {
+interface CountBucket {
   count: number;
   readonly startedAt: number;
 }
@@ -127,9 +129,10 @@ export class DatabaseQueryTelemetry {
   private activeLiveSubscriptions = 0;
   private currentSnapshot: DatabaseQueryTelemetrySnapshot;
   private dirty = false;
-  private readonly droppedSamples = createFeatureArrays(() => 0);
+  private readonly droppedSampleBucketMs: number;
+  private readonly droppedSampleBuckets = createFeatureArrays<CountBucket[]>(() => []);
   private readonly liveUpdateBucketMs: number;
-  private readonly liveUpdateBuckets: LiveUpdateBucket[] = [];
+  private readonly liveUpdateBuckets: CountBucket[] = [];
   private readonly listeners = new Set<() => void>();
   private readonly maxSamples: number;
   private readonly now: () => number;
@@ -141,6 +144,10 @@ export class DatabaseQueryTelemetry {
   constructor(options: DatabaseQueryTelemetryOptions = {}) {
     this.maxSamples = options.maxSamples ?? DEFAULT_MAX_SAMPLES_PER_FEATURE;
     this.windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
+    this.droppedSampleBucketMs = Math.max(
+      1,
+      Math.min(NOTIFY_INTERVAL_MS, Math.floor(this.windowMs / 60))
+    );
     this.liveUpdateBucketMs = Math.min(NOTIFY_INTERVAL_MS, this.windowMs);
     this.now = options.now ?? Date.now;
     assertPositiveInteger(this.maxSamples, 'Database query telemetry maxSamples');
@@ -174,14 +181,12 @@ export class DatabaseQueryTelemetry {
 
   recordLiveUpdate(): void {
     const recordedAt = this.now();
-    const startedAt = Math.floor(recordedAt / this.liveUpdateBucketMs) * this.liveUpdateBucketMs;
-    const currentBucket = this.liveUpdateBuckets.at(-1);
-    if (currentBucket?.startedAt === startedAt) {
-      currentBucket.count += 1;
-    } else {
-      this.liveUpdateBuckets.push({ count: 1, startedAt });
-    }
-    this.trimLiveUpdateBuckets(recordedAt - this.windowMs);
+    this.recordCount(this.liveUpdateBuckets, this.liveUpdateBucketMs, recordedAt);
+    this.trimCountBuckets(
+      this.liveUpdateBuckets,
+      this.liveUpdateBucketMs,
+      recordedAt - this.windowMs
+    );
     this.markDirty();
   }
 
@@ -197,16 +202,24 @@ export class DatabaseQueryTelemetry {
       throw new Error('Database query telemetry hitCount cannot exceed lookupCount');
     }
 
+    const recordedAt = this.now();
+    this.trimExpired(recordedAt);
     const featureSamples = this.querySamples[record.feature];
     featureSamples.push({
       ...record,
       hitCount,
       lookupCount,
-      recordedAt: this.now(),
+      recordedAt,
     });
     if (featureSamples.length > this.maxSamples) {
-      featureSamples.shift();
-      this.droppedSamples[record.feature] += 1;
+      const droppedSample = featureSamples.shift();
+      if (droppedSample) {
+        this.recordCount(
+          this.droppedSampleBuckets[record.feature],
+          this.droppedSampleBucketMs,
+          droppedSample.recordedAt
+        );
+      }
     }
     this.markDirty();
   }
@@ -248,6 +261,12 @@ export class DatabaseQueryTelemetry {
     const liveUpdateCount = this.liveUpdateBuckets
       .filter((bucket) => bucket.startedAt + this.liveUpdateBucketMs > cutoff)
       .reduce((total, bucket) => total + bucket.count, 0);
+    const droppedSampleCounts = createFeatureArrays(() => 0);
+    for (const feature of DATABASE_QUERY_FEATURES) {
+      droppedSampleCounts[feature] = this.droppedSampleBuckets[feature]
+        .filter((bucket) => bucket.startedAt + this.droppedSampleBucketMs > cutoff)
+        .reduce((total, bucket) => total + bucket.count, 0);
+    }
     const tokenSamples = samples['token-estimation'];
     const lookupCount = tokenSamples.reduce((sum, sample) => sum + (sample.lookupCount ?? 0), 0);
     const hitCount = tokenSamples.reduce((sum, sample) => sum + (sample.hitCount ?? 0), 0);
@@ -255,29 +274,29 @@ export class DatabaseQueryTelemetry {
     return {
       activeLiveSubscriptions: this.activeLiveSubscriptions,
       droppedSampleCount: DATABASE_QUERY_FEATURES.reduce(
-        (total, feature) => total + this.droppedSamples[feature],
+        (total, feature) => total + droppedSampleCounts[feature],
         0
       ),
       features: {
         'file-tree': featureSnapshot(
           samples['file-tree'],
           this.windowMs,
-          this.droppedSamples['file-tree']
+          droppedSampleCounts['file-tree']
         ),
         'live-query': featureSnapshot(
           samples['live-query'],
           this.windowMs,
-          this.droppedSamples['live-query']
+          droppedSampleCounts['live-query']
         ),
         'queue-stats': featureSnapshot(
           samples['queue-stats'],
           this.windowMs,
-          this.droppedSamples['queue-stats']
+          droppedSampleCounts['queue-stats']
         ),
         'token-estimation': featureSnapshot(
           tokenSamples,
           this.windowMs,
-          this.droppedSamples['token-estimation']
+          droppedSampleCounts['token-estimation']
         ),
       },
       liveUpdateCount,
@@ -314,17 +333,27 @@ export class DatabaseQueryTelemetry {
     }
   }
 
-  private trimLiveUpdateBuckets(cutoff: number): boolean {
+  private recordCount(buckets: CountBucket[], bucketMs: number, recordedAt: number): void {
+    const startedAt = Math.floor(recordedAt / bucketMs) * bucketMs;
+    const currentBucket = buckets.at(-1);
+    if (currentBucket?.startedAt === startedAt) {
+      currentBucket.count += 1;
+      return;
+    }
+    buckets.push({ count: 1, startedAt });
+  }
+
+  private trimCountBuckets(buckets: CountBucket[], bucketMs: number, cutoff: number): boolean {
     let changed = false;
-    while ((this.liveUpdateBuckets[0]?.startedAt ?? cutoff) + this.liveUpdateBucketMs <= cutoff) {
-      this.liveUpdateBuckets.shift();
+    while ((buckets[0]?.startedAt ?? cutoff) + bucketMs <= cutoff) {
+      buckets.shift();
       changed = true;
     }
     return changed;
   }
 
-  private trimExpired(): boolean {
-    const cutoff = this.now() - this.windowMs;
+  private trimExpired(snapshotAt = this.now()): boolean {
+    const cutoff = snapshotAt - this.windowMs;
     let changed = false;
     for (const feature of DATABASE_QUERY_FEATURES) {
       const featureSamples = this.querySamples[feature];
@@ -332,8 +361,16 @@ export class DatabaseQueryTelemetry {
         featureSamples.shift();
         changed = true;
       }
+      changed =
+        this.trimCountBuckets(
+          this.droppedSampleBuckets[feature],
+          this.droppedSampleBucketMs,
+          cutoff
+        ) || changed;
     }
-    return this.trimLiveUpdateBuckets(cutoff) || changed;
+    return (
+      this.trimCountBuckets(this.liveUpdateBuckets, this.liveUpdateBucketMs, cutoff) || changed
+    );
   }
 }
 

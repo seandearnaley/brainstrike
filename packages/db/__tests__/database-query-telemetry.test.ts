@@ -60,6 +60,37 @@ describe('DatabaseQueryTelemetry', () => {
     });
   });
 
+  it('expires retained-sample overflow with the rolling query window', () => {
+    let now = 1000;
+    const telemetry = new DatabaseQueryTelemetry({
+      maxSamples: 2,
+      now: () => now,
+      windowMs: 60_000,
+    });
+
+    telemetry.recordQuery({ durationMs: 1, feature: 'file-tree' });
+    now += 1;
+    telemetry.recordQuery({ durationMs: 2, feature: 'file-tree' });
+    now += 1;
+    telemetry.recordQuery({ durationMs: 3, feature: 'file-tree' });
+
+    expect(telemetry.snapshot()).toMatchObject({
+      droppedSampleCount: 1,
+      features: {
+        'file-tree': { droppedSampleCount: 1, queryCount: 2 },
+      },
+    });
+
+    now += 61_001;
+
+    expect(telemetry.snapshot()).toMatchObject({
+      droppedSampleCount: 0,
+      features: {
+        'file-tree': { droppedSampleCount: 0, queryCount: 0 },
+      },
+    });
+  });
+
   it('tracks live subscriptions and rolling update frequency without query text', () => {
     let now = 2000;
     const telemetry = new DatabaseQueryTelemetry({ now: () => now, windowMs: 1000 });
