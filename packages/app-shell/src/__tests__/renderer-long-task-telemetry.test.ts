@@ -306,6 +306,36 @@ describe('renderer-long-task-telemetry', () => {
     expect(now).toHaveBeenCalledTimes(nowCallsAfterReset);
   });
 
+  it('clears capped identifiers from the cache before an unobserved store is read', () => {
+    const now = vi.fn(() => 1000);
+    const telemetry = createRendererLongTaskTelemetry({ maxSamples: 1, now });
+    const unsubscribe = telemetry.subscribe(vi.fn());
+
+    telemetry.record({
+      durationMs: 75,
+      enabledFeatureFlags: ['private-preview'],
+      route: 'settings',
+    });
+    const populatedSnapshot = telemetry.getSnapshot();
+    unsubscribe();
+
+    telemetry.record({
+      durationMs: 90,
+      enabledFeatureFlags: ['terminal-preview'],
+      route: 'terminal',
+    });
+
+    const nowCallsAfterEviction = now.mock.calls.length;
+    const cappedSnapshot = telemetry.getSnapshot();
+    expect(cappedSnapshot).not.toBe(populatedSnapshot);
+    expect(cappedSnapshot).toMatchObject({
+      featureFlags: [{ count: 1, flag: 'terminal-preview' }],
+      routes: [{ count: 1, route: 'terminal' }],
+      sampleCount: 1,
+    });
+    expect(now).toHaveBeenCalledTimes(nowCallsAfterEviction);
+  });
+
   it('does not let direct samples mask a failed observer', () => {
     class ThrowingPerformanceObserver {
       static readonly supportedEntryTypes = ['longtask'];

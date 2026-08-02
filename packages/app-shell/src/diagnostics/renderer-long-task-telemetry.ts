@@ -209,10 +209,18 @@ export function createRendererLongTaskTelemetry(
       observedAt,
     });
     prune(observedAt);
+    let sampleCapEvicted = false;
     if (samples.length > maxSamples) {
       samples.splice(0, samples.length - maxSamples);
+      sampleCapEvicted = true;
     }
     scheduleRetentionPrune(observedAt);
+    if (sampleCapEvicted && listeners.size === 0) {
+      // The cached external-store snapshot is part of the retention boundary:
+      // release identifiers evicted by the hard sample cap immediately.
+      publishSnapshot(observedAt);
+      return;
+    }
     publish();
   };
 
