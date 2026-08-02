@@ -881,6 +881,7 @@ export function SystemDiagnosticsPanel({
         cancelled = true;
       };
     }
+    setDesktopEmbeddingTelemetry(null);
     const unsubscribe = hostStatusBridge.onStatus((status) => {
       if (cancelled) {
         return;

@@ -199,7 +199,10 @@ describe('SystemDiagnosticsPanel', () => {
           },
         };
       };
-      const getSnapshot = vi.fn().mockResolvedValueOnce(createSnapshot(0));
+      const getSnapshot = vi
+        .fn()
+        .mockResolvedValueOnce(createSnapshot(0))
+        .mockResolvedValueOnce(createSnapshot(0));
       const statusListenerRef: { current: ((status: unknown) => void) | null } = { current: null };
       const unsubscribe = vi.fn();
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = { getSnapshot };
@@ -228,8 +231,15 @@ describe('SystemDiagnosticsPanel', () => {
         expect(getSnapshot).toHaveBeenCalledTimes(1);
         expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
       });
+
+      await userEvent.click(screen.getByRole('button', { name: /refresh all diagnostics/i }));
+
+      await waitFor(() => {
+        expect(getSnapshot).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
+      });
       unmount();
-      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      expect(unsubscribe).toHaveBeenCalledTimes(2);
     });
 
     it('renders header with title and description', () => {

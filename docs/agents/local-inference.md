@@ -132,7 +132,9 @@ Embedding runtime telemetry (BST-402):
   an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
   `BroadcastChannel`; its name is carried in the managed worker script fragment. The
   adapter requires that capability, validates the complete discriminated cache diagnostic
-  and every cache-entry/memory field, requires worker-lifetime channel traffic to be id-less,
+  and every cache-entry/memory field, requires subject entries for hit/load/removal events,
+  and requires every non-hit event to carry a unique full snapshot whose entry count matches
+  `cacheSize`. It requires worker-lifetime channel traffic to be id-less,
   terminates the affected pool on malformed traffic, and closes the channel during pool
   teardown. Streaming workers without that fragment deliver worker-global diagnostics over
   their direct worker message transport. Each pool worker receives a unique
@@ -162,7 +164,9 @@ Embedding runtime telemetry (BST-402):
   reads the full platform snapshot only on mount or explicit refresh; embedding-host status
   events carry a complete telemetry snapshot that the panel validates and applies directly.
   This avoids turning the host's frequent status cadence into overlapping full diagnostics
-  reads. Invalid status telemetry is surfaced visibly. Web diagnostics read the same
+  reads. An explicit refresh clears the prior status override before accepting the refreshed
+  platform snapshot, so stopped-host residency cannot remain stale. Invalid status telemetry
+  is surfaced visibly. Web diagnostics read the same
   renderer-local store directly.
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts

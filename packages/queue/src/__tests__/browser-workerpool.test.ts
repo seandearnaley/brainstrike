@@ -127,6 +127,19 @@ function createResult(id: string): QueueResult {
   };
 }
 
+function createPipelineCacheEntry(cacheKey = 'local:test|webgpu|fp16') {
+  return {
+    cacheKey,
+    createdAt: 50,
+    device: 'webgpu' as const,
+    dtype: 'fp16' as const,
+    lastUsedAt: 100,
+    memory: { gpuBytes: 1024, heapBytes: null, reason: 'model-size-estimate' as const },
+    model: 'local:test',
+    residencyMs: 50,
+  };
+}
+
 function createWorkerOptions() {
   return {
     telemetry: {
@@ -201,6 +214,7 @@ describe('createWorkerpoolAdapter', () => {
           cacheSize: 1,
           diagnostic: 'pipeline-cache',
           emittedAt: 100,
+          entry: createPipelineCacheEntry(),
           event: 'hit',
           id: 'task-1',
           type: 'diagnostic',
@@ -251,20 +265,13 @@ describe('createWorkerpoolAdapter', () => {
 
   it('records pipeline-cache diagnostics and removes the pool source on dispose', async () => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
+    const entry = createPipelineCacheEntry('local:test:webgpu:fp16');
     const cacheDiagnostic = {
       cacheSize: 1,
       diagnostic: 'pipeline-cache',
       emittedAt: 100,
-      entry: {
-        cacheKey: 'local:test:webgpu:fp16',
-        createdAt: 50,
-        device: 'webgpu',
-        dtype: 'fp16',
-        lastUsedAt: 100,
-        memory: { gpuBytes: 1024, heapBytes: null, reason: 'model-size-estimate' },
-        model: 'local:test',
-        residencyMs: 50,
-      },
+      entries: [entry],
+      entry,
       event: 'loaded',
       id: 'task-cache',
       type: 'diagnostic',
@@ -297,12 +304,15 @@ describe('createWorkerpoolAdapter', () => {
   it('records an idle cache eviction after its workerpool request has settled', async () => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
     const workerInstanceId = 'worker-idle-cache';
+    const entry = createPipelineCacheEntry();
     poolExecMock.mockImplementation(
       (_method, _args, options?: { on?: (event: unknown) => void }) => {
         options?.on?.({
           cacheSize: 1,
           diagnostic: 'pipeline-cache',
           emittedAt: 100,
+          entries: [entry],
+          entry,
           event: 'loaded',
           id: 'task-idle-cache',
           type: 'diagnostic',
@@ -345,6 +355,7 @@ describe('createWorkerpoolAdapter', () => {
       diagnostic: 'pipeline-cache',
       emittedAt: 300_100,
       entries: [],
+      entry,
       event: 'evicted',
       reason: 'idle-timeout',
       type: 'diagnostic',
@@ -370,6 +381,8 @@ describe('createWorkerpoolAdapter', () => {
       cacheSize: 0,
       diagnostic: 'pipeline-cache',
       emittedAt: 100,
+      entries: [],
+      entry: createPipelineCacheEntry(),
       event: 'evicted',
       id: 'request-scoped-event',
       reason: 'idle-timeout',
@@ -418,6 +431,7 @@ describe('createWorkerpoolAdapter', () => {
           cacheSize: 1,
           diagnostic: 'pipeline-cache',
           emittedAt: 100,
+          entry: createPipelineCacheEntry(),
           event: 'hit',
           id: 'task-malformed-worker',
           type: 'diagnostic',
@@ -469,6 +483,87 @@ describe('createWorkerpoolAdapter', () => {
     expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['hit', { cacheSize: 1, event: 'hit' }],
+    ['loaded', { cacheSize: 1, entries: [createPipelineCacheEntry()], event: 'loaded' }],
+    [
+      'disposed',
+      {
+        cacheSize: 0,
+        entry: createPipelineCacheEntry(),
+        event: 'disposed',
+        reason: 'manual-dispose',
+      },
+    ],
+    ['evicted', { cacheSize: 0, entries: [], event: 'evicted', reason: 'idle-timeout' }],
+    ['invalidated', { cacheSize: 0, event: 'invalidated', reason: 'device-lost' }],
+    [
+      'load-failed',
+      {
+        cacheSize: 0,
+        entry: createPipelineCacheEntry(),
+        event: 'load-failed',
+        reason: 'load-failure',
+      },
+    ],
+  ])('rejects a %s pipeline-cache diagnostic missing required event fields', async (_case, event) => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (workerEvent: unknown) => void }) => {
+        options?.on?.({
+          diagnostic: 'pipeline-cache',
+          emittedAt: 100,
+          id: 'task-missing-event-fields',
+          type: 'diagnostic',
+          workerInstanceId: 'worker-missing-event-fields',
+          ...event,
+        });
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('task-missing-event-fields'));
+    resolve(createResult('task-missing-event-fields'));
+
+    await expect(addPromise).rejects.toThrow(/requires (?:an entry|a full entries snapshot)/);
+    expect(promise.cancel).toHaveBeenCalledTimes(1);
+    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a full pipeline-cache snapshot whose unique entries disagree with cacheSize', async () => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    const entry = createPipelineCacheEntry();
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        options?.on?.({
+          cacheSize: 2,
+          diagnostic: 'pipeline-cache',
+          emittedAt: 100,
+          entries: [entry, entry],
+          entry,
+          event: 'loaded',
+          id: 'task-inconsistent-snapshot',
+          type: 'diagnostic',
+          workerInstanceId: 'worker-inconsistent-snapshot',
+        });
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('task-inconsistent-snapshot'));
+    resolve(createResult('task-inconsistent-snapshot'));
+
+    await expect(addPromise).rejects.toThrow(
+      'Embedding worker pipeline-cache diagnostic.entries must contain 2 unique cache entries.'
+    );
+    expect(promise.cancel).toHaveBeenCalledTimes(1);
+    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+  });
+
   it('removes only the telemetry source for the workerpool worker that terminates', async () => {
     const executions = [
       createCancelablePromise<QueueResult>(),
@@ -488,6 +583,7 @@ describe('createWorkerpoolAdapter', () => {
           cacheSize: 1,
           diagnostic: 'pipeline-cache',
           emittedAt: 100,
+          entry: createPipelineCacheEntry(),
           event: 'hit',
           id: `task-${workerInstanceId}`,
           type: 'diagnostic',

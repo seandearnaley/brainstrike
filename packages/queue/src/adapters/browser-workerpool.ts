@@ -91,38 +91,93 @@ function assertPipelineCacheEntryDiagnostic(
   }
 }
 
+function requirePipelineCacheEntry(record: Record<string, unknown>, path: string): void {
+  if (record['entry'] === undefined) {
+    throw new Error(`${path}.${String(record['event'])} requires an entry.`);
+  }
+}
+
+function requireFullPipelineCacheSnapshot(
+  record: Record<string, unknown>,
+  path: string
+): readonly EmbedWorkerPipelineCacheEntryDiagnostic[] {
+  const entries = record['entries'];
+  if (!Array.isArray(entries)) {
+    throw new Error(`${path}.${String(record['event'])} requires a full entries snapshot.`);
+  }
+  const cacheSize = record['cacheSize'] as number;
+  const uniqueCacheKeys = new Set(entries.map((entry) => entry.cacheKey));
+  if (entries.length !== cacheSize || uniqueCacheKeys.size !== cacheSize) {
+    throw new Error(`${path}.entries must contain ${cacheSize} unique cache entries.`);
+  }
+  return entries;
+}
+
+function assertSubjectEntrySnapshotMembership(
+  record: Record<string, unknown>,
+  entries: readonly EmbedWorkerPipelineCacheEntryDiagnostic[],
+  path: string,
+  expected: 'absent' | 'present'
+): void {
+  const entry = record['entry'] as EmbedWorkerPipelineCacheEntryDiagnostic;
+  const includesSubject = entries.some((candidate) => candidate.cacheKey === entry.cacheKey);
+  if ((expected === 'present') !== includesSubject) {
+    throw new Error(
+      `${path}.${String(record['event'])} subject entry must be ${expected} from entries.`
+    );
+  }
+}
+
 function assertPipelineCacheDiagnosticEvent(record: Record<string, unknown>, path: string): void {
   const event = record['event'];
   const reason = record['reason'];
-  if (event === 'hit' || event === 'loaded') {
-    if (reason === undefined) {
-      return;
+  if (event === 'hit') {
+    requirePipelineCacheEntry(record, path);
+    if (reason !== undefined) {
+      throw new Error(`${path}.hit must not include a reason.`);
     }
-    throw new Error(`${path}.${event} must not include a reason.`);
+    return;
+  }
+  if (event === 'loaded') {
+    requirePipelineCacheEntry(record, path);
+    const entries = requireFullPipelineCacheSnapshot(record, path);
+    assertSubjectEntrySnapshotMembership(record, entries, path, 'present');
+    if (reason !== undefined) {
+      throw new Error(`${path}.loaded must not include a reason.`);
+    }
+    return;
   }
   if (event === 'disposed') {
-    if (reason === 'manual-dispose') {
-      return;
+    requirePipelineCacheEntry(record, path);
+    const entries = requireFullPipelineCacheSnapshot(record, path);
+    assertSubjectEntrySnapshotMembership(record, entries, path, 'absent');
+    if (reason !== 'manual-dispose') {
+      throw new Error(`${path}.disposed requires reason "manual-dispose".`);
     }
-    throw new Error(`${path}.disposed requires reason "manual-dispose".`);
+    return;
   }
   if (event === 'evicted') {
-    if (reason === 'device-lost' || reason === 'idle-timeout' || reason === 'resident-limit') {
-      return;
+    requirePipelineCacheEntry(record, path);
+    const entries = requireFullPipelineCacheSnapshot(record, path);
+    assertSubjectEntrySnapshotMembership(record, entries, path, 'absent');
+    if (reason !== 'device-lost' && reason !== 'idle-timeout' && reason !== 'resident-limit') {
+      throw new Error(`${path}.evicted reason is invalid.`);
     }
-    throw new Error(`${path}.evicted reason is invalid.`);
+    return;
   }
   if (event === 'invalidated') {
-    if (reason === 'device-lost') {
-      return;
+    requireFullPipelineCacheSnapshot(record, path);
+    if (reason !== 'device-lost') {
+      throw new Error(`${path}.invalidated requires reason "device-lost".`);
     }
-    throw new Error(`${path}.invalidated requires reason "device-lost".`);
+    return;
   }
   if (event === 'load-failed') {
-    if (reason === 'load-failure') {
-      return;
+    requireFullPipelineCacheSnapshot(record, path);
+    if (reason !== 'load-failure') {
+      throw new Error(`${path}.load-failed requires reason "load-failure".`);
     }
-    throw new Error(`${path}.load-failed requires reason "load-failure".`);
+    return;
   }
   throw new Error(`${path}.event is invalid.`);
 }
