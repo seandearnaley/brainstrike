@@ -1,5 +1,5 @@
 import type { TargetOf } from '@brainstrike/context-actions';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { resolveFileTargetIdentity } from './file-target-identity';
 
 export interface FileSurfaceTab {

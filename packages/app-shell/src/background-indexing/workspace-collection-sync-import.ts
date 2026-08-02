@@ -10,6 +10,7 @@ import type {
 } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
@@ -25,14 +26,13 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { buildRootFolderCacheIdentityKey } from './root-folder-cache-reconciliation';
 import {
   buildBatchImportErrors,

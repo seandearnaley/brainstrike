@@ -1,8 +1,14 @@
+import type {
+  ContextLineRange,
+  RootDisplayInfo,
+} from '@brainstrike/file-explorer/context-generation';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { ContextLineRange, RootDisplayInfo } from '@brainstrike/utils/report-generator';
 import { useCallback, useRef, useState } from 'react';
 
-export type { ContextLineRange, RootDisplayInfo } from '@brainstrike/utils/report-generator';
+export type {
+  ContextLineRange,
+  RootDisplayInfo,
+} from '@brainstrike/file-explorer/context-generation';
 
 export interface ReportGenerationRequest {
   excludeFilters: string[];

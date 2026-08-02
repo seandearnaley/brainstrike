@@ -9,8 +9,8 @@ const treeOperationCounters = vi.hoisted(() => ({
   isDescendantPathCalls: 0,
 }));
 
-vi.mock('@brainstrike/utils/tree-operations', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/tree-operations')>();
+vi.mock('@brainstrike/file-tree-worker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-tree-worker')>();
 
   return {
     ...actual,

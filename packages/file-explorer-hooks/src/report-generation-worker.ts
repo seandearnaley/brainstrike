@@ -1,45 +1,22 @@
-import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import {
-  type ContextLineRange,
   generateContext,
   generateContextFromAdapter,
-  type RootDisplayInfo,
-} from '@brainstrike/utils';
+} from '@brainstrike/file-explorer/context-generation';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+import type {
+  ReportGenerationRequest,
+  ReportGenerationWorkerOptions,
+  ReportProgressEvent,
+} from './use-report-generation.js';
 
-export interface ReportGenerationRequest {
-  excludeFilters: string[];
-  fileContents: Record<string, string>;
-  folderSummaryThreshold: number;
-  includeFilters: string[];
-  includeProjectTree: boolean;
-  projectTreeUsesViewFilters?: boolean;
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
-  /**
-   * RootId UUID → display metadata (storage v5) so `<file path>` attributes
-   * render human-readable paths instead of composite selection keys.
-   * Plain data — the request must stay structured-cloneable.
-   */
-  rootDisplayInfoById?: Record<string, RootDisplayInfo>;
-  selectedFiles: Set<string>;
-  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useRegex: boolean;
-}
-
-export interface ProgressEvent {
-  loaded: number;
-  total: number;
-}
-
-export interface ReportGenerationWorkerOptions {
-  fileSystemAdapter?: FileSystemAdapter;
-}
+export type ProgressEvent = ReportProgressEvent;
 
 export function createReportGenerationWorker({
   fileSystemAdapter,
 }: ReportGenerationWorkerOptions = {}) {
   return async function generate(
     request: ReportGenerationRequest,
-    onProgress?: (e: ProgressEvent) => void
+    onProgress?: (event: ReportProgressEvent) => void
   ): Promise<string> {
     onProgress?.({ loaded: 0, total: 1 });
 

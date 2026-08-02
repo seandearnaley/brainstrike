@@ -1,3 +1,4 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
@@ -6,7 +7,6 @@ import {
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getContentIndexingError } from './workspace-collection-sync-import';
 
 /**

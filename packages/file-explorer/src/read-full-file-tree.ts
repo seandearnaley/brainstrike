@@ -5,9 +5,7 @@ import { IGNORED_PATHS } from '@brainstrike/types';
 const IGNORED_PATH_SET = new Set(IGNORED_PATHS);
 
 /**
- * Reads the full file tree recursively from a directory handle
- * Moved from packages/file-explorer-ui/src/file-explorer-utils.ts
- * Made standalone and removed 'this' context.
+ * Reads the browser File System Access tree for context generation.
  */
 export async function readFullFileTree(
   directoryHandle: FileSystemDirectoryHandle,

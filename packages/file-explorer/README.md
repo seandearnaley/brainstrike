@@ -29,6 +29,15 @@ expandDirectory("/src/components");
 
 The store also includes actions for selecting files, persisting folder states and updating settings.
 
+Feature-owned, UI-agnostic utilities are exposed through narrow subpaths:
+
+- `@brainstrike/file-explorer/selection`: composite selection key contracts.
+- `@brainstrike/file-explorer/file-tree`: file-explorer tree queries.
+- `@brainstrike/file-explorer/project-tree-text`: filtered project-tree rendering.
+- `@brainstrike/file-explorer/context-generation`: selected-file and project-tree context projection.
+
+Invalid filters and adapter traversal failures surface as errors; context generation never silently widens a filter or returns a partial tree.
+
 ## Actions Ownership
 
 The file-explorer actions layer owns store mutations and keeps UI concerns out of the core package.
@@ -43,7 +52,7 @@ Owned surfaces:
 Allowed dependencies:
 
 - `@brainstrike/types` for the canonical file-explorer state and selection model.
-- `@brainstrike/utils/selection-utils` for composite selection key encoding.
+- `@brainstrike/file-explorer/selection` for composite selection key encoding.
 - `@brainstrike/logging` for action logging.
 
 Focused local verification:

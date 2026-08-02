@@ -1,7 +1,7 @@
-import * as utils from '@brainstrike/utils';
+import * as contextGeneration from '@brainstrike/file-explorer/context-generation';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createReportGenerationWorker } from './report-generation-worker';
-import { MockFileSystemAdapter } from './test-helpers';
+import { createReportGenerationWorker } from '../report-generation-worker.js';
+import { MockFileSystemAdapter } from './test-helpers.js';
 
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -24,7 +24,9 @@ describe('report-generation-worker', () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
     const rootHandle = await adapter.requestDirectoryAccess();
-    const spy = vi.spyOn(utils, 'generateContextFromAdapter').mockResolvedValue('report');
+    const spy = vi
+      .spyOn(contextGeneration, 'generateContextFromAdapter')
+      .mockResolvedValue('report');
 
     const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
 
@@ -37,7 +39,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    const spy = vi.spyOn(utils, 'generateContext').mockResolvedValue('report');
+    const spy = vi.spyOn(contextGeneration, 'generateContext').mockResolvedValue('report');
 
     const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
 
@@ -50,7 +52,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    vi.spyOn(utils, 'generateContext').mockResolvedValue('done');
+    vi.spyOn(contextGeneration, 'generateContext').mockResolvedValue('done');
 
     const progress: number[] = [];
     await worker({ ...baseRequest, rootDirectoryHandle: rootHandle }, (e) =>
@@ -65,7 +67,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    const spy = vi.spyOn(utils, 'generateContext').mockResolvedValue('done');
+    const spy = vi.spyOn(contextGeneration, 'generateContext').mockResolvedValue('done');
 
     await worker({
       ...baseRequest,

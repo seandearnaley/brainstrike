@@ -13,7 +13,7 @@ import {
   sortTreeNodes,
   type TreeNode,
   updateNodeChildren,
-} from '../tree-operations.js';
+} from './generic-tree-operations.js';
 
 interface TestTreeNode extends TreeNode {
   children?: TestTreeNode[];

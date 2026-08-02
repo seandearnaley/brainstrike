@@ -1,4 +1,4 @@
-import { encodeFileSelection } from '@brainstrike/utils';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, render, waitFor } from '@testing-library/react';
 import type { ComponentProps, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

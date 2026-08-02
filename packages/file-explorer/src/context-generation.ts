@@ -1,10 +1,8 @@
-import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
-import { readFullFileTree } from './file-system-utils.js';
-import { decodeFileSelection } from './selection-utils.js';
-import { generateProjectTreeText } from './tree-generator.js';
+import { generateProjectTreeText } from './project-tree-text.js';
+import { readFullFileTree } from './read-full-file-tree.js';
+import { decodeFileSelection } from './selection.js';
 
-const logger = createLogger('ContextGenerator');
 const IGNORED_PATTERNS = [
   'node_modules',
   '.git',
@@ -427,12 +425,10 @@ async function readFullFileTreeFromAdapter(
 
     return entries;
   } catch (error) {
-    logger.warn('Failed to read directory contents, returning empty node list', {
-      depth,
-      error,
-      path: directoryHandle.path,
-    });
-    return [];
+    throw new Error(
+      `Failed to read directory contents while generating context: ${directoryHandle.path}`,
+      { cause: error }
+    );
   }
 }
 

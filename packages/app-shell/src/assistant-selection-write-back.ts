@@ -1,7 +1,7 @@
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import type { AssistantWorkspaceTapestryUpdatePayload } from '@brainstrike/types';
 import { normalizeWorkspaceLookupPath } from '@brainstrike/types';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { buildAssistantTapestryRange } from './assistant-ui-panel-wrapper-runtime';
 
 const logger = createLogger('AssistantSelectionWriteBack');

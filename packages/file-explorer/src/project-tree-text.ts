@@ -1,10 +1,7 @@
-import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
+import { fileNodeCollator } from '@brainstrike/utils/collator';
+import { processFilter } from '@brainstrike/utils/filter-utils';
 import { Minimatch } from 'minimatch';
-import { fileNodeCollator } from './collator.js';
-import { processFilter } from './filter-utils.js';
-
-const logger = createLogger('TreeGenerator');
 
 export function compilePatterns(patterns: string[], useRegex: boolean): (RegExp | Minimatch)[] {
   const processed = useRegex ? patterns : patterns.map(processFilter);
@@ -15,7 +12,9 @@ export function compilePatterns(patterns: string[], useRegex: boolean): (RegExp 
       // hooks/filter-engine — view filters must see dotfiles.
       compiled.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern, { dot: true }));
     } catch (error) {
-      logger.error(`Invalid pattern: ${pattern}`, error);
+      throw new Error(`Invalid ${useRegex ? 'regular expression' : 'glob'} pattern: ${pattern}`, {
+        cause: error,
+      });
     }
   }
   return compiled;

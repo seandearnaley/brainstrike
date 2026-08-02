@@ -1,4 +1,5 @@
-import { fileNodeCollator } from './collator.js';
+import { fileNodeCollator } from '@brainstrike/utils/collator';
+import type { DirectoryLoadState } from './types';
 
 /**
  * Tree Operations
@@ -9,11 +10,6 @@ import { fileNodeCollator } from './collator.js';
  *
  * @module tree-operations
  */
-
-/**
- * Load state for directories
- */
-export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
 
 /**
  * Minimal type for tree nodes that these operations can work with.

@@ -1,5 +1,5 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';

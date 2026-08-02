@@ -1,3 +1,4 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { addLogListener, LogLevel } from '@brainstrike/logging';
 import {
   __resetVectorStatusUIStoreForTests,
@@ -5,7 +6,6 @@ import {
 } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';

@@ -6,13 +6,13 @@ import type {
   FileSystemChange,
   IFileNode,
 } from '@brainstrike/types';
+import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { extractPathSegments } from '../path-utils.js';
 import {
   generateReport,
   generateReportFromAdapter,
   normalizeContextLineRanges,
-} from '../report-generator.js';
+} from '../context-generation.js';
 
 interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
@@ -932,24 +932,14 @@ describe('generateReportFromAdapter', () => {
     expect(report).not.toContain('tooDeep.txt');
   });
 
-  it('handles adapter errors gracefully', async () => {
+  it('surfaces adapter errors instead of returning partial context', async () => {
     const spy = vi.spyOn(adapter, 'readDirectory');
     spy.mockImplementationOnce(() => Promise.reject(new Error('fail')));
 
     const selected = new Set(['src/index.ts']);
-    const report = await generateReportFromAdapter(
-      selected,
-      fileContents,
-      adapter,
-      rootHandle,
-      [],
-      [],
-      false,
-      true
-    );
-
-    expect(report).toContain('<context>');
-    expect(report).toContain('src/index.ts');
+    await expect(
+      generateReportFromAdapter(selected, fileContents, adapter, rootHandle, [], [], false, true)
+    ).rejects.toThrow('Failed to read directory contents while generating context: mock-root');
 
     spy.mockRestore();
   });
@@ -1014,7 +1004,7 @@ describe('generateReportFromAdapter', () => {
       }
     }
 
-    const treeModule = await import('../tree-generator.js');
+    const treeModule = await import('../project-tree-text.js');
     let capturedTree: IFileNode[] = [];
     const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
       capturedTree = nodes;
@@ -1132,7 +1122,7 @@ describe('generateReportFromAdapter', () => {
     const customRoot = await customAdapter.requestDirectoryAccess();
 
     // Capture the file tree passed to generateProjectTreeText
-    const treeModule = await import('../tree-generator.js');
+    const treeModule = await import('../project-tree-text.js');
     let captured: import('@brainstrike/types').IFileNode[] = [];
     const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
       captured = nodes;

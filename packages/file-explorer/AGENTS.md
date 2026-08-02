@@ -4,7 +4,7 @@
 > Core state, actions, caching, and persistence for the **Brainstrike file explorer**. This package is **UI-agnostic** (no React/Electron/UI code). It is consumed by apps and UI packages (e.g. `@brainstrike/file-explorer-ui`). Changes here must preserve determinism, serializability, and main-thread performance.
 
 * Languages/Tooling: TypeScript 5.9, Node 22, Zustand v5, Vitest, Stryker, tsup (ESM+CJS).
-* Boundaries: Import only from `@brainstrike/{types,utils,storage,file-system,test-utils}` and listed peers. No DOM, no Electron.
+* Boundaries: Import only from declared workspace dependencies and listed peers. No React, no DOM, no Electron.
 
 ---
 
@@ -28,6 +28,12 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
   `useFileExplorerStore` (bound store) and `createFileExplorerStore(adapter)` for isolated instances/tests.
 * **Action groups (tree-shakable)**
   `actions/*` modules are re-exported for focused imports when needed.
+* **Feature utilities (narrow subpaths)**
+  `@brainstrike/file-explorer/selection` owns composite selection keys;
+  `/file-tree` owns file-explorer tree queries; `/project-tree-text` owns
+  filtered tree rendering; `/context-generation` owns LLM context projection.
+  These surfaces are feature contracts, not general-purpose utilities, and
+  must not move back into `@brainstrike/utils`.
 
 ---
 
@@ -62,6 +68,8 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
   * `setSelectedFiles(Set<string>)` (keeps only valid composite keys)
   * `addMultipleSelectedFiles(folderId, paths[])` / `removeMultipleSelectedFiles(folderId, paths[])`
     All enforce `maxSelectionCount` and **trim** if the limit is reduced.
+  * Encode/decode composite keys through `@brainstrike/file-explorer/selection`.
+    Malformed keys throw; callers must not guess or silently coerce them.
 * **Directory expansion**
 
   * `toggleDirectoryExpansion(path)` (collapsing a parent removes its descendants)
@@ -170,6 +178,9 @@ const content = store.getState().getFileContent('repo-root|@|src/a.ts');
 * **Cache pressure**: Over \~2 MB, the store filters `fileContents` for memory safety; use `getFileContent()`.
 * **No side effects** in action creators (no I/O, no DOM). I/O happens outside; results flow in via actions.
 * **Persist minimal state**: Only serializable, essential fields—use `partialize`/`merge` rather than ad-hoc storage. ([Zustand Documentation][2])
+* **Context generation fails closed**: invalid filters and adapter traversal
+  failures throw contextual errors. Never widen a malformed filter or emit a
+  partial project tree as if context generation succeeded.
 
 ---
 

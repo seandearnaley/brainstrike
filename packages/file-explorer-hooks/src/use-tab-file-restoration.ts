@@ -18,10 +18,10 @@ import {
   restoreAllTabFileHandles,
   type TabRestoreStatus,
 } from '@brainstrike/file-explorer';
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context.js';
 

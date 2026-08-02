@@ -19,7 +19,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
 import { FileTabBodyForTesting as FileTabBody } from '../workspace-tab-host';

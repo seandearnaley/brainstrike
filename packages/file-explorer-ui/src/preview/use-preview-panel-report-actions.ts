@@ -1,8 +1,12 @@
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import {
+  type ContextGenerationOverrides,
+  createReportGenerationWorker,
+  useAdapters,
+  useReportGeneration,
+  useToastManager,
+} from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import type { ContextGenerationOverrides } from '@brainstrike/hooks';
-import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
-import { createReportGenerationWorker } from '@brainstrike/workers/report-generation-worker';
+import { useReportManager } from '@brainstrike/hooks';
 import { useCallback } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import type { useFileExplorerStoreContext } from '../shell/file-explorer-provider';

@@ -1,6 +1,6 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   DirectorySelectionTraversalContext,

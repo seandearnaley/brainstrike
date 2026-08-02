@@ -1,10 +1,10 @@
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { buildInaccessibleContent, useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 const logger = createLogger('SharedFileContentLoading');
 const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;

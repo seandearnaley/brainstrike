@@ -7,6 +7,8 @@ This package contains React hooks for the file explorer feature, designed to be 
 - `useFileSystem`: Provides core file system access functionalities, including selecting a root directory and checking API compatibility.
 - `useSelectionManager`: Manages file and directory selection state, including selection limits.
 - `useToastManager`: Provides helper functions for displaying file-explorer related toasts.
+- `useReportGeneration`: Coordinates file loading and context generation for explorer exports.
+- `createReportGenerationWorker`: Platform-neutral context-generation adapter used by the report hook. Its request and progress types share the hook's single contract.
 
 ## Installation
 

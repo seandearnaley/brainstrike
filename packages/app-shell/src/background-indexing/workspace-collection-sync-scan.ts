@@ -2,6 +2,7 @@ import type { ManagedCacheEntryMetadata, ManagedCacheInvalidationTarget } from '
 import type { FileContentProcessor } from '@brainstrike/file-explorer-hooks';
 import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import type { FileSystemChange, IFileNode } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
@@ -11,7 +12,6 @@ import {
   isAbsoluteFileSystemPath,
   normalizeSelectionPathForFolder,
 } from '@brainstrike/utils/relative-file-path';
-import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import {
   collectPreparedChangesInBatches,
   flattenFileNodes,

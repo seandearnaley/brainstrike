@@ -1,5 +1,5 @@
 import type { EmbeddingSet } from '@brainstrike/db';
-import { resolveWorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
+import { resolveWorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { vi } from 'vitest';
 import type { WorkspaceCollectionSyncServiceDependencies } from '../workspace-collection-sync-service';
 
