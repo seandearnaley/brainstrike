@@ -35,7 +35,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 });
 
 import { AssistantInvalidJsonError } from '@brainstrike/agent/hosted-web';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
+import type { ScopedLogger } from '@brainstrike/logging';
 import {
   AssistantFilterPayloadError,
   type PrepareAssistantPostRequestResult,

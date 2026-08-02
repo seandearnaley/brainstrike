@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel, setLogLevel } from '@brainstrike/utils';
+import { addLogListener, LogLevel, setLogLevel } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSuspendedRunDiscovery } from '../assistant-suspended-approvals';
 

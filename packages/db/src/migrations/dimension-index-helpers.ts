@@ -8,7 +8,7 @@
  * are validated before being used in SQL strings.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('DimensionIndexHelpers');
 

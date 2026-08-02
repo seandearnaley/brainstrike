@@ -1,4 +1,5 @@
-import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateContentHash, generateUUID } from '@brainstrike/utils';
 import type {
   FileImportRequest,
   FileImportResult,

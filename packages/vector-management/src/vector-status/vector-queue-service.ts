@@ -4,7 +4,7 @@ import {
   checkApiKeyAvailability,
 } from '@brainstrike/embeddings';
 import { canonicalizeEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.

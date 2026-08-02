@@ -38,6 +38,9 @@
       "path": "../indexing-contract"
     },
     {
+      "path": "../logging"
+    },
+    {
       "path": "../utils"
     }
   ]

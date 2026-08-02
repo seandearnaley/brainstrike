@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { addQueueTelemetryListener, type QueueTelemetryEvent } from './telemetry.js';
 
 const logger = createLogger('EmbeddingQueueTelemetrySink');

@@ -66,8 +66,9 @@ vi.mock('../../db-host-manager', () => ({
   })),
 }));
 
-vi.mock('@brainstrike/utils', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
   return {
     ...actual,
     createLogger: () => ({

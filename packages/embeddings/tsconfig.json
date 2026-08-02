@@ -39,6 +39,9 @@
       "path": "../types"
     },
     {
+      "path": "../logging"
+    },
+    {
       "path": "../utils"
     },
     {

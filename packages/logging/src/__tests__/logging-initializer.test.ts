@@ -1,20 +1,16 @@
-import {
-  type ConsoleTransportConfig,
-  type LoggerConfig,
-  LogLevel,
-} from '@brainstrike/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type ConsoleTransportConfig, type LoggerConfig, LogLevel } from '../logger.js';
 import { initializeLogging } from '../logging-initializer.js';
 
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('../logger.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../logger.js')>();
   return {
     ...actual,
     configureLogger: vi.fn(),
   };
 });
 
-const { configureLogger } = await import('@brainstrike/utils/logger');
+const { configureLogger } = await import('../logger.js');
 
 describe('initializeLogging', () => {
   afterEach(() => {
@@ -45,7 +41,6 @@ describe('initializeLogging', () => {
         enabled: true,
         level: LogLevel.DEBUG,
       } satisfies ConsoleTransportConfig,
-      enableInProduction: false,
       file: false,
       level: LogLevel.INFO,
     });
@@ -62,7 +57,6 @@ describe('initializeLogging', () => {
           target: 'datadog-transport',
         },
       ],
-      enableDebugInProduction: true,
       file: {
         append: false,
         destination: '/tmp/brainstrike.log',
@@ -93,7 +87,6 @@ describe('initializeLogging', () => {
           target: 'datadog-transport',
         },
       ],
-      enableInProduction: true,
       file: {
         append: false,
         destination: '/tmp/brainstrike.log',

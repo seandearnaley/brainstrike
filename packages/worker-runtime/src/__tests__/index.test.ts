@@ -1,4 +1,4 @@
-import type { LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertBackgroundRuntimeStatus,

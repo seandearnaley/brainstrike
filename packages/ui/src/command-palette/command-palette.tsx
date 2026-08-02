@@ -1,5 +1,5 @@
 import type { Command, CommandContext, CommandGroup } from '@brainstrike/commands';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { Description as DialogDescription, Title as DialogTitle } from '@radix-ui/react-dialog';
 import { Command as Cmdk } from 'cmdk';
 import * as React from 'react';

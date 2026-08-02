@@ -2,16 +2,11 @@ export * from './collator.js';
 
 import type { ColorScheme, FolderColors } from './color-utils.js';
 
-export * from '@brainstrike/utils/log-buffer';
-export * from '@brainstrike/utils/logger';
-export * from '@brainstrike/utils/logging-initializer';
-export * from '@brainstrike/utils/logging-preferences';
 export * from './background-indexing-policy.js';
 export * from './background-work-arbiter.js';
 export * from './browser-download.js';
 export * from './bulk-operation-context.js';
 export * from './color-utils.js';
-export * from './console-guard.js';
 export * from './create-debounce.js';
 export * from './crypto-utils.js';
 export * from './dev/hmr-utils.js';
@@ -24,8 +19,6 @@ export * from './file-system-utils.js';
 export * from './file-utils.js';
 export * from './filter-utils.js';
 export * from './hash-utils.js';
-export * from './log-sampling.js';
-export * from './logging/install-renderer-error-hooks.js';
 export * from './path-ancestors.js';
 export * from './path-filter.js';
 export * from './path-utils.js';

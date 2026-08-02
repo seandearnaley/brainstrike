@@ -249,7 +249,7 @@ function assertTargetDimensionBounds(dimension: number): void {
   }
 }
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('DbRepositoriesShared');
 

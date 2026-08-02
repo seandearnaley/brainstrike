@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { IDB_DB_NAME_PREFIX, isIndexedDbPGliteDataDir } from './browser-pglite-storage.js';
 
 const logger = createLogger('BrowserFirstRunBootstrap');

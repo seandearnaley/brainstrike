@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ElectronPanelPersistenceAdapter,

@@ -4,11 +4,11 @@ import {
   buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
 } from '@brainstrike/db-explorer/embedding-models';
+import { createLogger } from '@brainstrike/logging';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useIdeFileEditor } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   type ResolvedFileInfo,

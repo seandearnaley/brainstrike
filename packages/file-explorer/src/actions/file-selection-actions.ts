@@ -1,7 +1,7 @@
+import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, SelectionQueryDescriptor } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   DEFAULT_SELECTION_CHUNK_SIZE,

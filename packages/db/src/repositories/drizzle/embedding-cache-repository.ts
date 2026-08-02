@@ -19,7 +19,8 @@
  * - Recommended eviction threshold: evict when totalEntries > MAX_CACHE_ENTRIES
  */
 
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { type EmbeddingCacheEntry, embeddingCache } from '../../schema/index.js';

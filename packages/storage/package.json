@@ -3,6 +3,7 @@
   "description": "Platform-aware storage adapters for web and desktop",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },

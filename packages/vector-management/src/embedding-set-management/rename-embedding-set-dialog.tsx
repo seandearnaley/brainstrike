@@ -1,4 +1,5 @@
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import {
   Button,
   Dialog,
@@ -11,7 +12,6 @@ import {
   Label,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useState } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 

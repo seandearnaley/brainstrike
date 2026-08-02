@@ -5,8 +5,8 @@
  * to a Web Worker to prevent UI blocking during large state saves.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('worker-storage');
 

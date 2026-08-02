@@ -1,7 +1,7 @@
-// Self-import through the public package subpath (not './logger') so source and
+// Import through the dedicated package so source and
 // emitted ESM both resolve the canonical logger module. That preserves one
 // listener registry and avoids a private relative copy or package-barrel cycle.
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 export type WorkspaceIndexingQosState =
   | 'balanced'

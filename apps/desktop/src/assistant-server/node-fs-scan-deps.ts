@@ -5,8 +5,8 @@
  * cross-module reach; the IPC handlers now import from here instead).
  */
 import path from 'node:path';
+import { createLogger } from '@brainstrike/logging';
 import { SecureRoot } from '@brainstrike/secure-fs-native';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   MAX_USER_COMMAND_FILE_BYTES,
   type UserSlashCommandScanDeps,

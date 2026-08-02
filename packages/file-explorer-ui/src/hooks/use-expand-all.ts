@@ -8,9 +8,9 @@
  * @module use-expand-all
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { startTransition, useCallback, useRef, useState } from 'react';
 
 import { createDirectDirectoryTraversalSession } from './direct-directory-traversal';

@@ -103,8 +103,9 @@ vi.mock('@brainstrike/db/react', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: (...args: unknown[]) => migrateMock(...args),
 }));
-vi.mock('@brainstrike/utils', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
   return {
     ...actual,
     createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),

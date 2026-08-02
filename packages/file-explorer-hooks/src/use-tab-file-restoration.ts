@@ -18,8 +18,8 @@ import {
   restoreAllTabFileHandles,
   type TabRestoreStatus,
 } from '@brainstrike/file-explorer';
+import { createLogger } from '@brainstrike/logging';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
 import workerpool from 'workerpool';
 import type { WorkerpoolAdapterOptions } from '../browser-workerpool-options.js';

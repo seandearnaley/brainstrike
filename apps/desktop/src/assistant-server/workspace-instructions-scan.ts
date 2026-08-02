@@ -1,5 +1,5 @@
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   findRootContextFile,
   MAX_CONTEXT_FILE_CHARS,

@@ -138,7 +138,7 @@
     },
     {
       "id": "shared-foundation",
-      "title": "Shared UI, types, filesystem, hooks, and utilities",
+      "title": "Shared UI, types, filesystem, hooks, logging, and utilities",
       "owner": "foundation",
       "packages": [
         "@brainstrike/assistant-contract",
@@ -150,6 +150,7 @@
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",
         "@brainstrike/local-runtime",
+        "@brainstrike/logging",
         "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/types",

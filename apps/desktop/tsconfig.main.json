@@ -95,17 +95,8 @@
       "@brainstrike/notes-vault/desktop-contract": [
         "../../packages/notes-vault/dist/desktop/bridge-contract.d.ts"
       ],
-      "@brainstrike/utils/logger": [
-        "../../packages/utils/dist/logger.d.ts"
-      ],
-      "@brainstrike/utils/logging-initializer": [
-        "../../packages/utils/dist/logging-initializer.d.ts"
-      ],
-      "@brainstrike/utils/log-buffer": [
-        "../../packages/utils/dist/log-buffer.d.ts"
-      ],
-      "@brainstrike/utils/logging-preferences": [
-        "../../packages/utils/dist/logging-preferences.d.ts"
+      "@brainstrike/logging": [
+        "../../packages/logging/dist/index.d.ts"
       ],
       "@brainstrike/utils/collator": [
         "../../packages/utils/dist/collator.d.ts"

@@ -11,8 +11,8 @@ import {
   useToastManager,
 } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileSystemWatchSignal } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   CommandSessionError,

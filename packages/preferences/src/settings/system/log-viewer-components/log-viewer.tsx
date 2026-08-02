@@ -1,3 +1,4 @@
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import {
   Badge,
   Card,
@@ -14,7 +15,6 @@ import {
   formatTimestampedDownloadFilename,
 } from '@brainstrike/utils/browser-download';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import {
   type CellContext,
   type ColumnDef,

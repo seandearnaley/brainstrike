@@ -4,7 +4,7 @@ import {
   resolveAssistantRequestBodyLimitBytes as resolveBodyLimit,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   resolveAssistantProviderConfig,
   resolveAssistantProviderConfigs,

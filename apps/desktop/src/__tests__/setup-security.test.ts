@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCSP } from '../csp-utils';
 import { desktopSecurityLogger, setupSecurity } from '../setup-security';
 
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: vi.fn(() => ({
     debug: vi.fn(),
     error: vi.fn(),

@@ -1,4 +1,4 @@
-import { createDefaultLoggingPreferences, LogLevel } from '@brainstrike/utils';
+import { createDefaultLoggingPreferences, LogLevel } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetLoggingPreferencesStoreForTests,

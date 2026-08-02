@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 // createLogger is scope-cached, so every module asking for this scope gets the
 // SAME instance — including the integration tests that vi.spyOn the

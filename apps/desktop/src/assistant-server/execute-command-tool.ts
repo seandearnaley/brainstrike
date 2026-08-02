@@ -7,7 +7,7 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';

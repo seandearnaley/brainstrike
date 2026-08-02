@@ -16,8 +16,8 @@ import {
   type EmbeddingModelConfig as ModelConfig,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef } from 'react';
 
 const logger = createLogger('SearchEmbedder');

@@ -4,7 +4,7 @@ import type {
   BatchLoadResult,
   WorkerFileNode,
 } from '@brainstrike/file-tree-worker';
-import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike/utils';
+import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike/logging';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

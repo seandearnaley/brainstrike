@@ -13,6 +13,7 @@
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/pipeline": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",

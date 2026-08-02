@@ -2,23 +2,19 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { LogBuffer } from '@brainstrike/utils/log-buffer';
 import {
   addLogListener,
-  createLogger,
-  type FileTransportConfig,
-  LogLevel,
-} from '@brainstrike/utils/logger';
-import {
-  type InitializeLoggingOptions,
-  initializeLogging,
-} from '@brainstrike/utils/logging-initializer';
-import {
   applyLoggingPreferences,
   createDefaultLoggingPreferences,
+  createLogger,
+  type FileTransportConfig,
+  type InitializeLoggingOptions,
+  initializeLogging,
+  LogBuffer,
   type LoggingPreferences,
-} from '@brainstrike/utils/logging-preferences';
+  LogLevel,
+} from '@brainstrike/logging';
+import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
@@ -491,7 +487,6 @@ const loggingOptions: InitializeLoggingOptions = {
       : {}),
   },
   consoleLevel: initialLoggingPreferences.consoleLevel,
-  enableDebugInProduction: true,
   includeTimestamp: initialLoggingPreferences.includeTimestamp,
   level: initialLoggingPreferences.level,
   runtime: 'electron-main',

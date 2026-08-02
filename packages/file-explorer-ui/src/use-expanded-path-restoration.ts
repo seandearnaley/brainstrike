@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
 import type { Dispatch, RefObject, SetStateAction } from 'react';

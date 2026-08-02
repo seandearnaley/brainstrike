@@ -2,9 +2,9 @@
   "name": "@brainstrike/utils",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "minimatch": "catalog:",
-    "pino": "catalog:",
     "tiktoken": "catalog:"
   },
   "devDependencies": {
@@ -46,22 +46,6 @@
       "types": "./dist/diagnostics.d.ts",
       "default": "./dist/diagnostics.js"
     },
-    "./logger": {
-      "types": "./dist/logger.d.ts",
-      "default": "./dist/logger.js"
-    },
-    "./logging-initializer": {
-      "types": "./dist/logging-initializer.d.ts",
-      "default": "./dist/logging-initializer.js"
-    },
-    "./logging-preferences": {
-      "types": "./dist/logging-preferences.d.ts",
-      "default": "./dist/logging-preferences.js"
-    },
-    "./console-guard": {
-      "types": "./dist/console-guard.d.ts",
-      "default": "./dist/console-guard.js"
-    },
     "./color-utils": {
       "types": "./dist/color-utils.d.ts",
       "default": "./dist/color-utils.js"
@@ -102,10 +86,6 @@
       "types": "./dist/file-utils.d.ts",
       "default": "./dist/file-utils.js"
     },
-    "./log-buffer": {
-      "types": "./dist/log-buffer.d.ts",
-      "default": "./dist/log-buffer.js"
-    },
     "./hmr-utils": {
       "types": "./dist/hmr-utils.d.ts",
       "default": "./dist/hmr-utils.js"
@@ -125,10 +105,6 @@
     "./performance-measure-guard": {
       "types": "./dist/performance-measure-guard.d.ts",
       "default": "./dist/performance-measure-guard.js"
-    },
-    "./install-renderer-error-hooks": {
-      "types": "./dist/install-renderer-error-hooks.d.ts",
-      "default": "./dist/install-renderer-error-hooks.js"
     },
     "./quick-filter-utils": {
       "types": "./dist/quick-filter-utils.d.ts",

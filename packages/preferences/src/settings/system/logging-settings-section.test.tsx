@@ -1,5 +1,5 @@
 import { DIAGNOSTIC_EVENTS_PURGE_LIMIT } from '@brainstrike/db';
-import { LogLevel, type LogRecord } from '@brainstrike/utils';
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';

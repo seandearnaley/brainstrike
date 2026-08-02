@@ -3,7 +3,7 @@ import {
   type EmbeddingProviderType,
   formatEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 interface SqlClient {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;

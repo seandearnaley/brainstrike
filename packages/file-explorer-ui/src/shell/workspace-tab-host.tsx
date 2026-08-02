@@ -4,6 +4,7 @@ import {
   type TabFileStatus,
   useTabFileRestoration,
 } from '@brainstrike/file-explorer-hooks';
+import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, type FileExplorerState } from '@brainstrike/types';
 import {
   ActionContextMenu,
@@ -21,7 +22,6 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { resolveRelativePath } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   AlertCircle,

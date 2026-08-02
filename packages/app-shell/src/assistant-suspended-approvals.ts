@@ -6,7 +6,7 @@ import {
   isRediscoveredToolSuspend,
   type RediscoveredToolSuspend,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { resolveAssistantAuthHeaders } from './hooks/use-assistant-availability';
 
 const logger = createLogger('SuspendedRuns');

@@ -117,15 +117,22 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     createBulkOperationContext: createBulkOperationContextMock,
+    fileExplorer: {
+      getFileExtension: vi.fn(() => 'ts'),
+    },
+  };
+});
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
     createLogger: vi.fn(() => ({
       debug: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
     })),
-    fileExplorer: {
-      getFileExtension: vi.fn(() => 'ts'),
-    },
   };
 });
 

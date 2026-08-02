@@ -24,8 +24,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({}));
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),

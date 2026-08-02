@@ -143,9 +143,11 @@
       // drops the cascade and replays stale-green cached tests against edited
       // upstream source (see the topo comment for the full landmine rationale).
       // Packages whose tests genuinely need a built artifact declare the exact
-      // edge in their own turbo.json (B4 exceptions): packages/utils#test needs
-      // its own `build` (logger-dist-singleton.test.ts imports utils' dist by
-      // file URL); packages/db#test needs `@brainstrike/utils#build`
+      // edge in their own turbo.json (B4 exceptions): packages/logging#test needs
+      // its own `build` (logger-dist-singleton.test.ts imports logging's dist by
+      // file URL); packages/utils#test needs its own `build`
+      // (typescript-build-contract.test.ts inspects emitted files);
+      // packages/db#test needs `@brainstrike/utils#build`
       // (migration-runner-types.test.ts runs a nested `ts.createProgram` whose
       // compiler resolves @brainstrike/utils types from dist — vitest aliases
       // cannot intercept tsc); packages/secure-fs-native#test needs its own
@@ -290,6 +292,7 @@
       "with": [
         "@brainstrike/assistant-contract#dev",
         "@brainstrike/indexing-contract#dev",
+        "@brainstrike/logging#dev",
         "@brainstrike/types#dev", // Run the 'dev' script from the @brainstrike/types package
         "@brainstrike/utils#dev", // Run the 'dev' script from the @brainstrike/utils package
         "@brainstrike/hooks#dev", // Run the 'dev' script from the @brainstrike/hooks package
@@ -376,7 +379,8 @@
       // this task avoids Turborepo passthrough args invalidating dependency builds.
       // `dependsOn: ["topo"]` mirrors `test` (same source-import graph, same
       // transit-node cascade; see the topo comment). The same B4 build-edge
-      // exceptions apply per-package (utils' own build; db's @brainstrike/utils#build).
+      // exceptions apply per-package (logging's and utils' own builds; db's
+      // @brainstrike/utils#build).
       "dependsOn": [
         "topo"
       ],

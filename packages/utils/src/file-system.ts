@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { stableHash } from './hash-utils.js';
 import { calculatePathDepth } from './path-utils.js';
 

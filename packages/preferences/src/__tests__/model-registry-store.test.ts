@@ -10,9 +10,9 @@ import {
   __setSettingsTestOverridesForTests,
 } from '../testing/e2e-settings-test-overrides';
 
-// Mock @brainstrike/utils logger
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+// Mock @brainstrike/logging logger
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({

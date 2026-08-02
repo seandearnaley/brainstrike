@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';

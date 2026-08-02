@@ -19,13 +19,9 @@ import {
   type ProviderDimensionParameter,
   parseEmbeddingProviderModelKey as parseProviderModelKey,
 } from '@brainstrike/indexing-contract';
+import { createLogger, LogLevel } from '@brainstrike/logging';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import {
-  createBulkOperationContext,
-  createLogger,
-  generateUUID,
-  LogLevel,
-} from '@brainstrike/utils';
+import { createBulkOperationContext, generateUUID } from '@brainstrike/utils';
 import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { processChunking } from './chunking';

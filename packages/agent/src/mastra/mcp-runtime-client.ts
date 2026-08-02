@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';

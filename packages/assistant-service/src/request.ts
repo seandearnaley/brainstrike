@@ -26,7 +26,7 @@ import {
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent/hosted-web';
 import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
+import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
 import type { ProviderApiKeyReader } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';

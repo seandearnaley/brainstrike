@@ -1,5 +1,5 @@
 import { LocalLlmBackend, type LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useEffect, useRef } from 'react';
 import {
   assertLlmHostRequest,

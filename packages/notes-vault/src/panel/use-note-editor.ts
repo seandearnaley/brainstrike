@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VaultNoteNode } from '../core/types';
 import { writeNoteFile } from '../core/write-note';

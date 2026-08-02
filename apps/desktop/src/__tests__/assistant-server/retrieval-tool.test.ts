@@ -159,16 +159,7 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    error: loggerError,
-    info: vi.fn(),
-    warn: loggerWarn,
-  }),
-}));
-
-vi.mock('@brainstrike/utils/logger', () => ({
+vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     error: loggerError,

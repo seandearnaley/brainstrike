@@ -9,7 +9,7 @@ import {
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import { resolveGrepFilePaths } from './grep-file-paths';
 import {

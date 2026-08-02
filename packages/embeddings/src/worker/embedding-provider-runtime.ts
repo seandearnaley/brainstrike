@@ -1,6 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
 import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service.js';
 import { EmbeddingProviderFactory } from '../factory.js';
 import type {

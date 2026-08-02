@@ -7,7 +7,7 @@
  */
 
 import type { ChunkingRequestOptions, ChunkResult } from '@brainstrike/chunking-worker';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   createContext,
   type MutableRefObject,

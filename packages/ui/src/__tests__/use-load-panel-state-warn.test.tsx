@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapters';

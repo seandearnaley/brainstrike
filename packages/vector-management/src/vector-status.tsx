@@ -5,6 +5,7 @@ import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-s
 import type { QueueAdapter } from '@brainstrike/queue';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
+import { createLogger } from '@brainstrike/logging';
 import {
   Badge,
   Button,
@@ -19,7 +20,6 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('VectorStatus');

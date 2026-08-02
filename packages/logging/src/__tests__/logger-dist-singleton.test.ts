@@ -8,7 +8,7 @@ function resolveDistModule(moduleName: string): string {
 
 describe('built logger modules', () => {
   it('shares logger state between root exports and logging initializer', async () => {
-    const rootUtils = await import(pathToFileURL(resolveDistModule('index.js')).href);
+    const rootLogging = await import(pathToFileURL(resolveDistModule('index.js')).href);
     const loggerModule = await import(pathToFileURL(resolveDistModule('logger.js')).href);
     const loggingInitializerModule = await import(
       pathToFileURL(resolveDistModule('logging-initializer.js')).href
@@ -17,7 +17,7 @@ describe('built logger modules', () => {
     loggerModule.resetLogger();
 
     const records: string[] = [];
-    const removeListener = rootUtils.addLogListener((record: { message?: string }) => {
+    const removeListener = rootLogging.addLogListener((record: { message?: string }) => {
       if (record.message) {
         records.push(record.message);
       }
@@ -30,7 +30,7 @@ describe('built logger modules', () => {
         runtime: 'browser',
       });
 
-      rootUtils.debug('dist initializer marker');
+      rootLogging.debug('dist initializer marker');
 
       expect(records).toContain('dist initializer marker');
     } finally {
@@ -40,7 +40,7 @@ describe('built logger modules', () => {
   });
 
   it('shares logger state between root exports and logging preferences', async () => {
-    const rootUtils = await import(pathToFileURL(resolveDistModule('index.js')).href);
+    const rootLogging = await import(pathToFileURL(resolveDistModule('index.js')).href);
     const loggerModule = await import(pathToFileURL(resolveDistModule('logger.js')).href);
     const loggingPreferencesModule = await import(
       pathToFileURL(resolveDistModule('logging-preferences.js')).href
@@ -49,7 +49,7 @@ describe('built logger modules', () => {
     loggerModule.resetLogger();
 
     const records: string[] = [];
-    const removeListener = rootUtils.addLogListener((record: { message?: string }) => {
+    const removeListener = rootLogging.addLogListener((record: { message?: string }) => {
       if (record.message) {
         records.push(record.message);
       }
@@ -64,7 +64,7 @@ describe('built logger modules', () => {
         'browser'
       );
 
-      rootUtils.debug('dist preferences marker');
+      rootLogging.debug('dist preferences marker');
 
       expect(records).toContain('dist preferences marker');
     } finally {

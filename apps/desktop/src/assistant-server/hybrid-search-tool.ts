@@ -26,7 +26,7 @@ import {
   FileRecordRepository,
   HybridSearchService,
 } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import {
   assertEmbeddingDimensions,

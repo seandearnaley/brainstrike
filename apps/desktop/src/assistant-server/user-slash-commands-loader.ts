@@ -23,7 +23,7 @@ import {
   parseUserCommandFile,
   type UserSlashCommandDescriptor,
 } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('UserSlashCommands');
 

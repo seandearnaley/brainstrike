@@ -1,11 +1,11 @@
-import type { CustomTransportConfig } from '@brainstrike/utils/logger';
+import type { CustomTransportConfig } from './logger.js';
 import {
   type ConsoleTransportConfig,
   configureLogger,
   type FileTransportConfig,
   type LoggerConfig,
   type LogLevel,
-} from '@brainstrike/utils/logger';
+} from './logger.js';
 
 export type LoggerRuntime = 'browser' | 'electron-main' | 'electron-renderer';
 
@@ -24,7 +24,6 @@ export interface InitializeLoggingOptions {
   baseBindings?: Record<string, unknown>;
   consoleLevel?: LogLevel;
   customTransports?: readonly CustomTransportConfig[];
-  enableDebugInProduction?: boolean;
   file?: FileLoggingOptions;
   includeTimestamp?: boolean;
   level?: LogLevel;
@@ -90,18 +89,10 @@ function resolveFileConfig(
   return;
 }
 
-function resolveEnableInProduction(
-  runtime: LoggerRuntime,
-  enableDebugInProduction: boolean | undefined
-): boolean {
-  return enableDebugInProduction ?? runtime !== 'browser';
-}
-
 export function initializeLogging(options: InitializeLoggingOptions): void {
   const loggerConfig: LoggerConfig = {
     baseBindings: resolveBaseBindings(options),
     console: resolveConsoleConfig(options.level, options.consoleLevel),
-    enableInProduction: resolveEnableInProduction(options.runtime, options.enableDebugInProduction),
   };
 
   if (options.level !== undefined) {

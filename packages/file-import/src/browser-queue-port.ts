@@ -3,6 +3,7 @@ import type {
   EmbeddingProviderType,
   IndexingEmbeddingJobChunk,
 } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 import type {
   EmbeddingDeviceHint,
   ProviderDimensionParameter,
@@ -14,7 +15,6 @@ import {
   dispatchQueueProgress,
   type QueueProgressEventDetail,
 } from '@brainstrike/utils/browser-events';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { EmbeddingJobQueuePort } from './enhanced-import';
 
 interface ChunkRepository {

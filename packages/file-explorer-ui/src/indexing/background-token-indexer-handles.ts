@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { WINDOWS_ABSOLUTE_PATH_REGEX } from '@brainstrike/utils/relative-file-path';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 

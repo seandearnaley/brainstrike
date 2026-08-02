@@ -14,7 +14,7 @@ import type {
   AssistantContextBreakdownState,
 } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   type CostEstimate,
   formatTokenCount,

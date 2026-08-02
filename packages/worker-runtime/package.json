@@ -2,6 +2,7 @@
   "name": "@brainstrike/worker-runtime",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {

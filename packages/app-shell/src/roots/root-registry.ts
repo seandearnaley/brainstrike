@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { RootDescriptor } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('RootRegistry');
 

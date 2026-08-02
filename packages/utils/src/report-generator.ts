@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { readFullFileTree } from './file-system-utils.js';
 import { decodeFileSelection } from './selection-utils.js';
 import { generateProjectTreeText } from './tree-generator.js';

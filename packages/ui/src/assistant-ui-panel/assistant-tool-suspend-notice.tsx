@@ -12,7 +12,7 @@ import {
   hasRegisteredSuspendResumeUi,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import { createContext, type ReactNode, use, useCallback, useId, useMemo, useState } from 'react';
 import { Button } from '../button';

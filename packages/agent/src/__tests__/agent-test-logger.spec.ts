@@ -1,4 +1,4 @@
-import { __loggerTesting, addLogListener, info, type LogRecord } from '@brainstrike/utils/logger';
+import { __loggerTesting, addLogListener, info, type LogRecord } from '@brainstrike/logging';
 import { expect, it } from 'vitest';
 
 it('keeps agent unit logs observable without writing them to the console transport', () => {

@@ -27,7 +27,7 @@ import {
   parseLensFile,
   USER_LENS_DIRNAME,
 } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type {
   UserSlashCommandDirEntry,
   UserSlashCommandReadResult,

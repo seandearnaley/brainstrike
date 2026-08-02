@@ -4,15 +4,17 @@ import { EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX, getDefaultBrowserPGliteDataDir } fro
 import { DbProvider } from '@brainstrike/db/react';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
+import {
+  applyLoggingPreferences,
+  initializeLogging,
+  installConsoleGuard,
+  installRendererErrorHooks,
+  LogLevel,
+} from '@brainstrike/logging';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
-import { installConsoleGuard } from '@brainstrike/utils/console-guard';
-import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
-import { LogLevel } from '@brainstrike/utils/logger';
-import { initializeLogging } from '@brainstrike/utils/logging-initializer';
-import { applyLoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';

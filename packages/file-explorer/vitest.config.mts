@@ -18,6 +18,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../file-system/src'),
       },
       {
+        find: '@brainstrike/logging',
+        replacement: path.resolve(import.meta.dirname, '../logging/src/index.ts'),
+      },
+      {
         find: '@brainstrike/utils',
         replacement: path.resolve(import.meta.dirname, '../utils/src'),
       },

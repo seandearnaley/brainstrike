@@ -1,4 +1,5 @@
-import { generateUUID, type LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 
 export type BackgroundRuntimeState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 

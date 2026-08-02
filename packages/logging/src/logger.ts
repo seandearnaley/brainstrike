@@ -5,7 +5,6 @@ import type {
   TransportTargetOptions,
 } from 'pino';
 import pino from 'pino';
-import { isDevEnv } from './env-utils.js';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {
@@ -112,7 +111,6 @@ export interface LoggerConfig {
   browser?: BrowserLoggerOptions;
   console?: ConsoleTransportConfig | false;
   customTransports?: readonly CustomTransportConfig[];
-  enableInProduction?: boolean;
   file?: FileTransportConfig | false;
   includeTimestamp?: boolean;
   level?: LogLevel;
@@ -155,7 +153,6 @@ interface InternalLoggerConfig {
   browser?: BrowserLoggerOptions;
   console: NormalizedConsoleConfig;
   customTransports: readonly CustomTransportConfig[];
-  enableInProduction: boolean;
   explicitLevel?: LogLevel;
   file?: NormalizedFileConfig;
   includeTimestamp: boolean;
@@ -179,7 +176,6 @@ function createDefaultConfig(): InternalLoggerConfig {
       options: {},
     },
     customTransports: [],
-    enableInProduction: false,
     includeTimestamp: false,
     scopeKey: 'scope',
   };
@@ -205,11 +201,9 @@ function resolveEffectiveLevel(config: InternalLoggerConfig): LogLevel {
     return envLevel;
   }
 
-  if (isDevEnv() || config.enableInProduction) {
-    // Default to INFO in development - use LOG_LEVEL=DEBUG for verbose logs
-    return LogLevel.INFO;
-  }
-
+  // INFO is the environment-independent default. Runtime initialization may
+  // still opt into a different explicit level, and LOG_LEVEL remains the
+  // process-level override.
   return LogLevel.INFO;
 }
 
@@ -821,10 +815,6 @@ export function configureLogger(config: LoggerConfig): void {
 
   if (config.level !== undefined) {
     nextConfig.explicitLevel = config.level;
-  }
-
-  if (config.enableInProduction !== undefined) {
-    nextConfig.enableInProduction = config.enableInProduction;
   }
 
   if (config.prefix !== undefined) {

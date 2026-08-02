@@ -1,4 +1,4 @@
-import * as loggerModule from '@brainstrike/utils/logger';
+import * as loggerModule from '@brainstrike/logging';
 import { beforeEach, vi } from 'vitest';
 
 const originalWarn = console.warn;

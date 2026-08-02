@@ -1,3 +1,4 @@
+import type { LogRecord } from '@brainstrike/logging';
 import {
   Badge,
   Button,
@@ -8,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@brainstrike/ui';
-import type { LogRecord } from '@brainstrike/utils/logger';
 import { ListTree } from 'lucide-react';
 import {
   getLogRecordCauseChainDiagnostics,

@@ -1,11 +1,5 @@
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  addLogListener,
-  configureLogger,
-  LogLevel,
-  type LogRecord,
-  setLogLevel,
-} from '../logger.js';
 import {
   createWorkspaceIndexingQosTransitionLogger,
   resolveWorkspaceIndexingQosPolicy,
@@ -350,7 +344,6 @@ describe('createWorkspaceIndexingQosTransitionLogger', () => {
   let removeListener: () => void;
 
   beforeEach(() => {
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
     captured = [];
     removeListener = addLogListener((record) => {

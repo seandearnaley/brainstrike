@@ -1,7 +1,8 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, fileNodeCollator } from '@brainstrike/utils';
+import { fileNodeCollator } from '@brainstrike/utils';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.js';
 import {
   createMetadataCache,

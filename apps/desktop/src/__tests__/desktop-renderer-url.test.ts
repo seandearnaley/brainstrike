@@ -38,7 +38,7 @@ describe('desktop renderer dev url', () => {
 
   it('warns and falls back when the configured override is not a valid absolute url', async () => {
     process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'] = 'not-a-url';
-    vi.doMock('@brainstrike/utils/logger', () => ({
+    vi.doMock('@brainstrike/logging', () => ({
       createLogger: () => ({
         warn: loggerWarn,
       }),
@@ -60,7 +60,7 @@ describe('desktop renderer dev url', () => {
 
   it('warns and falls back when the configured override omits an explicit port', async () => {
     process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'] = 'http://localhost';
-    vi.doMock('@brainstrike/utils/logger', () => ({
+    vi.doMock('@brainstrike/logging', () => ({
       createLogger: () => ({
         warn: loggerWarn,
       }),
@@ -82,7 +82,7 @@ describe('desktop renderer dev url', () => {
 
   it('warns and falls back when the configured override uses a non-http scheme', async () => {
     process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'] = 'ws://localhost:39191';
-    vi.doMock('@brainstrike/utils/logger', () => ({
+    vi.doMock('@brainstrike/logging', () => ({
       createLogger: () => ({
         warn: loggerWarn,
       }),

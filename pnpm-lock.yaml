@@ -432,6 +432,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../../packages/local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../../packages/logging
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
@@ -781,6 +784,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../../packages/logging
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../../packages/notes-vault
@@ -1061,6 +1067,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
@@ -1170,6 +1179,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/notes-vault':
         specifier: workspace:*
         version: link:../notes-vault
@@ -1261,6 +1273,9 @@ importers:
 
   packages/assistant-contract:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1292,6 +1307,9 @@ importers:
       '@brainstrike/assistant-wire':
         specifier: workspace:*
         version: link:../assistant-wire
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -1481,6 +1499,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -1608,6 +1629,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/pipeline':
         specifier: workspace:*
         version: link:../pipeline
@@ -1748,6 +1772,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1794,6 +1821,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -1855,6 +1885,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1937,6 +1970,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -2034,6 +2070,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -2089,6 +2128,9 @@ importers:
 
   packages/file-system:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -2175,6 +2217,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2267,10 +2312,35 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
+  packages/logging:
+    dependencies:
+      pino:
+        specifier: 'catalog:'
+        version: 10.3.1
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
@@ -2286,6 +2356,9 @@ importers:
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
@@ -2396,6 +2469,9 @@ importers:
       '@brainstrike/local-runtime':
         specifier: workspace:*
         version: link:../local-runtime
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -2457,6 +2533,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -2514,6 +2593,9 @@ importers:
 
   packages/storage:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -2637,6 +2719,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
@@ -2728,6 +2813,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2909,15 +2997,15 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
       minimatch:
         specifier: 'catalog:'
         version: 10.2.5
-      pino:
-        specifier: 'catalog:'
-        version: 10.3.1
       tiktoken:
         specifier: 'catalog:'
         version: 1.0.22
@@ -2964,6 +3052,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
@@ -3041,6 +3132,9 @@ importers:
 
   packages/worker-runtime:
     dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -3066,6 +3160,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

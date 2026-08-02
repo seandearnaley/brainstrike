@@ -1,5 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
 import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
-import { createLogger, fileNodeCollator } from '@brainstrike/utils';
+import { fileNodeCollator } from '@brainstrike/utils';
 import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types.js';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture.js';
 import type {

@@ -27,7 +27,8 @@ import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';

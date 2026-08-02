@@ -4,7 +4,7 @@ import path from 'node:path';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import type { RunPythonNetworkSuspendPayload } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import {

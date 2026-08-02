@@ -1,7 +1,8 @@
 import { type EmbeddingDType, StreamingEmbeddingWorkerClient } from '@brainstrike/embedding-worker';
+import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils';
 import { getRegisteredEmbeddingQueueFactory } from './runtime-config.js';
 import type {
   EmbeddingConfig,

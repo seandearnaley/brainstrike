@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { useEffect, useState } from 'react';
 
 const logger = createLogger('HookTrustScope');

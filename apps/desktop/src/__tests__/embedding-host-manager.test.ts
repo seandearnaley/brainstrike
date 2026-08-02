@@ -133,7 +133,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('clears a stale id and can start a fresh blocker after stop throws on a dead blocker', async () => {
-    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/utils/logger');
+    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/logging');
     setLogLevel(LogLevel.WARN);
     const warnings: string[] = [];
     const removeLogListener = addLogListener((entry) => {
@@ -170,7 +170,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('keeps the id and retries when stop throws but the blocker is still active at the OS', async () => {
-    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/utils/logger');
+    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/logging');
     setLogLevel(LogLevel.WARN);
     const warnings: string[] = [];
     const removeLogListener = addLogListener((entry) => {

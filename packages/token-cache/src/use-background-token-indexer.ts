@@ -11,7 +11,8 @@
  * - Progressive updates via callback
  */
 
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import { createWorkerRuntimeClient, type WorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {

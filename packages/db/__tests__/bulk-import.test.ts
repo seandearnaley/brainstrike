@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap';

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const DEFAULT_DESKTOP_DEV_RENDERER_PORT = 38_181;
 const logger = createLogger('DesktopRendererUrl');

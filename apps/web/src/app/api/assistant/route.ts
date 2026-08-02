@@ -16,7 +16,7 @@ import {
 // the native CJS→ESM dynamic-import seam. Start it lazily inside a request:
 // rejection is then observed by the caller instead of floating at module init.
 async function createWebAssistantLogger() {
-  const { createLogger } = await import('@brainstrike/utils/logger');
+  const { createLogger } = await import('@brainstrike/logging');
   return createLogger('WebAssistantRoute');
 }
 

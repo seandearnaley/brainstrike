@@ -7,7 +7,7 @@
  * Migration SQL is bundled as JSON at build time via the export-migrations script.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { assertNoLegacyMigrationLedger } from '../architecture/db-migration-authority.js';
 import { migration015ModelRegistry } from '../migrations/015-model-registry.js';

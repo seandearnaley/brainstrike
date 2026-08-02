@@ -10,7 +10,7 @@ import {
 // of this always-mounted module so their lazy-loaded graphs stay code-split.
 import { collectionActions } from '@brainstrike/db-explorer/context-actions';
 import { fileEntryActions } from '@brainstrike/file-explorer-ui/context-actions';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { assistantThreadActions } from './assistant-thread-context-actions';
 
 const logger = createLogger('ContextActionRegistry');
