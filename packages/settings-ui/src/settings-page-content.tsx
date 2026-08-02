@@ -12,7 +12,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { ApiKeysSettings, type ApiKeysSettingsProps } from './settings/secrets/api-keys-settings';
@@ -129,8 +129,8 @@ function getCategoryIdFromHash(hash: string) {
   return id || null;
 }
 
-function updateHash(categoryId: string) {
-  if (!isClient) {
+function updateHash(categoryId: string | null) {
+  if (!(isClient && categoryId)) {
     return;
   }
 
@@ -240,14 +240,11 @@ export function SettingsPageContent({
     return selectInitialCategory(categories, defaultCategoryId);
   }, [categories, defaultCategoryId, filteredCategories, activeCategoryId]);
 
-  // Sync hash when effective category changes, but not on every render
-  const prevEffectiveCategoryRef = useRef<string | null>(null);
-  if (prevEffectiveCategoryRef.current !== effectiveActiveCategoryId) {
-    prevEffectiveCategoryRef.current = effectiveActiveCategoryId;
-    if (effectiveActiveCategoryId) {
-      updateHash(effectiveActiveCategoryId);
-    }
-  }
+  // Browser history is an external system. Synchronize it only after React
+  // commits so an interrupted or discarded render cannot leak a URL mutation.
+  useEffect(() => {
+    updateHash(effectiveActiveCategoryId);
+  }, [effectiveActiveCategoryId]);
 
   const activeCategory = filteredCategories.find(
     (category) => category.id === effectiveActiveCategoryId

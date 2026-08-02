@@ -31,7 +31,7 @@
     "mermaid": "catalog:",
     "nyc": "^18.0.0",
     "playwright": "catalog:",
-    "react-doctor": "0.7.1",
+    "react-doctor": "0.9.3",
     "tsup": "catalog:",
     "turbo": "2.10.5",
     "typescript": "catalog:",

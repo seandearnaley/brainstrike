@@ -1,6 +1,7 @@
 import './assistant-ui-panel-wrapper-test-support';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { render, screen, waitFor } from '@testing-library/react';
+import type { SupportedProvider } from '@brainstrike/assistant-contract';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
@@ -25,6 +26,42 @@ describe('AssistantUiPanelWrapper provider seeds', () => {
       expect(getAvailableProviders).toHaveBeenCalledTimes(1);
       expect([...providerSelect.options].map((option) => option.value)).toEqual(
         expect.arrayContaining(['openai', 'local', 'ollama'])
+      );
+    });
+  });
+
+  test('preserves a persisted provider selection until Desktop discovery is complete', async () => {
+    let resolveDiscovery: ((providers: SupportedProvider[]) => void) | undefined;
+    const discovery = new Promise<SupportedProvider[]>((resolve) => {
+      resolveDiscovery = resolve;
+    });
+    const getAvailableProviders = vi.fn(() => discovery);
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      getAvailableProviders,
+      selectedModel: 'openrouter::openai/gpt-5.2',
+      selectedProvider: 'openrouter',
+    }));
+
+    render(
+      <AssistantProviderSourceProvider source={{ kind: 'discovery', seeds: ['anthropic'] }}>
+        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+      </AssistantProviderSourceProvider>
+    );
+
+    await waitFor(() => expect(getAvailableProviders).toHaveBeenCalledTimes(1));
+    expect(useAssistantPreferencesStore.getState().selectedModel).toBe(
+      'openrouter::openai/gpt-5.2'
+    );
+
+    const completeDiscovery = resolveDiscovery;
+    if (!completeDiscovery) {
+      throw new Error('Provider discovery resolver was not initialized');
+    }
+    await act(async () => completeDiscovery(['anthropic', 'openrouter']));
+    await waitFor(() => {
+      expect(useAssistantPreferencesStore.getState().selectedModel).toBe(
+        'openrouter::openai/gpt-5.2'
       );
     });
   });

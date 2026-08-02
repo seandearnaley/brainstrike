@@ -3,7 +3,8 @@ import type {
   RootDisplayInfo,
 } from '@brainstrike/file-explorer/context-generation';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import { useCallback, useRef, useState } from 'react';
+import { useEventCallback } from '@brainstrike/hooks';
+import { useState } from 'react';
 
 export type {
   ContextLineRange,
@@ -99,89 +100,59 @@ export function useReportGeneration({
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<ReportProgressEvent | null>(null);
 
-  const payload = {
-    createReportGenerator,
-    excludeFilters,
-    fileContents,
-    fileSystemAdapter,
-    folderSummaryThreshold,
-    getFileContents,
-    getRootDisplayInfoById,
-    includeFilters,
-    includeProjectTree,
-    loadMissingContent,
-    projectTreeUsesViewFilters,
-    rootDirectoryHandle,
-    selectedFiles,
-    useRegex,
-  };
-  const payloadRef = useRef(payload);
-  payloadRef.current = payload;
-
-  // Keep callback identity stable; runtime inputs are read from payloadRef at call time.
-  const generateContextWithContent = useCallback(async (overrides?: ContextGenerationOverrides) => {
-    if (!payloadRef.current.rootDirectoryHandle) {
-      throw new Error('No root directory selected');
-    }
-
-    setIsGenerating(true);
-    setProgress({ loaded: 0, total: 1 });
-    try {
-      const {
-        fileSystemAdapter: adapter,
-        rootDirectoryHandle: stableRoot,
-        selectedFiles: s,
-        fileContents: fc,
-        includeFilters: inc,
-        excludeFilters: exc,
-        useRegex: rx,
-        includeProjectTree: proj,
-        projectTreeUsesViewFilters: treeUsesViewFilters,
-        folderSummaryThreshold: thr,
-        loadMissingContent: loadContent,
-        getFileContents: getContents,
-        getRootDisplayInfoById: getRootDisplayInfo,
-        createReportGenerator: createGenerator,
-      } = payloadRef.current;
-
-      // Load missing file contents if the loader is provided
-      let finalFileContents = fc;
-      if (loadContent) {
-        // Find selected files that don't have content loaded yet
-        const missingKeys = Array.from(s).filter((key) => !(key in fc));
-        if (missingKeys.length > 0) {
-          await loadContent(missingKeys);
-          // Get the updated file contents from state after loading
-          finalFileContents = getContents ? getContents() : fc;
-        }
+  // Keep callback identity stable while useEventCallback makes every invocation
+  // read inputs from the latest committed render. Its commit-phase ref sync
+  // preserves render purity without opening a stale-props window before passive
+  // effects flush.
+  const generateContextWithContent = useEventCallback(
+    async (overrides?: ContextGenerationOverrides) => {
+      if (!rootDirectoryHandle) {
+        throw new Error('No root directory selected');
       }
 
-      const worker = createGenerator({ fileSystemAdapter: adapter });
-      const rootDisplayInfoById = getRootDisplayInfo?.();
-      return await worker(
-        {
-          fileContents: finalFileContents,
-          rootDirectoryHandle: stableRoot,
-          selectedFiles: s,
-          ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
-          excludeFilters: exc,
-          folderSummaryThreshold: thr,
-          includeFilters: inc,
-          includeProjectTree: proj,
-          // When override is undefined, use the latest persisted toggle from payloadRef.
-          projectTreeUsesViewFilters: overrides?.projectTreeUsesViewFilters ?? treeUsesViewFilters,
-          useRegex: rx,
-          ...(overrides?.selectedLineRangesByFile
-            ? { selectedLineRangesByFile: overrides.selectedLineRangesByFile }
-            : {}),
-        },
-        (e: ReportProgressEvent) => setProgress(e)
-      );
-    } finally {
-      setIsGenerating(false);
-      setProgress(null);
+      setIsGenerating(true);
+      setProgress({ loaded: 0, total: 1 });
+      try {
+        // Load missing file contents if the loader is provided
+        let finalFileContents = fileContents;
+        if (loadMissingContent) {
+          // Find selected files that don't have content loaded yet
+          const missingKeys = Array.from(selectedFiles).filter((key) => !(key in fileContents));
+          if (missingKeys.length > 0) {
+            await loadMissingContent(missingKeys);
+            // Get the updated file contents from state after loading
+            finalFileContents = getFileContents ? getFileContents() : fileContents;
+          }
+        }
+
+        const worker = createReportGenerator({ fileSystemAdapter });
+        const rootDisplayInfoById = getRootDisplayInfoById?.();
+        return await worker(
+          {
+            fileContents: finalFileContents,
+            rootDirectoryHandle,
+            selectedFiles,
+            ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
+            excludeFilters,
+            folderSummaryThreshold,
+            includeFilters,
+            includeProjectTree,
+            // When override is undefined, use the latest persisted toggle.
+            projectTreeUsesViewFilters:
+              overrides?.projectTreeUsesViewFilters ?? projectTreeUsesViewFilters,
+            useRegex,
+            ...(overrides?.selectedLineRangesByFile
+              ? { selectedLineRangesByFile: overrides.selectedLineRangesByFile }
+              : {}),
+          },
+          (event: ReportProgressEvent) => setProgress(event)
+        );
+      } finally {
+        setIsGenerating(false);
+        setProgress(null);
+      }
     }
-  }, []);
+  );
 
   return {
     generateContextWithContent,

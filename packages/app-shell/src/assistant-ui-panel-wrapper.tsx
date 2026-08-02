@@ -231,8 +231,11 @@ export function AssistantUiPanelWrapper({
   // OpenRouter default initialization still keys its durable attempt on the
   // same credential revision as provider discovery.
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
-  const { discoveryError: providerDiscoveryError, providers: configuredProviders } =
-    useConfiguredAssistantProviders();
+  const {
+    discoveryError: providerDiscoveryError,
+    discoveryState: providerDiscoveryState,
+    providers: configuredProviders,
+  } = useConfiguredAssistantProviders();
 
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
@@ -1132,8 +1135,9 @@ export function AssistantUiPanelWrapper({
 
   const shouldSkipSelectionReconcile = useCallback(
     (currentProvider: SupportedProvider | null) =>
-      configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider),
-    [configuredProviders]
+      (providerDiscoveryState !== 'inactive' && providerDiscoveryState !== 'ready') ||
+      (configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider)),
+    [configuredProviders, providerDiscoveryState]
   );
 
   const hasValidCurrentModelSelection = useCallback(

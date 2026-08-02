@@ -96,6 +96,26 @@ describe('useConfiguredAssistantProviders', () => {
     expect(getAvailableProviders).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the merged Desktop provider list stable across unrelated renders', async () => {
+    const pending = deferred<SupportedProvider[]>();
+    const getAvailableProviders = setProviderDiscovery(() => pending.promise);
+    const source: AssistantProviderSource = {
+      kind: 'discovery',
+      seeds: ['anthropic'],
+    };
+
+    const { rerender, result } = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: providerSourceWrapper(source),
+    });
+    await waitFor(() => expect(getAvailableProviders).toHaveBeenCalledTimes(1));
+    const providersBeforeRerender = result.current.providers;
+
+    rerender();
+
+    expect(result.current.providers).toBe(providersBeforeRerender);
+    await act(async () => pending.resolve(['openrouter']));
+  });
+
   it('treats Hosted Web providers as synchronous authority without discovery', async () => {
     const getAvailableProviders = setProviderDiscovery(async () => ['ollama']);
     const source: AssistantProviderSource = {
@@ -107,7 +127,7 @@ describe('useConfiguredAssistantProviders', () => {
       wrapper: providerSourceWrapper(source),
     });
 
-    expect(result.current).toEqual({ providers: ['openai'] });
+    expect(result.current).toEqual({ discoveryState: 'inactive', providers: ['openai'] });
     await act(async () => Promise.resolve());
     expect(getAvailableProviders).not.toHaveBeenCalled();
   });
@@ -199,6 +219,41 @@ describe('useConfiguredAssistantProviders', () => {
     expect(result.current.providers).toEqual(['local', 'ollama']);
   });
 
+  it('keeps a prior test request invalid after the external resource is reset', async () => {
+    const staleRequest = deferred<SupportedProvider[]>();
+    const firstDiscovery = setProviderDiscovery(() => staleRequest.promise);
+    const firstMount = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: providerSourceWrapper({ kind: 'discovery' }),
+    });
+    await waitFor(() => expect(firstDiscovery).toHaveBeenCalledTimes(1));
+    firstMount.unmount();
+
+    __resetConfiguredAssistantProvidersForTests();
+    const currentRequest = deferred<SupportedProvider[]>();
+    const currentDiscovery = setProviderDiscovery(() => currentRequest.promise);
+    let activeSource: AssistantProviderSource = {
+      kind: 'authoritative',
+      providers: ['anthropic'],
+    };
+    const SourceWrapper: FunctionComponent<PropsWithChildren> = ({ children }) => (
+      <AssistantProviderSourceProvider source={activeSource}>
+        {children}
+      </AssistantProviderSourceProvider>
+    );
+    const { rerender, result } = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: SourceWrapper,
+    });
+    activeSource = { kind: 'discovery', seeds: ['anthropic'] };
+    rerender();
+    await waitFor(() => expect(currentDiscovery).toHaveBeenCalledTimes(1));
+
+    await act(async () => staleRequest.resolve(['openrouter']));
+    expect(result.current.providers).toEqual(['anthropic']);
+
+    await act(async () => currentRequest.resolve(['anthropic']));
+    await waitFor(() => expect(result.current.providers).toEqual(['anthropic']));
+  });
+
   it('invalidates an in-flight Desktop request when authority switches to Hosted Web', async () => {
     const pending = deferred<SupportedProvider[]>();
     const getAvailableProviders = setProviderDiscovery(() => pending.promise);
@@ -241,6 +296,7 @@ describe('useConfiguredAssistantProviders', () => {
     await waitFor(() => {
       expect(result.current).toEqual({
         discoveryError: 'OS keychain is locked',
+        discoveryState: 'error',
         providers: ['local'],
       });
     });

@@ -93,6 +93,27 @@ describe('SettingsPageContent', () => {
     expect(window.location.hash).toBe('#settings/shortcuts');
   });
 
+  it('does not update browser history for a render that never commits', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ThrowDuringRender = (): never => {
+      throw new Error('abort settings render');
+    };
+
+    try {
+      expect(() =>
+        render(
+          <>
+            <SettingsPageContent categories={[createAppearanceSettingsCategory()]} />
+            <ThrowDuringRender />
+          </>
+        )
+      ).toThrow('abort settings render');
+      expect(window.location.hash).toBe('');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('filters navigation by search query', () => {
     render(
       <SettingsPageContent

@@ -1,7 +1,7 @@
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { useAssistantProviderSource } from './assistant-provider-source';
 
 type AssistantPreferencesStore = ReturnType<typeof useAssistantPreferencesStore.getState>;
@@ -20,6 +20,7 @@ type ProviderDiscoverySnapshot =
 
 export interface ConfiguredAssistantProviders {
   readonly discoveryError?: string;
+  readonly discoveryState: 'error' | 'idle' | 'inactive' | 'loading' | 'ready';
   readonly providers: readonly SupportedProvider[];
 }
 
@@ -50,13 +51,20 @@ export function useConfiguredAssistantProviders(): ConfiguredAssistantProviders 
     discoversProviders ? getProviderDiscoverySnapshot : getInactiveDiscoverySnapshot,
     getInactiveDiscoverySnapshot
   );
+  const authoritativeProviders = source.kind === 'authoritative' ? source.providers : undefined;
+  const providerSeeds = source.kind === 'discovery' ? source.seeds : undefined;
+  const providers = useMemo(
+    () => authoritativeProviders ?? mergeProviders(providerSeeds, snapshot.providers),
+    [authoritativeProviders, providerSeeds, snapshot.providers]
+  );
 
   if (source.kind === 'authoritative') {
-    return { providers: source.providers };
+    return { discoveryState: 'inactive', providers };
   }
 
-  const providers = mergeProviders(source.seeds, snapshot.providers);
-  return snapshot.state === 'error' ? { discoveryError: snapshot.error, providers } : { providers };
+  return snapshot.state === 'error'
+    ? { discoveryError: snapshot.error, discoveryState: snapshot.state, providers }
+    : { discoveryState: snapshot.state, providers };
 }
 
 function getProviderDiscoverySnapshot(): ProviderDiscoverySnapshot {
@@ -164,5 +172,4 @@ function mergeProviders(
 export function __resetConfiguredAssistantProvidersForTests(): void {
   discoveryListeners.clear();
   stopProviderDiscoverySubscriptions();
-  requestGeneration = 0;
 }

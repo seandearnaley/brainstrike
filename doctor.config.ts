@@ -17,16 +17,12 @@
  * Telemetry: disabled (local-first / privacy). `noScore`/`share` cover local runs;
  * CI additionally sets REACT_DOCTOR_NO_TELEMETRY=1 (the marketplace Action has no flag).
  *
- * DO NOT add `ignore.files` (verified against react-doctor 0.5.5):
- *   Setting a non-empty `ignore.files` flips the lint pass from its default file
- *   discovery to an explicit include-list (`resolveLintIncludePaths` →
- *   `shouldIncludeExplicitLintPath`), which silently drops ~half the monorepo's real
- *   source from linting (e.g. packages/hooks went 34 → 0 findings). The patterns
- *   themselves are innocent — the mere presence of the key changes discovery. Build
- *   artifacts are gitignored (so git-based file listing never sees them) and test-file
- *   noise is already handled natively (`shouldAutoSuppress` drops `test-noise`-tagged
- *   rules in non-production files). To suppress a specific finding, use `ignore.overrides`
- *   (per file + rule) or `rules` (per rule) — never `ignore.files`.
+ * Broad file ignores are intentionally absent. React Doctor 0.9.3 fixed the old
+ * 0.5.5/0.7.1 coverage defect: `resolveLintIncludePaths` now enumerates every
+ * supported source and only then filters ignored paths. Build artifacts are
+ * already gitignored, and test-noise-tagged rules auto-suppress in non-production
+ * files, so this repo has no reason to hide whole source files. Use the narrower
+ * `ignore.overrides` (file + rule) or `rules` (per rule) for a proved exception.
  *
  * CLI flags override these values. CI runs `--scope changed --blocking error` via the
  * Action so only NEWLY introduced issues fail a PR; pre-existing debt stays advisory
@@ -58,12 +54,11 @@ export default {
   deadCode: true,
 
   ignore: {
-    // NOTE: `overrides` is the narrow, documented suppression tool (per file +
-    // rule). Do NOT add a sibling `ignore.files` key here — see the header: its
-    // mere presence flips lint file discovery and silently drops ~half the
-    // monorepo. Control-verified when this block was added: every package's
-    // finding count was unchanged except @brainstrike/db, which dropped by
-    // exactly the one suppressed finding.
+    // `overrides` is the narrow, documented suppression tool (per file + rule).
+    // Keep whole-file ignores absent unless a future case proves they are the
+    // correct scope; the current repository needs none. Control-verified when
+    // this block was added: every package's finding count was unchanged except
+    // @brainstrike/db, which dropped by exactly the one suppressed finding.
     overrides: [
       {
         // `clearViaPGlite` / `purgeTablesTx` issue their full reset-table-
