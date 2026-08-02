@@ -3,8 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 const contractPath = new URL('../../docs/diagnostics-privacy-contract.md', import.meta.url);
+const platformContractPath = new URL('../../docs/agents/platform-contracts.md', import.meta.url);
 let contractSource = '';
 let contractReadError = null;
+let platformContractSource = '';
+let platformContractReadError = null;
 
 try {
   contractSource = await readFile(contractPath, 'utf8');
@@ -12,14 +15,29 @@ try {
   contractReadError = error;
 }
 
+try {
+  platformContractSource = await readFile(platformContractPath, 'utf8');
+} catch (error) {
+  platformContractReadError = error;
+}
+
 test('diagnostics privacy contract exists in the repo docs', () => {
   assert.equal(contractReadError, null, `${contractPath.pathname} should exist`);
 });
 
+test('platform contract exists in the repo docs', () => {
+  assert.equal(platformContractReadError, null, `${platformContractPath.pathname} should exist`);
+});
+
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const buildPhrasePattern = (term, flags = 'i') => {
+  const whitespaceAgnosticTerm = escapeRegExp(term).replaceAll(' ', '\\s+');
+  return new RegExp(whitespaceAgnosticTerm, flags);
+};
+
 const assertContractIncludes = (term, flags = 'i') => {
-  assert.match(contractSource, new RegExp(escapeRegExp(term), flags));
+  assert.match(contractSource, buildPhrasePattern(term, flags));
 };
 
 const contractSection = (heading) => {
@@ -34,7 +52,7 @@ const contractSection = (heading) => {
 };
 
 const assertSectionIncludes = (section, term, flags = 'i') => {
-  assert.match(section, new RegExp(escapeRegExp(term), flags));
+  assert.match(section, buildPhrasePattern(term, flags));
 };
 
 const testWithContract = (name, callback) => {
@@ -93,5 +111,73 @@ testWithContract(
 testWithContract('diagnostics privacy contract links related performance telemetry tickets', () => {
   for (const issueId of ['BST-376', 'BST-400', 'BST-401', 'BST-402', 'BST-403']) {
     assertContractIncludes(issueId, '');
+  }
+});
+
+testWithContract('BST-400 documents retention ownership and buffered attribution', () => {
+  for (const term of [
+    'without a diagnostics subscriber',
+    'external-store read',
+    'occurrence timestamp',
+    'sample-cap eviction',
+    'delivery-time route and feature-flag context',
+    'single monotonic epoch clock',
+    'Module construction is clock-free',
+    'failed in-memory snapshot',
+    'initial external-store read',
+    'stable Performance entry identity',
+    'occurrence time rather than callback delivery order',
+    'one snapshot publication',
+    'converge on the same failed snapshot',
+    'diagnostics preserves the operation',
+    'retention-clock failure outside `getSnapshot`',
+    'samples and dedupe keys immediately',
+    'render-phase `getSnapshot` clock failure',
+    'next non-render collection/publication entry point',
+    'Dedupe-key expiry is scanned',
+    'retention pass even when no sample expires',
+    'Unsupported observation releases retained samples, dedupe keys',
+    'timer before publishing an explicitly empty window',
+    'explicitly empty window',
+    'future-dated observer entry',
+    'distinct malformed causes in one batch are reported together',
+    'explicit epoch-zero sentinel',
+    'one-millisecond completion tolerance',
+    'duration is negative',
+    'start time is negative',
+    'occurrence mapping is conservatively biased slightly earlier',
+    'preserves the precise failure reason',
+    'valid sibling',
+    'keeps a clock failure latched',
+    'expiry timer remains owned',
+    'original errors preserved',
+    'validated delivery timestamp',
+    'non-finite injected clock result',
+    'same explicit rejection applies after observation has failed',
+    'explicit denominator',
+    'known-context sample count against the total retained sample count',
+  ]) {
+    assertContractIncludes(term);
+  }
+});
+
+test('platform contract documents the non-destructive render-phase retention exception', (context) => {
+  if (platformContractReadError !== null) {
+    context.skip(`${platformContractPath.pathname} is unavailable`);
+    return;
+  }
+
+  for (const term of [
+    'render-phase `getSnapshot` clock failure',
+    'one exception',
+    'does not mutate backing storage',
+    'already owned',
+    'retention timer',
+    'non-render collection/publication entry point',
+    'Unsupported observation releases retained samples',
+    'dedupe keys and the retention timer',
+    'before publishing an explicitly empty window',
+  ]) {
+    assert.match(platformContractSource, buildPhrasePattern(term));
   }
 });
