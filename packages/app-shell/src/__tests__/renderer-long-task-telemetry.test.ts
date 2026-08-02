@@ -240,10 +240,12 @@ describe('renderer-long-task-telemetry', () => {
 
   it('expires retained samples even without diagnostics subscribers', () => {
     vi.useFakeTimers();
+    const now = vi.fn(() => Date.now());
     const telemetry = createRendererLongTaskTelemetry({
-      now: () => Date.now(),
+      now,
       windowMs: 1000,
     });
+    const unsubscribe = telemetry.subscribe(vi.fn());
 
     telemetry.record({
       durationMs: 75,
@@ -252,19 +254,23 @@ describe('renderer-long-task-telemetry', () => {
     });
 
     expect(vi.getTimerCount()).toBe(1);
-
-    const unsubscribe = telemetry.subscribe(vi.fn());
+    const populatedSnapshot = telemetry.getSnapshot();
+    expect(populatedSnapshot.featureFlags).toEqual([{ count: 1, flag: 'private-preview' }]);
     unsubscribe();
 
     expect(vi.getTimerCount()).toBe(1);
 
     vi.advanceTimersByTime(1001);
 
-    expect(telemetry.snapshot()).toMatchObject({
+    const nowCallsAfterExpiry = now.mock.calls.length;
+    const expiredSnapshot = telemetry.getSnapshot();
+    expect(expiredSnapshot).not.toBe(populatedSnapshot);
+    expect(expiredSnapshot).toMatchObject({
       featureFlags: [],
       routes: [],
       sampleCount: 0,
     });
+    expect(now).toHaveBeenCalledTimes(nowCallsAfterExpiry);
     expect(vi.getTimerCount()).toBe(0);
   });
 

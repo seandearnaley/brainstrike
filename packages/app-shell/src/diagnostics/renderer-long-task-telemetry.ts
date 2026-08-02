@@ -151,16 +151,20 @@ export function createRendererLongTaskTelemetry(
   let currentSnapshot = buildSnapshot(now());
   let snapshotDirty = false;
 
+  const publishSnapshot = (snapshotAt: number): void => {
+    currentSnapshot = buildSnapshot(snapshotAt);
+    snapshotDirty = false;
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+
   const publish = (): void => {
     snapshotDirty = true;
     if (listeners.size === 0) {
       return;
     }
-    currentSnapshot = buildSnapshot(now());
-    snapshotDirty = false;
-    for (const listener of listeners) {
-      listener();
-    }
+    publishSnapshot(now());
   };
 
   const scheduleRetentionPrune = (scheduledAt: number): void => {
@@ -180,7 +184,9 @@ export function createRendererLongTaskTelemetry(
       prune(snapshotAt);
       scheduleRetentionPrune(snapshotAt);
       if (samples.length !== sampleCountBeforePrune) {
-        publish();
+        // Expiry must rebuild even without listeners so the store itself does
+        // not retain feature identifiers in its cached external-store snapshot.
+        publishSnapshot(snapshotAt);
       }
     }, delayMs);
   };
