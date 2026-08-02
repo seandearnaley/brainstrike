@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 import type React from 'react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
 
@@ -195,6 +196,7 @@ vi.mock('../database-panel', () => ({
 
 describe('RootLayoutContent', () => {
   beforeEach(() => {
+    rendererLongTaskTelemetry.reset();
     mockHandlers.onNavigationClick = vi.fn();
     mockHandlers.onOpenSettings = vi.fn();
     mockHandlers.ideLayoutProps = [];
@@ -217,6 +219,7 @@ describe('RootLayoutContent', () => {
   });
 
   afterEach(() => {
+    rendererLongTaskTelemetry.reset();
     vi.useRealTimers();
     vi.resetAllMocks();
   });
@@ -272,6 +275,77 @@ describe('RootLayoutContent', () => {
     // The south/console panel is gone — file tabs now live inside the editor area
     // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
+  });
+
+  it('keeps one long-task observer while reading current route and feature-flag context', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    const disconnect = vi.fn();
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {
+        disconnect();
+      }
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+
+    const view = renderComponent({
+      gitPageContent: <div data-testid="git-page">Git</div>,
+    });
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'unavailable',
+    });
+    view.rerender(
+      <RootLayoutContent
+        contextExplorerPageContent={<div data-testid="context-explorer-page">Context Explorer</div>}
+        diagnosticFeatureFlags={['diagnostics-v2']}
+        gitPageContent={<div data-testid="git-page">Git</div>}
+        navigationItems={navigationItems}
+        settingsPageContent={<div data-testid="settings-page">Settings</div>}
+      />
+    );
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'available',
+      sampleCount: 0,
+    });
+    act(() => {
+      mockHandlers.onNavigationClick('/git');
+    });
+
+    expect(callbacks).toHaveLength(1);
+    const callback = callbacks[0];
+    if (!callback) {
+      throw new Error('Expected the renderer long-task observer callback.');
+    }
+    act(() => {
+      callback(
+        {
+          getEntries: () => [
+            {
+              duration: 90,
+              entryType: 'longtask',
+              startTime: performance.now() - 100,
+            } as PerformanceEntry,
+          ],
+        } as PerformanceObserverEntryList,
+        {} as PerformanceObserver
+      );
+    });
+
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'available',
+      featureFlags: [{ count: 1, flag: 'diagnostics-v2' }],
+      routes: [{ count: 1, route: 'git' }],
+    });
+
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledTimes(1);
   });
 
   it('forwards the app embedding queue loader to the prompt workbench', () => {

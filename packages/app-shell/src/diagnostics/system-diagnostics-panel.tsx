@@ -24,6 +24,7 @@ import {
   type LucideIcon,
   RefreshCw,
   Server,
+  Timer,
   XCircle,
 } from 'lucide-react';
 import {
@@ -37,6 +38,10 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import {
+  type RendererLongTaskTelemetrySnapshot,
+  rendererLongTaskTelemetry,
+} from './renderer-long-task-telemetry';
 
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
@@ -566,6 +571,100 @@ function DesktopPlatformStatusSection({
   );
 }
 
+function formatDuration(durationMs: number | null): string {
+  return durationMs === null ? 'No samples' : `${Math.round(durationMs)} ms`;
+}
+
+function formatRendererLongTaskStatus(snapshot: RendererLongTaskTelemetrySnapshot): string {
+  if (snapshot.availability === 'active') {
+    return formatCount(snapshot.sampleCount, 'sample', 'samples');
+  }
+  if (snapshot.availability === 'failed') {
+    return `Failed · ${formatCount(snapshot.sampleCount, 'sample', 'samples')}`;
+  }
+  if (snapshot.availability === 'unsupported') {
+    return 'Unsupported';
+  }
+  return `Idle · ${formatCount(snapshot.sampleCount, 'sample', 'samples')}`;
+}
+
+function formatRendererLongTaskFeatureFlags(snapshot: RendererLongTaskTelemetrySnapshot): string {
+  if (snapshot.featureFlagContextAvailability === 'unavailable') {
+    return snapshot.sampleCount === 0
+      ? 'No feature flag source'
+      : 'Unavailable for retained samples';
+  }
+  if (snapshot.sampleCount === 0) {
+    return 'No samples';
+  }
+  const knownFlags = snapshot.featureFlags
+    .map((featureFlag) => `${featureFlag.flag} (${featureFlag.count})`)
+    .join(', ');
+  if (snapshot.featureFlagContextAvailability === 'mixed') {
+    const denominator = `${snapshot.featureFlagContextSampleCount} of ${snapshot.sampleCount} samples`;
+    return knownFlags.length > 0
+      ? `${knownFlags} · partial context, ${denominator}`
+      : `Partial feature flag context, ${denominator}`;
+  }
+  return knownFlags.length > 0 ? knownFlags : 'None active';
+}
+
+function RendererLongTaskStatusSection({
+  snapshot,
+}: {
+  readonly snapshot: RendererLongTaskTelemetrySnapshot;
+}): ReactElement {
+  const status: StatusVariant =
+    snapshot.availability === 'failed'
+      ? 'error'
+      : snapshot.availability === 'unsupported' || snapshot.availability === 'idle'
+        ? 'warning'
+        : 'success';
+  const statusLabel = formatRendererLongTaskStatus(snapshot);
+
+  return (
+    <DiagnosticCard
+      description="Main-thread stalls in the rolling one-minute window"
+      icon={<Timer className="h-4 w-4 text-primary" />}
+      status={status}
+      statusLabel={statusLabel}
+      title="Renderer Long Tasks"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">P50</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP50Ms)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">P95</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP95Ms)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Maximum</span>
+          <span className="font-mono text-[10px]">{formatDuration(snapshot.maxDurationMs)}</span>
+        </div>
+        {snapshot.routes.length > 0 && (
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-muted-foreground">Delivery-time routes</span>
+            <span className="text-right font-mono text-[10px]">
+              {snapshot.routes.map((route) => `${route.route} (${route.count})`).join(', ')}
+            </span>
+          </div>
+        )}
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-muted-foreground">Delivery-time feature flags</span>
+          <span className="text-right font-mono text-[10px]">
+            {formatRendererLongTaskFeatureFlags(snapshot)}
+          </span>
+        </div>
+        {snapshot.unavailableReason && (
+          <div className="pt-1 text-[10px] text-muted-foreground">{snapshot.unavailableReason}</div>
+        )}
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 export interface SystemDiagnosticsPanelProps {
   /** Token cache persistence mode (from TokenCacheContext) */
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
@@ -600,6 +699,11 @@ export function SystemDiagnosticsPanel({
     databaseQueryTelemetry.subscribe,
     databaseQueryTelemetry.getSnapshot,
     databaseQueryTelemetry.getSnapshot
+  );
+  const longTaskSnapshot = useSyncExternalStore(
+    rendererLongTaskTelemetry.subscribe,
+    rendererLongTaskTelemetry.getSnapshot,
+    rendererLongTaskTelemetry.getSnapshot
   );
 
   // Cleanup timeout on unmount to prevent memory leaks
@@ -690,6 +794,7 @@ export function SystemDiagnosticsPanel({
           tokenCachePersisted={tokenCachePersisted}
         />
         <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
+        <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
         {desktopDiagnosticsError && (
           <DiagnosticCard
