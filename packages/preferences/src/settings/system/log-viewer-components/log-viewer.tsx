@@ -107,16 +107,34 @@ function matchesScopeSelection(record: LogRecord, scopeSelection: string): boole
   return record.scope === scopeSelection;
 }
 
-function matchesSearchTerm(record: LogRecord, term: string): boolean {
+function getLogRecordRow(
+  record: LogRecord,
+  rowCache: WeakMap<LogRecord, LogRecordRow>
+): LogRecordRow {
+  const cachedRow = rowCache.get(record);
+  if (cachedRow) {
+    return cachedRow;
+  }
+  const row: LogRecordRow = {
+    ...record,
+    flattenedBindings: JSON.stringify(record.bindings ?? {}),
+    originalRecord: record,
+    serializedArgs: serializeArgs(record.args),
+  };
+  rowCache.set(record, row);
+  return row;
+}
+
+function matchesSearchTerm(
+  record: LogRecord,
+  term: string,
+  rowCache: WeakMap<LogRecord, LogRecordRow>
+): boolean {
   if (!term) {
     return true;
   }
-  const haystack = [
-    record.message ?? '',
-    record.scope ?? '',
-    serializeArgs(record.args),
-    JSON.stringify(record.bindings ?? {}),
-  ]
+  const row = getLogRecordRow(record, rowCache);
+  const haystack = [row.message ?? '', row.scope ?? '', row.serializedArgs, row.flattenedBindings]
     .join(' ')
     .toLowerCase();
   return haystack.includes(term);
@@ -130,15 +148,13 @@ function shouldIncludeLogRecord(
   sourceSelection: string,
   codeSelection: string,
   timeStart: number | null,
-  timeEnd: number | null
+  timeEnd: number | null,
+  rowCache: WeakMap<LogRecord, LogRecordRow>
 ): boolean {
   if (!matchesLogLevel(record, minimumLevelIndex)) {
     return false;
   }
   if (!matchesScopeSelection(record, scopeSelection)) {
-    return false;
-  }
-  if (!matchesSearchTerm(record, term)) {
     return false;
   }
   if (sourceSelection !== ALL_SOURCES_VALUE && getLogRecordSource(record) !== sourceSelection) {
@@ -153,7 +169,10 @@ function shouldIncludeLogRecord(
   if (timeStart !== null && record.timestamp < timeStart) {
     return false;
   }
-  return timeEnd === null || record.timestamp <= timeEnd;
+  if (timeEnd !== null && record.timestamp > timeEnd) {
+    return false;
+  }
+  return matchesSearchTerm(record, term, rowCache);
 }
 
 function getRuntimeSource(record: LogRecord): string {
@@ -515,7 +534,8 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
         sourceFilter,
         codeFilter,
         timeStart,
-        timeEnd
+        timeEnd,
+        rowCacheRef.current
       )
     );
   }, [
@@ -531,20 +551,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
 
   const tableData = useMemo<LogRecordRow[]>(() => {
     const rowCache = rowCacheRef.current;
-    return filteredRecords.map((record) => {
-      const cachedRow = rowCache.get(record);
-      if (cachedRow) {
-        return cachedRow;
-      }
-      const row: LogRecordRow = {
-        ...record,
-        flattenedBindings: JSON.stringify(record.bindings ?? {}),
-        originalRecord: record,
-        serializedArgs: serializeArgs(record.args),
-      };
-      rowCache.set(record, row);
-      return row;
-    });
+    return filteredRecords.map((record) => getLogRecordRow(record, rowCache));
   }, [filteredRecords]);
 
   const handleShowDetails = useCallback((record: LogRecord) => {
