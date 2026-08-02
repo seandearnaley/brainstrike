@@ -156,6 +156,40 @@ describe('DatabaseQueryTelemetry', () => {
     });
   });
 
+  it('preserves failures above the retained duration-sample bound', () => {
+    const telemetry = new DatabaseQueryTelemetry({ maxSamples: 2 });
+
+    telemetry.recordQuery({ durationMs: 1, failed: true, feature: 'file-tree' });
+    for (let query = 0; query < 600; query += 1) {
+      telemetry.recordQuery({ durationMs: query, feature: 'file-tree' });
+    }
+
+    expect(telemetry.snapshot().features['file-tree']).toMatchObject({
+      failureCount: 1,
+      queryCount: 601,
+    });
+  });
+
+  it('preserves token lookup and hit totals above the retained duration-sample bound', () => {
+    const telemetry = new DatabaseQueryTelemetry({ maxSamples: 2 });
+
+    telemetry.recordQuery({
+      durationMs: 1,
+      feature: 'token-estimation',
+      hitCount: 3,
+      lookupCount: 4,
+    });
+    for (let query = 0; query < 10; query += 1) {
+      telemetry.recordQuery({ durationMs: query, feature: 'token-estimation' });
+    }
+
+    expect(telemetry.snapshot().tokenEstimation).toEqual({
+      cacheHitRate: 3 / 4,
+      hitCount: 3,
+      lookupCount: 4,
+    });
+  });
+
   it('uses sub-window buckets so expired query arrivals do not over-report', () => {
     let now = 0;
     const telemetry = new DatabaseQueryTelemetry({
@@ -172,6 +206,31 @@ describe('DatabaseQueryTelemetry', () => {
     expect(telemetry.getSnapshot().features['queue-stats']).toMatchObject({
       queriesPerMinute: 60,
       queryCount: 1,
+    });
+  });
+
+  it('expires overflow when the evicted sample leaves the rolling window', () => {
+    let now = 0;
+    const telemetry = new DatabaseQueryTelemetry({
+      maxSamples: 1,
+      now: () => now,
+      windowMs: 1000,
+    });
+
+    telemetry.recordQuery({ durationMs: 1, feature: 'file-tree' });
+    now = 999;
+    telemetry.recordQuery({ durationMs: 2, feature: 'file-tree' });
+    now = 1017;
+
+    expect(telemetry.getSnapshot()).toMatchObject({
+      droppedSampleCount: 0,
+      features: {
+        'file-tree': {
+          droppedSampleCount: 0,
+          queryCount: 1,
+        },
+      },
+      sampleCount: 1,
     });
   });
 
@@ -429,13 +488,38 @@ describe('DatabaseQueryTelemetry', () => {
       expect(telemetryErrors).toEqual([
         'Database query telemetry retention timing unavailable; samples will not be recorded',
       ]);
-      expect(() => telemetry.getSnapshot()).toThrow('retention clock unavailable');
+      expect(telemetry.getSnapshot()).toMatchObject({
+        availability: 'failed',
+        unavailableReason: 'retention clock unavailable',
+      });
     } finally {
       unsubscribe();
       removeLogListener();
     }
 
-    expect(() => telemetry.getSnapshot()).toThrow('retention clock unavailable');
+    expect(telemetry.getSnapshot()).toMatchObject({
+      availability: 'failed',
+      unavailableReason: 'retention clock unavailable',
+    });
+    expect(() => telemetry.snapshot()).toThrow('retention clock unavailable');
+  });
+
+  it('returns an unsubscribe handle when the first external-store read fails', () => {
+    const telemetry = new DatabaseQueryTelemetry({
+      now: () => {
+        throw new Error('initial retention clock unavailable');
+      },
+    });
+    const listener = vi.fn();
+
+    expect(() => {
+      const unsubscribe = telemetry.subscribe(listener);
+      expect(telemetry.getSnapshot()).toMatchObject({
+        availability: 'failed',
+        unavailableReason: 'initial retention clock unavailable',
+      });
+      unsubscribe();
+    }).not.toThrow();
   });
 
   it('latches a non-finite measurement clock while preserving every operation', async () => {
@@ -487,7 +571,12 @@ describe('DatabaseQueryTelemetry', () => {
       expect(telemetryErrors).toEqual([
         'Database query telemetry retention timing unavailable; samples will not be recorded',
       ]);
-      expect(() => telemetryModule.databaseQueryTelemetry.getSnapshot()).toThrow(
+      expect(telemetryModule.databaseQueryTelemetry.getSnapshot()).toMatchObject({
+        availability: 'failed',
+        unavailableReason:
+          'Database query telemetry monotonic clock must be finite and non-negative',
+      });
+      expect(() => telemetryModule.databaseQueryTelemetry.snapshot()).toThrow(
         'Database query telemetry monotonic clock must be finite and non-negative'
       );
     } finally {

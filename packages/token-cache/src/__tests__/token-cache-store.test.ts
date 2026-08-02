@@ -481,6 +481,22 @@ describe('TokenCacheStore', () => {
   });
 
   describe('getAllForFolder', () => {
+    it('reports folder preload duration without changing lookup totals', async () => {
+      const recordLookup = vi.fn();
+      const instrumentedStore = new TokenCacheStore(mockDb as any, {
+        telemetry: { recordLookup },
+      });
+      await instrumentedStore.set(createEntry());
+
+      await instrumentedStore.getAllForFolder('folder-1');
+
+      expect(recordLookup).toHaveBeenCalledWith({
+        durationMs: expect.any(Number),
+        hitCount: 0,
+        lookupCount: 0,
+      });
+    });
+
     it('retrieves all entries for a folder', async () => {
       await store.set(createEntry({ filePath: 'file1.ts', folderId: 'folder-1' }));
       await store.set(createEntry({ filePath: 'file2.ts', folderId: 'folder-1' }));

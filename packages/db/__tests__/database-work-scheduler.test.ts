@@ -691,9 +691,7 @@ describe('DatabaseWorkScheduler', () => {
     expect(() => handle.subscribe(listener)).toThrow(
       'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
     );
-    await expect(handle.unsubscribe(listener)).rejects.toThrow(
-      'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
-    );
+    await expect(handle.unsubscribe(listener)).resolves.toBeUndefined();
     expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
     expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
     expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
@@ -706,6 +704,45 @@ describe('DatabaseWorkScheduler', () => {
       telemetryBefore.activeLiveSubscriptions + 1
     );
     await replacementHandle.unsubscribe(listener);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions
+    );
+  });
+
+  it('fails fast when a scheduled PGlite live-query handle receives a second listener', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(async () => undefined),
+    };
+    const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => liveHandle),
+        query: vi.fn(async () => liveHandle),
+      },
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+    };
+    const telemetryBefore = databaseQueryTelemetry.snapshot();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    const firstListener = vi.fn();
+
+    handle.subscribe(firstListener);
+    expect(() => handle.subscribe(vi.fn())).toThrow(
+      'Scheduled PGlite live-query handles support exactly one listener'
+    );
+    expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
+    expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
+      telemetryBefore.activeLiveSubscriptions + 1
+    );
+
+    await handle.unsubscribe(firstListener);
+    await expect(handle.unsubscribe(firstListener)).resolves.toBeUndefined();
+    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
     expect(databaseQueryTelemetry.snapshot().activeLiveSubscriptions).toBe(
       telemetryBefore.activeLiveSubscriptions
     );

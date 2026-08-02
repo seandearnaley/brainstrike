@@ -109,6 +109,40 @@ describe('SystemDiagnosticsPanel', () => {
       }
     });
 
+    it('uses exact query totals for healthy overflow status', () => {
+      const baseline = databaseQueryTelemetry.snapshot();
+      const snapshot = {
+        ...baseline,
+        droppedSampleCount: 4,
+        features: {
+          ...baseline.features,
+          'file-tree': {
+            ...baseline.features['file-tree'],
+            droppedSampleCount: 4,
+            queriesPerMinute: 5,
+            queryCount: 5,
+          },
+        },
+        sampleCount: 1,
+      };
+      const getSnapshot = vi.spyOn(databaseQueryTelemetry, 'getSnapshot').mockReturnValue(snapshot);
+      const subscribe = vi
+        .spyOn(databaseQueryTelemetry, 'subscribe')
+        .mockImplementation(() => () => undefined);
+
+      try {
+        render(<SystemDiagnosticsPanel />);
+
+        expect(screen.getByText('5 queries')).toHaveAttribute('data-status', 'success');
+        expect(screen.getByText('Retention overflow').parentElement).toHaveClass(
+          'text-muted-foreground'
+        );
+      } finally {
+        getSnapshot.mockRestore();
+        subscribe.mockRestore();
+      }
+    });
+
     it('updates database query telemetry while diagnostics remains open', async () => {
       vi.useFakeTimers();
       try {
