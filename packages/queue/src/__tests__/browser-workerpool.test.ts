@@ -22,9 +22,13 @@ const {
   poolTerminateMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/logging', () => ({
-  createLogger: vi.fn(() => loggerMock),
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => loggerMock),
+  };
+});
 
 vi.mock('workerpool', () => ({
   default: {
