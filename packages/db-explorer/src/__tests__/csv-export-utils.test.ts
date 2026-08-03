@@ -15,7 +15,7 @@ import {
 
 // Mock the shared save path
 vi.mock('@brainstrike/utils/browser-download', () => ({
-  downloadBlobFile: vi.fn().mockResolvedValue(undefined),
+  downloadBlobFile: vi.fn().mockResolvedValue({}),
 }));
 
 // Mock JSZip - use function syntax for Vitest 4 constructor mocks

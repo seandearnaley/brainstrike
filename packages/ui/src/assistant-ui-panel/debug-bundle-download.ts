@@ -53,12 +53,12 @@ export function formatDebugBundleFilename({
  * and throws — never no-ops silently — on failure or outside a DOM. The
  * caller surfaces the message inline.
  */
-export function downloadDebugBundleFile({
+export async function downloadDebugBundleFile({
   contents,
   filename,
 }: {
   readonly contents: string;
   readonly filename: string;
 }): Promise<void> {
-  return downloadBlobFile({ blob: new Blob([contents], { type: BUNDLE_MIME_TYPE }), filename });
+  await downloadBlobFile({ blob: new Blob([contents], { type: BUNDLE_MIME_TYPE }), filename });
 }

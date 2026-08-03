@@ -137,11 +137,15 @@ function resolveFileExportsBridge(): FileExportsBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = (window as Window & { fileExports?: Partial<FileExportsBridge> }).fileExports;
+  const bridge = (window as Window & { fileExports?: Partial<FileExportsBridge> | null })
+    .fileExports;
   if (bridge === undefined) {
     return null;
   }
-  if (typeof bridge.saveToDownloads !== 'function') {
+  // `null` counts as PRESENT-but-broken (the preload only ever omits the key,
+  // never nulls it), so it takes the deliberate malformed path rather than a
+  // bare TypeError on the property read below.
+  if (bridge === null || typeof bridge.saveToDownloads !== 'function') {
     throw new Error('window.fileExports bridge is malformed: saveToDownloads is not a function.');
   }
   return bridge as FileExportsBridge;
@@ -154,7 +158,10 @@ function resolveFileExportsBridge(): FileExportsBridge | null {
  *
  * Desktop (`window.fileExports` present): the bytes cross IPC and main writes
  * them with `fs` — no object URL, no Chromium download item. A `{ ok: false }`
- * result becomes a throw here so failures surface at the call site.
+ * result becomes a throw here so failures surface at the call site. Main never
+ * overwrites — a collision retargets to a ` (n)`-countered name — so the
+ * resolved `path` is returned and callers that NAME the file to the user must
+ * use it rather than the requested filename.
  *
  * Web (bridge absent): Blob → object URL → anchor click → revoke. The revoke
  * is DEFERRED `DOWNLOAD_BLOB_REVOKE_DELAY_MS` on the success path (see that
@@ -172,7 +179,7 @@ export async function downloadBlobFile({
 }: {
   readonly blob: Blob;
   readonly filename: string;
-}): Promise<void> {
+}): Promise<{ readonly path?: string }> {
   const bridge = resolveFileExportsBridge();
   if (bridge) {
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -180,7 +187,7 @@ export async function downloadBlobFile({
     if (!result.ok) {
       throw new Error(result.error ?? 'Desktop save failed without an error message.');
     }
-    return;
+    return result.path === undefined ? {} : { path: result.path };
   }
   if (typeof document === 'undefined') {
     throw new Error('Downloads are unavailable outside a browser document.');
@@ -197,4 +204,7 @@ export async function downloadBlobFile({
     URL.revokeObjectURL(url);
     throw error;
   }
+  // The anchor route cannot know the on-disk name (the browser may uniquify
+  // in its own download pipeline), so no `path` is reported.
+  return {};
 }

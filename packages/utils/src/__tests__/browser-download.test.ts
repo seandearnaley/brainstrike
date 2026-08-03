@@ -121,18 +121,21 @@ describe('downloadBlobFile (desktop bridge route)', () => {
     vi.restoreAllMocks();
   });
 
-  it('sends the blob bytes and filename over the bridge when it is present', async () => {
+  it('sends the blob bytes and filename over the bridge and resolves the written path', async () => {
     const saveToDownloads = vi
       .fn<FileExportsBridge['saveToDownloads']>()
-      .mockResolvedValue({ ok: true, path: '/downloads/logs.json' });
+      .mockResolvedValue({ ok: true, path: '/downloads/logs (1).json' });
     stubWindowWithBridge({ saveToDownloads });
 
-    await downloadBlobFile({ blob: new Blob(['{"a":1}']), filename: 'logs.json' });
+    const saved = await downloadBlobFile({ blob: new Blob(['{"a":1}']), filename: 'logs.json' });
 
     expect(saveToDownloads).toHaveBeenCalledTimes(1);
     const payload = saveToDownloads.mock.calls[0]?.[0];
     expect(payload?.filename).toBe('logs.json');
     expect(new TextDecoder().decode(payload?.bytes)).toBe('{"a":1}');
+    // Main may have countered the name (never overwrites) — the resolved path
+    // is the file actually written, for callers that name it to the user.
+    expect(saved).toEqual({ path: '/downloads/logs (1).json' });
   });
 
   it('throws the bridge error when the save fails (never falls back to the anchor route)', async () => {
@@ -159,8 +162,11 @@ describe('downloadBlobFile (desktop bridge route)', () => {
     );
   });
 
-  it('throws on a present-but-malformed bridge instead of degrading to the anchor route', async () => {
-    stubWindowWithBridge({});
+  it.each([
+    ['an empty object', {}],
+    ['null (present-but-broken, not absent)', null],
+  ])('throws on a present-but-malformed bridge (%s) instead of degrading to the anchor route', async (_label, bridge) => {
+    stubWindowWithBridge(bridge);
 
     await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(
       'window.fileExports bridge is malformed'

@@ -32,8 +32,13 @@ interface FileExportsIpcDependencies {
 
 const SAFE_EXPORT_FILENAME = /^[a-zA-Z0-9._-]+$/;
 const DOTS_ONLY = /^\.+$/;
-/** Common filesystem NAME_MAX; longer names fail with confusing ENAMETOOLONG. */
-const MAX_FILENAME_LENGTH = 255;
+/**
+ * Common filesystem NAME_MAX (255) minus room for the widest collision
+ * counter this module can append (` (99)`), so a colliding near-limit name
+ * still fails with the clear message below instead of a raw ENAMETOOLONG
+ * from inside the write loop.
+ */
+const MAX_FILENAME_LENGTH = 255 - ' (99)'.length;
 /**
  * Collisions require an identical second-resolution timestamped name, so more
  * than a handful of attempts means something is pathological — give up with a
