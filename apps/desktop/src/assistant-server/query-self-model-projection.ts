@@ -16,7 +16,10 @@
  *     correctness failure, not merely a formatting one.
  */
 
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import type { QuerySelfResult } from './query-self-tool';
 import {
   isRecord,
@@ -151,7 +154,9 @@ function assertProjectionFits(lines: readonly string[]): void {
 
 function parseQuerySelfResult(output: unknown): QuerySelfResult {
   if (!isRecord(output) || typeof output['kind'] !== 'string') {
-    throw new TypeError('querySelf model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'querySelf model projection received a malformed result'
+    );
   }
   return output as unknown as QuerySelfResult;
 }

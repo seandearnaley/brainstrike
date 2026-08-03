@@ -1,4 +1,5 @@
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { ToolsInput } from '@mastra/core/agent';
 import { toJsonSafe } from '../stream/json';
@@ -23,6 +24,9 @@ import {
   readSettledToolOutputModelProjection,
   readSettledToolOutputProjectionSource,
 } from './tool-output-artifact-settlement';
+import { isToolProjectionInputRejected } from './tool-projection-input-rejected';
+
+const logger = createLogger('MastraAgent');
 
 type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly execute: (...args: unknown[]) => unknown;
@@ -498,6 +502,45 @@ function projectDefaultModelOutput(toolName: string, output: unknown): Record<st
   return composeHookContextWithProjection(toolName, defaultProjection, hookContext);
 }
 
+const MAX_PROJECTION_SHAPE_KEYS = 12;
+const MAX_PROJECTION_SHAPE_KEY_CHARS = 64;
+
+/**
+ * Structure-only summary of a value a domain projector rejected — key names
+ * and kinds, never content (tool results can carry user data). Keys are
+ * capped in count AND per-key length: record-shaped results keyed by user
+ * data (paths, ids) must not stream unbounded content into the log. The
+ * nested `output` keys are included because the known escape shapes differ
+ * exactly there (an AI-SDK `{toolCallId, input, output}` carrier vs. a bare
+ * record).
+ */
+function summarizeShapeKeys(record: object): string[] {
+  return Object.keys(record)
+    .sort()
+    .slice(0, MAX_PROJECTION_SHAPE_KEYS)
+    .map((key) =>
+      key.length > MAX_PROJECTION_SHAPE_KEY_CHARS
+        ? `${sliceCodePoints(key, MAX_PROJECTION_SHAPE_KEY_CHARS)}…`
+        : key
+    );
+}
+
+function summarizeProjectionValueShape(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object') {
+    return { kind: value === null ? 'null' : typeof value };
+  }
+  if (Array.isArray(value)) {
+    return { kind: 'array', length: value.length };
+  }
+  const nestedOutput = (value as Record<string, unknown>)['output'];
+  return {
+    keyCount: Object.keys(value).length,
+    keys: summarizeShapeKeys(value),
+    kind: 'object',
+    ...(isRecord(nestedOutput) ? { outputKeys: summarizeShapeKeys(nestedOutput) } : {}),
+  };
+}
+
 function projectExistingModelOutput(
   toolName: string,
   projector: (output: unknown) => unknown,
@@ -528,13 +571,41 @@ function projectExistingModelOutput(
     }
     return domainProjection;
   };
-  const projected = Reflect.apply(projector, receiver, [domainOutput]);
+  // A domain projector that rejects its input's SHAPE must not kill the whole
+  // run: the thrown error replaces (and destroys) the diagnostic for whatever
+  // put the unexpected value here — a failed/cancelled tool, a stored
+  // projection with drifted keys, or a caller convention passing a carrier
+  // object (all observed 2026-08-03, BST-1096 follow-up). Degrade to the
+  // generic bounded projection and log the value's SHAPE so the trigger
+  // identifies itself. ONLY the explicit `ToolProjectionInputRejectedError`
+  // marker degrades: every other projector throw is deliberate contract
+  // enforcement (continuation-guidance invariants, self-fit budget guards)
+  // and keeps failing the run, as does `boundResolvedProjection`'s budget
+  // contract for projectors that RETURN an oversized value.
+  const failSoft = (error: unknown): unknown => {
+    if (!isToolProjectionInputRejected(error)) {
+      throw error;
+    }
+    logger.error('Tool model projection rejected its input; degrading to the generic projection', {
+      code: 'tool_model_projection_fail_soft',
+      error: error instanceof Error ? error.message : String(error),
+      toolName,
+      valueShape: summarizeProjectionValueShape(domainOutput),
+    });
+    return projectDefaultModelOutput(toolName, output);
+  };
+  let projected: unknown;
+  try {
+    projected = Reflect.apply(projector, receiver, [domainOutput]);
+  } catch (error) {
+    return failSoft(error);
+  }
   if (
     projected &&
     (typeof projected === 'object' || typeof projected === 'function') &&
     typeof (projected as { then?: unknown }).then === 'function'
   ) {
-    return Promise.resolve(projected).then(boundResolvedProjection);
+    return Promise.resolve(projected).then(boundResolvedProjection, failSoft);
   }
   return boundResolvedProjection(projected);
 }
