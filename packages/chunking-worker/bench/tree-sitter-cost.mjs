@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 // types natively. The bench refuses to silently use a stale/different
 // adapter from dist.
 const { treeSitterAdapter } = await import('../src/parsers/tree-sitter-adapter.ts');
+// @boundaries-ignore the bench measures the CURRENT text-splitter source; `@brainstrike/text-splitter` exports only ./dist, so the package specifier would silently benchmark a stale build. The dependency on text-splitter is declared. Turbo 2.10.5's analyzer missed this relative cross-package import; 2.10.8 reports it.
 const { RecursiveTextSplitter } = await import('../../text-splitter/src/index.ts');
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));

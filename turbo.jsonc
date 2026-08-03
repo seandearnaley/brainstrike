@@ -1,6 +1,6 @@
 {
   // Turborepo monorepo configuration for brainstrike
-  "$schema": "https://v2-10-5.turborepo.dev/schema.json",
+  "$schema": "https://v2-10-8.turborepo.dev/schema.json",
   // Opt into Turborepo 3.0's global-configuration shape while 2.10 can still
   // validate the migration. Deleting this flag without moving the fields back
   // is a hard configuration error, never a silent fallback.
@@ -8,7 +8,25 @@
     "globalConfiguration": true
   },
   "global": {
-    // Global configuration
+    // Global configuration.
+    //
+    // This is the BUILD/TEST parallelism calibration, and it is inherited by
+    // every invocation that does not pass its own cap — including CI's Build
+    // job (`.github/workflows/test.yml` runs `pnpm turbo run build` uncapped on
+    // a 4-vCPU ubicloud runner) and local `pnpm build` / `pnpm check`. The
+    // capped lanes state their own: Type check (TURBO_CONCURRENCY=4), Unit
+    // (--concurrency=4 / =2), native-electron and coverage (=4).
+    //
+    // Do NOT raise this to satisfy `turbo run dev`. Turbo refuses to start when
+    // concurrency <= the number of persistent tasks in the SELECTION, and the
+    // ~40 workspace `dev` tasks are all persistent — that floor is a property
+    // of the dev selection, not a parallelism budget, and conflating the two is
+    // what produced the 28 → 29 → 30 → 31 → 32 bump treadmill (and a `pnpm dev`
+    // that died outright at 40 tasks vs. concurrency 40). The root `dev` script
+    // in package.json therefore carries its own `--concurrency`, set above the
+    // total workspace package count so it can never bind;
+    // scripts/__tests__/turbo-global-configuration.test.mjs enforces that
+    // against the real planned dev graph.
     "concurrency": "40",
     // Files that, when changed, should invalidate caches globally
     // These files affect all tasks and will cause cache misses when modified.

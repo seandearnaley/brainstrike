@@ -112,6 +112,10 @@ function globalInputsFromTurboConfig(config) {
     undefined,
     'turbo.jsonc inputs must live under global.inputs, not the deprecated top-level globalDependencies key'
   );
+  // A build/test parallelism calibration, inherited by CI's uncapped Build job
+  // on a 4-vCPU runner. `turbo run dev`'s persistent-task floor is NOT this
+  // number's problem — the root dev script carries its own --concurrency (see
+  // turbo-global-configuration.test.mjs), so this stays pinned.
   assert.equal(
     config.global?.concurrency,
     '40',

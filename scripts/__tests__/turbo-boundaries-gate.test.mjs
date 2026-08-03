@@ -166,12 +166,14 @@ test('every @boundaries-ignore in the repo carries a reason', () => {
       `@boundaries-ignore must carry a substantive reason (>=20 chars): ${line}`
     );
   }
-  // Anti-vacuous floor: the six sanctioned crossings (five from #2101 plus
-  // file-import/src/resolve-chunking-worker-url.ts) exist today.
+  // Anti-vacuous floor: the seven sanctioned crossings (five from #2101, plus
+  // file-import/src/resolve-chunking-worker-url.ts, plus chunking-worker's
+  // tree-sitter bench reaching text-splitter SOURCE — reported once Turbo
+  // 2.10.8 widened the analyzer) exist today.
   // If this number legitimately drops, update it alongside the removal.
   assert.ok(
-    annotations.length >= 6,
-    `expected at least 6 annotated crossings, found ${annotations.length} — did a sweep remove reasons?`
+    annotations.length >= 7,
+    `expected at least 7 annotated crossings, found ${annotations.length} — did a sweep remove reasons?`
   );
 });
 
