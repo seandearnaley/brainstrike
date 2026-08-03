@@ -1,3 +1,4 @@
+import { DOWNLOAD_BLOB_REVOKE_DELAY_MS } from '@brainstrike/utils/browser-download';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   downloadDebugBundleFile,
@@ -45,7 +46,7 @@ describe('downloadDebugBundleFile', () => {
     vi.restoreAllMocks();
   });
 
-  it('writes a text/markdown blob through an anchor and revokes the object URL a task later', () => {
+  it('writes a text/markdown blob through an anchor and holds the object URL well past the click', () => {
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:bundle');
     const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const anchor = document.createElement('a');
@@ -59,10 +60,13 @@ describe('downloadDebugBundleFile', () => {
     expect(anchor.download).toBe('bundle.md');
     expect(anchor.href).toContain('blob:bundle');
     expect(click).toHaveBeenCalledTimes(1);
-    // WebKit can fetch the blob a task after the click, so revoking inside
-    // the same task would silently drop the file.
+    // The download manager resolves the blob URL asynchronously in the browser
+    // process, so the URL must stay alive well past the click — a same-task or
+    // next-task revoke can win that race and silently drop the file.
     expect(revokeObjectURL).not.toHaveBeenCalled();
-    vi.runAllTimers();
+    vi.advanceTimersByTime(DOWNLOAD_BLOB_REVOKE_DELAY_MS - 1);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:bundle');
   });
 
