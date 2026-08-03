@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
+import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
 
 vi.mock('@brainstrike/file-explorer-hooks', async () => {
   const { createContext } = await import('react');
@@ -324,18 +325,7 @@ describe('RootLayoutContent', () => {
       throw new Error('Expected the renderer long-task observer callback.');
     }
     act(() => {
-      callback(
-        {
-          getEntries: () => [
-            {
-              duration: 90,
-              entryType: 'longtask',
-              startTime: performance.now() - 100,
-            } as PerformanceEntry,
-          ],
-        } as PerformanceObserverEntryList,
-        {} as PerformanceObserver
-      );
+      callback(createRecentLongTaskEntryList([{ duration: 90 }]), {} as PerformanceObserver);
     });
 
     expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({

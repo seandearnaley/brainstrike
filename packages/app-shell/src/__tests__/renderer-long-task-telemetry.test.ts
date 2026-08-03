@@ -4,6 +4,7 @@ import {
   createRendererLongTaskTelemetry,
   type RendererLongTaskContext,
 } from '../diagnostics/renderer-long-task-telemetry';
+import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
 
 describe('renderer-long-task-telemetry', () => {
   beforeEach(() => {
@@ -234,15 +235,12 @@ describe('renderer-long-task-telemetry', () => {
       throw new Error('Expected PerformanceObserver callback to be registered.');
     }
     vi.advanceTimersByTime(200);
-    const entryStartTime = performance.now() - 100;
     callback(
-      {
-        getEntries: () => [
-          { duration: 49, entryType: 'longtask', startTime: entryStartTime } as PerformanceEntry,
-          { duration: 75, entryType: 'paint', startTime: entryStartTime } as PerformanceEntry,
-          { duration: 90, entryType: 'longtask', startTime: entryStartTime } as PerformanceEntry,
-        ],
-      } as PerformanceObserverEntryList,
+      createRecentLongTaskEntryList([
+        { duration: 49 },
+        { duration: 75, entryType: 'paint' },
+        { duration: 90 },
+      ]),
       {} as PerformanceObserver
     );
 
@@ -1629,18 +1627,7 @@ describe('renderer-long-task-telemetry', () => {
       throw new Error('Expected PerformanceObserver callback to be registered.');
     }
 
-    callback(
-      {
-        getEntries: () => [
-          {
-            duration: 75,
-            entryType: 'longtask',
-            startTime: performance.now() - 100,
-          } as PerformanceEntry,
-        ],
-      } as PerformanceObserverEntryList,
-      {} as PerformanceObserver
-    );
+    callback(createRecentLongTaskEntryList([{ duration: 75 }]), {} as PerformanceObserver);
 
     expect(telemetry.getSnapshot().sampleCount).toBe(1);
 
