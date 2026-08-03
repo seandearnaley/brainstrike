@@ -49,6 +49,16 @@ blind spots (tracked, not solved here): CLI-flag dependencies such as the
 coverage provider (BST-1017) and non-import reaches via `fileURLToPath` are
 invisible to the analyzer.
 
+The analyzer's reach widens across Turbo patch releases, so a Turbo bump can
+surface a pre-existing crossing with no source change: 2.10.8 reports
+`packages/chunking-worker/bench/tree-sitter-cost.mjs`'s relative
+`../../text-splitter/src/index.ts` dynamic import, which 2.10.5 did not (same
+tree, same 3705 files / 50 packages — 2.10.5 clean, 2.10.8 one issue). That one
+is annotated, not rewritten: the bench must measure current text-splitter
+SOURCE, and `@brainstrike/text-splitter` exports only `./dist`, so the package
+specifier would silently benchmark a stale build. Expect to triage new findings
+this way on the next bump rather than assuming the tree regressed.
+
 ### Vercel Preview is advisory
 
 The Vercel GitHub integration reports a `Vercel` commit status on pull
@@ -938,12 +948,24 @@ task at that actual boundary. Its floors require at least 10 matched global
 files, 47 packages, 230 total task nodes, and 160 executable tasks. Mutation
 controls remove one real input from one task and empty the task selection, and
 prove both cases fail visibly. The structural tsconfig contract separately
-proves the future flag/layout, calibrated concurrency, and load-bearing
-tsconfig globs; its controls reject the legacy layout and a missing preset
-input. Keep both controls when editing the global block. On the same machine
-and base revision, the complete script-test phase moved from 14.23 seconds / 781
-tests to 15.00 seconds / 784 tests: +0.77 seconds (+5.4%). The Turbo dry-run is
-memoized within the test file so the money controls do not spawn it twice.
+proves the future flag/layout and the load-bearing tsconfig globs; its controls
+reject the legacy layout and a missing preset input. Keep both controls when
+editing the global block. On the same machine and base revision, the complete
+script-test phase moved from 14.23 seconds / 781 tests to 15.00 seconds / 784
+tests: +0.77 seconds (+5.4%). The Turbo dry-run is memoized within the test file
+so the money controls do not spawn it twice.
+
+`global.concurrency` is a **floor, not a calibration target**. `turbo run dev`
+selects every workspace `dev` task and turbo refuses to start when concurrency
+is <= the number of persistent tasks in the selection, so the value must stay
+above the planned persistent-task count (40 today, hence 48 — 8 packages of
+headroom). A `--dry` run does NOT enforce this, so
+`turbo-global-configuration.test.mjs` compares the configured value against a
+memoized `turbo run dev --dry=json`, with controls for concurrency equal to the
+count and for a collapsed dev sweep. The structural test pins only the shape
+(positive integer string); pinning the literal in two places is what made the
+one-at-a-time 28 → 32 bumps drift. Raising it does not change CI resource use:
+`test.yml` passes its own `--concurrency=4` / `=2`.
 
 The same audit found no active repository use of Turbo 2.9's deprecated
 `turbo-ignore`, `turbo scan`, `--parallel`, Turbo's `--no-cache`, daemon flags,

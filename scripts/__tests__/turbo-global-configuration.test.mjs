@@ -23,21 +23,11 @@ function readTurboConfig() {
   return parsed.config;
 }
 
-let memoizedTurboDryRun;
-
-function turboDryRun() {
-  memoizedTurboDryRun ??= JSON.parse(
+function turboDryRunFor(tasks) {
+  return JSON.parse(
     execFileSync(
       process.execPath,
-      [
-        require.resolve('turbo/bin/turbo'),
-        'run',
-        'build',
-        'type-check',
-        'lint',
-        'test',
-        '--dry=json',
-      ],
+      [require.resolve('turbo/bin/turbo'), 'run', ...tasks, '--dry=json'],
       {
         cwd: repoRoot,
         encoding: 'utf8',
@@ -50,7 +40,48 @@ function turboDryRun() {
       }
     )
   );
+}
+
+let memoizedTurboDryRun;
+
+function turboDryRun() {
+  memoizedTurboDryRun ??= turboDryRunFor(['build', 'type-check', 'lint', 'test']);
   return memoizedTurboDryRun;
+}
+
+let memoizedDevDryRun;
+
+function devDryRun() {
+  memoizedDevDryRun ??= turboDryRunFor(['dev']);
+  return memoizedDevDryRun;
+}
+
+function persistentTaskCount(plan) {
+  return plan.tasks.filter(
+    (task) => task.resolvedTaskDefinition?.persistent === true && task.command !== '<NONEXISTENT>'
+  ).length;
+}
+
+/**
+ * `turbo run dev` refuses to start when the configured concurrency is <= the
+ * number of persistent tasks in the selection — every `dev` task holds its slot
+ * forever, so the graph would deadlock. A `--dry` run does NOT enforce this, so
+ * the only cheap guard is comparing the planned count against the config.
+ */
+function assertConcurrencyClearsPersistentFloor(configuredConcurrency, persistentTasks) {
+  assert.match(
+    String(configuredConcurrency),
+    /^[1-9]\d*$/,
+    'turbo.jsonc global.concurrency must be a positive integer string'
+  );
+  assert.ok(
+    persistentTasks >= 30,
+    `Turbo planned only ${persistentTasks} persistent dev task(s) (expected >= 30) — the dev sweep collapsed.`
+  );
+  assert.ok(
+    Number(configuredConcurrency) > persistentTasks,
+    `turbo.jsonc global.concurrency (${configuredConcurrency}) must exceed the ${persistentTasks} persistent dev tasks turbo plans, or \`pnpm dev\` fails to start ("You have ${persistentTasks} persistent tasks but \`turbo\` is configured for concurrency of ${configuredConcurrency}"). Raise it with headroom for the next few workspaces.`
+  );
 }
 
 async function configuredGlobalFiles(config = readTurboConfig()) {
@@ -134,6 +165,14 @@ test('Turbo 2.10 applies every 3.0-style global input to every executable task',
   assertEveryTaskReceivesGlobalFiles(plan, expectedFiles);
 });
 
+test('global.concurrency stays above the persistent dev tasks turbo plans', () => {
+  const config = readTurboConfig();
+  assertConcurrencyClearsPersistentFloor(
+    config.global?.concurrency,
+    persistentTaskCount(devDryRun())
+  );
+});
+
 test('money controls: unmatched config, a missing task input, and an empty task sweep fail visibly', async () => {
   const unmatchedInputConfig = structuredClone(readTurboConfig());
   unmatchedInputConfig.global.inputs.push(
@@ -175,5 +214,21 @@ test('money controls: unmatched config, a missing task input, and an empty task 
     () => assertEveryTaskReceivesGlobalFiles(emptyTaskPlan, expectedFiles),
     /Turbo planned only 0 task\(s\).*task sweep collapsed/,
     'control failed: an empty Turbo task selection must make the guard red'
+  );
+
+  const plannedPersistentTasks = persistentTaskCount(devDryRun());
+  assert.throws(
+    () =>
+      assertConcurrencyClearsPersistentFloor(
+        String(plannedPersistentTasks),
+        plannedPersistentTasks
+      ),
+    /must exceed the \d+ persistent dev tasks/,
+    'control failed: concurrency equal to the persistent dev-task count must make the guard red'
+  );
+  assert.throws(
+    () => assertConcurrencyClearsPersistentFloor('48', 0),
+    /persistent dev task\(s\).*dev sweep collapsed/,
+    'control failed: a collapsed dev sweep must make the guard red instead of passing vacuously'
   );
 });

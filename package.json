@@ -33,7 +33,7 @@
     "playwright": "catalog:",
     "react-doctor": "0.9.3",
     "tsup": "catalog:",
-    "turbo": "2.10.5",
+    "turbo": "2.10.8",
     "typescript": "catalog:",
     "ultracite": "7.9.2",
     "vercel": "^54.20.1",

@@ -1,6 +1,6 @@
 {
   // Turborepo monorepo configuration for brainstrike
-  "$schema": "https://v2-10-5.turborepo.dev/schema.json",
+  "$schema": "https://v2-10-8.turborepo.dev/schema.json",
   // Opt into Turborepo 3.0's global-configuration shape while 2.10 can still
   // validate the migration. Deleting this flag without moving the fields back
   // is a hard configuration error, never a silent fallback.
@@ -8,8 +8,22 @@
     "globalConfiguration": true
   },
   "global": {
-    // Global configuration
-    "concurrency": "40",
+    // Global configuration.
+    //
+    // Concurrency floor contract: `turbo run dev` runs EVERY workspace `dev`
+    // task at once and turbo refuses to start when concurrency <= the number of
+    // persistent tasks in the selection (it would deadlock the graph). The
+    // repo currently plans 40 persistent `dev` tasks, so 40 was exactly one
+    // short and `pnpm dev` failed with "You have 40 persistent tasks but
+    // `turbo` is configured for concurrency of 40". 48 = 40 + 8 packages of
+    // headroom so the next few workspaces do not re-break `pnpm dev`; the
+    // one-at-a-time bumps this file went through (28 → 29 → 30 → 31 → 32) are
+    // the failure mode being retired. This is a persistent-task floor, not a
+    // parallelism target — CI lanes pass their own calibrated `--concurrency`
+    // (test.yml uses 4 and 2), so raising it does not change CI resource use.
+    // scripts/__tests__/turbo-global-configuration.test.mjs enforces the floor
+    // against the real planned persistent-task count.
+    "concurrency": "48",
     // Files that, when changed, should invalidate caches globally
     // These files affect all tasks and will cause cache misses when modified.
     //
