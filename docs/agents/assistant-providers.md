@@ -514,9 +514,15 @@
   explicitly nested `response.headers` object; an unqualified top-level
   `headers` bag is treated as request metadata and ignored.
   Unknown or provider-private codes resolve to
-  `mastra_agent_stream_provider_error`; an arbitrary upstream `provider_code`
-  is never persisted. Request/response bodies, request headers, URLs, secrets,
-  generic provider metadata, and retry-attempt data are excluded rather than
+  `mastra_agent_stream_provider_error` when the error carries provider evidence
+  (httpStatus, providerRequestId, allowlisted response headers, or an AI SDK
+  api-call error marker: `AI_APICallError`/`AI_RetryError` name or
+  `url` + `requestBodyValues`) and to `mastra_agent_stream_local_error` when it
+  carries none; an arbitrary upstream `provider_code` is never persisted.
+  Neither fallback code is ever prefixed onto the visible OpenRouter detail —
+  only stable typed codes are. Request/response bodies, request headers, URLs,
+  secrets, generic provider metadata, and retry-attempt data are excluded
+  rather than
   sanitized after the fact. Consumers use the exported
   `readProviderRunError`/`isProviderRunError` boundary instead of shape-guessing
   event metadata.

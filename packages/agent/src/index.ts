@@ -272,7 +272,9 @@ export {
 } from './message-utils';
 export {
   extractProviderRunError,
+  isLocalRunErrorClassification,
   isProviderRunError,
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
   MAX_PROVIDER_RUN_ERROR_CAUSE_CHARS,
   MAX_PROVIDER_RUN_ERROR_CAUSES,
   MAX_PROVIDER_RUN_ERROR_HEADER_VALUE_CHARS,
