@@ -1597,8 +1597,9 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // model `error` stream part. The run must NOT hang — it terminates with a
     // visible message, a `run.failed` run-event (clears in-flight spinners), and
     // an error finish, all through the real Mastra agent loop. The fixture
-    // error carries no response evidence (no status, request id, or headers),
-    // so end to end it classifies as `mastra_agent_stream_local_error`.
+    // error carries no response metadata, but its `AI_APICallError` name is a
+    // provider marker — the call crossed to a provider, so end to end it
+    // classifies as `mastra_agent_stream_provider_error`, never local.
     modelHolder.current = {
       doGenerate: () => Promise.reject(new Error('unused')),
       doStream: () =>
@@ -1658,7 +1659,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
     expect(failure?.event.metadata).toMatchObject({
       runError: {
-        code: 'mastra_agent_stream_local_error',
+        code: 'mastra_agent_stream_provider_error',
         message: 'Not Found',
       },
     });
@@ -1673,7 +1674,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code === 'mastra_agent_stream_local_error:no_status'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
       )
     );
     expect(providerErrorLog).toBeDefined();

@@ -291,6 +291,38 @@ function readStableProviderCode(records: readonly Record<string, unknown>[]): st
   return;
 }
 
+// AI SDK error classes whose existence proves the call crossed to a provider:
+// APICallError is only constructed around a provider HTTP call, and RetryError
+// only wraps exhausted APICallError attempts. A local runtime fault (e.g. a
+// renderer TypeError) never wears these names.
+const API_CALL_ERROR_NAMES: ReadonlySet<string> = new Set(['AI_APICallError', 'AI_RetryError']);
+
+function isApiCallErrorMarker(record: Record<string, unknown> | undefined): boolean {
+  if (!record) {
+    return false;
+  }
+  const name = readProperty(record, 'name');
+  if (typeof name === 'string' && API_CALL_ERROR_NAMES.has(name)) {
+    return true;
+  }
+  // APICallError always carries url + requestBodyValues, even when the name
+  // was lost to serialization across a boundary.
+  return (
+    typeof readProperty(record, 'url') === 'string' &&
+    readProperty(record, 'requestBodyValues') !== undefined
+  );
+}
+
+function hasApiCallErrorMarker(records: readonly Record<string, unknown>[]): boolean {
+  return records.some((record) =>
+    [
+      record,
+      readNestedRecord(record, 'error'),
+      readNestedRecord(readNestedRecord(record, 'data'), 'error'),
+    ].some(isApiCallErrorMarker)
+  );
+}
+
 function readHttpStatus(records: readonly Record<string, unknown>[]): number | undefined {
   for (const record of records) {
     const response = readNestedRecord(record, 'response');
@@ -395,12 +427,15 @@ export function extractProviderRunError(value: unknown): ProviderRunError {
   const httpStatus = readHttpStatus(records);
   const responseHeaders = readResponseHeaders(records);
   const providerRequestId = readProviderRequestId(records, responseHeaders);
-  // Without a stable typed code, classify by response evidence: a failure with
-  // no httpStatus, no providerRequestId, and no responseHeaders never crossed
-  // back from a provider, so it gets the local fallback code instead of the
-  // provider one.
+  // Without a stable typed code, classify by provider evidence: a failure with
+  // no api-call error marker, no httpStatus, no providerRequestId, and no
+  // responseHeaders never crossed to a provider, so it gets the local fallback
+  // code instead of the provider one.
   const hasProviderEvidence =
-    httpStatus !== undefined || providerRequestId !== undefined || responseHeaders !== undefined;
+    httpStatus !== undefined ||
+    providerRequestId !== undefined ||
+    responseHeaders !== undefined ||
+    hasApiCallErrorMarker(records);
   const fallbackCode = hasProviderEvidence
     ? PROVIDER_RUN_ERROR_FALLBACK_CODE
     : LOCAL_RUN_ERROR_FALLBACK_CODE;

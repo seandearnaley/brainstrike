@@ -131,11 +131,15 @@ namespaced `metadata.runError` object with exactly `code`, optional `message`,
 `causeChain`, `httpStatus`, `providerRequestId`, and `responseHeaders`. The
 extractor walks bounded `Error.cause` / AI SDK `APICallError` shapes and, when
 the code is not on the explicit stable allowlist, classifies by provider
-response evidence: `mastra_agent_stream_provider_error` when the walk found an
-`httpStatus`, `providerRequestId`, or allowlisted `responseHeaders`, and
-`mastra_agent_stream_local_error` when it found none — a local runtime fault
-(e.g. a TypeError inside the stream chain) must never wear the provider label
-(the 2026-08-03 grepSearch-projection incident). The extractor emits at most
+evidence: `mastra_agent_stream_provider_error` when the walk found an
+`httpStatus`, `providerRequestId`, allowlisted `responseHeaders`, or an AI SDK
+api-call error marker (`AI_APICallError` / `AI_RetryError` name, or
+`url` + `requestBodyValues` — these exist only for calls that crossed to a
+provider), and `mastra_agent_stream_local_error` when it found none — a local
+runtime fault (e.g. a TypeError inside the stream chain) must never wear the
+provider label (the 2026-08-03 grepSearch-projection incident), and a real
+provider failure that arrived without response metadata must never wear the
+local one. The extractor emits at most
 four bounded cause strings. Every truncated string ends with `… [truncated]`;
 truncation is never silent.
 

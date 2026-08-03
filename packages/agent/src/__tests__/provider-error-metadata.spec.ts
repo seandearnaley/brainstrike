@@ -151,6 +151,34 @@ describe('provider error metadata', () => {
     ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
   });
 
+  it('treats an AI SDK api-call error marker as provider evidence without response metadata', () => {
+    // The live Anthropic 404 path can surface as an AI_APICallError carrying
+    // neither status nor headers nor a request id — the marker alone proves
+    // the call crossed to a provider, so it must never classify as local.
+    expect(extractProviderRunError({ message: 'Not Found', name: 'AI_APICallError' }).code).toBe(
+      PROVIDER_RUN_ERROR_FALLBACK_CODE
+    );
+    expect(
+      extractProviderRunError({ error: { message: 'Not Found', name: 'AI_APICallError' } }).code
+    ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+    expect(
+      extractProviderRunError(
+        new Error('wrapped', {
+          cause: { message: 'retries exhausted', name: 'AI_RetryError' },
+        })
+      ).code
+    ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+    // APICallError always carries url + requestBodyValues, even when the name
+    // was lost to serialization; a renderer TypeError never carries either.
+    expect(
+      extractProviderRunError({
+        message: 'fetch failed',
+        requestBodyValues: { model: 'claude-sonnet-5' },
+        url: 'https://api.anthropic.com/v1/messages',
+      }).code
+    ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+  });
+
   it('still promotes stable typed codes even without response evidence', () => {
     expect(
       extractProviderRunError({
