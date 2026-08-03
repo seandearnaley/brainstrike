@@ -1596,7 +1596,9 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // Reproduces the live Anthropic 404 path: the provider error arrives as a
     // model `error` stream part. The run must NOT hang — it terminates with a
     // visible message, a `run.failed` run-event (clears in-flight spinners), and
-    // an error finish, all through the real Mastra agent loop.
+    // an error finish, all through the real Mastra agent loop. The fixture
+    // error carries no response evidence (no status, request id, or headers),
+    // so end to end it classifies as `mastra_agent_stream_local_error`.
     modelHolder.current = {
       doGenerate: () => Promise.reject(new Error('unused')),
       doStream: () =>
@@ -1656,7 +1658,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
     expect(failure?.event.metadata).toMatchObject({
       runError: {
-        code: 'mastra_agent_stream_provider_error',
+        code: 'mastra_agent_stream_local_error',
         message: 'Not Found',
       },
     });
@@ -1671,7 +1673,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_local_error:no_status'
       )
     );
     expect(providerErrorLog).toBeDefined();
@@ -1912,7 +1914,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_local_error:no_status'
       )
     );
     const loggedDetail = providerErrorLog?.args.find(

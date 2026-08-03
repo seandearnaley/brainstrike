@@ -129,10 +129,15 @@ single choke point; no provider-specific fetch wrapper or retry-attempt
 instrumentation participates. The terminal `run.failed` event carries one
 namespaced `metadata.runError` object with exactly `code`, optional `message`,
 `causeChain`, `httpStatus`, `providerRequestId`, and `responseHeaders`. The
-extractor walks bounded `Error.cause` / AI SDK `APICallError` shapes, uses
-`mastra_agent_stream_provider_error` unless the code belongs to the explicit
-stable allowlist, and emits at most four bounded cause strings. Every truncated
-string ends with `… [truncated]`; truncation is never silent.
+extractor walks bounded `Error.cause` / AI SDK `APICallError` shapes and, when
+the code is not on the explicit stable allowlist, classifies by provider
+response evidence: `mastra_agent_stream_provider_error` when the walk found an
+`httpStatus`, `providerRequestId`, or allowlisted `responseHeaders`, and
+`mastra_agent_stream_local_error` when it found none — a local runtime fault
+(e.g. a TypeError inside the stream chain) must never wear the provider label
+(the 2026-08-03 grepSearch-projection incident). The extractor emits at most
+four bounded cause strings. Every truncated string ends with `… [truncated]`;
+truncation is never silent.
 
 The adjacent diagnostic breadcrumb uses the provider code plus validated HTTP
 status in its diagnostic code so unrelated provider failures do not collapse

@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { PROVIDER_RUN_ERROR_FALLBACK_CODE } from '../../provider-error-metadata';
+import {
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
+  PROVIDER_RUN_ERROR_FALLBACK_CODE,
+} from '../../provider-error-metadata';
 import type { RuntimeData, StreamChunkTool } from '../../types';
 import {
   asMastraStreamPart,
@@ -397,12 +400,21 @@ describe('resolveProviderError', () => {
     expect(anthropic.detail).toBe('slow down');
   });
 
-  it('omits the prefix when OpenRouter yielded only the fallback code', () => {
-    const { detail, runError } = resolveProviderError(new Error('opaque'), {
+  it('omits the prefix when OpenRouter yielded only a fallback classification', () => {
+    // A bare Error carries no provider response evidence, so it classifies as
+    // a local error — and the local code is a classification, not a stable
+    // provider code, so it must never be prefixed onto the visible detail.
+    const local = resolveProviderError(new Error('opaque'), {
       provider: 'openrouter',
     } as RuntimeData);
-    expect(runError.code).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
-    expect(detail).toBe('opaque');
+    expect(local.runError.code).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
+    expect(local.detail).toBe('opaque');
+
+    const provider = resolveProviderError({ message: 'opaque', statusCode: 500 }, {
+      provider: 'openrouter',
+    } as RuntimeData);
+    expect(provider.runError.code).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+    expect(provider.detail).toBe('opaque');
   });
 });
 
@@ -411,6 +423,12 @@ describe('buildProviderErrorDiagnosticCode', () => {
     expect(
       buildProviderErrorDiagnosticCode({ code: PROVIDER_RUN_ERROR_FALLBACK_CODE, httpStatus: 429 })
     ).toBe(`${PROVIDER_RUN_ERROR_FALLBACK_CODE}:429`);
+  });
+
+  it('reports the local classification code on its own, never nested under the provider prefix', () => {
+    expect(buildProviderErrorDiagnosticCode({ code: LOCAL_RUN_ERROR_FALLBACK_CODE })).toBe(
+      `${LOCAL_RUN_ERROR_FALLBACK_CODE}:no_status`
+    );
   });
 
   it('marks a missing http status explicitly rather than emitting undefined', () => {

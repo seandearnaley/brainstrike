@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractProviderRunError,
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
   MAX_PROVIDER_RUN_ERROR_CAUSES,
   MAX_PROVIDER_RUN_ERROR_HEADER_VALUE_CHARS,
   MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS,
@@ -114,8 +115,49 @@ describe('provider error metadata', () => {
       extractProviderRunError({
         code: 'vendor_internal_9812',
         message: 'Provider failure.',
+        statusCode: 502,
       }).code
     ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+  });
+
+  it('classifies errors without provider evidence as local, not provider', () => {
+    // The 2026-08-03 grepSearch-projection incident: a renderer-side TypeError
+    // was labeled a provider error for hours. No httpStatus, no request id, no
+    // response headers => the failure did not come from a provider response.
+    expect(extractProviderRunError(new TypeError('x is not a function'))).toEqual({
+      code: LOCAL_RUN_ERROR_FALLBACK_CODE,
+      message: 'x is not a function',
+    });
+    expect(
+      extractProviderRunError({
+        code: 'vendor_internal_9812',
+        message: 'Opaque failure with an unstable code and no response evidence.',
+      }).code
+    ).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
+  });
+
+  it('keeps the provider fallback code when any single piece of response evidence exists', () => {
+    expect(extractProviderRunError({ message: 'boom', statusCode: 500 }).code).toBe(
+      PROVIDER_RUN_ERROR_FALLBACK_CODE
+    );
+    expect(extractProviderRunError({ message: 'boom', requestId: 'req_evidence_1' }).code).toBe(
+      PROVIDER_RUN_ERROR_FALLBACK_CODE
+    );
+    expect(
+      extractProviderRunError({
+        message: 'boom',
+        responseHeaders: { 'retry-after': '5' },
+      }).code
+    ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+  });
+
+  it('still promotes stable typed codes even without response evidence', () => {
+    expect(
+      extractProviderRunError({
+        code: 'context_length_exceeded',
+        message: 'Too many tokens.',
+      }).code
+    ).toBe('context_length_exceeded');
   });
 
   it('bounds every persisted string and marks truncation explicitly', () => {
@@ -152,7 +194,7 @@ describe('provider error metadata', () => {
     cyclic.cause = cyclic;
 
     expect(extractProviderRunError(cyclic)).toEqual({
-      code: PROVIDER_RUN_ERROR_FALLBACK_CODE,
+      code: LOCAL_RUN_ERROR_FALLBACK_CODE,
       message: 'cycle',
     });
   });
@@ -173,6 +215,11 @@ describe('provider error metadata', () => {
     };
 
     expect(readProviderRunError(valid)).toEqual(valid.runError);
+    expect(
+      readProviderRunError({
+        runError: { code: LOCAL_RUN_ERROR_FALLBACK_CODE, message: 'renderer-side TypeError' },
+      })
+    ).toEqual({ code: LOCAL_RUN_ERROR_FALLBACK_CODE, message: 'renderer-side TypeError' });
     expect(
       readProviderRunError({
         runError: { ...valid.runError, responseBody: 'must not persist' },

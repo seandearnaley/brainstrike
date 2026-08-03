@@ -16,6 +16,7 @@
  */
 import {
   extractProviderRunError,
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
   MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS,
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
   type ProviderRunError,
@@ -535,8 +536,12 @@ export function resolveProviderError(
       ? extractedDetail
       : (runError.message ?? 'agent_stream_error');
   const provider = runtimeData?.provider?.trim().toLowerCase();
+  // Both fallback codes are classifications, not provider-issued codes — only
+  // stable typed codes earn the visible `[code]` prefix.
   const includeStableCode =
-    provider === 'openrouter' && runError.code !== PROVIDER_RUN_ERROR_FALLBACK_CODE;
+    provider === 'openrouter' &&
+    runError.code !== PROVIDER_RUN_ERROR_FALLBACK_CODE &&
+    runError.code !== LOCAL_RUN_ERROR_FALLBACK_CODE;
   return {
     detail: includeStableCode ? `[${runError.code}] ${detail}` : detail,
     runError,
@@ -545,8 +550,11 @@ export function resolveProviderError(
 
 export function buildProviderErrorDiagnosticCode(runError: ProviderRunError): string {
   const httpStatus = runError.httpStatus === undefined ? 'no_status' : String(runError.httpStatus);
-  if (runError.code === PROVIDER_RUN_ERROR_FALLBACK_CODE) {
-    return `${PROVIDER_RUN_ERROR_FALLBACK_CODE}:${httpStatus}`;
+  if (
+    runError.code === PROVIDER_RUN_ERROR_FALLBACK_CODE ||
+    runError.code === LOCAL_RUN_ERROR_FALLBACK_CODE
+  ) {
+    return `${runError.code}:${httpStatus}`;
   }
   return `mastra_agent_stream_provider_error:${runError.code}:${httpStatus}`;
 }

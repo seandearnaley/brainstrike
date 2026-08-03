@@ -6,6 +6,14 @@ import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from './providers/local/local-tool-
 
 export const PROVIDER_RUN_ERROR_METADATA_KEY = 'runError';
 export const PROVIDER_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_provider_error';
+/**
+ * Fallback classification for errors carrying no provider response evidence
+ * (no httpStatus, no providerRequestId, no responseHeaders): local failures —
+ * e.g. a renderer/runtime TypeError inside the stream chain — must not wear
+ * the provider-error label they wore during the 2026-08-03 grepSearch
+ * projection incident.
+ */
+export const LOCAL_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_local_error';
 export const MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS = 600;
 export const MAX_PROVIDER_RUN_ERROR_CAUSES = 4;
 export const MAX_PROVIDER_RUN_ERROR_CAUSE_CHARS = 300;
@@ -16,6 +24,7 @@ const TRUNCATION_MARKER = '… [truncated]';
 
 const STABLE_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set([
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
   LOCAL_TOOL_CALL_ARGUMENTS_INVALID,
   'context_length_exceeded',
   'max_tokens_exceeded',
@@ -253,7 +262,7 @@ function readStableCodeCandidate(value: unknown): string | undefined {
   return code && STABLE_PROVIDER_ERROR_CODES.has(code) ? code : undefined;
 }
 
-function readStableProviderCode(records: readonly Record<string, unknown>[]): string {
+function readStableProviderCode(records: readonly Record<string, unknown>[]): string | undefined {
   for (const record of records) {
     const data = readNestedRecord(record, 'data');
     const dataError = readNestedRecord(data, 'error');
@@ -279,7 +288,7 @@ function readStableProviderCode(records: readonly Record<string, unknown>[]): st
       }
     }
   }
-  return PROVIDER_RUN_ERROR_FALLBACK_CODE;
+  return;
 }
 
 function readHttpStatus(records: readonly Record<string, unknown>[]): number | undefined {
@@ -386,8 +395,17 @@ export function extractProviderRunError(value: unknown): ProviderRunError {
   const httpStatus = readHttpStatus(records);
   const responseHeaders = readResponseHeaders(records);
   const providerRequestId = readProviderRequestId(records, responseHeaders);
+  // Without a stable typed code, classify by response evidence: a failure with
+  // no httpStatus, no providerRequestId, and no responseHeaders never crossed
+  // back from a provider, so it gets the local fallback code instead of the
+  // provider one.
+  const hasProviderEvidence =
+    httpStatus !== undefined || providerRequestId !== undefined || responseHeaders !== undefined;
+  const fallbackCode = hasProviderEvidence
+    ? PROVIDER_RUN_ERROR_FALLBACK_CODE
+    : LOCAL_RUN_ERROR_FALLBACK_CODE;
   return {
-    code: readStableProviderCode(records),
+    code: readStableProviderCode(records) ?? fallbackCode,
     ...(message ? { message } : {}),
     ...(causeChain ? { causeChain } : {}),
     ...(httpStatus === undefined ? {} : { httpStatus }),
