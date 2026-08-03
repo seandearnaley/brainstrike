@@ -10,20 +10,24 @@
   "global": {
     // Global configuration.
     //
-    // Concurrency floor contract: `turbo run dev` runs EVERY workspace `dev`
-    // task at once and turbo refuses to start when concurrency <= the number of
-    // persistent tasks in the selection (it would deadlock the graph). The
-    // repo currently plans 40 persistent `dev` tasks, so 40 was exactly one
-    // short and `pnpm dev` failed with "You have 40 persistent tasks but
-    // `turbo` is configured for concurrency of 40". 48 = 40 + 8 packages of
-    // headroom so the next few workspaces do not re-break `pnpm dev`; the
-    // one-at-a-time bumps this file went through (28 → 29 → 30 → 31 → 32) are
-    // the failure mode being retired. This is a persistent-task floor, not a
-    // parallelism target — CI lanes pass their own calibrated `--concurrency`
-    // (test.yml uses 4 and 2), so raising it does not change CI resource use.
-    // scripts/__tests__/turbo-global-configuration.test.mjs enforces the floor
-    // against the real planned persistent-task count.
-    "concurrency": "48",
+    // This is the BUILD/TEST parallelism calibration, and it is inherited by
+    // every invocation that does not pass its own cap — including CI's Build
+    // job (`.github/workflows/test.yml` runs `pnpm turbo run build` uncapped on
+    // a 4-vCPU ubicloud runner) and local `pnpm build` / `pnpm check`. The
+    // capped lanes state their own: Type check (TURBO_CONCURRENCY=4), Unit
+    // (--concurrency=4 / =2), native-electron and coverage (=4).
+    //
+    // Do NOT raise this to satisfy `turbo run dev`. Turbo refuses to start when
+    // concurrency <= the number of persistent tasks in the SELECTION, and the
+    // ~40 workspace `dev` tasks are all persistent — that floor is a property
+    // of the dev selection, not a parallelism budget, and conflating the two is
+    // what produced the 28 → 29 → 30 → 31 → 32 bump treadmill (and a `pnpm dev`
+    // that died outright at 40 tasks vs. concurrency 40). The root `dev` script
+    // in package.json therefore carries its own `--concurrency`, set above the
+    // total workspace package count so it can never bind;
+    // scripts/__tests__/turbo-global-configuration.test.mjs enforces that
+    // against the real planned dev graph.
+    "concurrency": "40",
     // Files that, when changed, should invalidate caches globally
     // These files affect all tasks and will cause cache misses when modified.
     //

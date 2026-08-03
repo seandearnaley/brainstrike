@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -62,25 +63,47 @@ function persistentTaskCount(plan) {
   ).length;
 }
 
-/**
- * `turbo run dev` refuses to start when the configured concurrency is <= the
- * number of persistent tasks in the selection — every `dev` task holds its slot
- * forever, so the graph would deadlock. A `--dry` run does NOT enforce this, so
- * the only cheap guard is comparing the planned count against the config.
- */
-function assertConcurrencyClearsPersistentFloor(configuredConcurrency, persistentTasks) {
-  assert.match(
-    String(configuredConcurrency),
-    /^[1-9]\d*$/,
-    'turbo.jsonc global.concurrency must be a positive integer string'
+function readRootPackageJson() {
+  return JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+}
+
+function devScriptConcurrency(packageJson = readRootPackageJson()) {
+  const devScript = packageJson.scripts?.dev;
+  assert.equal(typeof devScript, 'string', 'root package.json must declare a dev script');
+  const configured = /--concurrency=(\d+)/.exec(devScript);
+  assert.ok(
+    configured,
+    `the root dev script must carry its own --concurrency (turbo.jsonc's global value is the build/test calibration, not a dev floor); got: ${devScript}`
   );
+  return Number(configured[1]);
+}
+
+/**
+ * `turbo run dev` refuses to start when concurrency is <= the number of
+ * persistent tasks in the selection — every `dev` task holds its slot forever,
+ * so the graph would deadlock. A `--dry` run does NOT enforce this, so the only
+ * cheap guard is comparing the planned graph against the configured cap.
+ *
+ * The cap must also exceed the workspace's PACKAGE count, not merely today's
+ * persistent-task count: turbo can never plan more `dev` tasks than there are
+ * packages, so a cap above that can never bind, and the one-at-a-time bump
+ * treadmill (28 → 29 → 30 → 31 → 32, then a dead `pnpm dev` at 40/40) cannot
+ * come back. This goes red while `pnpm dev` still works — that is the point.
+ */
+function assertDevConcurrencyCannotBind(devConcurrency, plan) {
+  const persistentTasks = persistentTaskCount(plan);
+  const packageCount = plan.packages.length;
   assert.ok(
     persistentTasks >= 30,
     `Turbo planned only ${persistentTasks} persistent dev task(s) (expected >= 30) — the dev sweep collapsed.`
   );
   assert.ok(
-    Number(configuredConcurrency) > persistentTasks,
-    `turbo.jsonc global.concurrency (${configuredConcurrency}) must exceed the ${persistentTasks} persistent dev tasks turbo plans, or \`pnpm dev\` fails to start ("You have ${persistentTasks} persistent tasks but \`turbo\` is configured for concurrency of ${configuredConcurrency}"). Raise it with headroom for the next few workspaces.`
+    devConcurrency > persistentTasks,
+    `The root dev script's --concurrency (${devConcurrency}) must exceed the ${persistentTasks} persistent dev tasks turbo plans, or \`pnpm dev\` fails to start ("You have ${persistentTasks} persistent tasks but \`turbo\` is configured for concurrency of ${devConcurrency}").`
+  );
+  assert.ok(
+    devConcurrency > packageCount,
+    `The root dev script's --concurrency (${devConcurrency}) must exceed the ${packageCount} workspace packages turbo plans over, so the cap can never bind — turbo cannot plan more dev tasks than there are packages. Raise it well clear of the package count rather than tracking the persistent-task count one bump at a time.`
   );
 }
 
@@ -148,7 +171,7 @@ function assertEveryTaskReceivesGlobalFiles(plan, expectedFiles) {
 test('Turbo 2.10 applies every 3.0-style global input to every executable task', async () => {
   const expectedFiles = await configuredGlobalFiles();
   const plan = turboDryRun();
-  const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  const packageJson = readRootPackageJson();
   const pinnedTurboVersion = packageJson.devDependencies?.turbo;
 
   assert.equal(
@@ -162,15 +185,94 @@ test('Turbo 2.10 applies every 3.0-style global input to every executable task',
     pinnedTurboVersion,
     `Turbo binary ${plan.turboVersion} does not match the root package.json pin ${pinnedTurboVersion}`
   );
+  // The $schema host encodes the same version a second time; without this,
+  // editors silently validate turbo.jsonc against the previous release.
+  assert.equal(
+    readTurboConfig().$schema,
+    `https://v${pinnedTurboVersion.replaceAll('.', '-')}.turborepo.dev/schema.json`,
+    `turbo.jsonc $schema must track the pinned Turbo version ${pinnedTurboVersion}`
+  );
   assertEveryTaskReceivesGlobalFiles(plan, expectedFiles);
 });
 
-test('global.concurrency stays above the persistent dev tasks turbo plans', () => {
-  const config = readTurboConfig();
-  assertConcurrencyClearsPersistentFloor(
-    config.global?.concurrency,
-    persistentTaskCount(devDryRun())
-  );
+test('the dev script caps concurrency above anything turbo can plan for it', () => {
+  assertDevConcurrencyCannotBind(devScriptConcurrency(), devDryRun());
+});
+
+// The guard above is pure arithmetic over a planned graph; it assumes turbo
+// enforces `concurrency > persistent tasks` at all. Neither `--dry` nor
+// `--graph` exercises that check, and the real `dev` graph cannot be run here
+// (it launches every watcher), so prove the RULE on a two-package fixture at
+// the pinned binary. If a future turbo drops or changes the rule, this goes red
+// instead of the arithmetic quietly guarding nothing.
+test('MONEY TEST: turbo rejects concurrency equal to the persistent-task count', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'turbo-persistent-floor-'));
+  try {
+    writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'persistent-floor-fixture',
+        packageManager: 'pnpm@11.15.0',
+        private: true,
+      })
+    );
+    writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+    writeFileSync(
+      path.join(dir, 'turbo.json'),
+      JSON.stringify({ tasks: { dev: { cache: false, persistent: true } } })
+    );
+    for (const name of ['alpha', 'beta']) {
+      mkdirSync(path.join(dir, 'packages', name), { recursive: true });
+      writeFileSync(
+        path.join(dir, 'packages', name, 'package.json'),
+        JSON.stringify({
+          name,
+          private: true,
+          scripts: { dev: 'node --version' },
+          version: '0.0.0',
+        })
+      );
+    }
+
+    const runDev = (concurrency) =>
+      spawnSync(
+        process.execPath,
+        [
+          require.resolve('turbo/bin/turbo'),
+          'run',
+          'dev',
+          '--skip-infer',
+          `--concurrency=${concurrency}`,
+        ],
+        {
+          cwd: dir,
+          encoding: 'utf8',
+          env: { ...process.env, NO_UPDATE_NOTIFIER: '1', TURBO_TELEMETRY_DISABLED: '1' },
+        }
+      );
+
+    const atFloor = runDev(2);
+    assert.equal(atFloor.error, undefined, `could not spawn turbo: ${atFloor.error?.message}`);
+    assert.notEqual(
+      atFloor.status,
+      0,
+      `turbo must refuse 2 persistent tasks at concurrency 2; got ${atFloor.status}\n${atFloor.stdout}\n${atFloor.stderr}`
+    );
+    assert.match(
+      `${atFloor.stdout}\n${atFloor.stderr}`,
+      /persistent tasks/,
+      'control failed: the rejection must name the persistent-task floor'
+    );
+
+    const aboveFloor = runDev(3);
+    assert.equal(
+      aboveFloor.status,
+      0,
+      `turbo must accept 2 persistent tasks at concurrency 3; got ${aboveFloor.status}\n${aboveFloor.stdout}\n${aboveFloor.stderr}`
+    );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
 
 test('money controls: unmatched config, a missing task input, and an empty task sweep fail visibly', async () => {
@@ -216,19 +318,29 @@ test('money controls: unmatched config, a missing task input, and an empty task 
     'control failed: an empty Turbo task selection must make the guard red'
   );
 
-  const plannedPersistentTasks = persistentTaskCount(devDryRun());
+  const devPlan = devDryRun();
+  const plannedPersistentTasks = persistentTaskCount(devPlan);
   assert.throws(
-    () =>
-      assertConcurrencyClearsPersistentFloor(
-        String(plannedPersistentTasks),
-        plannedPersistentTasks
-      ),
+    () => assertDevConcurrencyCannotBind(plannedPersistentTasks, devPlan),
     /must exceed the \d+ persistent dev tasks/,
-    'control failed: concurrency equal to the persistent dev-task count must make the guard red'
+    'control failed: a dev cap equal to the persistent dev-task count must make the guard red'
+  );
+  // The gap between the two floors: a cap that clears today's persistent tasks
+  // but not the package count is exactly the treadmill this guard retires.
+  assert.throws(
+    () => assertDevConcurrencyCannotBind(devPlan.packages.length, devPlan),
+    /must exceed the \d+ workspace packages/,
+    'control failed: a dev cap that merely clears today’s task count must make the guard red'
   );
   assert.throws(
-    () => assertConcurrencyClearsPersistentFloor('48', 0),
+    () => assertDevConcurrencyCannotBind(devScriptConcurrency(), { ...devPlan, tasks: [] }),
     /persistent dev task\(s\).*dev sweep collapsed/,
     'control failed: a collapsed dev sweep must make the guard red instead of passing vacuously'
+  );
+  assert.throws(
+    () =>
+      devScriptConcurrency({ scripts: { dev: 'node scripts/run-turbo-command.mjs -- run dev' } }),
+    /must carry its own --concurrency/,
+    'control failed: a dev script without its own cap must make the guard red'
   );
 });

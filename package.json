@@ -64,7 +64,7 @@
     "coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage",
     "deploy": "vercel --prod",
     "deploy:preview": "vercel",
-    "dev": "node scripts/run-turbo-command.mjs -- run dev",
+    "dev": "node scripts/run-turbo-command.mjs -- run dev --concurrency=100",
     "eval:retrieval": "pnpm --filter @brainstrike/db run eval:retrieval",
     "format": "biome format . --write",
     "format-and-lint:fix": "biome check . --write",
