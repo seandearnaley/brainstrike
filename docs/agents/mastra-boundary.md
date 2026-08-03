@@ -59,7 +59,7 @@ Owned by Brainstrike, on both surfaces:
 
 | Concern | Web | Desktop |
 | --- | --- | --- |
-| Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-92` | `startAssistantServer` / `handleAssistantRequest` in `apps/desktop/src/assistant-server.ts` |
+| Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-70` | `startAssistantServer` / `handleAssistantRequest` in `apps/desktop/src/assistant-server.ts` |
 | Auth | none per-request; env key only (`assistant-config.ts:3-7`), preview-gated | per-boot capability token, constant-time compare (`assistant-server/auth.ts:12-32`) |
 | Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`handleAssistantRequest`'s origin gate in `assistant-server.ts` + `hasDisallowedAssistantOrigin` in `assistant-server/cors.ts`) |
 | Body parsing | shared parser | shared limit + shared error type |
