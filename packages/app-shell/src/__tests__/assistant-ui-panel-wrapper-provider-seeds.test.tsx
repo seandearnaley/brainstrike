@@ -93,7 +93,7 @@ describe('AssistantUiPanelWrapper provider seeds', () => {
     expect(getAvailableProviders).not.toHaveBeenCalled();
   });
 
-  test('surfaces renderer discovery failures instead of presenting seeded providers as healthy', async () => {
+  test('keeps a validated seed usable while surfacing a renderer discovery failure', async () => {
     const getAvailableProviders = vi.fn().mockRejectedValue(new Error('OS keychain is locked'));
     useAssistantPreferencesStore.setState((state) => ({
       ...state,
@@ -109,6 +109,26 @@ describe('AssistantUiPanelWrapper provider seeds', () => {
     expect(
       await screen.findByText('Could not refresh available providers: OS keychain is locked')
     ).toBeVisible();
+    expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+  });
+
+  test('disables the panel when discovery fails without any usable provider', async () => {
+    const getAvailableProviders = vi.fn().mockRejectedValue(new Error('OS keychain is locked'));
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      getAvailableProviders,
+    }));
+
+    render(
+      <AssistantProviderSourceProvider source={{ kind: 'discovery' }}>
+        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+      </AssistantProviderSourceProvider>
+    );
+
+    expect(
+      await screen.findByText('Could not refresh available providers: OS keychain is locked')
+    ).toBeVisible();
+    expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
   });
 
   test('reconciles against verified providers while a partial discovery failure stays visible', async () => {
@@ -138,6 +158,7 @@ describe('AssistantUiPanelWrapper provider seeds', () => {
         'Could not refresh available providers: Provider discovery failed: ollama discovery failed: malformed bridge response'
       )
     ).toBeVisible();
+    expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
     await waitFor(() => {
       expect(useAssistantPreferencesStore.getState().getSelectedProvider()).toBe('anthropic');
       expect(useAssistantPreferencesStore.getState().selectedModel).toBe(

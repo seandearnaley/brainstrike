@@ -578,8 +578,11 @@ visible provider snapshot remains cached across a zero-subscriber period and is
 rendered while the next subscriber revalidates; only the test reset clears it.
 Every refresh carries a monotonically increasing generation; a superseded or
 unsubscribed request cannot publish late. Unexpected key or runtime discovery
-failures remain visible as a disabled-reason diagnostic while explicit Desktop
-seeds stay rendered; they are never converted to an empty successful result.
+failures remain visible as a panel notice while explicit Desktop seeds stay
+rendered; they are never converted to an empty successful result. The notice
+blocks the composer only when the merged snapshot contains no usable provider.
+A partial failure must not disable an independently verified or validated-seed
+provider.
 Ollama and LM Studio probes settle independently. If one unexpected probe
 fails, every independently verified provider remains in the error snapshot and
 the failed probe remains visible through the typed aggregate error; neither the

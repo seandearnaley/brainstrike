@@ -1369,14 +1369,16 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
+  const providerDiscoveryReason = providerDiscoveryError
+    ? `Could not refresh available providers: ${providerDiscoveryError}`
+    : undefined;
   const runtimeDisabledReason =
-    (providerDiscoveryError
-      ? `Could not refresh available providers: ${providerDiscoveryError}`
-      : undefined) ??
+    (configuredProviders.length === 0 ? providerDiscoveryReason : undefined) ??
     memoryDisabledReason ??
     providerDisabledReason ??
     openRouterDisabledReason;
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
+  const panelNotice = disabledReason ?? providerDiscoveryReason;
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
   // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
@@ -1761,13 +1763,10 @@ export function AssistantUiPanelWrapper({
                 {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
                 {...(selectedProvider ? { selectedProvider } : {})}
                 {...(currentModel ? { selectedModel: currentModel } : {})}
-                disabled={
-                  !isProviderReady ||
-                  Boolean(memoryDisabledReason ?? openRouterDisabledReason ?? disabledReason)
-                }
+                disabled={!isProviderReady || Boolean(disabledReason)}
                 onModelChange={handleModelChange}
                 onModelToggle={handleModelToggle}
-                {...(disabledReason ? { disabledReason } : {})}
+                {...(panelNotice ? { disabledReason: panelNotice } : {})}
                 {...(planModeAvailable
                   ? {
                       onExitPlanMode: exitPlanMode,
