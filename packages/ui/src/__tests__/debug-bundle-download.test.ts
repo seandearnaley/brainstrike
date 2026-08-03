@@ -41,18 +41,19 @@ describe('downloadDebugBundleFile', () => {
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(window, 'fileExports');
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('writes a text/markdown blob through an anchor and revokes the object URL a task later', () => {
+  it('writes a text/markdown blob through an anchor and revokes the object URL a task later', async () => {
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:bundle');
     const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const anchor = document.createElement('a');
     const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
     vi.spyOn(document, 'createElement').mockReturnValue(anchor);
 
-    downloadDebugBundleFile({ contents: '# bundle', filename: 'bundle.md' });
+    await downloadDebugBundleFile({ contents: '# bundle', filename: 'bundle.md' });
 
     const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
     expect(blob.type).toBe('text/markdown;charset=utf-8');
@@ -66,7 +67,7 @@ describe('downloadDebugBundleFile', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:bundle');
   });
 
-  it('revokes the object URL even when the anchor click throws', () => {
+  it('revokes the object URL even when the anchor click throws', async () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:bundle');
     const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const anchor = document.createElement('a');
@@ -75,9 +76,25 @@ describe('downloadDebugBundleFile', () => {
     });
     vi.spyOn(document, 'createElement').mockReturnValue(anchor);
 
-    expect(() => downloadDebugBundleFile({ contents: '# bundle', filename: 'bundle.md' })).toThrow(
-      'click blocked'
-    );
+    await expect(
+      downloadDebugBundleFile({ contents: '# bundle', filename: 'bundle.md' })
+    ).rejects.toThrow('click blocked');
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:bundle');
+  });
+
+  it('saves over the desktop bridge — no object URL, no anchor — when window.fileExports exists', async () => {
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL');
+    const createElement = vi.spyOn(document, 'createElement');
+    const saveToDownloads = vi.fn().mockResolvedValue({ ok: true, path: '/downloads/bundle.md' });
+    (window as Window & { fileExports?: unknown }).fileExports = { saveToDownloads };
+
+    await downloadDebugBundleFile({ contents: '# bundle', filename: 'bundle.md' });
+
+    expect(saveToDownloads).toHaveBeenCalledTimes(1);
+    const payload = saveToDownloads.mock.calls[0]?.[0] as { bytes: Uint8Array; filename: string };
+    expect(payload.filename).toBe('bundle.md');
+    expect(new TextDecoder().decode(payload.bytes)).toBe('# bundle');
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(createElement).not.toHaveBeenCalled();
   });
 });

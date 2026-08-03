@@ -13,9 +13,9 @@ import {
   generateFilesWithChunksCSV,
 } from '../csv-export-utils';
 
-// Mock file-saver
-vi.mock('file-saver', () => ({
-  saveAs: vi.fn(),
+// Mock the shared save path
+vi.mock('@brainstrike/utils/browser-download', () => ({
+  downloadBlobFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock JSZip - use function syntax for Vitest 4 constructor mocks
@@ -479,15 +479,15 @@ describe('CSV Export Utils', () => {
     });
 
     it('should generate and save zip file', async () => {
-      const { saveAs } = await import('file-saver');
+      const { downloadBlobFile } = await import('@brainstrike/utils/browser-download');
 
       await exportAllDataAsZip(mockRecordsWithChunkMetadata, mockFileChunks);
 
       expect(mockZip.generateAsync).toHaveBeenCalledWith({ type: 'blob' });
-      expect(saveAs).toHaveBeenCalledWith(
-        expect.any(Blob),
-        expect.stringMatching(/database_export-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip/)
-      );
+      expect(downloadBlobFile).toHaveBeenCalledWith({
+        blob: expect.any(Blob),
+        filename: expect.stringMatching(/database_export-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip/),
+      });
     });
 
     it('should handle empty data arrays', async () => {

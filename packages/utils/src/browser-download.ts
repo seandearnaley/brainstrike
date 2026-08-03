@@ -1,15 +1,22 @@
 /**
  * The one "save this to the user's Downloads folder" path: filename builder +
- * Blob → object URL → anchor → revoke save, shared by the log export, the
- * diagnostics NDJSON export and the assistant debug bundle.
+ * save, shared by the log export, the diagnostics NDJSON export, the assistant
+ * debug bundle and the DB Explorer CSV/ZIP exports.
+ *
+ * The save half has two routes. On desktop, `window.fileExports` (Electron
+ * preload bridge) writes the bytes in the MAIN process with `fs` — Chromium's
+ * blob-download pipeline is bypassed entirely because a blob download whose
+ * URL is revoked mid-flight can wedge as a permanently in-progress download
+ * item, and wedged items then jam later downloads for the whole session. On
+ * web (bridge absent) it is the classic Blob → object URL → anchor → revoke
+ * flow, with the revoke timing stated once here instead of once per call site.
  *
  * The filename half exists because the obvious idiom — dropping
  * `new Date().toISOString()` straight into `anchor.download` — produces
  * `2026-07-27T14:32:05.123Z`, which carries `:` and millis. Windows rejects
  * `:` in filenames and browsers silently mangle the name rather than failing,
  * so the user ends up with a file they did not ask for and no error to explain
- * it. The save half exists so the revoke timing below is stated once instead of
- * once per call site.
+ * it.
  */
 
 /** Everything a filesystem (Windows in particular) rejects, plus separators. */
@@ -73,28 +80,81 @@ export function formatTimestampedDownloadFilename({
   return `${safeName}-${formatFilesystemSafeTimestamp(generatedAt)}${suffixSegment}.${safeExtension}`;
 }
 
+/** Structured result the desktop save bridge resolves; it never rejects across IPC. */
+export interface FileExportsSaveOutcome {
+  readonly error?: string;
+  readonly ok: boolean;
+  readonly path?: string;
+}
+
 /**
- * Blob → object URL → anchor click → revoke. Throws (never no-ops silently)
- * outside a DOM; the caller surfaces the message.
- *
- * The revoke is DEFERRED a macrotask on the success path and IMMEDIATE on the
- * throwing path — deliberately not a `finally`. Chromium starts the download
- * during click dispatch, but WebKit can fetch the blob a task later, so a
- * synchronous revoke there silently drops the file. Immediate revoke when the
- * click threw is safe: no download started, and a leaked blob would otherwise
- * live as long as the document — which matters when a user retries a failing
- * export and pins one full payload per attempt.
- *
- * This function owns the object URL's whole lifetime, so no call site has to
- * restate either half of that rule.
+ * Desktop-only save bridge exposed by the Electron preload as
+ * `window.fileExports` (see `apps/desktop/src/ipc-file-exports-handlers.ts`).
+ * Absent on web; its presence IS the capability check.
  */
-export function downloadBlobFile({
+export interface FileExportsBridge {
+  readonly saveToDownloads: (payload: {
+    readonly bytes: Uint8Array;
+    readonly filename: string;
+  }) => Promise<FileExportsSaveOutcome>;
+}
+
+/**
+ * `null` means the bridge is genuinely absent (web, or no window at all) and
+ * the anchor route applies. A PRESENT bridge with the wrong shape is a broken
+ * desktop build and throws — falling back to the anchor route there would
+ * silently reintroduce the wedged-download pipeline this bridge exists to
+ * avoid.
+ */
+function resolveFileExportsBridge(): FileExportsBridge | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const bridge = (window as Window & { fileExports?: Partial<FileExportsBridge> }).fileExports;
+  if (bridge === undefined) {
+    return null;
+  }
+  if (typeof bridge.saveToDownloads !== 'function') {
+    throw new Error('window.fileExports bridge is malformed: saveToDownloads is not a function.');
+  }
+  return bridge as FileExportsBridge;
+}
+
+/**
+ * Saves a blob as `filename` in the user's Downloads folder. Throws (never
+ * no-ops silently) on failure or outside a DOM; the caller surfaces the
+ * message.
+ *
+ * Desktop (`window.fileExports` present): the bytes cross IPC and main writes
+ * them with `fs` — no object URL, no Chromium download item. A `{ ok: false }`
+ * result becomes a throw here so failures surface at the call site.
+ *
+ * Web (bridge absent): Blob → object URL → anchor click → revoke. The revoke
+ * is DEFERRED a macrotask on the success path and IMMEDIATE on the throwing
+ * path — deliberately not a `finally`. Chromium starts the download during
+ * click dispatch, but WebKit can fetch the blob a task later, so a synchronous
+ * revoke there silently drops the file. Immediate revoke when the click threw
+ * is safe: no download started, and a leaked blob would otherwise live as long
+ * as the document — which matters when a user retries a failing export and
+ * pins one full payload per attempt. This function owns the object URL's whole
+ * lifetime, so no call site has to restate either half of that rule.
+ */
+export async function downloadBlobFile({
   blob,
   filename,
 }: {
   readonly blob: Blob;
   readonly filename: string;
-}): void {
+}): Promise<void> {
+  const bridge = resolveFileExportsBridge();
+  if (bridge) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const result = await bridge.saveToDownloads({ bytes, filename });
+    if (!result.ok) {
+      throw new Error(result.error ?? 'Desktop save failed without an error message.');
+    }
+    return;
+  }
   if (typeof document === 'undefined') {
     throw new Error('Downloads are unavailable outside a browser document.');
   }

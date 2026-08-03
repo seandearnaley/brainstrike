@@ -75,6 +75,7 @@ import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
+import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
@@ -716,6 +717,7 @@ let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
+let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
@@ -1204,6 +1206,7 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 });
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
+unregisterFileExportsIpcHandlers = registerFileExportsIpcHandlers();
 unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
@@ -1883,6 +1886,8 @@ app.on('will-quit', () => {
     unregisterClipboardIpcHandlers();
     unregisterClipboardIpcHandlers = null;
   }
+  unregisterFileExportsIpcHandlers?.();
+  unregisterFileExportsIpcHandlers = null;
   if (unregisterAssistantCheckpointIpcHandlers) {
     unregisterAssistantCheckpointIpcHandlers();
     unregisterAssistantCheckpointIpcHandlers = null;

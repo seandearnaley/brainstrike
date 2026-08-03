@@ -235,6 +235,22 @@ declare global {
       reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
     };
     /**
+     * Desktop-only file-export save bridge. Absent on web (no preload) —
+     * consumers MUST capability-check `window.fileExports` (which
+     * `@brainstrike/utils`'s `downloadBlobFile` does; call sites should go
+     * through it rather than this bridge directly). Saves export bytes into
+     * the OS Downloads folder from MAIN, bypassing Chromium's fragile
+     * blob-download pipeline. Never overwrites: collisions get a ` (n)`
+     * counter. Resolves a structured result (never throws across IPC).
+     */
+    fileExports?: {
+      saveToDownloads: (payload: { bytes: Uint8Array; filename: string }) => Promise<{
+        error?: string;
+        ok: boolean;
+        path?: string;
+      }>;
+    };
+    /**
      * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.git` rather than `isElectron()`. Every call takes
      * the durable workspace `rootId`; main resolves + containment-checks it to an

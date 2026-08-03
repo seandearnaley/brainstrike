@@ -52,6 +52,9 @@ export const DESKTOP_IPC_CHANNELS = {
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
   },
+  fileExports: {
+    saveToDownloads: 'file-exports:save-to-downloads',
+  },
   files: {
     addRoot: 'fs:addRoot',
     exists: 'fs:exists',
