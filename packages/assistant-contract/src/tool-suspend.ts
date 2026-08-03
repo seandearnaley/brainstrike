@@ -278,6 +278,23 @@ export interface AskUserPayload {
 export type AskUserAnswer = string | string[];
 
 /**
+ * The Gate A approval pause payload (BST-1097). `run_python` raises its own
+ * approval gate from INSIDE execute() via Mastra's in-tool approval
+ * suspension — `suspend({ kind: 'approval' }, { requireToolApproval: true })`
+ * — because the per-tool `requireApproval` flag is incompatible with a tool
+ * that also suspends (Mastra re-checks the flag on the Gate B resume leg and
+ * denies a resume whose data has no `approved` key). That suspension emits
+ * the ORDINARY `tool-call-approval` chunk, so the existing approval card,
+ * grant surface, and approve/decline transport are unchanged; this payload
+ * exists only to satisfy the tool's own suspendSchema validation and NEVER
+ * reaches the suspend notice. The resume shape for Gate A is Mastra's own
+ * `{ approved: boolean }` (what `approveToolCall`/`declineToolCall` send).
+ */
+export interface RunPythonApprovalSuspendPayload {
+  readonly kind: 'approval';
+}
+
+/**
  * The Gate B network-escalation pause payload (BST-1070 design §3): built
  * inside `run_python`'s execute() from the LIVE resolved policy, so the
  * domains shown are the domains used, by construction. Never empty — an
@@ -288,6 +305,11 @@ export interface RunPythonNetworkSuspendPayload {
   readonly allowedDomains: readonly string[];
   readonly kind: 'network';
 }
+
+/** Every payload `run_python` can suspend with (discriminated on `kind`). */
+export type RunPythonSuspendPayload =
+  | RunPythonApprovalSuspendPayload
+  | RunPythonNetworkSuspendPayload;
 
 /**
  * Resumed into the suspended `run_python` call. Deny is expressible; "run

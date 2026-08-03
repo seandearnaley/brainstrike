@@ -79,8 +79,9 @@ function runPythonDisplayStatus(result: RunPythonDisplayResult): DisplayStatus {
     case 'unavailable':
       return 'error';
     default:
-      // timed_out / killed / cancelled / network_denied: the run stopped
-      // without completing — network_denied by the user's explicit choice.
+      // timed_out / killed / cancelled / network_denied / declined: the run
+      // stopped without completing — network_denied and declined by the
+      // user's explicit choice.
       return 'stopped';
   }
 }

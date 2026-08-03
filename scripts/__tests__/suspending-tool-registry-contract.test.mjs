@@ -75,7 +75,12 @@ const REGISTERED_SUSPENDING_TOOL_MODULES = [
  * repo-wide sweep stays exact: a new entry here is a deliberate human decision,
  * never a silent widening.
  */
-const ACKNOWLEDGED_NON_DECLARING_MODULES = ['packages/agent/src/mastra/plan-mode-tool-gate.ts'];
+const ACKNOWLEDGED_NON_DECLARING_MODULES = [
+  // READS hasSuspendSchema to fail-safe-omit a self-approving 'ask' tool whose
+  // registered form lost its suspend schema (BST-1097); declares nothing.
+  'packages/agent/src/mastra/permission-tool-gate.ts',
+  'packages/agent/src/mastra/plan-mode-tool-gate.ts',
+];
 
 const SUSPEND_SCHEMA_TOKEN = /\bsuspendSchema\b/;
 

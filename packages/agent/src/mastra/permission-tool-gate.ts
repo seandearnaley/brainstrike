@@ -41,10 +41,13 @@
  */
 
 import {
+  isSelfApprovingNativeTool,
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { hasSuspendSchema } from './plan-mode-tool-gate';
+import { sanitizeToolName } from './tool-sanitizer';
 
 export type { PermissionToolGateSnapshot };
 
@@ -255,7 +258,41 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     // the storage fail-safe + risk hint. The clone + the askToolIds entry MUST
     // move together: a kept ask tool without the flag would run unprompted (a
     // security bug, not a fallback).
+    //
+    // EXCEPTION — SELF-APPROVING suspending tools (BST-1097): a tool that also
+    // suspends must NOT carry the flag (Mastra re-checks it on the tool's own
+    // suspend-resume leg and denies a resume with no `approved` key), so it
+    // raises Gate A itself from execute() via the in-tool approval suspension.
+    // It is kept UNCLONED but still recorded in askToolIds/askTools — the
+    // approval chunk's risk metadata and the no-storage fail-safe both key on
+    // that record. If its registered form lost the suspendSchema it cannot
+    // raise Gate A at all, so it is fail-safe OMITTED (running it would be
+    // unprompted execution; re-arming the flag would re-create the dead end).
     if (decision === 'ask') {
+      if (isSelfApprovingNativeTool(originalName)) {
+        if (!hasSuspendSchema(tool)) {
+          logger.warn(
+            "Self-approving tool gated to 'ask' has no suspendSchema; omitting (fail-safe)",
+            {
+              code: 'permission_tool_gate_self_approving_missing_suspend_schema',
+              riskCategory,
+              sanitizedId,
+              tool: originalName,
+            }
+          );
+          continue;
+        }
+        filtered[sanitizedId] = tool;
+        askToolIds.add(sanitizedId);
+        askTools.set(sanitizedId, { originalName, riskCategory });
+        logger.info("Tool gated to 'ask'; raises its own approval suspension (self-approving)", {
+          code: 'permission_tool_gate_ask_self_approving',
+          riskCategory,
+          sanitizedId,
+          tool: originalName,
+        });
+        continue;
+      }
       filtered[sanitizedId] = withRequireApproval(tool);
       askToolIds.add(sanitizedId);
       askTools.set(sanitizedId, { originalName, riskCategory });
@@ -271,4 +308,46 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
   }
 
   return { askToolIds, askTools, tools: filtered as TMap };
+}
+
+/**
+ * The Gate A decision a SELF-APPROVING suspending tool consults inside
+ * `execute()` (BST-1097). Resolves the SAME permission decision the gate
+ * computes for that tool — same resolver, same risk lookup — so the tool and
+ * the gate cannot disagree:
+ *
+ * - No snapshot (enforcement off) → `'allow'`: the permission engine gates
+ *   nothing, exactly as it gates nothing for flag-based ask tools.
+ * - `'allow'` (policy / per-tool override / session grant / yolo) → `'allow'`.
+ * - `'ask'` → `'ask'`: the tool raises the approval suspension.
+ * - `'deny'` → `'ask'` (fail-safe): a denied tool never enters the gated map,
+ *   so inside an agent run this is unreachable; on a DIRECT invocation the
+ *   safe direction is to require confirmation, and with no suspension channel
+ *   available the tool then refuses rather than running.
+ *
+ * @throws {InvalidPermissionPolicyError} on a malformed policy/override —
+ * propagated, never coerced (no-silent-fallbacks).
+ */
+export function resolveSelfApprovalDecision(
+  snapshot: PermissionToolGateSnapshot | undefined,
+  toolId: string
+): 'allow' | 'ask' {
+  if (!snapshot) {
+    return 'allow';
+  }
+  // Same DUAL name-form lookup as the gate's own resolution: `riskByTool` may
+  // be keyed by the original dotted id OR the Mastra-sanitized id, and the
+  // gate accepts either. Passing only the dotted form here would fall back to
+  // `defaultRisk` ('mcp' → 'allow') for a sanitized-keyed snapshot — an
+  // unprompted run, the exact drift this helper exists to make impossible.
+  const riskCategory = riskForTool(snapshot, toolId, sanitizeToolName(toolId));
+  const decision = resolvePermissionDecision({
+    policies: snapshot.policies,
+    riskCategory,
+    sessionGrants: new Set<ToolRiskCategory>(snapshot.sessionGrants ?? []),
+    toolId,
+    yolo: snapshot.yolo,
+    ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
+  });
+  return decision === 'allow' ? 'allow' : 'ask';
 }

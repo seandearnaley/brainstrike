@@ -193,6 +193,7 @@ export {
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
+export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,

@@ -51,6 +51,14 @@ export type RunPythonDisplayResult =
       readonly stdoutOmittedBytes: number;
     }
   | { readonly deniedDomains: readonly string[]; readonly kind: 'network_denied' }
+  | {
+      /**
+       * The user declined Gate A, so nothing ran (BST-1097: the decline
+       * resumes the tool's own approval suspension, so the TOOL reports it
+       * as a typed arm instead of Mastra's generic not-approved object).
+       */
+      readonly kind: 'declined';
+    }
   | { readonly detail: string; readonly kind: 'unavailable'; readonly reason: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,6 +117,8 @@ export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayRe
         value['deniedDomains'].every((domain) => typeof domain === 'string')
         ? (value as unknown as RunPythonDisplayResult)
         : null;
+    case 'declined':
+      return value as unknown as RunPythonDisplayResult;
     case 'unavailable':
       return typeof value['reason'] === 'string' && typeof value['detail'] === 'string'
         ? (value as unknown as RunPythonDisplayResult)

@@ -74,7 +74,10 @@ async function runTool(
   input: { code: string; timeoutMs?: number },
   context?: { abortSignal?: AbortSignal }
 ) {
-  const tool = createRunPythonTool({ resolveHost: resolveHostFor(host) });
+  const tool = createRunPythonTool({
+    resolveApprovalDecision: () => 'allow',
+    resolveHost: resolveHostFor(host),
+  });
   return await tool.execute(input, context);
 }
 
@@ -158,6 +161,7 @@ describe('createRunPythonTool', () => {
   it('refuses to run when resolving the host consumed the whole budget', async () => {
     const stub = stubFence(async () => execResult());
     const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
       resolveHost: async () => {
         await new Promise((resolve) => setTimeout(resolve, 60));
         return hostWith(stub);
@@ -240,6 +244,7 @@ describe('createRunPythonTool', () => {
       { code: 'python_unsupported_platform' }
     );
     const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
       resolveHost: () => Promise.reject(interpreterFailure),
     });
     const result = await tool.execute({ code: 'pass' });
@@ -320,6 +325,7 @@ describe('createRunPythonTool', () => {
 
   it('rethrows a non-Error throw rather than mistaking it for an interpreter failure', async () => {
     const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
       // eslint-disable-next-line prefer-promise-reject-errors -- deliberately not an Error
       resolveHost: () => Promise.reject('a bare string, not an Error'),
     });
@@ -337,7 +343,10 @@ describe('createRunPythonTool', () => {
 
   it('rejects input the strict schema does not accept, without reaching the executor', async () => {
     const stub = stubFence(async () => execResult());
-    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
+      resolveHost: resolveHostFor(hostWith(stub)),
+    });
     // Mastra validates against inputSchema BEFORE execute() runs and returns a
     // validation-error payload rather than throwing — so this asserts the
     // returned shape, not a rejection.
@@ -555,7 +564,10 @@ describe('Gate B network escalation (BST-1070)', () => {
     input: { allowedDomains?: string[]; code: string; timeoutMs?: number },
     context?: SuspendContext
   ) {
-    const tool = createRunPythonTool({ resolveHost: resolveHostFor(host) });
+    const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
+      resolveHost: resolveHostFor(host),
+    });
     return tool.execute(input, context as never);
   }
 
@@ -563,6 +575,7 @@ describe('Gate B network escalation (BST-1070)', () => {
     const stub = stubFence(async () => execResult());
     let resolveCalled = false;
     const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
       resolveHost: async () => {
         resolveCalled = true;
         return hostWith(stub);
@@ -600,12 +613,15 @@ describe('Gate B network escalation (BST-1070)', () => {
     expect(stub.dispose).not.toHaveBeenCalled();
   });
 
-  it('UNRECOGNISED resumeData NEVER executes and NEVER grants — junk is rejected or denied, both fail safe', async () => {
+  it('UNRECOGNISED resumeData NEVER executes and NEVER grants — junk is rejected or refused, both fail safe', async () => {
     // Two layers fail safe here and this pins the PROPERTY, not the layer:
     // Mastra's createTool wrapper rejects resume data that fails the strict
     // resumeSchema (an error-shaped result, execute never runs), and the
-    // tool's own readNetworkDecision treats anything that is not EXACTLY
-    // {action:'allow'} as deny. Either way: no executor call, no grant.
+    // tool's own narrowing refuses anything that is not exactly a gate
+    // decision — with the typed `resume_unrecognized` refusal, NEVER an arm
+    // that attributes the outcome to a user decision (a drifted shape is
+    // neither a decline nor a network deny; BST-1097 review). Either way: no
+    // executor call, no grant.
     const stub = stubFence(async () => execResult());
     for (const junk of [
       { action: 'approved' },
@@ -618,8 +634,10 @@ describe('Gate B network escalation (BST-1070)', () => {
         hostWith(stub),
         { allowedDomains: ['pypi.org'], code: 'print(1)' },
         { agent: { resumeData: junk } }
-      )) as { error?: boolean; kind?: string };
-      const failedSafe = result?.error === true || result?.kind === 'network_denied';
+      )) as { error?: boolean; kind?: string; reason?: string };
+      const failedSafe =
+        result?.error === true ||
+        (result?.kind === 'unavailable' && result?.reason === 'resume_unrecognized');
       expect(failedSafe).toBe(true);
     }
     expect(stub.inputs).toHaveLength(0);
@@ -665,6 +683,7 @@ describe('Gate B network escalation (BST-1070)', () => {
 
   it('carries suspend/resume schemas so the registered Tool object arms the suspension channel', () => {
     const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
       resolveHost: resolveHostFor(hostWith(stubFence(async () => execResult()))),
     });
     expect((tool as { suspendSchema?: unknown }).suspendSchema).toBeTruthy();
@@ -676,7 +695,10 @@ describe('Gate B hardening (#2225 review)', () => {
   it('an explicit EMPTY allowedDomains runs offline without suspending (OpenAI strict mode)', async () => {
     const stub = stubFence(async () => execResult());
     const suspend = vi.fn(async () => undefined);
-    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
+      resolveHost: resolveHostFor(hostWith(stub)),
+    });
     const result = await tool.execute({ allowedDomains: [], code: 'print(1)' }, {
       agent: { suspend },
     } as never);
@@ -688,7 +710,10 @@ describe('Gate B hardening (#2225 review)', () => {
   it('deduplicates repeated domains before suspending and before the policy', async () => {
     const stub = stubFence(async () => execResult());
     const suspend = vi.fn(async () => undefined);
-    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
+      resolveHost: resolveHostFor(hostWith(stub)),
+    });
     await tool.execute({ allowedDomains: ['pypi.org', 'pypi.org'], code: 'print(1)' }, {
       agent: { suspend },
     } as never);
@@ -697,7 +722,10 @@ describe('Gate B hardening (#2225 review)', () => {
 
   it('rejects localhost, .local, and IP-literal targets at the schema', async () => {
     const stub = stubFence(async () => execResult());
-    const tool = createRunPythonTool({ resolveHost: resolveHostFor(hostWith(stub)) });
+    const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'allow',
+      resolveHost: resolveHostFor(hostWith(stub)),
+    });
     for (const local of ['localhost', '127.0.0.1', '10.0.0.5', 'printer.local', '*.localhost']) {
       const result = (await tool.execute(
         { allowedDomains: [local], code: 'print(1)' },
@@ -705,6 +733,107 @@ describe('Gate B hardening (#2225 review)', () => {
       )) as { error?: boolean };
       expect(result?.error).toBe(true);
     }
+    expect(stub.inputs).toHaveLength(0);
+  });
+});
+
+describe('Gate A self-raised approval (BST-1097)', () => {
+  function askTool(stub: StubExecutor, decision: 'allow' | 'ask' = 'ask') {
+    return createRunPythonTool({
+      resolveApprovalDecision: () => decision,
+      resolveHost: resolveHostFor(hostWith(stub)),
+    });
+  }
+
+  it("decision 'ask' with no resume suspends via the IN-TOOL approval option before any executor work", async () => {
+    const stub = stubFence(async () => execResult());
+    let resolveCalled = false;
+    const tool = createRunPythonTool({
+      resolveApprovalDecision: () => 'ask',
+      resolveHost: async () => {
+        resolveCalled = true;
+        return hostWith(stub);
+      },
+    });
+    const suspend = vi.fn(async () => undefined);
+    const result = await tool.execute({ code: 'print(1)' }, { agent: { suspend } } as never);
+
+    // The approval suspension must ride Mastra's requireToolApproval option so
+    // it emits the ORDINARY tool-call-approval chunk (same card, same grant
+    // surface) — a plain suspension here would surface as a resume notice with
+    // no approve/decline transport.
+    expect(suspend).toHaveBeenCalledTimes(1);
+    expect(suspend.mock.calls[0]?.[0]).toEqual({ kind: 'approval' });
+    expect(suspend.mock.calls[0]?.[1]).toMatchObject({ requireToolApproval: true });
+    expect(resolveCalled).toBe(false);
+    expect(stub.inputs).toHaveLength(0);
+    expect(result).toBeUndefined();
+  });
+
+  it('APPROVED resume runs an offline script', async () => {
+    const stub = stubFence(async () => execResult({ exitCode: 0, stdout: 'ok\n' }));
+    const result = await askTool(stub).execute({ code: 'print(1)' }, {
+      agent: { resumeData: { approved: true } },
+    } as never);
+    expect(result).toMatchObject({ kind: 'completed' });
+    expect(stub.inputs[0]?.policy.allowedDomains).toEqual([]);
+  });
+
+  it('APPROVED resume on a networked call proceeds to Gate B on the SAME leg — approval never implies a network grant', async () => {
+    const stub = stubFence(async () => execResult());
+    const suspend = vi.fn(async () => undefined);
+    const result = await askTool(stub).execute({ allowedDomains: ['pypi.org'], code: 'print(1)' }, {
+      agent: { resumeData: { approved: true }, suspend },
+    } as never);
+    expect(suspend).toHaveBeenCalledTimes(1);
+    expect(suspend.mock.calls[0]?.[0]).toEqual({ allowedDomains: ['pypi.org'], kind: 'network' });
+    expect(stub.inputs).toHaveLength(0);
+    expect(result).toBeUndefined();
+  });
+
+  it('DECLINED resume returns the declined arm and never touches the executor', async () => {
+    const stub = stubFence(async () => execResult());
+    const result = await askTool(stub).execute({ code: 'print(1)' }, {
+      agent: { resumeData: { approved: false } },
+    } as never);
+    expect(result).toEqual({ kind: 'declined' });
+    expect(stub.inputs).toHaveLength(0);
+  });
+
+  it("decision 'ask' with NO suspension channel refuses — never an unprompted run", async () => {
+    const stub = stubFence(async () => execResult());
+    const result = await askTool(stub).execute({ code: 'print(1)' }, undefined as never);
+    expect(result).toMatchObject({
+      kind: 'unavailable',
+      reason: 'approval_confirmation_unavailable',
+    });
+    expect(stub.inputs).toHaveLength(0);
+  });
+
+  it("decision 'allow' never raises Gate A", async () => {
+    const stub = stubFence(async () => execResult());
+    const suspend = vi.fn(async () => undefined);
+    const result = await askTool(stub, 'allow').execute({ code: 'print(1)' }, {
+      agent: { suspend },
+    } as never);
+    expect(suspend).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: 'completed' });
+  });
+
+  it('junk resume on an OFFLINE ask-gated call is a typed refusal — never a run, and never reported as a user decision', async () => {
+    // {approved:'yes'} fails the wrapper's resume-schema validation (an
+    // error-shaped result) before the tool's own narrowing would refuse it
+    // with resume_unrecognized. Either layer: no run, and no arm claiming
+    // the user declined something they may have approved.
+    const stub = stubFence(async () => execResult());
+    const result = (await askTool(stub).execute({ code: 'print(1)' }, {
+      agent: { resumeData: { approved: 'yes' } },
+    } as never)) as { error?: boolean; kind?: string; reason?: string };
+    const failedSafe =
+      result?.error === true ||
+      (result?.kind === 'unavailable' && result?.reason === 'resume_unrecognized');
+    expect(failedSafe).toBe(true);
+    expect(result?.kind).not.toBe('declined');
     expect(stub.inputs).toHaveLength(0);
   });
 });

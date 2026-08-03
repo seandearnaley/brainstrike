@@ -27,6 +27,8 @@ import {
   type RunSkillScriptInput,
   type RuntimeData,
   readToolOutputArtifactPage,
+  resolveRequestPermissionPolicy,
+  resolveSelfApprovalDecision,
   type ScannedWorkspaceSkills,
   type ScopedToolOutputArtifactReader,
   type StringReplaceWorkspaceFileInput,
@@ -583,6 +585,19 @@ export function buildDesktopAssistantTools(
           // error and no run event. Registering in this shape now means that
           // ticket changes the factory, not this call site.
           [NATIVE_TOOL_ID.runPython]: createRunPythonTool({
+            // Gate A decision (BST-1097): run_python raises its OWN approval
+            // suspension instead of carrying Mastra's per-tool
+            // `requireApproval` flag (the flag re-fires on the Gate B resume
+            // leg and denies it). Resolved lazily at execute() time from THIS
+            // request's permission snapshot through the SAME resolvers the
+            // permission gate uses (`resolveRequestPermissionPolicy` →
+            // `resolveSelfApprovalDecision`), so the tool and the gate cannot
+            // disagree about the decision.
+            resolveApprovalDecision: () =>
+              resolveSelfApprovalDecision(
+                resolveRequestPermissionPolicy(runtimeData?.permissionPolicyRequest),
+                NATIVE_TOOL_ID.runPython
+              ),
             resolveHost: async (signal) => {
               // LAZY import, deliberately. `@brainstrike/agent/fence-executor`
               // pulls in @anthropic-ai/sandbox-runtime AND evaluates

@@ -631,6 +631,12 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(typeof approveGate).toBe('function');
     expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(true);
+    // Self-approving tools are NOT exempt from the explicit-global posture:
+    // with no permission snapshot their in-tool Gate A resolves 'allow' and
+    // is inert, so the global gate is the only prompt run_python would get
+    // here (BST-1097 review — the ask-set exemption must not leak into this
+    // posture).
+    expect(approveGate({ toolName: 'brainstrike_runPython' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
       finishReason: 'stop',
@@ -645,8 +651,86 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     });
   });
 
+  it('exempts a self-approving ask tool from the resume gate under an ENFORCED policy — while ordinary ask tools stay gated (BST-1097)', async () => {
+    // Under an enforced ask set the self-approving tool raises Gate A inside
+    // execute(); re-gating it here would make Mastra consume the {approved}
+    // resume before the tool sees it (an unfinishable approval loop). The
+    // exemption is scoped to THIS posture — the explicit-global case above
+    // pins the opposite direction.
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+            riskByTool: { 'brainstrike.runPython': 'execute', 'workspace.writeFile': 'edit' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+          'workspace.writeFile': { execute: async () => ({}), id: 'workspace.writeFile' },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    const enforcedGate = (
+      agentInstances.at(-1)?.approveToolCallCalls[0] as
+        | { requireToolApproval?: unknown }
+        | undefined
+    )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
+    expect(typeof enforcedGate).toBe('function');
+    // Self-approving + in the enforced ask set → exempt (self-gates in-tool).
+    expect(enforcedGate({ toolName: 'brainstrike_runPython' })).toBe(false);
+    // Ordinary ask tool on the same leg stays gated.
+    expect(enforcedGate({ toolName: 'workspace_writeFile' })).toBe(true);
+  });
+
   it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {
     const storage = { id: 'workflow-storage' };
+    // The resume path verifies against the storage snapshot that the target
+    // call is suspended on a PLAIN suspend() pause (BST-1097's
+    // assertResumedCallIsSuspendPause) before resuming, so the run must exist
+    // in the discovery fixture as a NON-approval pause.
+    setSuspendedRuns([
+      {
+        runId: 'run-suspended-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-07-21T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Which city?' },
+            toolCallId: 'tool-call-suspended-1',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
     setMockStreamParts([
       { textDelta: 'Resumed and continued.', type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
@@ -704,6 +788,47 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Resumed and continued.' });
     expect(chunks).toContainEqual(
       expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+    );
+  });
+
+  it('REFUSES to resume an APPROVAL pause through the suspend-resume transport (BST-1097)', async () => {
+    // The two pause kinds carry different resume shapes. A generic resume
+    // payload delivered to an approval pause would reach a self-approving
+    // tool as if its gates were settled — {action:'allow'} answering
+    // run_python's Gate A would skip the approval card entirely. The default
+    // fixtures list run-approval-1/tool-call-1 as requiresApproval: true.
+    const storage = { id: 'workflow-storage' };
+    await expectMastraAgentError(
+      streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'allow' },
+          runId: 'run-approval-1',
+          toolCallId: 'tool-call-1',
+        },
+        {
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          storage: storage as never,
+        }
+      ),
+      'mastra_agent_stream_failure'
+    );
+  });
+
+  it('fails visibly when the suspend-resume target is missing from the snapshot — never a blind resume', async () => {
+    const storage = { id: 'workflow-storage' };
+    await expectMastraAgentError(
+      streamMastraToolResumeAction(
+        {
+          resumeData: { answer: 'Paris' },
+          runId: 'run-not-in-storage',
+          toolCallId: 'tool-call-not-in-storage',
+        },
+        {
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          storage: storage as never,
+        }
+      ),
+      'mastra_agent_stream_failure'
     );
   });
 
