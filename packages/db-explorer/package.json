@@ -26,7 +26,6 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/vector-management": "workspace:*",
-    "file-saver": "catalog:",
     "jszip": "catalog:",
     "lucide-react": "catalog:",
     "react-resizable-panels": "catalog:"
@@ -36,7 +35,6 @@
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/user-event": "catalog:",
-    "@types/file-saver": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@vitest/coverage-v8": "catalog:",

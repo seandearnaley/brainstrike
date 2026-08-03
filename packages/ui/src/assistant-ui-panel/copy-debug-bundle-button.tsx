@@ -120,7 +120,7 @@ export function CopyDebugBundleButton(): ReactElement | null {
       if (action === 'copy') {
         await navigator.clipboard.writeText(bundle);
       } else {
-        downloadDebugBundleFile({
+        await downloadDebugBundleFile({
           contents: bundle,
           filename: formatDebugBundleFilename({ generatedAt: new Date(), runId }),
         });

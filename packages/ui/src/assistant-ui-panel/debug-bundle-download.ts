@@ -48,16 +48,17 @@ export function formatDebugBundleFilename({
 
 /**
  * Saves the bundle as Markdown through the shared `downloadBlobFile`, which
- * owns the object URL's lifetime (deferred revoke on the success path,
- * immediate on the throwing path) and throws — never no-ops silently —
- * outside a DOM. The caller surfaces the message inline.
+ * picks the desktop `window.fileExports` save when that bridge exists (web
+ * falls back to the anchor route, where it owns the object URL's lifetime)
+ * and throws — never no-ops silently — on failure or outside a DOM. The
+ * caller surfaces the message inline.
  */
-export function downloadDebugBundleFile({
+export async function downloadDebugBundleFile({
   contents,
   filename,
 }: {
   readonly contents: string;
   readonly filename: string;
-}): void {
-  downloadBlobFile({ blob: new Blob([contents], { type: BUNDLE_MIME_TYPE }), filename });
+}): Promise<void> {
+  await downloadBlobFile({ blob: new Blob([contents], { type: BUNDLE_MIME_TYPE }), filename });
 }
