@@ -170,9 +170,9 @@ describe('assistant vite helpers', () => {
   });
 
   test('returns database lazy-panel optimize-deps package ids', () => {
-    expect(getDatabaseOptimizeDepsInclude()).toEqual(
-      expect.arrayContaining(['jszip', 'file-saver', 'react-resizable-panels'])
-    );
+    // Exact match, not arrayContaining: reintroducing file-saver here must fail
+    // (platform-contracts.md calls it a regression).
+    expect(getDatabaseOptimizeDepsInclude()).toEqual(['jszip', 'react-resizable-panels']);
   });
 
   test('returns heavy runtime optimize-deps exclusions', () => {

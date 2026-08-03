@@ -141,7 +141,6 @@
     "electron-builder": "^26.15.3",
     "electron-builder-squirrel-windows": "^26.15.3",
     "esbuild": "catalog:",
-    "file-saver": "catalog:",
     "idb": "catalog:",
     "jsdom": "catalog:",
     "jszip": "catalog:",
