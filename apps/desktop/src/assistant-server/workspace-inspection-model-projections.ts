@@ -1,4 +1,7 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import type {
   EditDiagnostic,
   InspectLocation,
@@ -91,7 +94,9 @@ function parseFindWorkspaceSymbolResult(output: unknown): FindWorkspaceSymbolRes
       typeof output['truncated'] === 'boolean'
     )
   ) {
-    throw new TypeError('findWorkspaceSymbol model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'findWorkspaceSymbol model projection received a malformed result'
+    );
   }
   return output as unknown as FindWorkspaceSymbolResult;
 }
@@ -147,16 +152,22 @@ function parseLspInspectResult(output: unknown): LspInspectResult {
       hasOptionalArray(output, 'implementation', isInspectLocation)
     )
   ) {
-    throw new TypeError('lspInspect model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'lspInspect model projection received a malformed result'
+    );
   }
   if (
     output['available'] === false &&
     !(isUnavailableReason(output['reason']) && typeof output['message'] === 'string')
   ) {
-    throw new TypeError('lspInspect model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'lspInspect model projection received a malformed result'
+    );
   }
   if (output['available'] === true && output['reason'] !== undefined) {
-    throw new TypeError('lspInspect model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'lspInspect model projection received a malformed result'
+    );
   }
   return output as unknown as LspInspectResult;
 }

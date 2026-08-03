@@ -1,4 +1,7 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
@@ -150,7 +153,9 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
       isNonNegativeInteger(output['totalTokens'])
     )
   ) {
-    throw new TypeError('queryEmbeddingSpace model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'queryEmbeddingSpace model projection received a malformed result'
+    );
   }
   const result = output as unknown as SemanticResult;
   if (
@@ -159,7 +164,9 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
     result.chunkContentIncludedInContext !== result.chunks.length > 0 ||
     (result.chunks.length === 0 ? result.context.length > 0 : result.context.length === 0)
   ) {
-    throw new TypeError('queryEmbeddingSpace model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'queryEmbeddingSpace model projection received a malformed result'
+    );
   }
   return result;
 }
@@ -201,7 +208,9 @@ function parseHybridResult(output: unknown): HybridResult {
       isFiniteNumber(output['vectorWeight'])
     )
   ) {
-    throw new TypeError('hybridSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'hybridSearch model projection received a malformed result'
+    );
   }
   const result = output as unknown as HybridResult;
   if (
@@ -210,7 +219,9 @@ function parseHybridResult(output: unknown): HybridResult {
     (result.truncated && (!result.hint || result.hint.trim().length === 0)) ||
     (!result.truncated && result.hint !== undefined)
   ) {
-    throw new TypeError('hybridSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'hybridSearch model projection received a malformed result'
+    );
   }
   return result;
 }

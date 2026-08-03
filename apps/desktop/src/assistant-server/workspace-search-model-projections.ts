@@ -1,4 +1,7 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import type { GlobWorkspaceMatch, GlobWorkspaceToolResult } from './glob-workspace-tool';
 import {
   type GrepFileSummary,
@@ -95,7 +98,9 @@ function parseGlobWorkspaceToolResult(output: unknown): GlobWorkspaceToolResult 
       typeof output['truncated'] === 'boolean'
     )
   ) {
-    throw new TypeError('globWorkspace model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'globWorkspace model projection received a malformed result'
+    );
   }
   return output as unknown as GlobWorkspaceToolResult;
 }
@@ -181,12 +186,16 @@ function formatGrepItem(
 ): string[] {
   if (result.outputMode === 'files') {
     if (!isGrepFileSummary(item)) {
-      throw new TypeError('grepSearch model projection received a malformed result');
+      throw new ToolProjectionInputRejectedError(
+        'grepSearch model projection received a malformed result'
+      );
     }
     return formatGrepFile(item);
   }
   if (!isGrepMatch(item)) {
-    throw new TypeError('grepSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'grepSearch model projection received a malformed result'
+    );
   }
   return formatGrepMatch(item);
 }

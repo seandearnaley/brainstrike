@@ -74,16 +74,39 @@ export function formatTimestampedDownloadFilename({
 }
 
 /**
+ * How long a clicked download keeps its object URL alive before revoking.
+ *
+ * `click()` returning only means the anchor dispatched; the download manager
+ * resolves the blob URL asynchronously in the browser process (Chromium: over
+ * IPC to the blob registry; WebKit: possibly a task later). A revoke that wins
+ * that race kills the download AFTER the caller already reported success —
+ * observed as the debug-bundle "Saved" with no file on disk (2026-08-03). The
+ * deferral used to be one macrotask, which is not a bound the resolution race
+ * respects; this is a wall-clock grace period instead. Cost: one export
+ * payload pinned per attempt for this long.
+ *
+ * This is a HEURISTIC, not a proven bound — the renderer never observes the
+ * event it is waiting out. What defeats it: a save-as dialog (Chromium's "Ask
+ * where to save each file", or a `will-download` handler that prompts) left
+ * open past the delay, or a very large payload on a very slow disk. The
+ * deterministic fix is a platform save path with a completion signal
+ * (follow-up). 60 s rather than FileSaver.js's 40 s: finalization measured
+ * ~9 s AFTER the click on an idle dev machine, so the margin is deliberately
+ * generous — the extra 20 s of pinned payload is cheap at current export
+ * sizes; revisit the cost note above before growing it further.
+ */
+export const DOWNLOAD_BLOB_REVOKE_DELAY_MS = 60_000;
+
+/**
  * Blob → object URL → anchor click → revoke. Throws (never no-ops silently)
  * outside a DOM; the caller surfaces the message.
  *
- * The revoke is DEFERRED a macrotask on the success path and IMMEDIATE on the
- * throwing path — deliberately not a `finally`. Chromium starts the download
- * during click dispatch, but WebKit can fetch the blob a task later, so a
- * synchronous revoke there silently drops the file. Immediate revoke when the
- * click threw is safe: no download started, and a leaked blob would otherwise
- * live as long as the document — which matters when a user retries a failing
- * export and pins one full payload per attempt.
+ * The revoke is DEFERRED `DOWNLOAD_BLOB_REVOKE_DELAY_MS` on the success path
+ * (see that constant for why a shorter deferral silently drops files) and
+ * IMMEDIATE on the throwing path — deliberately not a `finally`. Immediate
+ * revoke when the click threw is safe: no download started, and a leaked blob
+ * would otherwise live as long as the document — which matters when a user
+ * retries a failing export and pins one full payload per attempt.
  *
  * This function owns the object URL's whole lifetime, so no call site has to
  * restate either half of that rule.
@@ -105,7 +128,7 @@ export function downloadBlobFile({
     anchor.download = filename;
     anchor.rel = 'noopener';
     anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_BLOB_REVOKE_DELAY_MS);
   } catch (error) {
     URL.revokeObjectURL(url);
     throw error;
