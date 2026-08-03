@@ -1,6 +1,10 @@
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { bench, describe } from 'vitest';
-import { getCachedLogSearchHaystack, type LogRecordRow } from '../log-utils';
+import {
+  createLogSearchHaystackCache,
+  getCachedLogSearchHaystack,
+  type LogRecordRow,
+} from '../log-utils';
 
 const RECORD_COUNT = 2000;
 const SEARCH_TERMS = [
@@ -66,8 +70,8 @@ describe('incremental Log Viewer search over 2,000 retained records', () => {
     assertExpectedHits(hits);
   });
 
-  bench('weakly caches one lowercase haystack per record', () => {
-    const cache = new WeakMap<LogRecord, string>();
+  bench('caches lowercase haystacks within the viewer budget', () => {
+    const cache = createLogSearchHaystackCache();
     let hits = 0;
     for (const term of SEARCH_TERMS) {
       for (const row of rows) {

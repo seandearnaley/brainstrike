@@ -38,10 +38,12 @@ import { LogList } from './log-list';
 import { LogRecordDetailDialog, LogRowActions } from './log-record-detail-dialog';
 import { LogToolbar } from './log-toolbar';
 import {
+  createLogSearchHaystackCache,
   formatLogTimestamp,
   getCachedLogSearchHaystack,
   getLevelBadgeVariant,
   type LogRecordRow,
+  type LogSearchHaystackCache,
   serializeArgs,
   sortLogRecords,
 } from './log-utils';
@@ -130,7 +132,7 @@ function matchesSearchTerm(
   record: LogRecord,
   term: string,
   rowCache: WeakMap<LogRecord, LogRecordRow>,
-  searchHaystackCache: WeakMap<LogRecord, string>
+  searchHaystackCache: LogSearchHaystackCache
 ): boolean {
   if (!term) {
     return true;
@@ -150,7 +152,7 @@ function shouldIncludeLogRecord(
   timeStart: number | null,
   timeEnd: number | null,
   rowCache: WeakMap<LogRecord, LogRecordRow>,
-  searchHaystackCache: WeakMap<LogRecord, string>
+  searchHaystackCache: LogSearchHaystackCache
 ): boolean {
   if (!matchesLogLevel(record, minimumLevelIndex)) {
     return false;
@@ -436,7 +438,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
   const [selectedRecord, setSelectedRecord] = useState<LogRecord | null>(null);
   const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
-  const [searchHaystackCache] = useState(() => new WeakMap<LogRecord, string>());
+  const [searchHaystackCache] = useState(createLogSearchHaystackCache);
   const {
     logRecords,
     logsLoading,

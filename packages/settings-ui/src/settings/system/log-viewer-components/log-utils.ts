@@ -61,17 +61,31 @@ export interface LogRecordRow extends LogRecord {
   serializedArgs: string;
 }
 
+export const MAX_CACHED_LOG_SEARCH_HAYSTACK_CHARACTERS = 4 * 1024 * 1024;
+
+export interface LogSearchHaystackCache {
+  cachedCharacters: number;
+  haystacks: WeakMap<LogRecord, string>;
+}
+
+export function createLogSearchHaystackCache(): LogSearchHaystackCache {
+  return { cachedCharacters: 0, haystacks: new WeakMap<LogRecord, string>() };
+}
+
 export function getCachedLogSearchHaystack(
   row: LogRecordRow,
-  cache: WeakMap<LogRecord, string>
+  cache: LogSearchHaystackCache
 ): string {
-  const cachedHaystack = cache.get(row.originalRecord);
+  const cachedHaystack = cache.haystacks.get(row.originalRecord);
   if (cachedHaystack !== undefined) {
     return cachedHaystack;
   }
   const haystack = [row.message ?? '', row.scope ?? '', row.serializedArgs, row.flattenedBindings]
     .join(' ')
     .toLowerCase();
-  cache.set(row.originalRecord, haystack);
+  if (cache.cachedCharacters + haystack.length <= MAX_CACHED_LOG_SEARCH_HAYSTACK_CHARACTERS) {
+    cache.haystacks.set(row.originalRecord, haystack);
+    cache.cachedCharacters += haystack.length;
+  }
   return haystack;
 }
