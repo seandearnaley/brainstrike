@@ -206,6 +206,7 @@ export {
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
+export { applyToolModelOutputProjections } from './mastra/tool-model-output';
 export {
   projectToolOutputArtifactPage,
   type ReadToolOutputArtifactCursorInput,

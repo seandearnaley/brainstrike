@@ -1,4 +1,5 @@
 import {
+  applyToolModelOutputProjections,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
 } from '@brainstrike/agent';
@@ -471,5 +472,103 @@ describe('workspace search model projections', () => {
     ).toThrow(
       'grepSearch model projection rejected hint: expected string or absent, received number'
     );
+  });
+});
+
+/**
+ * Round-trip regression for the 2026-08-03 run-killing crash: values that are
+ * NOT a grep result reached `projectGrepSearchModelOutput` after a tool
+ * failure and the thrown TypeError became a fatal run error that destroyed
+ * the real diagnostic. Through the runtime dispatcher these shapes must
+ * degrade to the generic bounded text projection — never throw. The direct
+ * projector calls above keep throwing; only the dispatcher fails soft.
+ */
+describe('grep projection through the runtime dispatcher (fail-soft round trip)', () => {
+  function dispatchGrepProjection(output: unknown): { type?: string; value?: string } {
+    const tools = applyToolModelOutputProjections(
+      {
+        grepSearch: {
+          execute: () => output,
+          id: 'brainstrike.grepSearch',
+          toModelOutput: projectGrepSearchModelOutput,
+        } as never,
+      },
+      new Map([['grepSearch', 'brainstrike.grepSearch']])
+    );
+    const projected = tools['grepSearch'] as {
+      toModelOutput?: (value: unknown) => unknown;
+    };
+    return projected.toModelOutput?.(output) as { type?: string; value?: string };
+  }
+
+  it('degrades a durable artifact display envelope instead of failing the run', () => {
+    const modelOutput = dispatchGrepProjection({
+      artifactRef: { artifactId: 'a1', byteLength: 4096, format: 'json' },
+      code: 'tool_output_artifact',
+      hint: 'The complete grepSearch result is durable.',
+      nextCursor: 'cursor-1',
+      preview: '{"outputMode":"files"',
+      truncated: true,
+      version: 1,
+    });
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('tool_output_artifact');
+  });
+
+  it('degrades a stored text projection that grew an extra key', () => {
+    const modelOutput = dispatchGrepProjection({
+      replayedAt: '2026-08-03T11:31:00Z',
+      type: 'text',
+      value: 'grep files | page=1-1/1 | matches=1 | live=ripgrep',
+    });
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('grep files | page=1-1/1');
+  });
+
+  it('degrades an AI-SDK output carrier that nests the real result', () => {
+    const modelOutput = dispatchGrepProjection({
+      input: { pattern: 'needle' },
+      output: {
+        candidatesTruncated: false,
+        liveEngine: 'ripgrep',
+        matches: [],
+        offset: 0,
+        outputMode: 'content',
+        scanLimited: false,
+        skippedMissingLineMetadata: 0,
+        totalMatches: 0,
+        truncated: false,
+      },
+      toolCallId: 'call-carrier',
+    });
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('call-carrier');
+  });
+
+  it('projects a failed tool (guarded error) through the generic path', () => {
+    const modelOutput = dispatchGrepProjection({
+      error: {
+        code: 'tool_failed',
+        message: 'The tool did not complete successfully. Try another approach.',
+        toolName: 'brainstrike.grepSearch',
+      },
+      ok: false,
+    });
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('did not complete successfully');
+  });
+
+  it('replays an exact stored grep projection unchanged through the dispatcher', () => {
+    const stored = {
+      type: 'text',
+      value:
+        'grep files | page=1-1/1 | matches=1 | live=ripgrep | candidates_truncated=false | scan_limited=false',
+    };
+
+    expect(dispatchGrepProjection(stored)).toEqual(stored);
   });
 });

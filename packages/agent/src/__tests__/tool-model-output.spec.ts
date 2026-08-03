@@ -1,6 +1,28 @@
 import type { ToolsInput } from '@mastra/core/agent';
 import type { ToolPayloadTransform, ToolPayloadTransformTarget } from '@mastra/core/tools';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const loggerMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+}));
+
+// Capture the fail-soft diagnostic without touching the rest of the logging
+// surface — the shape log is part of the contract under test.
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: (scope: string) => {
+      const real = actual.createLogger(scope);
+      return {
+        ...real,
+        error: (...args: unknown[]) => {
+          loggerMocks.error(...args);
+        },
+      };
+    },
+  };
+});
 
 import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
 import { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET } from '../stream/tool-output-limits';
@@ -964,5 +986,114 @@ describe('applyToolModelOutputProjections', () => {
     expect(() =>
       applyToolModelOutputProjections({ malformed }, new Map([['malformed', 'malformed']]))
     ).toThrow('malformed declares a non-callable toModelOutput');
+  });
+});
+
+describe('fail-soft domain projection', () => {
+  beforeEach(() => {
+    loggerMocks.error.mockClear();
+  });
+
+  /** Mimics the grep result contract: any record without the expected field is
+   * rejected with a TypeError, exactly like `parseGrepToolResult`. */
+  const strictProjector = (output: unknown): { type: 'text'; value: string } => {
+    if (
+      !(
+        output &&
+        typeof output === 'object' &&
+        typeof (output as Record<string, unknown>)['candidatesTruncated'] === 'boolean'
+      )
+    ) {
+      throw new TypeError(
+        'grepSearch model projection rejected candidatesTruncated: expected boolean, received undefined'
+      );
+    }
+    return { type: 'text', value: 'grep files | page=1-1/1' };
+  };
+
+  function projectThroughDispatcher(output: unknown, observer?: (value: unknown) => void): unknown {
+    const tool = asTool({
+      execute: () => output,
+      id: 'grep_like',
+      toModelOutput: strictProjector,
+    });
+    const projected = applyToolModelOutputProjections(
+      { grep_like: tool },
+      new Map([['grep_like', 'brainstrike.grepSearch']]),
+      observer
+    );
+    return (projected['grep_like'] as TestTool).toModelOutput?.(output);
+  }
+
+  it('degrades a rejected value to the generic bounded projection instead of killing the run', () => {
+    // The AI-SDK carrier convention: the result nested under `output` alongside
+    // call metadata — a record the strict domain contract rejects.
+    const carrier = {
+      input: { pattern: 'x' },
+      output: { matches: [], outputMode: 'content' },
+      toolCallId: 'call-1',
+    };
+    const observer = vi.fn();
+
+    const modelOutput = projectThroughDispatcher(carrier, observer) as {
+      type?: string;
+      value?: string;
+    };
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('call-1');
+    expect(observer).toHaveBeenCalledExactlyOnceWith(modelOutput);
+  });
+
+  it('logs the rejected value shape — keys only, never content', () => {
+    projectThroughDispatcher({
+      input: { pattern: 'secret-pattern' },
+      output: { lineText: 'secret-content' },
+      toolCallId: 'call-2',
+    });
+
+    expect(loggerMocks.error).toHaveBeenCalledTimes(1);
+    const [message, context] = loggerMocks.error.mock.calls[0] as [string, Record<string, unknown>];
+    expect(message).toContain('degrading to the generic projection');
+    expect(context['code']).toBe('tool_model_projection_fail_soft');
+    expect(context['toolName']).toBe('brainstrike.grepSearch');
+    expect(context['valueShape']).toEqual({
+      keyCount: 3,
+      keys: ['input', 'output', 'toolCallId'],
+      kind: 'object',
+      outputKeys: ['lineText'],
+    });
+    expect(JSON.stringify(context['valueShape'])).not.toContain('secret');
+  });
+
+  it('degrades an asynchronously rejecting projector the same way', async () => {
+    const tool = asTool({
+      execute: () => 'raw',
+      id: 'async_strict',
+      toModelOutput: () =>
+        Promise.reject(new TypeError('model projection rejected result: expected object')),
+    });
+    const projected = applyToolModelOutputProjections(
+      { async_strict: tool },
+      new Map([['async_strict', 'custom.async-strict']])
+    );
+
+    const modelOutput = (await (projected['async_strict'] as TestTool).toModelOutput?.(
+      'raw-value'
+    )) as { type?: string; value?: string };
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('raw-value');
+    expect(loggerMocks.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('still projects contract-conforming values through the domain projector', () => {
+    const modelOutput = projectThroughDispatcher({
+      candidatesTruncated: false,
+      outputMode: 'files',
+    });
+
+    expect(modelOutput).toEqual({ type: 'text', value: 'grep files | page=1-1/1' });
+    expect(loggerMocks.error).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { ToolsInput } from '@mastra/core/agent';
 import { toJsonSafe } from '../stream/json';
@@ -23,6 +24,8 @@ import {
   readSettledToolOutputModelProjection,
   readSettledToolOutputProjectionSource,
 } from './tool-output-artifact-settlement';
+
+const logger = createLogger('MastraAgent');
 
 type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly execute: (...args: unknown[]) => unknown;
@@ -498,6 +501,33 @@ function projectDefaultModelOutput(toolName: string, output: unknown): Record<st
   return composeHookContextWithProjection(toolName, defaultProjection, hookContext);
 }
 
+const MAX_PROJECTION_SHAPE_KEYS = 12;
+
+/**
+ * Structure-only summary of a value a domain projector rejected — key names
+ * and kinds, never content (tool results can carry user data). The nested
+ * `output` keys are included because the known escape shapes differ exactly
+ * there (an AI-SDK `{toolCallId, input, output}` carrier vs. a bare record).
+ */
+function summarizeProjectionValueShape(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object') {
+    return { kind: value === null ? 'null' : typeof value };
+  }
+  if (Array.isArray(value)) {
+    return { kind: 'array', length: value.length };
+  }
+  const keys = Object.keys(value).sort();
+  const nestedOutput = (value as Record<string, unknown>)['output'];
+  return {
+    keyCount: keys.length,
+    keys: keys.slice(0, MAX_PROJECTION_SHAPE_KEYS),
+    kind: 'object',
+    ...(isRecord(nestedOutput)
+      ? { outputKeys: Object.keys(nestedOutput).sort().slice(0, MAX_PROJECTION_SHAPE_KEYS) }
+      : {}),
+  };
+}
+
 function projectExistingModelOutput(
   toolName: string,
   projector: (output: unknown) => unknown,
@@ -528,13 +558,35 @@ function projectExistingModelOutput(
     }
     return domainProjection;
   };
-  const projected = Reflect.apply(projector, receiver, [domainOutput]);
+  // A domain projector that rejects its input must not kill the whole run: the
+  // thrown TypeError replaces (and destroys) the diagnostic for whatever put
+  // the unexpected value here — a failed/cancelled tool, a stored projection
+  // with drifted keys, or a caller convention passing a carrier object (all
+  // observed 2026-08-03, BST-1096 follow-up). Degrade to the generic bounded
+  // projection and log the value's SHAPE so the trigger identifies itself.
+  // Deliberately scoped to the projector call: `boundResolvedProjection`'s
+  // budget contract ("purpose-built projectors must self-fit") stays strict.
+  const failSoft = (error: unknown): unknown => {
+    logger.error('Tool model projection rejected its input; degrading to the generic projection', {
+      code: 'tool_model_projection_fail_soft',
+      error,
+      toolName,
+      valueShape: summarizeProjectionValueShape(domainOutput),
+    });
+    return projectDefaultModelOutput(toolName, output);
+  };
+  let projected: unknown;
+  try {
+    projected = Reflect.apply(projector, receiver, [domainOutput]);
+  } catch (error) {
+    return failSoft(error);
+  }
   if (
     projected &&
     (typeof projected === 'object' || typeof projected === 'function') &&
     typeof (projected as { then?: unknown }).then === 'function'
   ) {
-    return Promise.resolve(projected).then(boundResolvedProjection);
+    return Promise.resolve(projected).then(boundResolvedProjection, failSoft);
   }
   return boundResolvedProjection(projected);
 }
