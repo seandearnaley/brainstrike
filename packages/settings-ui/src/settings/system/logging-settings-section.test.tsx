@@ -312,9 +312,10 @@ describe('LoggingSettingsSection export NDJSON button', () => {
       expect((exportedBlob as unknown as Blob).type).toBe('application/x-ndjson');
       expect(await (exportedBlob as unknown as Blob).text()).toBe(ndjsonPayload);
       expect(anchorClickSpy).toHaveBeenCalledTimes(1);
-      // Deferred a macrotask (WebKit can fetch the blob after the click task),
-      // so this is a `waitFor` rather than a synchronous assertion.
-      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:ndjson-export'));
+      // The download manager resolves the blob URL asynchronously after the
+      // click, so `downloadBlobFile` holds the URL alive for a wall-clock
+      // grace period — it must NOT be revoked in the click's wake.
+      expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
     } finally {
       createObjectUrlSpy.mockRestore();
       revokeObjectUrlSpy.mockRestore();

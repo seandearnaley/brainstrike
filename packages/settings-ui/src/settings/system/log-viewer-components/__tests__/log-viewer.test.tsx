@@ -380,10 +380,10 @@ describe('LogViewer', () => {
       });
       expect(exportedPayload.records).toHaveLength(2);
 
-      // Drain this export's DEFERRED revoke before restoring the spies:
-      // restoring while the macrotask is still pending would land it on
-      // whichever `URL.revokeObjectURL` spy the next test installs.
-      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:logs'));
+      // `downloadBlobFile` holds the object URL alive for a wall-clock grace
+      // period (the download manager resolves the blob asynchronously), so the
+      // revoke must NOT land in the click's wake.
+      expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
     } finally {
       createObjectUrlSpy.mockRestore();
       revokeObjectUrlSpy.mockRestore();
@@ -393,9 +393,10 @@ describe('LogViewer', () => {
 
   // A raw `new Date().toISOString()` in `anchor.download` carries `:` and
   // millis; Windows rejects `:` and browsers mangle the name silently. The
-  // revoke is deferred a macrotask because WebKit can fetch the blob a task
-  // after the click — revoking inline would drop the file with no error.
-  it('exports under a filesystem-safe filename and revokes the object URL a task after the click', async () => {
+  // revoke is deferred a wall-clock grace period because the download manager
+  // resolves the blob asynchronously after the click — revoking inline (or a
+  // task later) can drop the file with no error.
+  it('exports under a filesystem-safe filename without revoking the object URL in the click wake', async () => {
     const logs = [createMockLogRecord({ message: 'Renderer log', timestamp: 1000 })];
     const logSource = {
       getInitialRecords: async () => logs,
@@ -425,8 +426,6 @@ describe('LogViewer', () => {
       expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
       expect(anchorClickSpy).toHaveBeenCalledTimes(1);
       expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
-
-      await waitFor(() => expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:logs-named'));
     } finally {
       createElementSpy.mockRestore();
       createObjectUrlSpy.mockRestore();
