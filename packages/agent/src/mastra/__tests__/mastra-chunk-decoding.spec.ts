@@ -436,6 +436,14 @@ describe('buildProviderErrorDiagnosticCode', () => {
       'mastra_agent_stream_provider_error:rate_limited:no_status'
     );
   });
+
+  it('namespaces the local-model tool-arguments fault under the local classification', () => {
+    // local_tool_call_arguments_invalid is raised before anything crosses to a
+    // provider — it must not wear the provider prefix in the log fingerprint.
+    expect(buildProviderErrorDiagnosticCode({ code: 'local_tool_call_arguments_invalid' })).toBe(
+      `${LOCAL_RUN_ERROR_FALLBACK_CODE}:local_tool_call_arguments_invalid:no_status`
+    );
+  });
 });
 
 describe('buildProviderErrorDiagnosticCorrelation', () => {

@@ -1681,6 +1681,75 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(providerErrorLog?.level).toBe(LogLevel.ERROR);
   });
 
+  it('classifies an evidence-free local fault as mastra_agent_stream_local_error end to end', async () => {
+    // The 2026-08-03 grepSearch-projection incident: a local runtime fault
+    // (here a TypeError-shaped error part with no api-call marker, status,
+    // request id, or headers) must reach the durable run.failed metadata and
+    // the log breadcrumb as a LOCAL error, never wearing the provider label.
+    modelHolder.current = {
+      doGenerate: () => Promise.reject(new Error('unused')),
+      doStream: () =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({
+                error: {
+                  message: "Cannot read properties of undefined (reading 'map')",
+                  name: 'TypeError',
+                },
+                type: 'error',
+              });
+              controller.close();
+            },
+          }),
+        }),
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
+    };
+
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    const chunks: StreamChunk[] = [];
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u3-local', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const failure = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+        chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(failure?.event.metadata).toMatchObject({
+      runError: {
+        code: 'mastra_agent_stream_local_error',
+        message: "Cannot read properties of undefined (reading 'map')",
+      },
+    });
+
+    const localErrorLog = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_local_error:no_status'
+      )
+    );
+    expect(localErrorLog).toBeDefined();
+    expect(localErrorLog?.level).toBe(LogLevel.ERROR);
+  });
+
   it('preserves a typed OpenRouter token error through the real Mastra loop', async () => {
     modelHolder.current = {
       doGenerate: () => Promise.reject(new Error('unused')),
@@ -1878,7 +1947,10 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
           stream: new ReadableStream<LanguageModelV2StreamPart>({
             start(controller) {
               controller.enqueue({ type: 'stream-start', warnings: [] });
-              controller.enqueue({ error: { message: longDetail }, type: 'error' });
+              controller.enqueue({
+                error: { message: longDetail, name: 'AI_APICallError' },
+                type: 'error',
+              });
               controller.close();
             },
           }),
@@ -1915,7 +1987,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         (arg) =>
           typeof arg === 'object' &&
           arg !== null &&
-          (arg as { code?: unknown }).code === 'mastra_agent_stream_local_error:no_status'
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_provider_error:no_status'
       )
     );
     const loggedDetail = providerErrorLog?.args.find(
