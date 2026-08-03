@@ -199,6 +199,14 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         state: 'network_denied',
         text: "You didn't allow internet access, so the script didn't run.",
       };
+    case 'declined':
+      // Gate A declined (BST-1097): the user's choice, same muted treatment
+      // as network_denied — not a failure, never destructive chrome.
+      return {
+        icon: <CircleSlash className="size-4 text-muted-foreground" />,
+        state: 'declined',
+        text: "You didn't approve this, so the script didn't run.",
+      };
     case 'cancelled': {
       const silent =
         result.partialStdout.length === 0 &&
@@ -259,6 +267,7 @@ function resolveSurfaceModel(result: RunPythonDisplayResult): RunPythonSurfaceMo
         stdoutLabel: 'Output before it was stopped',
         stdoutOmittedBytes: result.stdoutOmittedBytes,
       };
+    case 'declined':
     case 'network_denied':
       return {
         secondaryLines: [],

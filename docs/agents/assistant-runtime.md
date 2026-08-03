@@ -1022,6 +1022,20 @@ Flow (desktop assistant server → agent runtime):
    gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
    `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
    `requireApproval: true` and record in `askToolIds`.
+   EXCEPTION — SELF-APPROVING suspending tools (`SELF_APPROVING_NATIVE_TOOL_IDS`,
+   today `brainstrike.runPython`; BST-1097): an `'ask'` decision keeps the tool
+   UNCLONED (no flag, ever) but still records it in `askToolIds`/`askTools`.
+   Mastra re-evaluates the static flag on EVERY leg — including the resume
+   answering the tool's OWN `suspend()` pause, whose data has no `approved`
+   key — so the flag turned run_python's Gate B allow into "Tool call was not
+   approved by the user". Such a tool raises Gate A itself inside `execute()`
+   via `suspend(payload, {requireToolApproval: true})` (the SAME
+   `tool-call-approval` chunk, so the whole step-4 chain below is unchanged),
+   with the decision injected at the composition root through
+   `resolveSelfApprovalDecision` (exported beside the gate — same resolver,
+   same risk lookup, cannot drift). A self-approving `'ask'` tool whose
+   registered form lost its suspendSchema is fail-safe OMITTED (it could not
+   raise the gate, and keeping it would run it unprompted).
 3. PER-TOOL, not global: marking each ask tool with `requireApproval` (Mastra
    >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
    `read`/`mcp` tools in the same run still run free. We deliberately do NOT force
@@ -1140,7 +1154,17 @@ Flow (desktop assistant server → agent runtime):
    the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
-   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt. An EMPTY
+   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt — as are
+   the SELF-APPROVING suspending tools (BST-1097): re-gating one on the resume
+   leg would make Mastra consume its `{approved}` resume before the tool sees
+   it, so the tool re-runs with no resume data and suspends Gate A again — an
+   approval loop that can never complete. The symmetric transport rule also
+   holds: `streamMastraToolResumeAction` verifies via
+   `assertResumedCallIsSuspendPause` that the targeted call is suspended on a
+   PLAIN `suspend()` pause (`requiresApproval === false` in the snapshot) —
+   a generic resume payload must never answer an approval pause, mirroring
+   `readResumedApprovalToolCall`'s `requiresApproval === true` requirement in
+   the other direction. An EMPTY
    `askTools` on the resumed leg is AMBIGUOUS and is disambiguated by the
    runtime's `permissionEnforced` flag (`permissionSnapshot !== undefined`),
    NOT by `askTools.size` alone:

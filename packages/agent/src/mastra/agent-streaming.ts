@@ -25,7 +25,10 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
-import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  denormalizeNativeToolName,
+  isSelfApprovingNativeTool,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
@@ -1366,8 +1369,19 @@ function resolveResumeApprovalGate(
   // all-allowed posture: the function below then gates nothing (askTools.has is
   // always false), honoring "Allow all tools this session".
   const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
+  // SELF-APPROVING suspending tools (BST-1097) are exempt from this run-wide
+  // gate: they raise Gate A themselves inside execute(). Re-gating one here
+  // would make Mastra consume the {approved} resume before the tool sees it —
+  // the tool then re-runs with NO resume data and suspends Gate A again, an
+  // approval loop that can never complete. `toolName` is the Mastra-REGISTERED
+  // (sanitized) id; the self-approving registry is keyed by dotted NATIVE ids,
+  // which the static reverse map covers exactly.
   return ({ toolName }: { toolName: string }): boolean =>
-    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
+    !(
+      isApprovalExemptInternalTool(toolName) ||
+      isSelfApprovingNativeTool(denormalizeNativeToolName(toolName))
+    ) &&
+    (isExplicitGlobalApproval || askTools.has(toolName));
 }
 
 async function readResumedApprovalToolCall(
@@ -1871,6 +1885,46 @@ function validateToolResumeAction(action: AssistantToolResumeAction): void {
   }
 }
 
+/**
+ * The suspend-resume transport answers a tool's OWN `suspend()` pause and
+ * nothing else. Refuse when the targeted call is suspended for APPROVAL
+ * (BST-1097): the two pause kinds carry different resume shapes, and a generic
+ * resume payload delivered to an approval pause would reach a self-approving
+ * tool as if its gates were already settled — e.g. `{action:'allow'}` answering
+ * run_python's Gate A would skip the approval card entirely. Mirrors
+ * `readResumedApprovalToolCall`, which enforces the symmetric direction
+ * (`requiresApproval === true`) for the approval transport. A missing run or
+ * tool call fails visibly here with the same typed error family — never a
+ * silent fallthrough to a blind resume.
+ */
+async function assertResumedCallIsSuspendPause(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
+  action: AssistantToolResumeAction
+): Promise<void> {
+  const memoryContext = runtimeData?.memory;
+  const { runs } = await runtime.agent.listSuspendedRuns(
+    memoryContext
+      ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
+      : undefined
+  );
+  const run = runs.find((candidate) => candidate.runId === action.runId);
+  const toolCall = run?.toolCalls.find((candidate) => candidate.toolCallId === action.toolCallId);
+  if (!toolCall) {
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      context: { runId: action.runId, toolCallId: action.toolCallId },
+      detail: 'Suspended tool snapshot is missing the requested tool call.',
+    });
+  }
+  if (toolCall.requiresApproval) {
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      context: { runId: action.runId, toolCallId: action.toolCallId },
+      detail:
+        'The requested tool call is suspended for APPROVAL; answer it through the approval transport, not the suspend-resume transport.',
+    });
+  }
+}
+
 async function createToolResumeIteratorFromRuntime({
   runtime,
   runtimeData,
@@ -1881,6 +1935,7 @@ async function createToolResumeIteratorFromRuntime({
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
   try {
     validateToolResumeAction(action);
+    await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const delegationUsage =
       runtime.personasById.size > 0

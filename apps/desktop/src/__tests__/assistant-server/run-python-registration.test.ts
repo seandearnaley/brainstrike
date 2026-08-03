@@ -57,6 +57,61 @@ describe('run_python registration', () => {
     expect((tool as { resumeSchema?: unknown })?.resumeSchema).toBeTruthy();
   });
 
+  it('NEVER carries the per-tool requireApproval flag — Gate A is self-raised (BST-1097)', () => {
+    // The flag is what made the Gate B resume resolve as "Tool call was not
+    // approved by the user": Mastra re-checks it on every leg, including the
+    // resume that answers the tool's own network suspension. The permission
+    // gate deliberately keeps this tool UNCLONED; a registration that set the
+    // flag here would re-create the dead end upstream of the gate.
+    const tool = toolsFor()[NATIVE_TOOL_ID.runPython];
+    // createTool initializes the field to `false`; the invariant is that it is
+    // never TRUE (truthy is all Mastra's approval step checks).
+    expect((tool as { requireApproval?: unknown })?.requireApproval).not.toBe(true);
+  });
+
+  it("arms Gate A from the REQUEST's permission snapshot: execute:'ask' suspends via the in-tool approval option (BST-1097)", async () => {
+    const tools = toolsFor({
+      permissionPolicyRequest: {
+        enforce: true,
+        policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+      },
+    } as Partial<RuntimeData>);
+    const tool = tools[NATIVE_TOOL_ID.runPython];
+    const suspend = vi.fn(async () => undefined);
+    const result = await tool?.execute?.({ code: 'print(1)' }, {
+      agent: { suspend },
+    } as never);
+
+    // The approval must ride Mastra's requireToolApproval suspend option so it
+    // emits the ordinary tool-call-approval chunk (same card, same grant
+    // surface, same approve/decline transport).
+    expect(suspend).toHaveBeenCalledTimes(1);
+    expect(suspend.mock.calls[0]?.[0]).toEqual({ kind: 'approval' });
+    expect(suspend.mock.calls[0]?.[1]).toMatchObject({ requireToolApproval: true });
+    expect(result).toBeUndefined();
+  });
+
+  it('no enforced policy → no Gate A: the first suspension is Gate B, exactly as before', async () => {
+    const tool = toolsFor()[NATIVE_TOOL_ID.runPython];
+    const suspend = vi.fn(async () => undefined);
+    // No permissionPolicyRequest on the runtime → Gate A resolves 'allow'
+    // (the passthrough posture). A networked call therefore pauses at Gate B
+    // first — the plain suspension, WITHOUT the approval option — before any
+    // host resolution.
+    await tool?.execute?.({ allowedDomains: ['example.com'], code: 'print(1)' }, {
+      agent: { suspend },
+    } as never);
+    expect(suspend).toHaveBeenCalledTimes(1);
+    expect(suspend.mock.calls[0]?.[0]).toEqual({
+      allowedDomains: ['example.com'],
+      kind: 'network',
+    });
+    expect(
+      (suspend.mock.calls[0]?.[1] as { requireToolApproval?: unknown } | undefined)
+        ?.requireToolApproval
+    ).toBeUndefined();
+  });
+
   it('rejects unrestricted egress at the schema: a bare "*" never parses', () => {
     // Gate B makes domains EXPRESSIBLE, but unrestricted egress stays
     // inexpressible: the seam's policyDomainSchema (single source) rejects a

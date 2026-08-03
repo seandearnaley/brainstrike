@@ -89,7 +89,10 @@ async function runPython(
   code: string,
   options: { timeoutMs?: number } = {}
 ): Promise<RunPythonResult> {
-  const tool = createRunPythonTool({ resolveHost: async () => fenceHost() });
+  const tool = createRunPythonTool({
+    resolveApprovalDecision: () => 'allow',
+    resolveHost: async () => fenceHost(),
+  });
   const result = await tool.execute({
     code,
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),

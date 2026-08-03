@@ -301,3 +301,18 @@ describe('network_denied (Gate B, BST-1070)', () => {
     expect(screen.queryByTestId('run-python-result-header')).not.toBeInTheDocument();
   });
 });
+
+describe('declined (Gate A, BST-1097)', () => {
+  it("renders the user's decline honestly — Stopped card, no panes, no failure chrome", () => {
+    renderRunPython({ kind: 'declined' });
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
+      "You didn't approve this, so the script didn't run."
+    );
+    expect(screen.getByTestId('run-python-result-state')).toHaveAttribute('data-state', 'declined');
+    expect(screen.queryByTestId('run-python-stdout')).not.toBeInTheDocument();
+    // The user's choice is a Stopped state, never Failed and never a green
+    // Completed check.
+    expect(screen.getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).not.toBeInTheDocument();
+  });
+});

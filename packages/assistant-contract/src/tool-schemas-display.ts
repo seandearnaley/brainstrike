@@ -545,7 +545,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<NativeToolId, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'A discriminated result: completed (exitCode, stdout, stderr, per-stream omitted byte counts), timed_out, killed, cancelled (partial output), network_denied (deniedDomains — rewrite offline), or unavailable (no sandbox on this machine).',
+      'A discriminated result: completed (exitCode, stdout, stderr, per-stream omitted byte counts), timed_out, killed, cancelled (partial output), network_denied (deniedDomains — rewrite offline), declined (the user did not approve the run), or unavailable (no sandbox on this machine).',
     toolId: 'brainstrike.runPython',
   },
 

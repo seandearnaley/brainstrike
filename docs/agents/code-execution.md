@@ -280,6 +280,36 @@ stub executors) and `run-python-tool.integration.spec.ts` (integration lane,
 REAL Seatbelt/bwrap + a real interpreter). Registered by the desktop
 composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
 
+- **GATE A IS SELF-RAISED (BST-1097, LIVE) — run_python must NEVER carry
+  Mastra's per-tool `requireApproval` flag.** Mastra re-evaluates that static
+  flag on EVERY leg of a run, including the resume that answers the tool's own
+  Gate B suspension; since that resume's data has no `approved` key, the flag
+  made Mastra deny the Gate B allow as "Tool call was not approved by the
+  user" before the tool ever saw it. Mastra's own docs rule the two mechanisms
+  mutually exclusive, so the approval gate moved INTO the tool: when the
+  injected `resolveApprovalDecision()` (REQUIRED factory option; the desktop
+  derives it from the request's permission snapshot via
+  `resolveSelfApprovalDecision`, the same resolver the permission gate uses)
+  returns `'ask'`, execute() suspends FIRST with
+  `suspend({kind:'approval'}, {requireToolApproval: true})` — Mastra's in-tool
+  approval option, which emits the ORDINARY `tool-call-approval` chunk, so the
+  approval card, grant surface, and approve/decline transport are unchanged.
+  The permission gate keeps run_python UNCLONED on `'ask'` (still recorded in
+  `askTools` for the risk reason line + storage fail-safe; omitted loudly if
+  the registered form ever loses its suspendSchema), the resume-leg run-wide
+  approval gate exempts self-approving tools (re-gating one strips the
+  `{approved}` resume before the tool sees it → an unfinishable approval
+  loop), and the suspend-resume transport refuses to answer an approval pause
+  (`assertResumedCallIsSuspendPause`) so `{action:'allow'}` can never leapfrog
+  Gate A. A decline reaches the tool as `{approved:false}` and returns the
+  typed `declined` arm; an `'ask'` decision with no suspension channel refuses
+  with `approval_confirmation_unavailable`, never an unprompted run. The
+  registry is `SELF_APPROVING_NATIVE_TOOL_IDS` (assistant-contract
+  tool-categories). Regression proof: the GATE A + GATE B case in
+  `mastra-tool-suspend-resume.integration.spec.ts` asserts the EXECUTOR ran on
+  the approve→allow path — final-text assertions are vacuous here (the
+  scripted model prints its text regardless of the tool result, which is how
+  the defect shipped green).
 - **NETWORK IS EXPRESSIBLE ONLY THROUGH GATE B (BST-1070, LIVE).** The input
   schema accepts `allowedDomains` (validated by the seam's exported
   `policyDomainSchema` — a bare `*` and single-label wildcards never parse),
@@ -356,12 +386,17 @@ composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
 
 ## Permission engine relationship
 
-Approval/permission gating happens ABOVE this seam. The run_python tool is an
-execute-risk native tool gated by the existing permission engine
-(docs/agents/assistant-runtime.md § PERMISSION ENGINE) — ask/allow/deny and
-approval suspension are decided before `execute()` is ever reached. The seam
-never re-implements or bypasses that gate, and executor errors never
-auto-approve or auto-decline anything.
+Approval/permission gating happens ABOVE this seam — with ONE deliberate
+exception. run_python is an execute-risk native tool whose allow/ask/deny
+DECISION still comes from the existing permission engine
+(docs/agents/assistant-runtime.md § PERMISSION ENGINE), but since BST-1097 the
+`'ask'` decision's ENFORCEMENT lives inside `execute()` (the self-raised Gate A
+above) rather than on Mastra's per-tool `requireApproval` flag: a tool that
+also suspends cannot carry that flag without its own suspend-resume leg being
+denied. `'deny'` still omits the tool from the map before any call, and every
+other execute-risk tool keeps the flag mechanism unchanged. The seam never
+re-implements or bypasses the decision, and executor errors never auto-approve
+or auto-decline anything.
 
 The UX design for that gating — the pre-run approval card, the network
 escalation, the result surface, and the remember-choice scope — is specified in

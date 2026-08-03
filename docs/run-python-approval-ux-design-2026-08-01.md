@@ -43,6 +43,27 @@
 >    `executor_kind_unavailable`'s copy is generalized (the shipped tool only
 >    ever requests the fence, so the "set to a virtual machine" phrasing would
 >    have claimed a configuration that cannot exist yet).
+> 7. **Gate A's MECHANISM moved off the per-tool `requireApproval` flag
+>    (BST-1097, 2026-08-02) — its SURFACE did not move.** §2's assumption that
+>    Gate A could ride the flag while Gate B rides `suspend()` was wrong in
+>    live use: Mastra re-evaluates the flag on every leg, so the Gate B resume
+>    (`{action:'allow'}`, no `approved` key) was denied as "Tool call was not
+>    approved by the user" before the tool saw it — Mastra's documented
+>    contract makes the two mechanisms mutually exclusive. Gate A is now
+>    raised from inside `execute()` via Mastra's in-tool approval suspension
+>    (`suspend({kind:'approval'}, {requireToolApproval:true})`), which emits
+>    the SAME `tool-call-approval` chunk — §2.1's mount chain, the §2.3 card,
+>    §2.2's `executionContext`, and every grant action are untouched, and §0's
+>    load-bearing asymmetry (Gate A grantable, Gate B structurally
+>    ungrantable) is preserved: the grant surface still lives on the approval
+>    channel only, and the PLAIN suspension channel still has none. The `'ask'`
+>    decision itself still comes from the permission engine, injected as the
+>    factory's required `resolveApprovalDecision`. New alongside: the typed
+>    `declined` result arm (a decline now resumes the tool), the
+>    `approval_confirmation_unavailable` refusal (an `'ask'` call with no
+>    suspension channel never runs unprompted), and the transport rule that a
+>    suspend-resume can never answer an approval pause. Details:
+>    docs/agents/code-execution.md § GATE A IS SELF-RAISED.
 >
 > This document remains the authority for Gate B and everything §3/§5 rules
 > on; read the deviations above as amendments to §2/§4/§6.
