@@ -1,5 +1,6 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import type { useToast } from '@brainstrike/ui';
+import { downloadBlobFile } from '@brainstrike/utils/browser-download';
 import { useCallback } from 'react';
 import {
   createCSVBlob,
@@ -34,13 +35,7 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('files');
 
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+      await downloadBlobFile({ blob, filename });
 
       toast({
         description: `Exported ${records.length} files to ${filename}`,
@@ -71,13 +66,7 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('chunks');
 
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+      await downloadBlobFile({ blob, filename });
 
       toast({
         description: `Exported ${chunks.length} chunks to ${filename}`,
@@ -109,13 +98,7 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('embeddings');
 
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+      await downloadBlobFile({ blob, filename });
 
       toast({
         description: `Exported ${chunksWithEmbeddings.length} embeddings to ${filename}`,

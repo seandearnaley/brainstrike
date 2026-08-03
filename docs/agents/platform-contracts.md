@@ -900,15 +900,18 @@ delivery.
 `@brainstrike/utils/browser-download`; pure-half tests
 `packages/utils/src/__tests__/browser-download.test.ts`, DOM-half tests
 `packages/ui/src/__tests__/debug-bundle-download.test.ts` because the utils
-package's vitest environment is `node`). Exactly three call sites today:
+package's vitest environment is `node`; the desktop-bridge route is covered in
+the node-env file since it needs no DOM). Four export surfaces today:
 `formatDebugBundleFilename` / `downloadDebugBundleFile`, `log-viewer.tsx`'s
-`brainstrike-logs-….json`, and `logging-settings-section.tsx`'s
-`brainstrike-errors-…[-recent<N>].ndjson`. It is the idiom for NEW download
-paths, but it is not yet the app's only one: the DB explorer's CSV/ZIP exports
-(`packages/db-explorer/src/hooks/use-export-handlers.ts`) still build names via
-their own `generateCSVFilename` (`csv-export-core.ts`) and hand-roll the save,
-so none of the guarantees below apply there. Migrating them is open work — do
-not read this section as already covering them.
+`brainstrike-logs-….json`, `logging-settings-section.tsx`'s
+`brainstrike-errors-…[-recent<N>].ndjson`, and the DB explorer's CSV/ZIP
+exports (`packages/db-explorer/src/hooks/use-export-handlers.ts` /
+`csv-export-utils.ts`). The SAVE half is fully consolidated — every surface
+calls `downloadBlobFile`; a call site that hand-rolls an anchor save is a
+regression (all of them got a half wrong, in different ways, before BST-946).
+The FILENAME half is consolidated for the first three; the DB explorer still
+builds names via its own `generateCSVFilename` (`csv-export-core.ts`) — that
+residual divergence is the remaining open work.
 
 `formatTimestampedDownloadFilename` builds
 `${name}-${UTC ISO, colons→hyphens, no millis}[-${suffix}].${extension}` and is
@@ -923,25 +926,37 @@ measure a segment before handing it over (the debug bundle truncates a run id
 to 8 characters and wants 8 USABLE ones) — do not keep a private copy of that
 charset; two copies that must agree would drift silently.
 
-`downloadBlobFile` owns the Blob → object URL → anchor → revoke save and the
-object URL's whole lifetime: the revoke is DEFERRED a macrotask
-(`setTimeout(…, 0)`) on the success path and IMMEDIATE when the click threw.
-Chromium starts the download during click dispatch, but WebKit can fetch the
-blob a task later, so a synchronous revoke silently drops the file there; the
-immediate revoke on the throwing path is what stops a user retrying a failing
-export from pinning one full payload per attempt. Because the helper owns both
-halves, no call site restates either — a call site that hand-rolls the anchor
-will get one half wrong (all three did, in different ways, before BST-946).
-Tests must therefore assert the revoke through `waitFor`/timer-drain rather
-than synchronously, and a test that mocks `URL.revokeObjectURL` must drain the
-pending macrotask before restoring the spy or the timer lands on the next
-test's spy. Outside a DOM it THROWS rather than no-opping. The button's phase
-machine tags every non-idle phase with its action (`copy` | `download`) so one
-action's spinner/result/error never appears on the other's button, and both
-failure paths render inline (`Copy failed: …` / `Download failed: …`) in an
-`aria-live` region. A destination picker (File System Access
-`showSaveFilePicker`) was deliberately NOT added — anchor download is the
-codebase idiom and needs no capability branch. `DEBUG_BUNDLE_FORMAT_VERSION = 1` is stamped in
+`downloadBlobFile` is async and has TWO routes, selected by capability (never
+`isElectron()`). Desktop: the Electron preload exposes `window.fileExports`
+(`file-exports:save-to-downloads` → `apps/desktop/src/ipc-file-exports-handlers.ts`),
+and MAIN writes the bytes into the OS Downloads folder with `fs` — no object
+URL and no Chromium download item at all, because live CDP probing
+(2026-08-03) showed a blob download whose URL is revoked mid-flight can wedge
+as a permanently in-progress download item, and wedged items then jam later
+downloads for the whole session. Main re-validates the renderer-supplied
+filename against the same `[a-zA-Z0-9._-]` charset (no separators, so no
+escape from Downloads), and the write is exclusive-create (`O_EXCL`) with a
+Chromium-style ` (n)` counter — it NEVER overwrites. A `{ ok: false }` result
+becomes a throw at the call site, and a PRESENT-but-malformed bridge throws
+rather than falling back to the anchor route — falling back would silently
+reintroduce the wedge-prone pipeline (NO SILENT FALLBACKS).
+Web (bridge absent): the Blob → object URL → anchor → revoke save, where the
+helper owns the object URL's whole lifetime: the revoke is DEFERRED a
+macrotask (`setTimeout(…, 0)`) on the success path and IMMEDIATE when the
+click threw. Chromium starts the download during click dispatch, but WebKit
+can fetch the blob a task later, so a synchronous revoke silently drops the
+file there; the immediate revoke on the throwing path is what stops a user
+retrying a failing export from pinning one full payload per attempt. Tests of
+the anchor route must therefore assert the revoke through `waitFor`/timer-drain
+rather than synchronously, and a test that mocks `URL.revokeObjectURL` must
+drain the pending macrotask before restoring the spy or the timer lands on the
+next test's spy. With neither bridge nor DOM it THROWS rather than no-opping.
+The button's phase machine tags every non-idle phase with its action
+(`copy` | `download`) so one action's spinner/result/error never appears on
+the other's button, and both failure paths render inline (`Copy failed: …` /
+`Download failed: …`) in an `aria-live` region. A destination picker (File
+System Access `showSaveFilePicker`) was deliberately NOT added — exports go to
+the Downloads folder on both routes without prompting. `DEBUG_BUNDLE_FORMAT_VERSION = 1` is stamped in
 the rendered header (`bundle_format: 1`) so future format changes are
 detectable by consumers. Bounded to `DEBUG_BUNDLE_DEFAULT_MAX_BYTES` (200,000
 bytes measured via `TextEncoder`, byte length not char length); when over

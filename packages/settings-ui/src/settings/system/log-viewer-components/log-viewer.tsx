@@ -623,7 +623,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     }
   };
 
-  const handleExportLogs = () => {
+  const handleExportLogs = async () => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -641,16 +641,26 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
       type: 'application/json',
     });
-    // `downloadBlobFile` owns the object URL's lifetime — deferred revoke on
-    // the success path, immediate on the throwing one.
-    downloadBlobFile({
-      blob,
-      filename: formatTimestampedDownloadFilename({
-        extension: 'json',
-        generatedAt: new Date(),
-        name: 'brainstrike-logs',
-      }),
-    });
+    try {
+      // `downloadBlobFile` resolves via the desktop save bridge when it
+      // exists; on the web anchor route it owns the object URL's lifetime —
+      // deferred revoke on the success path, immediate on the throwing one.
+      await downloadBlobFile({
+        blob,
+        filename: formatTimestampedDownloadFilename({
+          extension: 'json',
+          generatedAt: new Date(),
+          name: 'brainstrike-logs',
+        }),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        description: message,
+        title: 'Failed to export logs',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleSortNewestFirstChange = useCallback((value: boolean) => {

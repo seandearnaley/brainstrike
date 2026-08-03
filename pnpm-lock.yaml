@@ -1750,9 +1750,6 @@ importers:
       '@brainstrike/vector-management':
         specifier: workspace:*
         version: link:../vector-management
-      file-saver:
-        specifier: 'catalog:'
-        version: 2.0.5
       jszip:
         specifier: 'catalog:'
         version: 3.10.1
@@ -1778,9 +1775,6 @@ importers:
       '@testing-library/user-event':
         specifier: 'catalog:'
         version: 14.6.1(@testing-library/dom@10.4.1)
-      '@types/file-saver':
-        specifier: 'catalog:'
-        version: 2.0.7
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0

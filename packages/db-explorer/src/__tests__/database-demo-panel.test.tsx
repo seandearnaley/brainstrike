@@ -393,8 +393,8 @@ vi.mock('./csv-export-utils', () => ({
   generateFilesWithChunksCSV: vi.fn().mockReturnValue('file,chunks\ntest,file'),
 }));
 
-vi.mock('file-saver', () => ({
-  saveAs: vi.fn(),
+vi.mock('@brainstrike/utils/browser-download', () => ({
+  downloadBlobFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({

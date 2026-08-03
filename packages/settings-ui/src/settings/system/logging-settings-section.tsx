@@ -427,10 +427,11 @@ export function LoggingSettingsSection({
         // NDJSON body stays pure NDJSON — no metadata line — so "every line
         // is a diagnostic event" still holds for the file contents.
         //
-        // `downloadBlobFile` owns the object URL's lifetime, so a click that
-        // throws into the catch below cannot leak one export's worth of NDJSON
-        // per retry.
-        downloadBlobFile({
+        // `downloadBlobFile` resolves via the desktop save bridge when it
+        // exists; on the web anchor route it owns the object URL's lifetime,
+        // so a click that throws into the catch below cannot leak one
+        // export's worth of NDJSON per retry.
+        await downloadBlobFile({
           blob: new Blob([ndjson], { type: 'application/x-ndjson' }),
           filename: formatTimestampedDownloadFilename({
             extension: 'ndjson',

@@ -10,6 +10,7 @@ export type DesktopIpcDomain =
   | 'db'
   | 'diagnostics'
   | 'embeddings'
+  | 'fileExports'
   | 'files'
   | 'git'
   | 'hooks'
