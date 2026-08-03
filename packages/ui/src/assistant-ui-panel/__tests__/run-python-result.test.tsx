@@ -302,6 +302,31 @@ describe('network_denied (Gate B, BST-1070)', () => {
   });
 });
 
+describe('gate refusal reasons (BST-1097)', () => {
+  it('approval_confirmation_unavailable renders purpose-written copy, not the raw tool detail', () => {
+    renderRunPython({
+      detail:
+        'No suspension channel is available, so the required run approval could not be requested.',
+      kind: 'unavailable',
+      reason: 'approval_confirmation_unavailable',
+    });
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
+      /needed your approval and there was no way to ask you for it/i
+    );
+  });
+
+  it("resume_unrecognized says the answer couldn't be read — never that the user declined", () => {
+    renderRunPython({
+      detail: 'The resume data did not match either gate decision shape.',
+      kind: 'unavailable',
+      reason: 'resume_unrecognized',
+    });
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(/couldn't be read/i);
+    expect(screen.queryByText(/you didn't approve/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/fresh prompt/i)).toBeInTheDocument();
+  });
+});
+
 describe('declined (Gate A, BST-1097)', () => {
   it("renders the user's decline honestly — Stopped card, no panes, no failure chrome", () => {
     renderRunPython({ kind: 'declined' });

@@ -297,13 +297,20 @@ composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
   The permission gate keeps run_python UNCLONED on `'ask'` (still recorded in
   `askTools` for the risk reason line + storage fail-safe; omitted loudly if
   the registered form ever loses its suspendSchema), the resume-leg run-wide
-  approval gate exempts self-approving tools (re-gating one strips the
-  `{approved}` resume before the tool sees it → an unfinishable approval
-  loop), and the suspend-resume transport refuses to answer an approval pause
+  approval gate exempts self-approving tools from its ASK-SET half — and ONLY
+  that half: re-gating an ask-set tool strips the `{approved}` resume before
+  the tool sees it (an unfinishable approval loop), but the EXPLICIT GLOBAL
+  posture (`permissionEnforced === false` + caller-requested
+  `requireToolApproval: true`) still gates them, because with no snapshot the
+  injected decision resolves `'allow'` and the in-tool gate is inert — and
+  the suspend-resume transport refuses to answer an approval pause
   (`assertResumedCallIsSuspendPause`) so `{action:'allow'}` can never leapfrog
   Gate A. A decline reaches the tool as `{approved:false}` and returns the
   typed `declined` arm; an `'ask'` decision with no suspension channel refuses
-  with `approval_confirmation_unavailable`, never an unprompted run. The
+  with `approval_confirmation_unavailable`, never an unprompted run; and
+  resume data matching NEITHER gate shape refuses with `resume_unrecognized`
+  rather than mislabelling a transport drift as a user decision (`declined`
+  and `network_denied` are reserved for answers the user actually gave). The
   registry is `SELF_APPROVING_NATIVE_TOOL_IDS` (assistant-contract
   tool-categories). Regression proof: the GATE A + GATE B case in
   `mastra-tool-suspend-resume.integration.spec.ts` asserts the EXECUTOR ran on

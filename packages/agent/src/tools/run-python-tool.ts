@@ -60,7 +60,8 @@ export type RunPythonUnavailableReason =
   | 'network_confirmation_unavailable'
   | 'network_unsupported'
   | 'no_sandbox_configured'
-  | 'resolve_timed_out';
+  | 'resolve_timed_out'
+  | 'resume_unrecognized';
 
 /**
  * The model-facing result. A discriminated union rather than a flat object
@@ -541,17 +542,22 @@ async function passRunPythonGates(params: {
       break;
     }
     default: {
-      // Unrecognized resume data: fail SAFE on whichever gate is pending —
-      // never run. A drifted shape on a networked call denies the domains
-      // (the pre-BST-1097 rule, kept); anything else reads as an unanswered
-      // approval.
-      if (requestedDomains.length > 0) {
-        return {
-          kind: 'settled',
-          result: { deniedDomains: requestedDomains, kind: 'network_denied' },
-        };
-      }
-      return { kind: 'settled', result: { kind: 'declined' } };
+      // Unrecognized resume data: fail SAFE and fail VISIBLE — never run,
+      // and never attribute the outcome to a user decision the user did not
+      // make. `declined` means the user clicked Decline and `network_denied`
+      // means they clicked Don't allow; a drifted shape is neither, so
+      // labelling it as either would tell an approving user they refused.
+      // The typed refusal keeps both gates unanswered: asking again yields a
+      // fresh prompt.
+      return {
+        kind: 'settled',
+        result: {
+          detail:
+            'The resume data did not match either gate decision shape, so the answer could not be read.',
+          kind: 'unavailable',
+          reason: 'resume_unrecognized',
+        },
+      };
     }
   }
 

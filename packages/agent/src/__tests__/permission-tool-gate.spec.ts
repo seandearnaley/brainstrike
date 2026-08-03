@@ -315,4 +315,18 @@ describe('resolveSelfApprovalDecision', () => {
       )
     ).toBe('ask');
   });
+
+  it('resolves risk under EITHER name form, exactly like the gate (a sanitized-keyed riskByTool must not fall back to mcc/allow)', () => {
+    // The gate resolves risk as riskByTool[original] ?? riskByTool[sanitized]
+    // ?? defaultRisk. If this helper looked up only the dotted form, a
+    // sanitized-keyed snapshot would miss, fall back to defaultRisk 'mcp'
+    // (→ 'allow'), and Gate A would never be raised while the gate kept the
+    // tool uncloned — an unprompted run (PR #2236 review).
+    expect(
+      resolveSelfApprovalDecision(
+        snapshot({ riskByTool: { brainstrike_runPython: 'execute' } }),
+        TOOL_ID
+      )
+    ).toBe('ask');
+  });
 });

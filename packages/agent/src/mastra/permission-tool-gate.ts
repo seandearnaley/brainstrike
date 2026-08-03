@@ -47,6 +47,7 @@ import {
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { hasSuspendSchema } from './plan-mode-tool-gate';
+import { sanitizeToolName } from './tool-sanitizer';
 
 export type { PermissionToolGateSnapshot };
 
@@ -334,7 +335,12 @@ export function resolveSelfApprovalDecision(
   if (!snapshot) {
     return 'allow';
   }
-  const riskCategory = riskForTool(snapshot, toolId, toolId);
+  // Same DUAL name-form lookup as the gate's own resolution: `riskByTool` may
+  // be keyed by the original dotted id OR the Mastra-sanitized id, and the
+  // gate accepts either. Passing only the dotted form here would fall back to
+  // `defaultRisk` ('mcp' → 'allow') for a sanitized-keyed snapshot — an
+  // unprompted run, the exact drift this helper exists to make impossible.
+  const riskCategory = riskForTool(snapshot, toolId, sanitizeToolName(toolId));
   const decision = resolvePermissionDecision({
     policies: snapshot.policies,
     riskCategory,

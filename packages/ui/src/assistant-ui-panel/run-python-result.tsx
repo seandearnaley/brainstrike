@@ -43,15 +43,25 @@ interface RunPythonCleanupDisplay {
 
 /**
  * Copy for the didn't-run states, one per typed reason (design §6.4, adjusted
- * to the SHIPPED reason set — `interpreter_unavailable` and
- * `resolve_timed_out` exist, the network-gate reasons do not yet). An
- * unrecognised reason returns `null` and renders the generic headline with
- * the tool's own detail below: a diagnosis this build cannot make is not
- * invented. (A switch, not a keyed record: the reasons are snake_case wire
- * values, not identifiers.)
+ * to the SHIPPED reason set, which now includes both gate-confirmation
+ * refusals and the BST-1097 unrecognized-resume refusal). An unrecognised
+ * reason returns `null` and renders the generic headline with the tool's own
+ * detail below: a diagnosis this build cannot make is not invented. (A
+ * switch, not a keyed record: the reasons are snake_case wire values, not
+ * identifiers.)
  */
 function unavailableCopy(reason: string): { headline: string; sub?: string } | null {
   switch (reason) {
+    case 'approval_confirmation_unavailable':
+      return {
+        headline:
+          'Nothing ran — this script needed your approval and there was no way to ask you for it.',
+      };
+    case 'resume_unrecognized':
+      return {
+        headline: "Nothing ran — the answer to this script's prompt couldn't be read.",
+        sub: "Ask again and you'll get a fresh prompt.",
+      };
     case 'executor_kind_unavailable':
       return {
         headline:

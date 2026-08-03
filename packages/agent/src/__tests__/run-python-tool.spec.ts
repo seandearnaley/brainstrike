@@ -613,12 +613,15 @@ describe('Gate B network escalation (BST-1070)', () => {
     expect(stub.dispose).not.toHaveBeenCalled();
   });
 
-  it('UNRECOGNISED resumeData NEVER executes and NEVER grants — junk is rejected or denied, both fail safe', async () => {
+  it('UNRECOGNISED resumeData NEVER executes and NEVER grants — junk is rejected or refused, both fail safe', async () => {
     // Two layers fail safe here and this pins the PROPERTY, not the layer:
     // Mastra's createTool wrapper rejects resume data that fails the strict
     // resumeSchema (an error-shaped result, execute never runs), and the
-    // tool's own readNetworkDecision treats anything that is not EXACTLY
-    // {action:'allow'} as deny. Either way: no executor call, no grant.
+    // tool's own narrowing refuses anything that is not exactly a gate
+    // decision — with the typed `resume_unrecognized` refusal, NEVER an arm
+    // that attributes the outcome to a user decision (a drifted shape is
+    // neither a decline nor a network deny; BST-1097 review). Either way: no
+    // executor call, no grant.
     const stub = stubFence(async () => execResult());
     for (const junk of [
       { action: 'approved' },
@@ -631,8 +634,10 @@ describe('Gate B network escalation (BST-1070)', () => {
         hostWith(stub),
         { allowedDomains: ['pypi.org'], code: 'print(1)' },
         { agent: { resumeData: junk } }
-      )) as { error?: boolean; kind?: string };
-      const failedSafe = result?.error === true || result?.kind === 'network_denied';
+      )) as { error?: boolean; kind?: string; reason?: string };
+      const failedSafe =
+        result?.error === true ||
+        (result?.kind === 'unavailable' && result?.reason === 'resume_unrecognized');
       expect(failedSafe).toBe(true);
     }
     expect(stub.inputs).toHaveLength(0);
@@ -815,12 +820,20 @@ describe('Gate A self-raised approval (BST-1097)', () => {
     expect(result).toMatchObject({ kind: 'completed' });
   });
 
-  it('junk resume on an OFFLINE ask-gated call reads as an unanswered approval: declined, never a run', async () => {
+  it('junk resume on an OFFLINE ask-gated call is a typed refusal — never a run, and never reported as a user decision', async () => {
+    // {approved:'yes'} fails the wrapper's resume-schema validation (an
+    // error-shaped result) before the tool's own narrowing would refuse it
+    // with resume_unrecognized. Either layer: no run, and no arm claiming
+    // the user declined something they may have approved.
     const stub = stubFence(async () => execResult());
-    const result = await askTool(stub).execute({ code: 'print(1)' }, {
+    const result = (await askTool(stub).execute({ code: 'print(1)' }, {
       agent: { resumeData: { approved: 'yes' } },
-    } as never);
-    expect((result as { error?: boolean; kind?: string })?.kind ?? 'error').not.toBe('completed');
+    } as never)) as { error?: boolean; kind?: string; reason?: string };
+    const failedSafe =
+      result?.error === true ||
+      (result?.kind === 'unavailable' && result?.reason === 'resume_unrecognized');
+    expect(failedSafe).toBe(true);
+    expect(result?.kind).not.toBe('declined');
     expect(stub.inputs).toHaveLength(0);
   });
 });

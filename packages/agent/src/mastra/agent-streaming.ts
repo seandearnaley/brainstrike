@@ -1369,19 +1369,24 @@ function resolveResumeApprovalGate(
   // all-allowed posture: the function below then gates nothing (askTools.has is
   // always false), honoring "Allow all tools this session".
   const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
-  // SELF-APPROVING suspending tools (BST-1097) are exempt from this run-wide
-  // gate: they raise Gate A themselves inside execute(). Re-gating one here
-  // would make Mastra consume the {approved} resume before the tool sees it —
-  // the tool then re-runs with NO resume data and suspends Gate A again, an
-  // approval loop that can never complete. `toolName` is the Mastra-REGISTERED
-  // (sanitized) id; the self-approving registry is keyed by dotted NATIVE ids,
-  // which the static reverse map covers exactly.
+  // SELF-APPROVING suspending tools (BST-1097) are exempt from the ASK-SET
+  // half of this run-wide gate: under an enforced policy they raise Gate A
+  // themselves inside execute(), and re-gating one here would make Mastra
+  // consume the {approved} resume before the tool sees it — the tool then
+  // re-runs with NO resume data and suspends Gate A again, an approval loop
+  // that can never complete. The exemption deliberately does NOT extend to
+  // the EXPLICIT GLOBAL posture: there `permissionEnforced === false`, so the
+  // tool's injected decision resolves 'allow' and its in-tool gate is inert —
+  // exempting it would make run_python the one execute-risk tool the global
+  // request never prompts for. Gating it globally is loop-free precisely
+  // because the inert self-gate never re-suspends after the framework
+  // consumes the approval. `toolName` is the Mastra-REGISTERED (sanitized)
+  // id; the self-approving registry is keyed by dotted NATIVE ids, which the
+  // static reverse map covers exactly.
   return ({ toolName }: { toolName: string }): boolean =>
-    !(
-      isApprovalExemptInternalTool(toolName) ||
-      isSelfApprovingNativeTool(denormalizeNativeToolName(toolName))
-    ) &&
-    (isExplicitGlobalApproval || askTools.has(toolName));
+    !isApprovalExemptInternalTool(toolName) &&
+    (isExplicitGlobalApproval ||
+      (askTools.has(toolName) && !isSelfApprovingNativeTool(denormalizeNativeToolName(toolName))));
 }
 
 async function readResumedApprovalToolCall(

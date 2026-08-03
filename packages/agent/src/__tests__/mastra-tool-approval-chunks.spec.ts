@@ -631,6 +631,12 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(typeof approveGate).toBe('function');
     expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(true);
+    // Self-approving tools are NOT exempt from the explicit-global posture:
+    // with no permission snapshot their in-tool Gate A resolves 'allow' and
+    // is inert, so the global gate is the only prompt run_python would get
+    // here (BST-1097 review — the ask-set exemption must not leak into this
+    // posture).
+    expect(approveGate({ toolName: 'brainstrike_runPython' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
       finishReason: 'stop',
@@ -643,6 +649,64 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         promptTokens: 2,
       },
     });
+  });
+
+  it('exempts a self-approving ask tool from the resume gate under an ENFORCED policy — while ordinary ask tools stay gated (BST-1097)', async () => {
+    // Under an enforced ask set the self-approving tool raises Gate A inside
+    // execute(); re-gating it here would make Mastra consume the {approved}
+    // resume before the tool sees it (an unfinishable approval loop). The
+    // exemption is scoped to THIS posture — the explicit-global case above
+    // pins the opposite direction.
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+            riskByTool: { 'brainstrike.runPython': 'execute', 'workspace.writeFile': 'edit' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+          'workspace.writeFile': { execute: async () => ({}), id: 'workspace.writeFile' },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    const enforcedGate = (
+      agentInstances.at(-1)?.approveToolCallCalls[0] as
+        | { requireToolApproval?: unknown }
+        | undefined
+    )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
+    expect(typeof enforcedGate).toBe('function');
+    // Self-approving + in the enforced ask set → exempt (self-gates in-tool).
+    expect(enforcedGate({ toolName: 'brainstrike_runPython' })).toBe(false);
+    // Ordinary ask tool on the same leg stays gated.
+    expect(enforcedGate({ toolName: 'workspace_writeFile' })).toBe(true);
   });
 
   it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {

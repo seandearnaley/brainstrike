@@ -1155,10 +1155,16 @@ Flow (desktop assistant server → agent runtime):
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
    `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt — as are
-   the SELF-APPROVING suspending tools (BST-1097): re-gating one on the resume
-   leg would make Mastra consume its `{approved}` resume before the tool sees
-   it, so the tool re-runs with no resume data and suspends Gate A again — an
-   approval loop that can never complete. The symmetric transport rule also
+   the SELF-APPROVING suspending tools (BST-1097), but ONLY from the ASK-SET
+   half: re-gating one there would make Mastra consume its `{approved}` resume
+   before the tool sees it, so the tool re-runs with no resume data and
+   suspends Gate A again — an approval loop that can never complete. The
+   EXPLICIT GLOBAL posture still gates them: with `permissionEnforced ===
+   false` there is no snapshot, the injected decision resolves `'allow'`, and
+   the in-tool gate is inert — exempting them there would make run_python the
+   one execute-risk tool a global approval request never prompts for (and the
+   loop cannot occur, because the inert self-gate never re-suspends after the
+   framework consumes the approval). The symmetric transport rule also
    holds: `streamMastraToolResumeAction` verifies via
    `assertResumedCallIsSuspendPause` that the targeted call is suspended on a
    PLAIN `suspend()` pause (`requiresApproval === false` in the snapshot) —
