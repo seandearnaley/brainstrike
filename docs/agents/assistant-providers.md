@@ -33,7 +33,7 @@
   bare-call `fetch` captures elsewhere in the repo are unaffected.
   A `vi.fn()` mock can never catch this: a plain function is indifferent to its
   receiver. Regression cover must be receiver-aware — see
-  `packages/assistant-contract/src/__tests__/local-runtime-fetch-receiver.test.ts`,
+  `packages/local-runtime/src/__tests__/local-runtime-fetch-receiver.test.ts`,
   which uses both a receiver-sensitive and a receiver-recording fetch (the
   latter is what pins the bind; the former cannot, since it tolerates
   `undefined`).
