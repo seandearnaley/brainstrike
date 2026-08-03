@@ -97,14 +97,6 @@ export default defineConfig({
         replacement: resolve(__dirname, '../queue/src/index.ts'),
       },
       ...createAgentBrowserSafeAliasEntries(resolve(__dirname, '../agent')),
-      {
-        find: /^@brainstrike\/preferences\/(.*)$/,
-        replacement: resolve(__dirname, '../preferences/src/$1'),
-      },
-      {
-        find: '@brainstrike/preferences',
-        replacement: resolve(__dirname, '../preferences/src/index.ts'),
-      },
       // Registry fills gaps (e.g. the @brainstrike/embeddings ROOT specifier,
       // executed via importOriginal in vector-queue-service.test.ts — only the
       // subpaths were aliased above). Hand-rolled entries win by first-match.

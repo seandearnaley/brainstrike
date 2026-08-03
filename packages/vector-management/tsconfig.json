@@ -34,7 +34,7 @@
       "path": "../indexing-contract"
     },
     {
-      "path": "../preferences"
+      "path": "../app-state"
     },
     {
       "path": "../ui"

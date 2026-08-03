@@ -89,7 +89,7 @@ A brief overview of the main entries within `apps/web/src/`:
 -   **`main.tsx`**: The main entry point for the React application.
 -   **`vite-env.d.ts`**: TypeScript definitions for Vite environment variables.
 
-Reusable UI components, hooks, and stores are sourced from shared packages (`@brainstrike/ui`, `@brainstrike/hooks`, `@brainstrike/app-shell`, `@brainstrike/preferences`, etc.) rather than living under `apps/web/src/`.
+Reusable UI components, hooks, and stores are sourced from shared packages (`@brainstrike/ui`, `@brainstrike/hooks`, `@brainstrike/app-shell`, `@brainstrike/app-state`, `@brainstrike/settings-ui`, etc.) rather than living under `apps/web/src/`.
 
 ## Environment Variables
 

@@ -1,11 +1,26 @@
 import { render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantChatPanel } from '../assistant-chat-panel';
 
-const { assistantUiPanelWrapperLazyMock } = vi.hoisted(() => ({
+const { assistantProviderSourceProviderMock, assistantUiPanelWrapperLazyMock } = vi.hoisted(() => ({
+  assistantProviderSourceProviderMock: vi.fn(),
   assistantUiPanelWrapperLazyMock: vi.fn((_props: Record<string, unknown>) => (
     <div>Assistant UI Panel</div>
   )),
+}));
+
+vi.mock('../hooks/assistant-provider-source', () => ({
+  AssistantProviderSourceProvider: ({
+    children,
+    source,
+  }: {
+    children: ReactNode;
+    source: unknown;
+  }) => {
+    assistantProviderSourceProviderMock(source);
+    return <>{children}</>;
+  },
 }));
 
 vi.mock('../hooks/use-assistant-availability-with-local', () => ({
@@ -24,6 +39,7 @@ const useAssistantAvailabilityWithLocalMock = vi.mocked(useAssistantAvailability
 
 describe('AssistantChatPanel', () => {
   beforeEach(() => {
+    assistantProviderSourceProviderMock.mockClear();
     assistantUiPanelWrapperLazyMock.mockClear();
     useAssistantAvailabilityWithLocalMock.mockReset();
   });
@@ -124,12 +140,10 @@ describe('AssistantChatPanel', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText('MCP banner')).not.toBeInTheDocument();
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
-    expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerSeeds: ['openai', 'local'],
-      }),
-      undefined
-    );
+    expect(assistantProviderSourceProviderMock).toHaveBeenCalledWith({
+      kind: 'discovery',
+      seeds: ['openai', 'local'],
+    });
   });
 
   it('passes provider read failures to the enabled assistant UI', async () => {
@@ -195,10 +209,13 @@ describe('AssistantChatPanel', () => {
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         fixedProviderModels: { openai: ['gpt-5.6-terra'] },
-        initialProviders: ['openai'],
       }),
       undefined
     );
+    expect(assistantProviderSourceProviderMock).toHaveBeenCalledWith({
+      kind: 'authoritative',
+      providers: ['openai'],
+    });
   });
 
   it('fixes every Hosted Web provider to its registry default model', async () => {
@@ -220,10 +237,13 @@ describe('AssistantChatPanel', () => {
           openai: ['gpt-5.6-terra'],
           openrouter: ['openai/gpt-5.6-terra'],
         },
-        initialProviders: ['openai', 'anthropic', 'google', 'openrouter'],
       }),
       undefined
     );
+    expect(assistantProviderSourceProviderMock).toHaveBeenCalledWith({
+      kind: 'authoritative',
+      providers: ['openai', 'anthropic', 'google', 'openrouter'],
+    });
   });
 
   it('keeps fixed provider models referentially stable across equivalent renders', () => {

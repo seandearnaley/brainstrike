@@ -249,12 +249,12 @@ describe('assistant vite helpers', () => {
   test('classifies only the shared sanitized persist merge helper', () => {
     expect(
       isSanitizedPersistMergeModule(
-        '/workspace/packages/preferences/src/stores/sanitized-persist-merge.ts'
+        '/workspace/packages/app-state/src/stores/sanitized-persist-merge.ts'
       )
     ).toBe(true);
     expect(
       isSanitizedPersistMergeModule(
-        String.raw`C:\workspace\packages\preferences\dist\stores\sanitized-persist-merge.js`
+        String.raw`C:\workspace\packages\app-state\dist\stores\sanitized-persist-merge.js`
       )
     ).toBe(true);
     expect(
@@ -264,7 +264,7 @@ describe('assistant vite helpers', () => {
     ).toBe(false);
     expect(
       isSanitizedPersistMergeModule(
-        '/workspace/packages/preferences/src/stores/diagnostics-retention-store.ts'
+        '/workspace/packages/app-state/src/stores/diagnostics-retention-store.ts'
       )
     ).toBe(false);
   });

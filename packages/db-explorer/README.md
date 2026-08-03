@@ -36,7 +36,7 @@ Owned files:
 Allowed dependencies:
 
 - `@brainstrike/db` repository and live-query contracts.
-- `@brainstrike/preferences` database/vector status stores.
+- `@brainstrike/app-state` database/vector status stores.
 - `@brainstrike/text-splitter` only inside mapper helpers for resolved chunking strategy validation.
 
 Focused local verification:
@@ -84,7 +84,7 @@ Import files with chunking and embedding:
 
 ```typescript
 import { EnhancedFileImportService } from '@brainstrike/db-explorer';
-import { useImportSettingsStore } from '@brainstrike/preferences';
+import { useImportSettingsStore } from '@brainstrike/app-state/stores/import-settings-store';
 
 async function importFiles(files: File[]) {
   const settings = useImportSettingsStore.getState();
@@ -312,7 +312,7 @@ import type {
 - `@brainstrike/embeddings` - Embedding generation
 - `@brainstrike/file-system` - File operations
 - `@brainstrike/platform-utils` - Platform detection
-- `@brainstrike/preferences` - Import settings
+- `@brainstrike/app-state` - Import settings
 - `@brainstrike/ui` - UI components
 - `@brainstrike/utils` - Common utilities
 - `file-saver` - File download utility

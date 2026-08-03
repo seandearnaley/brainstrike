@@ -1,4 +1,4 @@
-import { useAssistantBudgetPreferencesStore } from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
+import { useAssistantBudgetPreferencesStore } from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
 import {
   Card,
   CardContent,

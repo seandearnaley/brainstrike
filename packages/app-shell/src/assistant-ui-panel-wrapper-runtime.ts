@@ -1,3 +1,4 @@
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   type AnthropicProviderOptions,
   DESKTOP_NATIVE_TOOL_IDS,
@@ -53,7 +54,6 @@ import {
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
 } from '@brainstrike/local-runtime';
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import {
   getGoogleThinkingLevels,
   resolveTapestryColorHex,
@@ -717,7 +717,7 @@ export function toRuntimeWorkspaceContext(
 }
 
 export function resolveAssistantProviderDisabledReason(args: {
-  configuredProviders: SupportedProvider[];
+  configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
   getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
   localRuntimeHint: string | undefined;

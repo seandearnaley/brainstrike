@@ -1,4 +1,5 @@
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
+import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX, getDefaultBrowserPGliteDataDir } from '@brainstrike/db';
 import { DbProvider } from '@brainstrike/db/react';
@@ -11,9 +12,8 @@ import {
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/logging';
-import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
-import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
+import { DbSchemaVerifier } from '@brainstrike/settings-ui/components/db-schema-verifier';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import React from 'react';

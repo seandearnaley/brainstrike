@@ -1,10 +1,10 @@
-import type { EmbeddingSetSystemRole } from '@brainstrike/db';
-import type { usePGliteDatabase } from '@brainstrike/db/react';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   compareCollectionsDesc,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import type { EmbeddingSetSystemRole } from '@brainstrike/db';
+import type { usePGliteDatabase } from '@brainstrike/db/react';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
   getCollectionPickerProtection,
   Select,

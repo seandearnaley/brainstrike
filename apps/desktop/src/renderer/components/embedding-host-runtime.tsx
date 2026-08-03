@@ -1,3 +1,7 @@
+import {
+  ensureVectorPreferencesHydrated,
+  useVectorPreferencesStore,
+} from '@brainstrike/app-state/stores/vector-preferences-store';
 import { createEmbeddingCacheRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import {
@@ -17,10 +21,6 @@ import {
   startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
 import { createLogger } from '@brainstrike/logging';
-import {
-  ensureVectorPreferencesHydrated,
-  useVectorPreferencesStore,
-} from '@brainstrike/preferences/stores/vector-preferences-store';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
   assertEmbeddingHostCommand,

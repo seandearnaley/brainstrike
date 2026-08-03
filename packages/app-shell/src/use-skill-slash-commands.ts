@@ -15,6 +15,7 @@
  * empties the menu entirely.
  */
 
+import { useSkillsPreferencesStore } from '@brainstrike/app-state/stores/skills-preferences-store';
 import {
   type SkillScanEntrySummary,
   type SkillsScanResultSummary,
@@ -22,7 +23,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import { useSkillsPreferencesStore } from '@brainstrike/preferences/stores/skills-preferences-store';
 import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

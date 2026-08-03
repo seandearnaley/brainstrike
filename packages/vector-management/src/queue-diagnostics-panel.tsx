@@ -5,7 +5,7 @@
  * ephemeral (workerpool) queue systems in a unified view.
  */
 
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type { QueueHealthMetrics } from '@brainstrike/queue';
 import {
   Badge,

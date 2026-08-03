@@ -1,0 +1,449 @@
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  getWorkspaceCollectionSyncCurrentActivity,
+  getWorkspaceCollectionSyncMetricRows,
+  shouldShowWorkspaceCollectionSyncPauseControl,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useEmbeddingSetsRepository } from '@brainstrike/db/react';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch,
+} from '@brainstrike/ui';
+import {
+  BACKGROUND_INDEXING_POLICY_OPTIONS,
+  type BackgroundIndexingPolicyPreset,
+  getBackgroundIndexingPolicyOption,
+} from '@brainstrike/utils';
+import { onEmbeddingSetUpdated, onQueueDrained } from '@brainstrike/utils/browser-events';
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+
+interface CollectionOption {
+  createdAt: string;
+  id: string;
+  modelKey: string;
+  name: string;
+}
+
+function compareCollectionsDesc(left: CollectionOption, right: CollectionOption): number {
+  if (right.createdAt > left.createdAt) {
+    return 1;
+  }
+  if (right.createdAt < left.createdAt) {
+    return -1;
+  }
+  return right.id.localeCompare(left.id);
+}
+
+function toCollectionOption(collection: {
+  createdAt: string;
+  id: string;
+  modelId: string;
+  modelKey: string;
+  name?: string | null;
+}): CollectionOption {
+  return {
+    createdAt: collection.createdAt,
+    id: collection.id,
+    modelKey: collection.modelKey,
+    name: collection.name?.trim() || collection.modelId,
+  };
+}
+
+function getStatusBadge(
+  status: Pick<
+    ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>,
+    'blockedReason' | 'state'
+  >
+) {
+  switch (status.state) {
+    case 'blocked':
+      return {
+        icon: AlertTriangle,
+        iconClassName: 'size-3.5',
+        label:
+          status.blockedReason === 'missing-provider-key' ? 'Waiting for OpenAI key' : 'Blocked',
+        variant: 'destructive' as const,
+      };
+    case 'scanning':
+      return {
+        icon: Loader2,
+        iconClassName: 'size-3.5 animate-spin',
+        label: 'Scanning root',
+        variant: 'outline' as const,
+      };
+    case 'waiting':
+      return {
+        icon: RefreshCw,
+        iconClassName: 'size-3.5 animate-spin',
+        label: 'Waiting for restore',
+        variant: 'outline' as const,
+      };
+    case 'recovering':
+      return {
+        icon: RefreshCw,
+        iconClassName: 'size-3.5 animate-spin',
+        label: 'Recovering in-flight backfill',
+        variant: 'secondary' as const,
+      };
+    case 'paused':
+      return {
+        icon: AlertTriangle,
+        iconClassName: 'size-3.5',
+        label: 'Paused',
+        variant: 'outline' as const,
+      };
+    case 'importing':
+      return {
+        icon: RefreshCw,
+        iconClassName: 'size-3.5 animate-spin',
+        label: 'Importing cache files',
+        variant: 'outline' as const,
+      };
+    case 'chunking':
+      return {
+        icon: RefreshCw,
+        iconClassName: 'size-3.5 animate-spin',
+        label: 'Chunking cache files',
+        variant: 'outline' as const,
+      };
+    case 'embedding':
+      return {
+        icon: RefreshCw,
+        iconClassName: 'size-3.5 animate-spin',
+        label: 'Embedding queued chunks',
+        variant: 'secondary' as const,
+      };
+    case 'error':
+      return {
+        icon: AlertTriangle,
+        iconClassName: 'size-3.5',
+        label: 'Blocked',
+        variant: 'destructive' as const,
+      };
+    case 'idle':
+      return {
+        icon: CheckCircle2,
+        iconClassName: 'size-3.5',
+        label: 'Ready',
+        variant: 'secondary' as const,
+      };
+    default:
+      return {
+        icon: AlertTriangle,
+        iconClassName: 'size-3.5',
+        label: 'Disabled',
+        variant: 'outline' as const,
+      };
+  }
+}
+
+export function SearchIndexingSettingsSection() {
+  const repository = useEmbeddingSetsRepository();
+  const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
+  const managedCollectionId = useBackgroundIndexingPreferencesStore(
+    (state) => state.managedCollectionId
+  );
+  const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.indexingPolicyPreset
+  );
+  const setEnabled = useBackgroundIndexingPreferencesStore((state) => state.setEnabled);
+  const setIndexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.setIndexingPolicyPreset
+  );
+  const setManagedCollectionId = useBackgroundIndexingPreferencesStore(
+    (state) => state.setManagedCollectionId
+  );
+  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
+  const syncStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
+    activeRootPath: state.activeRootPath,
+    backfillRequestId: state.backfillRequestId,
+    blockedReason: state.blockedReason,
+    chunkingProgress: state.chunkingProgress,
+    currentFilePath: state.currentFilePath,
+    embeddingProgress: state.embeddingProgress,
+    importProgress: state.importProgress,
+    lastError: state.lastError,
+    managedCollectionName: state.managedCollectionName,
+    pauseReasons: state.pauseReasons,
+    queueProgress: state.queueProgress,
+    scanSummary: state.scanSummary,
+    state: state.state,
+    unindexableFileCount: state.unindexableFileCount,
+  }));
+
+  const [collections, setCollections] = useState<CollectionOption[]>([]);
+  const [loadingCollections, setLoadingCollections] = useState(false);
+  const [collectionsError, setCollectionsError] = useState<string | null>(null);
+  const [collectionsRefreshToken, setCollectionsRefreshToken] = useState(0);
+
+  useEffect(() => {
+    let disposed = false;
+
+    if (!repository) {
+      setCollections([]);
+      setCollectionsError(null);
+      setLoadingCollections(false);
+      return () => {
+        disposed = true;
+      };
+    }
+
+    setLoadingCollections(true);
+    setCollectionsError(null);
+
+    void repository
+      .findAll()
+      .then((results) => {
+        if (disposed) {
+          return;
+        }
+        setCollections(
+          results.map((collection) => toCollectionOption(collection)).sort(compareCollectionsDesc)
+        );
+      })
+      .catch((error) => {
+        if (disposed) {
+          return;
+        }
+        setCollectionsError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (disposed) {
+          return;
+        }
+        setLoadingCollections(false);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [collectionsRefreshToken, repository]);
+
+  useEffect(() => {
+    const handleCollectionRefresh = (): void => {
+      setCollectionsRefreshToken((currentToken) => currentToken + 1);
+    };
+
+    const unsubscribeEmbeddingSetUpdated = onEmbeddingSetUpdated(handleCollectionRefresh);
+    const unsubscribeQueueDrained = onQueueDrained(handleCollectionRefresh);
+    return () => {
+      unsubscribeEmbeddingSetUpdated();
+      unsubscribeQueueDrained();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!(managedCollectionId && !loadingCollections && !collectionsError)) {
+      return;
+    }
+    if (collections.some((collection) => collection.id === managedCollectionId)) {
+      return;
+    }
+    let disposed = false;
+    void repository
+      ?.getById(managedCollectionId)
+      .then((collection) => {
+        if (disposed) {
+          return;
+        }
+        if (!collection) {
+          setManagedCollectionId(null);
+          return;
+        }
+        setCollections((currentCollections) => {
+          if (currentCollections.some((candidate) => candidate.id === collection.id)) {
+            return currentCollections;
+          }
+          return [...currentCollections, toCollectionOption(collection)].sort(
+            compareCollectionsDesc
+          );
+        });
+      })
+      .catch((error) => {
+        if (disposed) {
+          return;
+        }
+        setCollectionsError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [
+    collections,
+    collectionsError,
+    loadingCollections,
+    managedCollectionId,
+    repository,
+    setManagedCollectionId,
+  ]);
+
+  const selectedCollection = useMemo(
+    () => collections.find((collection) => collection.id === managedCollectionId) ?? null,
+    [collections, managedCollectionId]
+  );
+  const selectedPolicy = useMemo(
+    () => getBackgroundIndexingPolicyOption(indexingPolicyPreset),
+    [indexingPolicyPreset]
+  );
+
+  const statusBadge = getStatusBadge(syncStatus);
+  const StatusIcon = statusBadge.icon;
+  const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
+  const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
+  const showPauseControl =
+    enabled &&
+    (paused ||
+      managedCollectionId !== null ||
+      shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Workspace Index</CardTitle>
+        <CardDescription>
+          Keep your workspace folders searchable through BrainStrike's system-managed workspace
+          index collection.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <Label className="font-medium text-sm">Workspace Index</Label>
+            <p className="text-muted-foreground text-sm">
+              When enabled, BrainStrike scans your workspace folders, chunks eligible text files,
+              and stores embeddings in the protected workspace index.
+            </p>
+          </div>
+          <Switch
+            aria-label="Workspace Index"
+            checked={enabled}
+            onCheckedChange={(value) => setEnabled(value === true)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="font-medium text-sm" htmlFor="managed-cache-policy">
+            Indexing policy
+          </Label>
+          <Select
+            onValueChange={(value) =>
+              setIndexingPolicyPreset(value as BackgroundIndexingPolicyPreset)
+            }
+            value={indexingPolicyPreset}
+          >
+            <SelectTrigger aria-label="Indexing policy" id="managed-cache-policy">
+              <SelectValue placeholder="Select an indexing policy" />
+            </SelectTrigger>
+            <SelectContent>
+              {BACKGROUND_INDEXING_POLICY_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                  {option.recommended ? ' (Recommended)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-sm">{selectedPolicy.description}</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="font-medium text-sm" htmlFor="managed-cache-collection">
+            Managed collection
+          </Label>
+          <Select
+            onValueChange={(value) => setManagedCollectionId(value === '__none__' ? null : value)}
+            value={managedCollectionId ?? '__none__'}
+          >
+            <SelectTrigger id="managed-cache-collection">
+              <SelectValue placeholder="Select a managed collection" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No managed collection</SelectItem>
+              {collections.map((collection) => (
+                <SelectItem key={collection.id} value={collection.id}>
+                  {collection.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-sm">
+            Manual DB imports are blocked for the managed collection because BrainStrike owns its
+            cache lifecycle. Unmanaged collections keep the existing manual import/export flow.
+          </p>
+          {loadingCollections ? (
+            <p className="text-muted-foreground text-xs">Loading collections…</p>
+          ) : null}
+          {collectionsError ? <p className="text-destructive text-xs">{collectionsError}</p> : null}
+          {selectedCollection ? (
+            <p className="text-muted-foreground text-xs">
+              Current managed collection:{' '}
+              <span className="font-medium">{selectedCollection.name}</span> (
+              {selectedCollection.modelKey})
+            </p>
+          ) : null}
+        </div>
+
+        <div className="space-y-3 rounded-md border p-3">
+          <div className="flex items-start gap-3">
+            <Badge className="flex items-center gap-1" variant={statusBadge.variant}>
+              <StatusIcon className={statusBadge.iconClassName} />
+              {statusBadge.label}
+            </Badge>
+            <div className="flex-1 space-y-1 text-sm">
+              <p className="text-muted-foreground">
+                Root:{' '}
+                <span className="font-medium text-foreground">
+                  {syncStatus.activeRootPath ?? 'None selected'}
+                </span>
+              </p>
+              <p className="text-muted-foreground">
+                Collection:{' '}
+                <span className="font-medium text-foreground">
+                  {syncStatus.managedCollectionName ?? selectedCollection?.name ?? 'None selected'}
+                </span>
+              </p>
+              {metricRows.map((row) => (
+                <p className="text-muted-foreground" key={row.label}>
+                  {row.label}: <span className="font-medium text-foreground">{row.value}</span>
+                </p>
+              ))}
+              {currentActivity ? (
+                <p className="text-muted-foreground">
+                  {currentActivity.label}:{' '}
+                  <span className="font-medium text-foreground">{currentActivity.value}</span>
+                </p>
+              ) : null}
+            </div>
+          </div>
+          {syncStatus.lastError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm">
+              {syncStatus.lastError}
+            </div>
+          ) : null}
+          {showPauseControl ? (
+            <div className="flex justify-end">
+              <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+                {paused ? 'Resume workspace index' : 'Pause workspace index'}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

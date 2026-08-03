@@ -125,10 +125,6 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
       },
       {
-        find: /^@brainstrike\/preferences\/(.*)$/,
-        replacement: path.resolve(import.meta.dirname, '../preferences/src/$1'),
-      },
-      {
         find: '@brainstrike/ui/assistant-ui-panel/context-usage-store',
         replacement: path.resolve(
           import.meta.dirname,
@@ -165,10 +161,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
-      },
-      {
-        find: '@brainstrike/preferences',
-        replacement: path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
         find: '@brainstrike/file-import/chunking-worker-context',

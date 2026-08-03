@@ -1,8 +1,7 @@
+// The state package exposes explicit subpaths so this renderer graph does not
+// acquire settings UI dependencies.
+import { useContextPreviewColumnSizesStore } from '@brainstrike/app-state/stores/context-preview-column-sizes-store';
 import { useEventCallback } from '@brainstrike/hooks';
-// Subpath import avoids pulling the full @brainstrike/preferences barrel
-// (and its transitive log-viewer / Select dependency tree) into render-time
-// graphs that other test files mock at the package boundary.
-import { useContextPreviewColumnSizesStore } from '@brainstrike/preferences/stores/context-preview-column-sizes-store';
 import { Checkbox, cn, type TreeNode, TreeTable, type TreeTableColumn } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
 import {

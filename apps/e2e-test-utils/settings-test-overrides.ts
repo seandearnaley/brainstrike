@@ -162,8 +162,8 @@ function installSettingsTestHooksOnWindow(): void {
     browserWindow.__brainstrikeLocalRuntimeProbeCounts__ = {};
   };
 
-  // Keep this browser-serialized merge behavior aligned with
-  // `packages/preferences/src/testing/e2e-settings-test-overrides.ts`.
+  // This function is serialized into Playwright's browser context, so keep the
+  // merge explicit and cover every retained/updated field in the unit test.
   const mergeOverrides = (
     current: BrowserSettingsTestOverrides | undefined,
     updates: BrowserSettingsTestOverrides

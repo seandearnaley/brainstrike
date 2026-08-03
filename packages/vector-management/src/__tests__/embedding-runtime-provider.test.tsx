@@ -32,7 +32,7 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: useVectorPreferencesStoreMock,
 }));
 

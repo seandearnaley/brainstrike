@@ -8,7 +8,6 @@ import {
 } from '../settings-test-overrides';
 
 interface BrowserWindowStub {
-  // biome-ignore lint/style/useNamingConvention: mirrors the browser hook key the helper sets.
   __brainstrike_e2e_enable_settings_test_api__?: boolean;
   __brainstrikeLocalRuntimeProbeCounts__?: Record<string, number>;
   __brainstrikePendingSettingsTestOverrides__?: unknown;
@@ -161,7 +160,7 @@ describe('settings test overrides helper', () => {
     ).rejects.toThrow('Settings test hooks were not installed before applying overrides');
   });
 
-  it('keeps browser hook merge behavior aligned with the canonical merge helper', async () => {
+  it('merges each nested override group without dropping existing fields', async () => {
     const globalObject = globalThis as {
       window?:
         | {
@@ -174,10 +173,6 @@ describe('settings test overrides helper', () => {
     };
     const originalWindow = globalObject.window;
     const browserWindow = {} as NonNullable<typeof globalObject.window>;
-    const { mergeSettingsTestOverrides } = await import(
-      '@brainstrike/preferences/testing/e2e-settings-test-overrides'
-    );
-
     try {
       globalObject.window = browserWindow;
       __installSettingsTestHooksOnWindowForTests();
@@ -219,9 +214,24 @@ describe('settings test overrides helper', () => {
       browserWindow.__brainstrikePendingSettingsTestOverrides__ = current;
       browserWindow.__brainstrikeSettingsTestHooks__?.updateSettingsTestOverrides(updates);
 
-      expect(browserWindow.__brainstrikePendingSettingsTestOverrides__).toEqual(
-        mergeSettingsTestOverrides(current, updates)
-      );
+      expect(browserWindow.__brainstrikePendingSettingsTestOverrides__).toEqual({
+        accurateRuntimeAvailable: null,
+        localRuntime: {
+          statuses: {
+            lmstudio: {
+              checkedAt: 2,
+              message: 'blocked',
+              state: 'blocked_web',
+            },
+          },
+        },
+        modelRegistry: {
+          fetchErrorMessage: 'initial error',
+          snapshot: {
+            downloadedModels: { 'local:test-model': true },
+          },
+        },
+      });
     } finally {
       globalObject.window = originalWindow;
     }

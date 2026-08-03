@@ -10,7 +10,7 @@ const INDEX_PATH = `${MIGRATIONS_ROOT}/index.ts`;
 const DRIZZLE_PATH = 'packages/db/src/drizzle/migrate.ts';
 const RUNTIME_BASELINE_PATH = 'packages/db/src/architecture/db-runtime-baseline.ts';
 const FACTORY_RESET_PATHS = [
-  'packages/preferences/src/settings/system/factory-reset-helpers.ts',
+  'packages/app-state/src/factory-reset.ts',
   'packages/db/src/db-provider.tsx',
   'apps/desktop/src/db-main.ts',
 ];

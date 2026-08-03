@@ -1,10 +1,10 @@
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
   RuntimeAssistantObservationalMemorySettings,
   RuntimeAssistantSemanticRecallSettings,
 } from '@brainstrike/assistant-contract/memory-settings';
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import { useMemo } from 'react';
 import {
   buildAssistantRequestData,

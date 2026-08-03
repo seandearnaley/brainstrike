@@ -20,7 +20,7 @@ const { loggerInfoMock, registryStoreState, resolveWorkspaceIndexingQosPolicyMoc
   })
 );
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
+vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
   useModelRegistryStore: {
     getState: () => registryStoreState,
   },

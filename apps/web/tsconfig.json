@@ -36,9 +36,6 @@
       ],
       "@brainstrike/utils/*": [
         "../../packages/utils/src/*"
-      ],
-      "@brainstrike/preferences/*": [
-        "../../packages/preferences/src/*"
       ]
     },
     "types": [
@@ -66,6 +63,9 @@
     "vitest.config.integration.ts"
   ],
   "references": [
+    {
+      "path": "../../packages/app-state"
+    },
     {
       "path": "../../packages/app-shell"
     },
@@ -98,6 +98,9 @@
     },
     {
       "path": "../../packages/server-config"
+    },
+    {
+      "path": "../../packages/settings-ui"
     },
     {
       "path": "../../packages/types"

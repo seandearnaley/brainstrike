@@ -1,5 +1,3 @@
-import type { ChunkingStrategy, EmbeddingSet } from '@brainstrike/db';
-import type { EnhancedImportProgress } from '@brainstrike/file-import';
 import type {
   WorkspaceCollectionSyncChunkingProgress,
   WorkspaceCollectionSyncEmbeddingProgress,
@@ -7,7 +5,9 @@ import type {
   WorkspaceCollectionSyncQueueProgress,
   WorkspaceCollectionSyncScanSummary,
   WorkspaceCollectionSyncStatusPatch,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import type { ChunkingStrategy, EmbeddingSet } from '@brainstrike/db';
+import type { EnhancedImportProgress } from '@brainstrike/file-import';
 import { dispatchQueueDrained } from '@brainstrike/utils/browser-events';
 
 const SCANNING_STATUS_THROTTLE_MS = 100;

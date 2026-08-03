@@ -1,7 +1,7 @@
+import { useDatabaseStatusSync } from '@brainstrike/app-state/hooks/use-database-status-sync';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerProvider, FileSystemProvider } from '@brainstrike/file-explorer-ui/shell';
-import { GlobalDownloadIndicator } from '@brainstrike/preferences/components/global-download-indicator';
-import { useDatabaseStatusSync } from '@brainstrike/preferences/hooks/use-database-status-sync';
+import { GlobalDownloadIndicator } from '@brainstrike/settings-ui/components/global-download-indicator';
 import {
   NavigationSidebar,
   StatusBar,

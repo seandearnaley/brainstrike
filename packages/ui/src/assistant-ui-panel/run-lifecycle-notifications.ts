@@ -5,7 +5,7 @@
  * mirroring the existing `onUsage` seam (`data-stream-runtime.ts` ->
  * `AssistantUiPanelProps.onUsage` -> app-shell's `handleUsage`) — the actual
  * notification DECISION (settings gate, permission, coalescing) lives in
- * `@brainstrike/preferences/notifications/*`, composed by app-shell. This
+ * `@brainstrike/app-state/notifications/*`, composed by app-shell. This
  * package never touches `window.Notification` or the preferences store.
  *
  * `useRunLifecycleNotifications` is mounted exactly once per panel instance

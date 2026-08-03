@@ -405,7 +405,7 @@ active focus. One code path for Electron renderer AND web: the standard web
 `Notification` constructor, no Electron `Notification` module, no new IPC.
 
 Layers:
-1. **Preferences** (`packages/preferences/src/stores/notification-preferences-store.ts`) —
+1. **Preferences** (`packages/app-state/src/stores/notification-preferences-store.ts`) —
    persisted master toggle (`masterEnabled`, default OFF) + per-event toggles
    (`events.{runFinished,runFailed,toolApprovalRequired}`, default ON).
    PERSISTED via the same `createBrowserJsonStorage` pattern as sibling
@@ -415,7 +415,7 @@ Layers:
    (not `registerFactoryResetSessionStore` — that seam is for stores OUTSIDE
    the `preferences` package) so the live in-memory toggle never survives a
    reset that does not reload the page (web path).
-2. **Decision + dispatch** (`packages/preferences/src/notifications/`) —
+2. **Decision + dispatch** (`packages/app-state/src/notifications/`) —
    `should-notify.ts` is a PURE gate (`shouldNotify`): master on, event on,
    `Notification.permission === 'granted'`, and the window is unfocused
    (`document.visibilityState === 'hidden' || !document.hasFocus()`,
@@ -432,7 +432,7 @@ Layers:
    optional `threadTitle` (plus a REQUIRED `toolCallId` on the approval
    variant), never message content or tool args — and wires `onclick` to
    `window.focus()`.
-3. **Settings UI** (`packages/preferences/src/settings/system/notification-settings-section.tsx`,
+3. **Settings UI** (`packages/settings-ui/src/settings/system/notification-settings-section.tsx`,
    registered via `createNotificationSettingsCategory()` from its own
    `notification-settings-category.tsx` — a non-component module, kept out of
    `settings-page-content.tsx` so Fast Refresh preserves `SettingsPageContent`
@@ -470,7 +470,7 @@ Layers:
    this hook only ever runs inside the visible assistant surface.
 
 When changing this flow, update this section and the paired tests
-(`packages/preferences/src/__tests__/notification-*.test.ts(x)`,
+(`packages/app-state/src/__tests__/notification-*.test.ts(x)`,
 `packages/ui/src/assistant-ui-panel/__tests__/run-lifecycle-notifications.test.ts`,
 `packages/ui/src/assistant-ui-panel/__tests__/run-lifecycle-notifications-hydration.test.tsx`,
 `packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`).
@@ -914,7 +914,7 @@ Per-run cost/outcome analytics over tables the assistant already writes.
 - **Budget guardrails (v1):** user-set spend caps over the ledger's own data.
   State ownership: the caps (`dailyCapUsd`, `perRunCapUsd`, both null = off by
   default) are persisted in
-  `packages/preferences/src/stores/assistant-budget-preferences-store.ts`
+  `packages/app-state/src/stores/assistant-budget-preferences-store.ts`
   (STRICT set validation — finite > 0 or null, else THROW; factory-reset via
   `resetAssistantBudgetPreferencesStoreToDefaults`), edited in the Cost
   Tracking settings category (`budget-settings-panel.tsx`, blank = off,
@@ -961,7 +961,7 @@ in `packages/app-shell/src/cost-tracking/__tests__/` — `task-ledger-panel`,
 `packages/app-shell/src/__tests__/`, `budget-guardrail-control` in
 `packages/ui/src/__tests__/`, and `assistant-budget-preferences-store` +
 `factory-reset-assistant-budget-preferences` in
-`packages/preferences/src/__tests__/`).
+`packages/app-state/src/__tests__/`).
 
 ---
 

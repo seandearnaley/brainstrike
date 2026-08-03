@@ -79,7 +79,7 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: () => currentDbRef.current,
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,
   useVectorPreferencesStore: Object.assign(
     (selector: (state: typeof storeState) => unknown) => selector(storeState),

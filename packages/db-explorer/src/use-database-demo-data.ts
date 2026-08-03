@@ -1,3 +1,5 @@
+import { useDatabaseStatusStore } from '@brainstrike/app-state/stores/database-status-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import {
   ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
   type DrizzleFileChunkRepository,
@@ -13,8 +15,6 @@ import {
   usePGliteLiveQuery,
 } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
-import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { useToast } from '@brainstrike/ui';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';

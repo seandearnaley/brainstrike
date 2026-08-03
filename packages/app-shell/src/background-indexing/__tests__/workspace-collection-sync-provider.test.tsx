@@ -1,3 +1,15 @@
+import {
+  __resetBackgroundIndexingPreferencesStoreForTests,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import {
+  __resetWorkspaceCollectionSyncStatusStoreForTests,
+  useWorkspaceCollectionSyncStatusStore,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { EmbeddingSet } from '@brainstrike/db';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type {
@@ -5,18 +17,6 @@ import type {
   WorkspaceIndexingQosPolicy,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import {
-  __resetVectorStatusUIStoreForTests,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
-import {
-  __resetWorkspaceCollectionSyncStatusStoreForTests,
-  useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import {
   __resetBackgroundWorkArbiterForTests,
   acquireBackgroundWorkPauseReason,

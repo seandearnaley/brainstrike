@@ -2,11 +2,11 @@
  * Tests for SystemDiagnosticsPanel (BST-181)
  */
 
-import { databaseQueryTelemetry } from '@brainstrike/db';
 import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
-} from '@brainstrike/preferences/stores/database-status-store';
+} from '@brainstrike/app-state/stores/database-status-store';
+import { databaseQueryTelemetry } from '@brainstrike/db';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

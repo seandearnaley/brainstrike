@@ -121,15 +121,15 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     selector(fileExplorerMockState.current),
 }));
 
-vi.mock('@brainstrike/preferences/settings/models/model-runtime-services', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-runtime-services', () => ({
   configureModelRuntimeServices: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
   ModelSelectionPage: modelSelectionPageMock,
 }));
 
-vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
+vi.mock('@brainstrike/settings-ui/settings/tools/index', () => ({
   createToolsSettingsCategory: createToolsSettingsCategoryMock.mockImplementation(
     ({ operations }: { operations: CapturedToolsOperations }) => {
       capturedOperations = operations;
@@ -142,7 +142,7 @@ vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
   ),
 }));
 
-vi.mock('@brainstrike/preferences/settings/system/notification-settings-category', () => ({
+vi.mock('@brainstrike/settings-ui/settings/system/notification-settings-category', () => ({
   createNotificationSettingsCategory: () => ({
     content: <div data-testid="notifications-category" />,
     id: 'notifications',
@@ -150,7 +150,7 @@ vi.mock('@brainstrike/preferences/settings/system/notification-settings-category
   }),
 }));
 
-vi.mock('@brainstrike/preferences/settings-page-content', () => ({
+vi.mock('@brainstrike/settings-ui/settings-page-content', () => ({
   createApiKeysSettingsCategory: () => ({
     content: <div data-testid="api-keys-category" />,
     id: 'api-keys',
@@ -215,11 +215,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
   ),
 }));
 
-vi.mock('@brainstrike/preferences/settings-test-runtime-access', () => ({
+vi.mock('@brainstrike/app-state/automation-overrides', () => ({
   getAccurateRuntimeAvailabilityTestOverride: () => undefined,
 }));
 
-vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', () => ({
   useNativeToolPreferencesStore: {
     getState: () => ({
       isToolEnabled: (toolId: string) => toolId === 'native-read',

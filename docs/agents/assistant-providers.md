@@ -537,7 +537,7 @@
   for repair instead of throwing during render; the endpoint never silently
   mutates the registry.
 - State:
-  - packages/preferences/src/stores/assistant-preferences-store.ts
+  - packages/app-state/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts
   - Assistant preferences persist the most recently selected model as the default for the next
     new thread, plus a capped `recentModels` list (composite keys, newest first) that feeds the
@@ -566,6 +566,41 @@ renderer catalog. The app shell must merge it with renderer provider discovery
 so settings-owned, reachable or force-enabled Ollama and LM Studio runtimes
 remain selectable. Hosted Web's fixed provider/default-model set stays
 authoritative and must continue to skip renderer discovery.
+`AssistantProviderSource`, provided at the `AssistantChatPanel` composition root,
+is the required explicit boundary: a missing provider throws. `authoritative`
+is derived synchronously during render, while `discovery` subscribes one shared
+external resource to the secrets-store revision and the immutable Ollama / LM
+Studio provider-settings snapshots. Unrelated provider settings never trigger
+keychain enumeration or local-runtime probes. The first Desktop subscriber
+starts discovery and the last subscriber tears down the live subscriptions, so
+multiple mounted thread tabs never fan out duplicate runtime probes. The last
+visible provider snapshot remains cached across a zero-subscriber period and is
+rendered while the next subscriber revalidates; only the test reset clears it.
+Every refresh carries a monotonically increasing generation; a superseded or
+unsubscribed request cannot publish late. Unexpected key or runtime discovery
+failures remain visible as a panel notice while explicit Desktop seeds stay
+rendered; they are never converted to an empty successful result. The notice
+blocks the composer only when the merged snapshot contains no usable provider.
+A partial failure must not disable an independently verified or validated-seed
+provider.
+Ollama and LM Studio probes settle independently. If one unexpected probe
+fails, every independently verified provider remains in the error snapshot and
+the failed probe remains visible through the typed aggregate error; neither the
+successful provider nor the failure may be discarded. Malformed main-process
+bridge payloads use that same visible failure channel.
+Idle and loading snapshots pause persisted-model reconciliation. Error snapshots
+do not: their independently verified or last-known provider list remains the
+selection authority while the error stays visible, so a failed sibling probe
+cannot leave a disappeared provider selected forever.
+Keep the authority, refresh, ordering, teardown, and failure controls in
+`use-configured-assistant-providers.test.tsx` when this boundary changes.
+
+The mounted assistant wrapper keys local-runtime status and model-catalog
+refreshes to the immutable Ollama / LM Studio settings snapshots; unrelated
+provider settings do not trigger local probes. Changing activation, base URL,
+or credentials invalidates both requests. Status is resolved before catalog
+loading, and the combined refresh uses a monotonically increasing generation
+so a response from an older settings snapshot cannot replace the new catalog.
 
 Desktop status also reports each unreadable stored credential as a validated
 `providerErrors` entry (`provider`, `api_key_unreadable`, typed error code, and

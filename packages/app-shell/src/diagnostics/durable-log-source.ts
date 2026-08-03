@@ -1,6 +1,6 @@
 import { type DiagnosticEventsDatabase, mapDiagnosticEventRow } from '@brainstrike/db';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
-import type { LogSourceAdapter } from '@brainstrike/preferences';
+import type { LogSourceAdapter } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
 import {
   type DiagnosticEvent,
   serializeDiagnosticEventsNdjson,

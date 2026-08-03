@@ -2,12 +2,12 @@
   "name": "@brainstrike/vector-management",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/app-state": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",

@@ -6,6 +6,8 @@
  * Supports both vector-only and hybrid (vector + FTS) retrieval modes.
  */
 
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type {
   ChunkSearchResult,
   DrizzleFileChunkRepository,
@@ -21,8 +23,6 @@ import {
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { clampResultLimit, type SearchConfig, type SemanticSearchResult } from '@brainstrike/ui';
 import {
   type EmbeddingSetModelInfo,

@@ -1,5 +1,5 @@
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import { describe, expect, it, vi } from 'vitest';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import {

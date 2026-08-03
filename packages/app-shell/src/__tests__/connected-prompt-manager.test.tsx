@@ -140,11 +140,11 @@ vi.mock('@brainstrike/db-explorer/embedding-models', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', () => ({
   useAssistantPreferencesStore: (
     selector: (state: {
       getAvailableProviders: typeof mocks.getAvailableProviders;
@@ -188,7 +188,7 @@ const registryState = {
   ],
 };
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
+vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
   useModelRegistryStore: (selector?: (state: typeof registryState) => unknown) =>
     selector ? selector(registryState) : registryState,
 }));

@@ -29,9 +29,9 @@ rules. This doc is the durable plan for the stacked-PR remediation that follows.
 | CI gate     | `scope: changed` + `blocking: error` — only NEW errors fail a PR    |
 | CI runner   | Official `millionco/react-doctor@v2` Action (PR comments + status)  |
 | knip        | Retained for dependency dead-code; deslop dep rules disabled        |
-| Lint ignores| **None** — `ignore.files` is unsafe in 0.5.5 (see gotcha below)     |
+| Lint ignores| **None** — broad file exclusions are unnecessary                   |
 
-### Gotcha: never use `ignore.files` (react-doctor 0.5.5)
+### Historical gotcha: `ignore.files` in react-doctor 0.5.5/0.7.1
 
 Setting a non-empty `ignore.files` flips the lint pass from default file discovery to an
 explicit include-list (`resolveLintIncludePaths` → `shouldIncludeExplicitLintPath` in
@@ -42,6 +42,15 @@ presence of the key changes discovery. Build artifacts are gitignored (git file 
 never sees them) and `test-noise`-tagged rules already auto-suppress in non-production
 files, so `ignore.files` was redundant as well as destructive. Suppress specific findings
 with `ignore.overrides` (file + rule) or `rules` (per rule) instead.
+
+React Doctor 0.9.3 no longer has that enumeration defect: its
+`resolveLintIncludePaths` implementation lists every supported source first and then filters
+the configured ignored paths. Brainstrike still carries no whole-file ignores because the
+original reasons for adding them were already handled by gitignored artifacts and native
+test-noise suppression. This note remains as historical evidence, not a claim about the
+current tool. Its changed-scope baseline also follows
+[stable diagnostic evidence across renames](https://github.com/millionco/react-doctor/pull/1376),
+first released in 0.8.2.
 
 ## Baseline (full scan, telemetry off, 2026-06-15, react-doctor 0.5.5)
 

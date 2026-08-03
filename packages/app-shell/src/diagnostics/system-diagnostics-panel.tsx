@@ -10,12 +10,12 @@
  * without navigating to multiple places.
  */
 
-import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
-import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import {
   databaseStatusSelectors,
   useDatabaseStatusStore,
-} from '@brainstrike/preferences/stores/database-status-store';
+} from '@brainstrike/app-state/stores/database-status-store';
+import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
+import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import {
   Activity,

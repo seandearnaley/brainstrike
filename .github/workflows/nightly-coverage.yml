@@ -75,7 +75,7 @@ jobs:
             filters: '--filter=@brainstrike/desktop'
           - shard: embeddings-preferences
             concurrency: 2
-            filters: '--filter=@brainstrike/embeddings --filter=@brainstrike/preferences'
+            filters: '--filter=@brainstrike/embeddings --filter=@brainstrike/app-state --filter=@brainstrike/settings-ui'
           - shard: ui-db-explorer
             concurrency: 2
             filters: '--filter=@brainstrike/ui --filter=@brainstrike/db-explorer'
@@ -88,7 +88,8 @@ jobs:
               --filter=!@brainstrike/web
               --filter=!@brainstrike/desktop
               --filter=!@brainstrike/embeddings
-              --filter=!@brainstrike/preferences
+              --filter=!@brainstrike/app-state
+              --filter=!@brainstrike/settings-ui
               --filter=!@brainstrike/ui
               --filter=!@brainstrike/db-explorer
     steps:

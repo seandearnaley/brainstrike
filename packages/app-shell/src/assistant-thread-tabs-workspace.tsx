@@ -154,20 +154,16 @@ function useReducedMotionPreference(): boolean {
 
 export interface AssistantThreadTabsWorkspaceProps {
   readonly fixedProviderModels?: AssistantUiPanelWrapperProps['fixedProviderModels'];
-  readonly initialProviders?: AssistantUiPanelWrapperProps['initialProviders'];
   readonly loadLocalLlmBackend?: AssistantUiPanelWrapperProps['loadLocalLlmBackend'];
   readonly providerKeySources?: AssistantUiPanelWrapperProps['providerKeySources'];
   readonly providerReadErrors?: AssistantUiPanelWrapperProps['providerReadErrors'];
-  readonly providerSeeds?: AssistantUiPanelWrapperProps['providerSeeds'];
 }
 
 export function AssistantThreadTabsWorkspace({
   fixedProviderModels,
-  initialProviders,
   loadLocalLlmBackend,
   providerKeySources,
   providerReadErrors,
-  providerSeeds,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
@@ -792,11 +788,9 @@ export function AssistantThreadTabsWorkspace({
               >
                 <AssistantUiPanelWrapper
                   {...(fixedProviderModels ? { fixedProviderModels } : {})}
-                  {...(initialProviders === undefined ? {} : { initialProviders })}
                   {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                   {...(providerKeySources ? { providerKeySources } : {})}
                   {...(providerReadErrors ? { providerReadErrors } : {})}
-                  {...(providerSeeds === undefined ? {} : { providerSeeds })}
                   memoryResourceId={resourceId}
                   memoryThreadId={threadId}
                 />

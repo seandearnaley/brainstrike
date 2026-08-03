@@ -72,8 +72,9 @@ const OVERRIDES = new Map([
   ['@brainstrike/token-cache', { branches: 62, functions: 92, lines: 92, statements: 82 }],
   // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.
   ['@brainstrike/queue', { branches: 80, functions: 90, lines: 90, statements: 90 }],
-  // Preferences package thresholds ratcheted in 2026-03 after settings/store coverage additions.
-  ['@brainstrike/preferences', { branches: 63, functions: 70, lines: 82, statements: 76 }],
+  // Preserve the former preferences floor independently across both split packages.
+  ['@brainstrike/app-state', { branches: 63, functions: 70, lines: 82, statements: 76 }],
+  ['@brainstrike/settings-ui', { branches: 63, functions: 70, lines: 82, statements: 76 }],
 ]);
 
 // DB coverage is intentionally isolated from the normal workspace coverage

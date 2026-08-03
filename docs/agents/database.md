@@ -64,8 +64,8 @@ When changing the model catalog:
 3. Preserve user choices on kept rows with `ON CONFLICT (id) DO UPDATE SET ... is_enabled = models.is_enabled`.
    - INVARIANT: never use `is_enabled = EXCLUDED.is_enabled` for a catalog refresh — it clobbers the user's toggle. Force on/off only for a deliberate (e.g. security) swap.
 4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
-   - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
-   - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
+   - MODEL_ID_MIGRATIONS in packages/app-state/src/stores/assistant-preferences-store.ts (bump its store version)
+   - MEMORY_MODEL_TARGET_MIGRATIONS in packages/app-state/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
    - The guard canonicalizes discovered migration identifiers with
      `path.posix.join` so diagnostics and downstream checks are platform-neutral.
      Its version parser still accepts `/` or `\` for direct analyzer callers and

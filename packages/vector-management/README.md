@@ -274,7 +274,7 @@ import type {
 - `@brainstrike/db` - Database operations
 - `@brainstrike/db-explorer` - Database UI stores
 - `@brainstrike/embeddings` - Embedding services
-- `@brainstrike/preferences` - Vector preferences store
+- `@brainstrike/app-state` - Vector preferences store
 - `@brainstrike/ui` - UI components
 - `zustand` (peer) - State management
 - `react` (peer) - UI framework

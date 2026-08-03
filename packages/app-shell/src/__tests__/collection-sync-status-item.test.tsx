@@ -1,11 +1,11 @@
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
   __resetIndexingActivityStoreForTests,
   useIndexingActivityStore,
-} from '@brainstrike/preferences/stores/indexing-activity-store';
+} from '@brainstrike/app-state/stores/indexing-activity-store';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';

@@ -1,4 +1,4 @@
-import { useImportSettingsStore } from '@brainstrike/preferences/stores/import-settings-store';
+import { useImportSettingsStore } from '@brainstrike/app-state/stores/import-settings-store';
 import type { ImportSettings } from '../types';
 
 export function useImportSettings(): ImportSettings {

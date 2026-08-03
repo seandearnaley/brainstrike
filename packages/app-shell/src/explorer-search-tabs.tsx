@@ -1,6 +1,6 @@
+import type { ExplorerActiveTab } from '@brainstrike/app-state/stores/context-explorer-layout-store';
+import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { FileExplorerPanel } from '@brainstrike/file-explorer-ui/shell';
-import type { ExplorerActiveTab } from '@brainstrike/preferences/stores/context-explorer-layout-store';
-import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import {
   PANEL_TAB_TRIGGER_CLASS_NAME,
   Tabs,

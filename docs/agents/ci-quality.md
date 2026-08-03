@@ -1403,26 +1403,30 @@ running:
 ## REACT DOCTOR (LINT + DEAD CODE)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
-pinned `0.7.1`) on every PR and on push to `main`. It supersedes running standalone knip in
+pinned `0.9.3`) on every PR and on push to `main`. It supersedes running standalone knip in
 CI: React Doctor performs knip-style dead-code analysis (the bundled `deslop` engine) **and**
-~250 React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
+its React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
 Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
 
 Invariants (do not regress without updating this section, `doctor.config.ts`, and the doc):
 - **Telemetry OFF.** `noScore` + `share:false` in config; `REACT_DOCTOR_NO_TELEMETRY=1` in the
   workflow `env` (the Action exposes no flag). Nothing is sent to the hosted score API / Sentry.
 - **Gate = `scope: changed` + `blocking: error`.** Only NEWLY introduced error-severity issues
-  fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs.
+  fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs. Version
+  0.9.3 carries [upstream's rename-aware baseline comparison](https://github.com/millionco/react-doctor/pull/1376),
+  so moving unchanged code does not reclassify its diagnostics as new.
+  `scripts/__tests__/react-doctor-version-contract.test.mjs` keeps the local and Action pins equal
+  and rejects downgrade below the 0.8.2 fix.
 - **knip is retained, NOT replaced.** `deslop` is not knip: it reads knip's `entry`/`ignore`
   (only from strict-JSON `knip.json` or `package.json#knip`, never `knip.jsonc`) but ignores
   knip's `ignoreDependencies` and has no per-dependency allowlist. So `deslop/unused-dependency`
   + `deslop/unused-dev-dependency` are disabled in `doctor.config.ts`, and `pnpm knip`
   (driven by `knip.jsonc`, with the curated false-positive allowlist) stays the dependency auditor.
-- **Never set `ignore.files`** (verified against 0.5.5, re-verified against 0.7.1). A non-empty `ignore.files` flips
-  the lint pass to an explicit include-list and silently drops ~half the monorepo's real
-  source from linting (e.g. packages/hooks 34 → 0). Build artifacts are gitignored (never
-  listed) and test-file noise is handled natively (`test-noise`-tagged rules auto-suppress
-  in non-production files). Suppress findings via `ignore.overrides` / `rules`, not files.
+- **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
+  roughly half the monorepo when that key was present. Upstream 0.9.3 fixes enumeration by
+  listing all supported sources before filtering, but Brainstrike still needs no whole-file
+  ignores: build artifacts are gitignored and test-file noise is handled natively. Prefer the
+  narrow `ignore.overrides` / `rules` surfaces for a proved exception.
 - **`Accessibility` + `Security` categories are OFF.** a11y is already enforced by the
   biome a11y rules (and react-doctor can't read `biome-ignore`, so it re-flagged every
   documented exception + custom ARIA widget — an audit of 28 findings found 1 genuine

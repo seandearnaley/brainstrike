@@ -250,7 +250,7 @@ export interface AssistantToolMenuConfig {
 }
 
 // Provider-settings types live in `@brainstrike/types` so `packages/ui` and
-// `packages/preferences` share a single canonical definition. They are
+// `packages/app-state` share a single canonical definition. They are
 // re-exported here to keep the existing public surface of the
 // `@brainstrike/ui/assistant-ui-panel` entry point stable for consumers that
 // still import them from this module.

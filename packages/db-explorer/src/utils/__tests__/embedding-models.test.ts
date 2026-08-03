@@ -1,4 +1,4 @@
-import type { DbModel } from '@brainstrike/preferences';
+import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import {

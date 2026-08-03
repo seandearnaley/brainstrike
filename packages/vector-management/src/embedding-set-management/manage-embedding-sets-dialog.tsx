@@ -1,11 +1,11 @@
+import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { DbModel } from '@brainstrike/preferences/stores/model-registry-store';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import {
   Badge,
   Button,

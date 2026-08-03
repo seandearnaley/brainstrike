@@ -1,3 +1,26 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  buildHookTrustRequest,
+  hookTrustSelectors,
+  useHookTrustStore,
+} from '@brainstrike/app-state/stores/hook-trust-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import {
+  buildPermissionToolGateSnapshotInput,
+  usePermissionPolicyStore,
+} from '@brainstrike/app-state/stores/permission-policy-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
+import {
+  buildSkillsContextRequest,
+  useSkillsPreferencesStore,
+} from '@brainstrike/app-state/stores/skills-preferences-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
 import type {
   AssistantRunEvent,
   LocalLlmBackendFactory,
@@ -19,29 +42,6 @@ import {
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import {
-  buildHookTrustRequest,
-  hookTrustSelectors,
-  useHookTrustStore,
-} from '@brainstrike/preferences/stores/hook-trust-store';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
-import {
-  buildPermissionToolGateSnapshotInput,
-  usePermissionPolicyStore,
-} from '@brainstrike/preferences/stores/permission-policy-store';
-import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
-import {
-  buildSkillsContextRequest,
-  useSkillsPreferencesStore,
-} from '@brainstrike/preferences/stores/skills-preferences-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/preferences/stores/workspace-instructions-preferences-store';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -123,6 +123,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
@@ -150,13 +151,11 @@ import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   fixedProviderModels?: FixedProviderModels;
-  initialProviders?: readonly SupportedProvider[];
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
-  providerSeeds?: readonly SupportedProvider[];
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
@@ -192,18 +191,16 @@ function hasDesktopAssistantBackend(): boolean {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
   fixedProviderModels,
-  initialProviders,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
   providerReadErrors,
   providerKeySources,
-  providerSeeds,
 }: AssistantUiPanelWrapperProps) {
+  const providerSource = useAssistantProviderSource();
   const {
     setModel,
     clearModel,
-    getAvailableProviders,
     getLocalRuntimeStatuses,
     getLocalRuntimeModels,
     getSelectedModel,
@@ -231,14 +228,14 @@ export function AssistantUiPanelWrapper({
   const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
   const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
 
-  // Subscribe to secrets changes to re-check available providers when API keys change
+  // OpenRouter default initialization still keys its durable attempt on the
+  // same credential revision as provider discovery.
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
-  const configuredProviders = useConfiguredAssistantProviders({
-    getAvailableProviders,
-    ...(initialProviders === undefined ? {} : { initialProviders }),
-    ...(providerSeeds === undefined ? {} : { providerSeeds }),
-    secretsVersion,
-  });
+  const {
+    discoveryError: providerDiscoveryError,
+    discoveryState: providerDiscoveryState,
+    providers: configuredProviders,
+  } = useConfiguredAssistantProviders();
 
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
@@ -257,7 +254,7 @@ export function AssistantUiPanelWrapper({
     configuredProviders,
     db,
     secretsVersion,
-    initialProviders,
+    providerSource.kind === 'discovery',
     providerReadErrors
   );
 
@@ -1138,8 +1135,10 @@ export function AssistantUiPanelWrapper({
 
   const shouldSkipSelectionReconcile = useCallback(
     (currentProvider: SupportedProvider | null) =>
-      configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider),
-    [configuredProviders]
+      providerDiscoveryState === 'idle' ||
+      providerDiscoveryState === 'loading' ||
+      (configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider)),
+    [configuredProviders, providerDiscoveryState]
   );
 
   const hasValidCurrentModelSelection = useCallback(
@@ -1370,9 +1369,16 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
+  const providerDiscoveryReason = providerDiscoveryError
+    ? `Could not refresh available providers: ${providerDiscoveryError}`
+    : undefined;
   const runtimeDisabledReason =
-    memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
+    (configuredProviders.length === 0 ? providerDiscoveryReason : undefined) ??
+    memoryDisabledReason ??
+    providerDisabledReason ??
+    openRouterDisabledReason;
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
+  const panelNotice = disabledReason ?? providerDiscoveryReason;
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
   // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
@@ -1757,13 +1763,10 @@ export function AssistantUiPanelWrapper({
                 {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
                 {...(selectedProvider ? { selectedProvider } : {})}
                 {...(currentModel ? { selectedModel: currentModel } : {})}
-                disabled={
-                  !isProviderReady ||
-                  Boolean(memoryDisabledReason ?? openRouterDisabledReason ?? disabledReason)
-                }
+                disabled={!isProviderReady || Boolean(disabledReason)}
                 onModelChange={handleModelChange}
                 onModelToggle={handleModelToggle}
-                {...(disabledReason ? { disabledReason } : {})}
+                {...(panelNotice ? { disabledReason: panelNotice } : {})}
                 {...(planModeAvailable
                   ? {
                       onExitPlanMode: exitPlanMode,

@@ -71,7 +71,7 @@ Allowed dependencies:
 
 - `@brainstrike/assistant-contract` for provider metadata, local-runtime state, model settings, and memory contracts.
 - `@brainstrike/ui/assistant-ui-panel` for presentational assistant UI types/components.
-- `@brainstrike/preferences` for persisted user settings.
+- `@brainstrike/app-state` for persisted user settings and `@brainstrike/settings-ui` for settings presentation.
 - `@brainstrike/file-explorer-ui/preview` and `/shell` for workspace context and selection state.
 
 Focused local verification:
@@ -107,7 +107,7 @@ Allowed dependencies:
 - `@brainstrike/file-explorer-hooks` for file-content processing.
 - `@brainstrike/file-import` for enhanced import/chunking orchestration.
 - `@brainstrike/db` repository and managed-cache contracts.
-- `@brainstrike/preferences` status-store contracts.
+- `@brainstrike/app-state` status-store contracts.
 
 Focused local verification:
 
@@ -278,10 +278,10 @@ import { QueueHUD } from "@brainstrike/app-shell";
 
 ### Panel Layout Store
 
-Panel layout state (sizes, visibility, active tab) is managed by `@brainstrike/preferences`:
+Panel layout state (sizes, visibility, active tab) is managed by `@brainstrike/app-state`:
 
 ```tsx
-import { usePanelLayoutStore } from "@brainstrike/preferences";
+import { usePanelLayoutStore } from "@brainstrike/app-state/stores/panel-layout-store";
 
 function MyComponent() {
   const activeTab = usePanelLayoutStore((s) => s.activeTab);
@@ -294,8 +294,8 @@ function MyComponent() {
 
 ### Settings
 
-Settings page content (`SettingsPageContent`, `LoggingSettingsSection`) lives in `@brainstrike/preferences`.
-Import directly from that package rather than from app-shell.
+Settings page content (`SettingsPageContent`, `LoggingSettingsSection`) lives in
+`@brainstrike/settings-ui`. Import its explicit subpaths rather than from app-shell.
 
 ## Utilities
 
@@ -394,7 +394,8 @@ pnpm test:coverage
 This package integrates with other BrainStrike packages:
 
 - `@brainstrike/ui` - UI component library
-- `@brainstrike/preferences` - User preferences and settings stores
+- `@brainstrike/app-state` - User preferences and application state
+- `@brainstrike/settings-ui` - Settings presentation
 - `@brainstrike/db-explorer` - Database exploration and file import UI
 - `@brainstrike/vector-management` - Vector/embedding status and queue management
 - `@brainstrike/file-explorer-ui` - File explorer components
@@ -416,7 +417,7 @@ src/
 │   ├── components/
 │   ├── hooks/
 │   └── types/
-├── stores/              # Zustand stores (layout moved to @brainstrike/preferences)
+├── stores/              # Shell-local stores (shared layout state lives in @brainstrike/app-state)
 ├── types/               # TypeScript definitions
 └── index.ts            # Public exports
 ```

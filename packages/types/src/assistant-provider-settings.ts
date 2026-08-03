@@ -3,11 +3,11 @@
  *
  * These types are intentionally hosted in `@brainstrike/types` (a leaf
  * package with no runtime deps) so both `@brainstrike/ui` and
- * `@brainstrike/preferences` can share a single canonical definition.
+ * `@brainstrike/app-state` can share a single canonical definition.
  *
  * Previously the same shapes were duplicated in
  * `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` and
- * `packages/preferences/src/stores/assistant-preferences-store.ts` because
+ * `packages/app-state/src/stores/assistant-preferences-store.ts` because
  * `preferences` depends on `ui` (forbidding the reverse import). Reviewers
  * flagged this duplication five times on PR #873; centralising here is the
  * structural fix.

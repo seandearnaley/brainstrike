@@ -8,7 +8,7 @@
  * into the Mastra loop is a later step (PR-1.3); the approval UI is later still
  * (PR-1.4).
  *
- * The store that PERSISTS these policies lives in `@brainstrike/preferences`
+ * The store that PERSISTS these policies lives in `@brainstrike/app-state`
  * (`permission-policy-store.ts`); it imports the types and resolver from here so
  * the resolver can be unit-tested without zustand and reused identically in web
  * and Electron.

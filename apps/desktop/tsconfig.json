@@ -136,12 +136,6 @@
       "@brainstrike/platform-utils": [
         "../../packages/platform-utils/src"
       ],
-      "@brainstrike/preferences": [
-        "../../packages/preferences/src"
-      ],
-      "@brainstrike/preferences/*": [
-        "../../packages/preferences/src/*"
-      ],
       "@brainstrike/embeddings": [
         "../../packages/embeddings/src"
       ],
@@ -172,6 +166,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/app-state"
+    },
+    {
       "path": "../../packages/app-shell"
     },
     {
@@ -188,6 +185,9 @@
     },
     {
       "path": "../../packages/logging"
+    },
+    {
+      "path": "../../packages/settings-ui"
     },
     {
       "path": "../../packages/tokenization"

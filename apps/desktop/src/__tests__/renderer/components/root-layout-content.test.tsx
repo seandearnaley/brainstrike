@@ -203,8 +203,8 @@ vi.mock('@brainstrike/logging', async () => {
   };
 });
 
-// Mock preferences to avoid store initialization
-vi.mock('@brainstrike/preferences', () => ({
+// Mock model registry state to avoid store initialization.
+vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
   useModelRegistryStore: {
     getState: vi.fn(() => ({
       setDownloading: vi.fn(),

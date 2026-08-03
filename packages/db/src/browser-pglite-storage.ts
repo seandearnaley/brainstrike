@@ -39,7 +39,7 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  * WHEN BUMPING THIS (e.g. to 'pg19'):
  * 1. Append the just-superseded versioned name(s) (e.g. `app-pg18`, `web-pg18`)
  *    to `FALLBACK_INDEXED_DB_NAMES` in
- *    packages/preferences/src/settings/system/factory-reset-helpers.ts as
+ *    packages/app-state/src/factory-reset.ts as
  *    defense-in-depth. Automatic reclaim already covers prior versioned majors on
  *    every browser — enumerating when supported, else via the deterministic
  *    `enumerationUnavailableLegacyNames` candidate set — so this list is the

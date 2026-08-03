@@ -1,3 +1,5 @@
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type {
   ChunkingStrategy,
   FileImportResult,
@@ -23,8 +25,6 @@ import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-work
 import { runEnhancedImport } from '@brainstrike/file-import/enhanced-import';
 import { createLogger } from '@brainstrike/logging';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
 import { onQueueProgress, type QueueProgressEventDetail } from '@brainstrike/utils/browser-events';

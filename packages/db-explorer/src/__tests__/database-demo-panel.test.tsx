@@ -1,3 +1,18 @@
+import {
+  __resetBackgroundIndexingPreferencesStoreForTests,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { __resetImportSettingsStoreForTests } from '@brainstrike/app-state/stores/import-settings-store';
+import {
+  __resetModelRegistryStoreForTests,
+  useModelRegistryStore,
+} from '@brainstrike/app-state/stores/model-registry-store';
+import { __resetTokenPreferencesStoreForTests } from '@brainstrike/app-state/stores/token-preferences-store';
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+  useVectorStatusUIStore as useVectorStatusUIStoreDirect,
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { EmbeddingSet } from '@brainstrike/db';
 import {
@@ -5,19 +20,6 @@ import {
   registerEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  __resetImportSettingsStoreForTests,
-  __resetTokenPreferencesStoreForTests,
-  __resetVectorStatusUIStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences';
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import { SearchEmbedderProvider, setActiveEmbeddingSetId } from '@brainstrike/vector-management';
@@ -373,18 +375,11 @@ const { mockEnsureModelRegistry, mockUseLocalRuntimeEmbeddingModelCatalog } = vi
   };
 });
 
-vi.mock('@brainstrike/preferences', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
-  return {
-    ...actual,
-  };
-});
-
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: mockEnsureModelRegistry,
 }));
 
-vi.mock('@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog', () => ({
   useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
 }));
 

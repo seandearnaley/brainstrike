@@ -1,9 +1,9 @@
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
-import { createLogger } from '@brainstrike/logging';
 import {
   type ActiveBackfillState,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';

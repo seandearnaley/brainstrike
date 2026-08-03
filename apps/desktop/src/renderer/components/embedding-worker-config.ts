@@ -1,3 +1,4 @@
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   createDatabasePressureController,
   type DatabasePressureSnapshotSource,
@@ -24,7 +25,6 @@ import {
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 
 const logger = createLogger('EmbeddingWorkerConfig');
 // Desktop local embedding runs in a hidden renderer backed by the DB scheduler.

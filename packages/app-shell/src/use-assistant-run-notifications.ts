@@ -14,14 +14,14 @@
  * notify on their behalf.
  */
 
+import { getNotificationPermissionState } from '@brainstrike/app-state/notifications/notification-permission';
+import { createRunNotificationDispatcher } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
+import type { AssistantNotificationFocusState } from '@brainstrike/app-state/notifications/should-notify';
+import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
 import type {
   AssistantRunEvent,
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract';
-import { getNotificationPermissionState } from '@brainstrike/preferences/notifications/notification-permission';
-import { createRunNotificationDispatcher } from '@brainstrike/preferences/notifications/run-notification-dispatcher';
-import type { AssistantNotificationFocusState } from '@brainstrike/preferences/notifications/should-notify';
-import { useNotificationPreferencesStore } from '@brainstrike/preferences/stores/notification-preferences-store';
 import { useMemo, useRef } from 'react';
 
 export interface AssistantRunNotificationCallbacks {

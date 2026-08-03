@@ -1,13 +1,11 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { type SupportedProvider, WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import {
-  useAssistantMemoryPreferencesStore,
-  useAssistantPreferencesStore,
-  usePanelLayoutStore,
-} from '@brainstrike/preferences';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
@@ -20,6 +18,7 @@ import {
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
   fileExplorerMocks,
   hasDesktopLlmHostMock,
@@ -547,10 +546,14 @@ describe('AssistantUiPanelWrapper', () => {
     // Re-render component
     await act(async () => {
       rerender(
-        <AssistantUiPanelWrapper
-          initialProviders={['openai', 'anthropic', 'google']}
-          loadLocalLlmBackend={loadTestLocalLlmBackend}
-        />
+        <AssistantProviderSourceProvider
+          source={{
+            kind: 'authoritative',
+            providers: ['openai', 'anthropic', 'google'],
+          }}
+        >
+          <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+        </AssistantProviderSourceProvider>
       );
     });
 
@@ -2039,10 +2042,9 @@ describe('AssistantUiPanelWrapper', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { unmount } = render(
-      <AssistantUiPanelWrapper
-        initialProviders={['openai'] as SupportedProvider[]}
-        loadLocalLlmBackend={loadTestLocalLlmBackend}
-      />
+      <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
+        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+      </AssistantProviderSourceProvider>
     );
 
     unmount();

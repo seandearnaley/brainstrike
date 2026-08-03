@@ -12,21 +12,23 @@ import {
   useDiagnosticsPurge,
   useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
+import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
+import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
-import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
-import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
+import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
+import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
 import {
   LoggingSettingsSection,
   type LogSourceAdapter,
-} from '@brainstrike/preferences/settings/system/logging-settings-section';
-import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
+} from '@brainstrike/settings-ui/settings/system/logging-settings-section';
+import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
   type ToolExecutionResult,
-} from '@brainstrike/preferences/settings/tools/index';
+} from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
@@ -37,9 +39,7 @@ import {
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
-} from '@brainstrike/preferences/settings-page-content';
-import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/preferences/settings-test-runtime-access';
-import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
+} from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';

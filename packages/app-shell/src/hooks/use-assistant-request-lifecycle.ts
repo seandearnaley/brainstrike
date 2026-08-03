@@ -1,8 +1,8 @@
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { getPermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
-import { getPermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   type AssistantForegroundActivityLease,
