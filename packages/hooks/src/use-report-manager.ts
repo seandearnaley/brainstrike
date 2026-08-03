@@ -13,6 +13,7 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import {
   downloadBlobFile,
   formatTimestampedDownloadFilename,
+  sanitizeFilenameSegment,
 } from '@brainstrike/utils/browser-download';
 import { useCallback } from 'react';
 
@@ -60,12 +61,24 @@ const hyphenateFilenameSegment = (value: string): string =>
     .replace(/-+/g, '-')
     .replace(/^[-.]+|[-.]+$/g, '');
 
+// The desktop save bridge rejects whole filenames over 250 characters
+// (`MAX_FILENAME_LENGTH` in apps/desktop/src/ipc-file-exports-handlers.ts);
+// capping the only unbounded segment well below that keeps the name valid and
+// readable regardless of how the root directory is named.
+const ROOT_SEGMENT_MAX_CHARS = 64;
+
 const buildContextFilename = (
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null
 ): string => {
   const { base, extension } = getReportFilenameParts(DEFAULT_CONTEXT_FILENAME);
+  // Sanitized BEFORE the emptiness check and truncation: a root name made
+  // entirely of stripped characters (e.g. CJK) must drop the segment rather
+  // than leave `context--…`, and a truncation cut landing on a separator must
+  // not leave a trailing hyphen.
   const rootName = rootDirectoryHandle?.name
-    ? hyphenateFilenameSegment(rootDirectoryHandle.name)
+    ? sanitizeFilenameSegment(hyphenateFilenameSegment(rootDirectoryHandle.name))
+        .slice(0, ROOT_SEGMENT_MAX_CHARS)
+        .replace(/[-.]+$/, '')
     : '';
   return formatTimestampedDownloadFilename({
     extension,

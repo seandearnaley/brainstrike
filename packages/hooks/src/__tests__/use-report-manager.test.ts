@@ -225,6 +225,76 @@ describe('useReportManager', () => {
     });
   });
 
+  it('drops a root segment that sanitizes away instead of leaving a dangling hyphen', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: { name: '日本語' } as FileSystemDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadContext();
+    });
+
+    // Not `context--…`: emptiness is judged AFTER sanitizing.
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: 'context-2025-06-08T18-03-18Z.txt',
+    });
+  });
+
+  it('truncates a long root segment so the filename stays under the desktop bridge cap', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: { name: 'a'.repeat(300) } as FileSystemDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadContext();
+    });
+
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: `context-${'a'.repeat(64)}-2025-06-08T18-03-18Z.txt`,
+    });
+  });
+
+  it('does not leave a trailing hyphen when truncation cuts at a separator', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: {
+          name: `${'a'.repeat(63)} ${'b'.repeat(100)}`,
+        } as FileSystemDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadContext();
+    });
+
+    // 63 a's + hyphen is 64 chars; the cut lands on the hyphen, which must not survive.
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: `context-${'a'.repeat(63)}-2025-06-08T18-03-18Z.txt`,
+    });
+  });
+
   it('should not download if context generation fails', async () => {
     mockGenerateContextWithContent.mockResolvedValue(null);
 
