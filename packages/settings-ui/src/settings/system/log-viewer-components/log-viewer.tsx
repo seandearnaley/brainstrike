@@ -436,7 +436,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
   const [selectedRecord, setSelectedRecord] = useState<LogRecord | null>(null);
   const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
-  const searchHaystackCacheRef = useRef(new WeakMap<LogRecord, string>());
+  const [searchHaystackCache] = useState(() => new WeakMap<LogRecord, string>());
   const {
     logRecords,
     logsLoading,
@@ -538,7 +538,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
         timeStart,
         timeEnd,
         rowCacheRef.current,
-        searchHaystackCacheRef.current
+        searchHaystackCache
       )
     );
   }, [
@@ -549,6 +549,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     scopeFilter,
     sourceFilter,
     timeEnd,
+    searchHaystackCache,
     timeStart,
   ]);
 
