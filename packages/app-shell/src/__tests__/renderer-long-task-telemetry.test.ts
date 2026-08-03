@@ -1629,13 +1629,18 @@ describe('renderer-long-task-telemetry', () => {
       throw new Error('Expected PerformanceObserver callback to be registered.');
     }
 
+    // Sampled before delivery so the entry never completes after the module's
+    // own performance.now() read (see the 1ms completion tolerance). Fake timers
+    // freeze the clock here, but the eager read keeps that independent of which
+    // globals vitest chooses to fake.
+    const entryStartTime = performance.now() - 100;
     callback(
       {
         getEntries: () => [
           {
             duration: 75,
             entryType: 'longtask',
-            startTime: performance.now() - 100,
+            startTime: entryStartTime,
           } as PerformanceEntry,
         ],
       } as PerformanceObserverEntryList,

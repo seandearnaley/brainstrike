@@ -323,6 +323,11 @@ describe('RootLayoutContent', () => {
     if (!callback) {
       throw new Error('Expected the renderer long-task observer callback.');
     }
+    // Sample the entry timestamp before delivery. The telemetry module reads its
+    // own performance.now() first and rejects entries completing more than 1ms
+    // after that read, so a timestamp computed lazily inside getEntries races the
+    // module's clock and a scheduling gap under load would invert the ordering.
+    const entryStartTime = performance.now() - 100;
     act(() => {
       callback(
         {
@@ -330,7 +335,7 @@ describe('RootLayoutContent', () => {
             {
               duration: 90,
               entryType: 'longtask',
-              startTime: performance.now() - 100,
+              startTime: entryStartTime,
             } as PerformanceEntry,
           ],
         } as PerformanceObserverEntryList,
