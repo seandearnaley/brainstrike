@@ -14,6 +14,16 @@ export const PROVIDER_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_provider_er
  * projection incident.
  */
 export const LOCAL_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_local_error';
+
+/**
+ * True for run-error codes whose fault never crossed to a provider: the
+ * evidence-free local fallback and the local model's malformed-tool-arguments
+ * fault. Log fingerprints and breadcrumb messages branch on this so local
+ * faults never wear the provider label.
+ */
+export function isLocalRunErrorClassification(code: string): boolean {
+  return code === LOCAL_RUN_ERROR_FALLBACK_CODE || code === LOCAL_TOOL_CALL_ARGUMENTS_INVALID;
+}
 export const MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS = 600;
 export const MAX_PROVIDER_RUN_ERROR_CAUSES = 4;
 export const MAX_PROVIDER_RUN_ERROR_CAUSE_CHARS = 300;

@@ -1679,6 +1679,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
     expect(providerErrorLog).toBeDefined();
     expect(providerErrorLog?.level).toBe(LogLevel.ERROR);
+    expect(providerErrorLog?.message).toBe('mastra stream terminated by provider error');
   });
 
   it('classifies an evidence-free local fault as mastra_agent_stream_local_error end to end', async () => {
@@ -1748,6 +1749,9 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
     expect(localErrorLog).toBeDefined();
     expect(localErrorLog?.level).toBe(LogLevel.ERROR);
+    // The message text must match the classification too — grepping logs by
+    // message must not land local faults on the provider answer.
+    expect(localErrorLog?.message).toBe('mastra stream terminated by local error');
   });
 
   it('preserves a typed OpenRouter token error through the real Mastra loop', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractProviderRunError,
+  isLocalRunErrorClassification,
   LOCAL_RUN_ERROR_FALLBACK_CODE,
   MAX_PROVIDER_RUN_ERROR_CAUSES,
   MAX_PROVIDER_RUN_ERROR_HEADER_VALUE_CHARS,
@@ -177,6 +178,13 @@ describe('provider error metadata', () => {
         url: 'https://api.anthropic.com/v1/messages',
       }).code
     ).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+  });
+
+  it('classifies exactly the local fallback and local-model tool fault as local', () => {
+    expect(isLocalRunErrorClassification(LOCAL_RUN_ERROR_FALLBACK_CODE)).toBe(true);
+    expect(isLocalRunErrorClassification('local_tool_call_arguments_invalid')).toBe(true);
+    expect(isLocalRunErrorClassification(PROVIDER_RUN_ERROR_FALLBACK_CODE)).toBe(false);
+    expect(isLocalRunErrorClassification('context_length_exceeded')).toBe(false);
   });
 
   it('still promotes stable typed codes even without response evidence', () => {

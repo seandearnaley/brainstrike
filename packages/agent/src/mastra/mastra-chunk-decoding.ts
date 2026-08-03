@@ -16,12 +16,12 @@
  */
 import {
   extractProviderRunError,
+  isLocalRunErrorClassification,
   LOCAL_RUN_ERROR_FALLBACK_CODE,
   MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS,
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
   type ProviderRunError,
 } from '../provider-error-metadata';
-import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import type { AssistantRunEventJson, AssistantRunEventMetadata } from '../run-events';
 import { sanitizeAssistantRunEventMetadata } from '../run-events';
 import type { RuntimeData, StreamChunkTool, StreamFinishReason } from '../types';
@@ -560,10 +560,9 @@ export function buildProviderErrorDiagnosticCode(runError: ProviderRunError): st
   // Stable typed codes are namespaced by classification: the local model's
   // malformed-tool-arguments fault never crossed to a provider, so it must not
   // wear the provider log fingerprint either.
-  const namespace =
-    runError.code === LOCAL_TOOL_CALL_ARGUMENTS_INVALID
-      ? LOCAL_RUN_ERROR_FALLBACK_CODE
-      : PROVIDER_RUN_ERROR_FALLBACK_CODE;
+  const namespace = isLocalRunErrorClassification(runError.code)
+    ? LOCAL_RUN_ERROR_FALLBACK_CODE
+    : PROVIDER_RUN_ERROR_FALLBACK_CODE;
   return `${namespace}:${runError.code}:${httpStatus}`;
 }
 
