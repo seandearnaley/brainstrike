@@ -112,6 +112,10 @@
 ## QuerySelf projection fitting searches retained prefixes
 **Learning:** `querySelf` can project 200 bounded result rows, but fitting its 6,000-character model output previously dropped one row and re-serialized the whole candidate per iteration. The maximum two-wide-cell fixture required 188 full serializations; largest-fitting-prefix search requires exactly 9 while retaining the same complete rows and omission signal.
 **Action:** Keep bounded `querySelf` row, schema, lens, and plan fitting on largest-prefix search; do not restore decrement-and-reserialize loops.
+
+## Log Viewer search projects each retained record once
+**Learning:** The Log Viewer retains up to 5,000 records and re-filters them for every incremental search term. Row payload serialization was cached, but joining and lowercasing the same message, scope, args, and bindings still repeated once per retained record per term.
+**Action:** Keep the lowercase search haystack lazy and weakly cached by immutable `LogRecord`; cheap level, scope, source, code, and time predicates must continue to run before the search projection.
 ## Tool summary truncation scans only retained code points
 **Learning:** `packages/ui/src/assistant-ui-panel/tool-summaries.ts` capped visible tool arguments at 64 Unicode code points but first expanded the complete normalized value with `[...full]`. Over 1,000 representative 16 KiB values on Node 24.14.0, bounded surrogate-safe index scans reduced the 15-sample median from 87.91ms to 1.08ms for paths, 171.51ms to 74.10ms for prose, and 235.67ms to 82.57ms for emoji-heavy prose with identical checksums.
 **Action:** Keep tool-summary head/tail truncation on bounded forward/backward UTF-16 index scans; do not materialize the complete code-point array merely to retain 64 visible code points.

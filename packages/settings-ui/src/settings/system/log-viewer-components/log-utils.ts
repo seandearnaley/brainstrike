@@ -60,3 +60,18 @@ export interface LogRecordRow extends LogRecord {
   originalRecord: LogRecord;
   serializedArgs: string;
 }
+
+export function getCachedLogSearchHaystack(
+  row: LogRecordRow,
+  cache: WeakMap<LogRecord, string>
+): string {
+  const cachedHaystack = cache.get(row.originalRecord);
+  if (cachedHaystack !== undefined) {
+    return cachedHaystack;
+  }
+  const haystack = [row.message ?? '', row.scope ?? '', row.serializedArgs, row.flattenedBindings]
+    .join(' ')
+    .toLowerCase();
+  cache.set(row.originalRecord, haystack);
+  return haystack;
+}
