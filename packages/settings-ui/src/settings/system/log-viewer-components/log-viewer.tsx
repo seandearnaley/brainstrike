@@ -529,6 +529,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
     const term = globalFilter.trim().toLowerCase();
     const scopeSelection = scopeFilter.trim();
+    searchHaystackCache.resetFor(logRecords);
     return logRecords.filter((record) =>
       shouldIncludeLogRecord(
         record,

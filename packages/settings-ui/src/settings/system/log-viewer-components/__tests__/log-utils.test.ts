@@ -58,4 +58,41 @@ describe('getCachedLogSearchHaystack', () => {
     expect(cache.haystacks.has(record)).toBe(false);
     expect(cache.cachedCharacters).toBe(0);
   });
+
+  it('resets its budget for a replacement record snapshot', () => {
+    const firstRecord: LogRecord = {
+      args: [],
+      bindings: {},
+      level: LogLevel.INFO,
+      message: 'First snapshot',
+      timestamp: 1,
+    };
+    const replacementRecord: LogRecord = {
+      ...firstRecord,
+      message: 'Replacement snapshot',
+      timestamp: 2,
+    };
+    const firstRow: LogRecordRow = {
+      ...firstRecord,
+      flattenedBindings: '{}',
+      originalRecord: firstRecord,
+      serializedArgs: '',
+    };
+    const replacementRow: LogRecordRow = {
+      ...replacementRecord,
+      flattenedBindings: '{}',
+      originalRecord: replacementRecord,
+      serializedArgs: '',
+    };
+    const cache = createLogSearchHaystackCache();
+
+    cache.resetFor([firstRecord]);
+    getCachedLogSearchHaystack(firstRow, cache);
+    expect(cache.cachedCharacters).toBeGreaterThan(0);
+
+    cache.resetFor([replacementRecord]);
+    expect(cache.cachedCharacters).toBe(0);
+    expect(getCachedLogSearchHaystack(replacementRow, cache)).toContain('replacement');
+    expect(cache.haystacks.has(replacementRecord)).toBe(true);
+  });
 });

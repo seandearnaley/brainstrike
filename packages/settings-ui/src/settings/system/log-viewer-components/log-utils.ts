@@ -66,10 +66,24 @@ export const MAX_CACHED_LOG_SEARCH_HAYSTACK_CHARACTERS = 4 * 1024 * 1024;
 export interface LogSearchHaystackCache {
   cachedCharacters: number;
   haystacks: WeakMap<LogRecord, string>;
+  resetFor: (records: readonly LogRecord[]) => void;
 }
 
 export function createLogSearchHaystackCache(): LogSearchHaystackCache {
-  return { cachedCharacters: 0, haystacks: new WeakMap<LogRecord, string>() };
+  let records: readonly LogRecord[] | undefined;
+  const cache: LogSearchHaystackCache = {
+    cachedCharacters: 0,
+    haystacks: new WeakMap<LogRecord, string>(),
+    resetFor(nextRecords: readonly LogRecord[]): void {
+      if (records === nextRecords) {
+        return;
+      }
+      records = nextRecords;
+      cache.cachedCharacters = 0;
+      cache.haystacks = new WeakMap<LogRecord, string>();
+    },
+  };
+  return cache;
 }
 
 export function getCachedLogSearchHaystack(
