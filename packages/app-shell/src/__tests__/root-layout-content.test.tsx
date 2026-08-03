@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
+import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
 
 vi.mock('@brainstrike/file-explorer-hooks', async () => {
   const { createContext } = await import('react');
@@ -323,24 +324,8 @@ describe('RootLayoutContent', () => {
     if (!callback) {
       throw new Error('Expected the renderer long-task observer callback.');
     }
-    // Sample the entry timestamp before delivery. The telemetry module reads its
-    // own performance.now() first and rejects entries completing more than 1ms
-    // after that read, so a timestamp computed lazily inside getEntries races the
-    // module's clock and a scheduling gap under load would invert the ordering.
-    const entryStartTime = performance.now() - 100;
     act(() => {
-      callback(
-        {
-          getEntries: () => [
-            {
-              duration: 90,
-              entryType: 'longtask',
-              startTime: entryStartTime,
-            } as PerformanceEntry,
-          ],
-        } as PerformanceObserverEntryList,
-        {} as PerformanceObserver
-      );
+      callback(createRecentLongTaskEntryList([{ duration: 90 }]), {} as PerformanceObserver);
     });
 
     expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
