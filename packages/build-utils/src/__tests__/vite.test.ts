@@ -171,7 +171,7 @@ describe('assistant vite helpers', () => {
 
   test('returns database lazy-panel optimize-deps package ids', () => {
     expect(getDatabaseOptimizeDepsInclude()).toEqual(
-      expect.arrayContaining(['jszip', 'file-saver', 'react-resizable-panels'])
+      expect.arrayContaining(['jszip', 'react-resizable-panels'])
     );
   });
 

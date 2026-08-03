@@ -73,7 +73,6 @@
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@vitest/ui": "catalog:",
-    "file-saver": "catalog:",
     "glob": "catalog:",
     "idb": "catalog:",
     "jsdom": "catalog:",
