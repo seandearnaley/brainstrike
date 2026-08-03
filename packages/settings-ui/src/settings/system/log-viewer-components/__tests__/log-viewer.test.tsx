@@ -208,9 +208,21 @@ describe('LogViewer', () => {
     expect(firstBindingsSerializations).toBe(1);
   });
 
-  it('reuses cached row projections across incremental search terms', async () => {
+  it('reuses cached row and search projections across incremental search terms', async () => {
     let argumentSerializations = 0;
     let bindingSerializations = 0;
+    let searchHaystackProjections = 0;
+    const expectedHaystack =
+      'Searchable record  {"detail":"needle detail"} {"runtime":"electron-renderer"}';
+    const originalToLowerCase = String.prototype.toLowerCase;
+    const lowercaseSpy = vi
+      .spyOn(String.prototype, 'toLowerCase')
+      .mockImplementation(function lowercaseWithProjectionCount(this: string): string {
+        if (String(this) === expectedHaystack) {
+          searchHaystackProjections += 1;
+        }
+        return originalToLowerCase.call(this);
+      });
     const record = createMockLogRecord({
       args: [
         {
@@ -233,19 +245,24 @@ describe('LogViewer', () => {
       subscribe: () => () => {},
     };
 
-    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    try {
+      render(<LogViewer logSource={logSource} toast={mockToast} />);
 
-    await waitFor(() => expect(screen.getByText('Searchable record')).toBeInTheDocument());
-    expect(argumentSerializations).toBe(1);
-    expect(bindingSerializations).toBe(1);
+      await waitFor(() => expect(screen.getByText('Searchable record')).toBeInTheDocument());
+      expect(argumentSerializations).toBe(1);
+      expect(bindingSerializations).toBe(1);
 
-    const searchInput = screen.getByPlaceholderText('Search logs...');
-    fireEvent.change(searchInput, { target: { value: 'needle' } });
-    fireEvent.change(searchInput, { target: { value: 'needle detail' } });
+      const searchInput = screen.getByPlaceholderText('Search logs...');
+      fireEvent.change(searchInput, { target: { value: 'needle' } });
+      fireEvent.change(searchInput, { target: { value: 'needle detail' } });
 
-    expect(screen.getByText('Searchable record')).toBeInTheDocument();
-    expect(argumentSerializations).toBe(1);
-    expect(bindingSerializations).toBe(1);
+      expect(screen.getByText('Searchable record')).toBeInTheDocument();
+      expect(argumentSerializations).toBe(1);
+      expect(bindingSerializations).toBe(1);
+      expect(searchHaystackProjections).toBe(1);
+    } finally {
+      lowercaseSpy.mockRestore();
+    }
   });
 
   it('coalesces subscription bursts into one trailing snapshot', () => {

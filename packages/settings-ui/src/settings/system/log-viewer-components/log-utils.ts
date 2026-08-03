@@ -60,3 +60,46 @@ export interface LogRecordRow extends LogRecord {
   originalRecord: LogRecord;
   serializedArgs: string;
 }
+
+export const MAX_CACHED_LOG_SEARCH_HAYSTACK_CHARACTERS = 4 * 1024 * 1024;
+
+export interface LogSearchHaystackCache {
+  cachedCharacters: number;
+  haystacks: WeakMap<LogRecord, string>;
+  resetFor: (records: readonly LogRecord[]) => void;
+}
+
+export function createLogSearchHaystackCache(): LogSearchHaystackCache {
+  let records: readonly LogRecord[] | undefined;
+  const cache: LogSearchHaystackCache = {
+    cachedCharacters: 0,
+    haystacks: new WeakMap<LogRecord, string>(),
+    resetFor(nextRecords: readonly LogRecord[]): void {
+      if (records === nextRecords) {
+        return;
+      }
+      records = nextRecords;
+      cache.cachedCharacters = 0;
+      cache.haystacks = new WeakMap<LogRecord, string>();
+    },
+  };
+  return cache;
+}
+
+export function getCachedLogSearchHaystack(
+  row: LogRecordRow,
+  cache: LogSearchHaystackCache
+): string {
+  const cachedHaystack = cache.haystacks.get(row.originalRecord);
+  if (cachedHaystack !== undefined) {
+    return cachedHaystack;
+  }
+  const haystack = [row.message ?? '', row.scope ?? '', row.serializedArgs, row.flattenedBindings]
+    .join(' ')
+    .toLowerCase();
+  if (cache.cachedCharacters + haystack.length <= MAX_CACHED_LOG_SEARCH_HAYSTACK_CHARACTERS) {
+    cache.haystacks.set(row.originalRecord, haystack);
+    cache.cachedCharacters += haystack.length;
+  }
+  return haystack;
+}

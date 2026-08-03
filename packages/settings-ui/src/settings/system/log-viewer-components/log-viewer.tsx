@@ -38,9 +38,12 @@ import { LogList } from './log-list';
 import { LogRecordDetailDialog, LogRowActions } from './log-record-detail-dialog';
 import { LogToolbar } from './log-toolbar';
 import {
+  createLogSearchHaystackCache,
   formatLogTimestamp,
+  getCachedLogSearchHaystack,
   getLevelBadgeVariant,
   type LogRecordRow,
+  type LogSearchHaystackCache,
   serializeArgs,
   sortLogRecords,
 } from './log-utils';
@@ -128,15 +131,14 @@ function getLogRecordRow(
 function matchesSearchTerm(
   record: LogRecord,
   term: string,
-  rowCache: WeakMap<LogRecord, LogRecordRow>
+  rowCache: WeakMap<LogRecord, LogRecordRow>,
+  searchHaystackCache: LogSearchHaystackCache
 ): boolean {
   if (!term) {
     return true;
   }
   const row = getLogRecordRow(record, rowCache);
-  const haystack = [row.message ?? '', row.scope ?? '', row.serializedArgs, row.flattenedBindings]
-    .join(' ')
-    .toLowerCase();
+  const haystack = getCachedLogSearchHaystack(row, searchHaystackCache);
   return haystack.includes(term);
 }
 
@@ -149,7 +151,8 @@ function shouldIncludeLogRecord(
   codeSelection: string,
   timeStart: number | null,
   timeEnd: number | null,
-  rowCache: WeakMap<LogRecord, LogRecordRow>
+  rowCache: WeakMap<LogRecord, LogRecordRow>,
+  searchHaystackCache: LogSearchHaystackCache
 ): boolean {
   if (!matchesLogLevel(record, minimumLevelIndex)) {
     return false;
@@ -172,7 +175,7 @@ function shouldIncludeLogRecord(
   if (timeEnd !== null && record.timestamp > timeEnd) {
     return false;
   }
-  return matchesSearchTerm(record, term, rowCache);
+  return matchesSearchTerm(record, term, rowCache, searchHaystackCache);
 }
 
 function getRuntimeSource(record: LogRecord): string {
@@ -435,6 +438,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
   const [selectedRecord, setSelectedRecord] = useState<LogRecord | null>(null);
   const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
+  const [searchHaystackCache] = useState(createLogSearchHaystackCache);
   const {
     logRecords,
     logsLoading,
@@ -525,6 +529,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
     const term = globalFilter.trim().toLowerCase();
     const scopeSelection = scopeFilter.trim();
+    searchHaystackCache.resetFor(logRecords);
     return logRecords.filter((record) =>
       shouldIncludeLogRecord(
         record,
@@ -535,7 +540,8 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
         codeFilter,
         timeStart,
         timeEnd,
-        rowCacheRef.current
+        rowCacheRef.current,
+        searchHaystackCache
       )
     );
   }, [
@@ -546,6 +552,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     scopeFilter,
     sourceFilter,
     timeEnd,
+    searchHaystackCache,
     timeStart,
   ]);
 
