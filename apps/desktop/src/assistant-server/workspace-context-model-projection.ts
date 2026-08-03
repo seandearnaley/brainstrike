@@ -4,6 +4,7 @@ import {
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import {
   clipProjectionEnd as clipEnd,
@@ -167,7 +168,9 @@ function isTokenEstimate(value: unknown): value is { approxTokens: number | null
 }
 
 function throwMalformed(): never {
-  throw new TypeError('listWorkspaceContext model projection received a malformed result');
+  throw new ToolProjectionInputRejectedError(
+    'listWorkspaceContext model projection received a malformed result'
+  );
 }
 
 function hasCoherentRootState(result: ListWorkspaceContextResult): boolean {

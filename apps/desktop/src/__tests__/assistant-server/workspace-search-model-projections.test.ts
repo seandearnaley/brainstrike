@@ -571,4 +571,25 @@ describe('grep projection through the runtime dispatcher (fail-soft round trip)'
 
     expect(dispatchGrepProjection(stored)).toEqual(stored);
   });
+
+  it('still fails the run for a well-formed result violating the continuation invariant', () => {
+    // A VALID grep result that is truncated with no hint: this projector throw
+    // is deliberate contract enforcement (assistant-providers.md), not shape
+    // rejection, and must keep failing the run through the dispatcher.
+    expect(() =>
+      dispatchGrepProjection({
+        candidatesTruncated: false,
+        files: [],
+        liveEngine: 'ripgrep',
+        offset: 0,
+        outputMode: 'files',
+        scanLimited: false,
+        totalFiles: 0,
+        totalMatches: 0,
+        truncated: true,
+      })
+    ).toThrow(
+      'grepSearch model projection received a truncated result without continuation guidance'
+    );
+  });
 });

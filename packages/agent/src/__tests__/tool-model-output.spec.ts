@@ -25,6 +25,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
+import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-input-rejected';
 import { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET } from '../stream/tool-output-limits';
 import {
   createHookResultEnvelope,
@@ -995,7 +996,7 @@ describe('fail-soft domain projection', () => {
   });
 
   /** Mimics the grep result contract: any record without the expected field is
-   * rejected with a TypeError, exactly like `parseGrepToolResult`. */
+   * rejected with the shape-rejection marker, exactly like `parseGrepToolResult`. */
   const strictProjector = (output: unknown): { type: 'text'; value: string } => {
     if (
       !(
@@ -1004,7 +1005,7 @@ describe('fail-soft domain projection', () => {
         typeof (output as Record<string, unknown>)['candidatesTruncated'] === 'boolean'
       )
     ) {
-      throw new TypeError(
+      throw new ToolProjectionInputRejectedError(
         'grepSearch model projection rejected candidatesTruncated: expected boolean, received undefined'
       );
     }
@@ -1071,7 +1072,9 @@ describe('fail-soft domain projection', () => {
       execute: () => 'raw',
       id: 'async_strict',
       toModelOutput: () =>
-        Promise.reject(new TypeError('model projection rejected result: expected object')),
+        Promise.reject(
+          new ToolProjectionInputRejectedError('model projection rejected result: expected object')
+        ),
     });
     const projected = applyToolModelOutputProjections(
       { async_strict: tool },
@@ -1094,6 +1097,45 @@ describe('fail-soft domain projection', () => {
     });
 
     expect(modelOutput).toEqual({ type: 'text', value: 'grep files | page=1-1/1' });
+    expect(loggerMocks.error).not.toHaveBeenCalled();
+  });
+
+  it('lets an unmarked projector throw keep failing the run (invariant enforcement)', () => {
+    const tool = asTool({
+      execute: () => 'raw',
+      id: 'invariant_enforcing',
+      toModelOutput: () => {
+        throw new TypeError(
+          'grepSearch model projection received a truncated result without continuation guidance'
+        );
+      },
+    });
+    const projected = applyToolModelOutputProjections(
+      { invariant_enforcing: tool },
+      new Map([['invariant_enforcing', 'brainstrike.grepSearch']])
+    );
+
+    expect(() => (projected['invariant_enforcing'] as TestTool).toModelOutput?.('value')).toThrow(
+      'without continuation guidance'
+    );
+    expect(loggerMocks.error).not.toHaveBeenCalled();
+  });
+
+  it('lets an unmarked asynchronous projector rejection keep failing the run', async () => {
+    const tool = asTool({
+      execute: () => 'raw',
+      id: 'async_invariant',
+      toModelOutput: () =>
+        Promise.reject(new RangeError('querySelf model projection exceeds the domain budget')),
+    });
+    const projected = applyToolModelOutputProjections(
+      { async_invariant: tool },
+      new Map([['async_invariant', 'brainstrike.querySelf']])
+    );
+
+    await expect(
+      (projected['async_invariant'] as TestTool).toModelOutput?.('value')
+    ).rejects.toThrow('exceeds the domain budget');
     expect(loggerMocks.error).not.toHaveBeenCalled();
   });
 });

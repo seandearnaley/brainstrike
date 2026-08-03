@@ -1,4 +1,7 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import { refuseExtractUrl, type WebExtractToolResult } from './web-extract-tool';
 
 export interface WebExtractTextModelOutput {
@@ -61,7 +64,9 @@ function parseWebExtractResult(raw: unknown): WebExtractToolResult {
       typeof raw['truncated'] === 'boolean'
     )
   ) {
-    throw new TypeError('webExtract model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webExtract model projection received a malformed result'
+    );
   }
 
   const result = raw as unknown as WebExtractToolResult;
@@ -94,7 +99,9 @@ function parseWebExtractResult(raw: unknown): WebExtractToolResult {
     !hasMessage;
 
   if (!(validUnavailable || validError || validSuccess)) {
-    throw new TypeError('webExtract model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webExtract model projection received a malformed result'
+    );
   }
   return result;
 }

@@ -842,6 +842,19 @@ remaining envelope can carry PostToolUse guidance. Domain projectors MUST
 self-fit a complete page; central code throws on overflow instead of
 prefix-truncating a page whose continuation/provenance it cannot understand.
 Only generated/default projections may use the generic truncation path.
+Projector throws are two different contracts, distinguished by an explicit
+marker (2026-08-03: a failed tool's value reaching the grep projector turned
+into a fatal run error that destroyed the underlying diagnostic). A projector's
+SHAPE-VALIDATION paths — "this value is not my tool's result at all" — throw
+`ToolProjectionInputRejectedError` from `@brainstrike/agent`; the runtime
+dispatcher degrades ONLY that marker to the generic bounded projection and logs
+`tool_model_projection_fail_soft` with a keys-only shape summary that names the
+trigger. Every OTHER projector throw is deliberate contract enforcement — a
+limited result without continuation guidance, a non-advancing page, a self-fit
+budget guard — and still fails the run, whether thrown inside the projector or
+raised centrally on an oversized returned value. When adding a projector,
+choose per throw site: marker for "not my result", plain error for "my
+producer violated its contract".
 The file-read staleness tracker is updated only after cursor validation and
 page construction succeed inside the per-file lock; a rejected stale cursor
 must not mark externally changed bytes as fresh for a later write.

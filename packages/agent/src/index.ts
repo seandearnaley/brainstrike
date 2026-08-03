@@ -228,6 +228,10 @@ export {
   type ToolOutputArtifactSettlementFailureReason,
   type ToolOutputArtifactSettlementStore,
 } from './mastra/tool-output-artifact-settlement';
+export {
+  isToolProjectionInputRejected,
+  ToolProjectionInputRejectedError,
+} from './mastra/tool-projection-input-rejected';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';

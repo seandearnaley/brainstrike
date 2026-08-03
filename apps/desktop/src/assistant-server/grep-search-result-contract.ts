@@ -1,3 +1,4 @@
+import { ToolProjectionInputRejectedError } from '@brainstrike/agent';
 import type { GrepMatch } from '@brainstrike/db';
 
 export type GrepMatchSource = 'index' | 'live' | 'both';
@@ -69,8 +70,14 @@ function valueKind(value: unknown): string {
   return typeof value;
 }
 
+// The marker matters: the runtime dispatcher fails soft ONLY on
+// `ToolProjectionInputRejectedError` (shape rejection — the value is not a
+// grep result at all), while deliberate invariant throws in the projector
+// (e.g. a truncated result without continuation guidance) stay plain and
+// keep failing the run. `runGrepSearch`'s own output validation also lands
+// here; inside `execute` the guard converts any throw, so marking is inert.
 function rejectField(path: string, expected: string, value: unknown): never {
-  throw new TypeError(
+  throw new ToolProjectionInputRejectedError(
     `grepSearch model projection rejected ${path}: expected ${expected}, received ${valueKind(value)}`
   );
 }

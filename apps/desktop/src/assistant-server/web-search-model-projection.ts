@@ -1,4 +1,7 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import { isValidWebSearchCitationUrl } from './web-search-citation-url';
 
 export interface WebSearchTextModelOutput {
@@ -70,7 +73,9 @@ function parseWebSearchResult(raw: unknown): WebSearchResult {
       typeof raw['truncated'] === 'boolean'
     )
   ) {
-    throw new TypeError('webSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webSearch model projection received a malformed result'
+    );
   }
 
   const result = raw as unknown as WebSearchResult;
@@ -109,7 +114,9 @@ function parseWebSearchResult(raw: unknown): WebSearchResult {
       : !hasHint && result.count === result.totalResults);
 
   if (!(validUnavailable || validError || validSuccess)) {
-    throw new TypeError('webSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webSearch model projection received a malformed result'
+    );
   }
   return result;
 }
