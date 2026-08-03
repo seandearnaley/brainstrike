@@ -901,25 +901,22 @@ delivery.
 `packages/utils/src/__tests__/browser-download.test.ts`, DOM-half tests
 `packages/ui/src/__tests__/debug-bundle-download.test.ts` because the utils
 package's vitest environment is `node`; the desktop-bridge route is covered in
-the node-env file since it needs no DOM). Four export surfaces today:
+the node-env file since it needs no DOM). Five export surfaces today:
 `formatDebugBundleFilename` / `downloadDebugBundleFile`, `log-viewer.tsx`'s
 `brainstrike-logs-….json`, `logging-settings-section.tsx`'s
-`brainstrike-errors-…[-recent<N>].ndjson`, and the DB explorer's CSV/ZIP
+`brainstrike-errors-…[-recent<N>].ndjson`, the DB explorer's CSV/ZIP
 exports (`packages/db-explorer/src/hooks/use-export-handlers.ts` /
-`csv-export-utils.ts`). All four call `downloadBlobFile` for the SAVE half; a
-call site that hand-rolls an anchor save is a regression (all of them got a
-half wrong, in different ways, before BST-946). One export surface is NOT yet
-on it: the file-explorer preview context report
-(`packages/hooks/src/use-report-manager.ts`) still saves via `file-saver`'s
-`saveAs` — the same blob-URL anchor pipeline, so on desktop it can still hit
-the wedged-download hazard above. Migrating it (and then dropping `file-saver`
-from `packages/hooks`, `apps/web`, `apps/desktop` and
-`DATABASE_OPTIMIZE_DEPS_INCLUDE` in `packages/build-utils/src/vite.ts`) is
-open work. The FILENAME half is consolidated for the first three surfaces; the
-DB explorer still builds names via its own `generateCSVFilename`
-(`csv-export-core.ts`) — also open work, and the desktop route makes it
-matter: main hard-rejects filenames outside `[a-zA-Z0-9._-]`, which
-`formatTimestampedDownloadFilename` guarantees but ad-hoc builders do not.
+`csv-export-utils.ts`), and the file-explorer preview context report
+(`packages/hooks/src/use-report-manager.ts`,
+`context[-<root>]-….txt`). All five call `downloadBlobFile` for the SAVE half;
+a call site that hand-rolls an anchor save is a regression (all of them got a
+half wrong, in different ways, before BST-946), and `file-saver` is gone from
+the repo entirely — reintroducing it is the same regression. The FILENAME half
+is consolidated for all but one surface; the DB explorer still builds names
+via its own `generateCSVFilename` (`csv-export-core.ts`) — open work, and the
+desktop route makes it matter: main hard-rejects filenames outside
+`[a-zA-Z0-9._-]`, which `formatTimestampedDownloadFilename` guarantees but
+ad-hoc builders do not.
 `downloadBlobFile` resolves `{ path? }` — on the desktop route that is the
 file ACTUALLY written (a collision retargets to a ` (n)`-countered name, never
 overwrites), so callers that name the file to the user must use it; the anchor

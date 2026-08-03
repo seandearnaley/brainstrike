@@ -10,6 +10,10 @@ import { createClipboardService } from '@brainstrike/context-actions';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { error as logError } from '@brainstrike/logging';
 import { FileExplorerStrings } from '@brainstrike/types';
+import {
+  downloadBlobFile,
+  formatTimestampedDownloadFilename,
+} from '@brainstrike/utils/browser-download';
 import { useCallback } from 'react';
 
 const clipboard = createClipboardService();
@@ -46,7 +50,9 @@ const getReportFilenameParts = (filename: string): { base: string; extension: st
   };
 };
 
-const sanitizeFilenameSegment = (value: string): string =>
+// Hyphenates separators for readability before the shared filename builder
+// strips whatever is left outside its safe charset.
+const hyphenateFilenameSegment = (value: string): string =>
   value
     .trim()
     .replace(/[<>:"/\\|?*]/g, '-')
@@ -54,23 +60,18 @@ const sanitizeFilenameSegment = (value: string): string =>
     .replace(/-+/g, '-')
     .replace(/^[-.]+|[-.]+$/g, '');
 
-const formatContextTimestamp = (date: Date): string =>
-  date
-    .toISOString()
-    .replace(/\.\d{3}Z$/, 'Z')
-    .replace('T', '_')
-    .replace(/:/g, '-');
-
 const buildContextFilename = (
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null
 ): string => {
   const { base, extension } = getReportFilenameParts(DEFAULT_CONTEXT_FILENAME);
   const rootName = rootDirectoryHandle?.name
-    ? sanitizeFilenameSegment(rootDirectoryHandle.name)
+    ? hyphenateFilenameSegment(rootDirectoryHandle.name)
     : '';
-  const prefix = rootName ? `${base}-${rootName}` : base;
-  const timestamp = formatContextTimestamp(new Date());
-  return `${prefix}-${timestamp}.${extension}`;
+  return formatTimestampedDownloadFilename({
+    extension,
+    generatedAt: new Date(),
+    name: rootName ? `${base}-${rootName}` : base,
+  });
 };
 
 export const useReportManager = <A = unknown, O = unknown>({
@@ -151,11 +152,10 @@ export const useReportManager = <A = unknown, O = unknown>({
       executeWithToast(
         options,
         async (context) => {
-          const { saveAs } = await import('file-saver');
-          saveAs(
-            new Blob([context], { type: 'text/plain;charset=utf-8' }),
-            buildContextFilename(rootDirectoryHandle)
-          );
+          await downloadBlobFile({
+            blob: new Blob([context], { type: 'text/plain;charset=utf-8' }),
+            filename: buildContextFilename(rootDirectoryHandle),
+          });
         },
         FileExplorerStrings.success.contextDownloaded,
         FileExplorerStrings.error.contextGenerationFailed

@@ -315,7 +315,6 @@ import type {
 - `@brainstrike/app-state` - Import settings
 - `@brainstrike/ui` - UI components
 - `@brainstrike/utils` - Common utilities
-- `file-saver` - File download utility
 - `jszip` - ZIP file creation
 - `zustand` (peer) - State management
 - `react` (peer) - UI framework

@@ -172,7 +172,7 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
   '@shikijs/langs/yaml',
 ] as const;
 
-const DATABASE_OPTIMIZE_DEPS_INCLUDE = ['jszip', 'file-saver', 'react-resizable-panels'] as const;
+const DATABASE_OPTIMIZE_DEPS_INCLUDE = ['jszip', 'react-resizable-panels'] as const;
 
 const HEAVY_RUNTIME_OPTIMIZE_DEPS_EXCLUDE = ['@huggingface/transformers'] as const;
 
