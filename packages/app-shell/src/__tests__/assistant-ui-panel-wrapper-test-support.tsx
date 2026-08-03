@@ -18,6 +18,7 @@ import { __resetAssistantForegroundActivityForTests } from '../assistant-foregro
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
+import { __resetConfiguredAssistantProvidersForTests } from '../hooks/use-configured-assistant-providers';
 
 export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
 
@@ -1074,6 +1075,7 @@ function resetTestEnabledModels() {
 
 beforeEach(() => {
   resetTestEnabledModels();
+  __resetConfiguredAssistantProvidersForTests();
   __resetAssistantPreferencesStoreForTests();
   __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
@@ -1135,6 +1137,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetConfiguredAssistantProvidersForTests();
   __resetAssistantPreferencesStoreForTests();
   __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();

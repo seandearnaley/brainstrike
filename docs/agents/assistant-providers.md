@@ -569,9 +569,13 @@ authoritative and must continue to skip renderer discovery.
 `AssistantProviderSource`, provided at the `AssistantChatPanel` composition root,
 is the required explicit boundary: a missing provider throws. `authoritative`
 is derived synchronously during render, while `discovery` subscribes one shared
-external resource to the secrets-store revision and assistant provider-settings state.
-The first Desktop subscriber starts discovery and the last subscriber tears it
-down, so multiple mounted thread tabs never fan out duplicate runtime probes.
+external resource to the secrets-store revision and the immutable Ollama / LM
+Studio provider-settings snapshots. Unrelated provider settings never trigger
+keychain enumeration or local-runtime probes. The first Desktop subscriber
+starts discovery and the last subscriber tears down the live subscriptions, so
+multiple mounted thread tabs never fan out duplicate runtime probes. The last
+visible provider snapshot remains cached across a zero-subscriber period and is
+rendered while the next subscriber revalidates; only the test reset clears it.
 Every refresh carries a monotonically increasing generation; a superseded or
 unsubscribed request cannot publish late. Unexpected key or runtime discovery
 failures remain visible as a disabled-reason diagnostic while explicit Desktop
@@ -581,6 +585,10 @@ fails, every independently verified provider remains in the error snapshot and
 the failed probe remains visible through the typed aggregate error; neither the
 successful provider nor the failure may be discarded. Malformed main-process
 bridge payloads use that same visible failure channel.
+Idle and loading snapshots pause persisted-model reconciliation. Error snapshots
+do not: their independently verified or last-known provider list remains the
+selection authority while the error stays visible, so a failed sibling probe
+cannot leave a disappeared provider selected forever.
 Keep the authority, refresh, ordering, teardown, and failure controls in
 `use-configured-assistant-providers.test.tsx` when this boundary changes.
 

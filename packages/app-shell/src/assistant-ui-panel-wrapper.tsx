@@ -1135,7 +1135,8 @@ export function AssistantUiPanelWrapper({
 
   const shouldSkipSelectionReconcile = useCallback(
     (currentProvider: SupportedProvider | null) =>
-      (providerDiscoveryState !== 'inactive' && providerDiscoveryState !== 'ready') ||
+      providerDiscoveryState === 'idle' ||
+      providerDiscoveryState === 'loading' ||
       (configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider)),
     [configuredProviders, providerDiscoveryState]
   );

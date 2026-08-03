@@ -110,7 +110,6 @@ function stopProviderDiscoverySubscriptions(): void {
   unsubscribeFromPreferences = undefined;
   unsubscribeFromSecrets?.();
   unsubscribeFromSecrets = undefined;
-  discoverySnapshot = idleDiscoverySnapshot;
 }
 
 function handleSecretsStoreChange(next: SecretsState, previous: SecretsState): void {
@@ -123,7 +122,10 @@ function handleAssistantPreferencesStoreChange(
   next: AssistantPreferencesStore,
   previous: AssistantPreferencesStore
 ): void {
-  if (next.providerSettings !== previous.providerSettings) {
+  if (
+    next.providerSettings.lmstudio !== previous.providerSettings.lmstudio ||
+    next.providerSettings.ollama !== previous.providerSettings.ollama
+  ) {
     void refreshProviderDiscovery();
   }
 }
@@ -178,4 +180,5 @@ function mergeProviders(
 export function __resetConfiguredAssistantProvidersForTests(): void {
   discoveryListeners.clear();
   stopProviderDiscoverySubscriptions();
+  discoverySnapshot = idleDiscoverySnapshot;
 }

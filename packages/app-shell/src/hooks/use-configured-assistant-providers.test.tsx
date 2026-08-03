@@ -154,7 +154,7 @@ describe('useConfiguredAssistantProviders', () => {
     expect(getAvailableProviders).toHaveBeenCalledTimes(2);
   });
 
-  it('refreshes discovery from the provider-settings event boundary', async () => {
+  it('refreshes discovery only from local-runtime provider settings', async () => {
     const getAvailableProviders = setProviderDiscovery(
       vi
         .fn<() => Promise<SupportedProvider[]>>()
@@ -167,6 +167,14 @@ describe('useConfiguredAssistantProviders', () => {
     });
     await waitFor(() => expect(result.current.providers).toEqual(['local']));
 
+    await act(async () => {
+      useAssistantPreferencesStore
+        .getState()
+        .setProviderSettings('openai', { reasoningEffort: 'high' });
+      await Promise.resolve();
+    });
+    expect(getAvailableProviders).toHaveBeenCalledTimes(1);
+
     act(() => {
       useAssistantPreferencesStore
         .getState()
@@ -175,6 +183,45 @@ describe('useConfiguredAssistantProviders', () => {
 
     await waitFor(() => expect(result.current.providers).toEqual(['local', 'ollama']));
     expect(getAvailableProviders).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves the last provider snapshot while a remount revalidates', async () => {
+    const revalidation = deferred<SupportedProvider[]>();
+    const getAvailableProviders = setProviderDiscovery(
+      vi
+        .fn<() => Promise<SupportedProvider[]>>()
+        .mockResolvedValueOnce(['openrouter'])
+        .mockImplementationOnce(() => revalidation.promise)
+    );
+    const source: AssistantProviderSource = { kind: 'discovery' };
+
+    const firstMount = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: providerSourceWrapper(source),
+    });
+    await waitFor(() => {
+      expect(firstMount.result.current).toEqual({
+        discoveryState: 'ready',
+        providers: ['openrouter'],
+      });
+    });
+    firstMount.unmount();
+
+    const secondMount = renderHook(() => useConfiguredAssistantProviders(), {
+      wrapper: providerSourceWrapper(source),
+    });
+    await waitFor(() => expect(getAvailableProviders).toHaveBeenCalledTimes(2));
+    expect(secondMount.result.current).toEqual({
+      discoveryState: 'loading',
+      providers: ['openrouter'],
+    });
+
+    await act(async () => revalidation.resolve(['openrouter', 'ollama']));
+    await waitFor(() => {
+      expect(secondMount.result.current).toEqual({
+        discoveryState: 'ready',
+        providers: ['openrouter', 'ollama'],
+      });
+    });
   });
 
   it('shares one discovery probe across multiple mounted consumers', async () => {

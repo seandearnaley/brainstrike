@@ -1,5 +1,8 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import {
+  AvailableProviderDiscoveryError,
+  useAssistantPreferencesStore,
+} from '@brainstrike/app-state/stores/assistant-preferences-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
@@ -106,6 +109,41 @@ describe('AssistantUiPanelWrapper provider seeds', () => {
     expect(
       await screen.findByText('Could not refresh available providers: OS keychain is locked')
     ).toBeVisible();
+  });
+
+  test('reconciles against verified providers while a partial discovery failure stays visible', async () => {
+    const getAvailableProviders = vi
+      .fn()
+      .mockRejectedValue(
+        new AvailableProviderDiscoveryError(
+          [new Error('ollama discovery failed: malformed bridge response')],
+          ['anthropic']
+        )
+      );
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      getAvailableProviders,
+      selectedModel: 'openrouter::openai/gpt-5.2',
+      selectedProvider: 'openrouter',
+    }));
+
+    render(
+      <AssistantProviderSourceProvider source={{ kind: 'discovery' }}>
+        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+      </AssistantProviderSourceProvider>
+    );
+
+    expect(
+      await screen.findByText(
+        'Could not refresh available providers: Provider discovery failed: ollama discovery failed: malformed bridge response'
+      )
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(useAssistantPreferencesStore.getState().getSelectedProvider()).toBe('anthropic');
+      expect(useAssistantPreferencesStore.getState().selectedModel).toBe(
+        'anthropic::claude-sonnet-4-6'
+      );
+    });
   });
 
   test('refreshes the mounted local model catalog when runtime settings change', async () => {
