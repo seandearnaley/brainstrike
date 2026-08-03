@@ -736,7 +736,7 @@ describe('agent-runtime edge cases', () => {
         );
         expect(failure?.event.metadata).toMatchObject({
           runError: {
-            code: 'mastra_agent_stream_provider_error',
+            code: 'mastra_agent_stream_local_error',
             message: 'Test error message',
           },
         });
