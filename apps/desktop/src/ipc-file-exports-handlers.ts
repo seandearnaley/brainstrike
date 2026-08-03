@@ -93,9 +93,17 @@ async function writeWithCollisionCounter(
     }
     try {
       await fileHandle.writeFile(bytes);
-    } finally {
-      await fileHandle.close();
+    } catch (error) {
+      // The O_EXCL open above claimed this name, so the zero/partial file is
+      // ours to remove — leaving it would strand a corrupt export in Downloads
+      // AND make a retry land on a counter-suffixed name because the original
+      // is still occupied. Cleanup is best-effort: the write error (ENOSPC,
+      // I/O) is the one worth surfacing, not a secondary close/unlink failure.
+      await fileHandle.close().catch(() => undefined);
+      await fsPromises.unlink(targetPath).catch(() => undefined);
+      throw error;
     }
+    await fileHandle.close();
     return { ok: true, path: targetPath };
   }
   return {
