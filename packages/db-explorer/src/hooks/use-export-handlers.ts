@@ -35,10 +35,12 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('files');
 
-      await downloadBlobFile({ blob, filename });
+      // The desktop save never overwrites — a same-second re-export lands on a
+      // ` (n)`-countered name — so the toast names the file actually written.
+      const saved = await downloadBlobFile({ blob, filename });
 
       toast({
-        description: `Exported ${records.length} files to ${filename}`,
+        description: `Exported ${records.length} files to ${saved.path?.split(/[\\/]/).pop() ?? filename}`,
         title: 'Export Successful',
       });
     } catch (error) {
@@ -66,10 +68,10 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('chunks');
 
-      await downloadBlobFile({ blob, filename });
+      const saved = await downloadBlobFile({ blob, filename });
 
       toast({
-        description: `Exported ${chunks.length} chunks to ${filename}`,
+        description: `Exported ${chunks.length} chunks to ${saved.path?.split(/[\\/]/).pop() ?? filename}`,
         title: 'Export Successful',
       });
     } catch (error) {
@@ -98,10 +100,10 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('embeddings');
 
-      await downloadBlobFile({ blob, filename });
+      const saved = await downloadBlobFile({ blob, filename });
 
       toast({
-        description: `Exported ${chunksWithEmbeddings.length} embeddings to ${filename}`,
+        description: `Exported ${chunksWithEmbeddings.length} embeddings to ${saved.path?.split(/[\\/]/).pop() ?? filename}`,
         title: 'Export Successful',
       });
     } catch (error) {

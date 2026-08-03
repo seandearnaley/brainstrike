@@ -44,7 +44,7 @@ describe('useExportHandlers', () => {
     );
     vi.mocked(csvExportUtils.generateEmbeddingsCSV).mockReturnValue('embedding,data');
     vi.mocked(csvExportUtils.generateFilesWithChunksCSV).mockReturnValue('file,data');
-    vi.mocked(downloadBlobFile).mockResolvedValue(undefined);
+    vi.mocked(downloadBlobFile).mockResolvedValue({});
     mockToast = vi.fn() as Mock<ToastFn>;
   });
 
@@ -140,6 +140,34 @@ describe('useExportHandlers', () => {
         description: 'Export generation failed',
         title: 'Export Failed',
         variant: 'destructive',
+      });
+    });
+
+    it('names the file actually written when the desktop save counters a collision', async () => {
+      const records: FileRecord[] = [
+        {
+          createdAt: '2025-01-01T00:00:00Z',
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      vi.mocked(downloadBlobFile).mockResolvedValue({
+        path: '/Users/me/Downloads/files-export (1).csv',
+      });
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, []), mockToast)
+      );
+
+      await result.current.handleExportFiles();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'Exported 1 files to files-export (1).csv',
+        title: 'Export Successful',
       });
     });
 

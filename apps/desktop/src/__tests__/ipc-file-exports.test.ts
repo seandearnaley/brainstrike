@@ -90,13 +90,13 @@ describe('createFileExportsIpcHandlers', () => {
     expect(result.error).toContain('filename');
   });
 
-  it('rejects an over-long filename', async () => {
+  it('rejects a filename too long to carry the widest collision counter', async () => {
     const result = await handlers.saveToDownloads({
       bytes: new Uint8Array([1]),
-      filename: `${'a'.repeat(256)}.md`,
+      filename: `${'a'.repeat(248)}.md`,
     });
 
-    expect(result).toEqual({ error: 'file-exports filename exceeds 255 characters', ok: false });
+    expect(result).toEqual({ error: 'file-exports filename exceeds 250 characters', ok: false });
   });
 
   it.each([

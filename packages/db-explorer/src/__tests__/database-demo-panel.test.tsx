@@ -394,7 +394,7 @@ vi.mock('./csv-export-utils', () => ({
 }));
 
 vi.mock('@brainstrike/utils/browser-download', () => ({
-  downloadBlobFile: vi.fn().mockResolvedValue(undefined),
+  downloadBlobFile: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
