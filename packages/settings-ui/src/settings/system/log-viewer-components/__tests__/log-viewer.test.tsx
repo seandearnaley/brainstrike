@@ -382,8 +382,10 @@ describe('LogViewer', () => {
 
       // `downloadBlobFile` holds the object URL alive for a wall-clock grace
       // period (the download manager resolves the blob asynchronously), so the
-      // revoke must NOT land in the click's wake.
-      expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
+      // revoke must NOT land in the click's wake. The pending revoke timer
+      // intentionally outlives this test (real timers); scoping to THIS
+      // export's URL keeps a stale revoke from a >60s file run harmless.
+      expect(revokeObjectUrlSpy).not.toHaveBeenCalledWith('blob:logs');
     } finally {
       createObjectUrlSpy.mockRestore();
       revokeObjectUrlSpy.mockRestore();
@@ -425,7 +427,8 @@ describe('LogViewer', () => {
       );
       expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
       expect(anchorClickSpy).toHaveBeenCalledTimes(1);
-      expect(revokeObjectUrlSpy).not.toHaveBeenCalled();
+      // URL-scoped for the same stale-timer reason as the export test above.
+      expect(revokeObjectUrlSpy).not.toHaveBeenCalledWith('blob:logs-named');
     } finally {
       createElementSpy.mockRestore();
       createObjectUrlSpy.mockRestore();

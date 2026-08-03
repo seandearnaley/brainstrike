@@ -84,6 +84,16 @@ export function formatTimestampedDownloadFilename({
  * deferral used to be one macrotask, which is not a bound the resolution race
  * respects; this is a wall-clock grace period instead. Cost: one export
  * payload pinned per attempt for this long.
+ *
+ * This is a HEURISTIC, not a proven bound — the renderer never observes the
+ * event it is waiting out. What defeats it: a save-as dialog (Chromium's "Ask
+ * where to save each file", or a `will-download` handler that prompts) left
+ * open past the delay, or a very large payload on a very slow disk. The
+ * deterministic fix is a platform save path with a completion signal
+ * (follow-up). 60 s rather than FileSaver.js's 40 s: finalization measured
+ * ~9 s AFTER the click on an idle dev machine, so the margin is deliberately
+ * generous — the extra 20 s of pinned payload is cheap at current export
+ * sizes; revisit the cost note above before growing it further.
  */
 export const DOWNLOAD_BLOB_REVOKE_DELAY_MS = 60_000;
 
