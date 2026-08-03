@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import fsPromises, { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileExportsIpcHandlers } from '../ipc-file-exports-handlers';
 
 describe('createFileExportsIpcHandlers', () => {
@@ -14,6 +14,7 @@ describe('createFileExportsIpcHandlers', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await rm(downloadsDir, { force: true, recursive: true });
   });
 
@@ -121,6 +122,40 @@ describe('createFileExportsIpcHandlers', () => {
       error: 'file-exports saveToDownloads requires Uint8Array bytes',
       ok: false,
     });
+  });
+
+  it('removes the partial file when the write fails after the exclusive claim', async () => {
+    // Real open (so O_EXCL genuinely creates the file), failing writeFile —
+    // the ENOSPC/I/O-error case where the claim exists but the bytes never
+    // land. Restoring the spy lets the retry below use the untouched fs.
+    const realOpen = fsPromises.open.bind(fsPromises);
+    vi.spyOn(fsPromises, 'open').mockImplementation(async (...args) => {
+      const fileHandle = await realOpen(...(args as Parameters<typeof realOpen>));
+      return {
+        close: () => fileHandle.close(),
+        writeFile: () => Promise.reject(new Error('ENOSPC: no space left on device')),
+      } as unknown as Awaited<ReturnType<typeof realOpen>>;
+    });
+
+    const failed = await handlers.saveToDownloads({
+      bytes: new Uint8Array([1]),
+      filename: 'export.csv',
+    });
+
+    expect(failed.ok).toBe(false);
+    expect(failed.error).toContain('ENOSPC');
+    // The partial file must not be stranded in Downloads…
+    await expect(readFile(path.join(downloadsDir, 'export.csv'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+
+    // …so a retry claims the ORIGINAL name, not a counter-suffixed one.
+    vi.restoreAllMocks();
+    const retried = await handlers.saveToDownloads({
+      bytes: new TextEncoder().encode('retry'),
+      filename: 'export.csv',
+    });
+    expect(retried).toEqual({ ok: true, path: path.join(downloadsDir, 'export.csv') });
   });
 
   it('returns a structured error instead of throwing when the write fails', async () => {
