@@ -17,6 +17,7 @@ import { createLogger } from '@brainstrike/logging';
 import type {
   Changeset,
   ChangesetView,
+  GitInventory,
   GitResult,
   GitScope,
   StructuredFileDiff,
@@ -26,6 +27,7 @@ import {
   createChangesetDiffService,
 } from './assistant-server/changeset-diff-service';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
+import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import type { GitCommandRunner } from './assistant-server/git-service';
 import { getDatabase } from './db-main';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
@@ -247,12 +249,26 @@ export interface ChangesIpcHandlers {
     changeset: unknown,
     path: unknown
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /**
+   * Repository/worktree topology for the Changes surface's source picker and
+   * tree grouping (BST-1114 T0). Takes no renderer-supplied arguments, so
+   * there is nothing to validate at this boundary.
+   */
+  readonly inventory: () => Promise<GitResult<GitInventory>>;
   readonly resolveView: (rootId: unknown, changeset: unknown) => Promise<GitResult<ChangesetView>>;
 }
 
 export interface ChangesIpcHandlersOptions {
   /** Injectable for tests; defaults to a `getDatabase`-backed resolver. */
   readonly resolveDatabase?: () => Promise<EditCheckpointDatabase>;
+  /**
+   * Lazily resolves the app-lifetime {@link GitInventoryService}. Lazy because
+   * the changes domain is registered at module load while the service is only
+   * constructed once the app is ready — a value captured eagerly would be
+   * permanently `null`. Absence is reported as a visible typed failure, never
+   * as an empty inventory (an empty inventory is a real, different fact).
+   */
+  readonly resolveInventoryService?: () => GitInventoryService | null;
   /** Injectable for tests; defaults to the DB-backed workspace root resolver. */
   readonly resolver?: WorkspaceRootResolver;
   /** Injectable for tests; defaults to the real `execFile`-backed runner. */
@@ -280,6 +296,7 @@ export function createChangesIpcHandlers(
     (async (): Promise<EditCheckpointDatabase> =>
       (await getDatabase()) as unknown as EditCheckpointDatabase);
   const run = options.run ?? execFileGitRunner;
+  const resolveInventoryService = options.resolveInventoryService ?? (() => null);
 
   const service: ChangesetDiffService =
     options.service ??
@@ -303,6 +320,29 @@ export function createChangesIpcHandlers(
         return await service.fileDiff(rootId, changesetResult.value, pathResult.value);
       } catch (error) {
         logger.error('Unexpected changes:fileDiff handler failure', { error });
+        return { error: error instanceof Error ? error.message : String(error), ok: false };
+      }
+    },
+    inventory: async () => {
+      const inventoryService = resolveInventoryService();
+      if (!inventoryService) {
+        return {
+          error:
+            'changes:inventory is unavailable: the git inventory service is not running. Restart the app; if this persists it is a wiring bug, not an empty workspace.',
+          ok: false,
+        };
+      }
+      try {
+        const snapshot = await inventoryService.getSnapshot();
+        // Project to the declared `GitInventory` shape: the snapshot's
+        // `capturedAt` is a service-internal cache detail, not part of the
+        // renderer contract.
+        return {
+          ok: true,
+          value: { errors: snapshot.errors, repositories: snapshot.repositories },
+        };
+      } catch (error) {
+        logger.error('Unexpected changes:inventory handler failure', { error });
         return { error: error instanceof Error ? error.message : String(error), ok: false };
       }
     },

@@ -43,7 +43,7 @@ describe('useChangeset', () => {
 
   it('is inert with a null changeset even when the bridge is present', async () => {
     const resolveView = vi.fn();
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', null));
 
     await waitFor(() => {
@@ -71,7 +71,7 @@ describe('useChangeset', () => {
     const resolveView = vi.fn(
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: view })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -88,7 +88,7 @@ describe('useChangeset', () => {
         ok: false,
       })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -113,7 +113,7 @@ describe('useChangeset', () => {
     const resolveView = vi.fn(
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
-    stubBridge({ fileDiff, resolveView });
+    stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -124,6 +124,35 @@ describe('useChangeset', () => {
     expect(fileDiff).toHaveBeenCalledWith('root-1', CHANGESET, 'src/file.ts');
   });
 
+  // A multi-root `agent-run` turn can edit more than one workspace root in a
+  // single run — the per-file caller passes the ENTRY's own rootId, which
+  // must win over the hook's own `rootId` (the surface's focused root).
+  it('uses the entry-supplied rootId over the hook rootId when both are present', async () => {
+    const diffResult: GitResult<StructuredFileDiff> = {
+      ok: true,
+      value: {
+        additions: null,
+        content: { kind: 'binary' },
+        deletions: null,
+        hunks: [],
+        path: 'src/file.ts',
+        status: 'modified',
+      },
+    };
+    const fileDiff = vi.fn(async () => diffResult);
+    const resolveView = vi.fn(
+      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+    );
+    stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
+    const { result } = renderHook(() => useChangeset('root-focused', CHANGESET));
+
+    await waitFor(() => {
+      expect(result.current.view).not.toBeNull();
+    });
+    await result.current.fileDiff('src/file.ts', 'root-entry');
+    expect(fileDiff).toHaveBeenCalledWith('root-entry', CHANGESET, 'src/file.ts');
+  });
+
   it('ignores a stale refresh resolving after a newer one (generation guard)', async () => {
     const deferred: Array<(result: GitResult<ChangesetView>) => void> = [];
     const resolveView = vi.fn(
@@ -132,7 +161,7 @@ describe('useChangeset', () => {
           deferred.push(resolve);
         })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -186,7 +215,7 @@ describe('useChangeset', () => {
     const resolveView = vi.fn(
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     // Every render builds a BRAND NEW object literal — the natural way a
     // consumer would call this hook (e.g. `{ kind: 'agent-run', runId,
     // threadId }` inline) — never the SAME `CHANGESET` reference other tests

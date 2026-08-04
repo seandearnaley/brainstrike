@@ -3,7 +3,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
 import { useState } from 'react';
@@ -652,5 +652,60 @@ describe('RootLayoutContent', () => {
     view.unmount();
 
     expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it('renders Changes as a tab inside the workspace panel, not a nav-rail route, and switches to it on click', () => {
+    renderComponent({ changesPageContent: <div data-testid="changes-page">Changes</div> });
+
+    // No nav-rail item and no top-level KeepMountedRoute for Changes anymore
+    // (BST-1114 smoke-feedback relocation) — it lives inside the workspace
+    // panel's own tab strip instead.
+    expect(screen.queryByTestId('changes-route')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('changes-page')).not.toBeInTheDocument();
+
+    const changesTab = screen.getByRole('tab', { name: 'Changes' });
+    expect(changesTab).toHaveAttribute('data-state', 'inactive');
+
+    act(() => {
+      fireEvent.mouseDown(changesTab, { button: 0, ctrlKey: false });
+    });
+
+    expect(changesTab).toHaveAttribute('data-state', 'active');
+    expect(screen.getByTestId('changes-page')).toBeInTheDocument();
+    // The explorer route itself is still the active shell route — the
+    // workspace panel's inner tab switched, not the outer shell.
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+  });
+
+  it('keeps the workspace-panel Changes tab mounted but hidden after switching back to Context Explorer', () => {
+    renderComponent({ changesPageContent: <div data-testid="changes-page">Changes</div> });
+
+    act(() => {
+      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Changes' }), {
+        button: 0,
+        ctrlKey: false,
+      });
+    });
+    act(() => {
+      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Context Explorer' }), {
+        button: 0,
+        ctrlKey: false,
+      });
+    });
+
+    expect(screen.getByTestId('changes-page')).toBeInTheDocument();
+    expect(screen.getByTestId('changes-page')).not.toBeVisible();
+    expect(screen.getByTestId('context-explorer-page')).toBeVisible();
+  });
+
+  it('renders no Changes tab trigger at all when changesPageContent is absent (capability gate)', () => {
+    renderComponent();
+
+    expect(screen.queryByRole('tab', { name: 'Changes' })).not.toBeInTheDocument();
+    // No workspace-panel tab chrome at all for a single-tab surface — this is
+    // distinct from ExplorerSearchTabs' own "Explorer"/"Search" tablist,
+    // which still renders (unrelated tab strip, one level deeper).
+    expect(screen.queryByTestId('workspace-panel-tabs-list')).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-explorer-page')).toBeVisible();
   });
 });

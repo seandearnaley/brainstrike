@@ -22,6 +22,7 @@ describe('registerChangesIpcHandlers', () => {
     const { ipcMain } = await import('electron');
     const handlers = {
       fileDiff: vi.fn(async () => ({ ok: true, value: {} }) as never),
+      inventory: vi.fn(async () => ({ ok: true, value: {} }) as never),
       resolveView: vi.fn(async () => ({ ok: true, value: {} }) as never),
     };
 
@@ -33,9 +34,13 @@ describe('registerChangesIpcHandlers', () => {
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.changes.resolveView,
         DESKTOP_IPC_CHANNELS.changes.fileDiff,
+        DESKTOP_IPC_CHANNELS.changes.inventory,
       ])
     );
 
+    const inventoryHandler = handleMock.mock.calls.find(
+      ([channel]) => channel === DESKTOP_IPC_CHANNELS.changes.inventory
+    )?.[1] as (event: unknown) => unknown;
     const resolveViewHandler = handleMock.mock.calls.find(
       ([channel]) => channel === DESKTOP_IPC_CHANNELS.changes.resolveView
     )?.[1] as (event: unknown, rootId: unknown, changeset: unknown) => unknown;
@@ -52,12 +57,19 @@ describe('registerChangesIpcHandlers', () => {
 
     await fileDiffHandler({}, 'root-1', { kind: 'agent-run' }, 'src/file.ts');
     expect(handlers.fileDiff).toHaveBeenCalledWith('root-1', { kind: 'agent-run' }, 'src/file.ts');
+
+    // BST-1114 T0: `inventory` takes no renderer arguments — assert the
+    // registered thunk forwards NOTHING (a `(...args) => handlers.inventory(...args)`
+    // slip would leak the raw IpcMainInvokeEvent into the handler).
+    await inventoryHandler({});
+    expect(handlers.inventory).toHaveBeenCalledWith();
   });
 
-  it('disposer removes both registered channels', async () => {
+  it('disposer removes every registered channel', async () => {
     const { ipcMain } = await import('electron');
     const handlers = {
       fileDiff: vi.fn(async () => ({ ok: true, value: {} }) as never),
+      inventory: vi.fn(async () => ({ ok: true, value: {} }) as never),
       resolveView: vi.fn(async () => ({ ok: true, value: {} }) as never),
     };
 
@@ -70,8 +82,9 @@ describe('registerChangesIpcHandlers', () => {
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.changes.resolveView,
         DESKTOP_IPC_CHANNELS.changes.fileDiff,
+        DESKTOP_IPC_CHANNELS.changes.inventory,
       ])
     );
-    expect(removedChannels).toHaveLength(2);
+    expect(removedChannels).toHaveLength(3);
   });
 });

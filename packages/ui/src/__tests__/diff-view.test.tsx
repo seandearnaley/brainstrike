@@ -76,6 +76,21 @@ describe('DiffView', () => {
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('disables native spellcheck/autocorrect/autocapitalize on the mounted content DOM', async () => {
+    render(<DiffView modified={MODIFIED} original={ORIGINAL} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    // `.cm-content` is the actual `contenteditable` element the browser's
+    // native spellchecker runs against — not `.cm-editor` (the outer wrapper).
+    const contentElements = surface.querySelectorAll('.cm-content');
+    expect(contentElements.length).toBeGreaterThan(0);
+    for (const content of contentElements) {
+      expect(content).toHaveAttribute('spellcheck', 'false');
+      expect(content).toHaveAttribute('autocorrect', 'off');
+      expect(content).toHaveAttribute('autocapitalize', 'off');
+    }
+  });
+
   it('applies the same render-side size threshold to the legacy string-prop path', async () => {
     const original = 'small original\n';
     // 20,001 lines — one over the render-side line threshold, same as the

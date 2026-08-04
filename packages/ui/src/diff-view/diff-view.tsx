@@ -92,6 +92,24 @@ const READ_ONLY_EXTENSIONS: Extension[] = [
 ];
 
 /**
+ * Turns off the browser's native spellcheck/autocorrect/autocapitalize on
+ * CodeMirror's content DOM. Smoke-test feedback (BST-1114): diff content is
+ * source code, not prose, so red squiggles under every "diff"/"const"/"fn"
+ * token are noise, not a real spelling issue — and `EditorState.readOnly` /
+ * `EditorView.editable.of(false)` do NOT imply this; some browsers still run
+ * spellcheck over a read-only-but-still-`contenteditable` surface (CodeMirror
+ * keeps `contenteditable` on the content DOM even in read-only mode, since
+ * that's what lets selection/copy keep working). Applied via
+ * `BASE_EXTENSIONS_NO_GUTTER` so it reaches all three modes this file mounts
+ * an editor for — split, unified, and hunks-only.
+ */
+const DISABLE_NATIVE_SPELLCHECK_EXTENSION: Extension = EditorView.contentAttributes.of({
+  autocapitalize: 'off',
+  autocorrect: 'off',
+  spellcheck: 'false',
+});
+
+/**
  * Extensions shared by every editor EXCEPT the hunks-only view — no
  * `lineNumbers()` gutter here (see {@link BASE_EXTENSIONS}'s doc comment).
  */
@@ -101,6 +119,7 @@ const BASE_EXTENSIONS_NO_GUTTER: Extension[] = [
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
   EditorView.lineWrapping,
   DIFF_THEME,
+  DISABLE_NATIVE_SPELLCHECK_EXTENSION,
 ];
 
 /**

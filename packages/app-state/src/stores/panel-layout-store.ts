@@ -18,6 +18,12 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
+/**
+ * Top-level shell routes selected from the left nav rail. `'changes'` is NOT
+ * a member — the Changes surface (BST-1114 smoke-test feedback) lives as a
+ * tab INSIDE the workspace panel on the `'explorer'` route instead of its own
+ * nav-rail page; see `packages/app-shell/src/workspace-panel-tabs.tsx`.
+ */
 export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes';
 
 export interface PanelLayoutStoreState {

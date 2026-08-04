@@ -102,6 +102,7 @@ const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
 const GIT_STRUCTURED_FILE_DIFF_CHANNEL = 'git:structuredFileDiff' as const;
 const CHANGES_RESOLVE_VIEW_CHANNEL = 'changes:resolveView' as const;
 const CHANGES_FILE_DIFF_CHANNEL = 'changes:fileDiff' as const;
+const CHANGES_INVENTORY_CHANNEL = 'changes:inventory' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1247,6 +1248,8 @@ if (shouldExposeBridge('changes')) {
   contextBridge.exposeInMainWorld('changes', {
     fileDiff: (rootId: string, changeset: Changeset, path: string) =>
       ipcRenderer.invoke(CHANGES_FILE_DIFF_CHANNEL, rootId, changeset, path),
+    // Repository/worktree topology for the Changes surface (BST-1114 T0).
+    inventory: () => ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL),
     resolveView: (rootId: string, changeset: Changeset) =>
       ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
   });

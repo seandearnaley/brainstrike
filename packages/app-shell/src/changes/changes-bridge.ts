@@ -15,9 +15,21 @@
  */
 
 import { createLogger } from '@brainstrike/logging';
-import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type {
+  Changeset,
+  ChangesetView,
+  GitInventory,
+  GitResult,
+  StructuredFileDiff,
+} from '@brainstrike/types';
 
-export type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
+export type {
+  Changeset,
+  ChangesetView,
+  GitInventory,
+  GitResult,
+  StructuredFileDiff,
+} from '@brainstrike/types';
 
 const logger = createLogger('ChangesBridge');
 
@@ -27,11 +39,19 @@ export interface ChangesBridge {
     changeset: Changeset,
     path: string
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /**
+   * Repository/worktree topology across the active workspace roots
+   * (BST-1114 T0). Powers the source picker's git scopes and the changed-files
+   * tree's root→repo→worktree grouping, and carries each worktree's
+   * `trust`/`trustReason` so the UI can state an unvalidated worktree's reason
+   * rather than silently degrading.
+   */
+  inventory: () => Promise<GitResult<GitInventory>>;
   resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
 }
 
 /** Every method name the bridge must expose to be considered fully formed. */
-const REQUIRED_METHODS: readonly (keyof ChangesBridge)[] = ['fileDiff', 'resolveView'];
+const REQUIRED_METHODS: readonly (keyof ChangesBridge)[] = ['fileDiff', 'inventory', 'resolveView'];
 
 /**
  * Resolve the `window.changes` bridge, or `null` when it is absent (web) or

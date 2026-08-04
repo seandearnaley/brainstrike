@@ -9,6 +9,7 @@ import {
 function fullBridge(): ChangesBridge {
   return {
     fileDiff: vi.fn(),
+    inventory: vi.fn(),
     resolveView: vi.fn(),
   };
 }
@@ -40,6 +41,7 @@ describe('resolveChangesBridge', () => {
   it('rejects and logs a bridge missing a required method', () => {
     const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
+      inventory: vi.fn(),
       resolveView: vi.fn(),
     };
 
@@ -53,10 +55,28 @@ describe('resolveChangesBridge', () => {
     expect(errorSpy).toHaveBeenCalledTimes(2);
   });
 
+  // BST-1114 T0: `inventory` joined `REQUIRED_METHODS` in the same commit that
+  // added it to the interface. A preload that shipped the old two-method
+  // bridge must read as MALFORMED (surface disabled + logged), never as a
+  // usable bridge whose inventory call is silently missing.
+  it('rejects a pre-T0 bridge that is missing inventory', () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
+      fileDiff: vi.fn(),
+      resolveView: vi.fn(),
+    };
+
+    expect(resolveChangesBridge()).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
+      missing: ['inventory'],
+    });
+  });
+
   it('rejects and logs a bridge with a required method that is not a function', () => {
     const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     (window as unknown as { changes?: Record<string, unknown> }).changes = {
       fileDiff: 'not-a-function',
+      inventory: vi.fn(),
       resolveView: vi.fn(),
     };
 

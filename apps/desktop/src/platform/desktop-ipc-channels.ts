@@ -14,6 +14,7 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   changes: {
     fileDiff: 'changes:fileDiff',
+    inventory: 'changes:inventory',
     resolveView: 'changes:resolveView',
   },
   clipboard: {

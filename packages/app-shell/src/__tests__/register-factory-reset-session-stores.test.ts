@@ -10,6 +10,8 @@ import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
+import { useChangesNavigationStore } from '../changes/changes-navigation-store';
+import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 
@@ -144,5 +146,29 @@ describe('register-factory-reset-session-stores', () => {
     // The watermark is RE-SEEDED to "now", not restored to a fixed initial
     // value, so the assertion is that it advanced past the stale value.
     expect(useDiagnosticsSeenStore.getState().lastSeenAtMs).toBeGreaterThan(staleWatermark);
+  });
+
+  // Its own case for the same reason as the diagnostics stores above: without
+  // it, deleting the two Changes-surface `registerFactoryResetSessionStore`
+  // blocks would leave every other test on the branch green.
+  it('clears both Changes-surface session stores when factory reset drains registered resetters', async () => {
+    useChangesNavigationStore.setState({
+      activeChangeset: { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+      handoffThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+    });
+    useChangesStore.getState().setSelectedFileKeys(new Set(['root-1  src/a.ts']));
+    useChangesStore.getState().setExpandedIds(new Set(['root:root-1']));
+
+    expect(useChangesNavigationStore.getState().activeChangeset).not.toBeNull();
+    expect(useChangesStore.getState().selectedFileKeys.size).toBeGreaterThan(0);
+
+    const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(result.success).toBe(true);
+
+    expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+    expect(useChangesStore.getState().selectedFileKeys).toEqual(new Set());
+    expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
+    expect(useChangesStore.getState().expandedIds).toEqual(new Set());
   });
 });

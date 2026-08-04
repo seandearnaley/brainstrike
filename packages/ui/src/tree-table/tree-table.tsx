@@ -667,7 +667,7 @@ function computeNodeState<T>(node: TreeNode<T>, context: CheckboxStateContext<T>
 }
 
 function buildCheckboxStateMap<T>(
-  nodes: TreeNode<T>[],
+  nodes: readonly TreeNode<T>[],
   getChildren: (node: TreeNode<T>) => TreeNode<T>[],
   multiSelectedIds: Set<string>,
   warnedCycleNodeIds: Set<string>
