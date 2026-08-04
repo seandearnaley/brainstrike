@@ -55,9 +55,8 @@ function getCanonicalFileHandlePath(fileNode: IFileNode): string {
 }
 
 function buildFileHandle(fileNode: IFileNode, fileSystemAdapter: FileSystemAdapter): FileHandle {
-  const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
   const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-  const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
+  const platform: Platform = fileSystemAdapter.platform ?? handlePlatform ?? 'web';
 
   const fileHandle: FileHandle = {
     _internal: fileNode.handle,
