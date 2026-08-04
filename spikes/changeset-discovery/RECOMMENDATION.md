@@ -18,8 +18,16 @@ Machine: macOS, Node v24.16.0, run from `spikes/changeset-discovery`.
 
 | Run | Command | repos | worktrees | pre-dedup fs-walk entries | walk ms | enumerate ms | total ms | errors |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Single root | `node src/discover.ts .../brainstrike` | 1 | 111 | 35 | 327 | 277 | 604 | 0 |
-| Multi root | `node src/discover.ts .../brainstrike ~/Documents/GitHub` | 166 | 288 | 242 | 894 | 2641 | 3535 | 2 |
+| Single root | `node src/discover.ts .../brainstrike` | 1 | 111 | 35 | 327\* | 277 | 604 | 0 |
+| Multi root | `node src/discover.ts .../brainstrike ~/Documents/GitHub` | 166 | 288 | 242 | 894\* | 2641 | 3535 | 2 |
+
+\* `walk ms` is a single cold run and is filesystem-cache-sensitive, not a
+stable figure — a review re-run measured 69ms (warm cache) for the
+single-root walk against this same 327ms cold figure, a 4.7x spread.
+Treat `walk ms` as "order of a few hundred ms cold, tens of ms warm," not
+a fixed number. `enumerate ms` (the process-spawn-bound phase) reproduced
+within 3% across repeated runs and is the more trustworthy figure of the
+two for capacity planning.
 
 Multi-root scanned `~/Documents/GitHub` (171 top-level entries, many
 multi-year-old clones/forks — a real "worktree-and-fork-heavy home
@@ -39,12 +47,25 @@ process count" idea concrete rather than hand-waved):
   which resolve via `rev-parse --git-common-dir` to the **same** repo — so
   `buildInventory` spawns 35 `rev-parse` calls but only 1 of them survives
   the dedup check to also spawn `worktree list --porcelain` (which then
-  returns all **111** worktrees git has registered — most of those 111 live
-  deeper than `maxDepth: 6` or outside the scanned root entirely, i.e. they
-  were never found by the fs walk at all; they come from git's own
-  worktree-list output, not from the walk). Net: 36 git process spawns for
-  36 useful outcomes (1 repo, 1 successful worktree-list) plus 34 *wasted*
-  `rev-parse` calls whose only purpose was to discover "this is a dupe."
+  returns all **111** worktrees git has registered). Checked the exact
+  breakdown directly against the single-root run's `containment` field
+  (filtering `inv.repos[0].worktrees` by `containment !== 'outside-roots'`)
+  rather than hedging: **34** of the 111 registered worktrees live *inside*
+  the scanned root, at depth 3 (`brainstrike/.claude/worktrees/<agent-name>`,
+  well within `maxDepth: 6`) — all 34 matched that exact path pattern, no
+  exceptions; the root/main worktree itself is a 35th "inside" entry
+  (`containment: [root]`, trivially self-contained); the remaining **76**
+  are registered with git but live elsewhere on disk entirely, outside the
+  scanned root (`containment: 'outside-roots'`). **Zero were missed due to
+  walk depth**: the fs walk's `maxDepth: 6` correctly found all 35 gitfile
+  entries that are actually inside the root (34 agent worktrees + main);
+  the other 76 were learned from `worktree list`'s output regardless of
+  depth, precisely because they live outside the scanned root by
+  definition, not because the walk failed to reach them. Net: 36 git
+  process spawns (35 `rev-parse` + 1 `worktree list`) for 2 useful outcomes
+  (1 repo identified, 1 successful `worktree list` covering all 111) plus
+  34 *wasted* `rev-parse` calls whose only purpose was to discover "this is
+  a dupe."
 - Multi root: fs walk finds **242** entries; `buildInventory` dedupes them
   to **166** distinct `RepoEntry`s (166 → 166 `worktree list` spawns, 242
   → 242 `rev-parse` spawns). 76 of the 242 `rev-parse` spawns are pure dupe
@@ -52,7 +73,7 @@ process count" idea concrete rather than hand-waved):
 - **Q1 data point (per the brief)**: enumerate time (277ms / 2641ms) is
   process-spawn-bound at roughly 6.5–7.7ms per spawn (36 spawns / 277ms ≈
   7.7ms; 408 spawns / 2641ms ≈ 6.5ms), consistent between the two runs. The
-  36→76 wasted `rev-parse` calls in these two runs specifically are the ones
+  34→76 wasted `rev-parse` calls in these two runs specifically are the ones
   spent purely discovering that a gitfile points at an already-seen
   `gitdir`. Parsing the `gitdir: <path>` line out of each `.git` file
   directly (no process spawn) and deduping on that string *before* spawning
@@ -68,14 +89,14 @@ process count" idea concrete rather than hand-waved):
 
 ### Scope diff (`scope-diff.ts`)
 
-| Run | Scope | Target | files | list ms | content ms | total ms | notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Real repo, clean tree | `uncommitted` | `.../brainstrike` | 0 | 42.6 | 0.0 | 42.6 | working tree was clean at run time (`git status --short` empty) |
-| Real repo, no upstream | `branch-vs-base` | `.../brainstrike` | — | — | — | — | **threw as predicted**: `fatal: no upstream configured for branch 'spike/changeset-discovery'` (exit 128) at the `@{u}` `rev-parse`. See "Spike shortcuts taken" below — this is a Q1/Q3 data point (a visible throw, not a silent empty diff), not a bug. |
-| Real linked worktree | `uncommitted` | `.claude/worktrees/agent-a044327b4dcaeeff7` | 0 | 50.1 | 0.0 | 50.1 | that worktree's tree was clean at run time |
-| Real linked worktree, dirty | `uncommitted` | `.claude/worktrees/agent-a834f8049b5212f73` | 3 | 40.1 | 25.9 | 65.9 | picked after scanning all 25 `agent-*` worktrees for one with a nonzero `git status --porcelain` count, to get a real nonzero-file data point instead of three clean-tree zeros |
-| Synthetic 200-file changeset | `uncommitted` | `/private/tmp/spike-big` | 200 | 36.1 | 1247.1 | 1283.3 | see below |
-| Synthetic clone w/ upstream | `branch-vs-base` | `/private/tmp/spike-big-clone` | 2 | 33.2 | 26.6 | 59.8 | workaround for the real repo's missing upstream — see below |
+| Run | Scope | Target | Command | files | list ms | content ms | total ms | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Real repo, clean tree | `uncommitted` | `.../brainstrike` | `node src/scope-diff.ts <path> uncommitted` | 0 | 42.6 | 0.0 | 42.6 | working tree was clean at run time (`git status --short` empty) |
+| Real repo, no upstream | `branch-vs-base` | `.../brainstrike` | `node src/scope-diff.ts <path> branch-vs-base` | — | — | — | — | **threw as predicted**: `fatal: no upstream configured for branch 'spike/changeset-discovery'` (exit 128) at the `@{u}` `rev-parse`. See "Spike shortcuts taken" below — this is a Q1/Q3 data point (a visible throw, not a silent empty diff), not a bug. |
+| Real linked worktree | `uncommitted` | `.claude/worktrees/agent-a044327b4dcaeeff7` | `node src/scope-diff.ts <path> uncommitted` | 0 | 50.1 | 0.0 | 50.1 | that worktree's tree was clean at run time |
+| Real linked worktree, dirty | `uncommitted` | `.claude/worktrees/agent-a834f8049b5212f73` | `node src/scope-diff.ts <path> uncommitted` | 3 | 40.1 | 25.9 | 65.9 | picked after scanning all 25 `agent-*` worktrees for one with a nonzero `git status --porcelain` count, to get a real nonzero-file data point instead of three clean-tree zeros |
+| Synthetic 200-file changeset | `uncommitted` | `/private/tmp/spike-big` | `node src/scope-diff.ts <path> uncommitted` | 200 | 36.1 | 1247.1 | 1283.3 | see below |
+| Synthetic clone w/ upstream | `branch-vs-base` | `/private/tmp/spike-big-clone` | `node src/scope-diff.ts <path> branch-vs-base` | 2 | 33.2 | 26.6 | 59.8 | workaround for the real repo's missing upstream — see below; `list` here spans 4 spawns, not 2 — see composition note below |
 
 **Synthetic 200-file changeset setup** (`/tmp/spike-big`, destroyed after
 measurement): `git init`, 200 files × 500 lines, commit, then all 200 files
@@ -108,8 +129,22 @@ checkout to make it succeed). To get a real `branch-vs-base` measurement,
 `origin` as a real upstream), then one empty commit plus a two-file edit
 commit were added on top of the clone's `main`. `branch-vs-base` against the
 clone correctly resolved `base` via `merge-base HEAD origin/main`, found 2
-changed files, and reported `list=33ms`/`content=27ms` — both in the same
-range as the other small-changeset runs above.
+changed files, and reported `list=33ms`/`content=27ms`.
+
+**Composition caveat**: that `list=33ms` is not directly comparable to
+`uncommitted`'s `list` figure by spawn count. For `uncommitted`, the `list`
+phase (`t0`→`t1` in `computeScopeDiff`) is exactly 2 git process spawns:
+`diff HEAD --numstat` and `status --porcelain=v2`. For `branch-vs-base`,
+`list` additionally spans the `@{u}` `rev-parse` and the `merge-base`
+lookup *before* the numstat diff and status calls — 4 spawns total
+(`rev-parse @{u}`, `merge-base`, `diff <base>...HEAD --numstat`, `status`).
+That `branch-vs-base`'s `list` (33ms, 4 spawns) came out *close to*
+`uncommitted`'s `list` (42.6ms real-repo / 40–50ms worktree runs, 2 spawns)
+despite doing roughly double the spawn work is itself worth flagging, not
+glossing over as "the same range" — it's consistent with the per-spawn
+cost measured elsewhere (~6.5–7.7ms/spawn) only if the clone's spawns were
+on the faster end of that range; it is not evidence that `branch-vs-base`
+and `uncommitted` have equivalent list-phase cost per spawn.
 
 ### Watcher observations (from Task 5, `watch-git.ts`)
 
@@ -123,7 +158,8 @@ measurements section per the brief:
 | (a) `git status` (read-only) | 2 | 0 | 2 | **False positive**: a no-op read-only command still cycles `index.lock`, which alone matches the `INTERESTING` regex — triggers INVALIDATE for zero actual change. |
 | (a) `touch (outside repo) && git add -N . ; git reset` | 10 | 2 (20%) | 8 | No-op reset still writes reflog (`ORIG_HEAD`, `logs/HEAD`) and cycles the branch ref lock — correctly caught, but confirms lock/reflog churn happens even without content change. |
 | (a) `commit --allow-empty && reset --hard HEAD~1` (one 300ms window) | 18 | 7 (39%) | 11 | Both commands landed in a single debounce window only because they ran back-to-back well under 300ms — not guaranteed for slower ops. |
-| (a) totals, 4 op batches | 31 | 9 (29%) | 22 (71%) | **~29% noise ratio is macOS/FSEvents-specific** (loose-object writes, non-index/HEAD/refs lock files) — not a portable constant; a different platform watcher backend (e.g. inotify) would plausibly differ. |
+| (a) stray delayed event | 1 | 0 | 1 | A single unattributed `delete index.lock <== INVALIDATE` event arrived ~23s after the prior batch, with no git command running at that moment. Cause undetermined — Task 5 flagged git's own background auto-maintenance as at least as plausible as delayed/coalesced FSEvents delivery, without picking one. Not tied to any of the three listed op batches; counted separately here so the totals row reconciles (3 listed batches sum to 30 events / 9 noise / 21 INVALIDATE; this stray event is the 31st event / 22nd INVALIDATE). |
+| (a) totals, 4 op batches + 1 stray event | 31 | 9 (29%) | 22 (71%) | **~29% noise ratio is macOS/FSEvents-specific** (loose-object writes, non-index/HEAD/refs lock files) — not a portable constant; a different platform watcher backend (e.g. inotify) would plausibly differ. **Carrying forward Task 5's recommendation**: a production debounce/batch window should tolerate a stray late single-file lock event arriving well outside the normal window, rather than assuming all of an operation's events land inside one window. |
 | (b) commit inside linked worktree, watch rooted at **main** `.git` | 9 interesting (debounced) | — | — | **Confirmed**: one watch on the main/common `.git` dir sees all linked-worktree ref/index/HEAD activity (`worktrees/<name>/{index,HEAD.lock,logs/HEAD}`, shared `refs/`) — no per-worktree subscription needed for git-metadata reactivity. Does **not** extend to working-tree content (uncommitted edits) — that lives outside `.git` per worktree and needs its own watch. |
 | (c) `git worktree add` | 21 | 11 (52%) | 10 | Coverage of the new worktree's `HEAD`/`index`/`logs/HEAD` creation is **incidental**, not by an explicit worktree-lifecycle rule — the bare `worktrees/<name>` directory create/delete itself doesn't match the regex. |
 | (c) `git worktree remove` | 10 | 5 (50%) | 5 | Same incidental-coverage caveat as add. |
@@ -138,10 +174,12 @@ detail):
    a trailing/sliding debounce.** It does not guarantee a whole git
    operation collapses into one invalidation; a slower op whose writes span
    the window boundary produces multiple invalidations. Given the real
-   brainstrike `.git` has on the order of ~693 dirs and ~110 worktree
-   entries at the scale measured in Task 6's own discovery run above (111
-   worktrees), this matters for production sizing, not just a synthetic
-   scratch repo.
+   brainstrike `.git` has on the order of ~693 dirs (measured directly:
+   `find .git -type d | wc -l` → 695 at the time of this Task 6 run, a
+   couple more than Task 5's ~693 snapshot — consistent with ongoing
+   activity, not a discrepancy) and ~110 worktree entries at the scale
+   measured in Task 6's own discovery run above (111 worktrees), this
+   matters for production sizing, not just a synthetic scratch repo.
 3. **`index.lock` churn alone can trigger a false-positive INVALIDATE** on
    fully read-only commands like `git status`.
 4. **Worktree add/remove invalidation is currently accidental** (via
@@ -153,6 +191,21 @@ detail):
    paths** — `@parcel/watcher` returns realpath'd paths; a symlinked root
    (macOS `/tmp`, `/var`) will silently misparse the path-prefix slice
    otherwise.
+6. **The regex risk is two-directional, not just false-positives — there is
+   also a false-negative hole via `packed-refs`.** A bare `packed-refs`
+   *content* write (as opposed to its `.lock`) doesn't contain the literal
+   `refs/` substring the `INTERESTING` regex requires, so a ref-packing
+   operation (`git pack-refs`, `git gc`) that rewrites `packed-refs`
+   *without* also touching a matching loose `refs/heads/**` path in the
+   same batch would be **missed** entirely — no INVALIDATE at all. In every
+   batch Task 5 observed, each `packed-refs` touch happened to co-occur
+   with a loose `refs/heads/**` (or its `.lock`) event that *did* match, so
+   coverage held in practice for the operations tested — but that's
+   incidental to those particular operations, not something the regex
+   guarantees for ref-packing in general. Combined with caveat 3 above
+   (false positives via bare `index.lock` churn), the regex's risk profile
+   runs in both directions: it can both over-fire on read-only commands and
+   under-fire on a ref-packing write that doesn't touch a loose ref file.
 
 ## Spike shortcuts taken
 
@@ -241,16 +294,25 @@ Implemented exactly as the brief specified and deliberately not fixed:
   `cat-file --batch` process reuse. `timingMs.content` captures exactly this
   cost; Task 6's 200-file synthetic measurement above (1247ms, ~6.2ms/file)
   is the concrete signal this shortcut was meant to produce.
-- **`timingMs.list` is inflated for `staged` and `branch-vs-base`**:
-  `computeScopeDiff` always runs `git status --porcelain=v2 -z
-  --untracked-files=all` to collect untracked paths, but that result is
-  only consumed when `scope === 'uncommitted'` (to append `'U'` entries) —
-  for `staged` and `branch-vs-base` the status call's cost is paid and
-  folded into `timingMs.list` even though its output is discarded. This
-  means `timingMs.list` is **not** an apples-to-apples "list cost for this
-  scope" figure across scopes as currently measured/reported above — the
-  `uncommitted` and `branch-vs-base` `list` numbers in the table both
-  include one extra, not-always-needed `git status` call.
+- **`timingMs.list` is inflated for `staged` and `branch-vs-base`, but NOT
+  for `uncommitted`**: `computeScopeDiff` always runs `git status
+  --porcelain=v2 -z --untracked-files=all` to collect untracked paths, but
+  that result is only *consumed* when `scope === 'uncommitted'` (to append
+  `'U'` entries). For `uncommitted`, the status call is load-bearing — it's
+  the only source of untracked-file paths, so its cost belongs in
+  `timingMs.list` for that scope. For `staged` and `branch-vs-base`,
+  however, the status call still runs (same code path, unconditional) but
+  its output is discarded — untracked files are structurally irrelevant to
+  a staged-only or branch-vs-base diff, so that call's cost is pure waste
+  folded into `timingMs.list` for exactly those two scopes. This means
+  `timingMs.list` is **not** an apples-to-apples "list cost for this scope"
+  figure across scopes as currently measured/reported above — only the
+  `staged` and `branch-vs-base` `list` numbers carry a not-always-needed
+  extra `git status` call; `uncommitted`'s `list` number does not (its
+  status call is necessary work, not inflation). `branch-vs-base` further
+  compounds this with the two additional `@{u}`/`merge-base` spawns noted
+  in the scope-diff table above — its `list` figure is the most
+  spawn-heavy and least comparable of the three scopes.
 
 ## Answers to spec §10
 
