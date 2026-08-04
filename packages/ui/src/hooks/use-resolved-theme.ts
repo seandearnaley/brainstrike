@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useTheme } from '../../theme-provider';
+import { useTheme } from '../theme-provider';
 
 export type ResolvedTheme = 'light' | 'dark';
 
 /**
  * Hook to resolve the current theme, handling 'system' by detecting
  * the user's preference via matchMedia.
- *
- * This extracts the duplicated theme resolution logic from model-picker
- * components into a reusable hook.
  */
 export function useResolvedTheme(): ResolvedTheme {
   const { theme: configuredTheme } = useTheme();

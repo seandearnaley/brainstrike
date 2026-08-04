@@ -5,9 +5,9 @@ import {
   generateUUID,
   isCryptoRandomUUIDAvailable,
   isCryptoSubtleAvailable,
-} from '../crypto-utils.js';
+} from '../crypto.js';
 
-describe('crypto-utils', () => {
+describe('crypto', () => {
   // Store original methods
   const originalRandomUUID = globalThis.crypto?.randomUUID;
   const originalSubtle = globalThis.crypto?.subtle;

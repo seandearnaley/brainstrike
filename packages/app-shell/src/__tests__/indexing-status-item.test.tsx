@@ -419,4 +419,27 @@ describe('IndexingStatusItem', () => {
     expect(within(popover).getByText('75% · updating')).toBeInTheDocument();
     expect(within(popover).getByTestId('managed-stat-files')).toHaveTextContent('24');
   });
+
+  it('clicking the pause action updates the background indexing preferences store', async () => {
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: null,
+      managedCollectionId: 'collection-a',
+      managedCollectionName: 'Workspace Index',
+      paused: false,
+      pauseReasons: [],
+      state: 'idle',
+    });
+
+    render(<IndexingStatusItem />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+
+    const pauseButton = await screen.findByRole('button', { name: 'Pause workspace index' });
+    await userEvent.click(pauseButton);
+
+    await waitFor(() => {
+      expect(useBackgroundIndexingPreferencesStore.getState().paused).toBe(true);
+    });
+  });
 });
