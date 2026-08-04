@@ -454,7 +454,6 @@
         "packages/agent/src/providers/local/__tests__/local-llm-backend.spec.ts",
         "packages/agent/src/providers/local/gemma4-engine.ts",
         "packages/agent/src/stream/data-stream-mapper.ts",
-        "packages/agent/src/tools/schemas.ts",
         "packages/app-shell/src/__tests__/assistant-memory-repository.integration.test.ts",
         "packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts",
         "packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-test-support.tsx",
