@@ -49,7 +49,8 @@ function rejectUnsupportedKeys(
   allowedKeys: readonly string[],
   subject: string
 ): GitResult<true> {
-  const unsupported = Object.keys(record).filter((key) => !allowedKeys.includes(key));
+  const allowed = new Set(allowedKeys);
+  const unsupported = Object.keys(record).filter((key) => !allowed.has(key));
   if (unsupported.length > 0) {
     return { error: `${subject} does not accept: ${unsupported.join(', ')}`, ok: false };
   }

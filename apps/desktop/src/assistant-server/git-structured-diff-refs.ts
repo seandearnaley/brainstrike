@@ -45,16 +45,25 @@
  *    `git-structured-diff.ts`.
  */
 import type { GitResult } from '@brainstrike/types';
-import { describeFailure, type GitCommandRun } from './git-service';
+import { describeFailure, type GitCommandRun, stripLineEnding } from './git-service';
 
 /**
  * git's well-known empty-tree object id (`git hash-object -t tree
- * /dev/null`) — a fixed SHA-1 constant, identical across every repository
- * (it hashes the empty tree object, which has no repo-specific content).
- * Used as `commit` mode's old ref for a root commit — see this module's
- * doc comment, ROOT-COMMIT FALLBACK.
+ * /dev/null`) — SHA-1 and SHA-256 give DIFFERENT hashes for the identical
+ * (repo-independent) empty tree object, because the object id is a hash of
+ * the object's on-disk encoding, which itself names the hash algorithm.
+ * `--object-format=sha256` repos have been supported since git 2.29
+ * (`git init --object-format=sha256`); `validateCommitId`'s
+ * `/^[0-9a-f]{40,64}$/` a few lines down already spans both lengths, so this
+ * module has always expected SHA-256 object ids to flow through it — only
+ * this constant was hardcoded SHA-1-only (review finding). See
+ * {@link resolveEmptyTreeHash}, which picks the right one PER REPO rather
+ * than assuming SHA-1.
  */
-export const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const EMPTY_TREE_HASH_BY_FORMAT: Readonly<Record<string, string>> = {
+  sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+  sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
+};
 
 /**
  * Structural type for the git-command runner this module closes over —
@@ -122,13 +131,34 @@ export function validateBaseRef(value: unknown): GitResult<string> {
 }
 
 /**
- * Resolve `commit` mode's OLD ref for {@link EMPTY_TREE_HASH}'s root-commit
- * fallback: `${commitId}^` when a first parent exists (validated via the
- * `git-history.ts`-precedented `rev-list --parents` probe below — never
- * trusted blind, since an invalid `commitId` must surface as a typed error
- * here rather than a confusing absent-side result downstream), or the
- * empty-tree id when `commitId` names a root commit. See this module's doc
- * comment, ROOT-COMMIT FALLBACK.
+ * Resolve THIS repository's empty-tree object id by asking git which object
+ * format it uses (`git rev-parse --show-object-format`, supported since git
+ * 2.29 alongside `--object-format` itself) rather than assuming SHA-1 — see
+ * {@link EMPTY_TREE_HASH_BY_FORMAT}'s doc comment. An unrecognized format
+ * (a future algorithm this module doesn't yet know the empty-tree id for) is
+ * a visible typed error, never a silent SHA-1 guess.
+ */
+export async function resolveEmptyTreeHash(invoke: InvokeFn): Promise<GitResult<string>> {
+  const run_ = await invoke(['rev-parse', '--show-object-format']);
+  if (run_.exitCode !== 0) {
+    return { error: describeFailure(run_), ok: false };
+  }
+  const format = stripLineEnding(run_.stdout).trim();
+  const hash = EMPTY_TREE_HASH_BY_FORMAT[format];
+  if (!hash) {
+    return { error: `unsupported git object-format "${format}" for the empty-tree id`, ok: false };
+  }
+  return { ok: true, value: hash };
+}
+
+/**
+ * Resolve `commit` mode's OLD ref for {@link resolveEmptyTreeHash}'s
+ * root-commit fallback: `${commitId}^` when a first parent exists (validated
+ * via the `git-history.ts`-precedented `rev-list --parents` probe below —
+ * never trusted blind, since an invalid `commitId` must surface as a typed
+ * error here rather than a confusing absent-side result downstream), or the
+ * PER-REPO empty-tree id when `commitId` names a root commit. See this
+ * module's doc comment, ROOT-COMMIT FALLBACK.
  *
  * For a MERGE commit `^` names the FIRST parent, so `commit` mode is a
  * first-parent diff — the same semantics `git-history.ts`'s `commitDiff`
@@ -149,7 +179,7 @@ export async function resolveCommitOldRef(
     return { error: 'git returned mismatched commit ancestry metadata', ok: false };
   }
   if (firstParent === undefined) {
-    return { ok: true, value: EMPTY_TREE_HASH };
+    return await resolveEmptyTreeHash(invoke);
   }
   if (!/^[0-9a-f]{40,64}$/.test(firstParent)) {
     return { error: 'git returned an invalid first-parent object id', ok: false };

@@ -56,6 +56,18 @@
  * `[oldRef, newRef]` pair — so `commit`/`range` reuse the exact same
  * size-probe-before-read, `hunks-only` degradation, and binary-detection
  * code paths `staged`/`working` already exercise.
+ *
+ * MODE `unstaged` (BST-1113 review finding): the INDEX vs the worktree —
+ * `:0:./<path>` (old) vs the live file (new) — added so a file's per-file
+ * diff always agrees with the `unstaged` git-scope's own LISTING
+ * (`changeset-git-scope.ts`'s `listRefComparisonChanges(invoke, [])`, i.e.
+ * `git diff` with no ref args). Before this mode existed, `unstaged`'s
+ * per-file diff was mapped to `working` (HEAD vs worktree) — a DIFFERENT
+ * comparison than its listing, so a file with both staged and unstaged
+ * edits reported contradictory numbers between the list and the rendered
+ * diff. Reuses the exact same `readTrackedSides`/`assembleDiffContent`
+ * machinery as `staged`/`working`, just with its own old-side spec and `[]`
+ * numstat/diff target.
  */
 import { lstat, open, readlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -231,22 +243,24 @@ function validateStructuredFileDiffParams(
   if (
     mode !== 'working' &&
     mode !== 'staged' &&
+    mode !== 'unstaged' &&
     mode !== 'untracked' &&
     mode !== 'commit' &&
     mode !== 'range'
   ) {
     return {
-      error: 'structured diff mode must be "working", "staged", "untracked", "commit", or "range"',
+      error:
+        'structured diff mode must be "working", "staged", "unstaged", "untracked", "commit", or "range"',
       ok: false,
     };
   }
-  const allowedKeys = [
+  const allowedKeys = new Set([
     'mode',
     'path',
     ...(mode === 'commit' ? ['commitId'] : []),
     ...(mode === 'range' ? ['baseRef'] : []),
-  ];
-  const unsupportedKeys = Object.keys(record).filter((key) => !allowedKeys.includes(key));
+  ]);
+  const unsupportedKeys = Object.keys(record).filter((key) => !allowedKeys.has(key));
   if (unsupportedKeys.length > 0) {
     return {
       error: `structured diff mode "${mode}" does not accept: ${unsupportedKeys.join(', ')}`,
@@ -576,11 +590,22 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     return { ok: true, value: entries.find((candidate) => candidate.path === pathArg) ?? null };
   }
 
+  /** `unstaged`'s target is `[]` — the SAME index-vs-worktree comparison as
+   * `changeset-git-scope.ts`'s `unstaged` scope LISTING
+   * (`listRefComparisonChanges(invoke, [])`), so a file's listed
+   * additions/deletions and this per-file diff can never disagree. */
+  function trackedNumstatTarget(mode: 'staged' | 'unstaged' | 'working'): readonly string[] {
+    if (mode === 'staged') {
+      return ['--cached'];
+    }
+    return mode === 'unstaged' ? [] : ['HEAD'];
+  }
+
   async function resolveNumstatEntry(
-    mode: 'staged' | 'working',
+    mode: 'staged' | 'unstaged' | 'working',
     pathArg: string
   ): Promise<GitResult<NumstatEntry | null>> {
-    return await runNumstat(mode === 'staged' ? ['--cached'] : ['HEAD'], pathArg);
+    return await runNumstat(trackedNumstatTarget(mode), pathArg);
   }
 
   /** `commit`/`range` numstat entry — same shape as {@link resolveNumstatEntry}
@@ -666,7 +691,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * that function's cognitive complexity down.
    */
   async function resolveTrackedEntryForPath(
-    mode: 'staged' | 'working',
+    mode: 'staged' | 'unstaged' | 'working',
     pathArg: string
   ): Promise<GitResult<NumstatEntry>> {
     const entryResult = await resolveNumstatEntry(mode, pathArg);
@@ -676,7 +701,11 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     if (entryResult.value) {
       return { ok: true, value: entryResult.value };
     }
-    if (mode === 'working') {
+    // An untracked file has no index entry, so it can never produce a
+    // numstat entry against EITHER comparison — `working` (HEAD vs
+    // worktree) or `unstaged` (index vs worktree) — redirect both the same
+    // way. `staged` has no such case: the index IS the old side there.
+    if (mode === 'working' || mode === 'unstaged') {
       const untrackedCheck = await isPathUntracked(pathArg);
       if (!untrackedCheck.ok) {
         return untrackedCheck;
@@ -730,15 +759,20 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     };
   }
 
-  /** `staged`/`working` sides via {@link readDiffSides}: old = `HEAD:./<path>`;
-   * new = the index (`staged`) or the worktree file (`working`). */
+  /** `staged`/`unstaged`/`working` sides via {@link readDiffSides}: old =
+   * `HEAD:./<path>` for `staged`/`working`, or the INDEX (`:0:./<path>`) for
+   * `unstaged` (BST-1113 review finding — see `StructuredFileDiffParams`'s
+   * `unstaged` doc comment in `@brainstrike/types`); new = the index
+   * (`staged`) or the worktree file (`unstaged`/`working`). */
   async function readTrackedSides(
-    mode: 'staged' | 'working',
+    mode: 'staged' | 'unstaged' | 'working',
     pathArg: string,
     oldPath: string | null
   ): Promise<GitResult<TrackedSides>> {
+    const oldSpec =
+      mode === 'unstaged' ? `:0:./${oldPath ?? pathArg}` : `HEAD:./${oldPath ?? pathArg}`;
     return await readDiffSides(
-      `HEAD:./${oldPath ?? pathArg}`,
+      oldSpec,
       pathArg,
       () =>
         mode === 'staged' ? readRefBlob(`:0:./${pathArg}`, pathArg) : readWorktreeFile(pathArg),
@@ -825,9 +859,10 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     };
   }
 
-  /** Structured diff for the `working`/`staged` modes: HEAD vs. worktree/index. */
+  /** Structured diff for the `working`/`staged`/`unstaged` modes: HEAD vs.
+   * worktree/index, or (for `unstaged`) the index vs. worktree. */
   async function structuredTrackedDiff(
-    mode: 'staged' | 'working',
+    mode: 'staged' | 'unstaged' | 'working',
     pathArg: string
   ): Promise<GitResult<StructuredFileDiff>> {
     const entryResult = await resolveTrackedEntryForPath(mode, pathArg);
@@ -843,7 +878,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     const sides = sidesResult.value;
 
     const contentResult = await assembleDiffContent(
-      () => computeUnifiedDiff(mode === 'staged' ? ['--cached'] : ['HEAD'], pathArg, entry.oldPath),
+      () => computeUnifiedDiff(trackedNumstatTarget(mode), pathArg, entry.oldPath),
       entry,
       sides
     );
@@ -968,7 +1003,11 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
         if (validatedParams.mode === 'untracked') {
           return await structuredUntrackedDiff(pathArg);
         }
-        if (validatedParams.mode === 'staged' || validatedParams.mode === 'working') {
+        if (
+          validatedParams.mode === 'staged' ||
+          validatedParams.mode === 'unstaged' ||
+          validatedParams.mode === 'working'
+        ) {
           return await structuredTrackedDiff(validatedParams.mode, pathArg);
         }
         if (validatedParams.mode === 'commit') {

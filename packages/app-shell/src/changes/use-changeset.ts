@@ -19,6 +19,19 @@
  * `setState` (including error branches) is guarded against a stale resolve —
  * while the internal loader still RETURNS its result to the caller regardless
  * of staleness, mirroring `loadEntries`/`refetch` there.
+ *
+ * STRUCTURAL `changeset` IDENTITY (review finding): `changeset` is compared
+ * by REFERENCE in `loadView`/`fileDiff`'s dependency arrays. A caller that
+ * builds an inline literal on every render — the natural way to call this
+ * hook, e.g. `useChangeset(rootId, { kind: 'agent-run', runId, threadId })`
+ * — would otherwise get a NEW object identity every render, and a successful
+ * load's own `setView` triggers exactly such a re-render: `useEffect` fires
+ * on `refresh` → `loadView` → the new literal, never settling. Fixed by
+ * keying the callbacks on `changesetKey` (a `JSON.stringify`, `null` when
+ * `changeset` is `null`) instead of `changeset` itself — two literals with
+ * the SAME shape produce the same key and no new fetch — while a `ref` still
+ * holds the actual (structurally latest) object for the callbacks to read,
+ * since `bridge.resolveView`/`fileDiff` need the real value, not its key.
  */
 import { createLogger } from '@brainstrike/logging';
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
@@ -57,10 +70,20 @@ export function useChangeset(
   const [error, setError] = useState<string | null>(null);
   const generationRef = useRef(0);
 
+  // STRUCTURAL identity — see this module's doc comment. `changesetRef`
+  // always holds the LATEST `changeset` (updated every render, synchronously
+  // — reading it inside an async callback always sees the newest value with
+  // that same structural key, which is exactly what `resolveView`/`fileDiff`
+  // should send).
+  const changesetKey = changeset === null ? null : JSON.stringify(changeset);
+  const changesetRef = useRef(changeset);
+  changesetRef.current = changeset;
+
   const loadView = useCallback(async (): Promise<GitResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
-    if (!(bridge && rootId && changeset)) {
+    const activeChangeset = changesetRef.current;
+    if (!(bridge && rootId && activeChangeset)) {
       if (generation === generationRef.current) {
         setView(null);
         setError(null);
@@ -68,7 +91,7 @@ export function useChangeset(
       return null;
     }
     try {
-      const result = await bridge.resolveView(rootId, changeset);
+      const result = await bridge.resolveView(rootId, activeChangeset);
       if (generation === generationRef.current) {
         if (result.ok) {
           setView(result.value);
@@ -88,7 +111,7 @@ export function useChangeset(
       }
       return { error: message, ok: false };
     }
-  }, [bridge, rootId, changeset]);
+  }, [bridge, rootId, changesetKey]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();
@@ -100,21 +123,22 @@ export function useChangeset(
 
   const fileDiff = useCallback(
     async (path: string): Promise<GitResult<StructuredFileDiff>> => {
-      if (!(bridge && rootId && changeset)) {
+      const activeChangeset = changesetRef.current;
+      if (!(bridge && rootId && activeChangeset)) {
         return {
           error: 'changeset-unavailable: no active bridge, root, or changeset',
           ok: false,
         };
       }
       try {
-        return await bridge.fileDiff(rootId, changeset, path);
+        return await bridge.fileDiff(rootId, activeChangeset, path);
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
         logger.error('Failed to load file diff', { error: caught, path });
         return { error: message, ok: false };
       }
     },
-    [bridge, rootId, changeset]
+    [bridge, rootId, changesetKey]
   );
 
   return {

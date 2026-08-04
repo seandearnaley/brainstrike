@@ -9,11 +9,15 @@
  * runId provenance invariant (`docs/agents/assistant-persistence.md`,
  * settled) forbids a second producer.
  *
- * FOLD KEYING RULE (renames): records are folded into ONE `ChangedFileEntry`
- * per LOGICAL file, keyed by its CURRENT (most-recent) path — NOT by the raw
- * `path` column of each row, because a `rename` record's identity spans two
- * path strings (`fromPath` → `path`). Processing records in
- * `occurred_at, id` order:
+ * FOLD KEYING RULE (renames + multi-root): records are folded into ONE
+ * `ChangedFileEntry` per LOGICAL file, keyed by its CURRENT (most-recent)
+ * `(rootId, path)` pair — NOT by the raw `path` column alone (see
+ * `foldKey`'s doc comment, MULTI-ROOT IDENTITY, BST-1113 review finding: a
+ * multi-root run can touch same-relative-path files in two different roots,
+ * which a path-only key would incorrectly merge into one entry), and NOT by
+ * just the CURRENT path either, because a `rename` record's identity spans
+ * two path strings (`fromPath` → `path`) within that same root. Processing
+ * records in `occurred_at, id` order:
  * - write/string_replace key on `record.path` directly.
  * - rename keys on `record.fromPath` (its PRIOR identity) to find any
  *   existing accumulator entry, then re-keys it under `record.path` (its NEW
@@ -137,6 +141,35 @@ export interface JournalFoldEntry {
   readonly status: ChangedFileStatus;
 }
 
+/**
+ * Composite Map key for the fold accumulator: `(rootId, path)`, NOT `path`
+ * alone (review finding, BST-1113 — MULTI-ROOT IDENTITY). A multi-root
+ * thread can explicitly edit more than one mounted root in a single run
+ * (`docs/agents/workspace-context.md:760-779`), so two DISTINCT files can
+ * both be named e.g. `src/index.ts` — one per root. Keying the fold by
+ * relative path alone merged those records into one entry (old content from
+ * whichever root's record was folded first, current content read from
+ * whichever `rootId` happened to be resolved) and made ONE of the two files
+ * vanish from the view entirely. The separator is a NUL char code (via
+ * `String.fromCharCode(0)`, never a literal byte in this source file — see
+ * the house gotcha on a raw NUL making a `.ts` file register as binary) —
+ * NOT a plain delimiter like a space or `/`, both of which are legal
+ * characters inside a `rootId` or a path and could otherwise let two
+ * DIFFERENT `(rootId, path)` pairs collide on the same composite string
+ * (e.g. rootId `"a b"` + path `"c"` vs rootId `"a"` + path `"b c"`). A NUL
+ * char can appear in neither a `rootId` nor a POSIX path, so the split
+ * point is always unambiguous. Every rename record's `fromPath`/`path`
+ * share the SAME `rootId` (one journal record is one filesystem event
+ * within a single root — a rename can never cross roots), so composing
+ * the key this way needs no extra bookkeeping beyond what each record
+ * already carries.
+ */
+const FOLD_KEY_SEPARATOR = String.fromCharCode(0);
+
+function foldKey(rootId: string, path: string): string {
+  return `${rootId}${FOLD_KEY_SEPARATOR}${path}`;
+}
+
 /** Build the error this module throws on a GENUINELY ambiguous rename/
  * delete-rekey identity collision (the occupant's own history is NOT
  * finished — see {@link absorbFinishedOccupant}). Prefixed
@@ -188,16 +221,18 @@ function collisionError(recordId: string, targetPath: string): Error {
 function absorbFinishedOccupant(
   byPath: Map<string, JournalFoldEntry>,
   recordId: string,
+  rootId: string,
   targetPath: string
 ): JournalFoldEntry | null {
-  const occupant = byPath.get(targetPath);
+  const mapKey = foldKey(rootId, targetPath);
+  const occupant = byPath.get(mapKey);
   if (!occupant) {
     return null;
   }
   if (occupant.status !== 'deleted') {
     throw collisionError(recordId, targetPath);
   }
-  byPath.delete(targetPath);
+  byPath.delete(mapKey);
   return occupant;
 }
 
@@ -286,13 +321,15 @@ function foldRenameRecord(
   }
   const fromKey = record.fromPath;
   const occupant =
-    fromKey === record.path ? null : absorbFinishedOccupant(byPath, record.id, record.path);
-  const prior = byPath.get(fromKey);
-  byPath.delete(fromKey);
+    fromKey === record.path
+      ? null
+      : absorbFinishedOccupant(byPath, record.id, record.rootId, record.path);
+  const prior = byPath.get(foldKey(record.rootId, fromKey));
+  byPath.delete(foldKey(record.rootId, fromKey));
   const renameChain = prior ? [...prior.chainRecords, record] : [record];
   const chainRecords = occupant ? [...occupant.chainRecords, ...renameChain] : renameChain;
   const identity = mergePreRangeIdentity(prior, occupant, fromKey);
-  byPath.set(record.path, {
+  byPath.set(foldKey(record.rootId, record.path), {
     chainRecords,
     createdInRange: identity === null,
     oldPath: identity === record.path ? null : identity,
@@ -310,16 +347,18 @@ function foldDeleteRecord(
   byPath: Map<string, JournalFoldEntry>,
   record: AssistantEditCheckpointRecord
 ): void {
-  const prior = byPath.get(record.path);
-  byPath.delete(record.path);
+  const prior = byPath.get(foldKey(record.rootId, record.path));
+  byPath.delete(foldKey(record.rootId, record.path));
   const chainRecords = prior ? [...prior.chainRecords, record] : [record];
   // DELETE OF A RENAMED PATH: report at the ORIGINAL pre-range identity
   // when this logical file went through a rename.
   const identityKey = prior?.oldPath ?? record.path;
   const occupant =
-    identityKey === record.path ? null : absorbFinishedOccupant(byPath, record.id, identityKey);
+    identityKey === record.path
+      ? null
+      : absorbFinishedOccupant(byPath, record.id, record.rootId, identityKey);
   const finalChain = occupant ? [...occupant.chainRecords, ...chainRecords] : chainRecords;
-  byPath.set(identityKey, {
+  byPath.set(foldKey(record.rootId, identityKey), {
     chainRecords: finalChain,
     createdInRange: mergeCreatedInRange(prior, occupant),
     oldPath: null,
@@ -350,11 +389,11 @@ function foldWriteRecord(
   byPath: Map<string, JournalFoldEntry>,
   record: AssistantEditCheckpointRecord
 ): void {
-  const prior = byPath.get(record.path);
+  const prior = byPath.get(foldKey(record.rootId, record.path));
   const chainRecords = prior ? [...prior.chainRecords, record] : [record];
   const createdInRange = prior?.createdInRange ?? !record.beforeExisted;
   const oldPath = createdInRange ? null : (prior?.oldPath ?? null);
-  byPath.set(record.path, {
+  byPath.set(foldKey(record.rootId, record.path), {
     chainRecords,
     createdInRange,
     oldPath,
@@ -436,7 +475,7 @@ async function loadJournalRecords(
   changeset: JournalChangeset
 ): Promise<GitResult<readonly AssistantEditCheckpointRecord[]>> {
   if (changeset.kind === 'agent-run') {
-    const records = await listRunCheckpoints(db, changeset.runId);
+    const records = await listRunCheckpoints(db, changeset.runId, changeset.threadId);
     return { ok: true, value: records };
   }
   return await listRunRangeCheckpoints(db, {
@@ -468,9 +507,12 @@ export async function resolveJournalChangesetView(
   if (!recordsResult.ok) {
     return recordsResult;
   }
-  const files = foldJournalRecords(recordsResult.value)
-    .filter((entry) => !isPhantomEntry(entry))
-    .map(journalFoldEntryToChangedFileEntry);
+  const files: ChangedFileEntry[] = [];
+  for (const entry of foldJournalRecords(recordsResult.value)) {
+    if (!isPhantomEntry(entry)) {
+      files.push(journalFoldEntryToChangedFileEntry(entry));
+    }
+  }
   return { ok: true, value: { changeset, files, totalAdditions: null, totalDeletions: null } };
 }
 
@@ -630,30 +672,59 @@ export interface JournalFileDiffDeps {
 }
 
 /**
- * Per-file structured diff for a journal-sourced changeset. `path` is matched
- * against the SAME fold this changeset's `resolveJournalChangesetView` would
- * produce, so "no such path" is reported identically either way.
+ * Narrow the caller-supplied `rootId` to a non-empty string — mirrors
+ * `changeset-git-scope.ts`'s private `requireStringRootId`. Needed here
+ * (BST-1113 review finding, MULTI-ROOT IDENTITY — see {@link foldKey}'s doc
+ * comment) so `resolveJournalFileDiff` can pick the RIGHT one of possibly
+ * TWO fold entries sharing the same relative `path` (one per mounted root)
+ * — a plain path-only lookup cannot disambiguate them.
+ */
+function requireJournalRootId(rootId: unknown): GitResult<string> {
+  if (typeof rootId !== 'string' || rootId.trim().length === 0) {
+    return { error: 'journal fileDiff requires a non-empty rootId string.', ok: false };
+  }
+  return { ok: true, value: rootId.trim() };
+}
+
+/**
+ * Per-file structured diff for a journal-sourced changeset. `path` AND
+ * `rootId` together are matched against the SAME fold this changeset's
+ * `resolveJournalChangesetView` would produce (see {@link foldKey}'s doc
+ * comment on the module — a multi-root thread can journal two DIFFERENT
+ * files under the same relative path, one per mounted root, so `path` alone
+ * cannot identify which one the caller means), so "no such path" is reported
+ * identically to that view either way.
  *
  * A `status: 'deleted'` entry's new side is always `null` (never a disk read —
  * the file is gone by definition). Every other status reads the CURRENT
- * on-disk file at the entry's own `rootId` — never the caller-supplied
- * `rootId` the top-level service dispatch receives, which is a git-scope-only
- * concept; journal entries are git-independent and carry their own root.
+ * on-disk file at the entry's own `rootId` (which, having matched the
+ * caller-supplied `rootId` above, is the SAME value) — the on-disk read
+ * still goes through `entry.rootId` rather than the raw `rootId` argument
+ * simply because `entry` is what the rest of this function already threads
+ * through.
  */
 export async function resolveJournalFileDiff(
   deps: JournalFileDiffDeps,
   changeset: JournalChangeset,
+  rootId: unknown,
   path: string
 ): Promise<GitResult<StructuredFileDiff>> {
+  const rootIdResult = requireJournalRootId(rootId);
+  if (!rootIdResult.ok) {
+    return rootIdResult;
+  }
   const recordsResult = await loadJournalRecords(deps.db, changeset);
   if (!recordsResult.ok) {
     return recordsResult;
   }
   const entry = foldJournalRecords(recordsResult.value)
     .filter((candidate) => !isPhantomEntry(candidate))
-    .find((candidate) => candidate.path === path);
+    .find((candidate) => candidate.path === path && candidate.rootId === rootIdResult.value);
   if (!entry) {
-    return { error: `no journaled change for path "${path}" in this changeset`, ok: false };
+    return {
+      error: `no journaled change for path "${path}" in root "${rootIdResult.value}" for this changeset`,
+      ok: false,
+    };
   }
 
   const oldContentResult = await resolveOldContent(deps.db, entry);

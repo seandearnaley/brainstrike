@@ -255,18 +255,27 @@ export async function listThreadCheckpoints(
 }
 
 /**
- * All journal entries for a single run, oldest-first. Used by W3's changeset
- * resolution for the `agent-run` changeset kind.
+ * All journal entries for a single run, oldest-first — scoped to `threadId`
+ * (review finding, BST-1113): `changeset.threadId` is structurally required
+ * and validated by `validateAgentRunChangeset`, but a wrong or stale
+ * `threadId` paired with a real `runId` belonging to ANOTHER thread used to
+ * be silently ignored here, resolving that OTHER thread's journal entries
+ * (and, downstream, serving its stored `before_content` over
+ * `changes:fileDiff`). `run_id`/`thread_id` are filtered TOGETHER in one
+ * predicate, mirroring `listRunRangeCheckpoints`'s posture: a run id that
+ * belongs to a different thread must never leak that thread's records.
+ * Used by W3's changeset resolution for the `agent-run` changeset kind.
  */
 export async function listRunCheckpoints(
   db: EditCheckpointDatabase,
-  runId: string
+  runId: string,
+  threadId: string
 ): Promise<AssistantEditCheckpointRecord[]> {
   const result = await db.query<CheckpointRecordRow>(
     `SELECT ${SELECT_RECORD_COLUMNS} FROM ${TABLE}
-     WHERE run_id = $1
+     WHERE run_id = $1 AND thread_id = $2
      ORDER BY occurred_at ASC, id ASC`,
-    [runId]
+    [runId, threadId]
   );
   return result.rows.map(mapCheckpointRecordRow);
 }

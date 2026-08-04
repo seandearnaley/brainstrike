@@ -227,6 +227,18 @@ export type StructuredFileDiffParams =
       readonly path: string;
     }
   | {
+      /** Diffs the INDEX vs the worktree (`:0:./<path>` vs the live file) for
+       * ONE path — the per-file counterpart to the `unstaged` git-scope's own
+       * LISTING comparison (`git diff` with no ref args), so a file's listed
+       * additions/deletions and its rendered diff can never disagree (review
+       * finding, BST-1113: the `unstaged` scope used to map its per-file diff
+       * to `working` (HEAD vs worktree), a DIFFERENT comparison than its own
+       * index-vs-worktree listing — for a file with both staged and unstaged
+       * edits the two visibly contradicted each other). */
+      readonly mode: 'unstaged';
+      readonly path: string;
+    }
+  | {
       readonly mode: 'working';
       readonly path: string;
     };

@@ -130,6 +130,53 @@ describe('changeset git-scope — unstaged / staged', () => {
     }
     expect(staged.value.files.map((f) => f.path)).toEqual(['a.txt']);
   });
+
+  it('a file with BOTH staged and unstaged edits: the unstaged listing counts match the unstaged fileDiff (BST-1113 review finding)', async () => {
+    // Regression for the review finding: `unstaged`'s per-file diff used to
+    // be mapped to `working` mode (HEAD vs worktree) while its LISTING
+    // compared the index vs worktree — a DIFFERENT comparison, so a file
+    // with edits on both sides of the index reported contradictory numbers
+    // between the list and the rendered diff.
+    const repo = await makeRepo();
+    await writeFile(repo, 'f.txt', 'line1\n');
+    await commitAll(repo, 'init');
+    await writeFile(repo, 'f.txt', 'line1\nline2-staged\n');
+    await execFileAsync('git', ['add', 'f.txt'], { cwd: repo });
+    await writeFile(repo, 'f.txt', 'line1\nline2-staged\nline3-unstaged\n');
+
+    const unstaged = await view(repo, { kind: 'unstaged' });
+    expect(unstaged.ok).toBe(true);
+    if (!unstaged.ok) {
+      return;
+    }
+    const entry = unstaged.value.files.find((f) => f.path === 'f.txt');
+    expect(entry).toBeDefined();
+    // Listing counts: index (line1, line2-staged) vs worktree (+line3) = +1/-0.
+    expect(entry?.additions).toBe(1);
+    expect(entry?.deletions).toBe(0);
+
+    const fileDiff = await resolveGitScopeFileDiff(
+      { ...deps, resolveRootCwd: async () => ({ ok: true, value: repo }) },
+      'root-id',
+      gitScope(repo, { kind: 'unstaged' }),
+      'f.txt'
+    );
+    expect(fileDiff.ok).toBe(true);
+    if (!fileDiff.ok) {
+      return;
+    }
+    // The rendered diff must agree with the listing: the OLD side is the
+    // INDEX (staged content), not HEAD — so only the unstaged line shows as
+    // added, matching the listing's +1/-0, never the +2/-0 a HEAD-vs-worktree
+    // ("working" mode) comparison would report.
+    expect(fileDiff.value.additions).toBe(1);
+    expect(fileDiff.value.deletions).toBe(0);
+    expect(fileDiff.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-staged\nline3-unstaged\n',
+      oldContent: 'line1\nline2-staged\n',
+    });
+  });
 });
 
 describe('changeset git-scope — commit', () => {

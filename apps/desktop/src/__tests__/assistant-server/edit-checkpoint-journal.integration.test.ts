@@ -202,9 +202,29 @@ describe('listRunCheckpoints', () => {
       writeInput({ occurredAt: new Date(base + 1500), path: '/other-run.txt', runId: 'run-other' })
     );
 
-    const listed = await listRunCheckpoints(db, RUN);
+    const listed = await listRunCheckpoints(db, RUN, THREAD);
     expect(listed.map((entry) => entry.path)).toEqual(['/b-first.txt', '/b-second.txt']);
     expect(listed.every((entry) => entry.runId === RUN)).toBe(true);
+  });
+
+  it('a real run supplied with the WRONG thread is a typed miss — the other thread’s records never leak (review finding, BST-1113)', async () => {
+    // `RUN` genuinely has journal entries, but they belong to `THREAD` — a
+    // caller supplying `RUN` alongside a DIFFERENT thread id must see
+    // NOTHING for it, never that other thread's real records (the exploit:
+    // `changes:fileDiff` would otherwise serve stored `before_content` for a
+    // run the caller's own thread never owns).
+    const base = Date.now();
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(base), path: '/owned-by-thread-1.txt', runId: RUN })
+    );
+
+    const crossThreadResult = await listRunCheckpoints(db, RUN, 'thread-2');
+    expect(crossThreadResult).toEqual([]);
+
+    // Sanity: the SAME run, with its OWN thread, still returns the real record.
+    const ownThreadResult = await listRunCheckpoints(db, RUN, THREAD);
+    expect(ownThreadResult.map((entry) => entry.path)).toEqual(['/owned-by-thread-1.txt']);
   });
 });
 

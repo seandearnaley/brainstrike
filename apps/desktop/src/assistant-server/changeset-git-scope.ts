@@ -39,8 +39,8 @@ import {
   stripLineEnding,
 } from './git-service';
 import {
-  EMPTY_TREE_HASH,
   resolveCommitOldRef,
+  resolveEmptyTreeHash,
   validateBaseRef,
   validateCommitId,
 } from './git-structured-diff-refs';
@@ -184,15 +184,25 @@ async function resolveExplicitOrDefaultBaseRef(
  * Resolve the `branch-vs-base` old/new ref PAIR — shared by BOTH the scope
  * listing and per-file `fileDiff` so they can never disagree (the CRITICAL
  * 3a-review finding: `range` mode must receive the MERGE-BASE, not the raw
- * base ref). Unborn HEAD (no commits yet) ⇒ both sides are the well-known
- * empty-tree hash — there is no branch tip to diff against.
+ * base ref). Unborn HEAD (no commits yet) ⇒ both sides are THIS repository's
+ * empty-tree hash (SHA-1 or SHA-256, resolved per-repo — review finding, see
+ * `git-structured-diff-refs.ts`'s `resolveEmptyTreeHash`) — there is no
+ * branch tip to diff against. `unborn` is returned alongside (rather than
+ * making callers compare `oldRef`/`newRef` back against a hardcoded
+ * constant, which can no longer work now the hash varies by repo) so
+ * {@link resolveGitScopeStructuredFileDiffParams} can detect this case
+ * without re-deriving the hash or re-probing HEAD.
  */
 async function resolveBranchVsBaseRefs(
   invoke: InvokeFn,
   scope: Extract<GitScope, { kind: 'branch-vs-base' }>
-): Promise<GitResult<{ newRef: string; oldRef: string }>> {
+): Promise<GitResult<{ newRef: string; oldRef: string; unborn: boolean }>> {
   if (await isHeadUnborn(invoke)) {
-    return { ok: true, value: { newRef: EMPTY_TREE_HASH, oldRef: EMPTY_TREE_HASH } };
+    const emptyTree = await resolveEmptyTreeHash(invoke);
+    if (!emptyTree.ok) {
+      return emptyTree;
+    }
+    return { ok: true, value: { newRef: emptyTree.value, oldRef: emptyTree.value, unborn: true } };
   }
   const baseRef = await resolveExplicitOrDefaultBaseRef(invoke, scope);
   if (!baseRef.ok) {
@@ -207,7 +217,7 @@ async function resolveBranchVsBaseRefs(
   }
   return {
     ok: true,
-    value: { newRef: 'HEAD', oldRef: stripLineEnding(mergeBaseRun.stdout).trim() },
+    value: { newRef: 'HEAD', oldRef: stripLineEnding(mergeBaseRun.stdout).trim(), unborn: false },
   };
 }
 
@@ -396,15 +406,18 @@ async function listUntrackedChanges(
   if (!scoped.ok) {
     return scoped;
   }
-  const records: ScopeChangeRecord[] = scoped.value.files
-    .filter((file) => file.untracked)
-    .map((file) => ({
-      additions: null,
-      deletions: null,
-      oldPath: null,
-      path: file.path,
-      status: 'untracked',
-    }));
+  const records: ScopeChangeRecord[] = [];
+  for (const file of scoped.value.files) {
+    if (file.untracked) {
+      records.push({
+        additions: null,
+        deletions: null,
+        oldPath: null,
+        path: file.path,
+        status: 'untracked',
+      });
+    }
+  }
   return { ok: true, value: records };
 }
 
@@ -412,7 +425,15 @@ async function resolveUncommittedChanges(
   invoke: InvokeFn
 ): Promise<GitResult<readonly ScopeChangeRecord[]>> {
   const unborn = await isHeadUnborn(invoke);
-  const tracked = await listRefComparisonChanges(invoke, [unborn ? EMPTY_TREE_HASH : 'HEAD']);
+  let oldTarget = 'HEAD';
+  if (unborn) {
+    const emptyTree = await resolveEmptyTreeHash(invoke);
+    if (!emptyTree.ok) {
+      return emptyTree;
+    }
+    oldTarget = emptyTree.value;
+  }
+  const tracked = await listRefComparisonChanges(invoke, [oldTarget]);
   if (!tracked.ok) {
     return tracked;
   }
@@ -437,10 +458,14 @@ async function resolveScopeChanges(
       return await listRefComparisonChanges(invoke, []);
     case 'staged': {
       const unborn = await isHeadUnborn(invoke);
-      return await listRefComparisonChanges(
-        invoke,
-        unborn ? ['--cached', EMPTY_TREE_HASH] : ['--cached']
-      );
+      if (!unborn) {
+        return await listRefComparisonChanges(invoke, ['--cached']);
+      }
+      const emptyTree = await resolveEmptyTreeHash(invoke);
+      if (!emptyTree.ok) {
+        return emptyTree;
+      }
+      return await listRefComparisonChanges(invoke, ['--cached', emptyTree.value]);
     }
     case 'commit': {
       const fullId = await resolveFullCommitId(invoke, scope.commitId);
@@ -562,12 +587,23 @@ async function isPathUntrackedInScope(
 }
 
 /**
- * Map a `git-scope` + path to `StructuredFileDiffParams`. `uncommitted`/
- * `unstaged` both map to `working` (or `untracked`) — the engine has no
- * separate "index vs worktree only" comparison mode, so both scopes' per-file
- * content reuses `working` (HEAD vs worktree) even though `unstaged`'s own
- * LISTING is index-vs-worktree; this is a deliberate, settled simplification
- * (plan: "uncommitted/unstaged ⇒ working"), not an oversight.
+ * Map a `git-scope` + path to `StructuredFileDiffParams`. `uncommitted` maps
+ * to `working` (or `untracked` for an untracked path) — the engine has no
+ * separate "everything, staged or not, since the last commit, plus untracked"
+ * mode, so `uncommitted`'s per-file content reuses `working`/`untracked`,
+ * matching its own listing (`resolveUncommittedChanges`, tracked-vs-HEAD plus
+ * untracked). `unstaged` maps to its OWN `unstaged` engine mode (BST-1113
+ * review finding — see `StructuredFileDiffParams`'s `unstaged` doc comment in
+ * `@brainstrike/types`): before this mode existed, `unstaged` was mapped to
+ * `working` too, which compares HEAD-vs-worktree — a DIFFERENT comparison
+ * than `unstaged`'s own index-vs-worktree LISTING
+ * (`listRefComparisonChanges(invoke, [])`), so a file with both staged and
+ * unstaged edits showed contradictory numbers between the listing and its
+ * rendered diff. An untracked path can never appear in the `unstaged` scope's
+ * own listing (it has no index entry, so `git diff` with no ref args never
+ * reports it), so `unstaged` needs no untracked branch — the engine's own
+ * `unstaged` mode already redirects an untracked path to a directing error
+ * (mirroring `working`'s posture) rather than silently misreporting it.
  *
  * Exported (in addition to `resolveGitScopeFileDiff`, which calls it) so a
  * unit test can assert on the exact `StructuredFileDiffParams` this resolves
@@ -581,8 +617,7 @@ export async function resolveGitScopeStructuredFileDiffParams(
   path_: string
 ): Promise<GitResult<StructuredFileDiffParams>> {
   switch (scope.kind) {
-    case 'uncommitted':
-    case 'unstaged': {
+    case 'uncommitted': {
       const untracked = await isPathUntrackedInScope(invoke, path_);
       if (!untracked.ok) {
         return untracked;
@@ -594,6 +629,8 @@ export async function resolveGitScopeStructuredFileDiffParams(
           : { mode: 'working', path: path_ },
       };
     }
+    case 'unstaged':
+      return { ok: true, value: { mode: 'unstaged', path: path_ } };
     case 'staged':
       return { ok: true, value: { mode: 'staged', path: path_ } };
     case 'commit': {
@@ -608,7 +645,7 @@ export async function resolveGitScopeStructuredFileDiffParams(
       if (!refs.ok) {
         return refs;
       }
-      if (refs.value.oldRef === EMPTY_TREE_HASH && refs.value.newRef === EMPTY_TREE_HASH) {
+      if (refs.value.unborn) {
         // NOT `base-ref-unresolved:` — the base ref itself was never even
         // looked up (`resolveBranchVsBaseRefs` short-circuits on an unborn
         // HEAD before attempting resolution); the real, distinct condition

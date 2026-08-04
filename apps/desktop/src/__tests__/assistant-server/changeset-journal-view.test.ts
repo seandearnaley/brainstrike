@@ -172,6 +172,10 @@ describe('foldJournalRecords — status classification', () => {
   });
 });
 
+// Multi-root `(rootId, path)` identity coverage (fold + fileDiff) lives in
+// the sibling `changeset-journal-view-multiroot.test.ts` — split out to keep
+// this file under the repo-wide 1000-line cap (BST-1117).
+
 describe('foldJournalRecords — R6: a write between rename hops must not erase the rename identity', () => {
   it('rename a->b ; write b: stays "renamed" with oldPath "a.txt" (the write must not reset it to "modified")', () => {
     const entries = foldJournalRecords([
@@ -758,6 +762,7 @@ describe('resolveJournalFileDiff', () => {
     const result = await resolveJournalFileDiff(
       { db, resolveRootCwd: async () => ({ error: 'should not be called', ok: false }) },
       { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+      'root-1',
       'a.txt'
     );
     expect(result.ok).toBe(false);
@@ -775,6 +780,7 @@ describe('resolveJournalFileDiff', () => {
     const result = await resolveJournalFileDiff(
       { db, resolveRootCwd: async () => ({ ok: true, value: rootDir }) },
       { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+      'root-1',
       'a.txt'
     );
     expect(result.ok).toBe(true);
@@ -807,6 +813,7 @@ describe('resolveJournalFileDiff', () => {
         }),
       },
       { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+      'root-1',
       'a.txt'
     );
     expect(result.ok).toBe(true);
@@ -826,6 +833,7 @@ describe('resolveJournalFileDiff', () => {
     const result = await resolveJournalFileDiff(
       { db, resolveRootCwd: async () => ({ error: 'unused', ok: false }) },
       { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+      'root-1',
       'a.txt'
     );
     expect(result.ok).toBe(false);
@@ -859,6 +867,7 @@ describe('resolveJournalFileDiff', () => {
         },
       },
       { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+      'root-1',
       'a.txt'
     );
     expect(result.ok).toBe(false);
@@ -867,4 +876,9 @@ describe('resolveJournalFileDiff', () => {
     }
     expect(result.error).toContain('no journaled change for path');
   });
+
+  // Multi-root disambiguation (a rootId argument picking the RIGHT one of
+  // possibly two same-path entries) lives in the sibling
+  // `changeset-journal-view-multiroot.test.ts` — see the note at the top of
+  // this file.
 });

@@ -364,6 +364,9 @@ describe('resolveGitScopeStructuredFileDiffParams — unborn HEAD (NTH-1)', () =
         // Unborn: HEAD does not resolve to a commit.
         return ok({ exitCode: 1 });
       }
+      if (args[0] === 'rev-parse' && args.includes('--show-object-format')) {
+        return ok({ stdout: 'sha1\n' });
+      }
       throw new Error(`unexpected call: ${JSON.stringify(args)}`);
     };
     const scope: GitScope = { kind: 'branch-vs-base' };
@@ -374,6 +377,63 @@ describe('resolveGitScopeStructuredFileDiffParams — unborn HEAD (NTH-1)', () =
     }
     expect(result.error).toMatch(/^head-unborn:/);
     expect(result.error).not.toMatch(/^base-ref-unresolved:/);
+  });
+});
+
+const SHA256_EMPTY_TREE = '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321';
+const SHA1_EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+describe('empty-tree resolution — per-repo object format (review finding, BST-1113)', () => {
+  it('a SHA-256 repo resolves the SHA-256 empty-tree id for an unborn-HEAD branch-vs-base, never the hardcoded SHA-1 constant', async () => {
+    const { calls, run } = createFakeRunner((args) => {
+      if (args[0] === 'rev-parse' && args.includes('--verify') && args.includes('HEAD')) {
+        return ok({ exitCode: 1 });
+      }
+      if (args[0] === 'rev-parse' && args.includes('--show-object-format')) {
+        return ok({ stdout: 'sha256\n' });
+      }
+      if (args[0] === 'diff') {
+        return ok({ stdout: '' });
+      }
+      throw new Error(`unexpected call: ${JSON.stringify(args)}`);
+    });
+    const rootDir = await makeTempDir();
+    const result = await resolveGitScopeChangesetView(
+      { resolveRootCwd: async () => ({ ok: true, value: rootDir }), run },
+      'root-id',
+      {
+        kind: 'git-scope',
+        repositoryRoot: rootDir,
+        scope: { kind: 'branch-vs-base' },
+        worktreePath: rootDir,
+      }
+    );
+    expect(result.ok).toBe(true);
+    const diffCalls = calls.filter((call) => call.args[0] === 'diff');
+    expect(diffCalls.length).toBeGreaterThan(0);
+    for (const call of diffCalls) {
+      expect(call.args).toContain(SHA256_EMPTY_TREE);
+      expect(call.args).not.toContain(SHA1_EMPTY_TREE);
+    }
+  });
+
+  it('an unresolvable object-format is a visible typed error, never a silent SHA-1 fallback', async () => {
+    const invoke = async (args: readonly string[]): Promise<GitCommandRun> => {
+      if (args[0] === 'rev-parse' && args.includes('--verify') && args.includes('HEAD')) {
+        return ok({ exitCode: 1 });
+      }
+      if (args[0] === 'rev-parse' && args.includes('--show-object-format')) {
+        return ok({ stdout: 'sha512\n' });
+      }
+      throw new Error(`unexpected call: ${JSON.stringify(args)}`);
+    };
+    const scope: GitScope = { kind: 'branch-vs-base' };
+    const result = await resolveGitScopeStructuredFileDiffParams(invoke, scope, 'a.txt');
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain('sha512');
   });
 });
 

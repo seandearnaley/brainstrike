@@ -16,11 +16,15 @@
  * `withService(rootId, ...)` pattern. The service itself is a single
  * long-lived instance (constructed once, wired into the `changes` IPC
  * registrar); `rootId` names which of the desktop's potentially-many
- * workspace roots a given CALL is scoped to, and only `git-scope` changesets
- * need it at all (for the containment check — see `changeset-git-scope.ts`).
- * `agent-run`/`run-range` calls ignore it entirely: journal entries carry
- * their OWN `rootId` per record, which is what journal `fileDiff` actually
- * resolves against — see `changeset-journal-view.ts`'s doc comment.
+ * workspace roots a given CALL is scoped to. `git-scope` needs it for the
+ * containment check (see `changeset-git-scope.ts`); `resolveView` for
+ * `agent-run`/`run-range` ignores it (journal entries each carry their OWN
+ * `rootId`, and a multi-root `ChangesetView` legitimately mixes files from
+ * several roots in one listing). `fileDiff` for `agent-run`/`run-range`,
+ * however, DOES use it (BST-1113 review finding) — to pick the right one of
+ * possibly TWO journal fold entries sharing the same relative path across
+ * different mounted roots; see `changeset-journal-view.ts`'s `foldKey` doc
+ * comment (MULTI-ROOT IDENTITY).
  *
  * Every failure is a visible, typed `{ ok: false, error }` with a stable
  * machine-readable prefix (never a silent fallback) — see each sibling
@@ -71,6 +75,7 @@ export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): Chan
         return await resolveJournalFileDiff(
           { db, resolveRootCwd: deps.resolveRootCwd },
           changeset,
+          rootId,
           path
         );
       } catch (error) {

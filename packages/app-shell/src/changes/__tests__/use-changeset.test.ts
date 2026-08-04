@@ -181,4 +181,43 @@ describe('useChangeset', () => {
 
     expect(result.current.view?.files.map((file) => file.path)).toEqual(['fresh.ts']);
   });
+
+  it('a rerender with a NEW literal of EQUAL structure does not re-fetch (review finding: identity loop)', async () => {
+    const resolveView = vi.fn(
+      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+    );
+    stubBridge({ fileDiff: vi.fn(), resolveView });
+    // Every render builds a BRAND NEW object literal — the natural way a
+    // consumer would call this hook (e.g. `{ kind: 'agent-run', runId,
+    // threadId }` inline) — never the SAME `CHANGESET` reference other tests
+    // in this file pass.
+    const { rerender } = renderHook(
+      ({ runId }: { runId: string }) =>
+        useChangeset('root-1', { kind: 'agent-run', runId, threadId: 'thread-1' }),
+      { initialProps: { runId: 'run-1' } }
+    );
+
+    await waitFor(() => {
+      expect(resolveView).toHaveBeenCalledTimes(1);
+    });
+
+    // Rerender with a structurally IDENTICAL (but referentially NEW) literal.
+    rerender({ runId: 'run-1' });
+    rerender({ runId: 'run-1' });
+
+    // Give any runaway effect loop a chance to fire before asserting it didn't.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolveView).toHaveBeenCalledTimes(1);
+
+    // A genuinely DIFFERENT changeset (new runId) still triggers a fresh load.
+    rerender({ runId: 'run-2' });
+    await waitFor(() => {
+      expect(resolveView).toHaveBeenCalledTimes(2);
+    });
+    expect(resolveView).toHaveBeenLastCalledWith('root-1', {
+      kind: 'agent-run',
+      runId: 'run-2',
+      threadId: 'thread-1',
+    });
+  });
 });
