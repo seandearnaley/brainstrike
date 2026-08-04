@@ -8,6 +8,7 @@ import {
 } from './errors.js';
 
 export * from './assistant-provider-settings.js';
+export * from './changeset.js';
 export * from './electron-api.js';
 export * from './embedding-constants.js';
 // Export types from other files
