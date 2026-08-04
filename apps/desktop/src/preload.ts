@@ -1,6 +1,7 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
+type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -97,6 +98,7 @@ const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
 const GIT_REPOSITORY_CHANNEL = 'git:repository' as const;
 const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
+const GIT_STRUCTURED_FILE_DIFF_CHANNEL = 'git:structuredFileDiff' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1221,6 +1223,8 @@ if (shouldExposeBridge('git')) {
     stage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    structuredFileDiff: (rootId: string, params: StructuredFileDiffParams) =>
+      ipcRenderer.invoke(GIT_STRUCTURED_FILE_DIFF_CHANNEL, rootId, params),
     switchBranch: (rootId: string, params: { branch: string }) =>
       ipcRenderer.invoke(GIT_SWITCH_BRANCH_CHANNEL, rootId, params),
     unstage: (rootId: string, params?: { path?: string }) =>

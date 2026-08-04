@@ -396,6 +396,140 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
   });
 });
 
+describe('git IPC handlers — structuredFileDiff (fake runner, arg + cwd passthrough)', () => {
+  it('routes params through to the service unmodified and pins every invocation to the resolved cwd', async () => {
+    const dir = await makeDir();
+    const calls: { args: readonly string[]; cwd: string }[] = [];
+    const runner: GitCommandRunner = ({ args, binaryStdout, cwd }) => {
+      calls.push({ args, cwd });
+      if (args[0] === 'config') {
+        return Promise.resolve({ exitCode: 1, stderr: '', stdout: '', timedOut: false });
+      }
+      if (args.includes('diff') && args.includes('--numstat')) {
+        return Promise.resolve({
+          exitCode: 0,
+          stderr: '',
+          stdout: '1\t1\tfile.txt\0',
+          timedOut: false,
+        });
+      }
+      if (args.includes('cat-file')) {
+        const spec = args[2] ?? '';
+        if (spec.startsWith('HEAD:')) {
+          return binaryStdout
+            ? Promise.resolve({
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+                stdoutBuffer: Buffer.from('old\n', 'utf8'),
+                timedOut: false,
+              })
+            : Promise.resolve({ exitCode: 0, stderr: '', stdout: 'old\n', timedOut: false });
+        }
+        return binaryStdout
+          ? Promise.resolve({
+              exitCode: 0,
+              stderr: '',
+              stdout: '',
+              stdoutBuffer: Buffer.from('new\n', 'utf8'),
+              timedOut: false,
+            })
+          : Promise.resolve({ exitCode: 0, stderr: '', stdout: 'new\n', timedOut: false });
+      }
+      if (args.includes('diff')) {
+        return Promise.resolve({
+          exitCode: 0,
+          stderr: '',
+          stdout:
+            'diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n',
+          timedOut: false,
+        });
+      }
+      return Promise.resolve({ exitCode: 0, stderr: '', stdout: '', timedOut: false });
+    };
+    const handlers = createGitIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
+      run: runner,
+    });
+
+    const result = await handlers.structuredFileDiff('r1', { mode: 'staged', path: 'file.txt' });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.status).toBe('modified');
+      expect(result.value.content).toEqual({
+        kind: 'full',
+        newContent: 'new\n',
+        oldContent: 'old\n',
+      });
+    }
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.cwd).toBe(dir);
+    }
+    // The numstat call proves `path` flowed through the handler unmodified.
+    const numstatCall = calls.find((call) => call.args.includes('--numstat'));
+    expect(numstatCall?.args).toEqual(
+      expect.arrayContaining(['diff', '--cached', '--numstat', '-z', '--find-renames', '--', '.'])
+    );
+  });
+
+  it('rejects an unknown params shape without reaching the service (unsupported keys)', async () => {
+    const dir = await makeDir();
+    const { runner, calls } = recordingRunner({
+      exitCode: 0,
+      stderr: '',
+      stdout: '',
+      timedOut: false,
+    });
+    const handlers = createGitIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
+      run: runner,
+    });
+
+    const result = await handlers.structuredFileDiff('r1', {
+      extra: 'nope',
+      mode: 'staged',
+      path: 'file.txt',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/unsupported|only accepts/);
+    }
+    // Validation rejects the malformed params before any git invocation.
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('git IPC handlers — structuredFileDiff (real repo, happy path)', () => {
+  it('working mode: reports a real modification through the full handler stack', async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(path.join(repo, 'a.txt'), 'line1\nline2\n', 'utf8');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await fsPromises.writeFile(path.join(repo, 'a.txt'), 'line1\nline2-edited\n', 'utf8');
+
+    const handlers = createGitIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'repo', path: repo, rootId: 'r1' }]),
+    });
+
+    const result = await handlers.structuredFileDiff('r1', { mode: 'working', path: 'a.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('modified');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-edited\n',
+      oldContent: 'line1\nline2\n',
+    });
+    expect(result.value.hunks).toEqual([{ newLines: 2, newStart: 1, oldLines: 2, oldStart: 1 }]);
+  });
+});
+
 describe('git IPC runner — pinned repository environment', () => {
   it('removes routing overrides case-insensitively while preserving audited Git controls', () => {
     const environment = createPinnedGitEnvironment({

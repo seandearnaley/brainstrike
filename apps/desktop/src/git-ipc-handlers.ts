@@ -22,6 +22,7 @@
  */
 import { type ExecFileException, execFile } from 'node:child_process';
 import { createLogger } from '@brainstrike/logging';
+import type { StructuredFileDiffParams } from '@brainstrike/types';
 import {
   createGitService,
   GIT_MAX_BUFFER_BYTES,
@@ -282,6 +283,10 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
     stage: (rootId: unknown, params: { path?: string } = {}) =>
       withService(rootId, (service) => service.stage({ path: params.path })),
     status: (rootId: unknown) => withService(rootId, (service) => service.status()),
+    structuredFileDiff: (rootId: unknown, params: unknown) =>
+      withService(rootId, (service) =>
+        service.structuredFileDiff(params as StructuredFileDiffParams)
+      ),
     switchBranch: (rootId: unknown, params: { branch: string }) =>
       withService(rootId, (service) => service.switchBranch({ branch: params?.branch })),
     unstage: (rootId: unknown, params: { path?: string } = {}) =>

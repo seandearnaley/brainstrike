@@ -22,6 +22,8 @@ import type {
   GitResult,
   GitStatus,
   GitSwitchBranchResult,
+  StructuredFileDiff,
+  StructuredFileDiffParams,
 } from '@brainstrike/types';
 
 export type {
@@ -40,6 +42,8 @@ export type {
   GitStatusFile,
   GitSwitchBranchResult,
   GitWorktreeSummary,
+  StructuredFileDiff,
+  StructuredFileDiffParams,
 } from '@brainstrike/types';
 
 const logger = createLogger('GitPanel');
@@ -69,6 +73,10 @@ export interface GitBridge {
   repository: (rootId: string) => Promise<GitResult<GitRepository>>;
   stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
   status: (rootId: string) => Promise<GitResult<GitStatus>>;
+  structuredFileDiff: (
+    rootId: string,
+    params: StructuredFileDiffParams
+  ) => Promise<GitResult<StructuredFileDiff>>;
   switchBranch: (
     rootId: string,
     params: { branch: string }
@@ -92,6 +100,7 @@ const REQUIRED_METHODS: readonly (keyof GitBridge)[] = [
   'pull',
   'repository',
   'switchBranch',
+  'structuredFileDiff',
 ];
 
 /**

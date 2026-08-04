@@ -87,6 +87,7 @@ export const DESKTOP_IPC_CHANNELS = {
     repository: 'git:repository',
     stage: 'git:stage',
     status: 'git:status',
+    structuredFileDiff: 'git:structuredFileDiff',
     switchBranch: 'git:switchBranch',
     unstage: 'git:unstage',
   },

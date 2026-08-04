@@ -33,7 +33,11 @@ export interface GitInventory {
 /** Discriminated git diff scope. Each kind carries only the fields it needs (spec §3). */
 export type GitScope =
   | {
-      /** Base ref to merge-base against; defaults to the branch upstream (@{u}) when omitted. */
+      /**
+       * Base ref to merge-base against; defaults to the repository's default
+       * branch (origin/HEAD resolution) when omitted. Resolution is
+       * implemented by the changeset resolver (W3).
+       */
       readonly baseRef?: string;
       readonly kind: 'branch-vs-base';
     }
