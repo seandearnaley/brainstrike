@@ -5,8 +5,6 @@ export { CollectionPicker } from './collection-picker';
 export { CollectionPickerEmpty } from './collection-picker-empty';
 export { CollectionPickerHeader } from './collection-picker-header';
 export { CollectionPickerItem } from './collection-picker-item';
-// Hooks
-export { type ResolvedTheme, useResolvedTheme } from './hooks/use-resolved-theme';
 export {
   type CollectionPickerProtection,
   getCollectionPickerProtection,

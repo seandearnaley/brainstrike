@@ -1,4 +1,4 @@
-import type { ResolvedTheme } from '../hooks/use-resolved-theme';
+import type { ResolvedTheme } from '../../hooks/use-resolved-theme';
 
 /**
  * Color configuration for collection items.
