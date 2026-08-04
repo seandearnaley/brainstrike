@@ -182,6 +182,22 @@ function extractHunkText(presentation: ResolvedDiffPresentation): string | null 
   return presentation.kind === 'hunks-only' ? presentation.hunkText : null;
 }
 
+/**
+ * Throws with `message` when `value` is `null`, narrowing it to `T`
+ * afterward. The build effect's `contentKind`-gated branches use this to
+ * assert the corresponding extracted scalar (`textOriginal`/`textModified`/
+ * `hunkText`) is non-null — an invariant `extractTextDocs`/`extractHunkText`
+ * already guarantee, restated here as a real check (never a silent
+ * fallback) rather than a type-only assertion. A plain `if` per call site
+ * would push `buildWithLanguage`'s cognitive-complexity score over Biome's
+ * limit; this keeps each call site to one line.
+ */
+function assertNonNull<T>(value: T | null, message: string): asserts value is T {
+  if (value === null) {
+    throw new Error(message);
+  }
+}
+
 /** User-facing labels for the structured-mode status chip. Exhaustive over `ChangedFileStatus`. */
 const STATUS_LABELS: Record<ChangedFileStatus, string> = {
   added: 'Added',
@@ -292,11 +308,15 @@ export function DiffView({
   const modeTogglable = presentation.kind === 'text';
   const truncatedNoteVisible = resolveTruncatedNoteVisible(presentation);
 
-  // The actual document text the build effect below depends on — plain
-  // strings, so two renders with EQUAL content compare equal here via
-  // Object.is regardless of `source`/`presentation` object identity (the
-  // reference/value-equality fast path). `null` when not applicable to the
-  // current `presentation.kind`.
+  // Scalar extractions the build effect depends on — plain values, so two
+  // renders with EQUAL content compare equal here via Object.is regardless
+  // of `source`/`presentation` object identity (the reference/value-
+  // equality fast path). `null`/not-applicable fields stay `null` for the
+  // current `presentation.kind`. The effect below reads ONLY these four
+  // variables (never `presentation`/`resolved` themselves), so its
+  // dependency array is honest — every value the effect body touches is
+  // listed, and nothing it touches is missing.
+  const contentKind = presentation.kind;
   const { modified: textModified, original: textOriginal } = extractTextDocs(presentation);
   const hunkText = extractHunkText(presentation);
 
@@ -304,7 +324,7 @@ export function DiffView({
   // content CHANGES within the same kind are handled by the build effect's
   // own teardown/rebuild (via `textOriginal`/`textModified`/`hunkText`
   // above) without needing to blow away the host DOM node.
-  const renderKey = `${mode}:${resolvedLanguage.label}:${resolved.contentKind}`;
+  const renderKey = `${mode}:${resolvedLanguage.label}:${contentKind}`;
 
   const toggleMode = useCallback(() => {
     setMode((current) => (current === 'split' ? 'unified' : 'split'));
@@ -326,10 +346,13 @@ export function DiffView({
       }
       const languageExtension: Extension = languageSupport ?? [];
 
-      switch (presentation.kind) {
+      switch (contentKind) {
         case 'binary':
           return;
         case 'hunks-only': {
+          // Invariant: `extractHunkText` returns non-null exactly when
+          // `contentKind === 'hunks-only'`, which this case is gated on.
+          assertNonNull(hunkText, 'DiffView: hunks-only content resolved with no hunkText.');
           // No file-language grammar over raw diff text (see
           // `buildHunkLineDecorations`'s doc comment), and no `lineNumbers()`
           // gutter (see `BASE_EXTENSIONS`'s doc comment) — `languageSupport`
@@ -337,27 +360,30 @@ export function DiffView({
           editorView = new EditorView({
             parent: host,
             state: EditorState.create({
-              doc: presentation.hunkText,
+              doc: hunkText,
               extensions: [
                 ...BASE_EXTENSIONS_NO_GUTTER,
                 READ_ONLY_EXTENSIONS,
-                buildHunkLineDecorations(presentation.hunkText),
+                buildHunkLineDecorations(hunkText),
               ],
             }),
           });
           return;
         }
         case 'text': {
-          const { original: originalDoc, modified: modifiedDoc } = presentation;
+          // Invariant: `extractTextDocs` returns non-null fields exactly
+          // when `contentKind === 'text'`, which this case is gated on.
+          assertNonNull(textOriginal, 'DiffView: text content resolved with no original.');
+          assertNonNull(textModified, 'DiffView: text content resolved with no modified.');
 
           if (mode === 'split') {
             mergeView = new MergeView({
               a: {
-                doc: originalDoc,
+                doc: textOriginal,
                 extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
               },
               b: {
-                doc: modifiedDoc,
+                doc: textModified,
                 extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
               },
               collapseUnchanged: { margin: 3, minSize: 4 },
@@ -372,7 +398,7 @@ export function DiffView({
           editorView = new EditorView({
             parent: host,
             state: EditorState.create({
-              doc: modifiedDoc,
+              doc: textModified,
               extensions: [
                 ...BASE_EXTENSIONS,
                 READ_ONLY_EXTENSIONS,
@@ -382,7 +408,7 @@ export function DiffView({
                   gutter: true,
                   // Read-only viewer: never show accept/reject chunk controls.
                   mergeControls: false,
-                  original: originalDoc,
+                  original: textOriginal,
                 }),
               ],
             }),
@@ -390,7 +416,7 @@ export function DiffView({
           return;
         }
         default: {
-          const exhaustive: never = presentation;
+          const exhaustive: never = contentKind;
           throw new Error(`Unhandled diff presentation kind: ${JSON.stringify(exhaustive)}`);
         }
       }
@@ -402,7 +428,7 @@ export function DiffView({
     // for `hunks-only`/`binary`, which never use a language extension.
     buildWithLanguage(null);
 
-    if (presentation.kind === 'text' && resolvedLanguage.loadSupport) {
+    if (contentKind === 'text' && resolvedLanguage.loadSupport) {
       void resolvedLanguage
         .loadSupport()
         .then((support) => {
@@ -429,19 +455,22 @@ export function DiffView({
       mergeView?.destroy();
       editorView?.destroy();
     };
-    // Deliberately depends on the SCALAR content fields (`presentation.kind`,
+    // Deliberately depends on the SCALAR content fields (`contentKind`,
     // `textOriginal`, `textModified`, `hunkText`) plus `mode`/`resolvedLanguage`
-    // — never on `resolved`/`presentation`/`source` object identity. Plain
-    // strings compare by value (`Object.is` on two equal strings is `true`
-    // regardless of which object they came from), so a caller re-rendering
-    // with a freshly-allocated `source` object literal carrying THE SAME
-    // content — exactly what W4's multi-file surface does — does not rebuild
-    // CodeMirror. Depending on the `presentation`/`resolved` OBJECT directly
-    // here was the original bug: it rebuilds (losing scroll/selection/
-    // collapsed-hunk state, re-running async language load) on every
-    // unrelated parent render, since `presentation` is a fresh object every
-    // time even when its fields are unchanged.
-  }, [presentation.kind, textOriginal, textModified, hunkText, mode, resolvedLanguage]);
+    // — never on `resolved`/`presentation`/`source` object identity, and the
+    // effect body above reads ONLY these same scalars (never `presentation`
+    // itself), so every dependency this effect actually uses is listed here
+    // — an honest, exhaustive-deps-clean array, not a suppressed warning.
+    // Plain strings compare by value (`Object.is` on two equal strings is
+    // `true` regardless of which object they came from), so a caller
+    // re-rendering with a freshly-allocated `source` object literal
+    // carrying THE SAME content — exactly what W4's multi-file surface does
+    // — does not rebuild CodeMirror. Depending on the `presentation`/
+    // `resolved` OBJECT directly here was the original bug: it rebuilds
+    // (losing scroll/selection/collapsed-hunk state, re-running async
+    // language load) on every unrelated parent render, since `presentation`
+    // is a fresh object every time even when its fields are unchanged.
+  }, [contentKind, textOriginal, textModified, hunkText, mode, resolvedLanguage]);
 
   return (
     <div
