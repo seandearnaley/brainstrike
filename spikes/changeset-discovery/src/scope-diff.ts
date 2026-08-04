@@ -1,3 +1,4 @@
+// SPIKE (BST-1110) — throwaway reference. Known shortcuts + caveats recorded in ../RECOMMENDATION.md; do not port verbatim.
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';

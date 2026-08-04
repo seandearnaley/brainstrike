@@ -1,3 +1,4 @@
+// SPIKE (BST-1110) — throwaway reference. Known shortcuts + caveats recorded in ../RECOMMENDATION.md; do not port verbatim.
 import { buildInventory } from './inventory.ts';
 
 const roots = process.argv.slice(2);

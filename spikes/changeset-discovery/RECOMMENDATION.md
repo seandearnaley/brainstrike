@@ -159,7 +159,7 @@ measurements section per the brief:
 | (a) `touch (outside repo) && git add -N . ; git reset` | 10 | 2 (20%) | 8 | No-op reset still writes reflog (`ORIG_HEAD`, `logs/HEAD`) and cycles the branch ref lock — correctly caught, but confirms lock/reflog churn happens even without content change. |
 | (a) `commit --allow-empty && reset --hard HEAD~1` (one 300ms window) | 18 | 7 (39%) | 11 | Both commands landed in a single debounce window only because they ran back-to-back well under 300ms — not guaranteed for slower ops. |
 | (a) stray delayed event | 1 | 0 | 1 | A single unattributed `delete index.lock <== INVALIDATE` event arrived ~23s after the prior batch, with no git command running at that moment. Cause undetermined — Task 5 flagged git's own background auto-maintenance as at least as plausible as delayed/coalesced FSEvents delivery, without picking one. Not tied to any of the three listed op batches; counted separately here so the totals row reconciles (3 listed batches sum to 30 events / 9 noise / 21 INVALIDATE; this stray event is the 31st event / 22nd INVALIDATE). |
-| (a) totals, 4 op batches + 1 stray event | 31 | 9 (29%) | 22 (71%) | **~29% noise ratio is macOS/FSEvents-specific** (loose-object writes, non-index/HEAD/refs lock files) — not a portable constant; a different platform watcher backend (e.g. inotify) would plausibly differ. **Carrying forward Task 5's recommendation**: a production debounce/batch window should tolerate a stray late single-file lock event arriving well outside the normal window, rather than assuming all of an operation's events land inside one window. |
+| (a) totals, 3 op batches + 1 stray event | 31 | 9 (29%) | 22 (71%) | **~29% noise ratio is macOS/FSEvents-specific** (loose-object writes, non-index/HEAD/refs lock files) — not a portable constant; a different platform watcher backend (e.g. inotify) would plausibly differ. **Carrying forward Task 5's recommendation**: a production debounce/batch window should tolerate a stray late single-file lock event arriving well outside the normal window, rather than assuming all of an operation's events land inside one window. |
 | (b) commit inside linked worktree, watch rooted at **main** `.git` | 9 interesting (debounced) | — | — | **Confirmed**: one watch on the main/common `.git` dir sees all linked-worktree ref/index/HEAD activity (`worktrees/<name>/{index,HEAD.lock,logs/HEAD}`, shared `refs/`) — no per-worktree subscription needed for git-metadata reactivity. Does **not** extend to working-tree content (uncommitted edits) — that lives outside `.git` per worktree and needs its own watch. |
 | (c) `git worktree add` | 21 | 11 (52%) | 10 | Coverage of the new worktree's `HEAD`/`index`/`logs/HEAD` creation is **incidental**, not by an explicit worktree-lifecycle rule — the bare `worktrees/<name>` directory create/delete itself doesn't match the regex. |
 | (c) `git worktree remove` | 10 | 5 (50%) | 5 | Same incidental-coverage caveat as add. |
@@ -209,9 +209,43 @@ detail):
 
 ## Spike shortcuts taken
 
-Transcribed verbatim (corrected) from Task 3's and Task 4's reports, for
-production-port awareness. None of these were fixed in the spike — they are
-deliberate, recorded simplifications.
+Transcribed (corrected where noted) from Task 2's, Task 3's, and Task 4's
+review findings, for production-port awareness. None of these were fixed in
+the spike — they are deliberate, recorded simplifications.
+
+### Task 2 — discovery walk (`discover-repos.ts`)
+
+- **Unguarded `stat` aborts the whole walk on one bad entry**: `walk`'s
+  `readdir` call catches failures and warns-and-continues, but the
+  `await stat(gitPath)` immediately after finding a `.git` entry is not
+  guarded — one transient `ENOENT` (entry removed between `readdir` and
+  `stat`) or `EACCES` on that single `.git` path rejects the entire
+  `buildInventory` call, not just that entry. Production must catch this the
+  same way the `readdir` path already does: catch, emit a visible warning,
+  and skip the entry — never let one flaky `.git` stat abort a whole-tree
+  scan.
+- **Unbounded `Promise.all` directory fan-out**: the recursive walk step fans
+  out over every subdirectory of every directory with one `Promise.all` and
+  no concurrency cap. Depth is bounded (`maxDepth`), but breadth is not — a
+  very wide root (many thousands of sibling directories at one level) can
+  spawn that many concurrent `readdir`/`stat` calls at once, risking
+  `EMFILE`/`ENFILE` on real-world wide trees, not just pathological ones.
+- **Overlapping `rootPaths` double-walk and produce duplicate entries**:
+  `discoverRepos` walks each of `rootPaths` independently with no cross-root
+  dedup. If two scanned roots overlap (e.g. one is an ancestor of another),
+  the overlapping subtree is walked twice, producing two
+  `DiscoveredGitEntry` records for the same `.git` path that differ only in
+  `containingRoot` — there is no dedup at the walk level (only later, in
+  `buildInventory`'s `commonDir`-keyed map, at the cost of an extra wasted
+  `rev-parse` spawn per duplicate).
+- **Repo-under-repo descent is implemented but untested**: the walker
+  deliberately keeps descending into subdirectories after finding a `.git`
+  entry — nested repos living below another repo's working tree are real
+  (e.g. `.claude/worktrees/*` under the main checkout) — but no test
+  exercises a `.git` directory nested inside a *sibling* subdirectory of an
+  already-found repo (as opposed to nested inside the found repo's own
+  `.git` directory, which the existing "does not descend into .git" test
+  covers). Correct by inspection, not pinned by a test.
 
 ### Task 3 — porcelain-parser comparison (`inventory.ts`)
 
@@ -244,6 +278,21 @@ found). Compared against the production parser
   spike, but any *other* future consumer combining caller-supplied paths
   with git-reported paths needs the same canonicalization, not just this
   one call site.
+- **Bare main worktree yields `head: ''`, not an absence**:
+  `parseWorktreePorcelain` reads `fields.get('HEAD') ?? ''` — git's
+  porcelain output omits the `HEAD` field entirely for a bare main
+  worktree, so the parser's fallback silently substitutes an empty string.
+  `WorktreeEntry.head: string` has no way to express "this worktree has no
+  HEAD" as distinct from "the HEAD line was empty"; a production port
+  should type `head` as `string | null` and preserve the field's actual
+  absence rather than coercing it to `''`.
+- **Containment prefix test assumes POSIX separators, untested on
+  Windows**: `classifyContainment`'s prefix check
+  (`worktreePath.startsWith(root + sep)`) uses `path.sep`, which is `\` on
+  Windows, while git's own porcelain `worktree` paths use `/` regardless of
+  platform — every containment prefix comparison would fail to match on
+  Windows as a result. This spike was only ever run and verified on macOS;
+  the Windows case is unverified, not merely untested.
 
 ### Task 4 — known spike shortcuts (`scope-diff.ts`)
 
@@ -313,6 +362,18 @@ Implemented exactly as the brief specified and deliberately not fixed:
   compounds this with the two additional `@{u}`/`merge-base` spawns noted
   in the scope-diff table above — its `list` figure is the most
   spawn-heavy and least comparable of the three scopes.
+- **`parseNumstat`'s `.filter(Boolean)` drops empty fields before
+  positional indexing of rename triples**: the parser splits `numstat -z`
+  output on `\0` and immediately `.filter(Boolean)`s the result, then reads
+  a rename's old/new path pair positionally (`i += 2` to skip the old path
+  and land on the new path). If an unexpected empty field ever appears in
+  the stream (not the normal rename-record shape), `.filter(Boolean)`
+  silently removes it — shifting every subsequent positional index by one
+  and misreading unrelated fields as if they belonged to a different
+  record, instead of failing loudly. A production parser must not filter
+  empty fields out before doing positional decode of the rename shape; it
+  must either validate field count per record or use a non-positional
+  parse.
 
 ## Answers to spec §10
 
@@ -333,7 +394,8 @@ Measured basis (Discovery table above):
   across a 166-repo multi-root sweep. The enumerate phase dominates (277ms /
   2641ms) and is process-spawn-bound at ~6.5–7.7ms/spawn. Sharing traversal
   machinery would optimize the phase that is already fast.
-- 76 of the multi-root run's 242 `rev-parse` spawns (34 of 36 single-root) were
+- 76 of the multi-root run's 242 `rev-parse` spawns (34 of 35 single-root
+  `rev-parse` spawns; 36 total including the `worktree list` spawn) were
   pure dupe discovery. Parsing the `gitdir:` line out of each `.git` file and
   deduping on it *before* spawning is the recorded fix — that is where the
   measured waste is.

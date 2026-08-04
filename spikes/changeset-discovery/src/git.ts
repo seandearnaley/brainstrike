@@ -1,3 +1,4 @@
+// SPIKE (BST-1110) — throwaway reference. Known shortcuts + caveats recorded in ../RECOMMENDATION.md; do not port verbatim.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
