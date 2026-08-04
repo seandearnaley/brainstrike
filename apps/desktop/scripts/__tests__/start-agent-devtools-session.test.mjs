@@ -109,7 +109,7 @@ test('uses Windows path semantics for a Windows pnpm entrypoint on every test ho
 });
 
 test('re-enters a corepack-shimmed pnpm whose entrypoint is pnpm.mjs', () => {
-  const corepackExecPath = '/Users/dev/Library/Caches/node/corepack/v1/pnpm/10.12.1/bin/pnpm.mjs';
+  const corepackExecPath = '/Users/dev/Library/Caches/node/corepack/v1/pnpm/11.15.0/bin/pnpm.mjs';
   assert.deepEqual(
     resolvePnpmInvocation({
       env: { npm_execpath: corepackExecPath },
