@@ -43,7 +43,7 @@ describe('useChangeset', () => {
 
   it('is inert with a null changeset even when the bridge is present', async () => {
     const resolveView = vi.fn();
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', null));
 
     await waitFor(() => {
@@ -71,7 +71,7 @@ describe('useChangeset', () => {
     const resolveView = vi.fn(
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: view })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -88,7 +88,7 @@ describe('useChangeset', () => {
         ok: false,
       })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -113,7 +113,7 @@ describe('useChangeset', () => {
     const resolveView = vi.fn(
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
-    stubBridge({ fileDiff, resolveView });
+    stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -132,7 +132,7 @@ describe('useChangeset', () => {
           deferred.push(resolve);
         })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
@@ -186,7 +186,7 @@ describe('useChangeset', () => {
     const resolveView = vi.fn(
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
-    stubBridge({ fileDiff: vi.fn(), resolveView });
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
     // Every render builds a BRAND NEW object literal — the natural way a
     // consumer would call this hook (e.g. `{ kind: 'agent-run', runId,
     // threadId }` inline) — never the SAME `CHANGESET` reference other tests

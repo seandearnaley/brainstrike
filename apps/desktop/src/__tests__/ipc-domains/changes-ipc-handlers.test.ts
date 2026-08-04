@@ -1,4 +1,10 @@
-import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type {
+  Changeset,
+  ChangesetView,
+  GitInventory,
+  GitResult,
+  StructuredFileDiff,
+} from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createChangesIpcHandlers,
@@ -346,5 +352,104 @@ describe('changes IPC handlers', () => {
     });
 
     expect(result).toEqual({ error: 'boom', ok: false });
+  });
+});
+
+describe('createChangesIpcHandlers.inventory (BST-1114 T0)', () => {
+  const INVENTORY: GitInventory = {
+    errors: ['repo /tmp/broken: fatal: not a git repository'],
+    repositories: [
+      {
+        identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
+        worktrees: [
+          {
+            bare: false,
+            branch: 'main',
+            containment: ['root-1'],
+            current: true,
+            detached: false,
+            head: 'abc123',
+            lockedReason: null,
+            name: 'repo',
+            path: '/repo',
+            provenance: 'scanned',
+            prunableReason: null,
+            trust: 'validated',
+            trustReason: null,
+          },
+        ],
+      },
+    ],
+  };
+
+  function fakeInventoryService(snapshot: GitInventory & { capturedAt: number }) {
+    return {
+      getSnapshot: vi.fn(async () => snapshot),
+      start: vi.fn(),
+      stop: vi.fn(async () => undefined),
+    };
+  }
+
+  it('projects the service snapshot onto the GitInventory wire contract', async () => {
+    const service = fakeInventoryService({ ...INVENTORY, capturedAt: 1234 });
+    const handlers = createChangesIpcHandlers({
+      resolveInventoryService: () => service as never,
+      service: fakeService() as never,
+    });
+
+    const result = await handlers.inventory();
+
+    // `capturedAt` is a service-internal cache detail — it must NOT cross the
+    // renderer boundary, and `errors` must survive intact (a repo failure is
+    // reported, never dropped).
+    expect(result).toEqual({ ok: true, value: INVENTORY });
+    expect(result.ok && 'capturedAt' in result.value).toBe(false);
+  });
+
+  it('resolves the service LAZILY, per call', async () => {
+    const service = fakeInventoryService({ ...INVENTORY, capturedAt: 1 });
+    let current: ReturnType<typeof fakeInventoryService> | null = null;
+    const handlers = createChangesIpcHandlers({
+      resolveInventoryService: () => current as never,
+      service: fakeService() as never,
+    });
+
+    // Registration happens before the service exists (the real main.ts
+    // ordering): the first call must fail visibly...
+    const before = await handlers.inventory();
+    expect(before.ok).toBe(false);
+
+    // ...and a later call, after app-ready construction, must succeed without
+    // re-registering anything.
+    current = service;
+    const after = await handlers.inventory();
+    expect(after).toEqual({ ok: true, value: INVENTORY });
+  });
+
+  it('reports an absent service as a visible failure, not an empty inventory', async () => {
+    const handlers = createChangesIpcHandlers({ service: fakeService() as never });
+
+    const result = await handlers.inventory();
+
+    expect(result.ok).toBe(false);
+    expect((result as { error: string }).error).toContain('git inventory service is not running');
+  });
+
+  it('catches a thrown getSnapshot (e.g. GitInventoryStoppedError) as a typed failure', async () => {
+    const service = {
+      getSnapshot: vi.fn(async () => {
+        throw new Error('the service has been stopped');
+      }),
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+    const handlers = createChangesIpcHandlers({
+      resolveInventoryService: () => service as never,
+      service: fakeService() as never,
+    });
+
+    const result = await handlers.inventory();
+
+    expect(result).toEqual({ error: 'the service has been stopped', ok: false });
   });
 });

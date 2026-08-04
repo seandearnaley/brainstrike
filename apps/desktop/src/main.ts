@@ -34,6 +34,7 @@ import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-wo
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
+import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import {
@@ -1235,7 +1236,13 @@ unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterFileExportsIpcHandlers = registerFileExportsIpcHandlers();
 unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
-unregisterChangesIpcHandlers = registerChangesIpcHandlers();
+// `resolveInventoryService` is a LAZY getter on purpose: this registration
+// runs at module load, while `gitInventoryService` is only constructed once
+// the app is ready (see `createGitInventoryService` below). Capturing the
+// value here would pin `null` forever.
+unregisterChangesIpcHandlers = registerChangesIpcHandlers(
+  createChangesIpcHandlers({ resolveInventoryService: () => gitInventoryService })
+);
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();

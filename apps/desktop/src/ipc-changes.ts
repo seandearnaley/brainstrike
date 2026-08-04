@@ -27,6 +27,9 @@ export function registerChangesIpcHandlers(
     (_event, rootId: unknown, changeset: unknown, path: unknown) =>
       handlers.fileDiff(rootId, changeset, path)
   );
+  registry.registerInvoke('changes', DESKTOP_IPC_CHANNELS.changes.inventory, () =>
+    handlers.inventory()
+  );
 
   return () => {
     registry.unregisterAll();

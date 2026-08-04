@@ -1,0 +1,156 @@
+import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ChangesBridge } from '../changes-bridge';
+import { useGitInventory } from '../use-git-inventory';
+
+function worktree(overrides: Partial<WorktreeDescriptor> = {}): WorktreeDescriptor {
+  return {
+    bare: false,
+    branch: 'main',
+    containment: ['root-1'],
+    current: true,
+    detached: false,
+    head: 'abc123',
+    lockedReason: null,
+    name: 'repo',
+    path: '/repo',
+    provenance: 'scanned',
+    prunableReason: null,
+    trust: 'validated',
+    trustReason: null,
+    ...overrides,
+  };
+}
+
+function inventoryFixture(overrides: Partial<GitInventory> = {}): GitInventory {
+  return {
+    errors: [],
+    repositories: [
+      {
+        identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
+        worktrees: [worktree()],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function stubBridge(bridge: Partial<ChangesBridge>): void {
+  (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
+    fileDiff: vi.fn(),
+    resolveView: vi.fn(),
+    ...bridge,
+  };
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+});
+
+describe('useGitInventory', () => {
+  it('is inert with the bridge absent', async () => {
+    const { result } = renderHook(() => useGitInventory());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.available).toBe(false);
+    expect(result.current.inventory).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('loads the inventory, preserving per-repository errors', async () => {
+    const value = inventoryFixture({ errors: ['repo /tmp/broken: not a git repository'] });
+    stubBridge({ inventory: vi.fn(async () => ({ ok: true, value }) as const) });
+
+    const { result } = renderHook(() => useGitInventory());
+
+    await waitFor(() => {
+      expect(result.current.inventory).toEqual(value);
+    });
+    expect(result.current.available).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('distinguishes a resolved empty inventory from "not yet resolved"', async () => {
+    const empty: GitInventory = { errors: [], repositories: [] };
+    stubBridge({ inventory: vi.fn(async () => ({ ok: true, value: empty }) as const) });
+
+    const { result } = renderHook(() => useGitInventory());
+
+    await waitFor(() => {
+      expect(result.current.inventory).not.toBeNull();
+    });
+    // A resolved-but-empty inventory is an honest "no repositories", NOT the
+    // `null` sentinel the hook uses for "nothing loaded yet".
+    expect(result.current.inventory).toEqual(empty);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('surfaces a typed bridge failure and clears the inventory', async () => {
+    stubBridge({
+      inventory: vi.fn(async () => ({ error: 'inventory-unavailable', ok: false }) as const),
+    });
+
+    const { result } = renderHook(() => useGitInventory());
+
+    await waitFor(() => {
+      expect(result.current.error).toBe('inventory-unavailable');
+    });
+    expect(result.current.inventory).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('surfaces a thrown bridge call as an error', async () => {
+    stubBridge({
+      inventory: vi.fn(async () => {
+        throw new Error('ipc exploded');
+      }),
+    });
+
+    const { result } = renderHook(() => useGitInventory());
+
+    await waitFor(() => {
+      expect(result.current.error).toBe('ipc exploded');
+    });
+    expect(result.current.inventory).toBeNull();
+  });
+
+  it('ignores a stale in-flight load when a newer refresh supersedes it', async () => {
+    const slow = inventoryFixture();
+    const fresh = inventoryFixture({ errors: ['newer'] });
+    let call = 0;
+    const slowGate: { release: (() => void) | null } = { release: null };
+    const inventory = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        await new Promise<void>((resolve) => {
+          slowGate.release = resolve;
+        });
+        return { ok: true, value: slow } as const;
+      }
+      return { ok: true, value: fresh } as const;
+    });
+    stubBridge({ inventory });
+
+    const { result } = renderHook(() => useGitInventory());
+    await waitFor(() => {
+      expect(inventory).toHaveBeenCalledTimes(1);
+    });
+
+    // Second load starts and settles while the first is still parked.
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.inventory).toEqual(fresh);
+
+    // Releasing the stale first load must NOT overwrite the newer result.
+    slowGate.release?.();
+    await waitFor(() => {
+      expect(inventory).toHaveBeenCalledTimes(2);
+    });
+    expect(result.current.inventory).toEqual(fresh);
+  });
+});
