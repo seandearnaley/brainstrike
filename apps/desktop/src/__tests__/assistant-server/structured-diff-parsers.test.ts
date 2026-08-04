@@ -29,6 +29,20 @@ describe('parseNumstatZ', () => {
     ]);
   });
 
+  it('preserves a tab embedded in the path (a `-z` path is emitted verbatim, not quoted)', () => {
+    const output = '2\t0\ttab\tname.txt\0';
+    expect(parseNumstatZ(output)).toEqual([
+      { additions: 2, deletions: 0, oldPath: null, path: 'tab\tname.txt' },
+    ]);
+  });
+
+  it('handles a binary rename triple ("-\\t-\\t" NUL oldPath NUL newPath)', () => {
+    const output = '-\t-\t\0old.bin\0new.bin\0';
+    expect(parseNumstatZ(output)).toEqual([
+      { additions: null, deletions: null, oldPath: 'old.bin', path: 'new.bin' },
+    ]);
+  });
+
   it('parses multiple entries including a mix of plain, binary, and rename records', () => {
     // Real output observed from a staged plain add + binary edit + rename+edit.
     const output = [
@@ -111,6 +125,31 @@ describe('parseHunkHeaders', () => {
   it('throws when a line matched as a hunk header but cannot be parsed', () => {
     const diff = '@@ -abc +1 @@';
     expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/i);
+  });
+
+  it('tolerates a partial header cut off immediately before the truncation marker', () => {
+    // boundOutput slices at a raw char offset, so an over-cap diff can end
+    // mid-header, right before the visible truncation marker — this is the
+    // hunks-only over-cap path the marker exists to serve, not malformed input.
+    const diff = ['@@ -120,7 +1', '…(output truncated)'].join('\n');
+    expect(parseHunkHeaders(diff)).toEqual([]);
+  });
+
+  it('still throws on a malformed header NOT immediately followed by the truncation marker', () => {
+    const diff = ['@@ -120,7 +1', 'some other content'].join('\n');
+    expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/i);
+  });
+
+  it('throws when a second "diff --git " header appears (single-file precondition)', () => {
+    const diff = [
+      'diff --git a/foo.txt b/foo.txt',
+      '@@ -1,2 +1,2 @@',
+      '-old',
+      '+new',
+      'diff --git a/bar.txt b/bar.txt',
+      '@@ -1,1 +1,1 @@',
+    ].join('\n');
+    expect(() => parseHunkHeaders(diff)).toThrow(/single-file|diff --git/i);
   });
 });
 

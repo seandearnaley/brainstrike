@@ -25,15 +25,20 @@ export interface NumstatEntry {
   readonly path: string;
 }
 
-function parseNumstatCount(raw: string): number | null {
+function parseNumstatCount(raw: string, record: string): number | null {
   if (raw === '-') {
     return null;
   }
   if (!/^\d+$/.test(raw)) {
-    throw new Error(`git numstat -z returned a non-numeric count "${raw}"`);
+    throw new Error(`git numstat -z returned a non-numeric count "${raw}" in record "${record}"`);
   }
   return Number(raw);
 }
+
+// `-z` paths are emitted verbatim (no quoting/escaping), so a path may
+// legally contain a tab. Only the first two tabs are field separators; the
+// third capture group is everything after the second tab, tabs included.
+const NUMSTAT_RECORD_PATTERN = /^([^\t]*)\t([^\t]*)\t([\s\S]*)$/;
 
 /**
  * Parse `git diff --numstat -z [--find-renames]` output.
@@ -53,13 +58,13 @@ export function parseNumstatZ(output: string): readonly NumstatEntry[] {
   let index = 0;
   while (index < fields.length) {
     const record = fields[index] ?? '';
-    const parts = record.split('\t');
-    if (parts.length !== 3) {
+    const match = NUMSTAT_RECORD_PATTERN.exec(record);
+    if (!match) {
       throw new Error(`git numstat -z returned a malformed record "${record}"`);
     }
-    const [addsRaw = '', delsRaw = '', inlinePath = ''] = parts;
-    const additions = parseNumstatCount(addsRaw);
-    const deletions = parseNumstatCount(delsRaw);
+    const [, addsRaw = '', delsRaw = '', inlinePath = ''] = match;
+    const additions = parseNumstatCount(addsRaw, record);
+    const deletions = parseNumstatCount(delsRaw, record);
 
     if (inlinePath !== '') {
       entries.push({ additions, deletions, oldPath: null, path: inlinePath });
@@ -83,22 +88,48 @@ export function parseNumstatZ(output: string): readonly NumstatEntry[] {
 
 const HUNK_HEADER_CANDIDATE = /^@@ -/;
 const HUNK_HEADER_PATTERN = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+const FILE_HEADER_PATTERN = /^diff --git /;
+const TRUNCATION_MARKER = '…(output truncated)';
 
 /**
  * Extract `@@ -a[,b] +c[,d] @@` hunk headers from a unified diff into
- * absolute line ranges (omitted count defaults to 1). Non-header lines —
- * including the `…(output truncated)` boundOutput marker — are ignored;
- * a line matched as a hunk-header candidate (`^@@ -`) but not fully
- * parseable throws.
+ * absolute line ranges (omitted count defaults to 1). Non-header lines are
+ * ignored. A line matched as a hunk-header candidate (`^@@ -`) but not fully
+ * parseable throws — UNLESS it is immediately followed by the literal
+ * `…(output truncated)` boundOutput marker line, in which case the diff was
+ * cut mid-header (not malformed) and the incomplete header is skipped
+ * without contributing a hunk. Every other malformed header still throws.
+ *
+ * Precondition: `unifiedDiff` must be scoped to a single file's diff output
+ * (at most one `diff --git ` header) — a second `diff --git ` line throws,
+ * since hunks from different files would otherwise be flattened into one
+ * indistinguishable array.
  */
 export function parseHunkHeaders(unifiedDiff: string): readonly StructuredDiffHunk[] {
+  const lines = unifiedDiff.split('\n');
   const hunks: StructuredDiffHunk[] = [];
-  for (const line of unifiedDiff.split('\n')) {
+  let sawFileHeader = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+
+    if (FILE_HEADER_PATTERN.test(line)) {
+      if (sawFileHeader) {
+        throw new Error(
+          `parseHunkHeaders expects a single-file diff but encountered a second "diff --git " header: "${line}"`
+        );
+      }
+      sawFileHeader = true;
+      continue;
+    }
+
     if (!HUNK_HEADER_CANDIDATE.test(line)) {
       continue;
     }
     const match = HUNK_HEADER_PATTERN.exec(line);
     if (!match) {
+      if (lines[i + 1] === TRUNCATION_MARKER) {
+        continue;
+      }
       throw new Error(`git diff returned a malformed hunk header "${line}"`);
     }
     const [, oldStartRaw, oldLinesRaw, newStartRaw, newLinesRaw] = match;
