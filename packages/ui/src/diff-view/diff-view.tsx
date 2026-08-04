@@ -18,7 +18,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
 import { cn } from '../lib/utils';
-import { type DiffViewSource, resolveDiffPresentation } from './diff-view-source';
+import {
+  type DiffViewSource,
+  type ResolvedDiffPresentation,
+  resolveDiffView,
+} from './diff-view-source';
 
 const logger = createLogger('DiffView');
 
@@ -126,7 +130,14 @@ const BASE_EXTENSIONS: Extension[] = [lineNumbers(), ...BASE_EXTENSIONS_NO_GUTTE
 function buildHunkLineDecorations(hunkText: string): Extension {
   const builder = new RangeSetBuilder<Decoration>();
   let pos = 0;
-  for (const line of hunkText.split('\n')) {
+  // CodeMirror's `Doc` normalizes EVERY line break — `\r\n` included — to a
+  // single logical line boundary, so splitting on `'\n'` alone leaves a
+  // trailing `\r` on each line and drifts `pos` out of sync with the actual
+  // document positions on CRLF input (verified: a CRLF hunk fixture silently
+  // dropped every decoration under the old split). Splitting on the same
+  // break set CodeMirror recognizes keeps `pos` aligned regardless of line
+  // ending.
+  for (const line of hunkText.split(/\r\n?|\n/)) {
     if (line.startsWith('+') && !line.startsWith('+++')) {
       builder.add(pos, pos, Decoration.line({ class: 'cm-insertedLine' }));
     } else if (line.startsWith('-') && !line.startsWith('---')) {
@@ -135,6 +146,40 @@ function buildHunkLineDecorations(hunkText: string): Extension {
     pos += line.length + 1;
   }
   return EditorView.decorations.of(builder.finish());
+}
+
+/**
+ * Whether the "diff truncated" note should show — `text`'s own `truncated`
+ * flag, or `hunks-only`'s `hunkTextTruncated`. Extracted to a plain function
+ * (rather than an inline ternary in the component body) to keep `DiffView`'s
+ * cognitive-complexity score under Biome's limit.
+ */
+function resolveTruncatedNoteVisible(presentation: ResolvedDiffPresentation): boolean {
+  if (presentation.kind === 'text') {
+    return presentation.truncated;
+  }
+  return presentation.kind === 'hunks-only' && presentation.hunkTextTruncated;
+}
+
+/**
+ * The two document texts the build effect keys its identity-stable
+ * dependency array on (see the effect's comment) — `null` when
+ * `presentation.kind !== 'text'`. Extracted to a plain function for the same
+ * complexity-budget reason as {@link resolveTruncatedNoteVisible}.
+ */
+function extractTextDocs(presentation: ResolvedDiffPresentation): {
+  modified: string | null;
+  original: string | null;
+} {
+  if (presentation.kind !== 'text') {
+    return { modified: null, original: null };
+  }
+  return { modified: presentation.modified, original: presentation.original };
+}
+
+/** `hunkText` when `presentation.kind === 'hunks-only'`, else `null`. */
+function extractHunkText(presentation: ResolvedDiffPresentation): string | null {
+  return presentation.kind === 'hunks-only' ? presentation.hunkText : null;
 }
 
 /** User-facing labels for the structured-mode status chip. Exhaustive over `ChangedFileStatus`. */
@@ -165,7 +210,7 @@ interface DiffViewBaseProps {
  * Either a `source` (preferred) or both legacy `original`/`modified` string
  * props (plus optional `truncated`) — never neither, and never a mix. This
  * is enforced at compile time so a caller can't accidentally omit both; a
- * runtime throw in `resolveDiffPresentation` remains the backstop for
+ * runtime throw in `resolveDiffView` remains the backstop for
  * anything that reaches the component past TypeScript (an untyped caller,
  * or a type escape).
  */
@@ -216,14 +261,15 @@ export function DiffView({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<DiffViewMode>(defaultMode);
 
-  // Cheap to recompute every render (a switch + a couple of string
-  // concatenations) — deliberately NOT memoized against `source`'s object
-  // identity, since a caller re-rendering with a freshly-allocated
-  // `source={{kind:'structured', diff}}` literal every render (the W4
-  // multi-file-surface pattern) is the exact case this needs to handle
-  // correctly, not optimize away. See `resolved.cacheKey`'s doc comment for
-  // where the actual identity-stability guarantee lives.
-  const resolved = resolveDiffPresentation({ modified, original, source, truncated });
+  // Cheap to recompute every render (a switch + a handful of field reads) —
+  // deliberately NOT memoized against `source`'s object identity, since a
+  // caller re-rendering with a freshly-allocated `source={{kind:'structured',
+  // diff}}` literal every render (the W4 multi-file-surface pattern) is the
+  // exact case this needs to handle correctly, not optimize away. The
+  // identity-stability guarantee lives in the SCALAR fields below
+  // (`textOriginal`/`textModified`/`hunkText`), not in `resolved`/
+  // `presentation` themselves — see the build effect's dependency comment.
+  const resolved = resolveDiffView({ modified, original, source, truncated });
   const { presentation } = resolved;
   const effectiveFilename = filename ?? resolved.filenameFallback;
 
@@ -232,7 +278,9 @@ export function DiffView({
   // `resolvedLanguage`'s object identity stable when neither actually
   // changes, which the build effect below relies on (see its dependency-
   // array comment — the same object-identity-vs-value-identity trap that
-  // motivated `resolved.cacheKey`, just for a different input).
+  // motivates depending on the scalar `textOriginal`/`textModified`/
+  // `hunkText` fields instead of `presentation` itself, just for a
+  // different input).
   const resolvedLanguage = useMemo(
     () => resolveCodeSurfaceLanguage({ language, path: effectiveFilename }),
     [language, effectiveFilename]
@@ -242,17 +290,21 @@ export function DiffView({
   // compare — `hunks-only` is a single bounded text and `binary` mounts
   // nothing, so neither has a mode to switch.
   const modeTogglable = presentation.kind === 'text';
-  const truncatedNoteVisible =
-    presentation.kind === 'text'
-      ? presentation.truncated
-      : presentation.kind === 'hunks-only' && presentation.hunkTextTruncated;
+  const truncatedNoteVisible = resolveTruncatedNoteVisible(presentation);
 
-  // Folds in the actual content identity (`resolved.cacheKey`, NOT the
-  // `source`/`presentation` object reference — see its doc comment) + mode +
-  // resolved language, so the `<section key={renderKey}>` below — and the
-  // build effect, which depends on this alone — only remounts/rebuilds when
-  // something semantically relevant changes.
-  const renderKey = `${mode}:${resolvedLanguage.label}:${resolved.cacheKey}`;
+  // The actual document text the build effect below depends on — plain
+  // strings, so two renders with EQUAL content compare equal here via
+  // Object.is regardless of `source`/`presentation` object identity (the
+  // reference/value-equality fast path). `null` when not applicable to the
+  // current `presentation.kind`.
+  const { modified: textModified, original: textOriginal } = extractTextDocs(presentation);
+  const hunkText = extractHunkText(presentation);
+
+  // Only mode/language/content-KIND drive a full `<section>` remount —
+  // content CHANGES within the same kind are handled by the build effect's
+  // own teardown/rebuild (via `textOriginal`/`textModified`/`hunkText`
+  // above) without needing to blow away the host DOM node.
+  const renderKey = `${mode}:${resolvedLanguage.label}:${resolved.contentKind}`;
 
   const toggleMode = useCallback(() => {
     setMode((current) => (current === 'split' ? 'unified' : 'split'));
@@ -260,8 +312,6 @@ export function DiffView({
 
   useEffect(() => {
     const host = hostRef.current;
-    // `binary` renders no `<section>` (see JSX below), so `host` is already
-    // null in that case — nothing further to guard here.
     if (!host) {
       return;
     }
@@ -379,18 +429,19 @@ export function DiffView({
       mergeView?.destroy();
       editorView?.destroy();
     };
-    // Deliberately depends on `renderKey`/`mode`/`resolvedLanguage` ONLY —
-    // never on `resolved`/`presentation`/`source` object identity. Two
-    // renders with equal `renderKey` are GUARANTEED to carry equal actual
-    // content (that's what `resolved.cacheKey` encodes), so reusing the
-    // `presentation` closure captured on the render that last changed
-    // `renderKey` is correct even though `presentation` itself is a fresh
-    // object every render. Depending on `presentation` directly here was
-    // the bug: it rebuilds CodeMirror (losing scroll/selection/collapsed-
-    // hunk state, re-running async language load) on every parent render
-    // that passes a freshly-allocated `source` object literal with THE SAME
-    // content — exactly what W4's multi-file surface does.
-  }, [renderKey, mode, resolvedLanguage]);
+    // Deliberately depends on the SCALAR content fields (`presentation.kind`,
+    // `textOriginal`, `textModified`, `hunkText`) plus `mode`/`resolvedLanguage`
+    // — never on `resolved`/`presentation`/`source` object identity. Plain
+    // strings compare by value (`Object.is` on two equal strings is `true`
+    // regardless of which object they came from), so a caller re-rendering
+    // with a freshly-allocated `source` object literal carrying THE SAME
+    // content — exactly what W4's multi-file surface does — does not rebuild
+    // CodeMirror. Depending on the `presentation`/`resolved` OBJECT directly
+    // here was the original bug: it rebuilds (losing scroll/selection/
+    // collapsed-hunk state, re-running async language load) on every
+    // unrelated parent render, since `presentation` is a fresh object every
+    // time even when its fields are unchanged.
+  }, [presentation.kind, textOriginal, textModified, hunkText, mode, resolvedLanguage]);
 
   return (
     <div
@@ -455,25 +506,30 @@ export function DiffView({
           </Button>
         ) : null}
       </div>
-      {presentation.kind === 'binary' ? (
-        <div
-          aria-label={ariaLabel}
-          className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground text-sm"
-          data-testid="diff-binary-note"
-          role="status"
-        >
-          Binary file — no text diff
-        </div>
-      ) : (
-        // The CodeMirror MergeView / EditorView is imperatively mounted here. The
-        // labelled region groups the diff content for assistive tech.
-        <section
-          aria-label={ariaLabel}
-          className="min-h-0 flex-1 overflow-hidden"
-          key={renderKey}
-          ref={hostRef}
-        />
-      )}
+      {/* The CodeMirror MergeView / EditorView is imperatively mounted here for
+          `text`/`hunks-only` content. The labelled region groups the diff
+          content for assistive tech — always this `<section>`, even for
+          `binary`, so there's exactly one accessible name for the whole diff
+          area. The binary placeholder is a PLAIN div: giving it its own
+          `aria-label` would override its own visible text as the accessible
+          name (an element with `aria-label` ignores its text content for
+          that computation), and `role="status"` would wrongly turn static
+          content into a live region. */}
+      <section
+        aria-label={ariaLabel}
+        className="min-h-0 flex-1 overflow-hidden"
+        key={renderKey}
+        ref={hostRef}
+      >
+        {presentation.kind === 'binary' ? (
+          <div
+            className="flex h-full min-h-0 items-center justify-center text-muted-foreground text-sm"
+            data-testid="diff-binary-note"
+          >
+            Binary file — no text diff
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

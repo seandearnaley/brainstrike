@@ -146,6 +146,29 @@ describe('DiffView structured mode', () => {
     expect(surface.querySelector('.cm-deletedChunk')).not.toBeNull();
   });
 
+  it('tints hunk lines correctly when hunkText uses CRLF line endings', async () => {
+    // CodeMirror's document model normalizes `\r\n` to a single logical line
+    // break — decoration positions computed by naively splitting on `'\n'`
+    // alone (leaving a trailing `\r` per line) drift out of sync with that
+    // and silently drop every decoration on CRLF input.
+    const diff = makeStructuredDiff({
+      content: {
+        hunkText: '@@ -1,2 +1,2 @@\r\n-old\r\n+new\r\n',
+        hunkTextTruncated: false,
+        kind: 'hunks-only',
+        reason: 'over-cap-old',
+      },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    expect(await screen.findByTestId('diff-over-cap-note')).toBeTruthy();
+    expect(surface).toHaveTextContent('+new');
+    expect(surface.querySelector('.cm-insertedLine')).not.toBeNull();
+    expect(surface.querySelector('.cm-deletedChunk')).not.toBeNull();
+  });
+
   it('names both sides for over-cap-both and shows the truncated badge when hunkTextTruncated', async () => {
     const diff = makeStructuredDiff({
       content: {
@@ -181,7 +204,7 @@ describe('DiffView structured mode', () => {
     );
   });
 
-  it('renders a binary placeholder with zero mounted editors, no data-mode, and an accessible label', async () => {
+  it('renders a binary placeholder inside the labelled diff region, with zero mounted editors and no data-mode', async () => {
     const diff = makeStructuredDiff({ content: { kind: 'binary' } });
 
     render(
@@ -190,8 +213,15 @@ describe('DiffView structured mode', () => {
 
     const note = await screen.findByTestId('diff-binary-note');
     expect(note).toHaveTextContent('Binary file — no text diff');
-    expect(note).toHaveAttribute('role', 'status');
-    expect(note).toHaveAttribute('aria-label', 'Diff for logo.png');
+    // The accessible label lives on the labelled `<section>` region wrapping
+    // the placeholder, not on the placeholder itself — an `aria-label` on
+    // the inner div would OVERRIDE its own visible text as the accessible
+    // name, and `role="status"` would wrongly make static content a live
+    // region.
+    expect(note).not.toHaveAttribute('role');
+    expect(note).not.toHaveAttribute('aria-label');
+    const region = screen.getByRole('region', { name: 'Diff for logo.png' });
+    expect(region).toContainElement(note);
     const surface = await screen.findByTestId('diff');
     expect(surface.querySelectorAll('.cm-editor').length).toBe(0);
     // `split`/`unified` don't apply to a placeholder with no editor at all.
@@ -331,7 +361,7 @@ describe('DiffView structured mode', () => {
     expect(() => {
       // @ts-expect-error — `DiffViewProps` now enforces `source` XOR
       // `original`+`modified` at compile time; this exercises the runtime
-      // backstop in `resolveDiffPresentation` for anything that reaches the
+      // backstop in `resolveDiffView` for anything that reaches the
       // component past that (an untyped caller, or a type escape).
       render(<DiffView testId="diff" />);
     }).toThrow();

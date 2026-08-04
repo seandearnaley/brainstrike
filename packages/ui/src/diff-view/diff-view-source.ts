@@ -21,7 +21,12 @@ export type DiffViewSource =
 
 /**
  * What {@link DiffView} actually mounts. Every rendering branch downstream
- * switches on `.kind` here rather than re-deriving it from the source.
+ * switches on `.kind` here rather than re-deriving it from the source. The
+ * `original`/`modified`/`hunkText` fields are the actual scalars callers
+ * should key memoization/effect-dependency arrays off of directly — plain
+ * strings compare by VALUE, so two calls with different `source` object
+ * identities but equal underlying text land on equal values here, without
+ * needing a separately-maintained cache key.
  */
 export type ResolvedDiffPresentation =
   | { readonly kind: 'binary' }
@@ -51,20 +56,7 @@ export interface DiffViewStatSummary {
  * itself; they're read straight off this object.
  */
 export interface ResolvedDiffView {
-  /**
-   * A scalar identity for the ACTUAL content being shown — two calls with
-   * different `source`/`original`/`modified` OBJECT identities but the same
-   * underlying text produce the SAME `cacheKey`. This is deliberate: a
-   * caller that passes `source={{ kind: 'structured', diff }}` as a fresh
-   * object literal on every render (the W4 multi-file-surface pattern)
-   * must NOT cause `DiffView` to tear down and rebuild its CodeMirror
-   * view — that would reset scroll/selection/collapsed-hunk state and
-   * re-run the async language-support upgrade on every unrelated parent
-   * render. Callers that need to know "did the content change" (e.g. to
-   * key a `useMemo`/`useEffect` dependency array) must compare THIS field,
-   * never `presentation`/`source` object identity.
-   */
-  readonly cacheKey: string;
+  /** `'text'`, `'hunks-only'`, or `'binary'` — mirrors `presentation.kind`. */
   readonly contentKind: 'binary' | 'hunks-only' | 'text';
   /**
    * `source.diff.path` when `source.kind === 'structured'` and the caller
@@ -79,12 +71,6 @@ export interface ResolvedDiffView {
   readonly statSummary: DiffViewStatSummary | null;
   /** `null` for the legacy `strings` source, which carries no file-status concept. */
   readonly status: ChangedFileStatus | null;
-}
-
-const CACHE_KEY_SEPARATOR = '\u0000';
-
-function buildTextCacheKey(original: string, modified: string): string {
-  return `text${CACHE_KEY_SEPARATOR}${original}${CACHE_KEY_SEPARATOR}${modified}`;
 }
 
 type HunksOnlyContent = Extract<StructuredFileDiffContent, { kind: 'hunks-only' }>;
@@ -126,7 +112,6 @@ function resolveStructuredDiffView(diff: StructuredFileDiff): ResolvedDiffView {
       const modified = content.newContent ?? '';
       return {
         ...shared,
-        cacheKey: buildTextCacheKey(original, modified),
         contentKind: 'text',
         presentation: { kind: 'text', modified, original, truncated: false },
       };
@@ -134,7 +119,6 @@ function resolveStructuredDiffView(diff: StructuredFileDiff): ResolvedDiffView {
     case 'hunks-only':
       return {
         ...shared,
-        cacheKey: `hunks-only${CACHE_KEY_SEPARATOR}${content.hunkText}`,
         contentKind: 'hunks-only',
         presentation: {
           hunkText: content.hunkText,
@@ -146,7 +130,6 @@ function resolveStructuredDiffView(diff: StructuredFileDiff): ResolvedDiffView {
     case 'binary':
       return {
         ...shared,
-        cacheKey: 'binary',
         contentKind: 'binary',
         presentation: { kind: 'binary' },
       };
@@ -166,7 +149,7 @@ function resolveStructuredDiffView(diff: StructuredFileDiff): ResolvedDiffView {
  * for anything that reaches here past that — an untyped caller, or a type
  * escape.)
  */
-export function resolveDiffPresentation(props: {
+export function resolveDiffView(props: {
   readonly modified?: string | undefined;
   readonly original?: string | undefined;
   readonly source?: DiffViewSource | undefined;
@@ -177,7 +160,6 @@ export function resolveDiffPresentation(props: {
     switch (source.kind) {
       case 'strings':
         return {
-          cacheKey: buildTextCacheKey(source.original, source.modified),
           contentKind: 'text',
           filenameFallback: undefined,
           presentation: {
@@ -204,7 +186,6 @@ export function resolveDiffPresentation(props: {
     );
   }
   return {
-    cacheKey: buildTextCacheKey(original, modified),
     contentKind: 'text',
     filenameFallback: undefined,
     presentation: { kind: 'text', modified, original, truncated: truncated ?? false },
