@@ -25,6 +25,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 import {
   createGitInventoryWatchers,
   GIT_INVENTORY_WATCH_BATCH_MS,
+  GIT_INVENTORY_WATCH_MAX_BATCH_MS,
   type GitInventoryWatcherDeps,
   type WatchGitCommonDir,
 } from '../../assistant-server/git-inventory-watcher';
@@ -179,13 +180,11 @@ describe('createGitInventoryWatchers', () => {
     const commonDir = '/repo/.git';
 
     async function fireAndSettle(
-      onInvalidate: ReturnType<typeof vi.fn>,
       fake: ReturnType<typeof createFakeWatchDirectory>,
       relativePosixPath: string
     ): Promise<void> {
       fake.records[0]?.fireChanges([change(commonDir, relativePosixPath)]);
       await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
-      void onInvalidate;
     }
 
     it.each([
@@ -200,6 +199,8 @@ describe('createGitInventoryWatchers', () => {
       ['worktrees/agent-1/HEAD', true],
       ['worktrees/agent-1/ORIG_HEAD', true],
       ['worktrees/agent-1/index', true],
+      ['worktrees/agent-1/locked', true],
+      ['worktrees/agent-1/gitdir', true],
       ['index.lock', false],
       ['HEAD.lock', false],
       ['refs/heads/main.lock', false],
@@ -210,6 +211,8 @@ describe('createGitInventoryWatchers', () => {
       ['logs/HEAD', false],
       ['config', false],
       ['description', false],
+      ['FETCH_HEAD', false],
+      ['COMMIT_EDITMSG', false],
     ])('%s -> invalidate=%s', async (relativePosixPath, shouldInvalidate) => {
       const fake = createFakeWatchDirectory();
       const onInvalidate = vi.fn();
@@ -218,7 +221,7 @@ describe('createGitInventoryWatchers', () => {
       );
       await watchers.sync([commonDir]);
 
-      await fireAndSettle(onInvalidate, fake, relativePosixPath);
+      await fireAndSettle(fake, relativePosixPath);
 
       if (shouldInvalidate) {
         expect(onInvalidate).toHaveBeenCalledExactlyOnceWith(commonDir);
@@ -440,6 +443,260 @@ describe('createGitInventoryWatchers', () => {
       await watchers.sync(['/repo/.git']);
 
       expect(fake.records).toHaveLength(0);
+    });
+  });
+
+  describe('BLOCKER: overlapping sync() calls for the same NEW common dir', () => {
+    it('never leaks a live subscription when two sync() calls race to subscribe the same common dir', async () => {
+      // Real timers + manually-resolvable realpath/watchDirectory promises so
+      // the interleaving is fully controlled rather than timing-dependent:
+      // the FIRST attempt is driven all the way to a completed, live
+      // subscription (its real disposer assigned) BEFORE the SECOND
+      // attempt's realpath() is even allowed to resolve — the exact
+      // ordering the leak needs ("the first completes fully... before the
+      // second's realpath resolves").
+      vi.useRealTimers();
+      const commonDir = '/repo/.git';
+
+      const realpathResolvers: Array<(value: string) => void> = [];
+      const realpath = vi.fn(
+        () =>
+          new Promise<string>((resolve) => {
+            realpathResolvers.push(resolve);
+          })
+      );
+
+      const watchResolvers: Array<(dispose: () => void) => void> = [];
+      const watchDirectory: WatchGitCommonDir = () =>
+        new Promise((resolve) => {
+          watchResolvers.push(resolve);
+        });
+
+      const watchers = createGitInventoryWatchers(makeDeps({ realpath, watchDirectory }));
+      const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+      const overlapPromise = Promise.all([watchers.sync([commonDir]), watchers.sync([commonDir])]);
+      await flush();
+      expect(realpathResolvers.length).toBeGreaterThanOrEqual(1);
+
+      // Drive the FIRST attempt to full completion.
+      const firstRecord = { disposeCallCount: 0 };
+      realpathResolvers[0]?.(commonDir);
+      await flush();
+      expect(watchResolvers.length).toBeGreaterThanOrEqual(1);
+      watchResolvers[0]?.(() => {
+        firstRecord.disposeCallCount += 1;
+      });
+      await flush();
+
+      // ONLY NOW let the second attempt's realpath() resolve, if a second
+      // attempt was even started (the fix prevents it from starting at all).
+      const secondRecord = { disposeCallCount: 0 };
+      realpathResolvers[1]?.(commonDir);
+      await flush();
+      if (watchResolvers.length > 1) {
+        watchResolvers[1]?.(() => {
+          secondRecord.disposeCallCount += 1;
+        });
+        await flush();
+      }
+      await overlapPromise;
+
+      await watchers.disposeAll();
+
+      // No orphan: every watchDirectory() call that ever produced a real
+      // disposer must have been disposed exactly once by disposeAll(). An
+      // orphaned first subscription (leaked) would leave
+      // firstRecord.disposeCallCount at 0 forever, since disposeAll() only
+      // ever sees whatever is CURRENTLY in the map.
+      expect(firstRecord.disposeCallCount).toBe(1);
+      if (watchResolvers.length > 1) {
+        expect(secondRecord.disposeCallCount).toBe(1);
+      }
+    });
+  });
+
+  describe('SHOULD-FIX: no invalidation or dead-state write after disposeAll() (post-teardown safety)', () => {
+    it('does not arm a new timer or invalidate when an interesting change arrives after disposeAll()', async () => {
+      const fake = createFakeWatchDirectory();
+      const onInvalidate = vi.fn();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ onInvalidate, watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      await watchers.disposeAll();
+      record.fireChanges([change('/repo/.git', 'HEAD')]);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS * 2);
+
+      expect(onInvalidate).not.toHaveBeenCalled();
+    });
+
+    it('does not invalidate synchronously when an overflow signal arrives after disposeAll()', async () => {
+      const fake = createFakeWatchDirectory();
+      const onInvalidate = vi.fn();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ onInvalidate, watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      await watchers.disposeAll();
+      record.fireSignal({ type: 'overflow' });
+
+      expect(onInvalidate).not.toHaveBeenCalled();
+    });
+
+    it('does not invalidate after disposeAll() cancels an in-flight debounce timer', async () => {
+      const fake = createFakeWatchDirectory();
+      const onInvalidate = vi.fn();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ onInvalidate, watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      record.fireChanges([change('/repo/.git', 'HEAD')]);
+      await vi.advanceTimersByTimeAsync(50);
+      await watchers.disposeAll();
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(onInvalidate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('SHOULD-FIX: no phantom dead state on a terminally-disposed instance', () => {
+    it('does not mark a subscription dead when disposeAll() runs before a pending realpath() rejects', async () => {
+      vi.useRealTimers();
+      let rejectRealpath: ((error: Error) => void) | null = null;
+      const realpath = () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectRealpath = reject;
+        });
+      const fake = createFakeWatchDirectory();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ realpath, watchDirectory: fake.watchDirectory })
+      );
+
+      const syncPromise = watchers.sync(['/repo/.git']);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejectRealpath).not.toBeNull();
+
+      await watchers.disposeAll();
+      loggerErrorSpy.mockClear();
+      rejectRealpath?.(new Error('ENOENT: no such directory'));
+      await syncPromise;
+
+      expect(watchers.getDeadCommonDirs().size).toBe(0);
+      expect(watchers.getHealthErrors()).toHaveLength(0);
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not log a setup-rejected error when disposeAll() runs before a pending watchDirectory() rejects', async () => {
+      vi.useRealTimers();
+      let rejectWatch: ((error: Error) => void) | null = null;
+      const watchDirectory: WatchGitCommonDir = () =>
+        new Promise((_resolve, reject) => {
+          rejectWatch = reject;
+        });
+      const watchers = createGitInventoryWatchers(makeDeps({ watchDirectory }));
+
+      const syncPromise = watchers.sync(['/repo/.git']);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejectWatch).not.toBeNull();
+
+      await watchers.disposeAll();
+      loggerErrorSpy.mockClear();
+      rejectWatch?.(new Error('parcel binding missing'));
+      await syncPromise;
+
+      expect(watchers.getDeadCommonDirs().size).toBe(0);
+      expect(watchers.getHealthErrors()).toHaveLength(0);
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('max-wait cap on the trailing debounce', () => {
+    it('forces an invalidation at the cap under sustained churn, even though events never stop', async () => {
+      const fake = createFakeWatchDirectory();
+      const onInvalidate = vi.fn();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ onInvalidate, watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      // Sustained churn: an interesting event every 100ms, for LONGER than
+      // the cap, with NO gap ever exceeding the 300ms trailing window. A
+      // pure trailing debounce (no cap) re-arms on every one of these and
+      // never goes quiet long enough to fire — across this entire window it
+      // would produce ZERO invalidations. Deliberately does not stop right
+      // at the cap (that would let a plain 300ms trailing timer, armed by
+      // the last pre-loop event, fire by coincidence at roughly the same
+      // time and pass even without the cap) — churn continues well past it.
+      const churnDurationMs = GIT_INVENTORY_WATCH_MAX_BATCH_MS + 1000;
+      for (let elapsed = 0; elapsed < churnDurationMs; elapsed += 100) {
+        record.fireChanges([change('/repo/.git', 'HEAD')]);
+        await vi.advanceTimersByTimeAsync(100);
+      }
+
+      // The cap must have forced exactly one fire partway through, even
+      // though the churn never stopped.
+      expect(onInvalidate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('MINOR: additional coverage', () => {
+    it('fires twice when interesting events are separated by MORE than the debounce window', async () => {
+      const fake = createFakeWatchDirectory();
+      const onInvalidate = vi.fn();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ onInvalidate, watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      record.fireChanges([change('/repo/.git', 'HEAD')]);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
+      expect(onInvalidate).toHaveBeenCalledTimes(1);
+
+      record.fireChanges([change('/repo/.git', 'index')]);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
+      expect(onInvalidate).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not invalidate for a change path outside the subscription watch root', async () => {
+      const fake = createFakeWatchDirectory();
+      const onInvalidate = vi.fn();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ onInvalidate, watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      record.fireChanges([change('/unrelated/other-repo/.git', 'HEAD')]);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS * 2);
+
+      expect(onInvalidate).not.toHaveBeenCalled();
     });
   });
 });

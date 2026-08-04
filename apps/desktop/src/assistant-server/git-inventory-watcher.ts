@@ -30,6 +30,17 @@ const logger = createLogger('GitInventoryWatchers');
 export const GIT_INVENTORY_WATCH_BATCH_MS = 300;
 
 /**
+ * Max-wait cap in ms on top of the trailing debounce above. A pure trailing
+ * debounce re-arms on every interesting event with no upper bound, so
+ * sustained churn (a long `git checkout`/rebase/`gc` writing refs
+ * continuously) can starve invalidation indefinitely — the window never goes
+ * quiet long enough to fire. This cap forces a fire once
+ * {@link GIT_INVENTORY_WATCH_MAX_BATCH_MS} has elapsed since the FIRST event
+ * of the current batch, even while events keep arriving.
+ */
+export const GIT_INVENTORY_WATCH_MAX_BATCH_MS = 2000;
+
+/**
  * Injected watch function (BST-1112). NOTE on the sync-vs-async mismatch:
  * the real `ElectronFileSystemAdapter.watchDirectory` returns its disposer
  * SYNCHRONOUSLY — "Always returns a valid disposer that can be called safely
@@ -86,7 +97,12 @@ export interface GitInventoryWatchers {
    * disposed and resubscribed — this is the only retry path ("no
    * auto-restart" means nothing resubscribes on a timer or on its own; it
    * only happens because the caller invoked `sync()` again, i.e. an explicit
-   * rebuild).
+   * rebuild). Calling `sync()` on an instance after `disposeAll()` is a
+   * deliberate, silent no-op — TERMINAL per `disposeAll`'s own contract — NOT
+   * a gap in this module's own NO-SILENT-FALLBACKS posture: the one caller
+   * (`git-inventory-service.ts`) never reuses a disposed instance past
+   * `stop()`, since `stop()` drops it entirely and a later `start()` always
+   * builds a fresh `createGitInventoryWatchers()` instance instead.
    */
   readonly sync: (commonDirs: readonly string[]) => Promise<void>;
 }
@@ -95,6 +111,8 @@ interface Subscription {
   dead: boolean;
   deadReason: string | null;
   dispose: () => void;
+  /** Arrival time (ms, `Date.now()`) of the first event in the CURRENT batch; `null` when no batch is pending. Drives the {@link GIT_INVENTORY_WATCH_MAX_BATCH_MS} cap. */
+  firstEventAt: number | null;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -104,18 +122,26 @@ const LOCK_SUFFIX_RE = /\.lock$/;
  * The INTERESTING set (Global Constraints, settled): `HEAD`, `index`,
  * `ORIG_HEAD`, `refs/**`, `packed-refs` (a content write — the false-negative
  * hole a default ignore set would drop), `worktrees/<name>/(HEAD|index|
- * ORIG_HEAD)`, and a BARE `worktrees/<name>` for worktree lifecycle
- * (add/remove — the directory itself appearing or disappearing).
+ * ORIG_HEAD|locked|gitdir)`, and a BARE `worktrees/<name>` for worktree
+ * lifecycle (add/remove — the directory itself appearing or disappearing).
+ * `locked` and `gitdir` are inventory-visible, not just bookkeeping:
+ * `GitWorktreeSummary.lockedReason` (`packages/types/src/git.ts`) is read
+ * from `.git/worktrees/<name>/locked`, and `gitdir` is rewritten by `git
+ * worktree move`/`repair`, changing `WorktreeDescriptor.path` — without
+ * these, `git worktree lock`/`unlock`/`move` produce no invalidation.
  * Deliberately excludes `objects/**` churn (every write there is content the
  * inventory doesn't summarize) and every `*.lock` transient path via the
  * separate {@link LOCK_SUFFIX_RE} check below: git always renames a lock file
  * into its final name (`index.lock` → `index`, `refs/heads/x.lock` →
  * `refs/heads/x`, `packed-refs.lock` → `packed-refs`) and that final name is
  * already matched here — the lock file itself is redundant noise, never a
- * missed signal.
+ * missed signal. Also deliberately excludes `FETCH_HEAD` and
+ * `COMMIT_EDITMSG` — the two most surprising omissions, kept out because
+ * neither feeds `GitInventory` (see the full excluded list in
+ * `docs/agents/platform-contracts.md`).
  */
 const INTERESTING_RE =
-  /^(?:HEAD|ORIG_HEAD|index|packed-refs|refs\/.+|worktrees\/[^/]+(?:\/(?:HEAD|ORIG_HEAD|index))?)$/;
+  /^(?:HEAD|ORIG_HEAD|index|packed-refs|refs\/.+|worktrees\/[^/]+(?:\/(?:HEAD|ORIG_HEAD|index|locked|gitdir))?)$/;
 
 function isInterestingGitMetadataPath(relativePosixPath: string): boolean {
   if (LOCK_SUFFIX_RE.test(relativePosixPath)) {
@@ -144,21 +170,36 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
   let disposed = false;
 
   /**
-   * TRUE trailing debounce: every interesting event clears and re-arms a
-   * fresh {@link GIT_INVENTORY_WATCH_BATCH_MS} window from ITS OWN arrival
-   * time, never from the first event's. An event burst at t=0,100,200 fires
-   * once at ~500, not at 300 — a FIXED window keyed off the first event would
-   * fire mid-burst and could split one logical git operation (e.g. a
-   * commit's HEAD+index+refs writes land a few ms apart) across two rebuilds.
+   * TRUE trailing debounce, WITH a max-wait cap: every interesting event
+   * clears and re-arms a fresh {@link GIT_INVENTORY_WATCH_BATCH_MS} window
+   * from ITS OWN arrival time, never from the first event's. An event burst
+   * at t=0,100,200 fires once at ~500, not at 300 — a FIXED window keyed off
+   * the first event would fire mid-burst and could split one logical git
+   * operation (e.g. a commit's HEAD+index+refs writes land a few ms apart)
+   * across two rebuilds. But a PURE trailing debounce has no upper bound, so
+   * sustained churn (a long `git checkout`/rebase/`gc`) can re-arm forever
+   * and starve invalidation indefinitely; {@link GIT_INVENTORY_WATCH_MAX_BATCH_MS}
+   * forces a fire once that much time has elapsed since the batch's first
+   * event, even while events keep arriving.
    */
   function scheduleInvalidate(commonDir: string, sub: Subscription): void {
+    const now = Date.now();
+    if (sub.firstEventAt === null) {
+      sub.firstEventAt = now;
+    }
     if (sub.timer) {
       clearTimeout(sub.timer);
     }
+    const elapsed = now - sub.firstEventAt;
+    const delay = Math.max(
+      0,
+      Math.min(GIT_INVENTORY_WATCH_BATCH_MS, GIT_INVENTORY_WATCH_MAX_BATCH_MS - elapsed)
+    );
     sub.timer = setTimeout(() => {
       sub.timer = null;
+      sub.firstEventAt = null;
       deps.onInvalidate(commonDir);
-    }, GIT_INVENTORY_WATCH_BATCH_MS);
+    }, delay);
   }
 
   function handleChanges(
@@ -167,6 +208,12 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     sub: Subscription,
     changes: readonly FileSystemChange[]
   ): void {
+    // A torn-down (or superseded/replaced) subscription must never keep
+    // arming timers or invoking onInvalidate — checked BEFORE doing any
+    // path filtering work, not just before scheduling.
+    if (disposed || subscriptions.get(commonDir) !== sub) {
+      return;
+    }
     // Relative-path base MUST be `watchRoot` (what the subscription was
     // actually opened against, realpath'd) — every change path the adapter
     // reports is under that real tree, not necessarily under the ORIGINAL
@@ -182,6 +229,12 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
   }
 
   function handleSignal(commonDir: string, sub: Subscription, signal: FileSystemWatchSignal): void {
+    // Same post-teardown guard as handleChanges: a disposed or
+    // superseded/replaced subscription must never fire onInvalidate or write
+    // dead state.
+    if (disposed || subscriptions.get(commonDir) !== sub) {
+      return;
+    }
     if (signal.type === 'overflow') {
       // Events may have been missed (WICG 'unknown' records / native
       // overflow) — the whole repo's metadata is stale. Force an immediate
@@ -191,6 +244,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
         clearTimeout(sub.timer);
         sub.timer = null;
       }
+      sub.firstEventAt = null;
       deps.onInvalidate(commonDir);
       return;
     }
@@ -206,39 +260,77 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       clearTimeout(sub.timer);
       sub.timer = null;
     }
+    sub.firstEventAt = null;
     logger.error('git inventory watcher failed; repo watcher marked dead', {
       commonDir,
       message: signal.message,
     });
   }
 
+  /**
+   * Is `sub` no longer the live claim for `commonDir` — because `disposeAll()`
+   * ran, or a dispose/resubscribe race replaced it with a fresh retry
+   * Subscription? Shared by every point in {@link subscribe} that must not
+   * act (write dead state, log, or open/keep a real watch) on behalf of a
+   * superseded attempt.
+   */
+  function isStaleAttempt(commonDir: string, sub: Subscription): boolean {
+    return disposed || subscriptions.get(commonDir) !== sub;
+  }
+
   async function subscribe(commonDir: string): Promise<void> {
-    if (disposed) {
+    // The map entry is claimed SYNCHRONOUSLY, before any `await`, and is the
+    // single source of truth for "is someone already subscribing/subscribed
+    // to this commonDir". Two overlapping sync() calls both decide (in their
+    // own synchronous collection pass, before either has invoked subscribe())
+    // that `commonDir` needs a NEW subscription; whichever of their
+    // subscribe() calls actually runs first claims the map entry here, and
+    // the second sees `subscriptions.has(commonDir)` already true and bails
+    // — never creating a second live subscription that would silently
+    // overwrite (and leak) the first.
+    if (disposed || subscriptions.has(commonDir)) {
       return;
     }
+    const sub: Subscription = {
+      dead: false,
+      deadReason: null,
+      dispose: () => {},
+      firstEventAt: null,
+      timer: null,
+    };
+    subscriptions.set(commonDir, sub);
+
     let watchRoot: string;
     try {
       watchRoot = await realpath(commonDir);
     } catch (error) {
+      // Mutate the SAME `sub` record already claiming the map entry, rather
+      // than creating (and setting) a new one — there is only ever one
+      // Subscription object per claimed commonDir, from claim to teardown.
+      // Guarded on the stale-identity check below: disposeAll() (or a
+      // dispose/resubscribe race) may have already deleted this entry, or
+      // replaced it with a fresh retry Subscription, while realpath() was in
+      // flight — in either case this failure belongs to a subscription
+      // attempt that no longer exists and must not write dead state or log.
+      if (isStaleAttempt(commonDir, sub)) {
+        return;
+      }
       const message = `common dir could not be resolved: ${toErrorMessage(error)}`;
-      subscriptions.set(commonDir, {
-        dead: true,
-        deadReason: message,
-        dispose: () => {},
-        timer: null,
-      });
+      sub.dead = true;
+      sub.deadReason = message;
       logger.error('git inventory watcher setup failed to resolve common dir', {
         commonDir,
         error: message,
       });
       return;
     }
-    // No second `disposed` check needed here: if disposeAll() ran while the
-    // realpath() above was in flight, the stale-identity check below (after
-    // watchDirectory() resolves) is what actually tears this down — it
-    // already covers "disposed mid-flight" as one of its two conditions.
-    const sub: Subscription = { dead: false, deadReason: null, dispose: () => {}, timer: null };
-    subscriptions.set(commonDir, sub);
+
+    // disposeAll() (or a dispose/resubscribe race) may have torn this
+    // Subscription down while realpath() was in flight — checked BEFORE
+    // opening the real watch, not just after.
+    if (isStaleAttempt(commonDir, sub)) {
+      return;
+    }
 
     let dispose: () => void;
     try {
@@ -249,6 +341,11 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
         { ignorePatterns: [] }
       );
     } catch (error) {
+      // Same stale-identity guard as the realpath catch above: only write
+      // dead state if this Subscription is still the live claim.
+      if (isStaleAttempt(commonDir, sub)) {
+        return;
+      }
       const message = `watcher setup failed: ${toErrorMessage(error)}`;
       sub.dead = true;
       sub.deadReason = message;
@@ -262,7 +359,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     // Subscription object is no longer the one in the map, its setup is
     // stale: dispose it immediately rather than leaking a live subscription
     // nothing will ever tear down.
-    if (disposed || subscriptions.get(commonDir) !== sub) {
+    if (isStaleAttempt(commonDir, sub)) {
       dispose();
       return;
     }
