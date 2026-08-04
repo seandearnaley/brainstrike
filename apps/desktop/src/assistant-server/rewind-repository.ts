@@ -1,0 +1,275 @@
+/**
+ * Persistence for Conversation Rewind (BST-1115, W5 T3): resolving what a
+ * rewind covers, and the tombstone sidecar's reads/writes.
+ *
+ * READ-ONLY over Mastra's tables and over `brainstrike_assistant_thread_runs`
+ * — this module never writes a message, never creates a run, and never
+ * bootstraps either table (the runId-provenance invariant in
+ * `docs/agents/assistant-persistence.md` forbids a second producer). The only
+ * table it writes is `brainstrike_assistant_message_tombstones` (migration
+ * 080).
+ */
+
+import type { AssistantRewindRange } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
+  MASTRA_MEMORY_TABLES,
+} from '@brainstrike/assistant-contract';
+import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+
+const RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+
+/**
+ * `to_regclass` PROBE, never a try/catch on 42P01 — see
+ * `edit-checkpoint-journal.ts`'s `runsTableExists` for the full rationale (a
+ * caught undefined_table inside a transaction leaves the transaction aborted,
+ * so COMMIT silently ROLLBACKs). Both probed relations are fixed constants.
+ */
+async function relationExists(db: EditCheckpointDatabase, relation: string): Promise<boolean> {
+  const probe = await db.query<{ present: boolean }>(
+    `SELECT to_regclass('${relation}') IS NOT NULL AS present`
+  );
+  return probe.rows[0]?.present === true;
+}
+
+export interface RewindTarget {
+  /** Full-precision `::text` timestamp — never routed through a JS `Date`. */
+  readonly createdAt: string;
+  readonly messageId: string;
+  /** `(createdAt, id)` of the message immediately BEFORE the target, if any. */
+  readonly previous: { readonly createdAt: string; readonly id: string } | null;
+  readonly threadId: string;
+  /** Messages the rewind hides, oldest-first, INCLUDING the target itself. */
+  readonly tombstoneMessageIds: readonly string[];
+}
+
+interface MessageAnchorRow {
+  createdAt: string;
+  id: string;
+}
+
+/**
+ * Resolve everything a rewind to `messageId` covers on the conversation side.
+ * Returns `null` when the message does not exist IN THIS THREAD (a message id
+ * belonging to another thread counts as missing — never a cross-thread leak,
+ * mirroring `listRunRangeCheckpoints`'s anchor posture), or when Mastra's
+ * message table does not exist yet on this profile.
+ *
+ * Timestamps are read with an explicit `::text` cast so the microsecond
+ * fraction Postgres stores survives; feeding a driver-truncated millisecond
+ * `Date` back in as a bound could exclude the very anchor row it came from.
+ */
+export async function resolveRewindTarget(
+  db: EditCheckpointDatabase,
+  threadId: string,
+  messageId: string
+): Promise<RewindTarget | null> {
+  if (!(await relationExists(db, MASTRA_MEMORY_TABLES.messages))) {
+    return null;
+  }
+  const targetResult = await db.query<MessageAnchorRow>(
+    `SELECT id AS "id", "createdAt"::text AS "createdAt"
+     FROM ${MASTRA_MEMORY_TABLES.messages}
+     WHERE id = $1 AND thread_id = $2`,
+    [messageId, threadId]
+  );
+  const target = targetResult.rows[0];
+  if (!target) {
+    return null;
+  }
+
+  const previousResult = await db.query<MessageAnchorRow>(
+    `SELECT id AS "id", "createdAt"::text AS "createdAt"
+     FROM ${MASTRA_MEMORY_TABLES.messages}
+     WHERE thread_id = $1 AND ("createdAt", id) < ($2::timestamptz, $3)
+     ORDER BY "createdAt" DESC, id DESC
+     LIMIT 1`,
+    [threadId, target.createdAt, target.id]
+  );
+  const tombstonesResult = await db.query<{ id: string }>(
+    `SELECT id AS "id"
+     FROM ${MASTRA_MEMORY_TABLES.messages}
+     WHERE thread_id = $1 AND ("createdAt", id) >= ($2::timestamptz, $3)
+     ORDER BY "createdAt" ASC, id ASC`,
+    [threadId, target.createdAt, target.id]
+  );
+
+  return {
+    createdAt: target.createdAt,
+    messageId: target.id,
+    previous: previousResult.rows[0] ?? null,
+    threadId,
+    tombstoneMessageIds: tombstonesResult.rows.map((row) => row.id),
+  };
+}
+
+/**
+ * Which runs a rewind's file revert covers.
+ *
+ * THE ANCHOR IS THE *PREVIOUS* MESSAGE, NOT THE TARGET — this is the subtle
+ * part and it is deliberate. A run row is created by the RENDERER the moment
+ * the user hits send (`createAssistantThreadRunPromise`), while the user
+ * message itself is persisted by Mastra during the request. The run that a
+ * message TRIGGERED therefore has `started_at` EARLIER than that message's
+ * `createdAt`, so anchoring on `started_at >= target.createdAt` would silently
+ * exclude the single most important run in the range — the one whose edits the
+ * user is asking to undo. Anchoring strictly after the PRECEDING message's
+ * `createdAt` is robust to when within a run Mastra chooses to save messages:
+ * the previous turn's messages are always durable before the next run starts.
+ *
+ * The comparison is STRICT (`>`), so a tie resolves toward reverting LESS. An
+ * under-revert leaves visible file changes the user can still act on; an
+ * over-revert destroys work they meant to keep. Those are not symmetric.
+ *
+ * A target that is the thread's first message has no preceding anchor, so the
+ * range is every run in the thread.
+ *
+ * `runs-table-absent` is reported distinctly from `no-runs-after-message`:
+ * this function never bootstraps the runs table, and "this profile has never
+ * recorded an assistant run" is a different fact from "this thread's tail
+ * produced none".
+ */
+export async function resolveRewindRunRange(
+  db: EditCheckpointDatabase,
+  target: RewindTarget
+): Promise<AssistantRewindRange> {
+  if (!(await relationExists(db, RUNS_TABLE))) {
+    return { kind: 'none', reason: 'runs-table-absent' };
+  }
+  const previous = target.previous;
+  const sql = previous
+    ? `SELECT id AS "id" FROM ${RUNS_TABLE}
+       WHERE thread_id = $1 AND started_at > $2::timestamptz
+       ORDER BY started_at ASC, id ASC`
+    : `SELECT id AS "id" FROM ${RUNS_TABLE}
+       WHERE thread_id = $1
+       ORDER BY started_at ASC, id ASC`;
+  const params = previous ? [target.threadId, previous.createdAt] : [target.threadId];
+  const result = await db.query<{ id: string }>(sql, params);
+  const runIds = result.rows.map((row) => row.id);
+  const fromRunId = runIds[0];
+  if (!fromRunId) {
+    return { kind: 'none', reason: 'no-runs-after-message' };
+  }
+  return { fromRunId, kind: 'runs', runIds };
+}
+
+export interface TombstoneRow {
+  readonly messageId: string;
+  readonly revertId: string | null;
+  readonly rewindId: string;
+  readonly threadId: string;
+}
+
+/**
+ * Write one rewind's tombstone batch.
+ *
+ * `ON CONFLICT (message_id) DO NOTHING` is the AT-MOST-ONCE invariant from
+ * migration 080, not defensive noise: a later rewind that re-covers an
+ * already-tombstoned message must leave the ORIGINAL batch's row alone, or
+ * undoing the newer rewind would resurrect messages the older one hid. A plain
+ * insert throws on the second rewind (T1 tested exactly that).
+ *
+ * `RETURNING` is the only honest way to learn what was inserted — PGlite never
+ * populates `affectedRows` (house gotcha), and the returned set is exactly the
+ * rows this batch owns.
+ */
+export async function insertTombstoneBatch(
+  db: EditCheckpointDatabase,
+  batch: {
+    readonly messageIds: readonly string[];
+    readonly revertId: string | null;
+    readonly rewindId: string;
+    readonly threadId: string;
+  }
+): Promise<readonly string[]> {
+  if (batch.messageIds.length === 0) {
+    return [];
+  }
+  const result = await db.query<{ messageId: string }>(
+    `INSERT INTO ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (message_id, thread_id, rewind_id, revert_id)
+     SELECT unnest($1::text[]), $2, $3, $4
+     ON CONFLICT (message_id) DO NOTHING
+     RETURNING message_id AS "messageId"`,
+    [batch.messageIds, batch.threadId, batch.rewindId, batch.revertId]
+  );
+  return result.rows.map((row) => row.messageId);
+}
+
+export async function listTombstoneBatch(
+  db: EditCheckpointDatabase,
+  rewindId: string
+): Promise<readonly TombstoneRow[]> {
+  const result = await db.query<TombstoneRow>(
+    `SELECT message_id AS "messageId", thread_id AS "threadId",
+            rewind_id AS "rewindId", revert_id AS "revertId"
+     FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+     WHERE rewind_id = $1
+     ORDER BY message_id ASC`,
+    [rewindId]
+  );
+  return result.rows;
+}
+
+/**
+ * True when `rewindId` is the NEWEST batch in its thread. Redo is one level
+ * deep by design, so redoing an older batch while a newer one is still
+ * outstanding would un-hide messages the newer rewind means to hide. That is
+ * refused, not silently reordered.
+ */
+export async function isLatestRewindBatch(
+  db: EditCheckpointDatabase,
+  threadId: string,
+  rewindId: string
+): Promise<boolean> {
+  const result = await db.query<{ rewindId: string }>(
+    `SELECT rewind_id AS "rewindId"
+     FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+     WHERE thread_id = $1
+     ORDER BY tombstoned_at DESC, message_id DESC
+     LIMIT 1`,
+    [threadId]
+  );
+  return result.rows[0]?.rewindId === rewindId;
+}
+
+export async function deleteTombstoneBatch(
+  db: EditCheckpointDatabase,
+  rewindId: string
+): Promise<readonly string[]> {
+  const result = await db.query<{ messageId: string }>(
+    `DELETE FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+     WHERE rewind_id = $1
+     RETURNING message_id AS "messageId"`,
+    [rewindId]
+  );
+  return result.rows.map((row) => row.messageId);
+}
+
+export async function listThreadTombstones(
+  db: EditCheckpointDatabase,
+  threadId: string
+): Promise<readonly TombstoneRow[]> {
+  const result = await db.query<TombstoneRow>(
+    `SELECT message_id AS "messageId", thread_id AS "threadId",
+            rewind_id AS "rewindId", revert_id AS "revertId"
+     FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+     WHERE thread_id = $1
+     ORDER BY tombstoned_at ASC, message_id ASC`,
+    [threadId]
+  );
+  return result.rows;
+}
+
+export async function deleteThreadTombstones(
+  db: EditCheckpointDatabase,
+  threadId: string
+): Promise<readonly string[]> {
+  const result = await db.query<{ messageId: string }>(
+    `DELETE FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+     WHERE thread_id = $1
+     RETURNING message_id AS "messageId"`,
+    [threadId]
+  );
+  return result.rows.map((row) => row.messageId);
+}
