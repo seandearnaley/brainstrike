@@ -151,12 +151,15 @@ describe('buildInventorySnapshot — hook-free spawn discipline + dedup (unit, f
     const run: GitCommandRunner = ({ args, cwd }): Promise<GitCommandRun> => {
       runCalls.push({ args, cwd });
       if (args[0] === 'config') {
-        // One configured hook, so `invokeGitHookFree`'s disabled-hooks list
-        // is provably derived from THIS probe's result, not hardcoded.
+        // A nonsense hook name (not a real git hook like `pre-commit`) so the
+        // assertion below can only pass if the disabled-hooks list is DERIVED
+        // from this probe's output — hardcoding `hook.pre-commit.enabled=false`
+        // and ignoring the probe entirely would still look plausible with a
+        // real hook name, but cannot produce `hook.sentinel-xyz.enabled=false`.
         return Promise.resolve({
           exitCode: 0,
           stderr: '',
-          stdout: 'hook.pre-commit.command\0',
+          stdout: 'hook.sentinel-xyz.command\0',
           timedOut: false,
         });
       }
@@ -192,7 +195,7 @@ describe('buildInventorySnapshot — hook-free spawn discipline + dedup (unit, f
         '-c',
         'core.hooksPath=/dev/null',
         '-c',
-        'hook.pre-commit.enabled=false',
+        'hook.sentinel-xyz.enabled=false',
         'worktree',
         'list',
         '--porcelain',

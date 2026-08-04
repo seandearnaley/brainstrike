@@ -261,20 +261,31 @@ async function buildRepository(
     // the descriptor too — the raw, possibly-misleading report is never
     // something a caller should act on once we know the true location. A
     // realpath failure (deleted worktree, dangling symlink, permission
-    // error) fails CLOSED and VISIBLY: outside-roots + unvalidated + an
-    // `errors` entry, keeping git's raw path as the only value available.
+    // error) fails CLOSED and VISIBLY: outside-roots + unvalidated + a
+    // `trustReason` explaining why.
+    //
+    // git already tells us when a worktree is merely prunable
+    // (`summary.prunableReason`, e.g. "gitdir file points to non-existent
+    // location") — the routine, extremely common case of a deleted worktree
+    // directory that `git worktree prune` hasn't cleaned up yet. That is
+    // housekeeping, not an inventory failure: it must NOT land in
+    // `snapshot.errors`, which later workstreams treat as a health signal.
+    // Only a realpath failure on a NON-prunable worktree — one git itself
+    // does not already explain — is a genuine, visible `errors` entry.
     let canonicalPath: string;
     try {
       canonicalPath = await fsRealpath(summary.path);
     } catch (error) {
       const message = `git inventory: worktree "${summary.path}" for common dir "${group.commonDir}" could not be resolved: ${toErrorMessage(error)}`;
-      errors.push(message);
+      if (summary.prunableReason === null) {
+        errors.push(message);
+      }
       worktrees.push({
         ...summary,
         containment: 'outside-roots',
         provenance: 'scanned',
         trust: 'unvalidated',
-        trustReason: message,
+        trustReason: summary.prunableReason ?? message,
       });
       continue;
     }
@@ -283,6 +294,12 @@ async function buildRepository(
       containment === 'outside-roots'
         ? await resolveWorktreeTrust(fs, canonicalPath, group.commonDir)
         : { trust: 'validated', trustReason: null };
+    // `path: canonicalPath` deliberately OVERWRITES `summary.path` (git-raw)
+    // from the `...summary` spread below. This makes `WorktreeDescriptor.path`
+    // diverge from `GitWorktreeSummary.path` everywhere else this shared type
+    // is used in the app — downstream consumers must not assume the two agree
+    // and must not compare a `WorktreeDescriptor.path` against a raw
+    // `GitWorktreeSummary.path` without realpathing the latter first.
     worktrees.push({
       ...summary,
       containment,

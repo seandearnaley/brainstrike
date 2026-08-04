@@ -212,6 +212,41 @@ describe('buildInventorySnapshot', () => {
     expect(linkedDescriptor?.trust).toBe('validated');
   });
 
+  it('treats a merely-prunable (deleted, not yet `git worktree prune`d) linked worktree as trust state, not an inventory error', async () => {
+    // The routine, extremely common case: the user deleted a linked
+    // worktree's directory directly (rm -rf, Finder, etc.) without running
+    // `git worktree prune` first. `git worktree list` still reports the
+    // entry — now marked `prunable` — and its `gitdir` no longer resolves.
+    const repo = await makeRepo();
+    await commitFile(repo, 'a.txt', 'a');
+    await execFileAsync('git', ['branch', 'feat'], { cwd: repo });
+    const outsideParent = await makeDir('brainstrike-git-inventory-prunable-');
+    const linkedPath = path.join(outsideParent, 'linked-wt');
+    await execFileAsync('git', ['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
+    const linkedReal = await fsPromises.realpath(linkedPath);
+
+    await fsPromises.rm(linkedPath, { force: true, recursive: true });
+
+    const snapshot = await buildInventorySnapshot({
+      loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
+      run: execFileGitRunner,
+    });
+
+    // The realpath failure on a PRUNABLE worktree is routine housekeeping,
+    // not an inventory failure — it must NOT surface in `snapshot.errors`,
+    // which later workstreams treat as a health signal.
+    expect(snapshot.errors).toEqual([]);
+    const repository = findRepoByCommonDir(snapshot.repositories, '.git');
+    expect(repository).toBeDefined();
+    const prunableDescriptor = findWorktreeByPath(repository?.worktrees ?? [], linkedReal);
+    expect(prunableDescriptor).toBeDefined();
+    expect(prunableDescriptor?.prunableReason).toBe('gitdir file points to non-existent location');
+    expect(prunableDescriptor?.trust).toBe('unvalidated');
+    // The trust reason still carries git's own explanation, so an operator
+    // debugging an `unvalidated` entry has something to act on.
+    expect(prunableDescriptor?.trustReason).toBe(prunableDescriptor?.prunableReason);
+  });
+
   it('classifies a symlinked root correctly (raw mkdtemp-adjacent path passed, canonical expected)', async () => {
     const repo = await makeRepo();
     await commitFile(repo, 'a.txt', 'a');
