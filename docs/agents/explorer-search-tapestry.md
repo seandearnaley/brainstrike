@@ -278,7 +278,11 @@ fallback.
   root-level invalidation with log-once semantics while the subscription
   stays alive. The 150ms/500-item batcher and `fileFilter.shouldIgnorePath`
   apply (DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs — same
-  names, never broader). Typed watcher health
+  names, never broader). A per-subscription `ignorePatterns` override exists
+  (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
+  outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
+  pipeline described here NEVER passes it, so "same names, never broader"
+  holds unconditionally for this path. Typed watcher health
   (`starting|healthy|degraded|failed|stopped`) flows over one-way
   `fs:watch-health` pushes scoped to the owning WebContents (no root-path
   field on the wire); `fs:watch-retry` is MANUAL-only with escalating

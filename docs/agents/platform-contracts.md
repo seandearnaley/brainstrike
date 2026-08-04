@@ -579,6 +579,17 @@ indexed state only.
   expires entries after one hour, and is cleared through the
   `read-workspace-file-cursors` factory-reset runtime. It must never move to
   durable storage, and unknown handles must never trigger a fresh-read fallback.
+- **Per-subscription ignore override (BST-1112)**: `StartParcelWatchOptions.ignorePatterns`
+  (threaded from `WatchDirectoryOptions.ignorePatterns`) lets a caller REPLACE
+  `DEFAULT_IGNORE_PATTERNS` for its own subscription only — both the native
+  ignore globs and the `fileFilter.shouldIgnorePath` guard — e.g. a
+  main-owned git-metadata watcher that needs `.git/HEAD` events the default
+  patterns would drop. `undefined` keeps the default patterns unchanged;
+  `[]` means "ignore nothing", never a silent fallback to defaults. There is
+  no shared/deduplicated watcher registration layer, so one subscription's
+  override can never leak into another's. The shared Explorer refresh
+  pipeline never passes this option — "same names, never broader" stays true
+  for that path (see `docs/agents/explorer-search-tapestry.md`).
 - **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
   (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
   asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).
