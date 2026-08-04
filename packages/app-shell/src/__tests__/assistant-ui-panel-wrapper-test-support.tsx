@@ -30,6 +30,26 @@ const { initializeProviderModelDefaultsMock } = vi.hoisted(() => ({
   initializeProviderModelDefaultsMock: vi.fn(async () => 'preserved' as const),
 }));
 
+// BST-1113 Task 4: the wrapper's changeset lifecycle-refresh glue calls
+// `useChangeset` — no selection UI exists yet (W4), so the wrapper always
+// passes a null changeset. Mocked here (not the real bridge-backed hook) so
+// the wrapper suite can assert the run-finished/run-failed composition
+// directly, independent of `use-changeset.ts`'s own unit coverage.
+const { changesetRefreshMock, useChangesetMock } = vi.hoisted(() => ({
+  changesetRefreshMock: vi.fn(async () => undefined),
+  useChangesetMock: vi.fn(),
+}));
+useChangesetMock.mockImplementation(() => ({
+  available: false,
+  error: null,
+  fileDiff: vi.fn(),
+  refresh: changesetRefreshMock,
+  view: null,
+}));
+vi.mock('../changes/use-changeset', () => ({
+  useChangeset: (...args: unknown[]) => useChangesetMock(...args),
+}));
+
 const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
     addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
@@ -727,6 +747,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onProviderSettingsValidationChange,
     onThreadRunStart,
     onRunFinished,
+    onRunFailed,
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
@@ -758,6 +779,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onProviderSettingsValidationChange?: (reason: string | undefined) => void;
     onThreadRunStart?: () => void;
     onRunFinished?: (event: { runId: string; kind: string }) => void;
+    onRunFailed?: (event: { runId: string; kind: string }) => void;
     completePreparedRequest?: (
       requestData: Record<string, unknown> | undefined,
       status: 'cancelled' | 'completed' | 'failed',
@@ -825,6 +847,13 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Trigger run finished
+        </button>
+        <button
+          data-testid="trigger-run-failed"
+          onClick={() => onRunFailed?.({ kind: 'run.failed', runId: 'run-live' })}
+          type="button"
+        >
+          Trigger run failed
         </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
@@ -1248,9 +1277,11 @@ export type SelectionUpdateHandler = (
 ) => void;
 
 export {
+  changesetRefreshMock,
   fileExplorerMocks,
   hasDesktopLlmHostMock,
   mockDb,
   preparedRequestDataLog,
   testEnabledModels,
+  useChangesetMock,
 };

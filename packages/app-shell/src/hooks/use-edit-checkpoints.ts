@@ -1,17 +1,13 @@
-import type { AssistantEditCheckpointRecord } from '@brainstrike/assistant-contract';
+import {
+  type AssistantEditCheckpointRecord,
+  isRevertibleCaptureStatus,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { EditCheckpointContextValue } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
 
 const logger = createLogger('EditCheckpoints');
-
-/** Only these capture states are revertible (contract: workspace-context.md). */
-const REVERTIBLE_CAPTURE_STATUSES = new Set<AssistantEditCheckpointRecord['captureStatus']>([
-  'created',
-  'ok',
-  'rename',
-]);
 
 /**
  * Derive and record the run's outcome label from the POST-revert journal
@@ -31,7 +27,7 @@ async function labelRunOutcomeFromJournal(
     return;
   }
   const runEntries = entries.filter(
-    (entry) => entry.runId === runId && REVERTIBLE_CAPTURE_STATUSES.has(entry.captureStatus)
+    (entry) => entry.runId === runId && isRevertibleCaptureStatus(entry.captureStatus)
   );
   const anchor = runEntries[0];
   if (!anchor) {

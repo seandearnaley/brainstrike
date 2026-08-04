@@ -17,17 +17,21 @@
  *
  * The caller (the IPC handler) is responsible for resolving + containment-
  * checking the `cwd` against a known workspace root before calling in here.
+ *
+ * The `StructuredFileDiff` engine (both-sides content + hunk ranges for one
+ * path) lives in `git-structured-diff.ts`, and the `history`/`commitDiff`/
+ * `commitFiles` ops live in `git-history.ts` (BST-1111, BST-1118) — this
+ * module re-exports the former's public constant and wires both factories
+ * into `createGitService`'s returned op set.
  */
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   GitAheadBehind,
   GitBranchSummary,
-  GitCommitFile,
   GitCommitResult,
   GitDiff,
   GitDiffParams,
-  GitHistoryPage,
   GitPushPullResult,
   GitRepository,
   GitResult,
@@ -36,12 +40,9 @@ import type {
   GitSwitchBranchResult,
   GitWorktreeSummary,
 } from '@brainstrike/types';
-import {
-  parseBranchSummaries,
-  parseCommitFiles,
-  parseHistoryPage,
-  parseWorktreeSummaries,
-} from './git-repository-parsers';
+import { createHistoryOps } from './git-history';
+import { parseBranchSummaries, parseWorktreeSummaries } from './git-repository-parsers';
+import { createStructuredDiffOps, STRUCTURED_DIFF_CONTENT_CAP_BYTES } from './git-structured-diff';
 
 export type {
   GitAheadBehind,
@@ -80,6 +81,12 @@ export const GIT_MAX_OUTPUT_BYTES = 1_000_000;
  * than a null-exit error.
  */
 export const GIT_MAX_BUFFER_BYTES = GIT_MAX_OUTPUT_BYTES * 4;
+/**
+ * Per-side full-content cap for `StructuredFileDiff`. Defined in
+ * `git-structured-diff.ts` (the structured-diff engine's own cap); re-exported
+ * here so existing importers of `git-service.ts` keep their import path.
+ */
+export { STRUCTURED_DIFF_CONTENT_CAP_BYTES };
 
 /**
  * Distinguishes the cause of a non-clean `git` run so the service maps each to an
@@ -98,6 +105,26 @@ export interface GitCommandRun {
   readonly failureReason?: GitCommandFailureReason;
   readonly stderr: string;
   readonly stdout: string;
+  /**
+   * Populated ONLY when the run was requested with `binaryStdout: true` — the
+   * exact captured bytes (no utf8 decode). When present, {@link stdout} is `''`.
+   * Undefined for every other run, including today's text-mode callers.
+   *
+   * On a CLEAN run (`exitCode === 0`, no {@link failureReason}) this is the
+   * complete blob content — safe to treat as-is.
+   *
+   * When {@link failureReason} or a non-zero {@link exitCode} is set, this
+   * buffer is a possibly-empty, possibly-TRUNCATED partial capture — an empty
+   * Buffer here is NOT evidence of an empty blob, it just means nothing (or
+   * nothing more) was captured before the run failed. Do NOT reuse the text
+   * path's `exitCode === 0 || failureReason === 'maxBuffer'` "truncated is
+   * still success" pattern for binary reads: unlike a diff, a git blob has no
+   * self-describing boundary a caller can use to detect that it was cut off,
+   * so presenting a truncated blob as complete would be silent corruption.
+   * `failureReason === 'maxBuffer'` MUST be treated as a hard failure for
+   * binary reads, never a bounded success.
+   */
+  readonly stdoutBuffer?: Buffer;
   /** True when the invocation was killed because it exceeded its timeout. */
   readonly timedOut: boolean;
 }
@@ -110,17 +137,24 @@ export interface GitCommandRun {
  */
 export type GitCommandRunner = (params: {
   readonly args: readonly string[];
+  /**
+   * When true, the runner captures stdout as raw bytes into
+   * {@link GitCommandRun.stdoutBuffer} instead of decoding it as utf8 text —
+   * required for reading a blob that may contain arbitrary binary content (a
+   * lossy text decode would mangle it before any caller can inspect the bytes).
+   */
+  readonly binaryStdout?: boolean | undefined;
   readonly cwd: string;
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }) => Promise<GitCommandRun>;
 
-function toErrorMessage(error: unknown): string {
+export function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 /** Remove Git's platform record terminator without consuming a POSIX literal CR. */
-function stripLineEnding(value: string): string {
+export function stripLineEnding(value: string): string {
   if (!value.endsWith('\n')) {
     return value;
   }
@@ -153,7 +187,7 @@ function isAtLeastGit236(version: readonly [number, number, number]): boolean {
 
 /** Bound a captured stream to the size budget, keeping the head (where git's
  * summary / errors lead) plus a truncation marker. */
-function boundOutput(text: string): { text: string; truncated: boolean } {
+export function boundOutput(text: string): { text: string; truncated: boolean } {
   if (text.length <= GIT_MAX_OUTPUT_BYTES) {
     return { text, truncated: false };
   }
@@ -174,7 +208,7 @@ function isNotARepository(run: GitCommandRun): boolean {
  * missing-binary case reports accurately instead of dumping a stale exit code);
  * otherwise we surface stderr/stdout, then the exit code as a last resort.
  */
-function describeFailure(run: GitCommandRun): string {
+export function describeFailure(run: GitCommandRun): string {
   if (run.failureReason === 'timeout') {
     return 'git command timed out';
   }
@@ -192,7 +226,7 @@ function describeFailure(run: GitCommandRun): string {
   return `git exited with code ${run.exitCode ?? 'null (terminated by signal)'}`;
 }
 
-function describeDiffFailure(run: GitCommandRun, untracked: boolean): string | null {
+export function describeDiffFailure(run: GitCommandRun, untracked: boolean): string | null {
   if (run.exitCode === 0 || run.failureReason === 'maxBuffer') {
     return null;
   }
@@ -393,7 +427,14 @@ export function parsePorcelainV2Z(stdout: string): Omit<GitStatus, 'isRepository
   };
 }
 
-function scopeStatusPaths(
+/**
+ * Rebase git-reported (repo-root-relative) status paths onto `repositoryPrefix`
+ * (the `rev-parse --show-prefix` value for the invocation `cwd`) so every path
+ * this service surfaces is relative to the SAME base the caller passed in —
+ * exported for `git-structured-diff.ts`'s `isPathUntracked`, which needs the
+ * identical cwd-relative rebasing for status paths.
+ */
+export function scopeStatusPaths(
   status: Omit<GitStatus, 'isRepository'>,
   repositoryPrefix: string
 ): GitResult<Omit<GitStatus, 'isRepository'>> {
@@ -443,7 +484,7 @@ function scopeStatusPaths(
  * filenames are preserved byte-for-byte; whitespace and backslashes are valid
  * filename characters on POSIX and must never be coerced into another path.
  */
-function resolveContainedPathArg(
+export function resolveContainedPathArg(
   basePath: string,
   rawPath: string | undefined
 ): GitResult<string | null> {
@@ -515,7 +556,7 @@ function validateDiffParams(params: GitDiffParams): GitResult<GitDiffParams> {
  * file-symlink additions (and throw on a dangling target). Tracked diffs don't
  * need this: they go through git's index, which never follows fs symlinks.
  */
-async function assertUntrackedDiffPathContained(
+export async function assertUntrackedDiffPathContained(
   cwd: string,
   pathArg: string
 ): Promise<GitResult<null>> {
@@ -543,6 +584,56 @@ export interface GitServiceOptions {
 }
 
 /**
+ * Hook-free `git` invocation, extracted from `createGitService`'s inner
+ * `invokeHookFree` closure so callers OUTSIDE a `GitServiceOptions`-bound
+ * service (namely `git-inventory-service.ts`, which spawns `git` in
+ * discovered, untrusted repositories one unique common dir at a time — never
+ * through `createGitService`'s single fixed `cwd`) can reuse the exact same
+ * hook-disabling logic instead of bare-spawning. `createGitService`'s
+ * `invokeHookFree` now delegates here — zero behavior change.
+ *
+ * Git 2.54 added config-managed hooks that bypass `core.hooksPath`. This
+ * enumerates their friendly names and disables them at command scope, on top
+ * of `core.fsmonitor=false -c core.hooksPath=/dev/null`, before running `args`.
+ * `invoke` is the caller's own git runner, already bound to a `cwd`.
+ */
+export async function invokeGitHookFree(
+  invoke: (args: readonly string[], timeoutMs?: number) => Promise<GitCommandRun>,
+  args: readonly string[],
+  timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
+): Promise<GitCommandRun> {
+  // This probe itself is the ONE spawn not preceded by `-c
+  // core.fsmonitor=false -c core.hooksPath=/dev/null` (those flags are
+  // computed FROM its result, below). Pre-existing and almost certainly
+  // harmless — `git config` never reads the index or runs hooks — but note
+  // that since `git-inventory-service.ts` started reusing this helper, it now
+  // runs against arbitrary discovered repositories, not just one
+  // user-chosen root.
+  const configuredHooks = await invoke([
+    'config',
+    '--null',
+    '--name-only',
+    '--get-regexp',
+    '^hook\\..*\\.command$',
+  ]);
+  if (configuredHooks.exitCode !== 0 && configuredHooks.exitCode !== 1) {
+    return configuredHooks;
+  }
+  const disabledConfiguredHooks = configuredHooks.stdout
+    .split('\0')
+    .filter(Boolean)
+    .flatMap((key) => ['-c', `${key.slice(0, -'.command'.length)}.enabled=false`]);
+  const hookConfig = ['core.fsmonitor=false', 'core.hooksPath=/dev/null'].flatMap((value) => [
+    '-c',
+    value,
+  ]);
+  // No caller needs `binaryStdout` here today (only `readRefBlob`'s plain
+  // `invoke` reads binary blobs; every hook-free call is text-mode unified-diff
+  // or porcelain output) — re-add the pass-through param if that changes.
+  return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
+}
+
+/**
  * Build the git operations bound to a single, already-validated `cwd`.
  *
  * Every method returns a {@link GitResult}: a git failure becomes
@@ -552,36 +643,17 @@ export interface GitServiceOptions {
 export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   async function invoke(
     args: readonly string[],
-    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
+    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS,
+    binaryStdout?: boolean
   ): Promise<GitCommandRun> {
-    return await run({ args, cwd, signal, timeoutMs });
+    return await run({ args, binaryStdout, cwd, signal, timeoutMs });
   }
 
   async function invokeHookFree(
     args: readonly string[],
     timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
   ): Promise<GitCommandRun> {
-    // Git 2.54 added config-managed hooks that bypass core.hooksPath. Enumerate
-    // their friendly names and disable them at command scope before mutations.
-    const configuredHooks = await invoke([
-      'config',
-      '--null',
-      '--name-only',
-      '--get-regexp',
-      '^hook\\..*\\.command$',
-    ]);
-    if (configuredHooks.exitCode !== 0 && configuredHooks.exitCode !== 1) {
-      return configuredHooks;
-    }
-    const disabledConfiguredHooks = configuredHooks.stdout
-      .split('\0')
-      .filter(Boolean)
-      .flatMap((key) => ['-c', `${key.slice(0, -'.command'.length)}.enabled=false`]);
-    const hookConfig = ['core.fsmonitor=false', 'core.hooksPath=/dev/null'].flatMap((value) => [
-      '-c',
-      value,
-    ]);
-    return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
+    return await invokeGitHookFree(invoke, args, timeoutMs);
   }
 
   async function resolveWorktreeRoot(): Promise<GitResult<string>> {
@@ -652,94 +724,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       return { error: `remote "${remote}" does not exist`, ok: false };
     }
     return { ok: true, value: remote };
-  }
-
-  async function resolveHistoryCommit(ref: string | undefined): Promise<GitResult<string>> {
-    if (ref === undefined) {
-      const head = await invoke(['rev-parse', '--verify', 'HEAD^{commit}']);
-      return head.exitCode === 0
-        ? { ok: true, value: head.stdout.trim() }
-        : { error: describeFailure(head), ok: false };
-    }
-    if (/^[0-9a-f]{40,64}$/.test(ref)) {
-      const commit = await invoke(['rev-parse', '--verify', `${ref}^{commit}`]);
-      return commit.exitCode === 0
-        ? { ok: true, value: commit.stdout.trim() }
-        : { error: describeFailure(commit), ok: false };
-    }
-    const branch = await invoke(['show-ref', '--verify', '--hash', `refs/heads/${ref}`]);
-    if (branch.exitCode !== 0) {
-      return { error: `local branch "${ref}" does not exist`, ok: false };
-    }
-    return { ok: true, value: branch.stdout.trim() };
-  }
-
-  function requireCommitId(commit: unknown): GitResult<string> {
-    if (typeof commit !== 'string' || !/^[0-9a-f]{40,64}$/.test(commit)) {
-      return { error: 'commit must be a full object id returned by Git', ok: false };
-    }
-    return { ok: true, value: commit };
-  }
-
-  async function resolveFirstParent(commit: string): Promise<GitResult<string | null>> {
-    const run_ = await invoke(['rev-list', '--parents', '-n', '1', commit]);
-    if (run_.exitCode !== 0) {
-      return { error: describeFailure(run_), ok: false };
-    }
-    const [resolvedCommit, firstParent] = run_.stdout.trim().split(/\s+/);
-    if (resolvedCommit !== commit) {
-      return { error: 'git returned mismatched commit ancestry metadata', ok: false };
-    }
-    if (firstParent === undefined) {
-      return { ok: true, value: null };
-    }
-    if (!/^[0-9a-f]{40,64}$/.test(firstParent)) {
-      return { error: 'git returned an invalid first-parent object id', ok: false };
-    }
-    return { ok: true, value: firstParent };
-  }
-
-  async function resolveCommitDiffArgs(
-    commit: string,
-    paths: readonly string[]
-  ): Promise<GitResult<readonly string[]>> {
-    const firstParent = await resolveFirstParent(commit);
-    if (!firstParent.ok) {
-      return firstParent;
-    }
-    const commonArgs = ['--no-ext-diff', '--no-textconv', '--find-renames'];
-    return firstParent.value
-      ? {
-          ok: true,
-          value: ['diff', ...commonArgs, firstParent.value, commit, '--', ...paths],
-        }
-      : {
-          ok: true,
-          value: ['show', '--format=', ...commonArgs, commit, '--', ...paths],
-        };
-  }
-
-  function resolveCommitDiffPaths(params: {
-    originalPath?: string | undefined;
-    path: string;
-  }): GitResult<readonly string[]> {
-    const pathResult = resolveContainedPathArg(cwd, params.path);
-    if (!(pathResult.ok && pathResult.value)) {
-      return pathResult.ok
-        ? { error: 'historical diff path must be a non-empty string', ok: false }
-        : pathResult;
-    }
-    const originalPathResult = resolveContainedPathArg(cwd, params.originalPath);
-    if (!originalPathResult.ok) {
-      return originalPathResult;
-    }
-    return {
-      ok: true,
-      value:
-        originalPathResult.value && originalPathResult.value !== pathResult.value
-          ? [pathResult.value, originalPathResult.value]
-          : [pathResult.value],
-    };
   }
 
   async function assertCommitScope(): Promise<GitResult<null>> {
@@ -984,6 +968,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     };
   }
 
+  const structuredDiffOps = createStructuredDiffOps({ cwd, invoke, invokeHookFree });
+  const historyOps = createHistoryOps({ cwd, invoke });
+
   return {
     /** Ahead/behind counts vs the upstream tracking ref. */
     aheadBehind: async (): Promise<GitResult<GitAheadBehind>> => {
@@ -1053,78 +1040,15 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-    /** Historical unified diff for one contained path in a full commit object. */
-    commitDiff: async (params: {
-      commit: string;
-      originalPath?: string | undefined;
-      path: string;
-    }): Promise<GitResult<GitDiff>> => {
-      try {
-        const commit = requireCommitId(params.commit);
-        if (!commit.ok) {
-          return commit;
-        }
-        const paths = resolveCommitDiffPaths(params);
-        if (!paths.ok) {
-          return paths;
-        }
-        const args = await resolveCommitDiffArgs(commit.value, paths.value);
-        if (!args.ok) {
-          return args;
-        }
-        const run_ = await invoke(args.value);
-        if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer') {
-          return { error: describeFailure(run_), ok: false };
-        }
-        const bounded = boundOutput(run_.stdout);
-        return {
-          ok: true,
-          value: {
-            path: paths.value[0] ?? null,
-            staged: false,
-            truncated: bounded.truncated || run_.failureReason === 'maxBuffer',
-            unifiedDiff: bounded.text,
-          },
-        };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
+    /**
+     * Historical unified diff for one contained path in a full commit object,
+     * and the file list for a historical commit — both implemented in
+     * `git-history.ts`; see `createHistoryOps`.
+     */
+    commitDiff: historyOps.commitDiff,
 
     /** File list for a historical commit, scoped to the opened workspace root. */
-    commitFiles: async (params: {
-      commit: string;
-    }): Promise<GitResult<readonly GitCommitFile[]>> => {
-      try {
-        const commit = requireCommitId(params.commit);
-        if (!commit.ok) {
-          return commit;
-        }
-        const firstParent = await resolveFirstParent(commit.value);
-        if (!firstParent.ok) {
-          return firstParent;
-        }
-        const run_ = await invoke([
-          'diff-tree',
-          ...(firstParent.value ? [] : ['--root']),
-          '--no-commit-id',
-          '--name-status',
-          '-r',
-          '-M',
-          '--relative',
-          '-z',
-          ...(firstParent.value ? [firstParent.value, commit.value] : [commit.value]),
-          '--',
-          '.',
-        ]);
-        if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
-        }
-        return { ok: true, value: parseCommitFiles(run_.stdout) };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
+    commitFiles: historyOps.commitFiles,
 
     /**
      * Unified diff for a path (or the whole tree), optionally for the index.
@@ -1217,48 +1141,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     },
 
     /** Paginated, summary-only history for HEAD, a local branch, or a returned OID. */
-    history: async (params: {
-      limit: number;
-      offset: number;
-      ref?: string | undefined;
-    }): Promise<GitResult<GitHistoryPage>> => {
-      try {
-        if (!(Number.isInteger(params.limit) && params.limit >= 1 && params.limit <= 200)) {
-          return { error: 'history limit must be an integer between 1 and 200', ok: false };
-        }
-        if (!(Number.isInteger(params.offset) && params.offset >= 0 && params.offset <= 100_000)) {
-          return { error: 'history offset must be an integer between 0 and 100000', ok: false };
-        }
-        const commit = await resolveHistoryCommit(params.ref);
-        if (!commit.ok) {
-          return commit;
-        }
-        const format = '%H%x00%h%x00%s%x00%b%x00%an%x00%ae%x00%aI%x00%cI%x00%P%x00%D';
-        const prefixRun = await invoke(['rev-parse', '--show-prefix']);
-        if (prefixRun.exitCode !== 0) {
-          return { error: describeFailure(prefixRun), ok: false };
-        }
-        const openedPrefix = prefixRun.stdout.replace(/\r?\n$/, '');
-        const run_ = await invoke([
-          'log',
-          '-z',
-          `--max-count=${params.limit + 1}`,
-          `--skip=${params.offset}`,
-          `--format=${format}`,
-          commit.value,
-          ...(openedPrefix.length > 0 ? ['--', '.'] : []),
-        ]);
-        if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
-        }
-        return {
-          ok: true,
-          value: parseHistoryPage(run_.stdout, { limit: params.limit, offset: params.offset }),
-        };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
+    history: historyOps.history,
 
     /** Pull (fetch + merge) from the upstream remote (network op). */
     pull: async (): Promise<GitResult<GitPushPullResult>> => {
@@ -1392,6 +1275,16 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         return { error: toErrorMessage(error), ok: false };
       }
     },
+
+    /**
+     * Both-sides file content + structured hunk ranges for one path (spec §3,
+     * §11 Q3) — the `StructuredFileDiff` replacement for the unified-diff-string
+     * `diff()` contract. `mode` selects the comparison: `working` (HEAD vs.
+     * worktree, i.e. all uncommitted changes), `staged` (HEAD vs. index), or
+     * `untracked` (no HEAD/index side at all). Implemented in
+     * `git-structured-diff.ts`; see `createStructuredDiffOps`.
+     */
+    structuredFileDiff: structuredDiffOps.structuredFileDiff,
 
     /** Switch the full opened worktree to an existing local branch. */
     switchBranch: async (params: { branch: string }): Promise<GitResult<GitSwitchBranchResult>> => {

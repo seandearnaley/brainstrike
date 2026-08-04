@@ -1,16 +1,28 @@
 import { createLogger } from '@brainstrike/logging';
+import type { ChangedFileStatus } from '@brainstrike/types';
 import {
   defaultHighlightStyle,
   type LanguageSupport,
   syntaxHighlighting,
 } from '@codemirror/language';
 import { MergeView, unifiedMergeView } from '@codemirror/merge';
-import { EditorState, type Extension } from '@codemirror/state';
-import { drawSelection, EditorView, highlightSpecialChars, lineNumbers } from '@codemirror/view';
+import { EditorState, type Extension, RangeSetBuilder } from '@codemirror/state';
+import {
+  Decoration,
+  drawSelection,
+  EditorView,
+  highlightSpecialChars,
+  lineNumbers,
+} from '@codemirror/view';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
 import { cn } from '../lib/utils';
+import {
+  type DiffViewSource,
+  type ResolvedDiffPresentation,
+  resolveDiffView,
+} from './diff-view-source';
 
 const logger = createLogger('DiffView');
 
@@ -79,18 +91,218 @@ const READ_ONLY_EXTENSIONS: Extension[] = [
   EditorView.editable.of(false),
 ];
 
-const BASE_EXTENSIONS: Extension[] = [
+/**
+ * Extensions shared by every editor EXCEPT the hunks-only view — no
+ * `lineNumbers()` gutter here (see {@link BASE_EXTENSIONS}'s doc comment).
+ */
+const BASE_EXTENSIONS_NO_GUTTER: Extension[] = [
   highlightSpecialChars(),
-  lineNumbers(),
   drawSelection(),
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
   EditorView.lineWrapping,
   DIFF_THEME,
 ];
 
+/**
+ * Adds the real line-number gutter. Valid ONLY when the mounted doc is a
+ * real file (or the full old/new side of one) — the bounded `hunkText`
+ * shown by the `hunks-only` branch is NOT a real file; its lines don't map
+ * to any single, correct set of absolute positions, so `lineNumbers()`
+ * would fabricate them starting from 1 right next to the gutter this
+ * feature made authoritative for the full-content case. `hunks-only`
+ * therefore builds its editor from {@link BASE_EXTENSIONS_NO_GUTTER}
+ * instead of this.
+ */
+const BASE_EXTENSIONS: Extension[] = [lineNumbers(), ...BASE_EXTENSIONS_NO_GUTTER];
+
+/**
+ * Tints `hunkText` lines by their leading `+`/`-` marker, reusing the same
+ * `.cm-insertedLine` / `.cm-deletedChunk` theme classes the full-document
+ * MergeView uses. The raw unified-diff text has no language grammar (it's
+ * not source code in the file's own language — see `BASE_EXTENSIONS`'s note
+ * on why no `languageExtension` is passed here either), so this is the
+ * cheap substitute for "some visual signal of what changed" without
+ * mis-highlighting it as source. Computed once from the (immutable,
+ * read-only) `hunkText` string as a static decoration set rather than a
+ * reactive `ViewPlugin` — this view's document never changes after
+ * construction, so there's nothing to react to.
+ */
+function buildHunkLineDecorations(hunkText: string): Extension {
+  const builder = new RangeSetBuilder<Decoration>();
+  let pos = 0;
+  // CodeMirror's `Doc` normalizes EVERY line break — `\r\n` included — to a
+  // single logical line boundary, so splitting on `'\n'` alone leaves a
+  // trailing `\r` on each line and drifts `pos` out of sync with the actual
+  // document positions on CRLF input (verified: a CRLF hunk fixture silently
+  // dropped every decoration under the old split). Splitting on the same
+  // break set CodeMirror recognizes keeps `pos` aligned regardless of line
+  // ending.
+  for (const line of hunkText.split(/\r\n?|\n/)) {
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      builder.add(pos, pos, Decoration.line({ class: 'cm-insertedLine' }));
+    } else if (line.startsWith('-') && !line.startsWith('---')) {
+      builder.add(pos, pos, Decoration.line({ class: 'cm-deletedChunk' }));
+    }
+    pos += line.length + 1;
+  }
+  return EditorView.decorations.of(builder.finish());
+}
+
+/**
+ * Whether the "diff truncated" note should show — `text`'s own `truncated`
+ * flag, or `hunks-only`'s `hunkTextTruncated`. Extracted to a plain function
+ * (rather than an inline ternary in the component body) to keep `DiffView`'s
+ * cognitive-complexity score under Biome's limit.
+ */
+function resolveTruncatedNoteVisible(presentation: ResolvedDiffPresentation): boolean {
+  if (presentation.kind === 'text') {
+    return presentation.truncated;
+  }
+  return presentation.kind === 'hunks-only' && presentation.hunkTextTruncated;
+}
+
+/**
+ * The two document texts the build effect keys its identity-stable
+ * dependency array on (see the effect's comment) — `null` when
+ * `presentation.kind !== 'text'`. Extracted to a plain function for the same
+ * complexity-budget reason as {@link resolveTruncatedNoteVisible}.
+ */
+function extractTextDocs(presentation: ResolvedDiffPresentation): {
+  modified: string | null;
+  original: string | null;
+} {
+  if (presentation.kind !== 'text') {
+    return { modified: null, original: null };
+  }
+  return { modified: presentation.modified, original: presentation.original };
+}
+
+/** `hunkText` when `presentation.kind === 'hunks-only'`, else `null`. */
+function extractHunkText(presentation: ResolvedDiffPresentation): string | null {
+  return presentation.kind === 'hunks-only' ? presentation.hunkText : null;
+}
+
+/**
+ * Render-side interactivity thresholds for the `text` presentation's
+ * MergeView/unifiedMergeView diff — deliberately distinct from the
+ * structured-diff engine's `STRUCTURED_DIFF_CONTENT_CAP_BYTES` (2 MB per
+ * side, `apps/desktop/src/assistant-server/git-structured-diff.ts`). That
+ * cap answers "will reading this file blow up main-process memory", a much
+ * higher bar than "can the renderer's main thread compute a diff and stay
+ * interactive". `@codemirror/merge`'s `MergeView` computes an O(n·d) chunk
+ * diff SYNCHRONOUSLY on the renderer main thread; a pair of 1–2 MB text
+ * sides — comfortably under the service cap — can freeze the whole UI for
+ * seconds with no spinner and no way to bail. Below both thresholds, the
+ * two sides are small enough to diff interactively; at or above either
+ * one, `DiffView` skips the diff entirely and falls back to a single
+ * read-only view of one side (see `resolveOversizedDoc`).
+ *
+ * `RENDER_SIDE_SIZE_THRESHOLD_BYTES` is measured in JS string `.length`
+ * (UTF-16 code units), not exact UTF-8 bytes — encoding the whole string
+ * just to threshold-check it would defeat the purpose for genuinely large
+ * input. For the overwhelmingly-ASCII content this threshold exists to
+ * catch (source, lockfiles, minified bundles), the two are equal; the
+ * `RENDER_SIDE_LINE_THRESHOLD` check is the orthogonal backstop for
+ * content shapes (e.g. one enormous line) the byte check alone might miss.
+ */
+const RENDER_SIDE_SIZE_THRESHOLD_BYTES = 256 * 1024;
+const RENDER_SIDE_LINE_THRESHOLD = 20_000;
+
+/** Number of lines in `text` (1 + newline count) — a single char-code scan, no array allocation. */
+function countLines(text: string): number {
+  let lines = 1;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10 /* '\n' */) {
+      lines += 1;
+    }
+  }
+  return lines;
+}
+
+/** Whether either side exceeds the render-side interactivity thresholds above. */
+function isTextContentTooLargeToDiffInline(original: string, modified: string): boolean {
+  return (
+    original.length > RENDER_SIDE_SIZE_THRESHOLD_BYTES ||
+    modified.length > RENDER_SIDE_SIZE_THRESHOLD_BYTES ||
+    countLines(original) > RENDER_SIDE_LINE_THRESHOLD ||
+    countLines(modified) > RENDER_SIDE_LINE_THRESHOLD
+  );
+}
+
+/**
+ * Which side to show read-only when the diff is skipped as too large — the
+ * new side, except for a deletion (`status === 'deleted'`, structured mode
+ * only) or the equivalent legacy-mode shape (an empty `modified` with
+ * non-empty `original` — the legacy `strings` source carries no `status`
+ * concept to check directly), where the new side is empty/absent and the
+ * old side is the only one worth showing.
+ */
+function pickOversizedDoc(
+  status: ChangedFileStatus | null,
+  original: string,
+  modified: string
+): string {
+  if (status === 'deleted') {
+    return original;
+  }
+  if (modified.length === 0 && original.length > 0) {
+    return original;
+  }
+  return modified;
+}
+
+/**
+ * The side to render read-only when `contentKind === 'text'` content is too
+ * large to diff inline, or `null` when a normal MergeView/unifiedMergeView
+ * diff should render instead. Extracted to a plain function (rather than an
+ * inline expression in the component body) for the same cognitive-
+ * complexity-budget reason as {@link resolveTruncatedNoteVisible} — and it
+ * doubles as the single source of truth for "is this oversized", since
+ * `oversizedDoc !== null` IS that boolean.
+ */
+function resolveOversizedDoc(
+  contentKind: ResolvedDiffPresentation['kind'],
+  textOriginal: string | null,
+  textModified: string | null,
+  status: ChangedFileStatus | null
+): string | null {
+  if (contentKind !== 'text' || textOriginal === null || textModified === null) {
+    return null;
+  }
+  if (!isTextContentTooLargeToDiffInline(textOriginal, textModified)) {
+    return null;
+  }
+  return pickOversizedDoc(status, textOriginal, textModified);
+}
+
+/**
+ * Throws with `message` when `value` is `null`, narrowing it to `T`
+ * afterward. The build effect's `contentKind`-gated branches use this to
+ * assert the corresponding extracted scalar (`textOriginal`/`textModified`/
+ * `hunkText`) is non-null — an invariant `extractTextDocs`/`extractHunkText`
+ * already guarantee, restated here as a real check (never a silent
+ * fallback) rather than a type-only assertion. A plain `if` per call site
+ * would push `buildWithLanguage`'s cognitive-complexity score over Biome's
+ * limit; this keeps each call site to one line.
+ */
+function assertNonNull<T>(value: T | null, message: string): asserts value is T {
+  if (value === null) {
+    throw new Error(message);
+  }
+}
+
+/** User-facing labels for the structured-mode status chip. Exhaustive over `ChangedFileStatus`. */
+const STATUS_LABELS: Record<ChangedFileStatus, string> = {
+  added: 'Added',
+  deleted: 'Deleted',
+  modified: 'Modified',
+  renamed: 'Renamed',
+  untracked: 'Untracked',
+};
+
 export type DiffViewMode = 'split' | 'unified';
 
-export interface DiffViewProps {
+interface DiffViewBaseProps {
   /** Accessible label for the diff region. */
   readonly ariaLabel?: string | undefined;
   readonly className?: string | undefined;
@@ -100,14 +312,35 @@ export interface DiffViewProps {
   readonly filename?: string | undefined;
   /** Explicit language name override (takes precedence over `filename`). */
   readonly language?: string | undefined;
-  /** "After" content (right / modified side). */
-  readonly modified: string;
-  /** "Before" content (left / original side). */
-  readonly original: string;
   readonly testId?: string | undefined;
-  /** When true, render a "diff truncated" note (the IPC bounds large diffs). */
-  readonly truncated?: boolean | undefined;
 }
+
+/**
+ * Either a `source` (preferred) or both legacy `original`/`modified` string
+ * props (plus optional `truncated`) — never neither, and never a mix. This
+ * is enforced at compile time so a caller can't accidentally omit both; a
+ * runtime throw in `resolveDiffView` remains the backstop for
+ * anything that reaches the component past TypeScript (an untyped caller,
+ * or a type escape).
+ */
+type DiffViewSourceProps =
+  | {
+      readonly modified?: undefined;
+      readonly original?: undefined;
+      readonly source: DiffViewSource;
+      readonly truncated?: undefined;
+    }
+  | {
+      /** "After" content (right / modified side). */
+      readonly modified: string;
+      /** "Before" content (left / original side). */
+      readonly original: string;
+      readonly source?: undefined;
+      /** When true, render a "diff truncated" note (the IPC bounds large diffs). */
+      readonly truncated?: boolean | undefined;
+    };
+
+export type DiffViewProps = DiffViewBaseProps & DiffViewSourceProps;
 
 /**
  * Reusable, read-only diff viewer built on `@codemirror/merge`.
@@ -130,23 +363,74 @@ export function DiffView({
   language,
   original,
   modified,
-  truncated = false,
+  source,
+  truncated,
   testId,
 }: DiffViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<DiffViewMode>(defaultMode);
 
+  // Cheap to recompute every render (a switch + a handful of field reads) —
+  // deliberately NOT memoized against `source`'s object identity, since a
+  // caller re-rendering with a freshly-allocated `source={{kind:'structured',
+  // diff}}` literal every render (the W4 multi-file-surface pattern) is the
+  // exact case this needs to handle correctly, not optimize away. The
+  // identity-stability guarantee lives in the SCALAR fields below
+  // (`textOriginal`/`textModified`/`hunkText`), not in `resolved`/
+  // `presentation` themselves — see the build effect's dependency comment.
+  const resolved = resolveDiffView({ modified, original, source, truncated });
+  const { presentation } = resolved;
+  const effectiveFilename = filename ?? resolved.filenameFallback;
+
+  // Memoized on the underlying primitives (`language`, `effectiveFilename` —
+  // both strings), NOT recomputed as a fresh object every render: this keeps
+  // `resolvedLanguage`'s object identity stable when neither actually
+  // changes, which the build effect below relies on (see its dependency-
+  // array comment — the same object-identity-vs-value-identity trap that
+  // motivates depending on the scalar `textOriginal`/`textModified`/
+  // `hunkText` fields instead of `presentation` itself, just for a
+  // different input).
   const resolvedLanguage = useMemo(
-    () => resolveCodeSurfaceLanguage({ language, path: filename }),
-    [language, filename]
+    () => resolveCodeSurfaceLanguage({ language, path: effectiveFilename }),
+    [language, effectiveFilename]
   );
 
-  // Re-mount the CodeMirror view whenever the inputs that affect its construction
-  // change. `@codemirror/merge`'s MergeView has no simple "swap docs" API for a
-  // read-only view, so a clean teardown/rebuild is the simplest correct approach
-  // (the documents here are bounded diffs, not whole large files). A plain string
-  // concat is cheap — no useMemo needed.
-  const renderKey = `${mode}:${resolvedLanguage.label}`;
+  const truncatedNoteVisible = resolveTruncatedNoteVisible(presentation);
+
+  // Scalar extractions the build effect depends on — plain values, so two
+  // renders with EQUAL content compare equal here via Object.is regardless
+  // of `source`/`presentation` object identity (the reference/value-
+  // equality fast path). `null`/not-applicable fields stay `null` for the
+  // current `presentation.kind`. The effect below reads ONLY these
+  // variables (never `presentation`/`resolved` themselves), so its
+  // dependency array is honest — every value the effect body touches is
+  // listed, and nothing it touches is missing.
+  const contentKind = presentation.kind;
+  const { modified: textModified, original: textOriginal } = extractTextDocs(presentation);
+  const hunkText = extractHunkText(presentation);
+  // Non-null exactly when `text` content is over the render-side
+  // interactivity thresholds — see `resolveOversizedDoc`'s doc comment.
+  // `resolved.status` is read here (component scope), NOT inside the
+  // effect, matching the same discipline as the other scalar extractions.
+  const oversizedDoc = resolveOversizedDoc(
+    contentKind,
+    textOriginal,
+    textModified,
+    resolved.status
+  );
+
+  // Split/unified toggling only applies to a REAL two-document diff —
+  // `hunks-only`/`binary` never mount one, and an oversized `text` falls
+  // back to a single read-only view (see `oversizedDoc` above), so neither
+  // has a mode to switch.
+  const modeTogglable = contentKind === 'text' && oversizedDoc === null;
+
+  // Only mode/language/content-KIND drive a full `<section>` remount —
+  // content CHANGES within the same kind (including crossing the oversized
+  // threshold) are handled by the build effect's own teardown/rebuild (via
+  // `textOriginal`/`textModified`/`hunkText`/`oversizedDoc` above) without
+  // needing to blow away the host DOM node.
+  const renderKey = `${mode}:${resolvedLanguage.label}:${contentKind}`;
 
   const toggleMode = useCallback(() => {
     setMode((current) => (current === 'split' ? 'unified' : 'split'));
@@ -168,51 +452,106 @@ export function DiffView({
       }
       const languageExtension: Extension = languageSupport ?? [];
 
-      if (mode === 'split') {
-        mergeView = new MergeView({
-          a: {
-            doc: original,
-            extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
-          },
-          b: {
-            doc: modified,
-            extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
-          },
-          collapseUnchanged: { margin: 3, minSize: 4 },
-          gutter: true,
-          highlightChanges: true,
-          orientation: 'a-b',
-          parent: host,
-        });
-        return;
-      }
+      switch (contentKind) {
+        case 'binary':
+          return;
+        case 'hunks-only': {
+          // Invariant: `extractHunkText` returns non-null exactly when
+          // `contentKind === 'hunks-only'`, which this case is gated on.
+          assertNonNull(hunkText, 'DiffView: hunks-only content resolved with no hunkText.');
+          // No file-language grammar over raw diff text (see
+          // `buildHunkLineDecorations`'s doc comment), and no `lineNumbers()`
+          // gutter (see `BASE_EXTENSIONS`'s doc comment) — `languageSupport`
+          // is intentionally unused on this branch.
+          editorView = new EditorView({
+            parent: host,
+            state: EditorState.create({
+              doc: hunkText,
+              extensions: [
+                ...BASE_EXTENSIONS_NO_GUTTER,
+                READ_ONLY_EXTENSIONS,
+                buildHunkLineDecorations(hunkText),
+              ],
+            }),
+          });
+          return;
+        }
+        case 'text': {
+          // Invariant: `extractTextDocs` returns non-null fields exactly
+          // when `contentKind === 'text'`, which this case is gated on.
+          assertNonNull(textOriginal, 'DiffView: text content resolved with no original.');
+          assertNonNull(textModified, 'DiffView: text content resolved with no modified.');
 
-      editorView = new EditorView({
-        parent: host,
-        state: EditorState.create({
-          doc: modified,
-          extensions: [
-            ...BASE_EXTENSIONS,
-            READ_ONLY_EXTENSIONS,
-            languageExtension,
-            unifiedMergeView({
+          if (oversizedDoc !== null) {
+            // See RENDER_SIDE_SIZE_THRESHOLD_BYTES's doc comment: skip the
+            // synchronous MergeView/unifiedMergeView diff entirely above the
+            // threshold and show one side read-only instead. Still gets real
+            // line numbers (BASE_EXTENSIONS) and the file's language grammar
+            // — this IS the file's actual content, just not diffed against
+            // the other side.
+            editorView = new EditorView({
+              parent: host,
+              state: EditorState.create({
+                doc: oversizedDoc,
+                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+              }),
+            });
+            return;
+          }
+
+          if (mode === 'split') {
+            mergeView = new MergeView({
+              a: {
+                doc: textOriginal,
+                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+              },
+              b: {
+                doc: textModified,
+                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+              },
               collapseUnchanged: { margin: 3, minSize: 4 },
               gutter: true,
-              // Read-only viewer: never show accept/reject chunk controls.
-              mergeControls: false,
-              original,
+              highlightChanges: true,
+              orientation: 'a-b',
+              parent: host,
+            });
+            return;
+          }
+
+          editorView = new EditorView({
+            parent: host,
+            state: EditorState.create({
+              doc: textModified,
+              extensions: [
+                ...BASE_EXTENSIONS,
+                READ_ONLY_EXTENSIONS,
+                languageExtension,
+                unifiedMergeView({
+                  collapseUnchanged: { margin: 3, minSize: 4 },
+                  gutter: true,
+                  // Read-only viewer: never show accept/reject chunk controls.
+                  mergeControls: false,
+                  original: textOriginal,
+                }),
+              ],
             }),
-          ],
-        }),
-      });
+          });
+          return;
+        }
+        default: {
+          const exhaustive: never = contentKind;
+          throw new Error(`Unhandled diff presentation kind: ${JSON.stringify(exhaustive)}`);
+        }
+      }
     };
 
     // Build immediately with plaintext, then upgrade once async language support
     // resolves — mirrors CodeSurface's progressive-highlight behavior so the diff
-    // is visible instantly and never blocks on a dynamic import.
+    // is visible instantly and never blocks on a dynamic import. Skipped entirely
+    // for `hunks-only`/`binary`, which never use a language extension.
     buildWithLanguage(null);
 
-    if (resolvedLanguage.loadSupport) {
+    if (contentKind === 'text' && resolvedLanguage.loadSupport) {
       void resolvedLanguage
         .loadSupport()
         .then((support) => {
@@ -239,21 +578,77 @@ export function DiffView({
       mergeView?.destroy();
       editorView?.destroy();
     };
-    // `renderKey` is intentionally a dependency: it folds `mode` +
-    // `resolvedLanguage.label` so a mode/language switch rebuilds the view.
-  }, [renderKey, original, modified, mode, resolvedLanguage]);
+    // Deliberately depends on the SCALAR content fields (`contentKind`,
+    // `textOriginal`, `textModified`, `hunkText`, `oversizedDoc`) plus
+    // `mode`/`resolvedLanguage` — never on `resolved`/`presentation`/
+    // `source` object identity, and the effect body above reads ONLY these
+    // same scalars (never `presentation` itself), so every dependency this
+    // effect actually uses is listed here — an honest, exhaustive-deps-
+    // clean array, not a suppressed warning. `oversizedDoc` is technically
+    // derivable from `textOriginal`/`textModified`/`contentKind` (already
+    // listed), but the effect body reads `oversizedDoc` directly, so it's
+    // listed too — redundant-but-consistent beats implicit.
+    // Plain strings compare by value (`Object.is` on two equal strings is
+    // `true` regardless of which object they came from), so a caller
+    // re-rendering with a freshly-allocated `source` object literal
+    // carrying THE SAME content — exactly what W4's multi-file surface does
+    // — does not rebuild CodeMirror. Depending on the `presentation`/
+    // `resolved` OBJECT directly here was the original bug: it rebuilds
+    // (losing scroll/selection/collapsed-hunk state, re-running async
+    // language load) on every unrelated parent render, since `presentation`
+    // is a fresh object every time even when its fields are unchanged.
+  }, [contentKind, textOriginal, textModified, hunkText, oversizedDoc, mode, resolvedLanguage]);
 
   return (
     <div
       className={cn('flex h-full min-h-0 flex-col bg-background text-foreground', className)}
       data-language={resolvedLanguage.label}
-      data-mode={mode}
+      data-mode={modeTogglable ? mode : undefined}
       data-testid={testId}
     >
       <div className="flex items-center justify-between gap-2 border-border border-b px-2 py-1">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-muted-foreground text-xs">{filename ?? 'Diff'}</span>
-          {truncated ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium text-muted-foreground text-xs">
+            {effectiveFilename ?? 'Diff'}
+          </span>
+          {resolved.status ? (
+            <span
+              className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs"
+              data-testid="diff-status-chip"
+            >
+              {STATUS_LABELS[resolved.status]}
+            </span>
+          ) : null}
+          {resolved.statSummary ? (
+            <span className="text-muted-foreground text-xs" data-testid="diff-stat-summary">
+              <span aria-hidden="true">
+                +{resolved.statSummary.additions} −{resolved.statSummary.deletions}
+              </span>
+              <span className="sr-only">
+                {resolved.statSummary.additions}{' '}
+                {resolved.statSummary.additions === 1 ? 'addition' : 'additions'},{' '}
+                {resolved.statSummary.deletions}{' '}
+                {resolved.statSummary.deletions === 1 ? 'deletion' : 'deletions'}
+              </span>
+            </span>
+          ) : null}
+          {presentation.kind === 'hunks-only' ? (
+            <span
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              data-testid="diff-over-cap-note"
+            >
+              {presentation.sideNote}
+            </span>
+          ) : null}
+          {oversizedDoc === null ? null : (
+            <span
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              data-testid="diff-too-large-note"
+            >
+              File too large to diff inline — showing content without change highlighting
+            </span>
+          )}
+          {truncatedNoteVisible ? (
             <span
               className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
               data-testid="diff-truncated-note"
@@ -262,25 +657,43 @@ export function DiffView({
             </span>
           ) : null}
         </div>
-        <Button
-          aria-label={mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
-          aria-pressed={mode === 'unified'}
-          onClick={toggleMode}
-          size="xs"
-          type="button"
-          variant="outline"
-        >
-          {mode === 'split' ? 'Inline' : 'Side by side'}
-        </Button>
+        {modeTogglable ? (
+          <Button
+            aria-label={mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
+            aria-pressed={mode === 'unified'}
+            onClick={toggleMode}
+            size="xs"
+            type="button"
+            variant="outline"
+          >
+            {mode === 'split' ? 'Inline' : 'Side by side'}
+          </Button>
+        ) : null}
       </div>
-      {/* The CodeMirror MergeView / EditorView is imperatively mounted here. The
-          labelled region groups the diff content for assistive tech. */}
+      {/* The CodeMirror MergeView / EditorView is imperatively mounted here for
+          `text`/`hunks-only` content. The labelled region groups the diff
+          content for assistive tech — always this `<section>`, even for
+          `binary`, so there's exactly one accessible name for the whole diff
+          area. The binary placeholder is a PLAIN div: giving it its own
+          `aria-label` would override its own visible text as the accessible
+          name (an element with `aria-label` ignores its text content for
+          that computation), and `role="status"` would wrongly turn static
+          content into a live region. */}
       <section
         aria-label={ariaLabel}
         className="min-h-0 flex-1 overflow-hidden"
         key={renderKey}
         ref={hostRef}
-      />
+      >
+        {presentation.kind === 'binary' ? (
+          <div
+            className="flex h-full min-h-0 items-center justify-center text-muted-foreground text-sm"
+            data-testid="diff-binary-note"
+          >
+            Binary file — no text diff
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

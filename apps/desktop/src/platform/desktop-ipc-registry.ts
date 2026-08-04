@@ -3,6 +3,7 @@ import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } fro
 export type DesktopIpcDomain =
   | 'agent'
   | 'assistantCheckpoint'
+  | 'changes'
   | 'chunking-host'
   | 'clipboard'
   | 'commandSessions'

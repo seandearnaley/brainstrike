@@ -1,11 +1,33 @@
+import type { StructuredFileDiff } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DiffView } from '../diff-view';
 import { parseUnifiedDiff } from '../diff-view/parse-unified-diff';
 
 const ORIGINAL = 'const answer = 41;\nconsole.log(answer);\n';
 const MODIFIED = 'const answer = 42;\nconsole.log(answer);\n';
+
+/** A 60-line file with a single change at line 42, for the real-line-number gutter assertion. */
+function buildSixtyLineDocs(): { modified: string; original: string } {
+  const originalLines = Array.from({ length: 60 }, (_, index) => `line ${index + 1}`);
+  const modifiedLines = [...originalLines];
+  modifiedLines[41] = 'line 42 CHANGED';
+  return { modified: `${modifiedLines.join('\n')}\n`, original: `${originalLines.join('\n')}\n` };
+}
+
+function makeStructuredDiff(overrides: Partial<StructuredFileDiff> = {}): StructuredFileDiff {
+  return {
+    additions: null,
+    content: { kind: 'binary' },
+    deletions: null,
+    hunks: [],
+    path: 'src/example.ts',
+    status: 'modified',
+    ...overrides,
+  };
+}
 
 describe('DiffView', () => {
   afterEach(() => {
@@ -52,6 +74,344 @@ describe('DiffView', () => {
 
     const toggle = await screen.findByRole('button', { name: 'Switch to inline diff' });
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('applies the same render-side size threshold to the legacy string-prop path', async () => {
+    const original = 'small original\n';
+    // 20,001 lines — one over the render-side line threshold, same as the
+    // structured-mode fixture — the freeze risk (MergeView's synchronous
+    // main-thread diff) is identical on both paths.
+    const modified = `${Array.from({ length: 20_001 }, (_, index) => `line ${index}`).join('\n')}\n`;
+
+    render(<DiffView modified={modified} original={original} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-too-large-note')).toHaveTextContent(
+      'File too large to diff inline — showing content without change highlighting'
+    );
+    const surface = await screen.findByTestId('diff');
+    expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
+    expect(surface).toHaveTextContent('line 0');
+    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(surface).not.toHaveAttribute('data-mode');
+  });
+});
+
+describe('DiffView structured mode', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders a structured "full" diff with real line numbers in the gutter', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      additions: 1,
+      content: { kind: 'full', newContent: modified, oldContent: original },
+      deletions: 1,
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    expect(surface.querySelectorAll('.cm-editor').length).toBeGreaterThanOrEqual(2);
+    // Real line numbers require full documents fed to the vanilla `lineNumbers()`
+    // gutter — a single-hunk reconstruction could never produce '42' here.
+    // Array membership (not a substring join) so this can't false-positive on
+    // e.g. a gutter that happens to render '142' or '421' elsewhere.
+    const gutterLineNumbers = Array.from(surface.querySelectorAll('.cm-gutterElement')).map(
+      (element) => element.textContent?.trim() ?? ''
+    );
+    expect(gutterLineNumbers).toContain('42');
+    // Well under the render-side size/line thresholds — the normal
+    // MergeView diff renders, not the too-large fallback.
+    expect(screen.queryByTestId('diff-too-large-note')).toBeNull();
+  });
+
+  it('skips the inline diff and shows the new side read-only when structured "full" content is over the render-side line threshold', async () => {
+    const original = 'small original\n';
+    // 20,001 lines — one over the render-side line threshold.
+    const modified = `${Array.from({ length: 20_001 }, (_, index) => `line ${index}`).join('\n')}\n`;
+    const diff = makeStructuredDiff({
+      content: { kind: 'full', newContent: modified, oldContent: original },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-too-large-note')).toHaveTextContent(
+      'File too large to diff inline — showing content without change highlighting'
+    );
+    const surface = await screen.findByTestId('diff');
+    // A single read-only view, not a MergeView (no a/b pair).
+    expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
+    // The new side is shown (this isn't a deletion) — asserting near the
+    // start of the doc, since CodeMirror virtualizes very large documents
+    // and won't necessarily render far-scrolled-down lines in the DOM.
+    expect(surface).toHaveTextContent('line 0');
+    // No split/unified toggle for a fallback that never diffs.
+    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(surface).not.toHaveAttribute('data-mode');
+  });
+
+  it('shows the +/− stat summary beside the filename when additions/deletions are non-null', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      additions: 3,
+      content: { kind: 'full', newContent: modified, oldContent: original },
+      deletions: 2,
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-stat-summary')).toHaveTextContent('+3 −2');
+  });
+
+  it('renders a read-only unified view naming the over-cap side for hunks-only content, with no fabricated line numbers', async () => {
+    const diff = makeStructuredDiff({
+      content: {
+        hunkText: '@@ -1,2 +1,2 @@\n-old\n+new\n',
+        hunkTextTruncated: false,
+        kind: 'hunks-only',
+        reason: 'over-cap-old',
+      },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const note = await screen.findByTestId('diff-over-cap-note');
+    expect(note).toHaveTextContent('old side too large to render in full');
+    const surface = await screen.findByTestId('diff');
+    // A single read-only view, not a MergeView (no a/b pair).
+    expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
+    expect(surface).toHaveTextContent('+new');
+    // `hunkText` isn't a real file — its lines don't map to any correct
+    // absolute position, so this view must NOT render a lineNumbers() gutter
+    // (fabricated positions right next to the gutter Task 6 made authoritative).
+    expect(surface.querySelectorAll('.cm-gutterElement').length).toBe(0);
+    // Decoration choice: tint hunk lines by their leading +/- marker,
+    // reusing the same theme classes the full-document view uses, since a
+    // language grammar can't run over raw diff text either.
+    expect(surface.querySelector('.cm-insertedLine')).not.toBeNull();
+    expect(surface.querySelector('.cm-deletedChunk')).not.toBeNull();
+  });
+
+  it('tints hunk lines correctly when hunkText uses CRLF line endings', async () => {
+    // CodeMirror's document model normalizes `\r\n` to a single logical line
+    // break — decoration positions computed by naively splitting on `'\n'`
+    // alone (leaving a trailing `\r` per line) drift out of sync with that
+    // and silently drop every decoration on CRLF input.
+    const diff = makeStructuredDiff({
+      content: {
+        hunkText: '@@ -1,2 +1,2 @@\r\n-old\r\n+new\r\n',
+        hunkTextTruncated: false,
+        kind: 'hunks-only',
+        reason: 'over-cap-old',
+      },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    expect(await screen.findByTestId('diff-over-cap-note')).toBeTruthy();
+    expect(surface).toHaveTextContent('+new');
+    expect(surface.querySelector('.cm-insertedLine')).not.toBeNull();
+    expect(surface.querySelector('.cm-deletedChunk')).not.toBeNull();
+  });
+
+  it('names both sides for over-cap-both and shows the truncated badge when hunkTextTruncated', async () => {
+    const diff = makeStructuredDiff({
+      content: {
+        hunkText: '@@ -1,2 +1,2 @@\n-old\n+new\n',
+        hunkTextTruncated: true,
+        kind: 'hunks-only',
+        reason: 'over-cap-both',
+      },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-over-cap-note')).toHaveTextContent(
+      'both sides too large to render in full'
+    );
+    expect(await screen.findByTestId('diff-truncated-note')).toHaveTextContent('diff truncated');
+  });
+
+  it('names diff-overflow distinctly from the over-cap-* reasons', async () => {
+    const diff = makeStructuredDiff({
+      content: {
+        hunkText: '@@ -1,2 +1,2 @@\n-old\n+new\n',
+        hunkTextTruncated: false,
+        kind: 'hunks-only',
+        reason: 'diff-overflow',
+      },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-over-cap-note')).toHaveTextContent(
+      'diff too large to render in full'
+    );
+  });
+
+  it('renders a binary placeholder inside the labelled diff region, with zero mounted editors and no data-mode', async () => {
+    const diff = makeStructuredDiff({ content: { kind: 'binary' } });
+
+    render(
+      <DiffView ariaLabel="Diff for logo.png" source={{ diff, kind: 'structured' }} testId="diff" />
+    );
+
+    const note = await screen.findByTestId('diff-binary-note');
+    expect(note).toHaveTextContent('Binary file — no text diff');
+    // The accessible label lives on the labelled `<section>` region wrapping
+    // the placeholder, not on the placeholder itself — an `aria-label` on
+    // the inner div would OVERRIDE its own visible text as the accessible
+    // name, and `role="status"` would wrongly make static content a live
+    // region.
+    expect(note).not.toHaveAttribute('role');
+    expect(note).not.toHaveAttribute('aria-label');
+    const region = screen.getByRole('region', { name: 'Diff for logo.png' });
+    expect(region).toContainElement(note);
+    const surface = await screen.findByTestId('diff');
+    expect(surface.querySelectorAll('.cm-editor').length).toBe(0);
+    // `split`/`unified` don't apply to a placeholder with no editor at all.
+    expect(surface).not.toHaveAttribute('data-mode');
+  });
+
+  it('omits data-mode for hunks-only content (no split/unified to toggle between)', async () => {
+    const diff = makeStructuredDiff({
+      content: {
+        hunkText: '@@ -1,2 +1,2 @@\n-old\n+new\n',
+        hunkTextTruncated: false,
+        kind: 'hunks-only',
+        reason: 'over-cap-new',
+      },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    expect(surface).not.toHaveAttribute('data-mode');
+    // No mode toggle button either.
+    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+  });
+
+  it('shows a status chip in structured mode, even when additions/deletions are both null', async () => {
+    const diff = makeStructuredDiff({
+      additions: null,
+      content: { kind: 'binary' },
+      deletions: null,
+      status: 'renamed',
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-status-chip')).toHaveTextContent('Renamed');
+    // The both-null case must not ALSO claim a (fabricated) stat summary.
+    expect(screen.queryByTestId('diff-stat-summary')).toBeNull();
+  });
+
+  it('exposes a screen-reader-friendly expansion of the +/− stat summary', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      additions: 1,
+      content: { kind: 'full', newContent: modified, oldContent: original },
+      deletions: 2,
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const summary = await screen.findByTestId('diff-stat-summary');
+    expect(summary).toHaveTextContent('1 addition, 2 deletions');
+  });
+
+  it('falls back to the structured diff path for language resolution when `filename` is omitted', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      content: { kind: 'full', newContent: modified, oldContent: original },
+      path: 'src/fallback-example.py',
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    expect(surface).toHaveAttribute('data-language', 'Python');
+    expect(surface).toHaveTextContent('src/fallback-example.py');
+  });
+
+  it('keeps the same CodeMirror DOM node across a parent re-render with a freshly-allocated structured `source` literal (no flicker)', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      content: { kind: 'full', newContent: modified, oldContent: original },
+    });
+
+    function StructuredProbe() {
+      const [tick, setTick] = useState(0);
+      return (
+        <div>
+          <button onClick={() => setTick((value) => value + 1)} type="button">
+            bump {tick}
+          </button>
+          {/* A fresh `source` object literal every render — this is the exact
+              pattern the multi-file surface uses when passing a per-file diff
+              down from parent state. `language="plain"` pins out the
+              progressive async language-upgrade rebuild (an unrelated,
+              expected one-time rebuild once the grammar loads) so this probe
+              isolates ONLY the source-identity behavior under test. */}
+          <DiffView language="plain" source={{ diff, kind: 'structured' }} testId="diff" />
+        </div>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<StructuredProbe />);
+
+    const surface = await screen.findByTestId('diff');
+    const editorBefore = surface.querySelector('.cm-editor');
+    expect(editorBefore).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /bump/ }));
+    await user.click(screen.getByRole('button', { name: /bump/ }));
+
+    const editorAfter = surface.querySelector('.cm-editor');
+    expect(editorAfter).toBe(editorBefore);
+  });
+
+  it('control: keeps the same CodeMirror DOM node across a parent re-render with fresh legacy string props (already-passing baseline)', async () => {
+    function LegacyProbe() {
+      const [tick, setTick] = useState(0);
+      return (
+        <div>
+          <button onClick={() => setTick((value) => value + 1)} type="button">
+            bump {tick}
+          </button>
+          <DiffView modified={`${MODIFIED}`} original={`${ORIGINAL}`} testId="diff" />
+        </div>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<LegacyProbe />);
+
+    const surface = await screen.findByTestId('diff');
+    const editorBefore = surface.querySelector('.cm-editor');
+    expect(editorBefore).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /bump/ }));
+
+    const editorAfter = surface.querySelector('.cm-editor');
+    expect(editorAfter).toBe(editorBefore);
+  });
+
+  it('throws when neither `source` nor legacy `original`/`modified` props are given', () => {
+    // Suppress React's expected error-boundary console noise for this assertion.
+    vi.spyOn(console, 'error').mockImplementation(() => {
+      // intentionally empty
+    });
+    expect(() => {
+      // @ts-expect-error — `DiffViewProps` now enforces `source` XOR
+      // `original`+`modified` at compile time; this exercises the runtime
+      // backstop in `resolveDiffView` for anything that reaches the
+      // component past that (an untyped caller, or a type escape).
+      render(<DiffView testId="diff" />);
+    }).toThrow();
   });
 });
 

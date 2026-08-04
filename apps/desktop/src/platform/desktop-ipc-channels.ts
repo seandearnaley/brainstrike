@@ -12,6 +12,10 @@ export const DESKTOP_IPC_CHANNELS = {
     revertEntry: 'assistant-checkpoint:revert-entry',
     revertRun: 'assistant-checkpoint:revert-run',
   },
+  changes: {
+    fileDiff: 'changes:fileDiff',
+    resolveView: 'changes:resolveView',
+  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
@@ -87,6 +91,7 @@ export const DESKTOP_IPC_CHANNELS = {
     repository: 'git:repository',
     stage: 'git:stage',
     status: 'git:status',
+    structuredFileDiff: 'git:structuredFileDiff',
     switchBranch: 'git:switchBranch',
     unstage: 'git:unstage',
   },

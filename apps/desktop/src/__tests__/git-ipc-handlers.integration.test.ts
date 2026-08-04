@@ -4,9 +4,11 @@
  * a fake runner and asserting the exact git argument array (the command
  * construction) plus the structured error mapping — never a real push.
  */
+import { execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GitCommandRun, GitCommandRunner } from '../assistant-server/git-service';
 import {
@@ -16,12 +18,24 @@ import {
   type WorkspaceRootResolver,
 } from '../git-ipc-handlers';
 
+const execFileAsync = promisify(execFile);
+
 const createdDirs: string[] = [];
 
 async function makeDir(prefix = 'brainstrike-git-ipc-'): Promise<string> {
   const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), prefix));
   const real = await fsPromises.realpath(dir);
   createdDirs.push(real);
+  return real;
+}
+
+/** Real temp git repo (git init + local user) for exercising the production runner. */
+async function makeRepo(prefix = 'brainstrike-git-ipc-repo-'): Promise<string> {
+  const real = await makeDir(prefix);
+  await execFileAsync('git', ['init', '-q'], { cwd: real });
+  await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: real });
+  await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: real });
+  await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: real });
   return real;
 }
 
@@ -382,6 +396,149 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
   });
 });
 
+describe('git IPC handlers — structuredFileDiff (fake runner, arg + cwd passthrough)', () => {
+  it('routes params through to the service unmodified and pins every invocation to the resolved cwd', async () => {
+    const dir = await makeDir();
+    const calls: { args: readonly string[]; cwd: string }[] = [];
+    const runner: GitCommandRunner = ({ args, binaryStdout, cwd }) => {
+      calls.push({ args, cwd });
+      if (args[0] === 'config') {
+        return Promise.resolve({ exitCode: 1, stderr: '', stdout: '', timedOut: false });
+      }
+      if (args.includes('diff') && args.includes('--numstat')) {
+        return Promise.resolve({
+          exitCode: 0,
+          stderr: '',
+          stdout: '1\t1\tfile.txt\0',
+          timedOut: false,
+        });
+      }
+      if (args.includes('cat-file')) {
+        const spec = args.at(-1) ?? '';
+        const content = spec.startsWith('HEAD:') ? 'old\n' : 'new\n';
+        if (args.includes('-s')) {
+          // Size probe (fix B): plain decimal text, never `binaryStdout`.
+          return Promise.resolve({
+            exitCode: 0,
+            stderr: '',
+            stdout: `${Buffer.byteLength(content, 'utf8')}\n`,
+            timedOut: false,
+          });
+        }
+        return binaryStdout
+          ? Promise.resolve({
+              exitCode: 0,
+              stderr: '',
+              stdout: '',
+              stdoutBuffer: Buffer.from(content, 'utf8'),
+              timedOut: false,
+            })
+          : Promise.resolve({ exitCode: 0, stderr: '', stdout: content, timedOut: false });
+      }
+      if (args.includes('diff')) {
+        return Promise.resolve({
+          exitCode: 0,
+          stderr: '',
+          stdout:
+            'diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n',
+          timedOut: false,
+        });
+      }
+      return Promise.resolve({ exitCode: 0, stderr: '', stdout: '', timedOut: false });
+    };
+    const handlers = createGitIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
+      run: runner,
+    });
+
+    const result = await handlers.structuredFileDiff('r1', { mode: 'staged', path: 'file.txt' });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.status).toBe('modified');
+      expect(result.value.content).toEqual({
+        kind: 'full',
+        newContent: 'new\n',
+        oldContent: 'old\n',
+      });
+    }
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.cwd).toBe(dir);
+    }
+    // The `HEAD:./<path>` cat-file spec proves `path` flowed through the
+    // handler unmodified (the `./` magic pathspec form resolves against cwd —
+    // see `git-structured-diff.ts`'s module doc comment). (The numstat call
+    // is deliberately root-scoped `-- .` — see `resolveNumstatEntry`'s doc
+    // comment — and is invariant to `path`, so asserting on IT would prove
+    // nothing about passthrough.)
+    const catFileCall = calls.find(
+      (call) => call.args.includes('cat-file') && call.args.at(-1)?.startsWith('HEAD:')
+    );
+    expect(catFileCall?.args.at(-1)).toBe('HEAD:./file.txt');
+  });
+
+  it('rejects an unknown params shape without reaching the service (unsupported keys)', async () => {
+    const dir = await makeDir();
+    const { runner, calls } = recordingRunner({
+      exitCode: 0,
+      stderr: '',
+      stdout: '',
+      timedOut: false,
+    });
+    const handlers = createGitIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
+      run: runner,
+    });
+
+    const result = await handlers.structuredFileDiff('r1', {
+      extra: 'nope',
+      mode: 'staged',
+      path: 'file.txt',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // BST-1113 widened this engine to `commit`/`range`, so the allowed-key set
+      // is now per-mode and the message names the mode it rejected for. The
+      // assertion stays specific: it must still say the params were REJECTED and
+      // must name the offending key, never just fail opaquely.
+      expect(result.error).toMatch(/does not accept|unsupported|only accepts/);
+      expect(result.error).toContain('extra');
+    }
+    // Validation rejects the malformed params before any git invocation.
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('git IPC handlers — structuredFileDiff (real repo, happy path)', () => {
+  it('working mode: reports a real modification through the full handler stack', async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(path.join(repo, 'a.txt'), 'line1\nline2\n', 'utf8');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await fsPromises.writeFile(path.join(repo, 'a.txt'), 'line1\nline2-edited\n', 'utf8');
+
+    const handlers = createGitIpcHandlers({
+      resolver: fakeResolver([{ displayName: 'repo', path: repo, rootId: 'r1' }]),
+    });
+
+    const result = await handlers.structuredFileDiff('r1', { mode: 'working', path: 'a.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('modified');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-edited\n',
+      oldContent: 'line1\nline2\n',
+    });
+    expect(result.value.hunks).toEqual([{ newLines: 2, newStart: 1, oldLines: 2, oldStart: 1 }]);
+  });
+});
+
 describe('git IPC runner — pinned repository environment', () => {
   it('removes routing overrides case-insensitively while preserving audited Git controls', () => {
     const environment = createPinnedGitEnvironment({
@@ -423,6 +580,11 @@ describe('git IPC runner — pinned repository environment', () => {
       GIT_SSH_COMMAND: 'ssh -F /outside/config',
       GIT_TERMINAL_PROMPT: '0',
       HOME: '/Users/example',
+      // Pinned so git's stderr wording stays stable for the structured-diff
+      // engine's programmatic parsing (absent-classification, unmerged
+      // detection, `isNotARepository`) regardless of the host OS locale.
+      LANG: 'C',
+      LC_ALL: 'C',
       SSH_AUTH_SOCK: '/tmp/agent.sock',
     });
     expect(environment.GIT_DIR).toBeUndefined();
@@ -454,5 +616,67 @@ describe('execFileGitRunner — errno discrimination (real runner)', () => {
     expect(run.failureReason).toBe('notFound');
     expect(run.exitCode).toBeNull();
     expect(run.timedOut).toBe(false);
+  });
+});
+
+describe('execFileGitRunner — binary stdout (real runner)', () => {
+  it('captures exact bytes via stdoutBuffer when binaryStdout is true, never a lossy decode', async () => {
+    const repo = await makeRepo();
+    const blobBytes = Buffer.from([0x61, 0x00, 0x62]);
+    await fsPromises.writeFile(path.join(repo, 'bin.dat'), blobBytes);
+    await execFileAsync('git', ['add', 'bin.dat'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add binary blob'], { cwd: repo });
+
+    const run = await execFileGitRunner({
+      args: ['cat-file', 'blob', 'HEAD:bin.dat'],
+      binaryStdout: true,
+      cwd: repo,
+      timeoutMs: 5000,
+    });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toBe('');
+    expect(run.stdoutBuffer).toBeInstanceOf(Buffer);
+    expect(run.stdoutBuffer).toEqual(blobBytes);
+  });
+
+  it("keeps today's text behavior when binaryStdout is absent", async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(path.join(repo, 'text.txt'), 'hello\n', 'utf8');
+    await execFileAsync('git', ['add', 'text.txt'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add text file'], { cwd: repo });
+
+    const run = await execFileGitRunner({
+      args: ['rev-parse', 'HEAD'],
+      cwd: repo,
+      timeoutMs: 5000,
+    });
+
+    expect(run.exitCode).toBe(0);
+    expect(typeof run.stdout).toBe('string');
+    expect(run.stdout.trim()).toMatch(/^[0-9a-f]{40}$/);
+    expect(run.stdoutBuffer).toBeUndefined();
+  });
+
+  it('returns an empty stdoutBuffer and text stderr on a binary-mode failure (missing path)', async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(path.join(repo, 'text.txt'), 'hello\n', 'utf8');
+    await execFileAsync('git', ['add', 'text.txt'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add text file'], { cwd: repo });
+
+    const run = await execFileGitRunner({
+      args: ['cat-file', 'blob', 'HEAD:missing'],
+      binaryStdout: true,
+      cwd: repo,
+      timeoutMs: 5000,
+    });
+
+    expect(run.exitCode).toBe(128);
+    // `encoding: 'buffer'` makes BOTH streams Buffers; guards the `stderr:
+    // stderr.toString('utf8')` conversion against ever regressing to
+    // '[object Object]' from an un-decoded Buffer.
+    expect(run.stderr).toMatch(/fatal:/);
+    expect(run.stdoutBuffer).toBeInstanceOf(Buffer);
+    expect(run.stdoutBuffer).toEqual(Buffer.alloc(0));
   });
 });

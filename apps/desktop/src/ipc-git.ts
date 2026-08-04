@@ -1,4 +1,4 @@
-import type { GitDiffParams } from '@brainstrike/types';
+import type { GitDiffParams, StructuredFileDiffParams } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { getDatabase } from './db-main';
 import {
@@ -31,6 +31,12 @@ export function registerGitIpcHandlers(
     'git',
     DESKTOP_IPC_CHANNELS.git.diff,
     (_event, rootId: unknown, params: GitDiffParams) => handlers.diff(rootId, params)
+  );
+  registry.registerInvoke(
+    'git',
+    DESKTOP_IPC_CHANNELS.git.structuredFileDiff,
+    (_event, rootId: unknown, params: StructuredFileDiffParams) =>
+      handlers.structuredFileDiff(rootId, params)
   );
   registry.registerInvoke(
     'git',

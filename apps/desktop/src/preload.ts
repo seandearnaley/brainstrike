@@ -1,6 +1,8 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
+type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
+type Changeset = import('@brainstrike/types').Changeset;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -97,6 +99,9 @@ const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
 const GIT_REPOSITORY_CHANNEL = 'git:repository' as const;
 const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
+const GIT_STRUCTURED_FILE_DIFF_CHANNEL = 'git:structuredFileDiff' as const;
+const CHANGES_RESOLVE_VIEW_CHANNEL = 'changes:resolveView' as const;
+const CHANGES_FILE_DIFF_CHANNEL = 'changes:fileDiff' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1221,10 +1226,29 @@ if (shouldExposeBridge('git')) {
     stage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    structuredFileDiff: (rootId: string, params: StructuredFileDiffParams) =>
+      ipcRenderer.invoke(GIT_STRUCTURED_FILE_DIFF_CHANNEL, rootId, params),
     switchBranch: (rootId: string, params: { branch: string }) =>
       ipcRenderer.invoke(GIT_SWITCH_BRANCH_CHANNEL, rootId, params),
     unstage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+  });
+}
+
+// Changeset diff bridge (desktop-only, BST-1113): resolves any `Changeset`
+// (agent-run / run-range / git-scope) to an eager `ChangesetView` and loads
+// per-file `StructuredFileDiff`s lazily. Web never constructs this bridge
+// (there is no preload), so `window.changes` is simply absent there;
+// consumers must capability-check `window.changes` rather than
+// `isElectron()`. Task 1 wires typed stub handlers that always return a
+// `not-implemented` GitResult failure; Task 3/4 land the real
+// ChangesetDiffService implementation.
+if (shouldExposeBridge('changes')) {
+  contextBridge.exposeInMainWorld('changes', {
+    fileDiff: (rootId: string, changeset: Changeset, path: string) =>
+      ipcRenderer.invoke(CHANGES_FILE_DIFF_CHANNEL, rootId, changeset, path),
+    resolveView: (rootId: string, changeset: Changeset) =>
+      ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
   });
 }
 
