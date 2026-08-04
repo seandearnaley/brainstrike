@@ -30,7 +30,26 @@ export interface GitInventory {
   readonly repositories: readonly GitInventoryRepository[];
 }
 
-export type GitScopeKind = 'branch-vs-base' | 'commit' | 'staged' | 'uncommitted' | 'unstaged';
+/** Discriminated git diff scope. Each kind carries only the fields it needs (spec §3). */
+export type GitScope =
+  | {
+      /** Base ref to merge-base against; defaults to the branch upstream (@{u}) when omitted. */
+      readonly baseRef?: string;
+      readonly kind: 'branch-vs-base';
+    }
+  | {
+      readonly commitId: string;
+      readonly kind: 'commit';
+    }
+  | {
+      readonly kind: 'staged';
+    }
+  | {
+      readonly kind: 'uncommitted';
+    }
+  | {
+      readonly kind: 'unstaged';
+    };
 
 export type Changeset =
   | {
@@ -40,9 +59,8 @@ export type Changeset =
     }
   | {
       readonly kind: 'git-scope';
-      readonly commitId?: string;
       readonly repositoryRoot: string;
-      readonly scope: GitScopeKind;
+      readonly scope: GitScope;
       readonly worktreePath: string;
     }
   | {
@@ -64,6 +82,8 @@ export interface ChangedFileEntry {
   readonly path: string;
   readonly repositoryRoot: string | null;
   readonly revertible: boolean;
+  /** Owning workspace root id (durable RootId), or null when outside all roots. */
+  readonly rootId: string | null;
   readonly status: ChangedFileStatus;
   readonly worktreePath: string | null;
 }
