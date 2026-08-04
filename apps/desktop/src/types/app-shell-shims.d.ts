@@ -33,6 +33,7 @@ declare module '@brainstrike/app-shell/types' {
 declare module '@brainstrike/app-shell/root-layout-content' {
   export const RootLayoutContent: React.ComponentType;
   export interface RootLayoutContentProps {
+    changesPageContent?: React.ReactNode;
     contextExplorerPageContent: React.ReactNode;
     contextExplorerPanelContent?: React.ReactNode;
     databaseTabChunkingMode?: 'host-proxy' | 'local';
@@ -42,6 +43,18 @@ declare module '@brainstrike/app-shell/root-layout-content' {
     preloadDatabaseTabOnMount?: boolean;
     settingsPageContent: React.ReactNode;
   }
+}
+
+declare module '@brainstrike/app-shell/changes' {
+  /** The Changes surface (BST-1114): header + changed-files tree + diff pane. */
+  export const ChangesSurface: React.ComponentType;
+  /** True when the desktop `window.changes` bridge is present and fully formed. */
+  export function isChangesBridgeAvailable(): boolean;
+}
+
+declare module '@brainstrike/app-shell/changes/availability' {
+  /** True when the desktop `window.changes` bridge is present and fully formed. */
+  export function isChangesBridgeAvailable(): boolean;
 }
 
 declare module '@brainstrike/app-shell/git-panel' {

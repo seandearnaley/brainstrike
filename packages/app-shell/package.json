@@ -71,6 +71,14 @@
       "types": "./dist/assistant-memory-repository.d.ts",
       "import": "./dist/assistant-memory-repository.js"
     },
+    "./changes": {
+      "types": "./dist/changes/index.d.ts",
+      "import": "./dist/changes/index.js"
+    },
+    "./changes/availability": {
+      "types": "./dist/changes/availability.d.ts",
+      "import": "./dist/changes/availability.js"
+    },
     "./cost-tracking": {
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"
