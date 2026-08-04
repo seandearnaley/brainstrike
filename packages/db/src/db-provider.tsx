@@ -817,8 +817,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, []);
 
   const clearViaElectronIPC = useCallback(async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const electronDB = (window as any).electronAPI?.db;
+    const electronDB = window.electronAPI?.db;
     if (!electronDB?.clearAll) {
       throw new Error('Electron IPC clearAll method not available');
     }
@@ -935,16 +934,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     // Check if Electron IPC is actually available (not just configured)
-    const electronAPI =
-      typeof window === 'undefined'
-        ? null
-        : ((
-            window as Window & {
-              electronAPI?: {
-                db?: { clearAll?: (confirmationToken?: string) => Promise<unknown> };
-              };
-            }
-          ).electronAPI ?? null);
+    const electronAPI = typeof window === 'undefined' ? null : (window.electronAPI ?? null);
 
     const isElectronIPCAvailable = useElectronIPC && electronAPI?.db?.clearAll;
 
@@ -1020,8 +1010,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, []);
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {
-    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const w = (typeof window === 'undefined' ? null : (window as any)) as any;
+    const w = typeof window === 'undefined' ? null : window;
     if (!(useElectronIPC && w?.electronAPI?.db)) {
       return false;
     }
@@ -1105,8 +1094,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [purgeAndClosePGlite, cleanupAndWaitForReset]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const w = (typeof window === 'undefined' ? null : (window as any)) as any;
+    const w = typeof window === 'undefined' ? null : window;
     if (w?.electronAPI?.db?.query) {
       try {
         await w.electronAPI.db.query('DELETE FROM job_queue');
@@ -1153,8 +1141,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       clearAllData,
       clearQueuesAndEmbeddingSets: async () => {
         if (useElectronIPC) {
-          // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-          const w = (typeof window === 'undefined' ? null : (window as any)) as any;
+          const w = typeof window === 'undefined' ? null : window;
           if (w?.electronAPI?.db?.query) {
             await purgeQueuesAndSetsElectron();
             return;
