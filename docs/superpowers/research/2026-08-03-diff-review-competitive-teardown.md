@@ -51,16 +51,21 @@ Short verdicts only; the detail sections below carry the quotes and citations.
 
 | # | Capability | Cursor | Codex | Claude Code | BrainStrike planned |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Diff scopes | Turn review + Source Control; no named scope picker (**unverified**) | **Best in class** — Unstaged / Staged / Commit / Branch / Last turn | `/diff`: git diff ⟷ per-turn; no staged/branch picker (**unverified**) | Superset: 6 git scopes + agent-run + run-range (§3, §5) |
+| 1 | Diff scopes | Turn review + Source Control; no named scope picker (**unverified**) | **Best in class** — Unstaged / Staged / Commit / Branch / Last turn | `/diff`: git diff ⟷ per-turn; no staged/branch picker (**unverified**) | Superset: 5 git scopes + agent-run + run-range (§3, §5) |
 | 2 | Multi-file navigation | PR-style view; per-file bar in editor chrome | Stacked scroll, sticky headers, collapsed unmodified lines | File list → one file at a time (CLI + desktop) | Stacked + sticky headers, explicitly Codex-modelled (§5) |
 | 3 | Changed-files presentation | SCM panel + chat change summary | Flat per-repo list + repo selector; workspace file tree with dirty badges | Flat list, no selection model | **Tree** root→repo→worktree→dir, tri-state selection drives rendering + bulk actions (§5) |
-| 4 | Multi-root / multi-repo | Multi-root workspaces (3.2); SCM gaps reported | Multi-folder projects w/ **primary folder** owning git; cross-repo review pane | Single project root per session | Native peer repos, no primary-folder asymmetry (§1, §3, §4) |
+| 4 | Multi-root / multi-repo | Multi-root workspaces (3.2); SCM gaps reported | Multi-folder projects; **primary folder** owns new chats / Git ops / config discovery; review itself spans repos ("All repos") | Single project root per session | Native peer repos, no primary-folder asymmetry (§1, §3, §4) |
 | 5 | Worktree visibility & mgmt | Full lifecycle: create, promote, apply, delete, cleanup | Full lifecycle: per-thread, branch-here, hand off, restore, cap 15 | Full lifecycle: `--worktree`, auto per session, archive, sweep | **Visibility + provenance only**; no lifecycle ops (§3, §4) |
-| 6 | Agent-change attribution | Per-message change summary; checkpoint per request | "Last turn" scope + per-turn edited-files card | `/diff` arrows across **individual Claude turns** | Journal-backed `agent-run` / `run-range`, git-independent (§3, §4) |
+| 6 | Agent-change attribution | Per-message change summary; checkpoints "before significant changes" | "Last turn" scope + per-turn edited-files card | `/diff` arrows across **individual Claude turns** | Journal-backed `agent-run` / `run-range`, git-independent (§3, §4) |
 | 7 | Conversation revert | Files-only per docs; message coupling **unverified**; no redo | Files-only Undo; no conversation rewind; no redo | Code / conversation / **both**; no redo | Coupled + **one-level redo** + revert previewed as a changeset (§2, §4) |
 | 8 | Commit/push from review | Stage, commit, manage PRs from diffs view | Commit, push branch, open PR in-app | PR + CI status bar (auto-fix/auto-merge); no commit UI in diff pane | "Commit or push" button; **no PR creation** (§5) |
 | 9 | Partial application | Per-file Keep/Undo + per-block accept/reject *(community)* | **Three levels: all / file / hunk** | Pre-apply accept-reject in Manual mode; post-apply is whole-turn | **None by design** — settled concession (§2) |
 | 10 | Live refresh | "changes as they happen" | Reflects git state; live mid-run refresh **unverified** | `/diff` auto-refreshes on external git change (v2.1.198) | Watcher on `.git` + working tree, no polling; agent-run refreshes at `onRunFinished` (§6) |
+| 11 | Inline diff comments → agent | PR review comments (iPad); local diff-line comments **unverified** | Hover **+** on any line, comments guide Codex | Click line → comment box, `Cmd+Enter` submits all; Claude returns a new diff | **None** — no comment affordance in §5 (see gap 4) |
+
+Row 11 was added to the brief's fixed ten; it is the only capability all three
+competitors ship that the spec has no counterpart for at any level, and burying
+it in a closing list would have understated it.
 
 ---
 
@@ -176,16 +181,26 @@ workspace *(community,
 [forum](https://forum.cursor.com/t/git-source-control-not-detected-in-multi-root-code-workspace/158147))*.
 
 **Codex** — Multi-folder local projects landed 2026-07-23 with an explicit
-asymmetry: one designated **primary folder** is the Git root and owns Git
-operations, PRs, review, and `AGENTS.md` / skills / `config.toml` discovery;
-secondary folders remain readable, writable, and searchable *(docs,
-[changelog](https://learn.chatgpt.com/docs/changelog), 2026-07-23;
-[local-environment](https://learn.chatgpt.com/docs/environments/local-environment))*.
-Review caught up a week later: "See all repositories in a multi-folder project
-and the lines changed in each one. Select **Review** to inspect diffs across
-those repositories without switching between separate review views"
-*(docs, [changelog](https://learn.chatgpt.com/docs/changelog) 26.727, 2026-07-30)* —
-still a repository selector over per-repo diffs, under one privileged Git root.
+asymmetry: "New chats, Git operations, and automatic discovery of `AGENTS.md`,
+skills, and `config.toml` use the primary folder; secondary folders remain
+available for file search, reading, and editing" *(docs,
+[changelog](https://learn.chatgpt.com/docs/changelog), 2026-07-23)*. That is the
+full documented extent of the primary folder's privilege — commit / push / PR
+are described as app-general capabilities *(docs,
+[local-environment](https://learn.chatgpt.com/docs/environments/local-environment))*,
+and **review is explicitly not primary-folder-bound**. Review caught up a week
+later: "See all repositories in a multi-folder project and the lines changed in
+each one. Select **Review** to inspect diffs across those repositories without
+switching between separate review views" *(docs,
+[changelog](https://learn.chatgpt.com/docs/changelog) 26.727, 2026-07-30)*. The
+review docs confirm both the per-repo and the aggregate view: "the review pane
+can show changes from each repository", you "open the repository selector in the
+review header to inspect another repository", and for the turn-scoped view,
+"Choose **Last turn** to see the assistant's latest changes across the attached
+repositories. The repository selector shows **All repos** for that view" *(docs,
+[code-review](https://learn.chatgpt.com/docs/code-review))*.
+**Codex's cross-repo review is genuine, not a per-repo selector workaround** —
+see differentiator 1 for what remains distinct.
 
 **Claude Code** — A session targets one project folder (and its worktree).
 Nothing in the desktop or CLI docs describes a multi-root workspace or a
@@ -202,8 +217,8 @@ discovered across `activeRootIds`, plus followed out-of-root worktrees"; §4
 `GitInventoryService` walks each root, enumerates worktrees per repo, follows
 pointers outside roots, and merges agent-reported workspaces. §5 groups the file
 tree root → repo → worktree → directory. Repos are **peers**; there is no
-primary-folder privilege.
-**Verdict: ahead of all three on the review surface, though Cursor's agent-side multi-root is more mature than BrainStrike's (which does not exist yet).**
+primary-folder privilege, so no repo's `AGENTS.md` / config wins by position.
+**Verdict: level with Codex on cross-repo review; ahead on peer-repo symmetry and on worktree-level grouping; behind Cursor on agent-side multi-root, which BrainStrike does not have at all.**
 
 ### 5. Worktree visibility & management
 
@@ -254,10 +269,13 @@ it as **visible-but-locked**. §5 adds a `worktree` `ContextTarget` kind.
 
 ### 6. Agent-change attribution
 
-**Cursor** — Attribution is per-request: checkpoints are created per request and
-each message carries a change summary whose filenames focus the review pane
-*(docs, [checkpoints](https://cursor.com/docs/agent/chat/checkpoints);
-community, [forum](https://forum.cursor.com/t/only-some-diffs-are-shown-whhen-agent-makes-changes/152099))*.
+**Cursor** — Attribution is checkpoint-shaped rather than turn-shaped:
+checkpoints are created "before making significant changes" — an agent-activity
+trigger, not a one-per-request guarantee — and are restorable from the chat
+timeline or the **Restore Checkpoint** button on previous requests *(docs,
+[checkpoints](https://cursor.com/docs/agent/chat/checkpoints))*. Separately, each
+message carries a change summary whose filenames focus the review pane
+*(community, [forum](https://forum.cursor.com/t/only-some-diffs-are-shown-whhen-agent-makes-changes/152099))*.
 Whether an arbitrary historical turn's diff can be re-opened as a diff view (as
 opposed to restored) is **unverified**.
 
@@ -372,7 +390,10 @@ review bar, and block-by-block accept/reject navigation through applied changes
 [forum](https://forum.cursor.com/t/keyboard-and-ui-navigate-changes/17216))*.
 Both are community-sourced; the current official docs page for review does not
 specify accept/reject granularity, and the surface has visibly churned across
-2.x/3.x releases *(community, several 2026 regression reports)*.
+2.x/3.x releases — e.g. review/diff navigation reported missing in v2.6.20
+*(community, [forum](https://forum.cursor.com/t/review-diff-navigation-bar-missing-after-agent-changes-v2-6-20/155587))*
+and a report of agent edits landing on disk with no inline diff and no Keep/Undo
+controls *(community, [forum](https://forum.cursor.com/t/after-updating-cursor-agent-mode-applies-file-changes-directly-to-disk-with-no-red-green-inline-diff-and-no-keep-undo-or-accept-reject-controls-settings-that-used-to-control-this-either-dont-exist-in-my-ui-or-have-no-effect-this-removed/162532))*.
 
 **Codex** — The clearest documented model: control at "three levels: entire diff
 (header buttons like **Stage all** or **Revert all**), per-file, or per-hunk",
@@ -418,6 +439,49 @@ monotonic generation guard; "**No polling**." Agent-run changesets refresh on th
 existing `onRunFinished` lifecycle seam.
 **Verdict: parity or better for git-scope changesets (the external-change case Claude Code documents); *behind Cursor* for agent-run changesets, which update at run boundaries rather than as edits land. See parity gap 2.**
 
+### 11. Inline diff comments routed back to the agent
+
+*(Row added beyond the brief's fixed ten — see the note under the summary matrix.)*
+
+**Cursor** — On iPad, "the review screen now covers the full PR: comments,
+checks, and approvals", and you can "add or change reviewers, read comments, and
+prompt the agent to resolve them" *(docs,
+[changelog/ipad](https://cursor.com/changelog/ipad), 2026-07-29)*. That is
+PR-level review commenting. Whether the desktop **local** diffs view accepts
+line comments that feed the agent is **unverified** — the adjacent capability
+Cursor documents for local diffs is agent *review* (**Review** → **Find
+Issues**), which produces comments rather than consuming them.
+
+**Codex** — "Hover over lines to reveal a **+** button for attaching
+line-specific feedback"; the docs state plainly that these comments "guide Codex
+toward precise fixes" *(docs,
+[code-review](https://learn.chatgpt.com/docs/code-review))*. Also surfaced in
+the local-environment docs as viewing "inline comments for Codex to address".
+
+**Claude Code** — The most complete loop of the three: "click any line in the
+diff to open a comment box. Type your feedback and press **Enter** to add the
+comment", then submit all comments at once with `Cmd+Enter` / `Ctrl+Enter`,
+after which "Claude reads your comments and makes the requested changes, which
+appear as a new diff you can review" *(docs,
+[desktop](https://code.claude.com/docs/en/desktop))*. Batching before dispatch
+is the detail worth copying — it avoids one agent turn per comment.
+
+**Adjacent, in all three: agent-driven review *of* the diff.** Cursor has
+**Review** → **Find Issues** and Bugbot; Codex has `/review` with presets (base
+branch, uncommitted, commit, custom); Claude Code has a **Review code** toolbar
+button in the diff view and `/code-review` in the CLI. BrainStrike already owns
+comparable review machinery elsewhere in the repo — the gap is only that it is
+not launchable *from* the diff surface. This is the reverse direction of the
+same channel (agent → comments on the diff, vs user → comments to the agent) and
+both terminate in the same line-anchored comment model, which is why they are
+consolidated into this row rather than split.
+
+**BrainStrike planned** — **Nothing.** §5 describes the changeset header, the
+changed-files tree, the diff pane, entry points, and context actions; no comment
+affordance appears in any of them, in either direction. This is the only row in
+the matrix where the spec has no counterpart at any level of capability.
+**Verdict: behind all three. See parity gap 4 for the scoping recommendation (W4 stretch or immediate follow-on; the payload is `(file, line, text)` handed to the composer once `StructuredFileDiff` lands).**
+
 ---
 
 ## Parity gaps
@@ -454,7 +518,7 @@ GitHub auth/`gh` dependency that has nothing to do with changeset resolution.
 Recommendation: state it as deliberately out of scope in the §2 decisions table
 so it is not silently missing, and file it as a follow-on project.
 
-**4. Inline review comments on diff lines routed back to the agent — gap, strongest candidate scope addition.**
+**4. Inline review comments on diff lines routed back to the agent — gap, strongest candidate scope addition. (Matrix row 11.)**
 All three have it: Codex hover-**+** on any line to attach feedback "to guide
 Codex toward precise fixes"; Claude Code desktop click-a-line to comment, then
 `Cmd+Enter` to submit all comments at once, after which "Claude reads your
@@ -463,7 +527,9 @@ iPad review screen covers "comments, checks, and approvals". The spec has **no**
 comment affordance anywhere in §5. This is the highest-leverage addition on the
 list: the diff pane already owns line-level rendering once `StructuredFileDiff`
 lands (§3), and the payload is just `(file, line, text)` handed to the composer.
-Recommendation: scope into W4 as a stretch, or file immediately after it.
+Recommendation: scope into W4 as a stretch, or file immediately after it. Copy
+Claude Code's batching — accumulate comments and dispatch once, rather than one
+agent turn per comment.
 
 **5. Review pane reflects repo state, not only agent edits — gap in *communication*, not capability.**
 Codex documents plainly that its pane "includes changes made by Codex, changes
@@ -494,13 +560,16 @@ turn-level revert is too coarse in practice; if so, the cheaper first step is
 per-*file* revert within a changeset (the tri-state selection in §5 already
 expresses the selection set), not per-hunk staging.
 
-**7. Agent-driven code review of the diff — adjacent, correctly out of scope.**
+**7. Agent-driven code review of the diff — adjacent, low cost. (Detailed under matrix row 11.)**
 Cursor (**Review** → **Find Issues**, Bugbot), Codex (`/review` with presets),
 and Claude Code (**Review code** button, `/code-review`) all bundle an LLM review
 pass into the review surface. BrainStrike already has `/code-review` machinery
 elsewhere; the gap is only that it is not *launchable from the diff surface*.
 Recommendation: one context action wired to the existing review path, once W4
-exists. Not a project-scoping concern.
+exists. Not a project-scoping concern on its own — but note it lands comments
+*on* the diff, so it shares the line-anchored comment model gap 4 introduces.
+Sequence gap 4 first and this becomes nearly free; sequence it first and you
+build the comment model twice.
 
 ---
 
@@ -508,14 +577,31 @@ exists. Not a project-scoping concern.
 
 The spec has it, none of the three does.
 
-**1. Cross-repo changeset as the primary unit (§1, §3 `Changeset`, §5 tree grouping).**
-Codex's 2026-07-30 multi-repo review is per-repo diffs behind a repository
-selector, under one privileged primary folder that owns all Git operations.
+**1. Arbitrary historical runs and run-ranges as cross-repo changesets (§1, §3 `Changeset`, §5 tree grouping).**
+The claim has to be narrowed, because the evidence in row 4 undercuts the broad
+version: Codex's **Last turn** scope with the **All repos** selector *is* a
+cross-repo, agent-turn-addressable review unit shipping today. What remains
+unoccupied is three-part:
+
+- **Historical, not just latest.** Codex addresses the most recent assistant
+  turn; §3's `agent-run` takes any `runId`, and `run-range` aggregates
+  `fromRunId → toRunId` across many runs. Claude Code's `/diff` reaches arbitrary
+  historical turns but is single-repo and has no range aggregation.
+- **Git-independent resolution.** §3's `agent-run` "works without git (agent
+  edited outside any repo)" — see differentiator 3.
+- **No primary-folder privilege.** Codex's repos are peers *for review* but not
+  for the project: new chats, Git operations, and `AGENTS.md` / skills /
+  `config.toml` discovery all resolve against the designated primary folder.
+  §3/§4 keep repos symmetric throughout.
+
 Cursor's multi-root workspace gives one agent session across folders but no
-unified change unit, and its own Source Control view is reported to lose repos in
-that configuration. Claude Code is single-root. **Nobody makes "what this run
-changed, wherever those files live" the addressable object.** That is §1's stated
-pivot and it is genuinely unoccupied ground.
+unified change unit, and its own Source Control view is community-reported to
+lose repos in that configuration. Claude Code is single-root.
+
+*Scoping implication:* the run-range kind is what carries this, and it is also
+what differentiator 5 and W5's revert preview depend on — so `run-range` is not
+an optional extra inside W3, it is the load-bearing half of the union. Do not let
+it slip to "after `agent-run` works".
 
 **2. Out-of-root worktree provenance with a security posture (§3 `WorktreeDescriptor`, §4 security rule).**
 All three create worktrees; none tells you where a worktree came from. §3's
@@ -527,6 +613,12 @@ competitor analogue. Claude Code's unsuppressable `EnterWorktree` approval promp
 for out-of-`.claude/worktrees` paths is the nearest thing in the market, and it
 is a permission gate, not an inventory with provenance.
 
+*Scoping implication:* W2's acceptance criterion is the **contract test** §4
+already calls for — out-of-root access granted only via linked-worktree
+provenance, everything else visible-but-locked — not merely "the inventory lists
+out-of-root worktrees". The differentiator is the enforced rule; an inventory
+without it is just a list.
+
 **3. Journal-backed, git-independent review (§3 `agent-run`, §4 `ChangesetDiffService`).**
 Codex's review pane is explicitly derived from git state. Cursor's and Claude
 Code's checkpoints are non-git snapshots, but they feed *restore* only — neither
@@ -536,11 +628,23 @@ joining journal before-content/hashes against current disk. **It is the only
 design here that can review an agent's edits in a directory that isn't a
 repository.**
 
+*Scoping implication:* W3 needs at least one fixture covering an agent run whose
+edits land **entirely outside any repo**. If every W3 test fixture happens to sit
+inside a git repo, the git-independent path can rot undetected behind the
+git-backed one — and this differentiator is the first thing to silently stop
+working.
+
 **4. Coupled revert with one-level redo, and a re-revertible history (§2, §4).**
 Claude Code couples code and conversation but offers no redo. Cursor and Codex
 are files-only. §4's revert-time after-capture — journaling the revert itself so
 it can be reverted — is the mechanism that makes redo honest rather than a UI
 affordance layered over a lossy operation. Nobody else has this.
+
+*Scoping implication:* redo is only honest if the revert-time after-capture lands
+**with** the revert, in the same W5 change. Shipping range-revert first and
+after-capture later would mean a redo button over an unjournaled operation —
+exactly the silent-degradation the repo's no-fallbacks rule forbids. Treat them
+as one commit.
 
 **5. The revert is previewed as a diff before you commit to it (§1, §5).**
 Cursor previews *files at a checkpoint*; Claude Code's `/rewind` shows a message
@@ -548,6 +652,11 @@ list. Neither shows "here is the diff this restore will apply". §5 opens the
 conversation-revert confirmation on the `run-range` changeset — the same viewer,
 same components. This falls directly out of differentiator 1 and costs almost
 nothing once the run-range kind exists.
+
+*Scoping implication:* this is the concrete reason W5 must depend on W3's
+`run-range` and not just on the revert service. If W5 ships with a text-list
+confirmation because run-range wasn't ready, the differentiator is gone and the
+confirmation UX gets rebuilt later.
 
 **6. Honest partial failure on revert (§4, §7).**
 "Conflicting files listed, never silently skipped", with per-file hash conflict
@@ -557,11 +666,23 @@ warning for symlinked paths — a notice, not a reconciliation. Codex's Undo, by
 contrast, has open reports of failing opaquely and of staging changes as a side
 effect. This is a small feature that will read as a large quality signal.
 
+*Scoping implication — name it as a W5 acceptance criterion:* **a revert whose
+per-file hash check fails must surface every conflicting file by path and require
+explicit acknowledgment before any part of the revert is applied; no file is
+skipped without appearing in that list.** Phrased that way it is directly
+testable (§8's range-revert-ordering unit test extends to it) and cannot quietly
+degrade into a best-effort revert with a toast.
+
 **7. Hierarchical, selection-driven changed-files tree (§5).**
 All three ship flat changed-file lists. §5's `TreeTable` grouped
 root → repo → worktree → directory, with tri-state checkboxes that both scope
 bulk actions and determine which diffs render, is the only presentation in this
 teardown that can express a multi-repo changeset without a repository dropdown.
+
+*Scoping implication:* the risk here is render stability, not features — §5's
+identity-stable `TreeNode` adapter and §8's TreeTable render-stability test are
+what keep this from becoming a janky tree that reviewers avoid. Treat that test
+as blocking for W4, not optional.
 
 ---
 
@@ -574,6 +695,8 @@ Recorded so they are not later mistaken for settled facts:
 - Cursor: whether restoring a checkpoint removes conversation messages after that
   point — **unverified**; docs describe file reversion only.
 - Cursor: whether the new diffs view uses continuous stacked scroll — **unverified**.
+- Cursor: whether the desktop **local** diffs view accepts line comments that feed
+  the agent (as opposed to PR review comments on iPad) — **unverified**.
 - Cursor: per-hunk and per-file accept/reject rest on community reports only; the
   surface has churned repeatedly across 2026 releases.
 - Codex: whether the review pane auto-refreshes during an active run —
