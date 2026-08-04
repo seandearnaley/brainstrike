@@ -53,6 +53,7 @@ const PRESENT_RELATIONS = [
   'prompt_items',
   'brainstrike_assistant_tool_output_artifacts',
   'brainstrike_diagnostic_events',
+  'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
 ] as const;
