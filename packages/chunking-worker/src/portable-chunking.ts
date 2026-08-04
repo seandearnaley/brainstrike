@@ -23,7 +23,11 @@ import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
-import { computeCharsPerToken, resolveSourceRanges } from './source-range-resolution';
+import {
+  computeCharsPerToken,
+  resolveSourceRanges,
+  type TokenCounter,
+} from './source-range-resolution';
 
 // Module-scoped flag for the one-shot "first parse audit" — see the
 // auditFirstSuccessfulParse() helper below.
@@ -365,8 +369,6 @@ function estimateTokenCount(text: string): number {
 }
 
 export { buildLineStartOffsets, findLineForOffset } from './line-offsets';
-
-export type TokenCounter = (text: string) => number;
 
 async function resolveTokenCounter(
   useAccurate: boolean,

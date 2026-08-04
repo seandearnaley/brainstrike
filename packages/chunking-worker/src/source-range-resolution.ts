@@ -4,6 +4,10 @@
  * splitter-produced chunk back to its start/end offset and line range in the
  * original source, tolerating whitespace normalization introduced by the
  * splitter, plus the chars-per-token estimation helper used alongside it.
+ * `TokenCounter` is declared here (not in portable-chunking.ts) so the
+ * dependency edge stays one-directional — portable-chunking.ts imports it
+ * type-only, matching the line-offsets.ts precedent for avoiding a cycle
+ * between the two modules.
  */
 
 import { CHUNKING_CONFIG } from './chunking-config';
@@ -11,7 +15,8 @@ import {
   buildLineStartOffsets as buildLineStarts,
   findLineForOffset as lineForOffset,
 } from './line-offsets';
-import type { TokenCounter } from './portable-chunking';
+
+export type TokenCounter = (text: string) => number;
 
 const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
