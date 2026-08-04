@@ -183,6 +183,99 @@ function extractHunkText(presentation: ResolvedDiffPresentation): string | null 
 }
 
 /**
+ * Render-side interactivity thresholds for the `text` presentation's
+ * MergeView/unifiedMergeView diff — deliberately distinct from the
+ * structured-diff engine's `STRUCTURED_DIFF_CONTENT_CAP_BYTES` (2 MB per
+ * side, `apps/desktop/src/assistant-server/git-structured-diff.ts`). That
+ * cap answers "will reading this file blow up main-process memory", a much
+ * higher bar than "can the renderer's main thread compute a diff and stay
+ * interactive". `@codemirror/merge`'s `MergeView` computes an O(n·d) chunk
+ * diff SYNCHRONOUSLY on the renderer main thread; a pair of 1–2 MB text
+ * sides — comfortably under the service cap — can freeze the whole UI for
+ * seconds with no spinner and no way to bail. Below both thresholds, the
+ * two sides are small enough to diff interactively; at or above either
+ * one, `DiffView` skips the diff entirely and falls back to a single
+ * read-only view of one side (see `resolveOversizedDoc`).
+ *
+ * `RENDER_SIDE_SIZE_THRESHOLD_BYTES` is measured in JS string `.length`
+ * (UTF-16 code units), not exact UTF-8 bytes — encoding the whole string
+ * just to threshold-check it would defeat the purpose for genuinely large
+ * input. For the overwhelmingly-ASCII content this threshold exists to
+ * catch (source, lockfiles, minified bundles), the two are equal; the
+ * `RENDER_SIDE_LINE_THRESHOLD` check is the orthogonal backstop for
+ * content shapes (e.g. one enormous line) the byte check alone might miss.
+ */
+const RENDER_SIDE_SIZE_THRESHOLD_BYTES = 256 * 1024;
+const RENDER_SIDE_LINE_THRESHOLD = 20_000;
+
+/** Number of lines in `text` (1 + newline count) — a single char-code scan, no array allocation. */
+function countLines(text: string): number {
+  let lines = 1;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10 /* '\n' */) {
+      lines += 1;
+    }
+  }
+  return lines;
+}
+
+/** Whether either side exceeds the render-side interactivity thresholds above. */
+function isTextContentTooLargeToDiffInline(original: string, modified: string): boolean {
+  return (
+    original.length > RENDER_SIDE_SIZE_THRESHOLD_BYTES ||
+    modified.length > RENDER_SIDE_SIZE_THRESHOLD_BYTES ||
+    countLines(original) > RENDER_SIDE_LINE_THRESHOLD ||
+    countLines(modified) > RENDER_SIDE_LINE_THRESHOLD
+  );
+}
+
+/**
+ * Which side to show read-only when the diff is skipped as too large — the
+ * new side, except for a deletion (`status === 'deleted'`, structured mode
+ * only) or the equivalent legacy-mode shape (an empty `modified` with
+ * non-empty `original` — the legacy `strings` source carries no `status`
+ * concept to check directly), where the new side is empty/absent and the
+ * old side is the only one worth showing.
+ */
+function pickOversizedDoc(
+  status: ChangedFileStatus | null,
+  original: string,
+  modified: string
+): string {
+  if (status === 'deleted') {
+    return original;
+  }
+  if (modified.length === 0 && original.length > 0) {
+    return original;
+  }
+  return modified;
+}
+
+/**
+ * The side to render read-only when `contentKind === 'text'` content is too
+ * large to diff inline, or `null` when a normal MergeView/unifiedMergeView
+ * diff should render instead. Extracted to a plain function (rather than an
+ * inline expression in the component body) for the same cognitive-
+ * complexity-budget reason as {@link resolveTruncatedNoteVisible} — and it
+ * doubles as the single source of truth for "is this oversized", since
+ * `oversizedDoc !== null` IS that boolean.
+ */
+function resolveOversizedDoc(
+  contentKind: ResolvedDiffPresentation['kind'],
+  textOriginal: string | null,
+  textModified: string | null,
+  status: ChangedFileStatus | null
+): string | null {
+  if (contentKind !== 'text' || textOriginal === null || textModified === null) {
+    return null;
+  }
+  if (!isTextContentTooLargeToDiffInline(textOriginal, textModified)) {
+    return null;
+  }
+  return pickOversizedDoc(status, textOriginal, textModified);
+}
+
+/**
  * Throws with `message` when `value` is `null`, narrowing it to `T`
  * afterward. The build effect's `contentKind`-gated branches use this to
  * assert the corresponding extracted scalar (`textOriginal`/`textModified`/
@@ -302,28 +395,41 @@ export function DiffView({
     [language, effectiveFilename]
   );
 
-  // Split/unified toggling only applies when there are two documents to
-  // compare — `hunks-only` is a single bounded text and `binary` mounts
-  // nothing, so neither has a mode to switch.
-  const modeTogglable = presentation.kind === 'text';
   const truncatedNoteVisible = resolveTruncatedNoteVisible(presentation);
 
   // Scalar extractions the build effect depends on — plain values, so two
   // renders with EQUAL content compare equal here via Object.is regardless
   // of `source`/`presentation` object identity (the reference/value-
   // equality fast path). `null`/not-applicable fields stay `null` for the
-  // current `presentation.kind`. The effect below reads ONLY these four
+  // current `presentation.kind`. The effect below reads ONLY these
   // variables (never `presentation`/`resolved` themselves), so its
   // dependency array is honest — every value the effect body touches is
   // listed, and nothing it touches is missing.
   const contentKind = presentation.kind;
   const { modified: textModified, original: textOriginal } = extractTextDocs(presentation);
   const hunkText = extractHunkText(presentation);
+  // Non-null exactly when `text` content is over the render-side
+  // interactivity thresholds — see `resolveOversizedDoc`'s doc comment.
+  // `resolved.status` is read here (component scope), NOT inside the
+  // effect, matching the same discipline as the other scalar extractions.
+  const oversizedDoc = resolveOversizedDoc(
+    contentKind,
+    textOriginal,
+    textModified,
+    resolved.status
+  );
+
+  // Split/unified toggling only applies to a REAL two-document diff —
+  // `hunks-only`/`binary` never mount one, and an oversized `text` falls
+  // back to a single read-only view (see `oversizedDoc` above), so neither
+  // has a mode to switch.
+  const modeTogglable = contentKind === 'text' && oversizedDoc === null;
 
   // Only mode/language/content-KIND drive a full `<section>` remount —
-  // content CHANGES within the same kind are handled by the build effect's
-  // own teardown/rebuild (via `textOriginal`/`textModified`/`hunkText`
-  // above) without needing to blow away the host DOM node.
+  // content CHANGES within the same kind (including crossing the oversized
+  // threshold) are handled by the build effect's own teardown/rebuild (via
+  // `textOriginal`/`textModified`/`hunkText`/`oversizedDoc` above) without
+  // needing to blow away the host DOM node.
   const renderKey = `${mode}:${resolvedLanguage.label}:${contentKind}`;
 
   const toggleMode = useCallback(() => {
@@ -375,6 +481,23 @@ export function DiffView({
           // when `contentKind === 'text'`, which this case is gated on.
           assertNonNull(textOriginal, 'DiffView: text content resolved with no original.');
           assertNonNull(textModified, 'DiffView: text content resolved with no modified.');
+
+          if (oversizedDoc !== null) {
+            // See RENDER_SIDE_SIZE_THRESHOLD_BYTES's doc comment: skip the
+            // synchronous MergeView/unifiedMergeView diff entirely above the
+            // threshold and show one side read-only instead. Still gets real
+            // line numbers (BASE_EXTENSIONS) and the file's language grammar
+            // — this IS the file's actual content, just not diffed against
+            // the other side.
+            editorView = new EditorView({
+              parent: host,
+              state: EditorState.create({
+                doc: oversizedDoc,
+                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+              }),
+            });
+            return;
+          }
 
           if (mode === 'split') {
             mergeView = new MergeView({
@@ -456,11 +579,15 @@ export function DiffView({
       editorView?.destroy();
     };
     // Deliberately depends on the SCALAR content fields (`contentKind`,
-    // `textOriginal`, `textModified`, `hunkText`) plus `mode`/`resolvedLanguage`
-    // — never on `resolved`/`presentation`/`source` object identity, and the
-    // effect body above reads ONLY these same scalars (never `presentation`
-    // itself), so every dependency this effect actually uses is listed here
-    // — an honest, exhaustive-deps-clean array, not a suppressed warning.
+    // `textOriginal`, `textModified`, `hunkText`, `oversizedDoc`) plus
+    // `mode`/`resolvedLanguage` — never on `resolved`/`presentation`/
+    // `source` object identity, and the effect body above reads ONLY these
+    // same scalars (never `presentation` itself), so every dependency this
+    // effect actually uses is listed here — an honest, exhaustive-deps-
+    // clean array, not a suppressed warning. `oversizedDoc` is technically
+    // derivable from `textOriginal`/`textModified`/`contentKind` (already
+    // listed), but the effect body reads `oversizedDoc` directly, so it's
+    // listed too — redundant-but-consistent beats implicit.
     // Plain strings compare by value (`Object.is` on two equal strings is
     // `true` regardless of which object they came from), so a caller
     // re-rendering with a freshly-allocated `source` object literal
@@ -470,13 +597,13 @@ export function DiffView({
     // (losing scroll/selection/collapsed-hunk state, re-running async
     // language load) on every unrelated parent render, since `presentation`
     // is a fresh object every time even when its fields are unchanged.
-  }, [contentKind, textOriginal, textModified, hunkText, mode, resolvedLanguage]);
+  }, [contentKind, textOriginal, textModified, hunkText, oversizedDoc, mode, resolvedLanguage]);
 
   return (
     <div
       className={cn('flex h-full min-h-0 flex-col bg-background text-foreground', className)}
       data-language={resolvedLanguage.label}
-      data-mode={presentation.kind === 'text' ? mode : undefined}
+      data-mode={modeTogglable ? mode : undefined}
       data-testid={testId}
     >
       <div className="flex items-center justify-between gap-2 border-border border-b px-2 py-1">
@@ -513,6 +640,14 @@ export function DiffView({
               {presentation.sideNote}
             </span>
           ) : null}
+          {oversizedDoc === null ? null : (
+            <span
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              data-testid="diff-too-large-note"
+            >
+              File too large to diff inline — showing content without change highlighting
+            </span>
+          )}
           {truncatedNoteVisible ? (
             <span
               className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"

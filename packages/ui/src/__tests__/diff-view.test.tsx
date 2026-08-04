@@ -75,6 +75,25 @@ describe('DiffView', () => {
     const toggle = await screen.findByRole('button', { name: 'Switch to inline diff' });
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
   });
+
+  it('applies the same render-side size threshold to the legacy string-prop path', async () => {
+    const original = 'small original\n';
+    // 20,001 lines — one over the render-side line threshold, same as the
+    // structured-mode fixture — the freeze risk (MergeView's synchronous
+    // main-thread diff) is identical on both paths.
+    const modified = `${Array.from({ length: 20_001 }, (_, index) => `line ${index}`).join('\n')}\n`;
+
+    render(<DiffView modified={modified} original={original} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-too-large-note')).toHaveTextContent(
+      'File too large to diff inline — showing content without change highlighting'
+    );
+    const surface = await screen.findByTestId('diff');
+    expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
+    expect(surface).toHaveTextContent('line 0');
+    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(surface).not.toHaveAttribute('data-mode');
+  });
 });
 
 describe('DiffView structured mode', () => {
@@ -102,6 +121,34 @@ describe('DiffView structured mode', () => {
       (element) => element.textContent?.trim() ?? ''
     );
     expect(gutterLineNumbers).toContain('42');
+    // Well under the render-side size/line thresholds — the normal
+    // MergeView diff renders, not the too-large fallback.
+    expect(screen.queryByTestId('diff-too-large-note')).toBeNull();
+  });
+
+  it('skips the inline diff and shows the new side read-only when structured "full" content is over the render-side line threshold', async () => {
+    const original = 'small original\n';
+    // 20,001 lines — one over the render-side line threshold.
+    const modified = `${Array.from({ length: 20_001 }, (_, index) => `line ${index}`).join('\n')}\n`;
+    const diff = makeStructuredDiff({
+      content: { kind: 'full', newContent: modified, oldContent: original },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-too-large-note')).toHaveTextContent(
+      'File too large to diff inline — showing content without change highlighting'
+    );
+    const surface = await screen.findByTestId('diff');
+    // A single read-only view, not a MergeView (no a/b pair).
+    expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
+    // The new side is shown (this isn't a deletion) — asserting near the
+    // start of the doc, since CodeMirror virtualizes very large documents
+    // and won't necessarily render far-scrolled-down lines in the DOM.
+    expect(surface).toHaveTextContent('line 0');
+    // No split/unified toggle for a fallback that never diffs.
+    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+    expect(surface).not.toHaveAttribute('data-mode');
   });
 
   it('shows the +/− stat summary beside the filename when additions/deletions are non-null', async () => {
