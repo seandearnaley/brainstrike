@@ -55,6 +55,7 @@ afterAll(async () => {
 describe('buildInventory', () => {
   it('dedupes worktrees of one repo to a single RepoEntry keyed by main worktree', async () => {
     const inv = await buildInventory([scanRoot]);
+    expect(inv.repos).toHaveLength(1);
     const repo = inv.repos.find((r) => r.repositoryRoot === join(canonicalScanRoot, 'myrepo'));
     expect(repo).toBeDefined();
     expect(repo?.worktrees).toHaveLength(4); // main + inside + outside + detached
