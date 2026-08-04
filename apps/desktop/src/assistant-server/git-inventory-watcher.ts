@@ -86,9 +86,18 @@ export interface GitInventoryWatchers {
    * (`createGitInventoryWatchers` is called again to start fresh).
    */
   readonly disposeAll: () => Promise<void>;
-  /** Common dirs whose watcher failed and is NOT watching (typed state Task 4 folds into `GitInventorySnapshot.errors`). */
+  /**
+   * Common dirs whose watcher failed and is NOT watching (typed state Task 4
+   * folds into `GitInventorySnapshot.errors`). Covers SETUP-TIME death only —
+   * `'failed'` is only ever reachable from `startParcelWatch`'s own
+   * `loadModule`/subscribe catch blocks. A subscription that dies AFTER
+   * successfully starting (backend crash, common dir replaced on disk, …)
+   * reports `'degraded'`/`'overflow'` upstream instead, which this module
+   * does not treat as dead — that subscription stays silently stale until
+   * the next TTL-driven rebuild notices on its own. See 3712387859.
+   */
   readonly getDeadCommonDirs: () => ReadonlySet<string>;
-  /** Human-readable, ready-to-append error strings — one per dead watcher. */
+  /** Human-readable, ready-to-append error strings — one per dead watcher. Same setup-time-only coverage as {@link getDeadCommonDirs}. */
   readonly getHealthErrors: () => readonly string[];
   /**
    * Subscribe every NEW common dir in the list, dispose every subscription

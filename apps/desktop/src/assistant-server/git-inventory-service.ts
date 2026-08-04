@@ -17,7 +17,9 @@ import { createLogger } from '@brainstrike/logging';
 import type { GitInventory, GitInventoryRepository, WorktreeDescriptor } from '@brainstrike/types';
 import {
   createNodeInventoryFs,
+  createWalkSemaphore,
   DEFAULT_WALK_IGNORE_NAMES,
+  DEFAULT_WALK_MAX_CONCURRENCY,
   DEFAULT_WALK_MAX_DEPTH,
   type DiscoveredGitEntry,
   type InventoryFs,
@@ -66,20 +68,40 @@ interface ResolvedRoot {
   readonly realPath: string;
 }
 
-/** Realpath every root; a root that cannot be resolved is skipped, VISIBLY (an `errors` entry), never silently dropped. */
+/**
+ * Realpath every root; a root that cannot be resolved is skipped, VISIBLY (an
+ * `errors` entry), never silently dropped. Resolved in parallel — each root's
+ * `realpath` is an independent fs call (not a git spawn), and workspace root
+ * counts are small and UI-bounded, so this carries none of the "bounded git
+ * spawns" / shared-fs-concurrency-budget concerns that keep the walk
+ * (`walkForGitEntries`'s hoisted semaphore) and the per-repo `git worktree
+ * list` loop in `buildInventorySnapshot` deliberately sequential.
+ */
 async function resolveRoots(
   roots: readonly { id: string; path: string }[],
   errors: string[]
 ): Promise<readonly ResolvedRoot[]> {
+  const results = await Promise.all(
+    roots.map(async (root) => {
+      try {
+        return {
+          ok: true as const,
+          resolved: { id: root.id, realPath: await fsRealpath(root.path) },
+        };
+      } catch (error) {
+        return {
+          error: `git inventory: root "${root.id}" (${root.path}) could not be resolved: ${toErrorMessage(error)}`,
+          ok: false as const,
+        };
+      }
+    })
+  );
   const resolved: ResolvedRoot[] = [];
-  for (const root of roots) {
-    try {
-      const realPath = await fsRealpath(root.path);
-      resolved.push({ id: root.id, realPath });
-    } catch (error) {
-      errors.push(
-        `git inventory: root "${root.id}" (${root.path}) could not be resolved: ${toErrorMessage(error)}`
-      );
+  for (const result of results) {
+    if (result.ok) {
+      resolved.push(result.resolved);
+    } else {
+      errors.push(result.error);
     }
   }
   return resolved;
@@ -166,9 +188,12 @@ function computeContainment(
   worktreePath: string,
   resolvedRoots: readonly ResolvedRoot[]
 ): readonly string[] | 'outside-roots' {
-  const containingIds = resolvedRoots
-    .filter((root) => isPathContained(root.realPath, worktreePath))
-    .map((root) => root.id);
+  const containingIds = resolvedRoots.reduce<string[]>((ids, root) => {
+    if (isPathContained(root.realPath, worktreePath)) {
+      ids.push(root.id);
+    }
+    return ids;
+  }, []);
   return containingIds.length > 0 ? containingIds : 'outside-roots';
 }
 
@@ -211,13 +236,14 @@ async function buildRepository(
   run: GitCommandRunner,
   group: RepoGroup,
   resolvedRoots: readonly ResolvedRoot[],
-  errors: string[]
+  errors: string[],
+  signal: AbortSignal | undefined
 ): Promise<GitInventoryRepository | null> {
   function invoke(
     args: readonly string[],
     timeoutMs = GIT_DEFAULT_TIMEOUT_MS
   ): Promise<GitCommandRun> {
-    return run({ args, cwd: group.cwd, timeoutMs });
+    return run({ args, cwd: group.cwd, signal, timeoutMs });
   }
 
   const worktreeRun = await invokeGitHookFree(invoke, ['worktree', 'list', '--porcelain', '-z']);
@@ -252,6 +278,25 @@ async function buildRepository(
   } catch (error) {
     errors.push(
       `git inventory: main worktree "${mainWorktree.path}" for common dir "${group.commonDir}" could not be resolved: ${toErrorMessage(error)}`
+    );
+    return null;
+  }
+
+  // Canonicalized ONCE, reused for every summary's `current` comparison below
+  // (BST-1112 review 3712381425) — comparing a RAW `summary.path` against a
+  // raw `group.cwd` (the previous behavior, inherited from
+  // `finishWorktreeRecord`) can disagree with the CANONICAL comparison this
+  // block otherwise insists on for `path`/`containment`/`trust` whenever
+  // either side is reached through a symlink. A failure here is treated the
+  // same way `mainWorktree.path`'s realpath failure above is: visible and
+  // repository-build-aborting, never a raw-path fallback that would silently
+  // reintroduce the exact divergence this fix closes.
+  let canonicalCwd: string;
+  try {
+    canonicalCwd = await fsRealpath(group.cwd);
+  } catch (error) {
+    errors.push(
+      `git inventory: worktree-list cwd "${group.cwd}" for common dir "${group.commonDir}" could not be resolved: ${toErrorMessage(error)}`
     );
     return null;
   }
@@ -308,9 +353,22 @@ async function buildRepository(
     // is used in the app — downstream consumers must not assume the two agree
     // and must not compare a `WorktreeDescriptor.path` against a raw
     // `GitWorktreeSummary.path` without realpathing the latter first.
+    //
+    // `name` and `current` are recomputed from `canonicalPath` too (BST-1112
+    // review 3712381425), for the same reason `path` is overwritten:
+    // `summary.name`/`summary.current` were derived by `finishWorktreeRecord`
+    // from the RAW git-reported path, so leaving them in the `...summary`
+    // spread would let them silently disagree with the now-canonical `path`
+    // — e.g. a committed symlink (`inside-link -> /outside/dir`) would report
+    // `path: '/outside/dir'` next to the attacker-chosen `name: 'inside-link'`,
+    // and `current` would read `false` for every worktree of a repo reached
+    // through a symlinked path even when one of them genuinely is the
+    // worktree `group.cwd` was invoked from.
     worktrees.push({
       ...summary,
       containment,
+      current: canonicalPath === canonicalCwd,
+      name: path.basename(canonicalPath),
       path: canonicalPath,
       provenance: 'scanned',
       trust,
@@ -332,15 +390,28 @@ async function buildRepository(
  * every one the repo claims that lies outside every root. Never throws —
  * every failure mode becomes a visible `errors` entry with the rest of the
  * snapshot intact.
+ *
+ * `signal` (BST-1112 review, codex P1 3712467640) is optional and threaded
+ * through to every `walkForGitEntries` call (a cheap per-recursion check that
+ * stops queueing new `readdir`s once aborted) and every `git` invocation in
+ * `buildRepository` (killing an in-flight process immediately via
+ * `execFileGitRunner`'s `signal` passthrough). `createGitInventoryService`'s
+ * `stop()` is the caller that wires this up, so a slow build does not hold a
+ * graceful shutdown open past its own drain timeout.
  */
 export async function buildInventorySnapshot(
-  deps: GitInventoryServiceDeps
+  deps: GitInventoryServiceDeps,
+  signal?: AbortSignal
 ): Promise<GitInventorySnapshot> {
   const errors: string[] = [];
   const roots = await deps.loadRoots();
   const resolvedRoots = await resolveRoots(roots, errors);
 
   const fs = deps.fs ?? createNodeInventoryFs();
+  // ONE semaphore shared across every root's walk (BST-1112 review
+  // 3712386046) — the bound is on TOTAL concurrent `readdir`s for this
+  // snapshot build, not `32 × rootCount`.
+  const walkSemaphore = createWalkSemaphore(DEFAULT_WALK_MAX_CONCURRENCY);
   const walkResults = await Promise.all(
     resolvedRoots.map((root) =>
       walkForGitEntries({
@@ -349,6 +420,8 @@ export async function buildInventorySnapshot(
         maxDepth: DEFAULT_WALK_MAX_DEPTH,
         rootLabel: root.id,
         rootPath: root.realPath,
+        semaphore: walkSemaphore,
+        signal,
       })
     )
   );
@@ -360,9 +433,17 @@ export async function buildInventorySnapshot(
   const uniqueEntries = dedupeGitEntries(allEntries);
   const groups = await groupByCommonDir(fs, uniqueEntries, errors);
 
+  // Sequential BY DESIGN, not an oversight (BST-1112 review, react-doctor
+  // async-await-in-loop): each iteration spawns hook-free `git worktree list`
+  // (plus an internal `git config` probe) against a DIFFERENT, independently
+  // discovered — and therefore untrusted — repository. Fanning these out with
+  // `Promise.all` would trade a bounded, one-at-a-time spawn rate for an
+  // unbounded burst of concurrent `git` child processes sized by however many
+  // repositories the walk found, with no semaphore of its own guarding it
+  // (unlike the walk's `readdir`s, hoisted above).
   const repositories: GitInventoryRepository[] = [];
   for (const group of groups) {
-    const repository = await buildRepository(fs, deps.run, group, resolvedRoots, errors);
+    const repository = await buildRepository(fs, deps.run, group, resolvedRoots, errors, signal);
     if (repository) {
       repositories.push(repository);
     }
@@ -377,6 +458,37 @@ export async function buildInventorySnapshot(
  * marked the cache dirty (see {@link createGitInventoryService}) — the next
  * call rebuilds. */
 export const GIT_INVENTORY_SNAPSHOT_TTL_MS = 5000;
+
+/**
+ * Upper bound on how long `stop()` will await an in-flight build before
+ * abandoning it (BST-1112 review, codex P1 3712467640). `stop()` aborts the
+ * build's `AbortSignal` first — this is the fallback for a build that does
+ * not honor it (an `InventoryFs`/`GitCommandRunner` that ignores `signal`,
+ * or work already past its last abort check) — so `main.ts`'s
+ * `SIGNAL_SHUTDOWN_TIMEOUT_MS` (5s) forced-exit never fires because THIS
+ * drain alone ran that long.
+ */
+export const GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS = 2000;
+
+/**
+ * Thrown by `getSnapshot()` for any call made after `stop()` and before the
+ * next `start()` (BST-1112 review Blocker 1, 3712384894). `stop()`'s drain
+ * exists so callers like `main.ts` can close the database right after it
+ * resolves; a `getSnapshot()` that instead started a NEW build in that
+ * window — the previous behavior, since nothing gated `rebuild()` on
+ * lifecycle state — could issue a `loadRoots()` DB read racing that close.
+ * Typed and visible (never an empty snapshot) so a caller polling after
+ * shutdown gets an actionable rejection instead of silently degraded data.
+ */
+export class GitInventoryStoppedError extends Error {
+  readonly code = 'inventory-stopped' as const;
+  constructor() {
+    super(
+      'GitInventoryService.getSnapshot(): the service has been stopped. Call start() again before requesting a snapshot.'
+    );
+    this.name = 'GitInventoryStoppedError';
+  }
+}
 
 export interface GitInventoryService {
   /**
@@ -393,6 +505,11 @@ export interface GitInventoryService {
    * (`Infinity`) or force a rebuild on every call (`NaN`) with no signal —
    * exactly the silent degradation this codebase forbids. `maxAgeMs: 0` is
    * valid and means "force a fresh build".
+   *
+   * THROWS a typed {@link GitInventoryStoppedError} (`code: 'inventory-stopped'`)
+   * for any call made after `stop()` and before the next `start()` — this
+   * service does not build or serve a snapshot while intentionally torn
+   * down; see `stop()`'s doc comment for the DB-read race this closes.
    */
   readonly getSnapshot: (opts?: { readonly maxAgeMs?: number }) => Promise<GitInventorySnapshot>;
   /**
@@ -404,13 +521,20 @@ export interface GitInventoryService {
    * Calling `start()` while already started throws (a caller bug: starting
    * twice would orphan the first watcher set without ever disposing it).
    * Calling `start()` again after `stop()` is supported and creates a fresh
-   * watcher set — see the restart note below.
+   * watcher set — see the restart note below. It also clears the
+   * `stopped` flag `stop()` set, so `getSnapshot()` calls succeed again.
    */
   readonly start: () => void;
   /**
-   * Dispose every live watcher and drop the cached snapshot (so a `getSnapshot()`
-   * call after `stop()`, if the caller makes one, rebuilds from scratch rather
-   * than serving stale pre-stop data). Idempotent.
+   * Dispose every live watcher and drop the cached snapshot, and reject any
+   * `getSnapshot()` call made before the next `start()` with
+   * {@link GitInventoryStoppedError} rather than rebuilding against a
+   * possibly-closed DB. Idempotent.
+   *
+   * Bounds its wait for an in-flight build to
+   * {@link GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS} — see the function doc comment
+   * for the abort-then-bounded-wait mechanics and why an unbounded await was
+   * itself a shutdown-deadline hazard (BST-1112 review, codex P1 3712467640).
    */
   readonly stop: () => Promise<void>;
 }
@@ -449,12 +573,26 @@ export function createGitInventoryService(
   deps: GitInventoryServiceDeps & { readonly watchDirectory: WatchGitCommonDir }
 ): GitInventoryService {
   let started = false;
+  // Set by stop(), cleared by start() (BST-1112 review Blocker 1, 3712384894).
+  // Checked at the very top of getSnapshot()'s synchronous prologue — before
+  // it ever reads `inFlightBuild` or calls `rebuild()` — so no `await` point
+  // separates the check from the decision not to start a new build; a call
+  // that lands during stop()'s own drain window rejects immediately instead
+  // of racing it.
+  let stopped = false;
   let watchers: GitInventoryWatchers | null = null;
   let cachedSnapshot: GitInventorySnapshot | null = null;
   // Starts dirty so the very first getSnapshot()/start() always builds,
   // regardless of maxAgeMs, instead of serving a nonexistent cache.
   let dirty = true;
   let inFlightBuild: Promise<GitInventorySnapshot> | null = null;
+  // The AbortController for whichever build `inFlightBuild` currently points
+  // at, if any (BST-1112 review, codex P1 3712467640). stop() aborts it so a
+  // build blocked on a slow walk/git spawn unblocks (or at least stops doing
+  // further work) instead of holding stop()'s drain open for the full 30s
+  // git timeout. Cleared by rebuild() itself once its own build settles, so
+  // stop() never aborts a LATER build it has no relationship to.
+  let buildAbortController: AbortController | null = null;
   // Bumped by every stop(). A rebuild() closes over the generation it started
   // in and refuses to write `cachedSnapshot` (or rely on `watchers` for sync)
   // once the counter has moved past it — see stop()'s doc comment for the
@@ -477,10 +615,15 @@ export function createGitInventoryService(
     // invalidation be silently overwritten by this function's own
     // `dirty = false`, losing the very change it was reporting.
     dirty = false;
+    // A fresh controller per build (BST-1112 review, codex P1 3712467640):
+    // stop() reads `buildAbortController` live, so it only ever aborts THIS
+    // build, never a later one a subsequent start() kicked off.
+    const abortController = new AbortController();
+    buildAbortController = abortController;
     let snapshot: GitInventorySnapshot;
     let buildFailed = false;
     try {
-      snapshot = await buildInventorySnapshot(deps);
+      snapshot = await buildInventorySnapshot(deps, abortController.signal);
     } catch (error) {
       // `buildInventorySnapshot` documents itself as never-throwing for
       // every failure mode INSIDE its own walk/spawn pipeline, but
@@ -491,6 +634,10 @@ export function createGitInventoryService(
       // becomes a visible `errors` entry instead.
       snapshot = toBuildFailureSnapshot(error);
       buildFailed = true;
+    } finally {
+      if (buildAbortController === abortController) {
+        buildAbortController = null;
+      }
     }
     // A stop() that ran while the build above was in flight bumped
     // `generation` past the value captured at this function's start — this
@@ -544,6 +691,16 @@ export function createGitInventoryService(
         `GitInventoryService.getSnapshot(): invalid maxAgeMs ${maxAgeMs} — must be a finite number >= 0.`
       );
     }
+    // No `await` between this check and every path below that could start a
+    // NEW build (the `inFlightBuild`-coalescing branch just awaits an
+    // EXISTING one) — so a call landing at any point after stop() sets
+    // `stopped = true`, including WHILE stop() is still draining the build it
+    // caught in flight, rejects here rather than racing it. See
+    // GitInventoryStoppedError's doc comment for why this is a rejection,
+    // not an empty/degraded snapshot.
+    if (stopped) {
+      throw new GitInventoryStoppedError();
+    }
     if (inFlightBuild) {
       return withLiveHealthErrors(await inFlightBuild);
     }
@@ -569,6 +726,13 @@ export function createGitInventoryService(
       );
     }
     started = true;
+    // Clears the block getSnapshot() checks (BST-1112 review Blocker 1) —
+    // every getSnapshot() call while stopped rejected without touching
+    // `dirty`/`cachedSnapshot`, so nothing could have mutated either since
+    // stop() last set them; this restart is not racing a stale cache left
+    // behind by a call made while stopped the way it would have before that
+    // fix (see the retired comment this replaced, in git history).
+    stopped = false;
     watchers = createGitInventoryWatchers({
       onInvalidate: () => {
         dirty = true;
@@ -577,12 +741,10 @@ export function createGitInventoryService(
     });
     // NOT dead: a fresh `watchers` instance has zero subscriptions until the
     // next rebuild's `watchers.sync(...)` call, and the eager `getSnapshot()`
-    // below is the only thing that triggers one. Without forcing `dirty`
-    // here, a caller that calls `getSnapshot()` while stopped (documented as
-    // supported on `stop()`) can leave a fresh, non-dirty cache in place;
-    // `start()` would then hit getSnapshot()'s cache-hit path and return
-    // without ever calling rebuild() — subscribing this new `watchers`
-    // instance to nothing.
+    // below is the only thing that triggers one. `dirty` is ALREADY `true`
+    // here — stop() sets it and nothing since could have cleared it, per the
+    // note above — but forcing it again is cheap, explicit, and does not
+    // depend on that invariant continuing to hold as this function evolves.
     dirty = true;
     // Fire-and-forget by design (`start()` is synchronous per the interface
     // contract). This no-arg `getSnapshot()` never rejects — `rebuild()`
@@ -600,19 +762,37 @@ export function createGitInventoryService(
   }
 
   /**
-   * Disposes every live watcher and drops the cache, so a `getSnapshot()`
-   * call after `stop()` rebuilds from scratch rather than serving stale
-   * pre-stop data. Idempotent (a second call sees `inFlightBuild === null`
-   * and `watchers === null`, so both `await`s below are skipped).
+   * Disposes every live watcher and drops the cache, and — from the moment
+   * this function starts running — rejects every `getSnapshot()` call with
+   * {@link GitInventoryStoppedError} instead of building or serving anything,
+   * until the next `start()`. Idempotent (a second call sees
+   * `inFlightBuild === null` and `watchers === null`, so both drain/dispose
+   * steps below are skipped).
    *
-   * Awaits any in-flight build (rather than abandoning it) so the caller's
-   * "torn down while the DB is still available" ordering — `main.ts` runs
-   * this step BEFORE the `database` shutdown step precisely because
-   * `loadRoots` reads the DB — actually holds: a build's `deps.loadRoots()`
-   * DB read is guaranteed to have settled (resolved or rejected) before
-   * `stop()` resolves and the caller proceeds to close the database.
+   * Bounds its wait for an in-flight build to
+   * {@link GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS} (BST-1112 review, codex P1
+   * 3712467640) rather than awaiting it unconditionally: the caller's "torn
+   * down while the DB is still available" ordering — `main.ts` runs this step
+   * BEFORE the `database` shutdown step precisely because `loadRoots` reads
+   * the DB — wants that DB read settled before `stop()` resolves, but an
+   * unconditional await made `stop()` itself the shutdown-deadline hazard
+   * instead: a build can hold up to `GIT_DEFAULT_TIMEOUT_MS` (30s) PER git
+   * spawn, far past `main.ts`'s `SIGNAL_SHUTDOWN_TIMEOUT_MS` (5s) forced-exit,
+   * which would then skip the database/error-log shutdown steps entirely.
+   * `buildAbortController.abort()` is tried FIRST — it kills an in-flight
+   * `git` child process immediately (`execFileGitRunner`'s `signal`
+   * passthrough) and stops the walk from queueing further `readdir`s — so the
+   * bounded wait below is normally a formality, not the common path. If the
+   * build still has not settled once the bound elapses (an `InventoryFs` or
+   * `GitCommandRunner` that ignores `signal`, or work already past its last
+   * abort check), the build is ABANDONED, visibly logged, and `stop()`
+   * resolves anyway: the `stopped` flag (checked in `getSnapshot()`, set
+   * below before this wait even starts) guarantees no caller can observe or
+   * trigger a NEW build off the abandoned one's eventual — possibly very
+   * late — settlement, so there is nothing left for that stale promise to
+   * corrupt; it is simply left to resolve into the void.
    *
-   * `generation` is bumped BEFORE that await, and `rebuild()` re-checks it
+   * `generation` is bumped BEFORE the wait, and `rebuild()` re-checks it
    * after every `await` point: a build already in flight when `stop()` runs
    * will neither write `cachedSnapshot` (it would otherwise resurrect a
    * stopped service's cache, silently undoing `cachedSnapshot = null` /
@@ -628,13 +808,31 @@ export function createGitInventoryService(
    */
   async function stop(): Promise<void> {
     started = false;
+    // Set before the drain wait below (not after) — see getSnapshot()'s own
+    // comment on why no `await` may separate this from that check.
+    stopped = true;
     generation += 1;
     const pendingBuild = inFlightBuild;
     inFlightBuild = null;
     const toDispose = watchers;
     watchers = null;
     if (pendingBuild) {
-      await pendingBuild.catch(() => undefined);
+      buildAbortController?.abort();
+      const settledInTime = await Promise.race([
+        pendingBuild.then(
+          () => true,
+          () => true
+        ),
+        new Promise<boolean>((resolve) => {
+          setTimeout(() => resolve(false), GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS);
+        }),
+      ]);
+      if (!settledInTime) {
+        logger.error(
+          'git inventory service: stop() abandoned an in-flight build that did not settle within the drain timeout',
+          { drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS }
+        );
+      }
     }
     cachedSnapshot = null;
     dirty = true;

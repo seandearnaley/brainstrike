@@ -17,6 +17,19 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const loggerErrorSpy = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: (...args: Parameters<typeof actual.createLogger>) => {
+      const real = actual.createLogger(...args);
+      return { ...real, error: loggerErrorSpy };
+    },
+  };
+});
+
 import type {
   InventoryDirent,
   InventoryFs,
@@ -25,6 +38,7 @@ import type {
 import {
   createGitInventoryService,
   GIT_INVENTORY_SNAPSHOT_TTL_MS,
+  GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS,
   type GitInventoryService,
   type GitInventoryServiceDeps,
 } from '../../assistant-server/git-inventory-service';
@@ -208,6 +222,7 @@ function makeService(
 describe('createGitInventoryService', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    loggerErrorSpy.mockClear();
   });
 
   afterEach(() => {
@@ -299,7 +314,7 @@ describe('createGitInventoryService', () => {
   });
 
   describe('stop()', () => {
-    it('disposes every live watcher and drops the cache, so a later getSnapshot() rebuilds rather than serving stale data', async () => {
+    it('disposes every live watcher and drops the cache, so getSnapshot() no longer serves stale data — it rejects instead (BST-1112 review Blocker 1)', async () => {
       const { commonDir, fs, rootDir, rootId } = await makeSingleRepoRoot(
         'brainstrike-git-inv-svc-stop-'
       );
@@ -313,7 +328,7 @@ describe('createGitInventoryService', () => {
       });
 
       service.start();
-      const before = await service.getSnapshot();
+      await service.getSnapshot();
       expect(loadRootsSpy).toHaveBeenCalledTimes(1);
       const sub = fake.subscriptionsByCommonDir.get(commonDir);
       expect(sub?.disposeCallCount).toBe(0);
@@ -321,9 +336,10 @@ describe('createGitInventoryService', () => {
       await service.stop();
       expect(sub?.disposeCallCount).toBe(1);
 
-      const after = await service.getSnapshot();
-      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
-      expect(after).not.toBe(before);
+      // A getSnapshot() after stop() no longer rebuilds at all — it rejects,
+      // so there is no "stale data" left to serve in the first place.
+      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -480,7 +496,7 @@ describe('createGitInventoryService', () => {
       expect(stopResolved).toBe(true);
     });
 
-    it('serves a getSnapshot() call after stop() from a FRESH rebuild, not the drained pre-stop build', async () => {
+    it('rejects a getSnapshot() call after stop() instead of rebuilding from the drained pre-stop build (BST-1112 review Blocker 1, 3712384894)', async () => {
       const { fs, rootDir, rootId } = await makeSingleRepoRoot(
         'brainstrike-git-inv-svc-stop-fresh-'
       );
@@ -508,11 +524,12 @@ describe('createGitInventoryService', () => {
       releaseFirstLoadRoots?.();
       await stopPromise;
 
-      // stop()'s own doc comment says a post-stop getSnapshot() "rebuilds
-      // from scratch rather than serving stale pre-stop data" — a second
-      // loadRoots() call is the only observable proof of that.
-      await service.getSnapshot();
-      expect(loadRootsCallCount).toBe(2);
+      // stop() no longer lets a post-stop getSnapshot() rebuild at all — it
+      // rejects immediately with the typed `inventory-stopped` error. A
+      // second loadRoots() call would mean a NEW build started against a
+      // service that just tore itself down for shutdown.
+      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
+      expect(loadRootsCallCount).toBe(1);
     });
 
     it('runs a build for the NEW lifecycle after restarting while the pre-stop build was still draining, instead of coalescing onto the stale in-flight promise', async () => {
@@ -823,8 +840,8 @@ describe('createGitInventoryService', () => {
     });
   });
 
-  describe('start() still forces a fresh build even when the cache was left non-dirty while stopped', () => {
-    it('subscribes the NEW watcher instance after start(), rather than serving a stale-fresh cache left behind by a getSnapshot() call made while stopped', async () => {
+  describe('getSnapshot() while stopped can no longer leave a stale-fresh cache behind for start() to miss (BST-1112 review Blocker 1, 3712384894)', () => {
+    it('rejects a getSnapshot() call made while stopped, then subscribes a NEW watcher instance on the next start()', async () => {
       const { fs, rootDir, rootId } = await makeSingleRepoRoot(
         'brainstrike-git-inv-svc-start-dirty-'
       );
@@ -843,20 +860,140 @@ describe('createGitInventoryService', () => {
 
       await service.stop();
 
-      // Documented-supported: getSnapshot() after stop() rebuilds from
-      // scratch. This leaves a FRESH, non-dirty cache behind — but with no
-      // live watchers, since the service is stopped.
-      await service.getSnapshot();
-      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+      // Previously "documented-supported": getSnapshot() after stop()
+      // rebuilt from scratch, leaving a FRESH, non-dirty cache behind with no
+      // live watchers — which is exactly the "new build after stop()" defect
+      // the `stopped` flag closes. It now rejects instead, so no rebuild (and
+      // therefore no such cache) happens at all.
+      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
 
       service.start();
       await service.getSnapshot();
       // The freshly-created watcher instance from THIS start() must get its
       // own sync() call. If start() didn't force `dirty = true`, the
-      // non-dirty cache left by the getSnapshot() call above would make this
-      // getSnapshot() a cache hit that skips rebuild() — and therefore skips
-      // subscribing the new watcher instance to anything.
+      // (now provably impossible) non-dirty cache from a stopped-state
+      // getSnapshot() would make this getSnapshot() a cache hit that skips
+      // rebuild() — and therefore skips subscribing the new watcher instance
+      // to anything.
       expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(2);
+      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('stopped flag blocks new builds after stop() (BST-1112 review Blocker 1, 3712384894)', () => {
+    it('rejects getSnapshot() after stop() has resolved, with a typed inventory-stopped error', async () => {
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        loadRootsSpy: vi.fn(() => Promise.resolve([])),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      await service.getSnapshot();
+      await service.stop();
+
+      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
+    });
+
+    it('does not start a new build for a getSnapshot() call that lands while stop() is still draining the in-flight build', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-stopped-drain-'
+      );
+      let releaseLoadRoots: (() => void) | null = null;
+      const loadRootsSpy = vi.fn(
+        () =>
+          new Promise<{ id: string; path: string }[]>((resolve) => {
+            releaseLoadRoots = () => resolve([{ id: rootId, path: rootDir }]);
+          })
+      );
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+
+      const stopPromise = service.stop();
+
+      // stop() is now draining the in-flight build (still blocked on
+      // loadRoots()). A getSnapshot() call that lands in this window must not
+      // start a SECOND build — the `stopped` flag it set synchronously
+      // BEFORE draining rejects it immediately instead of racing the drain.
+      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+
+      releaseLoadRoots?.();
+      await stopPromise;
+    });
+  });
+
+  describe('stop() bounds its drain of a build that never settles (BST-1112 P1, codex 3712467640)', () => {
+    it('aborts the build signal, resolves within GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS, and logs the abandonment', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-drain-bound-'
+      );
+      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
+
+      let resolveRunCalled: (() => void) | undefined;
+      const runCalled = new Promise<void>((resolve) => {
+        resolveRunCalled = resolve;
+      });
+      let capturedSignal: AbortSignal | undefined;
+      // Never resolves — simulates a git child process that ignores the
+      // abort signal (e.g. unresponsive/zombied), so this test proves
+      // stop()'s own TIMEOUT bound protects the shutdown deadline, not the
+      // abort mechanism itself (that wiring is asserted separately below via
+      // `capturedSignal`).
+      const run: GitCommandRunner = (params) => {
+        capturedSignal = params.signal;
+        resolveRunCalled?.();
+        return new Promise<GitCommandRun>(() => {
+          // Intentionally never settles.
+        });
+      };
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run,
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      // Real awaits (not fake-timer-dependent) until the build's git spawn —
+      // resolveRoots()'s realpath and the FakeFs walk are all real
+      // microtask/IO work, not timer-scheduled.
+      await runCalled;
+      expect(capturedSignal?.aborted).toBe(false);
+
+      let stopResolved = false;
+      const stopPromise = service.stop().then(() => {
+        stopResolved = true;
+      });
+
+      // stop() aborts synchronously, before it ever awaits the drain race.
+      expect(capturedSignal?.aborted).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS - 1);
+      expect(stopResolved).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await stopPromise;
+      expect(stopResolved).toBe(true);
+      expect(loggerErrorSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining('abandoned'),
+        expect.objectContaining({ drainTimeoutMs: GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS })
+      );
+
+      // The `stopped` flag (set synchronously, before this whole drain even
+      // started) still rejects any post-stop getSnapshot() — the abandoned
+      // build's eventual (here: never) settlement has no way back in.
+      await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
     });
   });
 });

@@ -34,7 +34,17 @@ export const DEFAULT_WALK_IGNORE_NAMES: readonly string[] = [
 /** Directory levels below the root the walk will `readdir` (root itself is depth 0). */
 export const DEFAULT_WALK_MAX_DEPTH = 6;
 
-/** Upper bound on concurrent in-flight `readdir` calls for one {@link walkForGitEntries} call. */
+/**
+ * Upper bound on concurrent in-flight `readdir` calls. Applies per snapshot
+ * build, not per {@link walkForGitEntries} call: `git-inventory-service.ts`
+ * creates ONE {@link WalkSemaphore} via {@link createWalkSemaphore} and passes
+ * it into every root's `walkForGitEntries` call for that build (BST-1112
+ * review — the bound was previously per-root, so N roots could hold `32 × N`
+ * concurrent `readdir`s). A caller that omits `semaphore` still gets one
+ * created fresh from `maxConcurrency`, scoped to that single call only —
+ * existing single-root callers (and this module's own unit tests) are
+ * unaffected.
+ */
 export const DEFAULT_WALK_MAX_CONCURRENCY = 32;
 
 function formatError(error: unknown): string {
@@ -106,10 +116,25 @@ export interface WalkForGitEntriesParams {
   /** Identifies the root in error messages (e.g. the workspace root id). */
   readonly rootLabel: string;
   readonly rootPath: string;
+  /**
+   * Share ONE {@link WalkSemaphore} (via {@link createWalkSemaphore}) across
+   * every root's call in a single snapshot build so the concurrency bound is
+   * GLOBAL, not per-root (BST-1112 review). Omitted — e.g. a caller walking
+   * just one root — falls back to a fresh, call-scoped semaphore sized from
+   * `maxConcurrency`.
+   */
+  readonly semaphore?: WalkSemaphore;
+  /** Aborting stops the walk from queueing further `readdir` calls — see {@link walkDirectory}'s check. */
+  readonly signal?: AbortSignal | undefined;
 }
 
-/** Simple counting semaphore bounding concurrent `readdir` calls in one walk. */
-class Semaphore {
+/** Opaque handle a caller can share across multiple {@link walkForGitEntries} calls — see {@link createWalkSemaphore}. */
+export interface WalkSemaphore {
+  readonly acquire: () => Promise<() => void>;
+}
+
+/** Simple counting semaphore bounding concurrent `readdir` calls across every walk it is passed into. */
+class Semaphore implements WalkSemaphore {
   private available: number;
   private readonly queue: Array<() => void> = [];
 
@@ -139,13 +164,19 @@ class Semaphore {
   }
 }
 
+/** Create a {@link WalkSemaphore} bounded to `max` concurrent acquisitions, to share across several {@link walkForGitEntries} calls (one per workspace root) in a single snapshot build. */
+export function createWalkSemaphore(max: number): WalkSemaphore {
+  return new Semaphore(max);
+}
+
 interface WalkContext {
   readonly errors: string[];
   readonly gitEntries: DiscoveredGitEntry[];
   readonly ignoreNames: ReadonlySet<string>;
   readonly maxDepth: number;
   readonly rootLabel: string;
-  readonly semaphore: Semaphore;
+  readonly semaphore: WalkSemaphore;
+  readonly signal: AbortSignal | undefined;
 }
 
 async function walkDirectory(
@@ -154,6 +185,15 @@ async function walkDirectory(
   dirPath: string,
   depth: number
 ): Promise<void> {
+  // Cheap per-recursion abort check (BST-1112 review — codex P1 3712467640):
+  // once the caller's build has been aborted (`stop()` racing a slow walk),
+  // every new `walkDirectory` call bails before issuing another `readdir`.
+  // This does not cancel a `readdir` already in flight — `InventoryFs` has no
+  // signal parameter of its own — it only stops the walk from QUEUEING more
+  // work, which is what bounds `stop()`'s drain.
+  if (ctx.signal?.aborted) {
+    return;
+  }
   const release = await ctx.semaphore.acquire();
   let entries: readonly InventoryDirent[];
   try {
@@ -225,7 +265,9 @@ export async function walkForGitEntries(
     ignoreNames: new Set(params.ignoreNames ?? DEFAULT_WALK_IGNORE_NAMES),
     maxDepth: params.maxDepth ?? DEFAULT_WALK_MAX_DEPTH,
     rootLabel: params.rootLabel,
-    semaphore: new Semaphore(params.maxConcurrency ?? DEFAULT_WALK_MAX_CONCURRENCY),
+    semaphore:
+      params.semaphore ?? new Semaphore(params.maxConcurrency ?? DEFAULT_WALK_MAX_CONCURRENCY),
+    signal: params.signal,
   };
   await walkDirectory(ctx, params.fs, params.rootPath, 0);
   return { errors: ctx.errors, gitEntries: ctx.gitEntries };

@@ -358,6 +358,15 @@ describe('buildInventorySnapshot', () => {
     // (which would skip the trust check entirely and auto-`validated`).
     expect(evilDescriptor?.containment).toBe('outside-roots');
     expect(evilDescriptor?.trust).toBe('unvalidated');
+    // `name`/`current` recomputed from the CANONICAL path too (BST-1112
+    // review 3712381425) — `git worktree list` reports this worktree's raw
+    // path as `inside-link` (the attacker-chosen, in-root symlink name); a
+    // `name` still derived from that raw path would disagree with the
+    // canonical `path` above and leak the attacker's chosen basename right
+    // next to the true (outside-roots) location.
+    expect(evilDescriptor?.name).not.toBe('inside-link');
+    expect(evilDescriptor?.name).toBe(path.basename(outsideTargetReal));
+    expect(evilDescriptor?.current).toBe(false);
   });
 
   it('fabricated-gitdir attack pointing at a DIFFERENT real repository: resolves but the common dir mismatches — unvalidated', async () => {

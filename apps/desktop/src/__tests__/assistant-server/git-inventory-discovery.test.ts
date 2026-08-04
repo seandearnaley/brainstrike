@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  createWalkSemaphore,
   DEFAULT_WALK_MAX_DEPTH,
   type DiscoveredGitEntry,
   type InventoryDirent,
@@ -208,6 +209,72 @@ describe('walkForGitEntries', () => {
 
     expect(result.errors).toEqual([]);
     expect(maxInFlight).toBe(4);
+  });
+
+  it('shares ONE semaphore budget across multiple calls when a `semaphore` is passed in (BST-1112 review 3712386046 — the walk bound was per-root, not global)', async () => {
+    // Two INDEPENDENT fake filesystems, standing in for two different
+    // workspace roots — `git-inventory-service.ts`'s `buildInventorySnapshot`
+    // calls `walkForGitEntries` once per root, all against the same
+    // `InventoryFs` in production, but this module's own contract only cares
+    // that a shared `semaphore` bounds calls TOGETHER regardless of which
+    // `fs` each call uses.
+    function makeSiblingFs(prefix: string): FakeFs {
+      const fs = new FakeFs();
+      const names = Array.from({ length: 20 }, (_, index) => `${prefix}${index}`);
+      fs.addDir(`/${prefix}root`, names);
+      for (const name of names) {
+        fs.addDir(`/${prefix}root/${name}`, []);
+      }
+      return fs;
+    }
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    function wrapReaddir(fs: FakeFs): void {
+      const original = fs.readdir.bind(fs);
+      fs.readdir = async (dirPath: string) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        // Same yield-once trick as the single-call concurrency test below —
+        // lets overlapping calls from BOTH roots actually stack.
+        await Promise.resolve();
+        try {
+          return await original(dirPath);
+        } finally {
+          inFlight -= 1;
+        }
+      };
+    }
+
+    const fsA = makeSiblingFs('a');
+    const fsB = makeSiblingFs('b');
+    wrapReaddir(fsA);
+    wrapReaddir(fsB);
+
+    const semaphore = createWalkSemaphore(4);
+
+    await Promise.all([
+      walkForGitEntries({
+        fs: fsA,
+        maxConcurrency: 4,
+        rootLabel: 'root-a',
+        rootPath: '/aroot',
+        semaphore,
+      }),
+      walkForGitEntries({
+        fs: fsB,
+        maxConcurrency: 4,
+        rootLabel: 'root-b',
+        rootPath: '/broot',
+        semaphore,
+      }),
+    ]);
+
+    // With two UNSHARED per-call semaphores (the pre-fix default, still what
+    // happens when `semaphore` is omitted) this could reach 8 — each call's
+    // own budget of 4, both roots running concurrently via `Promise.all`.
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+    expect(maxInFlight).toBeGreaterThan(0);
   });
 
   it('contains a per-entry readdir failure to that entry — sibling directories are still walked', async () => {
