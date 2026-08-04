@@ -213,4 +213,59 @@ describe('buildInventorySnapshot — hook-free spawn discipline + dedup (unit, f
       '^hook\\..*\\.command$',
     ]);
   });
+
+  it('reports a visible `errors` entry for a realpath failure on a NON-prunable worktree — git did not already explain this one', async () => {
+    // `canonicalPath = await fsRealpath(summary.path)` in `buildRepository`
+    // calls `node:fs/promises`'s `realpath` directly, not the injected fake
+    // `InventoryFs` (same un-fakeable-by-design seam as `resolveRoots` and
+    // the main-worktree resolution, documented in the file header) — so this
+    // path must be REAL and REALLY absent for the realpath call to reject.
+    //
+    // Never created on disk: this simulates the narrow, genuinely reachable
+    // race between "git worktree list" reporting a worktree (without a
+    // `prunable` field — git's own snapshot still considered it valid) and
+    // our own resolution moments later finding it already gone.
+    const rootDir = await makeTempDir('brainstrike-git-inventory-unit-nonprunable-root-');
+    const vanishedWorktreePath = path.join(rootDir, 'vanished-worktree');
+
+    const fs = new FakeFs();
+    fs.addDir(rootDir, ['.git']);
+    fs.addDir(`${rootDir}/.git`, []);
+    fs.setRealpath(`${rootDir}/.git`, `${rootDir}/.git`);
+
+    const run: GitCommandRunner = ({ args, cwd }): Promise<GitCommandRun> => {
+      if (args[0] === 'config') {
+        return Promise.resolve({ exitCode: 1, stderr: '', stdout: '', timedOut: false });
+      }
+      // Two worktrees: the real, resolvable main worktree, and a second
+      // entry with NO `prunable ...` field — git is not explaining this one
+      // away as routine housekeeping the way it does a deleted worktree it
+      // already detected.
+      return Promise.resolve({
+        exitCode: 0,
+        stderr: '',
+        stdout: `worktree ${cwd}\0HEAD ${FAKE_HEAD}\0branch refs/heads/main\0\0worktree ${vanishedWorktreePath}\0HEAD ${FAKE_HEAD}\0branch refs/heads/feat\0\0`,
+        timedOut: false,
+      });
+    };
+
+    const snapshot = await buildInventorySnapshot({
+      fs,
+      loadRoots: () => Promise.resolve([{ id: 'root-1', path: rootDir }]),
+      run,
+    });
+
+    expect(snapshot.repositories).toHaveLength(1);
+    const worktrees = snapshot.repositories[0]?.worktrees ?? [];
+    const vanishedDescriptor = worktrees.find((wt) => wt.path === vanishedWorktreePath);
+    expect(vanishedDescriptor).toBeDefined();
+    expect(vanishedDescriptor?.prunableReason).toBeNull();
+    expect(vanishedDescriptor?.trust).toBe('unvalidated');
+
+    // Unlike the prunable case, THIS realpath failure must surface — the
+    // error names WHICH worktree failed and WHY, never a bare "failed".
+    expect(snapshot.errors).toHaveLength(1);
+    expect(snapshot.errors[0]).toContain(vanishedWorktreePath);
+    expect(snapshot.errors[0]).toContain('ENOENT');
+  });
 });
