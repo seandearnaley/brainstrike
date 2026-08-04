@@ -585,11 +585,15 @@ indexed state only.
   ignore globs and the `fileFilter.shouldIgnorePath` guard — e.g. a
   main-owned git-metadata watcher that needs `.git/HEAD` events the default
   patterns would drop. `undefined` keeps the default patterns unchanged;
-  `[]` means "ignore nothing", never a silent fallback to defaults. There is
-  no shared/deduplicated watcher registration layer, so one subscription's
-  override can never leak into another's. The shared Explorer refresh
-  pipeline never passes this option — "same names, never broader" stays true
-  for that path (see `docs/agents/explorer-search-tapestry.md`).
+  `[]` means "ignore nothing", never a silent fallback to defaults. Overrides
+  cannot reach the desktop `fs:watch` IPC domain: `StartFileSystemWatch`
+  takes no `ignorePatterns`, and that domain deduplicates native
+  subscriptions on `(ownerId, resolvedPath)` only. Any future caller that
+  threads an override through it MUST add the pattern set to
+  `subscriptionKey`, or two registrations for the same root would silently
+  share one filter set. The shared Explorer refresh pipeline never passes
+  this option — "same names, never broader" stays true for that path (see
+  `docs/agents/explorer-search-tapestry.md`).
 - **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
   (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
   asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).

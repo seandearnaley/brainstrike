@@ -38,6 +38,9 @@ export function buildIgnorePatternRegex(patterns: readonly string[]): RegExp {
   if (patterns.length === 0) {
     return /(?!)/;
   }
+  if (patterns.some((pattern) => pattern === '')) {
+    throw new Error('buildIgnorePatternRegex: empty-string pattern would match every path');
+  }
   return new RegExp(
     `(?:^|[\\\\/])(?:${patterns.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
   );

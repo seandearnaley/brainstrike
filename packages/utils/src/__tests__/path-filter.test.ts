@@ -1,7 +1,7 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import type { FileFilterOptions } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-import { fileFilter } from '../path-filter.js';
+import { buildIgnorePatternRegex, fileFilter } from '../path-filter.js';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
@@ -96,6 +96,21 @@ describe('fileFilter', () => {
       for (const path of partialMatches) {
         expect(fileFilter.shouldIgnorePath(path)).toBe(false);
       }
+    });
+  });
+
+  describe('buildIgnorePatternRegex', () => {
+    it('never matches any path, including win32-style and empty strings, when given an empty pattern list', () => {
+      const never = buildIgnorePatternRegex([]);
+      expect(never.test('C:\\a\\node_modules\\b')).toBe(false);
+      expect(never.test('/a/node_modules/b')).toBe(false);
+      expect(never.test('')).toBe(false);
+    });
+
+    it('throws on a blank-string pattern mixed into a non-empty pattern list', () => {
+      expect(() => buildIgnorePatternRegex(['', '.git'])).toThrow(
+        'buildIgnorePatternRegex: empty-string pattern would match every path'
+      );
     });
   });
 

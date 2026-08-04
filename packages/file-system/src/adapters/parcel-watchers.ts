@@ -13,7 +13,11 @@
 //   same-path record plus stale descendants without a full-tree rescan.
 // - `fileFilter.shouldIgnorePath` stays the authoritative ignore check;
 //   DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs purely as a
-//   resource saving (same names, no broadening).
+//   resource saving (same names, no broadening). Both clauses are
+//   conditional on `options.ignorePatterns` being unset: a per-subscription
+//   override (BST-1112) REPLACES both layers for that subscription — its own
+//   regex stands in for `shouldIgnorePath`, and its own native globs may be
+//   broader or narrower than the defaults.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
@@ -245,6 +249,9 @@ export async function startParcelWatch(
 
   const subscribePromise = module.subscribe(handle.path, handleBackendCallback, {
     backend,
+    // Must agree with the `ignoreRegex` derivation above (undefined -> default
+    // patterns, defined -> override REPLACES defaults) — that agreement is
+    // the whole per-subscription-override feature.
     ignore: nativeIgnoreGlobs(ignorePatterns ?? DEFAULT_IGNORE_PATTERNS),
   });
 
