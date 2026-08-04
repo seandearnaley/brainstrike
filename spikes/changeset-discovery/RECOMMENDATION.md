@@ -75,10 +75,31 @@ process count" idea concrete rather than hand-waved):
   7.7ms; 408 spawns / 2641ms ≈ 6.5ms), consistent between the two runs. The
   34→76 wasted `rev-parse` calls in these two runs specifically are the ones
   spent purely discovering that a gitfile points at an already-seen
-  `gitdir`. Parsing the `gitdir: <path>` line out of each `.git` file
-  directly (no process spawn) and deduping on that string *before* spawning
-  any `rev-parse` would eliminate those wasted spawns — recording this idea
-  per the brief's instruction, not building it in this spike.
+  *common dir*. Reading each `.git` file and resolving its **common dir**
+  (no process spawn) and deduping on that *before* spawning any `rev-parse`
+  would eliminate those wasted spawns — recording this idea per the brief's
+  instruction, not building it in this spike.
+
+  **Correction (post-review 2026-08-04) — the dedup key is the resolved
+  common dir, not the raw `gitdir:` pointer.** An earlier version of this
+  bullet (and of the Q1 ruling below, and the spec §11 Q1 row) said "dedupe
+  on the parsed `gitdir:` pointer". That is wrong and would have eliminated
+  **zero** spawns if implemented literally: every linked worktree's `.git`
+  file points at its *own* `<common>/.git/worktrees/<name>`, so the raw
+  pointer strings are unique per worktree and never collide — the 34/76
+  duplicate entries would each still have spawned a `rev-parse`, and a W2
+  port could additionally have built duplicate repository inventories and
+  duplicate watcher subscriptions off the non-merging key. The cheap
+  pre-spawn key is instead:
+  - `.git` is a **file** → read it, take the `gitdir: <path>` target, then
+    read `<gitdir>/commondir` (one extra `readFile`, still no process
+    spawn) and resolve it relative to `<gitdir>` → that is the common dir;
+  - `.git` is a **directory** → it *is* the common dir.
+
+  Both branches stay spawn-free, which is the whole point of the
+  optimization; only the key changes. (The spike itself keys its dedup map
+  on `rev-parse --git-common-dir` output, which is correct but pays the
+  spawn it was meant to avoid — that is the measured waste.)
 - 2 errors on the multi-root run, both real and expected, not spike bugs:
   `brainstrike-feature-branch` (a stale `.git` directory whose `.git` file
   no longer resolves — `fatal: not a git repository: (null)`) and a `uv`
@@ -213,6 +234,30 @@ Transcribed (corrected where noted) from Task 2's, Task 3's, and Task 4's
 review findings, for production-port awareness. None of these were fixed in
 the spike — they are deliberate, recorded simplifications.
 
+### Task 1 — git invocation seam (`git.ts`) — production-port security note
+
+Added post-review 2026-08-04; not a measurement, a binding W2 obligation.
+
+- **Repo-local git config is an execution vector when you spawn git inside
+  *discovered* repos.** Discovery means `runGit` executes in directories the
+  user never explicitly opened — anything checked out under a granted root.
+  `core.fsmonitor` is a hook git runs on `status`/`diff`; `diff.external` and
+  `.gitattributes` `textconv` filters run on `git diff --numstat`. So a repo
+  sitting on disk under a granted root can execute arbitrary commands the
+  moment inventory/diff touches it, with no user action beyond the directory
+  existing. `safe.directory` does **not** cover this — it guards ownership
+  mismatch, and a repo the user cloned themselves is user-owned. This is
+  orthogonal to spec §4, which governs which paths are *readable*, not what
+  running git in them can *execute*. The spike does none of this hardening.
+- **Production already has the discipline; W2 must route through it.** The
+  desktop `git-service` exposes `invokeHookFree` (prepends
+  `-c core.fsmonitor=false -c core.hooksPath=<devnull>`), its diff calls pass
+  `--no-ext-diff --no-textconv`, and the domain's env pinning strips `GIT_*`.
+  **W2 acceptance criterion: every spawn-in-a-discovered-repo — inventory
+  `rev-parse`/`worktree list` included, not just diffs — goes through the same
+  hook-free + no-external-diff + no-textconv seam.** Cheap to close at the
+  single invocation seam; expensive to retrofit once callers multiply.
+
 ### Task 2 — discovery walk (`discover-repos.ts`)
 
 - **Unguarded `stat` aborts the whole walk on one bad entry**: `walk`'s
@@ -235,9 +280,18 @@ the spike — they are deliberate, recorded simplifications.
   dedup. If two scanned roots overlap (e.g. one is an ancestor of another),
   the overlapping subtree is walked twice, producing two
   `DiscoveredGitEntry` records for the same `.git` path that differ only in
-  `containingRoot` — there is no dedup at the walk level (only later, in
-  `buildInventory`'s `commonDir`-keyed map, at the cost of an extra wasted
-  `rev-parse` spawn per duplicate).
+  the (never-read) `containingRoot` field — there is no dedup at the walk
+  level (only later, in `buildInventory`'s `commonDir`-keyed map, at the cost
+  of an extra wasted `rev-parse` spawn per duplicate). **To be explicit
+  (post-review 2026-08-04): `containingRoot` is NOT load-bearing for dedup.**
+  Dedup is purely `commonDir`-keyed; the field is named here only to describe
+  how the duplicate records differ.
+- **`containingRoot` is written but never read** (`discover-repos.ts`) —
+  `inventory.ts` consumes only `gitPath`, and containment is recomputed from
+  git-reported worktree paths in `classifyContainment`. Second dead surface
+  after `runGitBuffer`. A production port that keeps the field has to decide
+  what it is *for* (provenance display? per-root ignore inheritance?) rather
+  than carrying it forward by inertia.
 - **Repo-under-repo descent is implemented but untested**: the walker
   deliberately keeps descending into subdirectories after finding a `.git`
   entry — nested repos living below another repo's working tree are real
@@ -375,6 +429,40 @@ Implemented exactly as the brief specified and deliberately not fixed:
   must either validate field count per record or use a non-positional
   parse.
 
+Added post-review 2026-08-04 (three cases the record missed):
+
+- **Unborn `HEAD` throws out of `computeScopeDiff` entirely**: on a freshly
+  `git init`'d repo with no commits, both the `uncommitted` and `staged`
+  paths die at `diff HEAD` with `fatal: ambiguous argument 'HEAD'` — the
+  whole call rejects, no partial result. That is a *visible* throw rather
+  than a silent empty diff, so it is spec-compliant behaviour and fine for
+  the spike, but it belongs in the record because **discovery will produce
+  such repos** (`inventory.test.ts` creates one itself; the real corpus
+  almost certainly contains freshly-initialized checkouts). **W3 must plan
+  the empty-tree fallback as the old ref —
+  `4b825dc642cb6eb9a060e54bf8d69288fbee4904`
+  (`git hash-object -t tree /dev/null`) — rather than discover this at
+  implementation time.**
+- **A literal tab in a filename truncates the path under `-z`**: `-z`
+  disables git's path quoting, so a filename containing a tab arrives raw,
+  and `parseNumstat`'s `record.split('\t')` destructure keeps only the
+  prefix before that tab. The truncated key goes into the map, `readSide`
+  then fails to find it at either ref, and the file surfaces as
+  `status: 'A'` with `oldContent: null` — the same signature as the
+  documented rename collapsing, via a different cause. Rare in practice,
+  distinct from the neighbouring `.filter(Boolean)` positional hazard. A
+  production parser must key off the record's **first two tabs only**
+  (`indexOf`-based split, or an anchored regex) and keep the remainder as
+  the pathname. **Already fixed in production W1**
+  (`apps/desktop/src/assistant-server/structured-diff-parsers.ts`:
+  `NUMSTAT_RECORD_PATTERN = /^([^\t]*)\t([^\t]*)\t([\s\S]*)$/`).
+- **`newRef = ''` is dead**: the only read of `newRef` is on the
+  `scope !== 'staged'` branch of the ternary, so `''` never reaches
+  `readSide` — the index side always goes through `':0'`. The accompanying
+  comment reads as though `''` were a meaningful "index" sentinel, which
+  would invite a production port to preserve it. It isn't; hoist the `':0'`
+  choice to one place instead.
+
 ## Answers to spec §10
 
 Five rulings for the W2/W3/W5 implementers. Each cites the evidence it stands
@@ -385,7 +473,7 @@ evidence, the unverified part is named explicitly instead of resolved by guess.
 
 **Ruling: the inventory walk stays independent — a bounded main-process fs walk
 (maxDepth 6, its own small ignore set), NOT a reuse of the Workspace Index
-traversal. The optimization budget goes to the enumerate phase (gitfile-pointer
+traversal. The optimization budget goes to the enumerate phase (common-dir
 dedup before spawning), not the walk.**
 
 Measured basis (Discovery table above):
@@ -396,9 +484,17 @@ Measured basis (Discovery table above):
   machinery would optimize the phase that is already fast.
 - 76 of the multi-root run's 242 `rev-parse` spawns (34 of 35 single-root
   `rev-parse` spawns; 36 total including the `worktree list` spawn) were
-  pure dupe discovery. Parsing the `gitdir:` line out of each `.git` file and
-  deduping on it *before* spawning is the recorded fix — that is where the
-  measured waste is.
+  pure dupe discovery. Resolving each `.git` file's **common dir** without a
+  spawn (read the `gitdir: <path>` target, then `<gitdir>/commondir`; a `.git`
+  directory is its own common dir) and deduping on *that* before spawning is
+  the recorded fix — that is where the measured waste is. **This wording is a
+  post-review correction (2026-08-04): "dedupe on the parsed `gitdir:`
+  pointer" — as this section previously read — is wrong, because each linked
+  worktree's pointer is a unique `<common>/.git/worktrees/<name>` and raw
+  pointer strings therefore never collide. See the Discovery-measurements
+  correction above for the full reasoning; this is a BINDING W2 change, since
+  a literal implementation of the old wording would eliminate zero spawns and
+  risk duplicate repo inventories/watcher subscriptions.**
 - `maxDepth: 6` missed zero in-root worktrees (all 34 agent worktrees sit at
   depth 3, `brainstrike/.claude/worktrees/<name>`); out-of-root worktrees come
   from `worktree list` regardless of walk depth. Keep 6.
