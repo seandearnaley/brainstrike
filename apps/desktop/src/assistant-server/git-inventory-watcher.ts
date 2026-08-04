@@ -1,0 +1,337 @@
+/**
+ * Per-repo `.git`-metadata watchers for the cross-workspace git inventory
+ * (BST-1112): one subscription per repository COMMON dir, covering every
+ * linked worktree's git metadata (settled empirically — see the plan's
+ * Global Constraints). Filters the raw, unfiltered watch stream down to an
+ * INTERESTING set of paths, batches interesting events behind a true
+ * trailing debounce, and surfaces a dead subscription as typed state instead
+ * of silently dropping it or auto-restarting it.
+ *
+ * `git-inventory-service.ts` (Task 4) owns turning `getHealthErrors()` into
+ * `GitInventorySnapshot.errors` entries and calling `sync()` after every
+ * rebuild; this module never touches git, the discovery walk, or the
+ * database roots loader.
+ */
+
+import fsPromises from 'node:fs/promises';
+import path from 'node:path';
+import { createLogger } from '@brainstrike/logging';
+import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
+
+const logger = createLogger('GitInventoryWatchers');
+
+/**
+ * Batch window in ms. A TRAILING debounce (re-armed by every interesting
+ * event, never a fixed window from the first) — see {@link scheduleInvalidate}
+ * for why. Also tolerant of a stray late lock-file event after a rebuild
+ * already ran, because lock files never reach the debounce at all (see
+ * {@link isInterestingGitMetadataPath}).
+ */
+export const GIT_INVENTORY_WATCH_BATCH_MS = 300;
+
+/**
+ * Injected watch function (BST-1112). NOTE on the sync-vs-async mismatch:
+ * the real `ElectronFileSystemAdapter.watchDirectory` returns its disposer
+ * SYNCHRONOUSLY — "Always returns a valid disposer that can be called safely
+ * at any time" (electron-adapter.ts). This module's dependency shape is
+ * nonetheless `Promise<() => void>`, matching both the plan's documented
+ * interface and the existing `ipc-notes-vault.ts` precedent
+ * (`startWatch: (path, onChange) => Promise<() => void>`), which wraps that
+ * same sync adapter into a Promise via the `onHealth` callback so its
+ * caller can await confirmed setup.
+ *
+ * This module does NOT need that gate: since the adapter's returned disposer
+ * is already safe to use immediately (per its own doc comment), the
+ * production adapter (wired in Task 4) can resolve trivially with
+ * `Promise.resolve(realAdapter.watchDirectory(...))` rather than waiting for
+ * a 'healthy' transition the way notes-vault does for user-facing feedback.
+ * Setup/runtime failure here is instead a visible, POST-HOC health signal
+ * (the `onSignal` 'errored' case below) — never something `sync()` blocks
+ * on or throws for.
+ */
+export type WatchGitCommonDir = (
+  commonDir: string,
+  callback: (changes: FileSystemChange[]) => void,
+  onSignal?: (signal: FileSystemWatchSignal) => void,
+  options?: { readonly ignorePatterns?: readonly string[] }
+) => Promise<() => void>;
+
+export interface GitInventoryWatcherDeps {
+  /** Called (at most once per debounce window) when a repo's git metadata may have changed. */
+  readonly onInvalidate: (gitCommonDir: string) => void;
+  /** Defaults to `node:fs/promises`'s `realpath`; tests inject a fake. */
+  readonly realpath?: (targetPath: string) => Promise<string>;
+  /** electron-adapter-shaped watch function — see {@link WatchGitCommonDir}. */
+  readonly watchDirectory: WatchGitCommonDir;
+}
+
+export interface GitInventoryWatchers {
+  /**
+   * Idempotent: safe to call more than once, and safe to call at any time —
+   * including while a `sync()` subscribe is still in flight (its disposer is
+   * invoked the moment it resolves, never leaked). TERMINAL: once called,
+   * this instance never subscribes again, even if a later `sync()` lists a
+   * common dir — matches the service `stop()` lifecycle this pairs with
+   * (`createGitInventoryWatchers` is called again to start fresh).
+   */
+  readonly disposeAll: () => Promise<void>;
+  /** Common dirs whose watcher failed and is NOT watching (typed state Task 4 folds into `GitInventorySnapshot.errors`). */
+  readonly getDeadCommonDirs: () => ReadonlySet<string>;
+  /** Human-readable, ready-to-append error strings — one per dead watcher. */
+  readonly getHealthErrors: () => readonly string[];
+  /**
+   * Subscribe every NEW common dir in the list, dispose every subscription
+   * whose common dir is no longer in the list, and leave every other live
+   * subscription untouched. A DEAD subscription that is still in the list is
+   * disposed and resubscribed — this is the only retry path ("no
+   * auto-restart" means nothing resubscribes on a timer or on its own; it
+   * only happens because the caller invoked `sync()` again, i.e. an explicit
+   * rebuild).
+   */
+  readonly sync: (commonDirs: readonly string[]) => Promise<void>;
+}
+
+interface Subscription {
+  dead: boolean;
+  deadReason: string | null;
+  dispose: () => void;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const LOCK_SUFFIX_RE = /\.lock$/;
+
+/**
+ * The INTERESTING set (Global Constraints, settled): `HEAD`, `index`,
+ * `ORIG_HEAD`, `refs/**`, `packed-refs` (a content write — the false-negative
+ * hole a default ignore set would drop), `worktrees/<name>/(HEAD|index|
+ * ORIG_HEAD)`, and a BARE `worktrees/<name>` for worktree lifecycle
+ * (add/remove — the directory itself appearing or disappearing).
+ * Deliberately excludes `objects/**` churn (every write there is content the
+ * inventory doesn't summarize) and every `*.lock` transient path via the
+ * separate {@link LOCK_SUFFIX_RE} check below: git always renames a lock file
+ * into its final name (`index.lock` → `index`, `refs/heads/x.lock` →
+ * `refs/heads/x`, `packed-refs.lock` → `packed-refs`) and that final name is
+ * already matched here — the lock file itself is redundant noise, never a
+ * missed signal.
+ */
+const INTERESTING_RE =
+  /^(?:HEAD|ORIG_HEAD|index|packed-refs|refs\/.+|worktrees\/[^/]+(?:\/(?:HEAD|ORIG_HEAD|index))?)$/;
+
+function isInterestingGitMetadataPath(relativePosixPath: string): boolean {
+  if (LOCK_SUFFIX_RE.test(relativePosixPath)) {
+    return false;
+  }
+  return INTERESTING_RE.test(relativePosixPath);
+}
+
+/** POSIX-separated path of `absolutePath` relative to `commonDir`, for matching against {@link INTERESTING_RE} on every platform. */
+function toRelativePosixPath(commonDir: string, absolutePath: string): string {
+  return path.relative(commonDir, absolutePath).split(path.sep).join('/');
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Wire per-repo git-metadata watchers. Deliberately takes no discovery/DB
+ * dependency — `commonDirs` is handed in by the caller (`sync`), which is
+ * `git-inventory-service.ts` after every snapshot rebuild.
+ */
+export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitInventoryWatchers {
+  const realpath = deps.realpath ?? ((targetPath: string) => fsPromises.realpath(targetPath));
+  const subscriptions = new Map<string, Subscription>();
+  let disposed = false;
+
+  /**
+   * TRUE trailing debounce: every interesting event clears and re-arms a
+   * fresh {@link GIT_INVENTORY_WATCH_BATCH_MS} window from ITS OWN arrival
+   * time, never from the first event's. An event burst at t=0,100,200 fires
+   * once at ~500, not at 300 — a FIXED window keyed off the first event would
+   * fire mid-burst and could split one logical git operation (e.g. a
+   * commit's HEAD+index+refs writes land a few ms apart) across two rebuilds.
+   */
+  function scheduleInvalidate(commonDir: string, sub: Subscription): void {
+    if (sub.timer) {
+      clearTimeout(sub.timer);
+    }
+    sub.timer = setTimeout(() => {
+      sub.timer = null;
+      deps.onInvalidate(commonDir);
+    }, GIT_INVENTORY_WATCH_BATCH_MS);
+  }
+
+  function handleChanges(
+    commonDir: string,
+    watchRoot: string,
+    sub: Subscription,
+    changes: readonly FileSystemChange[]
+  ): void {
+    // Relative-path base MUST be `watchRoot` (what the subscription was
+    // actually opened against, realpath'd) — every change path the adapter
+    // reports is under that real tree, not necessarily under the ORIGINAL
+    // (possibly symlinked) `commonDir` key used for the invalidation/dead-set
+    // identity below.
+    const hasInteresting = changes.some((change) =>
+      isInterestingGitMetadataPath(toRelativePosixPath(watchRoot, change.path))
+    );
+    if (!hasInteresting) {
+      return;
+    }
+    scheduleInvalidate(commonDir, sub);
+  }
+
+  function handleSignal(commonDir: string, sub: Subscription, signal: FileSystemWatchSignal): void {
+    if (signal.type === 'overflow') {
+      // Events may have been missed (WICG 'unknown' records / native
+      // overflow) — the whole repo's metadata is stale. Force an immediate
+      // rebuild rather than waiting for another interesting event that may
+      // never arrive; this does not mark the watcher dead, it stays live.
+      if (sub.timer) {
+        clearTimeout(sub.timer);
+        sub.timer = null;
+      }
+      deps.onInvalidate(commonDir);
+      return;
+    }
+    // signal.type === 'errored': the adapter has ALREADY torn the
+    // subscription down (FileSystemWatchSignal's own contract: "the watch is
+    // dead and already disconnected"). Mark this repo's watcher dead —
+    // visible via getDeadCommonDirs()/getHealthErrors(), never a silent
+    // no-op and never an auto-restart. Explicit retry only, via a later
+    // sync() call that still lists this commonDir.
+    sub.dead = true;
+    sub.deadReason = signal.message;
+    if (sub.timer) {
+      clearTimeout(sub.timer);
+      sub.timer = null;
+    }
+    logger.error('git inventory watcher failed; repo watcher marked dead', {
+      commonDir,
+      message: signal.message,
+    });
+  }
+
+  async function subscribe(commonDir: string): Promise<void> {
+    if (disposed) {
+      return;
+    }
+    let watchRoot: string;
+    try {
+      watchRoot = await realpath(commonDir);
+    } catch (error) {
+      const message = `common dir could not be resolved: ${toErrorMessage(error)}`;
+      subscriptions.set(commonDir, {
+        dead: true,
+        deadReason: message,
+        dispose: () => {},
+        timer: null,
+      });
+      logger.error('git inventory watcher setup failed to resolve common dir', {
+        commonDir,
+        error: message,
+      });
+      return;
+    }
+    // No second `disposed` check needed here: if disposeAll() ran while the
+    // realpath() above was in flight, the stale-identity check below (after
+    // watchDirectory() resolves) is what actually tears this down — it
+    // already covers "disposed mid-flight" as one of its two conditions.
+    const sub: Subscription = { dead: false, deadReason: null, dispose: () => {}, timer: null };
+    subscriptions.set(commonDir, sub);
+
+    let dispose: () => void;
+    try {
+      dispose = await deps.watchDirectory(
+        watchRoot,
+        (changes) => handleChanges(commonDir, watchRoot, sub, changes),
+        (signal) => handleSignal(commonDir, sub, signal),
+        { ignorePatterns: [] }
+      );
+    } catch (error) {
+      const message = `watcher setup failed: ${toErrorMessage(error)}`;
+      sub.dead = true;
+      sub.deadReason = message;
+      logger.error('git inventory watcher setup rejected', { commonDir, error: message });
+      return;
+    }
+
+    // A dispose/resubscribe race: sync() (or disposeAll()) could have
+    // removed this commonDir — or replaced it with a fresh retry
+    // Subscription — while watchDirectory() was still resolving. If this
+    // Subscription object is no longer the one in the map, its setup is
+    // stale: dispose it immediately rather than leaking a live subscription
+    // nothing will ever tear down.
+    if (disposed || subscriptions.get(commonDir) !== sub) {
+      dispose();
+      return;
+    }
+    sub.dispose = dispose;
+  }
+
+  async function disposeOne(commonDir: string): Promise<void> {
+    const sub = subscriptions.get(commonDir);
+    if (!sub) {
+      return;
+    }
+    subscriptions.delete(commonDir);
+    if (sub.timer) {
+      clearTimeout(sub.timer);
+    }
+    sub.dispose();
+  }
+
+  async function sync(commonDirs: readonly string[]): Promise<void> {
+    const desired = new Set(commonDirs);
+    const toDispose: string[] = [];
+    const toSubscribe: string[] = [];
+
+    for (const [commonDir, sub] of subscriptions) {
+      if (!desired.has(commonDir)) {
+        toDispose.push(commonDir);
+      } else if (sub.dead) {
+        // Explicit-rebuild retry: dispose the dead entry, then resubscribe.
+        toDispose.push(commonDir);
+        toSubscribe.push(commonDir);
+      }
+    }
+    for (const commonDir of desired) {
+      if (!subscriptions.has(commonDir)) {
+        toSubscribe.push(commonDir);
+      }
+    }
+
+    await Promise.all(toDispose.map((commonDir) => disposeOne(commonDir)));
+    await Promise.all(toSubscribe.map((commonDir) => subscribe(commonDir)));
+  }
+
+  async function disposeAll(): Promise<void> {
+    disposed = true;
+    const commonDirs = [...subscriptions.keys()];
+    await Promise.all(commonDirs.map((commonDir) => disposeOne(commonDir)));
+  }
+
+  function getDeadCommonDirs(): ReadonlySet<string> {
+    const dead = new Set<string>();
+    for (const [commonDir, sub] of subscriptions) {
+      if (sub.dead) {
+        dead.add(commonDir);
+      }
+    }
+    return dead;
+  }
+
+  function getHealthErrors(): readonly string[] {
+    const errors: string[] = [];
+    for (const [commonDir, sub] of subscriptions) {
+      if (sub.dead) {
+        errors.push(
+          `git inventory: watcher for common dir "${commonDir}" failed and is not watching: ${sub.deadReason ?? 'unknown error'}`
+        );
+      }
+    }
+    return errors;
+  }
+
+  return { disposeAll, getDeadCommonDirs, getHealthErrors, sync };
+}

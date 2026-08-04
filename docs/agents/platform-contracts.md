@@ -594,6 +594,11 @@ indexed state only.
   share one filter set. The shared Explorer refresh pipeline never passes
   this option — "same names, never broader" stays true for that path (see
   `docs/agents/explorer-search-tapestry.md`).
+- **Git-inventory watcher dead-on-failure (BST-1112)**: `git-inventory-watcher.ts`'s
+  per-repo subscriptions (one per common dir, using the ignore override above)
+  mark themselves dead on an `'errored'` signal — visible via typed state, never
+  a silent no-op and never an auto-restart — and retry only when an explicit
+  `sync()` call still lists that common dir.
 - **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
   (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
   asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).
