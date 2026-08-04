@@ -97,8 +97,8 @@ const SENTINEL_INSERTS = [
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-resource')`,
   // BST-1115: soft-rewind tombstones hide messages the clear just destroyed.
   `INSERT INTO brainstrike_assistant_message_tombstones
-     (message_id, thread_id, revert_id)
-     VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-revert')`,
+     (message_id, thread_id, rewind_id)
+     VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-rewind')`,
   // BST-992 convergence: factory-reset-only sentinel (representative of the
   // six seed-free caches) — wiped by the purge, kept by Clear Database.
   `INSERT INTO job_queue_metrics (queue, succeeded_total)

@@ -852,13 +852,21 @@ finalizes the rewind.
   080 in BOTH runners plus the byte-identical app-shell bootstrap mirror; no
   FKs — migration 055 message-parents precedent, since numbered migrations run
   against a bare schema with no Mastra tables). Columns:
-  `message_id` (PRIMARY KEY), `thread_id`, `revert_id`, `tombstoned_at`.
-  Indexed on `(thread_id)` for the read-path anti-join and `(revert_id)` for
-  batch redo. Registered in `THREAD_DELETE_SIDECAR_TABLES` (all three
-  thread-delete cascades derive from it) and in the reset registry.
+  `message_id` (PRIMARY KEY), `thread_id`, `rewind_id` (NOT NULL),
+  `revert_id` (NULLABLE), `tombstoned_at`. Indexed on `(thread_id)` for the
+  read-path anti-join and `(rewind_id)` for batch redo. Registered in
+  `THREAD_DELETE_SIDECAR_TABLES` (all three thread-delete cascades derive from
+  it) and in the reset registry.
+- **Two batch ids, because rewind has a scope choice.** `applyRewind` takes
+  `mode: 'conversation-only' | 'conversation-and-files'`. `rewind_id` is the
+  tombstone batch identity and the redo key, present in BOTH modes;
+  `revert_id` links the paired edit-checkpoint journal file revert and is NULL
+  for `conversation-only`, which performs no file revert at all. One shared
+  column would force either a fabricated revert id or a nullable redo key —
+  and a nullable redo key is how a batch gets lost.
 - **`message_id` is the primary key on purpose.** A message is tombstoned at
   most once, by exactly one batch — that is what makes "delete the newest
-  `revert_id` batch" an exact inverse. A second rewind re-covering an already
+  `rewind_id` batch" an exact inverse. A second rewind re-covering an already
   hidden message keeps the ORIGINAL batch's row (`ON CONFLICT DO NOTHING`), so
   undoing the newer rewind cannot resurrect what the older one hid.
 - **Mastra stays the writer of message content.** Nothing here alters a
@@ -882,7 +890,8 @@ finalizes the rewind.
   delete follows the existing precedent that per-message deletes emit no op.
 
 Paired tests: `migration-080-assistant-message-tombstones.test.ts` (both
-runners, indexes, the at-most-once invariant, reset registration), the
+runners, indexes, the at-most-once invariant, the conversation-only NULL
+`revert_id` shape, the NOT NULL `rewind_id`, reset registration), the
 thread-delete cascade case in
 `assistant-memory-repository.integration.test.ts`, and the clear/reset
 sentinels in `clear-data.integration.test.tsx` and

@@ -3186,8 +3186,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // thread must not leave rows hiding messages that no longer exist.
     await db.query(
       `INSERT INTO brainstrike_assistant_message_tombstones
-        (message_id, thread_id, revert_id)
-       VALUES ('message-delete', $1, 'revert-delete')`,
+        (message_id, thread_id, rewind_id)
+       VALUES ('message-delete', $1, 'rewind-delete')`,
       [thread.id]
     );
 

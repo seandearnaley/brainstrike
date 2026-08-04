@@ -13,16 +13,24 @@ import type { Migration } from './migration-runner';
  *
  * `message_id` is the PRIMARY KEY, not a surrogate id: a message is tombstoned
  * at most once, by exactly one batch. That is what makes redo an exact inverse
- * — redo deletes the newest `revert_id` batch and the content rows, untouched
+ * — redo deletes the newest `rewind_id` batch and the content rows, untouched
  * throughout, become visible again. A second rewind that re-covers an
  * already-tombstoned message must keep the ORIGINAL batch's row (insert with
  * ON CONFLICT DO NOTHING) so undoing the newer rewind cannot resurrect
  * messages the older one hid.
  *
- * `revert_id` is the batch identity shared by every row one rewind wrote; it
- * is the same id the edit-checkpoint journal records for the paired file
- * range-revert, so the message tombstones and the file revert are one
- * user-visible operation.
+ * The two batch columns are deliberately separate because rewind has a SCOPE
+ * CHOICE (`conversation-only` vs `conversation-and-files`):
+ *
+ * - `rewind_id` (NOT NULL) is the tombstone batch identity and the thing redo
+ *   targets. It exists in BOTH modes.
+ * - `revert_id` (NULLABLE) links the paired edit-checkpoint journal file
+ *   revert. It is NULL for a `conversation-only` rewind, which performs no
+ *   file revert at all.
+ *
+ * Collapsing them into one column would force either a fabricated revert id
+ * for conversation-only rewinds or a nullable redo key — and a nullable redo
+ * key is how a batch gets lost.
  *
  * Rows are hard-deleted at finalization (the next user message in the thread),
  * which is when the tombstoned messages themselves are deleted through Mastra's
@@ -39,15 +47,16 @@ export const migration080AssistantMessageTombstones: Migration = {
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_message_tombstones (
       message_id text PRIMARY KEY,
       thread_id text NOT NULL,
-      revert_id text NOT NULL,
+      rewind_id text NOT NULL,
+      revert_id text,
       tombstoned_at timestamptz NOT NULL DEFAULT NOW()
     );
 
     CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_thread_idx
       ON brainstrike_assistant_message_tombstones (thread_id);
 
-    CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_revert_idx
-      ON brainstrike_assistant_message_tombstones (revert_id);
+    CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_rewind_idx
+      ON brainstrike_assistant_message_tombstones (rewind_id);
   `,
   version: 80,
 };

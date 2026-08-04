@@ -166,9 +166,11 @@ export type MindOp = (typeof MIND_OPS)[number];
  *
  * A tombstone row hides its message from every Brainstrike-owned read path
  * while Mastra keeps owning the content row. `message_id` is the primary key
- * (a message is tombstoned at most once) and `revert_id` groups the rows one
+ * (a message is tombstoned at most once) and `rewind_id` groups the rows one
  * rewind wrote, which is what makes redo an exact inverse: delete the newest
- * batch and the messages reappear untouched.
+ * batch and the messages reappear untouched. `revert_id` is separate and
+ * NULLABLE — it links the paired journal file revert, which a
+ * `conversation-only` rewind never performs.
  */
 export const ASSISTANT_MESSAGE_TOMBSTONES_TABLE = 'brainstrike_assistant_message_tombstones';
 

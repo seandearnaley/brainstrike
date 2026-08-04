@@ -698,19 +698,22 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_parents_thread_idx
 -- keeps its Mastra content row and is excluded by every Brainstrike-owned
 -- read; the row is hard-deleted when the next user message finalizes the
 -- rewind. message_id is the PK: a message is tombstoned at most once, which is
--- what makes deleting a revert_id batch an exact redo.
+-- what makes deleting a rewind_id batch an exact redo. rewind_id is the redo
+-- key and exists in both rewind modes; revert_id links the paired journal file
+-- revert and is NULL for a conversation-only rewind.
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (
   message_id text PRIMARY KEY,
   thread_id text NOT NULL,
-  revert_id text NOT NULL,
+  rewind_id text NOT NULL,
+  revert_id text,
   tombstoned_at timestamptz NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_thread_idx
   ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (thread_id);
 
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_revert_idx
-  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (revert_id);
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_rewind_idx
+  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (rewind_id);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,
