@@ -12,12 +12,20 @@
  * own `dir:<worktreePath>:<relativeDirPath>` id prefix and depth+1 per
  * segment). State this explicitly in the BST-1114 commit message.
  *
- * A file whose `rootId`/`repositoryRoot`/`worktreePath` is `null` (outside
- * every workspace root, or otherwise not fully located) is never dropped —
- * it lands under the single, explicit {@link OUTSIDE_ROOTS_NODE_ID} group.
- * `inventory === null` only affects worktree ENRICHMENT (name/branch/trust):
- * the tree still builds from `files`' own topology facts, never blocking on
- * the inventory and never fabricating names when it is absent.
+ * LOCATION FACTS ARE A THREE-WAY SPLIT, not a binary located/not-located
+ * (review finding, BST-1114 PR #2274): a fully-located entry (`rootId` +
+ * `repositoryRoot` + `worktreePath` all real) nests under
+ * repository/worktree as above. A journal-sourced entry (`agent-run`/
+ * `run-range` — `rootId` real, `repositoryRoot`/`worktreePath` both null,
+ * per `journalFoldEntryToChangedFileEntry`) buckets as a direct FILE child
+ * of its ROOT group instead: it names a real granted workspace root, it just
+ * has no repository/worktree to nest under, so sweeping it into
+ * `outside-roots` would be dishonest — that group is reserved for an entry
+ * whose `rootId` is ALSO null (genuinely unlocatable, or outside every
+ * granted root). Neither case is ever dropped. `inventory === null` only
+ * affects worktree ENRICHMENT (name/branch/trust): the tree still builds
+ * from `files`' own topology facts, never blocking on the inventory and
+ * never fabricating names when it is absent.
  *
  * IDENTITY STABILITY (the hard requirement — see
  * `docs/agents/ui-conventions.md`'s TreeTable section and
@@ -179,6 +187,14 @@ interface RepositoryBucket {
 }
 
 interface RootBucket {
+  /**
+   * Journal-sourced entries for this root (`worktreePath`/`repositoryRoot`
+   * null, `rootId` real — every `agent-run`/`run-range` `ChangedFileEntry`).
+   * Rendered as direct FILE children of the root group, never swept into
+   * `outside-roots`: the entry names a real granted root, it just has no
+   * repository/worktree to nest under.
+   */
+  readonly looseFiles: ChangedFileEntry[];
   readonly repoOrder: string[];
   readonly repos: Map<string, RepositoryBucket>;
   readonly rootId: string;
@@ -190,7 +206,32 @@ interface BucketedFiles {
   readonly roots: Map<string, RootBucket>;
 }
 
-/** Groups files by (rootId → repositoryRoot → worktreePath), preserving first-seen order at every level. */
+function getOrCreateRootBucket(
+  roots: Map<string, RootBucket>,
+  rootOrder: string[],
+  rootId: string
+): RootBucket {
+  let root = roots.get(rootId);
+  if (!root) {
+    root = { looseFiles: [], repoOrder: [], repos: new Map(), rootId };
+    roots.set(rootId, root);
+    rootOrder.push(rootId);
+  }
+  return root;
+}
+
+/**
+ * Groups files by (rootId → repositoryRoot → worktreePath), preserving
+ * first-seen order at every level.
+ *
+ * Three-way split per entry, NOT two: `isFullyLocated` (repositoryRoot +
+ * worktreePath + rootId all real) nests under repository/worktree as before;
+ * a journal-sourced entry (`rootId` real, `worktreePath`/`repositoryRoot`
+ * null) buckets directly under its ROOT as a loose file — it names a real
+ * granted root, it just has no repository/worktree to nest under, so
+ * `outside-roots` (reserved for a `rootId`-less entry — genuinely
+ * unlocatable or outside every granted root) would be dishonest.
+ */
 function bucketFiles(files: readonly ChangedFileEntry[]): BucketedFiles {
   const roots = new Map<string, RootBucket>();
   const rootOrder: string[] = [];
@@ -198,16 +239,15 @@ function bucketFiles(files: readonly ChangedFileEntry[]): BucketedFiles {
 
   for (const entry of files) {
     if (!isFullyLocated(entry)) {
-      outsideFiles.push(entry);
+      if (entry.rootId === null) {
+        outsideFiles.push(entry);
+      } else {
+        getOrCreateRootBucket(roots, rootOrder, entry.rootId).looseFiles.push(entry);
+      }
       continue;
     }
 
-    let root = roots.get(entry.rootId);
-    if (!root) {
-      root = { repoOrder: [], repos: new Map(), rootId: entry.rootId };
-      roots.set(entry.rootId, root);
-      rootOrder.push(entry.rootId);
-    }
+    const root = getOrCreateRootBucket(roots, rootOrder, entry.rootId);
 
     let repository = root.repos.get(entry.repositoryRoot);
     if (!repository) {
@@ -325,17 +365,25 @@ function buildRawNodes(
       continue;
     }
     const rootGroupId = rootNodeId(rootId);
+    const childCount = root.repoOrder.length + root.looseFiles.length;
     nodes.push({
-      childCount: root.repoOrder.length,
+      childCount,
       data: { kind: 'root', rootId },
       depth: 0,
-      hasChildren: root.repoOrder.length > 0,
+      hasChildren: childCount > 0,
       id: rootGroupId,
       parentId: null,
       type: 'root',
     });
 
     appendRepositoryNodes(nodes, root, rootGroupId, descriptorIndex);
+    // Journal-sourced entries for this root — direct FILE children of the
+    // root group (see `bucketFiles`'s doc comment). Depth 1, the same level
+    // as a repository group, since there is no repository/worktree to nest
+    // under.
+    for (const entry of root.looseFiles) {
+      nodes.push(materializeFileLeafNode(entry, rootGroupId, 1));
+    }
   }
 
   appendOutsideRootsNodes(nodes, outsideFiles);

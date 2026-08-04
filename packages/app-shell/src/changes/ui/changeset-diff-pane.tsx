@@ -48,7 +48,11 @@ export interface ChangesetDiffPaneProps {
   readonly changesetKey: string;
   readonly changesetKind: Changeset['kind'];
   readonly files: readonly ChangedFileEntry[];
-  readonly loadFileDiff: (path: string) => Promise<GitResult<StructuredFileDiff>>;
+  /** Threaded straight through to `ChangesetFileDiffCard` — see its own doc comment on the `rootId` parameter. */
+  readonly loadFileDiff: (
+    path: string,
+    rootId: string | null
+  ) => Promise<GitResult<StructuredFileDiff>>;
 }
 
 function EmptyPaneState({

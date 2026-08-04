@@ -25,12 +25,17 @@ import { create } from 'zustand';
  *
  * `ChangedFileEntry.path` is relative to its OWNING worktree, so two worktrees
  * of the same repository routinely contain the same `path` — keying on `path`
- * alone would silently collapse them into one row. `worktreePath` is already
- * canonicalized by the inventory, so the pair is a real key. The NUL separator
- * cannot occur in either component, so the encoding is unambiguous.
+ * alone would silently collapse them into one row. `worktreePath` is null for
+ * every journal-sourced (`agent-run`/`run-range`) entry (review finding,
+ * BST-1114 — MULTI-ROOT IDENTITY), so `rootId` is included too: it is the
+ * only location fact those entries carry, and two roots routinely share a
+ * relative path. Mirrors `foldKey` in
+ * `apps/desktop/src/assistant-server/changeset-journal-view.ts`, which keys
+ * on `(rootId, path)` for the same reason. The NUL separator cannot occur in
+ * any component, so the encoding is unambiguous.
  */
 export function changedFileKey(entry: ChangedFileEntry): string {
-  return `${entry.worktreePath ?? ''}\u0000${entry.path}`;
+  return `${entry.rootId ?? ''}\u0000${entry.worktreePath ?? ''}\u0000${entry.path}`;
 }
 
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
@@ -45,6 +50,14 @@ export interface ChangesStoreState {
    * `selectedFileKeys.size > 0` so the empty case stays unambiguous.
    */
   readonly hasExplicitSelection: boolean;
+  /**
+   * Factory-reset entry point (AGENTS.md invariant: "Any new persistent
+   * store/state must be wired into factory reset"). Clears BOTH the
+   * selection and the expanded-group ids — a stale selection from a wiped
+   * changeset can filter every file out of the diff pane, and stale
+   * expanded-group ids reference tree nodes that no longer exist.
+   */
+  readonly reset: () => void;
   /** {@link changedFileKey} values the user checked. Empty ⇒ render everything. */
   readonly selectedFileKeys: ReadonlySet<string>;
   readonly setExpandedIds: (ids: ReadonlySet<string>) => void;
@@ -57,6 +70,8 @@ export const useChangesStore = create<ChangesStoreState>((set) => ({
   clearSelection: () => set({ hasExplicitSelection: false, selectedFileKeys: EMPTY_KEYS }),
   expandedIds: EMPTY_KEYS,
   hasExplicitSelection: false,
+  reset: () =>
+    set({ expandedIds: EMPTY_KEYS, hasExplicitSelection: false, selectedFileKeys: EMPTY_KEYS }),
   selectedFileKeys: EMPTY_KEYS,
   setExpandedIds: (ids) => set({ expandedIds: ids }),
   setSelectedFileKeys: (keys) =>

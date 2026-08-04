@@ -31,7 +31,7 @@ export interface UseTreeKeyboardOptions<T> {
   /** Currently selected node IDs (multi-select) */
   multiSelectedIds?: Set<string>;
   /** All tree nodes (for parent/child lookup) */
-  nodes: TreeNode<T>[];
+  nodes: readonly TreeNode<T>[];
   /**
    * Optional Space handler for pluggable checkboxes.
    * Return true when the key was handled so the default multi-select

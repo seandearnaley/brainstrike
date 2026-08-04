@@ -28,7 +28,8 @@ import type { ReactElement } from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { changedFileKey, useChangesStore } from '../changes-store';
-import { CHANGED_FILES_TREE_COLUMNS, ChangedFilesTree } from '../ui/changed-files-tree';
+import { ChangedFilesTree } from '../ui/changed-files-tree';
+import { CHANGED_FILES_TREE_COLUMNS } from '../ui/changed-files-tree-columns';
 import type { ChangedFilesTreeNodeData } from '../ui/changed-files-tree-model';
 
 // Mirrors the mock in tree-table-render-stability.test.tsx: a STABLE

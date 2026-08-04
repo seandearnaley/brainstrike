@@ -50,8 +50,18 @@ export interface UseChangesetResult {
   /**
    * Lazy per-file diff load — not hook state. Returns a typed failure
    * (never throws) when the bridge, rootId, or changeset is absent.
+   *
+   * `entryRootId` overrides this hook's own `rootId` for the call — a
+   * multi-root `agent-run` turn can edit more than one workspace root in a
+   * single run, and `resolveJournalFileDiff` identifies a file by
+   * `(rootId, path)`, not `path` alone. Omitted/`null` falls back to the
+   * hook's `rootId` (the pre-fix behavior, still correct for a
+   * single-root turn or a `git-scope` changeset).
    */
-  readonly fileDiff: (path: string) => Promise<GitResult<StructuredFileDiff>>;
+  readonly fileDiff: (
+    path: string,
+    entryRootId?: string | null
+  ) => Promise<GitResult<StructuredFileDiff>>;
   /** Re-resolve the active changeset's view. A no-op when nothing is active. */
   readonly refresh: () => Promise<void>;
   /**
@@ -122,15 +132,16 @@ export function useChangeset(
   }, [refresh]);
 
   const fileDiff = useCallback(
-    async (path: string): Promise<GitResult<StructuredFileDiff>> => {
-      if (!(bridge && rootId && stableChangeset)) {
+    async (path: string, entryRootId?: string | null): Promise<GitResult<StructuredFileDiff>> => {
+      const resolvedRootId = entryRootId ?? rootId;
+      if (!(bridge && resolvedRootId && stableChangeset)) {
         return {
           error: 'changeset-unavailable: no active bridge, root, or changeset',
           ok: false,
         };
       }
       try {
-        return await bridge.fileDiff(rootId, stableChangeset, path);
+        return await bridge.fileDiff(resolvedRootId, stableChangeset, path);
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
         logger.error('Failed to load file diff', { error: caught, path });

@@ -76,4 +76,14 @@ describe('useChangesNavigationStore', () => {
 
     expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
   });
+
+  it('reset() clears both the active changeset and the handoff identity', () => {
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+    expect(useChangesNavigationStore.getState().activeChangeset).not.toBeNull();
+
+    useChangesNavigationStore.getState().reset();
+
+    expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+  });
 });

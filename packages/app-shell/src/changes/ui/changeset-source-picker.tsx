@@ -37,6 +37,7 @@ import {
 } from '@brainstrike/ui';
 import { AlertTriangle, Check, GitBranch } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { describeGitScopeKind } from './git-scope-label';
 
 export interface ChangesetSourcePickerProps {
   readonly changeset: Changeset | null;
@@ -51,26 +52,6 @@ export interface ChangesetSourcePickerProps {
 /** The `GitScope` kinds this picker offers (excludes `commit`, a history-view concept). */
 const OFFERED_GIT_SCOPE_KINDS = ['uncommitted', 'staged', 'unstaged', 'branch-vs-base'] as const;
 type OfferedGitScopeKind = (typeof OFFERED_GIT_SCOPE_KINDS)[number];
-
-/** Human label for a `GitScope`. Exported so `changeset-header.tsx` can reuse it in the provenance line without duplicating the switch. */
-export function describeGitScopeKind(scope: GitScope): string {
-  switch (scope.kind) {
-    case 'uncommitted':
-      return 'uncommitted';
-    case 'staged':
-      return 'staged';
-    case 'unstaged':
-      return 'unstaged';
-    case 'branch-vs-base':
-      return scope.baseRef ? `vs ${scope.baseRef}` : 'vs base branch';
-    case 'commit':
-      return `commit ${scope.commitId.slice(0, 7)}`;
-    default: {
-      const exhaustive: never = scope;
-      throw new Error(`Unhandled GitScope kind: ${JSON.stringify(exhaustive)}`);
-    }
-  }
-}
 
 function scopeForKind(kind: OfferedGitScopeKind): GitScope {
   return { kind };
@@ -226,57 +207,81 @@ export function ChangesetSourcePicker({
             <div className="truncate px-2 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
               {repository.identity.repositoryRoot}
             </div>
-            {repository.worktrees.map((worktree) => (
-              <DropdownMenuSub key={worktree.path}>
-                <DropdownMenuSubTrigger data-testid="changeset-source-worktree">
-                  <span className="flex min-w-0 flex-1 flex-col items-start">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-medium text-sm">{worktree.name}</span>
-                      {worktree.trust === 'unvalidated' ? (
-                        <Badge
-                          className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
-                          data-testid="worktree-trust-badge"
-                          variant="outline"
-                        >
-                          <AlertTriangle aria-hidden="true" className="size-3" />
-                          Unvalidated
-                        </Badge>
-                      ) : null}
-                    </span>
-                    <span className="truncate text-[10px] text-muted-foreground">
-                      {worktree.path}
-                    </span>
-                    {worktree.trust === 'unvalidated' && worktree.trustReason ? (
-                      <span
-                        className="text-[10px] text-amber-700 dark:text-amber-300"
-                        data-testid="worktree-trust-reason"
-                      >
-                        {worktree.trustReason}
-                      </span>
-                    ) : null}
-                  </span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  {OFFERED_GIT_SCOPE_KINDS.map((kind) => {
-                    const candidate: Changeset = {
-                      kind: 'git-scope',
-                      repositoryRoot: repository.identity.repositoryRoot,
-                      scope: scopeForKind(kind),
-                      worktreePath: worktree.path,
-                    };
-                    const isActive = activeKey === changesetKey(candidate);
-                    return (
-                      <DropdownMenuItem key={kind} onSelect={() => onSelectChangeset(candidate)}>
-                        {isActive ? <Check aria-hidden="true" /> : <span className="size-4" />}
-                        <span className="min-w-0 flex-1 truncate capitalize">
-                          {describeGitScopeKind(candidate.scope)}
+            {repository.worktrees.map((worktree) => {
+              // A worktree with `containment: 'outside-roots'` has no
+              // containing workspace root — `resolveContainedWorktreeCwd`
+              // deterministically fails with `outside-roots-unsupported` for
+              // it, so its scopes can never resolve. Disable the trigger
+              // itself (never a submenu of items that all fail) rather than
+              // offering a dead menu.
+              const isResolvable = worktree.containment !== 'outside-roots';
+              const unresolvableReason =
+                "This worktree isn't inside any workspace root and can't be opened here.";
+              return (
+                <DropdownMenuSub key={worktree.path}>
+                  <span title={isResolvable ? undefined : unresolvableReason}>
+                    <DropdownMenuSubTrigger
+                      data-testid="changeset-source-worktree"
+                      disabled={!isResolvable}
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col items-start">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-medium text-sm">{worktree.name}</span>
+                          {worktree.trust === 'unvalidated' ? (
+                            <Badge
+                              className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
+                              data-testid="worktree-trust-badge"
+                              variant="outline"
+                            >
+                              <AlertTriangle aria-hidden="true" className="size-3" />
+                              Unvalidated
+                            </Badge>
+                          ) : null}
                         </span>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            ))}
+                        <span className="truncate text-[10px] text-muted-foreground">
+                          {worktree.path}
+                        </span>
+                        {worktree.trust === 'unvalidated' && worktree.trustReason ? (
+                          <span
+                            className="text-[10px] text-amber-700 dark:text-amber-300"
+                            data-testid="worktree-trust-reason"
+                          >
+                            {worktree.trustReason}
+                          </span>
+                        ) : null}
+                        {isResolvable ? null : (
+                          <span
+                            className="text-[10px] text-muted-foreground"
+                            data-testid="worktree-unresolvable-reason"
+                          >
+                            Outside every workspace root
+                          </span>
+                        )}
+                      </span>
+                    </DropdownMenuSubTrigger>
+                  </span>
+                  <DropdownMenuSubContent>
+                    {OFFERED_GIT_SCOPE_KINDS.map((kind) => {
+                      const candidate: Changeset = {
+                        kind: 'git-scope',
+                        repositoryRoot: repository.identity.repositoryRoot,
+                        scope: scopeForKind(kind),
+                        worktreePath: worktree.path,
+                      };
+                      const isActive = activeKey === changesetKey(candidate);
+                      return (
+                        <DropdownMenuItem key={kind} onSelect={() => onSelectChangeset(candidate)}>
+                          {isActive ? <Check aria-hidden="true" /> : <span className="size-4" />}
+                          <span className="min-w-0 flex-1 truncate capitalize">
+                            {describeGitScopeKind(candidate.scope)}
+                          </span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              );
+            })}
           </div>
         ))}
       </DropdownMenuContent>

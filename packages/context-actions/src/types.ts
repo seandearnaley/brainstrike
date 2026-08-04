@@ -91,6 +91,14 @@ export type ContextTarget =
       readonly path: string;
       readonly repositoryRoot: string | null;
       readonly rootId: string | null;
+      /**
+       * Resolved absolute path of the owning workspace ROOT (not a
+       * worktree), or `null` when unresolvable. The surface's only source
+       * for a journal-sourced entry (`worktreePath: null`, real `rootId`) —
+       * without this, `changes.open-file`/`changes.reveal-file` can never
+       * resolve an absolute path for an agent-edited file and stay hidden.
+       */
+      readonly rootPath: string | null;
       readonly worktreePath: string | null;
     }
   /**

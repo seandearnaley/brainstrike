@@ -23,12 +23,30 @@ const UNVALIDATED_WORKTREE: WorktreeDescriptor = {
   trustReason: 'gitdir did not resolve back to this repository',
 };
 
+// Inside a granted workspace root — `trust` is always 'validated' for an
+// in-root worktree (per `WorktreeDescriptor.trust`'s own doc comment).
+const IN_ROOT_WORKTREE: WorktreeDescriptor = {
+  bare: false,
+  branch: 'main',
+  containment: ['root-1'],
+  current: true,
+  detached: false,
+  head: 'cafebabe',
+  lockedReason: null,
+  name: 'repo',
+  path: '/repo',
+  provenance: 'scanned',
+  prunableReason: null,
+  trust: 'validated',
+  trustReason: null,
+};
+
 const INVENTORY: GitInventory = {
   errors: ['failed to scan /other/repo: permission denied'],
   repositories: [
     {
       identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
-      worktrees: [UNVALIDATED_WORKTREE],
+      worktrees: [UNVALIDATED_WORKTREE, IN_ROOT_WORKTREE],
     },
   ],
 };
@@ -72,7 +90,8 @@ describe('ChangesetSourcePicker', () => {
     render(<ChangesetSourcePicker {...baseProps({ inventory: INVENTORY })} />);
     await openMenu();
 
-    const row = screen.getByTestId('changeset-source-worktree');
+    const rows = screen.getAllByTestId('changeset-source-worktree');
+    const row = rows.find((candidate) => candidate.textContent?.includes('Feature XYZ'));
     expect(row).toHaveTextContent('Feature XYZ');
     // basename(path) would be "wt-feature-xyz" — a different string than
     // `.name`. The row may still show the full path as secondary text, but
@@ -85,7 +104,14 @@ describe('ChangesetSourcePicker', () => {
     render(<ChangesetSourcePicker {...baseProps({ inventory: INVENTORY, onSelectChangeset })} />);
     await openMenu();
 
-    await userEvent.hover(screen.getByTestId('changeset-source-worktree'));
+    // The IN-ROOT worktree — its containing root can resolve it, unlike the
+    // outside-roots one, which is now disabled (see the test below).
+    const rows = screen.getAllByTestId('changeset-source-worktree');
+    const inRootRow = rows.find((candidate) => candidate.textContent?.includes('/repo'));
+    if (!inRootRow) {
+      throw new Error('expected the in-root worktree row to be present');
+    }
+    await userEvent.hover(inRootRow);
     const stagedItem = await screen.findByText('staged');
     await userEvent.click(stagedItem);
 
@@ -93,8 +119,25 @@ describe('ChangesetSourcePicker', () => {
       kind: 'git-scope',
       repositoryRoot: '/repo',
       scope: { kind: 'staged' },
-      worktreePath: '/Users/dev/worktrees/wt-feature-xyz',
+      worktreePath: '/repo',
     });
+  });
+
+  it('disables the scope submenu for a worktree with no containing root, with a reason', async () => {
+    render(<ChangesetSourcePicker {...baseProps({ inventory: INVENTORY })} />);
+    await openMenu();
+
+    const rows = screen.getAllByTestId('changeset-source-worktree');
+    const outsideRootsRow = rows.find((candidate) =>
+      candidate.textContent?.includes('Feature XYZ')
+    );
+    if (!outsideRootsRow) {
+      throw new Error('expected the outside-roots worktree row to be present');
+    }
+    expect(outsideRootsRow).toHaveAttribute('data-disabled');
+    expect(screen.getByTestId('worktree-unresolvable-reason')).toHaveTextContent(
+      'Outside every workspace root'
+    );
   });
 
   it('disables "Last Turn" when no active thread is available on this surface', async () => {

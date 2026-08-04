@@ -243,6 +243,54 @@ describe('buildChangedFilesTree grouping and honesty', () => {
     }
   });
 
+  it('buckets a journal-sourced entry (real rootId, null worktreePath) under its root, not outside-roots', () => {
+    const journalEntry = makeEntry({
+      path: 'src/agent-edited.ts',
+      repositoryRoot: null,
+      rootId: 'root-journal',
+      worktreePath: null,
+    });
+
+    const nodes = buildChangedFilesTree([journalEntry], null);
+
+    // Never swept into the outside-roots group — this entry names a real
+    // granted root, it just has no repository/worktree to nest under.
+    expect(nodes.some((node) => node.id === OUTSIDE_ROOTS_NODE_ID)).toBe(false);
+
+    const rootGroup = findNode(nodes, 'root:root-journal');
+    expect(rootGroup.data.kind).toBe('root');
+    expect(rootGroup.parentId).toBeNull();
+
+    const leaf = findNode(nodes, changedFileKey(journalEntry));
+    expect(leaf.parentId).toBe('root:root-journal');
+    expect(leaf.data.kind).toBe('file');
+  });
+
+  it('keeps a genuinely unlocatable entry (null rootId) in outside-roots, distinct from a journal entry sharing its root', () => {
+    const journalEntry = makeEntry({
+      path: 'src/agent-edited.ts',
+      repositoryRoot: null,
+      rootId: 'root-journal',
+      worktreePath: null,
+    });
+    const unlocatable = makeEntry({
+      path: 'src/unlocatable.ts',
+      repositoryRoot: null,
+      rootId: null,
+      worktreePath: null,
+    });
+
+    const nodes = buildChangedFilesTree([journalEntry, unlocatable], null);
+
+    const outsideGroup = findNode(nodes, OUTSIDE_ROOTS_NODE_ID);
+    expect(outsideGroup.data.kind).toBe('outside-roots');
+    const outsideLeaf = findNode(nodes, changedFileKey(unlocatable));
+    expect(outsideLeaf.parentId).toBe(OUTSIDE_ROOTS_NODE_ID);
+
+    const journalLeaf = findNode(nodes, changedFileKey(journalEntry));
+    expect(journalLeaf.parentId).toBe('root:root-journal');
+  });
+
   it('builds a tree from files alone when inventory is null, without blocking or fabricating names', () => {
     const entry = makeEntry({
       path: 'src/x.ts',

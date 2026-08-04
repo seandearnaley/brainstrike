@@ -305,7 +305,7 @@ export interface TreeTableProps<T> {
   /** Set of selected node IDs (multi-selection mode) */
   multiSelectedIds?: Set<string>;
   /** Tree nodes to display (can be nested via hasChildren) */
-  nodes: TreeNode<T>[];
+  nodes: readonly TreeNode<T>[];
   /**
    * Treat `nodes` as an already-expanded, visible flat row model.
    * This skips TreeTable's recursive expansion flattening while preserving

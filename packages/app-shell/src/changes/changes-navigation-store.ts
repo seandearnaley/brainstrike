@@ -41,6 +41,13 @@ export interface ChangesNavigationState {
    * active panel tab to `'changes'`.
    */
   readonly requestChangeset: (changeset: Changeset) => void;
+  /**
+   * Factory-reset entry point (AGENTS.md invariant: "Any new persistent
+   * store/state must be wired into factory reset"). Without a reload, a
+   * surviving `activeChangeset`/`handoffThreadIdentity` would keep pointing
+   * at a runId/threadId or an absolute repository path the reset just wiped.
+   */
+  readonly reset: () => void;
 }
 
 export const useChangesNavigationStore = create<ChangesNavigationState>((set) => ({
@@ -58,4 +65,5 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set) =>
           }
         : { activeChangeset: changeset }
     ),
+  reset: () => set({ activeChangeset: null, handoffThreadIdentity: null }),
 }));

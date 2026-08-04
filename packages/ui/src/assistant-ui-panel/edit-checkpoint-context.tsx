@@ -75,6 +75,20 @@ export function useCheckpointForToolCall(toolCallId: string): {
   };
 }
 
+/**
+ * Every journal entry for the active thread, or `null` when there is no
+ * provider (web / not desktop) — capability gating, not an empty list. Unlike
+ * `useCheckpointTurnRevert`, this is NOT filtered by revertibility/expiry/
+ * message ownership: a review entry point needs to know a run genuinely has
+ * journal entries, not whether they are still revertible (an expired or
+ * already-reverted entry still means the run touched files, and the
+ * changeset resolver still surfaces it).
+ */
+export function useEditCheckpointEntries(): readonly AssistantEditCheckpointRecord[] | null {
+  const context = use(EditCheckpointContext);
+  return context?.entries ?? null;
+}
+
 /** The runs a message owns plus the true revert scope (whole run, not just this message). */
 export interface TurnRevertScope {
   /** Every still-revertible entry across those runs — what `revertRun` will undo. */

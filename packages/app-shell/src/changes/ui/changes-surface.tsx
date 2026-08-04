@@ -28,6 +28,7 @@
  * value and this component only renders it.
  */
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import type { Changeset, GitInventory } from '@brainstrike/types';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useChangesStore } from '../changes-store';
@@ -39,14 +40,62 @@ import { ChangesetHeader } from './changeset-header';
 
 const NO_FILES: readonly [] = [];
 
+/**
+ * Resolution root for a `git-scope` changeset: the workspace root that
+ * CONTAINS its worktree, per the inventory's own `WorktreeDescriptor.containment`
+ * — not the surface's single focused root. In a multi-root workspace the
+ * source picker offers scopes for worktrees under EVERY mounted root, but
+ * `resolveContainedWorktreeCwd` deterministically fails
+ * (`outside-roots-unsupported`) unless resolution uses a root that actually
+ * contains the worktree (review finding, BST-1114 PR #2274). `null` when the
+ * worktree cannot be found or has no containing root — `useChangeset` stays
+ * inert (no fetch) rather than guessing, which is safe: the source picker
+ * already disables a scope it cannot resolve.
+ */
+function resolveGitScopeResolutionRootId(
+  changeset: Extract<Changeset, { kind: 'git-scope' }>,
+  inventory: GitInventory | null
+): string | null {
+  if (!inventory) {
+    return null;
+  }
+  for (const repository of inventory.repositories) {
+    if (repository.identity.repositoryRoot !== changeset.repositoryRoot) {
+      continue;
+    }
+    for (const worktree of repository.worktrees) {
+      if (worktree.path !== changeset.worktreePath) {
+        continue;
+      }
+      return worktree.containment === 'outside-roots' ? null : (worktree.containment[0] ?? null);
+    }
+  }
+  return null;
+}
+
 export function ChangesSurface(): ReactElement {
-  const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
+  const { rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } = useFileSystem();
   const rootId = useMemo<string | null>(() => {
     if (!rootDirectoryHandle) {
       return null;
     }
     return rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path) ?? null;
   }, [rootDirectoryHandle, rootIdByPath]);
+
+  // Every mounted root's own absolute path, keyed by its durable RootId —
+  // resolves `changes.open-file`/`changes.reveal-file` for a journal-sourced
+  // entry (`worktreePath: null`, real `rootId`), which has no worktree to
+  // resolve an absolute path from otherwise.
+  const rootPathById = useMemo<ReadonlyMap<string, string>>(() => {
+    const map = new Map<string, string>();
+    for (const handle of rootDirectoryHandles) {
+      const handleRootId = handle.rootId ?? rootIdByPath?.get(handle.path) ?? null;
+      if (handleRootId !== null) {
+        map.set(handleRootId, handle.path);
+      }
+    }
+    return map;
+  }, [rootDirectoryHandles, rootIdByPath]);
 
   const changeset = useChangesNavigationStore((state) => state.activeChangeset);
   const requestChangeset = useChangesNavigationStore((state) => state.requestChangeset);
@@ -56,12 +105,28 @@ export function ChangesSurface(): ReactElement {
   const threadId = handoffThreadIdentity?.threadId ?? null;
   const latestRunId = handoffThreadIdentity?.latestRunId ?? null;
 
-  const { error, fileDiff, refresh, view } = useChangeset(rootId, changeset);
-  const { error: inventoryError, inventory } = useGitInventory();
+  const { error: inventoryError, inventory, refresh: refreshInventory } = useGitInventory();
+
+  // A journal changeset (`agent-run`/`run-range`) has no worktree, so it
+  // resolves through the surface's own focused root as before; a
+  // `git-scope` changeset resolves through its worktree's CONTAINING root
+  // instead (see `resolveGitScopeResolutionRootId`'s doc comment).
+  const resolutionRootId = useMemo<string | null>(() => {
+    if (changeset?.kind === 'git-scope') {
+      return resolveGitScopeResolutionRootId(changeset, inventory);
+    }
+    return rootId;
+  }, [changeset, inventory, rootId]);
+
+  const { error, fileDiff, refresh, view } = useChangeset(resolutionRootId, changeset);
 
   const handleRetry = useCallback(() => {
     void refresh();
   }, [refresh]);
+
+  const handleRetryInventory = useCallback(() => {
+    void refreshInventory();
+  }, [refreshInventory]);
 
   // A stable empty tuple, not a fresh `[]` per render — both panes memoize on
   // this array's identity.
@@ -105,6 +170,7 @@ export function ChangesSurface(): ReactElement {
         latestRunId={latestRunId}
         loading={loading}
         onRetry={handleRetry}
+        onRetryInventory={handleRetryInventory}
         onSelectChangeset={requestChangeset}
         rootId={rootId}
         threadId={threadId}
@@ -118,6 +184,7 @@ export function ChangesSurface(): ReactElement {
               files={renderedFiles}
               inventory={inventory}
               loading={loading}
+              rootPathById={rootPathById}
             />
           </div>
           <div className="flex min-w-0 flex-1 flex-col">

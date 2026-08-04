@@ -45,7 +45,17 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from 'rea
 export interface ChangesetFileDiffCardProps {
   readonly changesetKind: Changeset['kind'];
   readonly entry: ChangedFileEntry;
-  readonly loadFileDiff: (path: string) => Promise<GitResult<StructuredFileDiff>>;
+  /**
+   * `entry.rootId` is threaded on every call (not just the surface's focused
+   * root): a multi-root `agent-run` turn can edit more than one workspace
+   * root in a single run, and `resolveJournalFileDiff` identifies a file by
+   * `(rootId, path)` — using one surface-wide root for every card renders
+   * "no journaled change" for any entry belonging to a non-focused root.
+   */
+  readonly loadFileDiff: (
+    path: string,
+    rootId: string | null
+  ) => Promise<GitResult<StructuredFileDiff>>;
 }
 
 type LoadState =
@@ -216,7 +226,7 @@ export function ChangesetFileDiffCard({
     const generation = generationRef.current;
     setState({ kind: 'loading' });
     try {
-      const result = await loadFileDiff(entry.path);
+      const result = await loadFileDiff(entry.path, entry.rootId);
       if (generation !== generationRef.current) {
         return;
       }
@@ -232,7 +242,7 @@ export function ChangesetFileDiffCard({
       const message = caught instanceof Error ? caught.message : String(caught);
       setState({ kind: 'error', message });
     }
-  }, [entry.path, loadFileDiff]);
+  }, [entry.path, entry.rootId, loadFileDiff]);
 
   // Lazy load: fetch only once this card's element is observed intersecting
   // the viewport, calling `runLoad` directly from the observer callback

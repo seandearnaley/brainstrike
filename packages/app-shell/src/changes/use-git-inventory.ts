@@ -81,15 +81,18 @@ export function useGitInventory(): UseGitInventoryResult {
         setInventory(null);
         setError(result.error);
       }
+      // Mirrored on the catch branch below, rather than a shared `finally`
+      // (react-doctor/no-loading-flag-reset-outside-finally): both branches
+      // reset `loading` only when this call is still the current generation
+      // — a bare `finally` would reset it unconditionally, clearing the flag
+      // out from under a NEWER call that is still genuinely in flight.
+      setLoading(false);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
       logger.error('Failed to load git inventory', { error: caught });
       if (generation === generationRef.current) {
         setInventory(null);
         setError(message);
-      }
-    } finally {
-      if (generation === generationRef.current) {
         setLoading(false);
       }
     }

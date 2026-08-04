@@ -3,12 +3,9 @@
  * file tree for the Changes surface — root workspace → repository →
  * worktree → file, tri-state checkbox selection, expand/collapse. See
  * `changed-files-tree-model.ts` for the grouping decision (flat under the
- * worktree) and the identity-stability mechanism.
- *
- * Visual language matches `git-panel/git-changes-view.tsx` (status letters,
- * ± chips, row density) but the STRUCTURE is the canonical `TreeTable` from
- * `@brainstrike/ui`, not a hand-rolled list — per BST-1114's TreeTable
- * consolidation.
+ * worktree) and the identity-stability mechanism. Cell renderers and column
+ * definitions live in `changed-files-tree-columns.tsx` (kept out of this
+ * file so it exports components only — `react-doctor/only-export-components`).
  *
  * CHECKBOX SEMANTICS: a file's checkbox is checked iff its
  * `changedFileKey` is IN `useChangesStore`'s `selectedFileKeys` (the literal
@@ -40,32 +37,32 @@
  * rather than showing a dead one. `setTarget` is destructured because the
  * controller object is NOT referentially stable, and an unstable handler here
  * would defeat TreeTable's row memoization.
+ *
+ * `rootPathById` resolves the `changed-file` target's `rootPath` field for a
+ * journal-sourced entry (`worktreePath: null`, real `rootId`): without it,
+ * `changes.open-file`/`changes.reveal-file` gate on `worktreePath` alone and
+ * can never resolve an absolute path for an agent-edited file, so the
+ * right-click menu is empty for the flagship "→ Review" flow. Absent/unknown
+ * root ids resolve to `null` — never fabricated.
  */
 
 import type { ContextTarget } from '@brainstrike/context-actions';
-import type { ChangedFileEntry, ChangedFileStatus, GitInventory } from '@brainstrike/types';
+import type { ChangedFileEntry, GitInventory } from '@brainstrike/types';
 import {
   ActionContextMenu,
-  Badge,
   LoadingFallback,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   TreeTable,
-  type TreeTableCellProps,
   type TreeTableCheckboxNextState,
   type TreeTableCheckboxRenderState,
-  type TreeTableColumn,
   useContextMenuTarget,
 } from '@brainstrike/ui';
-import { AlertTriangle } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useChangesStore } from '../changes-store';
+import { CHANGED_FILES_TREE_COLUMNS, lastPathSegment } from './changed-files-tree-columns';
 import {
   buildChangedFilesTree,
   type ChangedFilesTreeNode,
   type ChangedFilesTreeNodeData,
-  type ChangedFilesWorktreeNodeData,
   repositoryRootFromNodeId,
 } from './changed-files-tree-model';
 
@@ -79,30 +76,11 @@ export interface ChangedFilesTreeProps {
   readonly files: readonly ChangedFileEntry[];
   readonly inventory: GitInventory | null;
   readonly loading?: boolean;
+  /** See module doc comment. Defaults to empty — every root resolves to `null`. */
+  readonly rootPathById?: ReadonlyMap<string, string>;
 }
 
-const STATUS_LABEL: Record<ChangedFileStatus, string> = {
-  added: 'A',
-  deleted: 'D',
-  modified: 'M',
-  renamed: 'R',
-  untracked: '?',
-};
-
-const STATUS_COLOR_CLASS: Record<ChangedFileStatus, string> = {
-  added: 'text-emerald-500',
-  deleted: 'text-red-500',
-  modified: 'text-amber-500',
-  renamed: 'text-sky-500',
-  untracked: 'text-emerald-500',
-};
-
-/** Last path segment for a display label. Never applied to a `WorktreeDescriptor.path` — that one is canonicalized and must use `descriptor.name` instead (see module doc comment). */
-function lastPathSegment(path: string): string {
-  const trimmed = path.replace(/\/+$/, '');
-  const lastSlash = trimmed.lastIndexOf('/');
-  return lastSlash === -1 ? trimmed : trimmed.slice(lastSlash + 1);
-}
+const EMPTY_ROOT_PATHS: ReadonlyMap<string, string> = new Map();
 
 function EmptyChangedFiles(): ReactElement {
   return (
@@ -114,150 +92,6 @@ function EmptyChangedFiles(): ReactElement {
     </div>
   );
 }
-
-function ChangeStatsCell({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
-  return (
-    <span className="flex items-center justify-end gap-1.5 font-mono text-[11px] tabular-nums">
-      <span
-        className={
-          entry.additions === null
-            ? 'text-muted-foreground'
-            : 'text-emerald-600 dark:text-emerald-400'
-        }
-      >
-        {entry.additions === null ? '—' : `+${entry.additions}`}
-      </span>
-      <span
-        className={
-          entry.deletions === null ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'
-        }
-      >
-        {entry.deletions === null ? '—' : `-${entry.deletions}`}
-      </span>
-    </span>
-  );
-}
-
-function FileNameCell({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
-  const displayPath =
-    entry.status === 'renamed' && entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path;
-  return (
-    <span className="flex min-w-0 items-center gap-2">
-      <span
-        aria-hidden="true"
-        className={`w-4 shrink-0 text-center font-mono font-semibold text-[10px] ${STATUS_COLOR_CLASS[entry.status]}`}
-      >
-        {STATUS_LABEL[entry.status]}
-      </span>
-      <span className="truncate text-xs" title={displayPath}>
-        {displayPath}
-      </span>
-    </span>
-  );
-}
-
-function WorktreeTrustBadge({
-  trustReason,
-}: {
-  readonly trustReason: string | null;
-}): ReactElement {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge
-          className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
-          data-testid="changed-files-worktree-trust-badge"
-          variant="outline"
-        >
-          <AlertTriangle aria-hidden="true" className="size-3" />
-          Unvalidated
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent>
-        {trustReason ?? 'This worktree could not be verified against its own .git.'}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function WorktreeNameCell({ data }: { readonly data: ChangedFilesWorktreeNodeData }): ReactElement {
-  const { descriptor, worktreePath } = data;
-  // WorktreeDescriptor.path is canonicalized — never basename() it for
-  // display when a descriptor resolved; descriptor.name is the source of
-  // truth. Falling back to the raw worktreePath (not basenamed) only when no
-  // descriptor is available keeps that rule intact without fabricating a name.
-  const label = descriptor?.name ?? worktreePath;
-  return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <span className="truncate font-medium text-xs" title={worktreePath}>
-        {label}
-      </span>
-      {descriptor?.branch ? (
-        <span className="truncate text-[10px] text-muted-foreground">{descriptor.branch}</span>
-      ) : null}
-      {descriptor?.trust === 'unvalidated' ? (
-        <WorktreeTrustBadge trustReason={descriptor.trustReason} />
-      ) : null}
-    </span>
-  );
-}
-
-function NameCell({ node }: TreeTableCellProps<ChangedFilesTreeNodeData>): ReactElement | null {
-  const { data } = node;
-  switch (data.kind) {
-    case 'root':
-      return (
-        <span className="truncate font-medium text-xs" title={data.rootId}>
-          {data.rootId}
-        </span>
-      );
-    case 'outside-roots':
-      return (
-        <span className="truncate font-medium text-muted-foreground text-xs">
-          Outside workspace roots
-        </span>
-      );
-    case 'repository':
-      return (
-        <span className="truncate font-medium text-xs" title={data.repositoryRoot}>
-          {lastPathSegment(data.repositoryRoot)}
-        </span>
-      );
-    case 'worktree':
-      return <WorktreeNameCell data={data} />;
-    case 'file':
-      return <FileNameCell entry={data.entry} />;
-    default:
-      return null;
-  }
-}
-
-function StatsCell({ node }: TreeTableCellProps<ChangedFilesTreeNodeData>): ReactElement | null {
-  return node.data.kind === 'file' ? <ChangeStatsCell entry={node.data.entry} /> : null;
-}
-
-// Exported (not part of the fixed component contract) so
-// `changed-files-tree-render-stability.test.tsx` can wrap `cell` with a
-// render-counting spy without needing to inject columns as a prop — this
-// component's columns are a fixed internal concern, not a caller-configurable
-// one.
-export const CHANGED_FILES_TREE_COLUMNS: TreeTableColumn<ChangedFilesTreeNodeData>[] = [
-  {
-    cell: NameCell,
-    header: 'Name',
-    id: 'name',
-    minWidth: 200,
-  },
-  {
-    cell: StatsCell,
-    className: 'text-right',
-    header: 'Changes',
-    headerContentClassName: 'justify-end',
-    id: 'stats',
-    resizable: false,
-    width: 96,
-  },
-];
 
 interface ChangedFilesTreeIndexes {
   readonly descendantFileKeysById: ReadonlyMap<string, readonly string[]>;
@@ -322,7 +156,10 @@ function describeGroupNode(data: ChangedFilesTreeNodeData): string {
  * fabricating them to satisfy the target shape is exactly the silent
  * degradation this surface must not do).
  */
-function nodeToContextTarget(node: ChangedFilesTreeNode): ContextTarget | null {
+function nodeToContextTarget(
+  node: ChangedFilesTreeNode,
+  rootPathById: ReadonlyMap<string, string>
+): ContextTarget | null {
   if (node.data.kind === 'file') {
     const { entry } = node.data;
     return {
@@ -330,6 +167,7 @@ function nodeToContextTarget(node: ChangedFilesTreeNode): ContextTarget | null {
       path: entry.path,
       repositoryRoot: entry.repositoryRoot,
       rootId: entry.rootId,
+      rootPath: entry.rootId === null ? null : (rootPathById.get(entry.rootId) ?? null),
       worktreePath: entry.worktreePath,
     };
   }
@@ -358,6 +196,7 @@ export function ChangedFilesTree({
   files,
   inventory,
   loading = false,
+  rootPathById = EMPTY_ROOT_PATHS,
 }: ChangedFilesTreeProps): ReactElement {
   const selectedFileKeys = useChangesStore((state) => state.selectedFileKeys);
   const expandedIds = useChangesStore((state) => state.expandedIds);
@@ -368,10 +207,15 @@ export function ChangedFilesTree({
   const nodes = useMemo(() => buildChangedFilesTree(files, inventory), [files, inventory]);
   const { descendantFileKeysById } = useMemo(() => buildTreeIndexes(nodes), [nodes]);
 
-  const groupNodeIds = useMemo(
-    () => nodes.filter((node) => node.data.kind !== 'file').map((node) => node.id),
-    [nodes]
-  );
+  const groupNodeIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const node of nodes) {
+      if (node.data.kind !== 'file') {
+        ids.push(node.id);
+      }
+    }
+    return ids;
+  }, [nodes]);
   // Expand everything on the first POPULATED render of each changeset.
   //
   // Scoped to `changesetKey`, not to the mount: the surface stays mounted for
@@ -398,9 +242,9 @@ export function ChangedFilesTree({
   const { setTarget: setContextMenuTarget } = contextMenuController;
   const handleRowContextMenu = useCallback(
     (_nodeId: string, node: ChangedFilesTreeNode) => {
-      setContextMenuTarget(nodeToContextTarget(node));
+      setContextMenuTarget(nodeToContextTarget(node, rootPathById));
     },
-    [setContextMenuTarget]
+    [rootPathById, setContextMenuTarget]
   );
   const resetContextMenuTarget = useCallback(() => {
     setContextMenuTarget(null);
@@ -479,7 +323,7 @@ export function ChangedFilesTree({
           expandedIds={expandedIds}
           getCheckboxAriaLabel={getCheckboxAriaLabel}
           getCheckboxState={getCheckboxState}
-          nodes={nodes as ChangedFilesTreeNode[]}
+          nodes={nodes}
           onCheckboxChange={handleCheckboxChange}
           onRowContextMenu={handleRowContextMenu}
           onToggleExpand={toggleExpanded}

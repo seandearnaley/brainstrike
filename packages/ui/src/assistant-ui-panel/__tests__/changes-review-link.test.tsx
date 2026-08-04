@@ -108,7 +108,7 @@ describe('ChangesReviewLink', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders null when the turn made zero (still-revertible) file edits', () => {
+  it('renders null when the run made zero journal entries', () => {
     mockParts = [toolCallPart(TOOL_CALL_ID), runFinishedPart('run-1')];
     const openChangesForRun = mockOpenChangesForRun();
     const { container } = renderLink(<ChangesReviewLink threadId="thread-1" />, {
@@ -161,6 +161,64 @@ describe('ChangesReviewLink', () => {
     renderLink(<ChangesReviewLink threadId="thread-1" />, {
       changesReview: { openChangesForRun: mockOpenChangesForRun() },
       checkpoint: checkpointValue([makeEntry()]),
+    });
+    expect(screen.getByTestId('changes-review-link')).toHaveTextContent(
+      '1 file edit from this turn'
+    );
+  });
+
+  // The bug this fix closes: `useCheckpointTurnRevert` excluded non-
+  // revertible entries AND required this message to own the run's anchor
+  // toolCallId. A run whose only edit is `expired` had no such anchor, so
+  // the link could never appear even though the changeset resolver still
+  // surfaces the entry.
+  it('renders for a run whose only journal entry is non-revertible (expired)', () => {
+    mockParts = [toolCallPart(TOOL_CALL_ID), runFinishedPart('run-1')];
+    renderLink(<ChangesReviewLink threadId="thread-1" />, {
+      changesReview: { openChangesForRun: mockOpenChangesForRun() },
+      checkpoint: checkpointValue([makeEntry({ captureStatus: 'expired' })]),
+    });
+    expect(screen.getByTestId('changes-review-link')).toHaveTextContent(
+      '1 file edit from this turn'
+    );
+  });
+
+  it('renders for a run whose only journal entry is already reverted', () => {
+    mockParts = [toolCallPart(TOOL_CALL_ID), runFinishedPart('run-1')];
+    renderLink(<ChangesReviewLink threadId="thread-1" />, {
+      changesReview: { openChangesForRun: mockOpenChangesForRun() },
+      checkpoint: checkpointValue([makeEntry({ revertedAt: '2026-04-22T10:05:00.000Z' })]),
+    });
+    expect(screen.getByTestId('changes-review-link')).toHaveTextContent(
+      '1 file edit from this turn'
+    );
+  });
+
+  // The label counts DISTINCT FILES, not journal rows.
+  it('counts a file written twice in one run as one file edit, not two', () => {
+    mockParts = [toolCallPart(TOOL_CALL_ID), runFinishedPart('run-1')];
+    renderLink(<ChangesReviewLink threadId="thread-1" />, {
+      changesReview: { openChangesForRun: mockOpenChangesForRun() },
+      checkpoint: checkpointValue([
+        makeEntry({ id: 'ckpt-1', op: 'write', path: '/a.ts' }),
+        makeEntry({ id: 'ckpt-2', op: 'string_replace', path: '/a.ts', toolCallId: null }),
+      ]),
+    });
+    expect(screen.getByTestId('changes-review-link')).toHaveTextContent(
+      '1 file edit from this turn'
+    );
+  });
+
+  // Only entries for THIS message's finished runId count — a different run
+  // in the same thread's journal must not inflate the total.
+  it('counts only entries belonging to this message’s finished runId', () => {
+    mockParts = [toolCallPart(TOOL_CALL_ID), runFinishedPart('run-1')];
+    renderLink(<ChangesReviewLink threadId="thread-1" />, {
+      changesReview: { openChangesForRun: mockOpenChangesForRun() },
+      checkpoint: checkpointValue([
+        makeEntry({ id: 'ckpt-1', path: '/a.ts', runId: 'run-1' }),
+        makeEntry({ id: 'ckpt-2', path: '/b.ts', runId: 'run-2', toolCallId: null }),
+      ]),
     });
     expect(screen.getByTestId('changes-review-link')).toHaveTextContent(
       '1 file edit from this turn'

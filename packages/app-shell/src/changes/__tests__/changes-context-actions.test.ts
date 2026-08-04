@@ -15,6 +15,7 @@ const changedFileTarget: ContextTarget = {
   path: 'src/index.ts',
   repositoryRoot: '/repo',
   rootId: 'root-1',
+  rootPath: '/repo',
   worktreePath: '/repo',
 };
 
@@ -84,10 +85,30 @@ describe('changesActions', () => {
     expect(outcome).toEqual({ ok: true });
   });
 
-  it('hides open/reveal for a changed file with no resolvable worktree root', () => {
-    const target = { ...changedFileTarget, worktreePath: null };
+  it('hides open/reveal for a changed file with no resolvable worktree or root', () => {
+    const target = { ...changedFileTarget, rootPath: null, worktreePath: null };
     expect(openChangedFileAction.isVisible?.(target)).toBe(false);
     expect(revealChangedFileAction.isVisible?.(target)).toBe(false);
+  });
+
+  // Journal-sourced (`agent-run`/`run-range`) entries never have a
+  // `worktreePath` — this is the flagship "→ Review" flow, and without the
+  // `rootPath` fallback, open/reveal stay hidden for every agent-edited file.
+  it('resolves a journal-shaped file (null worktreePath, real rootPath) through the root fallback', async () => {
+    const services = makeServices();
+    const target: ContextTarget = {
+      ...changedFileTarget,
+      repositoryRoot: null,
+      rootPath: '/workspace-root',
+      worktreePath: null,
+    };
+
+    expect(openChangedFileAction.isVisible?.(target)).toBe(true);
+    expect(revealChangedFileAction.isVisible?.(target)).toBe(true);
+
+    const outcome = await openChangedFileAction.run(target, services);
+    expect(services.platformFs.openPath).toHaveBeenCalledWith('/workspace-root/src/index.ts');
+    expect(outcome).toEqual({ ok: true });
   });
 
   it('fails explicitly (never silently) when the platform service is absent', async () => {

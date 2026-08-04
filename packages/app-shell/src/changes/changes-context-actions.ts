@@ -31,19 +31,29 @@ function resolveAbsolutePath(worktreePath: string | null, path: string): string 
   return `${base}${path}`;
 }
 
+/**
+ * `worktreePath` wins when known (it is the more precise base — a
+ * journal-sourced entry never has one). `rootPath` is the fallback for those
+ * entries: the entry's relative `path` is root-relative, not worktree-
+ * relative, when no worktree resolved it.
+ */
+function resolveChangedFileAbsolutePath(target: ChangedFileTarget): string | null {
+  return resolveAbsolutePath(target.worktreePath ?? target.rootPath, target.path);
+}
+
 const openChangedFile: ContextAction<'changed-file'> = {
   appliesTo: ['changed-file'],
   group: 'navigate',
   icon: ExternalLink,
   id: 'changes.open-file',
-  isVisible: (target) => resolveAbsolutePath(target.worktreePath, target.path) !== null,
+  isVisible: (target) => resolveChangedFileAbsolutePath(target) !== null,
   label: 'Open File',
   requiredCapabilities: ['fs.openPath'],
   run: async (target: ChangedFileTarget, services: ActionServices): Promise<ActionOutcome> => {
     if (!services.platformFs) {
       return { error: 'Platform file-system service unavailable', ok: false };
     }
-    const absolutePath = resolveAbsolutePath(target.worktreePath, target.path);
+    const absolutePath = resolveChangedFileAbsolutePath(target);
     if (absolutePath === null) {
       return { error: 'No absolute path available for this file', ok: false };
     }
@@ -56,14 +66,14 @@ const revealChangedFile: ContextAction<'changed-file'> = {
   group: 'navigate',
   icon: FolderOpen,
   id: 'changes.reveal-file',
-  isVisible: (target) => resolveAbsolutePath(target.worktreePath, target.path) !== null,
+  isVisible: (target) => resolveChangedFileAbsolutePath(target) !== null,
   label: 'Reveal in Explorer',
   requiredCapabilities: ['fs.reveal'],
   run: async (target: ChangedFileTarget, services: ActionServices): Promise<ActionOutcome> => {
     if (!services.platformFs) {
       return { error: 'Platform file-system service unavailable', ok: false };
     }
-    const absolutePath = resolveAbsolutePath(target.worktreePath, target.path);
+    const absolutePath = resolveChangedFileAbsolutePath(target);
     if (absolutePath === null) {
       return { error: 'No absolute path available for this file', ok: false };
     }

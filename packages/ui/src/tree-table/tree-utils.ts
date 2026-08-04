@@ -185,7 +185,7 @@ export function flattenTreeRecursive<T>(
  * upstream, such as large file trees backed by a worker or normalized index.
  */
 export function flattenPreFlattenedTreeRows<T>(
-  nodes: TreeNode<T>[],
+  nodes: readonly TreeNode<T>[],
   options: FlattenOptions
 ): FlattenResult<T> {
   const opts = resolveOptions(options);
@@ -288,13 +288,13 @@ export function findNodeById<T>(
  * @returns Array of nodes from root to target, or empty array if not found
  */
 export function getNodePath<T>(
-  nodes: TreeNode<T>[],
+  nodes: readonly TreeNode<T>[],
   nodeId: string,
   getChildren: (node: TreeNode<T>) => TreeNode<T>[]
 ): TreeNode<T>[] {
   const path: TreeNode<T>[] = [];
 
-  function traverse(nodeList: TreeNode<T>[]): boolean {
+  function traverse(nodeList: readonly TreeNode<T>[]): boolean {
     for (const node of nodeList) {
       path.push(node);
       if (node.id === nodeId) {
@@ -433,7 +433,7 @@ export function getNextVisibleNodeId<T>(
  * @returns Parent node ID or null if at root
  */
 export function getParentNodeId<T>(
-  nodes: TreeNode<T>[],
+  nodes: readonly TreeNode<T>[],
   nodeId: string,
   getChildren: (node: TreeNode<T>) => TreeNode<T>[]
 ): string | null {
@@ -584,7 +584,7 @@ export function filterTreeNodes<T>(
  * @returns Function that returns children for a given node
  */
 export function createChildrenGetter<T>(
-  allNodes: TreeNode<T>[]
+  allNodes: readonly TreeNode<T>[]
 ): (node: TreeNode<T>) => TreeNode<T>[] {
   // Build a map of parentId -> children for efficient lookup
   const childrenMap = new Map<string | null, TreeNode<T>[]>();

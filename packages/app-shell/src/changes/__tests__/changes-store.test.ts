@@ -32,6 +32,17 @@ describe('changedFileKey', () => {
   it('is stable for structurally equal entries', () => {
     expect(changedFileKey(entry())).toBe(changedFileKey(entry()));
   });
+
+  // Journal-sourced (`agent-run`/`run-range`) entries always have a null
+  // `worktreePath` but a real `rootId` — the collision this fix closes
+  // (review findings 3714410839 / 3714434939): a turn editing the same
+  // relative path in two workspace roots used to collapse to one key.
+  it('distinguishes the same relative path across two roots when worktreePath is null (journal entries)', () => {
+    const a = entry({ repositoryRoot: null, rootId: 'root-a', worktreePath: null });
+    const b = entry({ repositoryRoot: null, rootId: 'root-b', worktreePath: null });
+
+    expect(changedFileKey(a)).not.toBe(changedFileKey(b));
+  });
 });
 
 describe('selectRenderedFiles', () => {
@@ -70,5 +81,19 @@ describe('useChangesStore', () => {
 
     useChangesStore.getState().toggleExpanded('repo:/repo');
     expect(useChangesStore.getState().expandedIds.has('repo:/repo')).toBe(false);
+  });
+
+  it('reset() clears both selection and expansion, matching the factory-reset contract', () => {
+    const key = changedFileKey(entry());
+    useChangesStore.getState().toggleFileKey(key);
+    useChangesStore.getState().toggleExpanded('repo:/repo');
+    expect(useChangesStore.getState().hasExplicitSelection).toBe(true);
+    expect(useChangesStore.getState().expandedIds.size).toBeGreaterThan(0);
+
+    useChangesStore.getState().reset();
+
+    expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
+    expect(useChangesStore.getState().selectedFileKeys.size).toBe(0);
+    expect(useChangesStore.getState().expandedIds.size).toBe(0);
   });
 });

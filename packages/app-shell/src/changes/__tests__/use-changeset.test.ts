@@ -124,6 +124,35 @@ describe('useChangeset', () => {
     expect(fileDiff).toHaveBeenCalledWith('root-1', CHANGESET, 'src/file.ts');
   });
 
+  // A multi-root `agent-run` turn can edit more than one workspace root in a
+  // single run — the per-file caller passes the ENTRY's own rootId, which
+  // must win over the hook's own `rootId` (the surface's focused root).
+  it('uses the entry-supplied rootId over the hook rootId when both are present', async () => {
+    const diffResult: GitResult<StructuredFileDiff> = {
+      ok: true,
+      value: {
+        additions: null,
+        content: { kind: 'binary' },
+        deletions: null,
+        hunks: [],
+        path: 'src/file.ts',
+        status: 'modified',
+      },
+    };
+    const fileDiff = vi.fn(async () => diffResult);
+    const resolveView = vi.fn(
+      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+    );
+    stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
+    const { result } = renderHook(() => useChangeset('root-focused', CHANGESET));
+
+    await waitFor(() => {
+      expect(result.current.view).not.toBeNull();
+    });
+    await result.current.fileDiff('src/file.ts', 'root-entry');
+    expect(fileDiff).toHaveBeenCalledWith('root-entry', CHANGESET, 'src/file.ts');
+  });
+
   it('ignores a stale refresh resolving after a newer one (generation guard)', async () => {
     const deferred: Array<(result: GitResult<ChangesetView>) => void> = [];
     const resolveView = vi.fn(

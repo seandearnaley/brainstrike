@@ -179,6 +179,26 @@ describe('ChangesetFileDiffCard', () => {
     expect(screen.queryByTestId('diff-view-stub')).not.toBeInTheDocument();
   });
 
+  // A multi-root `agent-run` turn can edit more than one workspace root in a
+  // single run; `resolveJournalFileDiff` identifies a file by (rootId, path).
+  // The card must thread the ENTRY's own rootId, not a surface-wide default.
+  it("calls loadFileDiff with the entry's own rootId, not a caller-wide default", async () => {
+    const loadFileDiff = vi.fn(
+      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+    );
+
+    render(
+      <ChangesetFileDiffCard
+        changesetKind="agent-run"
+        entry={makeEntry({ rootId: 'root-b' })}
+        loadFileDiff={loadFileDiff}
+      />
+    );
+
+    await waitFor(() => expect(loadFileDiff).toHaveBeenCalledTimes(1));
+    expect(loadFileDiff).toHaveBeenCalledWith('src/foo.ts', 'root-b');
+  });
+
   it('renders null additions as "—", never "0"', async () => {
     const loadFileDiff = vi.fn(
       async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })

@@ -19,7 +19,8 @@ import { Button, Input } from '@brainstrike/ui';
 import { GitCommitHorizontal, Loader2, RefreshCw, Upload } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { resolveGitBridge } from '../../git-panel/git-bridge';
-import { ChangesetSourcePicker, describeGitScopeKind } from './changeset-source-picker';
+import { ChangesetSourcePicker } from './changeset-source-picker';
+import { describeGitScopeKind } from './git-scope-label';
 
 export interface ChangesetHeaderProps {
   readonly changeset: Changeset | null;
@@ -31,6 +32,15 @@ export interface ChangesetHeaderProps {
   readonly loading: boolean;
   /** Additive per the task brief: retries the failed `useChangeset` load. */
   readonly onRetry?: () => void;
+  /**
+   * Retries the failed `useGitInventory` load. An inventory failure is the
+   * MORE disabling of the two errors this header can show — it empties the
+   * source picker's git scopes AND strips every worktree name/trust badge
+   * from the tree, and (unlike a changeset load failure) persists for the
+   * whole session since the surface stays mounted — so it gets the same
+   * Retry affordance as `error`/`onRetry`, not a dead end.
+   */
+  readonly onRetryInventory?: () => void;
   readonly onSelectChangeset: (next: Changeset) => void;
   readonly rootId: string | null;
   /** See module doc comment — additive, required by the source picker. */
@@ -159,20 +169,37 @@ function StatsReadout({ view }: { readonly view: ChangesetView | null }): ReactE
  * repository/worktree than the one being viewed would silently commit or
  * push the wrong tree. When it does not match, the actions stay absent
  * rather than risk that.
+ *
+ * SCOPED TO THE CHANGESET'S OWN REPOSITORY FIRST (review finding, BST-1114
+ * PR #2274): a workspace root can hold more than one repository, or be
+ * itself a linked worktree, so scanning `inventory.repositories` UNFILTERED
+ * for the first worktree whose `containment` includes `rootId` can return a
+ * worktree from a DIFFERENT repository than `repositoryRoot` — most
+ * orderings fail closed (actions hidden), but the case where that first
+ * containment match happens to equal `changeset.worktreePath` while
+ * `window.git`'s `rootId`-resolved cwd is a different repo would show the
+ * buttons and commit/push the wrong tree. Filtering to `repositoryRoot`
+ * before scanning worktrees establishes the invariant the doc comment
+ * above actually claims.
  */
 function isViewingActiveWorktree(
   inventory: GitInventory | null,
   rootId: string,
+  repositoryRoot: string,
   worktreePath: string
 ): boolean {
   if (!inventory) {
     return false;
   }
-  for (const repository of inventory.repositories) {
-    for (const worktree of repository.worktrees) {
-      if (worktree.containment !== 'outside-roots' && worktree.containment.includes(rootId)) {
-        return worktree.path === worktreePath;
-      }
+  const repository = inventory.repositories.find(
+    (candidate) => candidate.identity.repositoryRoot === repositoryRoot
+  );
+  if (!repository) {
+    return false;
+  }
+  for (const worktree of repository.worktrees) {
+    if (worktree.containment !== 'outside-roots' && worktree.containment.includes(rootId)) {
+      return worktree.path === worktreePath;
     }
   }
   return false;
@@ -352,7 +379,9 @@ function ChangesetActions({
     return null;
   }
 
-  if (isViewingActiveWorktree(inventory, rootId, changeset.worktreePath)) {
+  if (
+    isViewingActiveWorktree(inventory, rootId, changeset.repositoryRoot, changeset.worktreePath)
+  ) {
     return <GitScopeActions rootId={rootId} />;
   }
 
@@ -376,6 +405,7 @@ export function ChangesetHeader({
   latestRunId,
   loading,
   onRetry,
+  onRetryInventory,
   onSelectChangeset,
   rootId,
   threadId,
@@ -407,12 +437,20 @@ export function ChangesetHeader({
       {changeset ? <ProvenanceLine changeset={changeset} inventory={inventory} /> : null}
 
       {inventoryError ? (
-        <p
-          className="text-[11px] text-amber-700 dark:text-amber-300"
+        <div
+          className="flex flex-col items-start gap-1.5"
           data-testid="changeset-header-inventory-error"
         >
-          Repository list unavailable: {inventoryError}
-        </p>
+          <p className="text-[11px] text-amber-700 dark:text-amber-300">
+            Repository list unavailable: {inventoryError}
+          </p>
+          {onRetryInventory ? (
+            <Button onClick={onRetryInventory} size="sm" type="button" variant="outline">
+              <RefreshCw aria-hidden="true" className="size-3.5" />
+              Retry
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       {error ? (
