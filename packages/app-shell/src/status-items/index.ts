@@ -1,4 +1,3 @@
-export * from './collection-sync-status-item';
 export * from './database-status-item';
 export * from './diagnostics-status-item';
 export * from './indexing-status-item';

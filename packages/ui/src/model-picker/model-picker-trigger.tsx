@@ -1,8 +1,8 @@
 import { ChevronsUpDown } from 'lucide-react';
-import * as React from 'react';
+import type * as React from 'react';
 import { Button } from '../button';
+import { useResolvedTheme } from '../hooks/use-resolved-theme';
 import { cn } from '../lib/utils';
-import { useTheme } from '../theme-provider';
 import type { TriggerRenderProps } from './types';
 import { getProviderColor } from './utils/provider-colors';
 import { ProviderIcon } from './utils/provider-icons';
@@ -19,20 +19,7 @@ export const ModelPickerTrigger = ({
 }: (TriggerRenderProps & React.ButtonHTMLAttributes<HTMLButtonElement>) & {
   ref?: React.Ref<HTMLButtonElement>;
 }) => {
-  const { theme: configuredTheme } = useTheme();
-  const [resolvedTheme, setResolvedTheme] = React.useState<'light' | 'dark'>('light');
-
-  React.useEffect(() => {
-    if (configuredTheme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      setResolvedTheme(mediaQuery.matches ? 'dark' : 'light');
-      const handler = (e: MediaQueryListEvent) => setResolvedTheme(e.matches ? 'dark' : 'light');
-      mediaQuery.addEventListener('change', handler);
-      return () => mediaQuery.removeEventListener('change', handler);
-    }
-    setResolvedTheme(configuredTheme);
-    return;
-  }, [configuredTheme]);
+  const resolvedTheme = useResolvedTheme();
 
   const selectedModels = Array.isArray(value)
     ? models.filter((m) => value.includes(m.id))

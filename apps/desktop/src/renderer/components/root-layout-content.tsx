@@ -97,7 +97,7 @@ export default function RootLayoutContent() {
   // directory picker exists in this renderer (Electron >= 30). Resolved once.
   const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
-    const items = [...(navigationItems as NavigationItem[])];
+    const items = [...navigationItems];
     if (notesAvailable) {
       items.push(NOTES_NAVIGATION_ITEM);
     }
