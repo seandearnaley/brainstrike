@@ -254,10 +254,12 @@ function KeepMountedRoute({
  * (`workspace-panel-tabs.tsx`), not its own top-level route, so opening it
  * from here is two steps: bring the shell back to the `explorer` route (in
  * case the user is on Settings/Git/etc — the workspace panel only exists on
- * that route), and hand the changeset to `openChangeset`, which bumps
- * `openRequestId` so `WorkspacePanelTabs` switches its own local tab state to
- * "changes" (see that store action's doc comment for why `openChangeset`,
- * not `requestChangeset`, is the one external callers use).
+ * that route), and hand the changeset to `openChangeset`, which writes
+ * `activeWorkspacePanelTab: 'changes'` directly on the navigation store (see
+ * that store action's doc comment for why `openChangeset`, not
+ * `requestChangeset`, is the one external callers use, and why the tab lives
+ * on the store rather than as local state `WorkspacePanelTabs` would have to
+ * derive from a prop).
  */
 function useChangesReviewValue(
   changesPageContent: ReactNode,

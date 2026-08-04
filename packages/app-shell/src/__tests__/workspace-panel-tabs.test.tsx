@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { Profiler } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { WorkspacePanelTabs } from '../workspace-panel-tabs';
@@ -7,8 +8,9 @@ describe('WorkspacePanelTabs', () => {
   beforeEach(() => {
     useChangesNavigationStore.setState({
       activeChangeset: null,
+      activeWorkspacePanelTab: 'context-explorer',
+      changesTabMounted: false,
       handoffThreadIdentity: null,
-      openRequestId: 0,
     });
   });
 
@@ -127,6 +129,46 @@ describe('WorkspacePanelTabs', () => {
     });
 
     expect(screen.getByRole('tab', { name: 'Changes' })).toHaveAttribute('data-state', 'active');
+  });
+
+  it('activates the Changes tab within a single React commit — no post-hoc-effect stale-tab flash', () => {
+    // Regression test for the `no-adjust-state-on-prop-change` bug this
+    // component used to have: a `useEffect` watching a store counter and
+    // calling `setActiveTab('changes')` from inside `WorkspacePanelTabs`
+    // committed the STALE ('context-explorer') tab first, then a second,
+    // effect-scheduled commit corrected it — a real one-frame flash. Now
+    // `activeTab` is read directly from the store with no local state to
+    // resync, so every commit the store update produces already reflects
+    // 'changes'. `React.Profiler.onRender` fires once per commit of its
+    // subtree (including commits triggered by a descendant's own state/store
+    // subscription) — this asserts NO recorded commit ever shows the stale
+    // 'inactive' value (Radix's own internal bookkeeping may still produce
+    // more than one commit here, but none of them may be wrong).
+    const commits: string[] = [];
+    render(
+      <Profiler
+        id="workspace-panel-tabs-probe"
+        onRender={() => {
+          const tab = screen.queryByRole('tab', { name: 'Changes' });
+          commits.push(tab?.getAttribute('data-state') ?? 'missing');
+        }}
+      >
+        <WorkspacePanelTabs
+          changesPageContent={<div>Changes content</div>}
+          contextExplorerContent={<div>Context explorer content</div>}
+        />
+      </Profiler>
+    );
+    commits.length = 0; // Discard the mount commit — only the update matters.
+
+    act(() => {
+      useChangesNavigationStore
+        .getState()
+        .openChangeset({ kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' });
+    });
+
+    expect(commits.length).toBeGreaterThan(0);
+    expect(commits.every((state) => state === 'active')).toBe(true);
   });
 
   it('does not switch tabs when the navigation store is used without a Changes surface present', () => {

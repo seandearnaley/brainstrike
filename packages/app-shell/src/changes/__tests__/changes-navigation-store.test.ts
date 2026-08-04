@@ -15,21 +15,31 @@ describe('useChangesNavigationStore', () => {
   beforeEach(() => {
     useChangesNavigationStore.setState({
       activeChangeset: null,
+      activeWorkspacePanelTab: 'context-explorer',
+      changesTabMounted: false,
       handoffThreadIdentity: null,
-      openRequestId: 0,
     });
   });
 
-  it('starts with nothing selected', () => {
+  it('starts with nothing selected and Context Explorer active', () => {
     expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
     expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
-    expect(useChangesNavigationStore.getState().openRequestId).toBe(0);
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+    expect(useChangesNavigationStore.getState().changesTabMounted).toBe(false);
   });
 
   it('makes a requested changeset the active one', () => {
     useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
 
     expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+  });
+
+  it('does NOT switch the workspace-panel tab on a plain requestChangeset call', () => {
+    // The surface's own internal source picker calls this while already
+    // visible — there is nothing to switch to.
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
   });
 
   it('records the thread identity an agent-run handoff carried', () => {
@@ -82,14 +92,17 @@ describe('useChangesNavigationStore', () => {
     expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
   });
 
-  it('reset() clears both the active changeset and the handoff identity', () => {
-    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+  it('reset() clears the active changeset, handoff identity, and workspace-panel tab', () => {
+    useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
     expect(useChangesNavigationStore.getState().activeChangeset).not.toBeNull();
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
 
     useChangesNavigationStore.getState().reset();
 
     expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
     expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+    expect(useChangesNavigationStore.getState().changesTabMounted).toBe(false);
   });
 
   describe('openChangeset', () => {
@@ -103,32 +116,43 @@ describe('useChangesNavigationStore', () => {
       });
     });
 
-    it('bumps openRequestId, unlike a plain requestChangeset call', () => {
-      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
-      expect(useChangesNavigationStore.getState().openRequestId).toBe(0);
-
+    it('switches the workspace-panel tab to "changes" and marks it mounted, unlike a plain requestChangeset call', () => {
       useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
-      expect(useChangesNavigationStore.getState().openRequestId).toBe(1);
+
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
     });
 
-    it('bumps openRequestId again on a second click for the SAME changeset', () => {
-      // The workspace-panel tab host watches this counter (not activeChangeset)
-      // precisely so a second "Review" click on an unchanged run still
-      // re-triggers the tab switch — see the store's doc comment.
+    it('re-activates the "changes" tab on a second click for the SAME changeset, even after the user switched away', () => {
       useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('context-explorer');
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+
       useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
 
-      expect(useChangesNavigationStore.getState().openRequestId).toBe(2);
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+    });
+  });
+
+  describe('setActiveWorkspacePanelTab', () => {
+    it('switches tabs without touching the active changeset', () => {
+      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('changes');
+
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
       expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
     });
 
-    it('reset() also clears openRequestId', () => {
-      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
-      expect(useChangesNavigationStore.getState().openRequestId).toBeGreaterThan(0);
+    it('marks changesTabMounted sticky — it does not revert to false when switching back', () => {
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('changes');
+      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
 
-      useChangesNavigationStore.getState().reset();
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('context-explorer');
 
-      expect(useChangesNavigationStore.getState().openRequestId).toBe(0);
+      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
     });
   });
 });

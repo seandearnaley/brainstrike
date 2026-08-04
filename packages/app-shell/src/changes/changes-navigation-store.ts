@@ -24,46 +24,66 @@ import { create } from 'zustand';
  * to a git scope. It is only ever populated from a real `agent-run`
  * changeset, never synthesised — the surface has no other way to learn a
  * thread id, and inventing one would violate NO SILENT FALLBACKS.
+ *
+ * `activeWorkspacePanelTab`/`changesTabMounted` own WHICH tab of the
+ * workspace panel (`workspace-panel-tabs.tsx`) is showing. React Doctor
+ * flagged an earlier shape of this fix (BST-1114 smoke feedback,
+ * `no-adjust-state-on-prop-change`): `WorkspacePanelTabs` held its own
+ * `activeTab` local state and used a `useEffect` watching a bumped
+ * `openRequestId` counter to sync it — the classic "adjust state after a
+ * prop changes" bug, which paints one stale frame of the previous tab before
+ * the effect corrects it. The fix is the same one this store already applied
+ * to `activeChangeset` above: ONE owned value, written directly by every
+ * event that changes it (`openChangeset` for the external "→ Review" handoff,
+ * `setActiveWorkspacePanelTab` for the user's own tab click) instead of one
+ * component deriving its state from another's.
  */
 export interface ChangesHandoffThreadIdentity {
   readonly latestRunId: string;
   readonly threadId: string;
 }
 
+/** Which tab of the workspace panel is active — see this file's doc comment. */
+export type WorkspacePanelTab = 'changes' | 'context-explorer';
+
 export interface ChangesNavigationState {
   /** The changeset the surface is showing, or `null` before anything is picked. */
   readonly activeChangeset: Changeset | null;
+  /**
+   * Which workspace-panel tab is currently shown. Defaults to
+   * `'context-explorer'`. Written directly by `setActiveWorkspacePanelTab`
+   * (the user's own click) and by `openChangeset` (an external "→ Review"
+   * handoff) — never derived from a prop inside `WorkspacePanelTabs` itself.
+   */
+  readonly activeWorkspacePanelTab: WorkspacePanelTab;
+  /**
+   * Once the Changes tab has been shown at least once, its content stays
+   * mounted (mirrors the old `KeepMountedRoute` contract for the top-level
+   * Changes route this replaced) so switching away and back doesn't lose the
+   * surface's scroll/selection state. Sticky: sets to `true` and never back
+   * to `false` outside of `reset()`.
+   */
+  readonly changesTabMounted: boolean;
   /** Thread/run identity from the most recent `agent-run` handoff, if any. */
   readonly handoffThreadIdentity: ChangesHandoffThreadIdentity | null;
   /**
-   * Show `changeset` on the Changes surface AND ask whatever is hosting the
-   * surface to switch to it. Used ONLY by external entry points — currently
-   * the assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
-   * `useChangesReviewValue` in `root-layout-content.tsx`) — since the Changes
-   * surface now lives as a tab inside the workspace panel
-   * (`workspace-panel-tabs.tsx`), not its own top-level route, and that tab
-   * host has no other way to learn "an external caller wants the Changes tab
-   * open" than watching this store.
-   *
-   * Bumps {@link ChangesNavigationState.openRequestId} in addition to setting
-   * `activeChangeset` (via `requestChangeset`) so a second "Review" click on
-   * the SAME changeset still re-triggers the tab switch: zustand's `set`
-   * always produces a fresh state slice, but `activeChangeset`'s value can be
-   * referentially unchanged (re-requesting the same object), and a consumer
-   * diffing on `activeChangeset` alone would treat that as a no-op. The
-   * monotonically increasing token has no such ambiguity.
+   * Show `changeset` on the Changes surface AND switch the workspace panel
+   * to the Changes tab. Used ONLY by external entry points — currently the
+   * assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
+   * `useChangesReviewValue` in `root-layout-content.tsx`). Sets
+   * `activeWorkspacePanelTab: 'changes'` UNCONDITIONALLY on every call, so a
+   * second "Review" click for the same changeset still re-activates the tab
+   * even if the user had since clicked back to Context Explorer — no
+   * separate "did this already fire" counter needed, because the write is
+   * direct and idempotent-safe (re-setting an already-active tab to the same
+   * value is simply a no-op re-render, not a bug).
    */
   readonly openChangeset: (changeset: Changeset) => void;
   /**
-   * Bumped by every {@link ChangesNavigationState.openChangeset} call —
-   * never by `requestChangeset`. See `openChangeset`'s doc comment for why a
-   * separate counter exists instead of diffing `activeChangeset`.
-   */
-  readonly openRequestId: number;
-  /**
-   * Show `changeset` on the Changes surface, WITHOUT requesting a tab switch.
-   * Used by the surface's own internal source picker — it only fires while
-   * the surface is already visible, so there is nothing to switch to.
+   * Show `changeset` on the Changes surface, WITHOUT switching the workspace
+   * panel tab. Used by the surface's own internal source picker — it only
+   * fires while the surface is already visible, so there is nothing to
+   * switch to.
    */
   readonly requestChangeset: (changeset: Changeset) => void;
   /**
@@ -73,16 +93,19 @@ export interface ChangesNavigationState {
    * at a runId/threadId or an absolute repository path the reset just wiped.
    */
   readonly reset: () => void;
+  /** Switch the workspace panel to `tab`. The user's own tab-click event. */
+  readonly setActiveWorkspacePanelTab: (tab: WorkspacePanelTab) => void;
 }
 
 export const useChangesNavigationStore = create<ChangesNavigationState>((set, get) => ({
   activeChangeset: null,
+  activeWorkspacePanelTab: 'context-explorer',
+  changesTabMounted: false,
   handoffThreadIdentity: null,
   openChangeset: (changeset) => {
     get().requestChangeset(changeset);
-    set((state) => ({ openRequestId: state.openRequestId + 1 }));
+    set({ activeWorkspacePanelTab: 'changes', changesTabMounted: true });
   },
-  openRequestId: 0,
   requestChangeset: (changeset) =>
     set(
       changeset.kind === 'agent-run'
@@ -95,5 +118,16 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
           }
         : { activeChangeset: changeset }
     ),
-  reset: () => set({ activeChangeset: null, handoffThreadIdentity: null, openRequestId: 0 }),
+  reset: () =>
+    set({
+      activeChangeset: null,
+      activeWorkspacePanelTab: 'context-explorer',
+      changesTabMounted: false,
+      handoffThreadIdentity: null,
+    }),
+  setActiveWorkspacePanelTab: (tab) =>
+    set((state) => ({
+      activeWorkspacePanelTab: tab,
+      changesTabMounted: state.changesTabMounted || tab === 'changes',
+    })),
 }));

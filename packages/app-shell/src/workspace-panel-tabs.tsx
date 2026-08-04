@@ -6,10 +6,11 @@ import {
   TabsTrigger,
 } from '@brainstrike/ui';
 import { Folder, GitCompare } from 'lucide-react';
-import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
-import { useChangesNavigationStore } from './changes/changes-navigation-store';
-
-export type WorkspacePanelTab = 'changes' | 'context-explorer';
+import type { ReactElement, ReactNode } from 'react';
+import {
+  useChangesNavigationStore,
+  type WorkspacePanelTab,
+} from './changes/changes-navigation-store';
 
 interface WorkspacePanelTabsProps {
   /**
@@ -38,6 +39,18 @@ function isWorkspacePanelTab(value: string): value is WorkspacePanelTab {
  * inside the workspace panel itself to match (it hosted a single, un-tabbed
  * `ContextExplorerSurface`).
  *
+ * TAB-STATE OWNERSHIP (React Doctor `no-adjust-state-on-prop-change`, second
+ * round): an earlier version of this component held `activeTab` as LOCAL
+ * state and used a `useEffect` watching a store counter to sync it — the
+ * exact "adjust state after a prop changes" bug the rule exists for: the
+ * stale tab painted for one frame before the effect corrected it. The fix is
+ * to have no local tab state at all. `activeWorkspacePanelTab` /
+ * `changesTabMounted` live in `useChangesNavigationStore` instead, written
+ * DIRECTLY by whichever event changes them — this component's own
+ * `onValueChange` click handler, or the assistant turn's external "→ Review"
+ * link via `openChangeset` (see that store's doc comment). Rendering here is
+ * a pure function of the store; there is nothing to derive or resync.
+ *
  * MOUNT CONTRACT: unlike `AgentSidebarPanel`'s Threads/Prompts/Database
  * split, Context Explorer is NOT allowed to unmount when the user switches
  * to Changes — it owns `FileTreeProvider`/open-file/scroll state that must
@@ -45,27 +58,18 @@ function isWorkspacePanelTab(value: string): value is WorkspacePanelTab {
  * `root-layout-content.tsx` never unmounted for git/notes/terminal. So its
  * `TabsContent` force-mounts unconditionally; only visibility toggles via
  * the `hidden` prop. Changes mirrors the OLD `KeepMountedRoute` contract
- * instead: it mounts lazily on first open, then force-mounts from then on
- * (matching Prompts/Database's `*TabMounted` pattern in `AgentSidebarPanel`).
+ * instead: `changesTabMounted` goes true the first time the tab is shown (by
+ * either write path) and never back to `false` outside of a factory reset.
  */
 export function WorkspacePanelTabs({
   changesPageContent,
   contextExplorerContent,
 }: WorkspacePanelTabsProps): ReactElement {
-  const [activeTab, setActiveTab] = useState<WorkspacePanelTab>('context-explorer');
-  const [changesTabMounted, setChangesTabMounted] = useState(false);
-  // Bumped by the assistant turn's external "→ Review" handoff
-  // (`openChangeset`, changes-navigation-store.ts) — see that store's doc
-  // comment for why this is a separate counter from `activeChangeset`.
-  const openRequestId = useChangesNavigationStore((state) => state.openRequestId);
-
-  useEffect(() => {
-    if (openRequestId === 0 || !changesPageContent) {
-      return;
-    }
-    setActiveTab('changes');
-    setChangesTabMounted(true);
-  }, [openRequestId, changesPageContent]);
+  const activeTab = useChangesNavigationStore((state) => state.activeWorkspacePanelTab);
+  const changesTabMounted = useChangesNavigationStore((state) => state.changesTabMounted);
+  const setActiveWorkspacePanelTab = useChangesNavigationStore(
+    (state) => state.setActiveWorkspacePanelTab
+  );
 
   if (!changesPageContent) {
     return <>{contextExplorerContent}</>;
@@ -79,10 +83,7 @@ export function WorkspacePanelTabs({
         if (!isWorkspacePanelTab(value)) {
           return;
         }
-        setActiveTab(value);
-        if (value === 'changes') {
-          setChangesTabMounted(true);
-        }
+        setActiveWorkspacePanelTab(value);
       }}
       value={activeTab}
     >
