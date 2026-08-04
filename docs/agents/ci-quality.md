@@ -1341,7 +1341,12 @@ and accessibility title `BrainStrike Agent Debug`.
 The launcher re-enters the exact pnpm CLI recorded in `npm_execpath` through
 `process.execPath`. On Windows this is required because Corepack exposes a
 `pnpm.cmd` shim rather than an executable that `child_process.spawn` can invoke
-directly without a shell. Missing pnpm launch context fails before the
+directly without a shell. The recorded entrypoint must be an absolute
+`pnpm.cjs`, `pnpm.js`, or `pnpm.mjs` path — Corepack-managed pnpm resolves to
+the `.mjs` form under its cache (`.../corepack/v1/pnpm/<version>/bin/pnpm.mjs`)
+on every platform, so all three are accepted; `pnpm.cmd` stays rejected because
+re-entering a shim as a Node script is exactly what this contract prevents.
+Missing pnpm launch context fails before the
 disposable profile is created; child spawn errors are observed and flow through
 the normal owned-tree/profile cleanup path. Do not replace this with the shared
 shell-based spawn helper: the extra `cmd.exe` process would sit between the
