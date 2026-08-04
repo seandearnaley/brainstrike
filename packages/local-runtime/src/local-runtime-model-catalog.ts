@@ -2,7 +2,6 @@ import {
   type LocalRuntimeAvailabilityState,
   LocalRuntimeDiscoveryService,
   type LocalRuntimeId,
-  type LocalRuntimeLogger,
   type ProbeLocalRuntimeOptions,
   resolveRuntimeBaseUrl,
 } from './local-runtime-discovery.js';
@@ -51,6 +50,7 @@ import {
   fetchJsonWithTimeout,
   isRecord,
   type LocalRuntimeEndpointConfig,
+  type LocalRuntimeLogger,
   noopLocalRuntimeLogger,
   sanitizeDuration,
 } from './local-runtime-utils.js';

@@ -50,19 +50,19 @@ export interface RuntimeModelEndpointDefinition {
   readonly source: LocalRuntimeModelSource;
 }
 
-export interface RuntimeModelPathDefinition {
+interface RuntimeModelPathDefinition {
   readonly parser: (payload: unknown) => readonly RuntimeModelCandidate[] | null;
   readonly path: string;
   readonly source: LocalRuntimeModelSource;
 }
 
-export interface RuntimeModelAdapter {
+interface RuntimeModelAdapter {
   readonly embeddingProbePaths: readonly string[];
   readonly modelPaths: readonly RuntimeModelPathDefinition[];
   readonly runtime: LocalRuntimeId;
 }
 
-export interface RuntimeModelSuccessSnapshot {
+interface RuntimeModelSuccessSnapshot {
   readonly checkedAt: number;
   readonly endpoint: string;
   readonly models: readonly LocalRuntimeNormalizedModel[];
@@ -99,23 +99,23 @@ export const DEFAULT_FAILURE_MAX_BACKOFF_MS = 30_000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 2500;
 // Keep verification capped because unknown model-family fallbacks can produce
 // false positives that would otherwise fan out into many localhost probes.
-export const DEFAULT_MAX_VERIFICATION_MODELS = 4;
+const DEFAULT_MAX_VERIFICATION_MODELS = 4;
 export const DEFAULT_DIMENSION_PROBE_TEXT = 'brainstrike dimension probe';
 // Realistic workloads touch tens of models; 200 leaves ample headroom for
 // users cycling between local/remote runtimes and renaming models without
 // letting the Map grow unbounded across a long session.
 export const OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES = 200;
 
-export const EMBEDDING_NAME_PATTERN =
+const EMBEDDING_NAME_PATTERN =
   /(embed|embedding|text-embedding|nomic-embed|jina-embeddings|bge|e5|gte|arctic-embed|voyage)/i;
-export const CHAT_NAME_PATTERN =
+const CHAT_NAME_PATTERN =
   /(chat|instruct|llama|qwen|mistral|gemma|phi|deepseek|gpt|claude|sonnet|haiku|opus|command-r|mixtral)/i;
 
 // `/api/tags` is listed first for Ollama because it includes `details.families`,
 // which lets us infer embedding capability without a follow-up request. The
 // OpenAI-compatible `/v1/models` endpoint returns only `{id}` and is kept as a
 // compatibility fallback for older Ollama builds or non-default configurations.
-export const OLLAMA_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
+const OLLAMA_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
   { parser: parseOllamaTagsPayload, path: '/api/tags', source: 'ollama_api_tags' },
   { parser: parseOpenAiModelsPayload, path: '/v1/models', source: 'openai_v1_models' },
 ];
@@ -125,13 +125,13 @@ export const OLLAMA_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
 // the OpenAI-compatible `/v1/models` endpoint strips. Prefer them so the catalog
 // surfaces authoritative LLM/embedding/vision classifications; fall back to the
 // OpenAI shape for forward-compat if the native paths are ever disabled.
-export const LM_STUDIO_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
+const LM_STUDIO_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
   { parser: parseLmStudioModelsPayload, path: '/api/v1/models', source: 'lmstudio_api_v1_models' },
   { parser: parseLmStudioModelsPayload, path: '/api/v0/models', source: 'lmstudio_api_v0_models' },
   { parser: parseOpenAiModelsPayload, path: '/v1/models', source: 'openai_v1_models' },
 ];
 
-export const RUNTIME_ADAPTERS: Record<LocalRuntimeId, RuntimeModelAdapter> = {
+const RUNTIME_ADAPTERS: Record<LocalRuntimeId, RuntimeModelAdapter> = {
   lmstudio: {
     embeddingProbePaths: ['/v1/embeddings'],
     modelPaths: LM_STUDIO_MODEL_PATHS,
@@ -168,13 +168,11 @@ export function buildRuntimeEmbeddingProbeEndpoints(
 
 export const OLLAMA_SHOW_PATH = '/api/show';
 
-export function getOptionalString(value: unknown): string | undefined {
+function getOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-export function parseOpenAiModelsPayload(
-  payload: unknown
-): readonly RuntimeModelCandidate[] | null {
+function parseOpenAiModelsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
   if (!(isRecord(payload) && Array.isArray(payload['data']))) {
     return null;
   }
@@ -215,7 +213,7 @@ export function parseOpenAiModelsPayload(
  * Ollama's families field is a hint only; the LLM/embedding classification
  * for everything else falls through to the shared heuristic path.
  */
-export function parseOllamaModelType(value: unknown): LocalRuntimeModelType | undefined {
+function parseOllamaModelType(value: unknown): LocalRuntimeModelType | undefined {
   if (!Array.isArray(value)) {
     return;
   }
@@ -231,7 +229,7 @@ export function parseOllamaModelType(value: unknown): LocalRuntimeModelType | un
   return;
 }
 
-export function parseOllamaTagsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
+function parseOllamaTagsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
   if (!(isRecord(payload) && Array.isArray(payload['models']))) {
     return null;
   }
@@ -268,7 +266,7 @@ export function parseOllamaTagsPayload(payload: unknown): readonly RuntimeModelC
   return models;
 }
 
-export function parseLmStudioModelType(value: unknown): LocalRuntimeModelType | undefined {
+function parseLmStudioModelType(value: unknown): LocalRuntimeModelType | undefined {
   if (typeof value !== 'string') {
     return;
   }
@@ -285,7 +283,7 @@ export function parseLmStudioModelType(value: unknown): LocalRuntimeModelType | 
   }
 }
 
-export function parseLmStudioLoadState(value: unknown): boolean | undefined {
+function parseLmStudioLoadState(value: unknown): boolean | undefined {
   // `/api/v1/models` returns `state: "loaded" | "not-loaded"`. Older builds may
   // return booleans or omit the field entirely; leave `loaded` undefined when
   // unknown so the UI does not confuse "not loaded" with "unreported".
@@ -298,7 +296,7 @@ export function parseLmStudioLoadState(value: unknown): boolean | undefined {
   return;
 }
 
-export function toLmStudioCandidate(item: Record<string, unknown>): RuntimeModelCandidate | null {
+function toLmStudioCandidate(item: Record<string, unknown>): RuntimeModelCandidate | null {
   const id = getOptionalString(item['id']);
   if (!id) {
     return null;
@@ -315,9 +313,7 @@ export function toLmStudioCandidate(item: Record<string, unknown>): RuntimeModel
   };
 }
 
-export function parseLmStudioModelsPayload(
-  payload: unknown
-): readonly RuntimeModelCandidate[] | null {
+function parseLmStudioModelsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
   // LM Studio has shipped three shapes over its lifetime:
   //   - `/api/v1/models`  -> `{ data: [...] }` (0.4.0+, preferred)
   //   - `/api/v0/models`  -> `{ data: [...] }` (legacy native, still supported)
@@ -389,7 +385,7 @@ export function buildRuntimeAvailabilityMessage(
   }
 }
 
-export interface ResolvedCapabilities {
+interface ResolvedCapabilities {
   readonly capabilitySource: LocalRuntimeCapabilitySource;
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
   readonly embeddings: LocalRuntimeEmbeddingCapability;
@@ -397,7 +393,7 @@ export interface ResolvedCapabilities {
   readonly vision: ModelVisionSupport;
 }
 
-export function resolveReportedCapabilities(
+function resolveReportedCapabilities(
   modelType: LocalRuntimeModelType
 ): ResolvedCapabilities | undefined {
   switch (modelType) {
@@ -425,10 +421,7 @@ export function resolveReportedCapabilities(
   }
 }
 
-export function inferCapabilitiesFromName(
-  modelId: string,
-  displayName: string
-): ResolvedCapabilities {
+function inferCapabilitiesFromName(modelId: string, displayName: string): ResolvedCapabilities {
   const searchable = `${modelId} ${displayName}`.toLowerCase();
   const hasEmbeddingHint = EMBEDDING_NAME_PATTERN.test(searchable);
   const hasChatHint = CHAT_NAME_PATTERN.test(searchable);
@@ -513,7 +506,7 @@ export function setModelFreshness(
   return { ...model, freshness };
 }
 
-export const OLLAMA_KNOWN_CAPABILITIES: ReadonlySet<OllamaModelCapability> = new Set([
+const OLLAMA_KNOWN_CAPABILITIES: ReadonlySet<OllamaModelCapability> = new Set([
   'completion',
   'embedding',
   'insert',
@@ -522,7 +515,7 @@ export const OLLAMA_KNOWN_CAPABILITIES: ReadonlySet<OllamaModelCapability> = new
   'vision',
 ]);
 
-export function isKnownOllamaCapability(value: string): value is OllamaModelCapability {
+function isKnownOllamaCapability(value: string): value is OllamaModelCapability {
   return OLLAMA_KNOWN_CAPABILITIES.has(value as OllamaModelCapability);
 }
 
