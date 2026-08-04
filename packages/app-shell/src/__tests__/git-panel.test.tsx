@@ -8,6 +8,7 @@ import type {
   GitRepository,
   GitResult,
   GitStatus,
+  StructuredFileDiff,
 } from '../git-panel/git-bridge';
 
 // ── Controllable active-root + toast spies ────────────────────────────────────
@@ -117,6 +118,18 @@ function makeRepository(overrides: Partial<GitRepository> = {}): GitRepository {
   };
 }
 
+function makeStructuredFileDiff(overrides: Partial<StructuredFileDiff> = {}): StructuredFileDiff {
+  return {
+    additions: 1,
+    content: { kind: 'full', newContent: 'new\n', oldContent: 'old\n' },
+    deletions: 1,
+    hunks: [{ newLines: 1, newStart: 1, oldLines: 1, oldStart: 1 }],
+    path: 'staged.ts',
+    status: 'modified',
+    ...overrides,
+  };
+}
+
 function installBridge(bridge: Partial<GitBridge>): GitBridge {
   const full: GitBridge = {
     aheadBehind: vi.fn(async () =>
@@ -137,6 +150,7 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
     repository: vi.fn(async () => ok(makeRepository())),
     stage: vi.fn(async () => ok(null)),
     status: vi.fn(async () => ok(makeStatus())),
+    structuredFileDiff: vi.fn(async () => ok(makeStructuredFileDiff())),
     switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
       ok({ branch: params.branch })
     ),
@@ -1374,5 +1388,24 @@ describe('GitPanel', () => {
     expect(status.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByTestId('git-panel-error')).not.toBeInTheDocument();
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it('treats a bridge missing structuredFileDiff as absent (malformed bridge, no calls into it)', async () => {
+    // `structuredFileDiff` is a REQUIRED_METHODS entry (git-bridge.ts) — a
+    // bridge lacking it must fail resolveGitBridge()'s shape check the same
+    // way a bridge missing any other required method does, so a stale preload
+    // build never lets the panel half-function against a broken bridge.
+    const full = installBridge({});
+    Reflect.deleteProperty(full as Partial<GitBridge>, 'structuredFileDiff');
+    render(<GitPanel />);
+
+    // Never settles into the loaded panel, an error state, or the not-a-repo
+    // state — `resolveGitBridge()` returned null, so `status`/`repository`
+    // were never even called.
+    await waitFor(() => expect(screen.getByText('Loading Git workbench…')).toBeInTheDocument());
+    expect(screen.queryByTestId('git-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('git-panel-error')).not.toBeInTheDocument();
+    expect(full.status).not.toHaveBeenCalled();
+    expect(full.repository).not.toHaveBeenCalled();
   });
 });
