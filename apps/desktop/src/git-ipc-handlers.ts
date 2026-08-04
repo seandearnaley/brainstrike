@@ -106,17 +106,16 @@ export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.Pr
  *   - a missing `git` binary (`ENOENT`) → 'notFound' (clear install hint).
  */
 /**
- * Map an `execFile` error into a {@link GitCommandRun}, discriminating the cause
- * into `failureReason`. `code` is the numeric exit code on a normal non-zero
- * exit, or a string errno: 'ENOENT' (missing binary) or
+ * Discriminate an `execFile` error's cause into `failureReason`, independent of
+ * whether the run captured text or raw bytes. `code` is the numeric exit code on
+ * a normal non-zero exit, or a string errno: 'ENOENT' (missing binary) or
  * 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' (output overflow). A kill that is NOT a
- * maxBuffer overflow is a timeout/abort.
+ * maxBuffer overflow is a timeout/abort. Shared by both the text and
+ * {@link binaryStdout} paths so the mapping stays identical for each.
  */
 function classifyExecError(
-  error: ExecFileException,
-  stdout: string,
-  stderr: string
-): GitCommandRun {
+  error: ExecFileException
+): Pick<GitCommandRun, 'exitCode' | 'failureReason' | 'timedOut'> {
   const code = error.code;
   const exitCode = typeof code === 'number' ? code : null;
   let failureReason: GitCommandRun['failureReason'];
@@ -129,32 +128,73 @@ function classifyExecError(
   }
   return {
     exitCode,
-    stderr,
-    stdout,
     timedOut: failureReason === 'timeout',
     ...(failureReason ? { failureReason } : {}),
   };
 }
 
-export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeoutMs }) => {
+export const execFileGitRunner: GitCommandRunner = ({
+  args,
+  binaryStdout,
+  cwd,
+  signal,
+  timeoutMs,
+}) => {
+  // Discourage interactive credential prompts that would hang a push/pull in a
+  // headless main process; surface an auth error instead of blocking.
+  const env = createPinnedGitEnvironment(process.env);
+
+  if (binaryStdout) {
+    return new Promise<GitCommandRun>((resolve) => {
+      execFile(
+        'git',
+        [...args],
+        {
+          cwd,
+          encoding: 'buffer',
+          env,
+          maxBuffer: GIT_MAX_BUFFER_BYTES,
+          signal,
+          timeout: timeoutMs,
+        },
+        (error, stdout, stderr) => {
+          // `encoding: 'buffer'` applies to BOTH streams; stderr stays text (it
+          // only ever carries diagnostic messages), stdout carries the exact
+          // captured bytes — never a lossy utf8 decode.
+          const stderrText = stderr.toString('utf8');
+          if (error) {
+            // Preserve the captured (possibly partial, e.g. on maxBuffer
+            // overflow) bytes rather than silently dropping them.
+            resolve({
+              ...classifyExecError(error),
+              stderr: stderrText,
+              stdout: '',
+              stdoutBuffer: stdout,
+            });
+            return;
+          }
+          resolve({
+            exitCode: 0,
+            stderr: stderrText,
+            stdout: '',
+            stdoutBuffer: stdout,
+            timedOut: false,
+          });
+        }
+      );
+    });
+  }
+
   return new Promise<GitCommandRun>((resolve) => {
     execFile(
       'git',
       [...args],
-      {
-        cwd,
-        // Discourage interactive credential prompts that would hang a push/pull
-        // in a headless main process; surface an auth error instead of blocking.
-        env: createPinnedGitEnvironment(process.env),
-        maxBuffer: GIT_MAX_BUFFER_BYTES,
-        signal,
-        timeout: timeoutMs,
-      },
+      { cwd, env, maxBuffer: GIT_MAX_BUFFER_BYTES, signal, timeout: timeoutMs },
       (error, stdout, stderr) => {
         // Default `execFile` encoding is utf8, so the streams are strings. On a
         // maxBuffer overflow these still hold the captured (truncated) prefix.
         if (error) {
-          resolve(classifyExecError(error, stdout, stderr));
+          resolve({ ...classifyExecError(error), stderr, stdout });
           return;
         }
         resolve({ exitCode: 0, stderr, stdout, timedOut: false });

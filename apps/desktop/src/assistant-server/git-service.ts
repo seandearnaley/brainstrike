@@ -98,6 +98,12 @@ export interface GitCommandRun {
   readonly failureReason?: GitCommandFailureReason;
   readonly stderr: string;
   readonly stdout: string;
+  /**
+   * Populated ONLY when the run was requested with `binaryStdout: true` — the
+   * exact captured bytes (no utf8 decode). When present, {@link stdout} is `''`.
+   * Undefined for every other run, including today's text-mode callers.
+   */
+  readonly stdoutBuffer?: Buffer;
   /** True when the invocation was killed because it exceeded its timeout. */
   readonly timedOut: boolean;
 }
@@ -110,6 +116,13 @@ export interface GitCommandRun {
  */
 export type GitCommandRunner = (params: {
   readonly args: readonly string[];
+  /**
+   * When true, the runner captures stdout as raw bytes into
+   * {@link GitCommandRun.stdoutBuffer} instead of decoding it as utf8 text —
+   * required for reading a blob that may contain arbitrary binary content (a
+   * lossy text decode would mangle it before any caller can inspect the bytes).
+   */
+  readonly binaryStdout?: boolean | undefined;
   readonly cwd: string;
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;

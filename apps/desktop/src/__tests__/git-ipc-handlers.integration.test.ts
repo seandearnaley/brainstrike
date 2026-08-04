@@ -4,9 +4,11 @@
  * a fake runner and asserting the exact git argument array (the command
  * construction) plus the structured error mapping — never a real push.
  */
+import { execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GitCommandRun, GitCommandRunner } from '../assistant-server/git-service';
 import {
@@ -16,12 +18,24 @@ import {
   type WorkspaceRootResolver,
 } from '../git-ipc-handlers';
 
+const execFileAsync = promisify(execFile);
+
 const createdDirs: string[] = [];
 
 async function makeDir(prefix = 'brainstrike-git-ipc-'): Promise<string> {
   const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), prefix));
   const real = await fsPromises.realpath(dir);
   createdDirs.push(real);
+  return real;
+}
+
+/** Real temp git repo (git init + local user) for exercising the production runner. */
+async function makeRepo(prefix = 'brainstrike-git-ipc-repo-'): Promise<string> {
+  const real = await makeDir(prefix);
+  await execFileAsync('git', ['init', '-q'], { cwd: real });
+  await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: real });
+  await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: real });
+  await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: real });
   return real;
 }
 
@@ -454,5 +468,45 @@ describe('execFileGitRunner — errno discrimination (real runner)', () => {
     expect(run.failureReason).toBe('notFound');
     expect(run.exitCode).toBeNull();
     expect(run.timedOut).toBe(false);
+  });
+});
+
+describe('execFileGitRunner — binary stdout (real runner)', () => {
+  it('captures exact bytes via stdoutBuffer when binaryStdout is true, never a lossy decode', async () => {
+    const repo = await makeRepo();
+    const blobBytes = Buffer.from([0x61, 0x00, 0x62]);
+    await fsPromises.writeFile(path.join(repo, 'bin.dat'), blobBytes);
+    await execFileAsync('git', ['add', 'bin.dat'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add binary blob'], { cwd: repo });
+
+    const run = await execFileGitRunner({
+      args: ['cat-file', 'blob', 'HEAD:bin.dat'],
+      binaryStdout: true,
+      cwd: repo,
+      timeoutMs: 5000,
+    });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toBe('');
+    expect(run.stdoutBuffer).toBeInstanceOf(Buffer);
+    expect(run.stdoutBuffer).toEqual(blobBytes);
+  });
+
+  it("keeps today's text behavior when binaryStdout is absent", async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(path.join(repo, 'text.txt'), 'hello\n', 'utf8');
+    await execFileAsync('git', ['add', 'text.txt'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add text file'], { cwd: repo });
+
+    const run = await execFileGitRunner({
+      args: ['rev-parse', 'HEAD'],
+      cwd: repo,
+      timeoutMs: 5000,
+    });
+
+    expect(run.exitCode).toBe(0);
+    expect(typeof run.stdout).toBe('string');
+    expect(run.stdout.trim()).toMatch(/^[0-9a-f]{40}$/);
+    expect(run.stdoutBuffer).toBeUndefined();
   });
 });
