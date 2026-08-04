@@ -28,6 +28,19 @@ The revert core is UNCHANGED — it is just conditionally invoked. Modal choice 
 
 **A1.3 — Second entry point (T4).** Keep the message-level "Restore to here". ADD: when the Changes surface shows an agent-run / run-range changeset, the header action area gets **"Restore to before this"** opening the SAME confirm modal. Rationale: the user's actual smoke path (Review → changeset) currently dead-ends with no visible route to rewind.
 
+## AMENDMENT 2 (user sign-off on T3's design decisions — BINDING on T4)
+
+Both T3 decisions **SIGNED OFF**: (1) anchoring on the PRECEDING message's `createdAt` with strict `>` (the send-time run-row vs Mastra-persist race is real; ties-revert-less is the correct bias); (2) **inclusive-of-target**, matching Cursor semantics.
+
+Decision (2) makes T4's COPY load-bearing:
+- The affordance MUST read **"Restore to before this message"**. Never "Restore to here" — the ambiguity is the bug.
+- **Composer repopulation (Cursor-style rewind-and-retry):** after a successful rewind, repopulate the composer with the TARGET USER MESSAGE's text so the user can immediately re-send a variant. This is the actual workflow. **If the target is an assistant message, no repopulation.**
+
+T4 also inherits from T3's follow-ups:
+- **Dedupe conflict paths for display** (the scan can report a path more than once).
+- Revert-capture rows appear in `listThreadCheckpoints`. Check the turn-footer implications; if they pollute it, exclude by `REWIND_REVERT_TOOL_NAME`.
+- **Tracked minor for the PR (do NOT invent schema to fix):** redo leaves records stamped.
+
 ## Tasks
 
 **T1 (serial first) — preconditions + tombstone schema:**
