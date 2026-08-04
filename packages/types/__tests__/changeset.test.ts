@@ -86,6 +86,14 @@ describe('changeset contracts', () => {
         reason: 'over-cap-old',
       })
     ).toBe('hunks:over-cap-old');
+    expect(
+      contentLabel({
+        hunkText: '@@',
+        hunkTextTruncated: true,
+        kind: 'hunks-only',
+        reason: 'diff-overflow',
+      })
+    ).toBe('hunks:diff-overflow');
   });
 
   it('narrows Changeset by kind', () => {

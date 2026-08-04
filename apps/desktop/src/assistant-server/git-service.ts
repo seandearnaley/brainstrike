@@ -616,31 +616,42 @@ function classifyOverCapReason(
 }
 
 /**
- * `hunks-only` reason when the unified diff invocation itself hit `maxBuffer`
- * (the `StructuredFileDiffContent` union has no dedicated "diff output
- * overflowed" reason — only the three per-side-cap values). When at least one
- * side is individually over the per-file cap, that's the honest, precise
- * reason. The remaining case — a `maxBuffer` overflow with BOTH sides
- * individually under cap (e.g. many small scattered edits across two
- * large-but-under-cap files inflate the diff text past the 4MB hard buffer
- * ceiling) — has no exact label in the union, so this attributes it to
- * whichever side is larger as the best available signal. Either way the
- * content kind is still an honest `hunks-only`, never a `full` claim with
- * short/wrong hunks.
+ * `hunks-only` reason when the unified diff invocation itself hit `maxBuffer`.
+ * Called only when at least one of {oldOverCap, newOverCap, a maxBuffer
+ * overflow} is true (see the caller's guard) — when NEITHER side is
+ * individually over the per-file cap, the maxBuffer overflow is the only
+ * possible reason we were called at all, so this reports the honest
+ * `'diff-overflow'` reason rather than guessing at a side. When a side IS
+ * individually over cap, that's the more precise, existing reason.
  */
 function resolveOverCapReason(
   oldOverCap: boolean,
-  newOverCap: boolean,
-  diffTruncated: boolean,
-  oldContent: Buffer | null,
-  newContent: Buffer | null
-): 'over-cap-both' | 'over-cap-new' | 'over-cap-old' {
+  newOverCap: boolean
+): 'diff-overflow' | 'over-cap-both' | 'over-cap-new' | 'over-cap-old' {
   if (oldOverCap || newOverCap) {
     return classifyOverCapReason(oldOverCap, newOverCap);
   }
-  const oldBytes = oldContent?.byteLength ?? 0;
-  const newBytes = newContent?.byteLength ?? 0;
-  return diffTruncated && oldBytes > newBytes ? 'over-cap-old' : 'over-cap-new';
+  return 'diff-overflow';
+}
+
+/**
+ * Count lines the way {@link countLines} (`structured-diff-parsers.ts`)
+ * counts them — newline-terminated text counts the terminated lines, not an
+ * extra trailing empty segment — but operating directly on raw bytes so an
+ * over-cap buffer never needs a full utf8 transcode just to get a line count.
+ */
+function countLinesInBuffer(buffer: Buffer): number {
+  if (buffer.byteLength === 0) {
+    return 0;
+  }
+  let newlineCount = 0;
+  for (let index = 0; index < buffer.byteLength; index += 1) {
+    if (buffer[index] === 0x0a) {
+      newlineCount += 1;
+    }
+  }
+  const endsWithNewline = buffer[buffer.byteLength - 1] === 0x0a;
+  return endsWithNewline ? newlineCount : newlineCount + 1;
 }
 
 /**
@@ -1228,12 +1239,13 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   }
 
   /**
-   * Unified diff for exactly ONE tracked-mode file's structured hunks /
-   * hunks-only content — always a plain two-way `git diff` (HEAD or the
-   * index), never `--cc`/merge output, satisfying {@link parseHunkHeaders}'s
-   * single-file, two-way precondition by construction. `untracked` mode never
-   * calls this (see {@link structuredUntrackedDiff}: it never populates
-   * `hunks`, so there is no diff invocation to make for it here).
+   * Unified diff for exactly ONE file's structured hunks / hunks-only content
+   * — always a plain two-way `git diff` (HEAD, the index, or `/dev/null`),
+   * never `--cc`/merge output, satisfying {@link parseHunkHeaders}'s
+   * single-file, two-way precondition by construction. `untracked` mode uses
+   * this ONLY for the oversized-content preview ({@link structuredUntrackedDiff}
+   * never populates `hunks` from it, since an untracked file has no
+   * meaningful "hunk ranges" — it's a whole-file addition).
    *
    * For a rename BOTH `oldPath` and `pathArg` are passed as pathspecs. This is
    * NOT optional: gitdiffcore(7) documents that pathspec limiting happens
@@ -1254,21 +1266,24 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   }
 
   async function computeUnifiedDiff(
-    mode: 'staged' | 'working',
+    mode: 'staged' | 'untracked' | 'working',
     pathArg: string,
     oldPath: string | null
   ): Promise<GitResult<UnifiedDiffRun>> {
-    const args = [
-      'diff',
-      ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
-      '--no-ext-diff',
-      '--no-textconv',
-      '--find-renames',
-      '--',
-      ...(oldPath !== null && oldPath !== pathArg ? [oldPath, pathArg] : [pathArg]),
-    ];
-    const run_ = await invokeHookFree(args);
-    const failure = describeDiffFailure(run_, false);
+    const untracked = mode === 'untracked';
+    const args = untracked
+      ? ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', pathArg]
+      : [
+          'diff',
+          ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
+          '--no-ext-diff',
+          '--no-textconv',
+          '--find-renames',
+          '--',
+          ...(oldPath !== null && oldPath !== pathArg ? [oldPath, pathArg] : [pathArg]),
+        ];
+    const run_ = await (untracked ? invoke : invokeHookFree)(args);
+    const failure = describeDiffFailure(run_, untracked);
     if (failure) {
       return { error: failure, ok: false };
     }
@@ -1332,23 +1347,27 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       };
     }
     // Cap check BEFORE decoding: an over-cap file's decoded string is never
-    // returned (only `full` content stores it), so decode straight to the
-    // shape we're actually going to keep instead of eagerly transcoding a
-    // multi-megabyte buffer we're about to discard.
+    // kept as `content.newContent` (only `full` content stores one), and
+    // `additions` for an over-cap buffer is counted directly on the bytes
+    // ({@link countLinesInBuffer}) instead of via a full utf8 transcode.
     if (content.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES) {
-      // Over cap: skip a second `git diff --no-index` invocation entirely —
-      // untracked mode never populates `hunks`, and a whole-file addition
-      // diff is roughly the size of the file itself, so there is no
-      // structured value to buy with that extra process (and its own
-      // maxBuffer exposure), only cost. Keep the union shape honest with an
-      // empty, non-truncated `hunkText` rather than a fabricated preview.
+      // Over cap: still show a bounded preview via `git diff --no-index` —
+      // the same whole-file-addition preview a caller would get for any other
+      // over-cap file, just with `hunks` staying empty (untracked mode never
+      // populates it: there is no "old side" for hunk ranges to be relative
+      // to).
+      const unifiedDiff = await computeUnifiedDiff('untracked', pathArg, null);
+      if (!unifiedDiff.ok) {
+        return unifiedDiff;
+      }
+      const bounded = boundOutput(unifiedDiff.value.text);
       return {
         ok: true,
         value: {
-          additions: countLines(content.toString('utf8')),
+          additions: countLinesInBuffer(content),
           content: {
-            hunkText: '',
-            hunkTextTruncated: false,
+            hunkText: bounded.text,
+            hunkTextTruncated: bounded.truncated || unifiedDiff.value.truncated,
             kind: 'hunks-only',
             reason: 'over-cap-new',
           },
@@ -1488,13 +1507,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
             hunkText: bounded.text,
             hunkTextTruncated: bounded.truncated || unifiedDiff.value.truncated,
             kind: 'hunks-only',
-            reason: resolveOverCapReason(
-              oldOverCap,
-              newOverCap,
-              unifiedDiff.value.truncated,
-              oldContent,
-              newContent
-            ),
+            reason: resolveOverCapReason(oldOverCap, newOverCap),
           },
           deletions: entry.deletions,
           // Safe even on a `maxBuffer`-truncated raw capture: `boundOutput`'s

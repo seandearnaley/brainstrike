@@ -1592,6 +1592,38 @@ describe('git service — structuredFileDiff (real repos)', () => {
     expect(result.value.hunks).toEqual([]);
   });
 
+  it('untracked mode: a file over the 2MB cap degrades to hunks-only with a real, non-empty `--no-index` preview', async () => {
+    const repo = await makeRepo();
+    const line = `${'x'.repeat(100)}\n`;
+    const lineCount = 25_000; // ~2.5MB, over both the 2MB content cap and the 1MB diff-output cap.
+    await writeFile(repo, 'big-untracked.txt', line.repeat(lineCount));
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      mode: 'untracked',
+      path: 'big-untracked.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('untracked');
+    expect(result.value.additions).toBe(lineCount);
+    expect(result.value.deletions).toBe(0);
+    expect(result.value.hunks).toEqual([]);
+    expect(result.value.content.kind).toBe('hunks-only');
+    if (result.value.content.kind !== 'hunks-only') {
+      return;
+    }
+    // Pin the restored behavior: a REAL `--no-index` preview, never an empty
+    // stub — non-empty hunkText, visibly marked as truncated.
+    expect(result.value.content.reason).toBe('over-cap-new');
+    expect(result.value.content.hunkText.length).toBeGreaterThan(0);
+    expect(result.value.content.hunkText).toContain('diff --git');
+    expect(result.value.content.hunkTextTruncated).toBe(true);
+    expect(result.value.content.hunkText).toContain('…(output truncated)');
+  });
+
   it('staged mode: modify — new side reads the INDEX (:0:), not a later unstaged worktree edit', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'v1\n');

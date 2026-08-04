@@ -449,8 +449,9 @@ describe('structuredFileDiff — a maxBuffer overflow on the diff invocation for
     }
     expect(result.value.content.hunkTextTruncated).toBe(true);
     expect(result.value.content.hunkText).toContain('…(output truncated)');
-    // Both sides individually small ⇒ falls to the over-cap-new tie-break.
-    expect(result.value.content.reason).toBe('over-cap-new');
+    // Neither side individually crossed the per-file cap — the diff overflow
+    // itself is the (honest) reason, not a guess at which side is "over cap".
+    expect(result.value.content.reason).toBe('diff-overflow');
     // The one hunk header that appeared before the cut point still parses.
     expect(result.value.hunks).toEqual([{ newLines: 1, newStart: 1, oldLines: 1, oldStart: 1 }]);
   });

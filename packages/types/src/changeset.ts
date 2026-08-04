@@ -124,7 +124,14 @@ export type StructuredFileDiffContent =
       /** Bounded unified hunk text (boundOutput pattern; marker visible when truncated). */
       readonly hunkText: string;
       readonly hunkTextTruncated: boolean;
-      readonly reason: 'over-cap-both' | 'over-cap-new' | 'over-cap-old';
+      /**
+       * `'diff-overflow'`: the unified diff invocation itself exceeded the
+       * runner's output buffer while NEITHER side individually exceeded the
+       * per-file content cap (e.g. many small scattered edits across two
+       * large-but-under-cap files) — distinct from the `over-cap-*` reasons,
+       * which name a SIDE that is itself too large to inline.
+       */
+      readonly reason: 'diff-overflow' | 'over-cap-both' | 'over-cap-new' | 'over-cap-old';
     };
 
 export interface StructuredFileDiff {
