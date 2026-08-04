@@ -25,8 +25,13 @@ import {
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
+import {
+  createGitInventoryService,
+  type GitInventoryService,
+} from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
+import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -65,7 +70,7 @@ import {
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
-import { createDatabaseRootResolver } from './git-ipc-handlers';
+import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChangesIpcHandlers } from './ipc-changes';
@@ -729,6 +734,13 @@ let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
+// BST-1112: cross-workspace git worktree inventory. Constructed and started
+// inside `app.whenReady()` (NOT at module scope): its `start()` call performs
+// an eager build whose first step reads the database, which in turn spawns a
+// `utilityProcess` — an operation Electron rejects before the app is ready.
+// Stopped as a graceful-shutdown step, before the `database` step, since its
+// `loadRoots` dependency reads from the DB.
+let gitInventoryService: GitInventoryService | null = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -859,6 +871,18 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     recordFailure(
       await runShutdownStep('llm-host', async () => {
         await llmHostManager.dispose();
+      })
+    );
+
+    recordFailure(
+      await runShutdownStep('git-inventory', async () => {
+        // BEFORE 'database' below: this service's `loadRoots` dependency
+        // reads the DB `roots` table, so its watchers/in-flight build must
+        // be torn down while the database is still available to it.
+        if (gitInventoryService) {
+          await gitInventoryService.stop();
+          gitInventoryService = null;
+        }
       })
     );
 
@@ -1318,6 +1342,58 @@ if (singleInstanceLockAcquired) {
       // renderer-supplied paths against the DB `roots` table — the SAME source
       // the git/read/search tools use — resolving the DB lazily per request.
       registerAssetProtocol(createDatabaseRootResolver(getDatabase));
+
+      // BST-1112: cross-workspace git worktree inventory service. Constructed
+      // and started HERE, inside app.whenReady() — never at module scope.
+      // `start()` kicks off an eager build whose very first step
+      // (`loadRoots`) reaches `getDatabase()` → `getRemoteDbHostManager()` →
+      // `utilityProcess.fork`, and Electron throws
+      // "utilityProcess cannot be created before app is ready." if that spawn
+      // is attempted pre-ready. A module-scope `start()` call sits above
+      // `app.whenReady()` entirely, so every production boot would hit this
+      // rejection silently (caught by `rebuild()`'s try/catch, logged
+      // nowhere, cached as a false "no repositories" snapshot for the full
+      // TTL — see BST-1112 review). It also sat ABOVE the single-instance
+      // lock guard, so a duplicate launch would walk every workspace root and
+      // spawn git without ever calling `stop()`. Uses a PRIVATE
+      // `ElectronFileSystemAdapter` instance — never the shared `fileSystem`
+      // above and never the renderer-owned `fs:watch` IPC pipeline
+      // (`ipc-domains/file-system-watch-ipc.ts` dedupes native subscriptions
+      // on `(ownerId, resolvedPath)` ONLY; the ignore-pattern set is not part
+      // of that key, so routing this module's fixed `ignorePatterns: []`
+      // through the shared pipeline could let an unrelated registration for
+      // the same resolved path silently share this filter set). See
+      // `ipc-notes-vault.ts:66-105` for the same private-adapter + inline
+      // `DirectoryHandle` pattern.
+      const gitInventoryWatcherAdapter = new ElectronFileSystemAdapter();
+      gitInventoryService = createGitInventoryService({
+        loadRoots: async () => {
+          const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+          return roots.map((root) => ({ id: root.rootId, path: root.path }));
+        },
+        run: execFileGitRunner,
+        // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
+        // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —
+        // adapting with `Promise.resolve(...)` is the documented intent in that
+        // type's own doc comment in `git-inventory-watcher.ts` (no health-
+        // transition gate needed here, unlike `ipc-notes-vault.ts`'s `startWatch`,
+        // because the returned disposer is already safe to use immediately).
+        watchDirectory: (commonDir, callback, onSignal, options) =>
+          Promise.resolve(
+            gitInventoryWatcherAdapter.watchDirectory(
+              {
+                kind: 'directory',
+                name: path.basename(commonDir),
+                path: commonDir,
+                platform: 'electron',
+              },
+              callback,
+              onSignal,
+              options
+            )
+          ),
+      });
+      gitInventoryService.start();
 
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
