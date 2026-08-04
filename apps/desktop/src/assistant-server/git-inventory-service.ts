@@ -387,6 +387,12 @@ export interface GitInventoryService {
    * folded into `.errors` fresh on EVERY call, cache hit or not, so a watcher
    * that dies between rebuilds still shows up on the very next call rather
    * than waiting for the next rebuild to notice it.
+   *
+   * THROWS on a malformed `maxAgeMs` (non-finite or negative). A bad TTL is a
+   * caller bug, and silently coercing it would either pin the cache forever
+   * (`Infinity`) or force a rebuild on every call (`NaN`) with no signal —
+   * exactly the silent degradation this codebase forbids. `maxAgeMs: 0` is
+   * valid and means "force a fresh build".
    */
   readonly getSnapshot: (opts?: { readonly maxAgeMs?: number }) => Promise<GitInventorySnapshot>;
   /**
@@ -579,8 +585,10 @@ export function createGitInventoryService(
     // instance to nothing.
     dirty = true;
     // Fire-and-forget by design (`start()` is synchronous per the interface
-    // contract). `getSnapshot()` never rejects — `rebuild()` catches both the
-    // build and the watcher-sync failure paths above — so this `.catch` is
+    // contract). This no-arg `getSnapshot()` never rejects — `rebuild()`
+    // catches both the build and the watcher-sync failure paths above, and
+    // the only other rejection path is `maxAgeMs` validation, which a no-arg
+    // call cannot reach — so this `.catch` is
     // defense in depth, not the primary error-visibility path: it exists so
     // that an unforeseen rejection can never surface as an unhandled promise
     // rejection.
@@ -611,6 +619,12 @@ export function createGitInventoryService(
    * `dirty = true` below) nor sync the new lifecycle's watcher set (the
    * `watchers = null` swap below already prevents it from syncing the OLD,
    * disposed instance).
+   *
+   * Note for future refactors: BECAUSE of that drain, `cachedSnapshot = null`
+   * below and `rebuild()`'s post-sync generation re-check are both currently
+   * unobservable (removing either in isolation breaks no test) — they are
+   * duals, and BOTH become load-bearing the moment the drain is removed.
+   * Dropping the drain would silently un-cover them; keep them.
    */
   async function stop(): Promise<void> {
     started = false;
