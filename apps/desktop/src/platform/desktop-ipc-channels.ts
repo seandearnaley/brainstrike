@@ -12,6 +12,10 @@ export const DESKTOP_IPC_CHANNELS = {
     revertEntry: 'assistant-checkpoint:revert-entry',
     revertRun: 'assistant-checkpoint:revert-run',
   },
+  changes: {
+    fileDiff: 'changes:fileDiff',
+    resolveView: 'changes:resolveView',
+  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
