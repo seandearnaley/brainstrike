@@ -4,5 +4,4 @@ export { useEventCallback } from './use-event-callback.js';
 export { useFileFilters } from './use-file-filters.js';
 export { useLoadingManager } from './use-loading-manager.js';
 export { usePagination } from './use-pagination.js';
-export { useQuickFilter } from './use-quick-filter.js';
 export { useReportManager } from './use-report-manager.js';
