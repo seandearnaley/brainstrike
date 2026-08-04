@@ -4,21 +4,10 @@
  * Browser-safe parameter definitions for native workspace tools.
  */
 
+import type { NativeToolId } from './native-tool-catalog.js';
 import type { ToolSchemaDisplay } from './tool-schemas-display.js';
 
-type WorkspaceToolId =
-  | 'brainstrike.deleteWorkspaceFile'
-  | 'brainstrike.listWorkspaceContext'
-  | 'brainstrike.readWorkspaceContext'
-  | 'brainstrike.readWorkspaceDirectory'
-  | 'brainstrike.readWorkspaceFile'
-  | 'brainstrike.renameWorkspaceFile'
-  | 'brainstrike.stringReplaceWorkspaceFile'
-  | 'brainstrike.updateWorkspaceContextSelection'
-  | 'brainstrike.updateWorkspaceTapestrySelections'
-  | 'brainstrike.writeWorkspaceFile';
-
-export const WORKSPACE_TOOL_SCHEMAS: Record<WorkspaceToolId, ToolSchemaDisplay> = {
+export const WORKSPACE_TOOL_SCHEMAS = {
   'brainstrike.deleteWorkspaceFile': {
     description:
       'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). Workspace-scoped: the path can never escape the open folder. Removes the file from the workspace index when it was indexed. Requires approval (edit-risk).',
@@ -453,4 +442,4 @@ export const WORKSPACE_TOOL_SCHEMAS: Record<WorkspaceToolId, ToolSchemaDisplay> 
       'Write result: the normalized workspace path, bytesWritten, and created (true when a new file was created, false when an existing file was overwritten)',
     toolId: 'brainstrike.writeWorkspaceFile',
   },
-};
+} satisfies Partial<Record<NativeToolId, ToolSchemaDisplay>>;

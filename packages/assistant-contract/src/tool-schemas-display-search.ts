@@ -4,26 +4,11 @@
  * Browser-safe parameter definitions for native search and retrieval tools.
  */
 
-import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
+import { NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.js';
 import { WEB_EXTRACT_TOOL_ID, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
 import type { ToolSchemaDisplay } from './tool-schemas-display.js';
 
-type SearchToolId =
-  | 'brainstrike.findWorkspaceSymbol'
-  | 'brainstrike.globWorkspace'
-  | 'brainstrike.grepSearch'
-  | 'brainstrike.hybridSearch'
-  | 'brainstrike.listEmbeddingSpaces'
-  | typeof NATIVE_TOOL_ID.lspInspect
-  | 'brainstrike.queryDiagnostics'
-  | 'brainstrike.queryEmbeddingSpace'
-  | 'brainstrike.querySelf'
-  | typeof WEB_EXTRACT_TOOL_ID
-  | typeof WEB_SEARCH_TOOL_ID
-  | 'skill_read'
-  | 'skill_search';
-
-export const SEARCH_TOOL_SCHEMAS: Record<SearchToolId, ToolSchemaDisplay> = {
+export const SEARCH_TOOL_SCHEMAS = {
   'brainstrike.findWorkspaceSymbol': {
     description:
       "Locate a symbol's best-effort enclosing 1-based line range in a workspace file without returning whole-file content.",
@@ -673,4 +658,4 @@ export const SEARCH_TOOL_SCHEMAS: Record<SearchToolId, ToolSchemaDisplay> = {
       'Matching snippets labeled with their skill, source file, line range, and relevance score.',
     toolId: 'skill_search',
   },
-};
+} satisfies Partial<Record<NativeToolId, ToolSchemaDisplay>>;

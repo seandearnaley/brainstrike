@@ -4,18 +4,10 @@
  * Browser-safe parameter definitions for native execution tools.
  */
 
+import type { NativeToolId } from './native-tool-catalog.js';
 import type { ToolSchemaDisplay } from './tool-schemas-display.js';
 
-type ExecutionToolId =
-  | 'brainstrike.executeCommand'
-  | 'brainstrike.inspectCommandSessions'
-  | 'brainstrike.manageCommandSession'
-  | 'brainstrike.readToolOutputArtifact'
-  | 'brainstrike.runPython'
-  | 'brainstrike.runSkillScript'
-  | 'skill';
-
-export const EXECUTION_TOOL_SCHEMAS: Record<ExecutionToolId, ToolSchemaDisplay> = {
+export const EXECUTION_TOOL_SCHEMAS = {
   'brainstrike.executeCommand': {
     description:
       "Run an arbitrary shell command on the user's machine (e.g. pnpm test, git status, a build). This is ARBITRARY COMMAND EXECUTION with NO sandbox: a command can read or change anything the user can. By default the call suspends for the user's per-call approval before running (execute resolves to 'ask'); the user can let it run unprompted or deny it entirely. The command starts in the selected workspace root (pin it elsewhere with cwd, which must still resolve inside an open folder) and runs in the user's shell. On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Prefer non-destructive commands.",
@@ -235,4 +227,4 @@ export const EXECUTION_TOOL_SCHEMAS: Record<ExecutionToolId, ToolSchemaDisplay> 
       'The skill instructions (SKILL.md body) followed by listings of its references/, scripts/, and assets/ files; oversized instructions are truncated with an honest note.',
     toolId: 'skill',
   },
-};
+} satisfies Partial<Record<NativeToolId, ToolSchemaDisplay>>;

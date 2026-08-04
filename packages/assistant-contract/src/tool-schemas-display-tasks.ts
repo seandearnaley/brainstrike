@@ -4,11 +4,10 @@
  * Browser-safe parameter definitions for native task and planning tools.
  */
 
+import type { NativeToolId } from './native-tool-catalog.js';
 import type { ToolSchemaDisplay } from './tool-schemas-display.js';
 
-type TaskToolId = 'brainstrike.askUser' | 'brainstrike.manageTaskList' | 'brainstrike.submitPlan';
-
-export const TASK_TOOL_SCHEMAS: Record<TaskToolId, ToolSchemaDisplay> = {
+export const TASK_TOOL_SCHEMAS = {
   'brainstrike.askUser': {
     description:
       'Ask the user a clarifying question and wait for their answer; the run pauses until they respond. Provide options for a structured choice (set selectionMode to multi_select to allow several), or omit options for a free-text question.',
@@ -109,4 +108,4 @@ export const TASK_TOOL_SCHEMAS: Record<TaskToolId, ToolSchemaDisplay> = {
       "The user's decision: status approved or rejected, plus optional feedback on rejection.",
     toolId: 'brainstrike.submitPlan',
   },
-};
+} satisfies Partial<Record<NativeToolId, ToolSchemaDisplay>>;
