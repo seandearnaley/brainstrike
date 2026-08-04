@@ -41,7 +41,16 @@ import {
   CopyIcon,
   PencilIcon,
 } from 'lucide-react';
-import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  use,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Button } from '../button';
@@ -85,6 +94,7 @@ import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
+import { ChangesReviewLink } from './changes-review-link';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import { ComposerAttachmentsBar, UserMessageAttachments } from './composer-attachments';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
@@ -1077,6 +1087,19 @@ const DataStreamRuntimeChat = ({
 };
 
 /**
+ * The active thread's id (assistant-ui's own `ThreadState` carries no id —
+ * see `@assistant-ui/core`'s `store/scopes/thread.ts` — so it is not
+ * reachable from `useAuiState` inside a message). `ChatThreadUI` already
+ * receives it as `threadKey` (app-shell's `selectedMemoryThreadId`, threaded
+ * down as a React prop from `assistant-ui-panel-wrapper.tsx`); this context
+ * re-publishes that same value for descendants rendered by assistant-ui
+ * itself (e.g. `AssistantMessage`, which the library instantiates with no
+ * props of its own) — currently only `ChangesReviewLink`'s
+ * `openChangesForRun(runId, threadId)` call needs it.
+ */
+const ActiveThreadKeyContext = createContext<string | undefined>(undefined);
+
+/**
  * Shared UI component for the chat thread.
  * Extracted to avoid duplication between local and data stream runtimes.
  */
@@ -1186,131 +1209,133 @@ const ChatThreadUI = ({
   );
 
   return (
-    <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
-      <AssistantDataRendererRegistration />
-      <ComposerDraftCommandBridge
-        composerDraftCommand={composerDraftCommand}
-        onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-        onComposerTextChange={onComposerTextChange}
-      />
-      <RunLifecycleNotificationBridge
-        {...(onRunFailed ? { onRunFailed } : {})}
-        {...(onRunFinished ? { onRunFinished } : {})}
-        {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
-        {...(threadKey ? { threadKey } : {})}
-      />
-      <FollowUpQueueBridge threadKey={threadKey} />
-      {/**
-       * Messages viewport + scroll region + jump-to-latest button, all owned by
-       * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
-       * between the CSS-containment tier and the end-anchored virtualized tier
-       * by message count and publishes the choice as `data-thread-render-tier`.
-       * Both tiers render THIS components map, so message markup never forks.
-       *
-       * See: packages/ui/src/assistant-ui-panel/overrides.css
-       */}
-      <ThreadMessagesRegion
-        components={THREAD_MESSAGE_COMPONENTS}
-        {...(disabledReason ? { disabledReason } : {})}
-        {...(threadKey ? { threadKey } : {})}
-      />
+    <ActiveThreadKeyContext.Provider value={threadKey}>
+      <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
+        <AssistantDataRendererRegistration />
+        <ComposerDraftCommandBridge
+          composerDraftCommand={composerDraftCommand}
+          onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+          onComposerTextChange={onComposerTextChange}
+        />
+        <RunLifecycleNotificationBridge
+          {...(onRunFailed ? { onRunFailed } : {})}
+          {...(onRunFinished ? { onRunFinished } : {})}
+          {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
+          {...(threadKey ? { threadKey } : {})}
+        />
+        <FollowUpQueueBridge threadKey={threadKey} />
+        {/**
+         * Messages viewport + scroll region + jump-to-latest button, all owned by
+         * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
+         * between the CSS-containment tier and the end-anchored virtualized tier
+         * by message count and publishes the choice as `data-thread-render-tier`.
+         * Both tiers render THIS components map, so message markup never forks.
+         *
+         * See: packages/ui/src/assistant-ui-panel/overrides.css
+         */}
+        <ThreadMessagesRegion
+          components={THREAD_MESSAGE_COMPONENTS}
+          {...(disabledReason ? { disabledReason } : {})}
+          {...(threadKey ? { threadKey } : {})}
+        />
 
-      {/**
-       * Composer: Fixed at bottom of thread
-       *
-       * STRUCTURE: This is a SIBLING to the viewport, not a child
-       *
-       * LAYOUT:
-       * - flex-shrink-0: Never shrinks, always maintains its height
-       * - Viewport above is flex-1: Grows/shrinks to fill available space
-       * - This pattern ensures composer stays at bottom regardless of message content
-       *
-       * LIBRARY DIFFERENCE:
-       * The @assistant-ui library expects the composer INSIDE the viewport as:
-       *   <ThreadPrimitive.Viewport>
-       *     <Messages />
-       *     <div className="aui-thread-viewport-footer" style="position: sticky">
-       *       <Composer />
-       *     </div>
-       *   </ThreadPrimitive.Viewport>
-       *
-       * We extracted it outside to avoid scrolling with messages.
-       * This required aggressive CSS overrides (see overrides.css).
-       */}
-      <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-        {/* Multi-root operating-root chip ("in {main root}") — its own module,
+        {/**
+         * Composer: Fixed at bottom of thread
+         *
+         * STRUCTURE: This is a SIBLING to the viewport, not a child
+         *
+         * LAYOUT:
+         * - flex-shrink-0: Never shrinks, always maintains its height
+         * - Viewport above is flex-1: Grows/shrinks to fill available space
+         * - This pattern ensures composer stays at bottom regardless of message content
+         *
+         * LIBRARY DIFFERENCE:
+         * The @assistant-ui library expects the composer INSIDE the viewport as:
+         *   <ThreadPrimitive.Viewport>
+         *     <Messages />
+         *     <div className="aui-thread-viewport-footer" style="position: sticky">
+         *       <Composer />
+         *     </div>
+         *   </ThreadPrimitive.Viewport>
+         *
+         * We extracted it outside to avoid scrolling with messages.
+         * This required aggressive CSS overrides (see overrides.css).
+         */}
+        <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+          {/* Multi-root operating-root chip ("in {main root}") — its own module,
             a SIBLING at the top of the composer stack (never nested inside
             ThreadContextMeter, which is being reworked separately). Renders
             nothing unless app-shell passes operatingRoot (2+ roots). */}
-        <OperatingRootChip operatingRoot={operatingRoot} />
-        <ThreadContextMeter
-          contextWindow={contextWindow}
-          cumulativeUsage={cumulativeUsage}
-          effectiveInputBudget={effectiveInputBudget}
-          omSegment={omSegment}
-          threadKey={threadKey}
-        />
-        {/* Last-24h budget burn-down + over-cap send notice (owned module,
+          <OperatingRootChip operatingRoot={operatingRoot} />
+          <ThreadContextMeter
+            contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
+            effectiveInputBudget={effectiveInputBudget}
+            omSegment={omSegment}
+            threadKey={threadKey}
+          />
+          {/* Last-24h budget burn-down + over-cap send notice (owned module,
             budget-guardrail-control.tsx); renders nothing without a binding. */}
-        <BudgetGuardrailControl />
-        {localLoadingState && <LocalModelStatus state={localLoadingState} />}
-        <FollowUpQueueChips threadKey={threadKey} />
-        <ComposerPrimitive.Root className="aui-composer-root" onSubmitCapture={onThreadRunStart}>
-          {/* The composer input row, optionally wrapped in a shared
+          <BudgetGuardrailControl />
+          {localLoadingState && <LocalModelStatus state={localLoadingState} />}
+          <FollowUpQueueChips threadKey={threadKey} />
+          <ComposerPrimitive.Root className="aui-composer-root" onSubmitCapture={onThreadRunStart}>
+            {/* The composer input row, optionally wrapped in a shared
               `Unstable_TriggerPopoverRoot` (see `ComposerInputWithTriggers`).
               Each popover declares its own trigger char ("/" vs "@") and both
               read the same composer text via that shared root, coexisting as
               siblings. A feature is mounted ONLY when its seam is present —
               an unmounted popover means the trigger char does nothing special
               (never an empty menu). Send / Cancel are unchanged. */}
-          {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
+            {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
               its preview + Remove button after a switch to a text-only model. */}
-          {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
-          <ComposerInputWithTriggers
-            isComposerDisabled={composerDisabled}
-            queueControl={
-              <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
-            }
-            {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-            {...(planMode ? { planMode } : {})}
-            {...(hasSlashCommands
-              ? {
-                  slashPopover: (
-                    <ComposerTriggerPopover
-                      action={slashAction}
-                      adapter={slashAdapter}
-                      iconMap={slashIconMap}
-                    />
-                  ),
-                }
-              : {})}
-            {...(hasFileMentions && fileMentionAdapter
-              ? {
-                  mentionPopover: (
-                    <ComposerMentionPopover
-                      adapter={fileMentionAdapter}
-                      fileById={fileMentionById}
-                    />
-                  ),
-                }
-              : {})}
-          />
-          {hasGroupedProviders && (
-            <ProviderModelHeader
-              groups={providerGroups}
-              onModelChange={onModelChange}
-              onProviderSettingsChange={onProviderSettingsChange}
-              pickerModels={pickerModels}
-              providerSettings={providerSettings}
-              recentModels={recentModels}
-              selectedModel={selectedModel}
-              selectedProvider={selectedProvider}
-              toolMenu={toolMenu}
+            {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
+            <ComposerInputWithTriggers
+              isComposerDisabled={composerDisabled}
+              queueControl={
+                <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
+              }
+              {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+              {...(planMode ? { planMode } : {})}
+              {...(hasSlashCommands
+                ? {
+                    slashPopover: (
+                      <ComposerTriggerPopover
+                        action={slashAction}
+                        adapter={slashAdapter}
+                        iconMap={slashIconMap}
+                      />
+                    ),
+                  }
+                : {})}
+              {...(hasFileMentions && fileMentionAdapter
+                ? {
+                    mentionPopover: (
+                      <ComposerMentionPopover
+                        adapter={fileMentionAdapter}
+                        fileById={fileMentionById}
+                      />
+                    ),
+                  }
+                : {})}
             />
-          )}
-        </ComposerPrimitive.Root>
-      </div>
-    </ThreadPrimitive.Root>
+            {hasGroupedProviders && (
+              <ProviderModelHeader
+                groups={providerGroups}
+                onModelChange={onModelChange}
+                onProviderSettingsChange={onProviderSettingsChange}
+                pickerModels={pickerModels}
+                providerSettings={providerSettings}
+                recentModels={recentModels}
+                selectedModel={selectedModel}
+                selectedProvider={selectedProvider}
+                toolMenu={toolMenu}
+              />
+            )}
+          </ComposerPrimitive.Root>
+        </div>
+      </ThreadPrimitive.Root>
+    </ActiveThreadKeyContext.Provider>
   );
 };
 
@@ -1678,6 +1703,7 @@ const EditComposer = () => {
 
 const AssistantMessage = () => {
   // Bottom rhythm comes from overrides.css (.aui-*-message-root rules).
+  const threadKey = use(ActiveThreadKeyContext);
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2">
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
@@ -1700,6 +1726,10 @@ const AssistantMessage = () => {
         {/* Turn-level "Revert all edits" footer — renders only on desktop turns
             that made ≥1 still-revertible file edit; null everywhere else. */}
         <CheckpointTurnRevert />
+        {/* "Edited N files → Review" entry point into the Changes surface —
+            null without a ChangesReviewProvider binding, a finished run, a
+            known thread id, or any edited files. */}
+        <ChangesReviewLink threadId={threadKey} />
         {/* Per-run 👍/👎 verdict (Task Ledger) — renders once per finished run
             on its terminal message leg; null without a verdict provider. */}
         <RunVerdictControl />

@@ -7,6 +7,12 @@ export {
   useBudgetGuardrailContext,
 } from './budget-guardrail-context';
 export {
+  type ChangesReviewContextValue,
+  ChangesReviewProvider,
+  useChangesReviewContext,
+} from './changes-review-context';
+export { ChangesReviewLink } from './changes-review-link';
+export {
   CheckpointTurnRevert,
   CheckpointTurnRevertControl,
 } from './checkpoint-turn-revert';

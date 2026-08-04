@@ -1,4 +1,9 @@
 // Capability check from the dependency-light `availability` subpath (NOT
+// `/changes`, which also re-exports ChangesSurface + the diff renderer) so
+// the startup check does not defeat the lazy code-split in
+// changes-page-content.tsx.
+import { isChangesBridgeAvailable } from '@brainstrike/app-shell/changes/availability';
+// Capability check from the dependency-light `availability` subpath (NOT
 // `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
 // startup check does not defeat the lazy code-split in git-page-content.tsx.
 import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel/availability';
@@ -20,14 +25,22 @@ import { createLogger } from '@brainstrike/logging';
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
-import { GitBranch, NotebookPen, SquareTerminal } from 'lucide-react';
+import { GitBranch, GitCompare, NotebookPen, SquareTerminal } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
+// Task A's changes-page-content.tsx exports this by name (not default,
+// unlike its git/context-explorer/terminal siblings) — imported as written.
+import { ChangesPageContent } from './changes-page-content';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 
+const CHANGES_NAVIGATION_ITEM: NavigationItem = {
+  icon: GitCompare,
+  name: 'Changes',
+  path: '/changes',
+};
 const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
 const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
 const TERMINAL_NAVIGATION_ITEM: NavigationItem = {
@@ -86,6 +99,9 @@ export default function RootLayoutContent() {
   );
   activeToolsTabRef.current = db ? 'database-ready' : 'initializing';
 
+  // Capability gate: only surface the Changes tab when the desktop
+  // `window.changes` bridge is present (no isElectron check). Resolved once.
+  const changesAvailable = useMemo(() => isChangesBridgeAvailable(), []);
   // Capability gate: only surface the Git tab when the desktop `window.git`
   // bridge is present (no isElectron check). The bridge exists before React
   // mounts, so this is stable for the window's lifetime — resolve it once.
@@ -104,11 +120,14 @@ export default function RootLayoutContent() {
     if (gitAvailable) {
       items.push(GIT_NAVIGATION_ITEM);
     }
+    if (changesAvailable) {
+      items.push(CHANGES_NAVIGATION_ITEM);
+    }
     if (terminalAvailable) {
       items.push(TERMINAL_NAVIGATION_ITEM);
     }
     return items;
-  }, [gitAvailable, terminalAvailable, notesAvailable]);
+  }, [changesAvailable, gitAvailable, terminalAvailable, notesAvailable]);
   const loadEmbeddingQueue = useCallback(
     () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
@@ -121,6 +140,7 @@ export default function RootLayoutContent() {
     databaseTabChunkingMode: 'host-proxy',
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
+    ...(changesAvailable ? { changesPageContent: <ChangesPageContent /> } : {}),
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
     ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),

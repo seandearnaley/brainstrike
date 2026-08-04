@@ -75,7 +75,40 @@ export type ContextTarget =
   /** Notes-vault tree rows (surface-local actions only; id = `${rootId}:${path}`). */
   | { kind: 'vault-note'; id: string; name: string }
   | { kind: 'vault-folder'; id: string; name: string }
-  | { kind: 'vault-root'; id: string; name: string; builtIn: boolean };
+  | { kind: 'vault-root'; id: string; name: string; builtIn: boolean }
+  /**
+   * A row in the Changes surface's changed-files tree (BST-1114). Field
+   * shapes are inlined from `@brainstrike/types`'s `ChangedFileEntry` rather
+   * than imported — this package stays dependency-light (React-free,
+   * Electron-free, and today free of `@brainstrike/types` too), and the
+   * fields it needs are a stable subset of that contract's own doc comments:
+   * `path` is relative to `worktreePath`, `repositoryRoot`/`rootId`/
+   * `worktreePath` are all null when the entry cannot be resolved to a
+   * concrete location on disk.
+   */
+  | {
+      readonly kind: 'changed-file';
+      readonly path: string;
+      readonly repositoryRoot: string | null;
+      readonly rootId: string | null;
+      readonly worktreePath: string | null;
+    }
+  /**
+   * A worktree row in the Changes surface's repository/worktree tree
+   * (BST-1114). Field shapes are inlined from `@brainstrike/types`'s
+   * `WorktreeDescriptor` (which extends `GitWorktreeSummary`) for the same
+   * dependency-light reason as `changed-file` above.
+   */
+  | {
+      readonly branch: string | null;
+      readonly containment: readonly string[] | 'outside-roots';
+      readonly kind: 'worktree';
+      readonly name: string;
+      readonly path: string;
+      readonly repositoryRoot: string;
+      readonly trust: 'unvalidated' | 'validated';
+      readonly trustReason: string | null;
+    };
 
 export type ContextTargetKind = ContextTarget['kind'];
 

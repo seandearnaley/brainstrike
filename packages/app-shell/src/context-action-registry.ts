@@ -12,6 +12,7 @@ import { collectionActions } from '@brainstrike/db-explorer/context-actions';
 import { fileEntryActions } from '@brainstrike/file-explorer-ui/context-actions';
 import { createLogger } from '@brainstrike/logging';
 import { assistantThreadActions } from './assistant-thread-context-actions';
+import { changesActions } from './changes/changes-context-actions';
 
 const logger = createLogger('ContextActionRegistry');
 
@@ -76,7 +77,12 @@ export function buildAppActionRegistryParts(): AppActionRegistryParts {
   }
 
   return {
-    actions: [...fileEntryActions, ...collectionActions, ...assistantThreadActions],
+    actions: [
+      ...fileEntryActions,
+      ...collectionActions,
+      ...assistantThreadActions,
+      ...changesActions,
+    ],
     capabilities,
     services,
   };

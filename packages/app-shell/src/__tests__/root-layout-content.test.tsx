@@ -653,4 +653,49 @@ describe('RootLayoutContent', () => {
 
     expect(clearTimeoutSpy).toHaveBeenCalled();
   });
+
+  it('mounts the changes route only after the changes nav item is selected', () => {
+    renderComponent({ changesPageContent: <div data-testid="changes-page">Changes</div> });
+
+    // Lazily mounted: not in the DOM until the tab is first opened (mirrors
+    // the notes/git route contract).
+    expect(screen.queryByTestId('changes-route')).not.toBeInTheDocument();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/changes');
+    });
+
+    const changesRoute = screen.getByTestId('changes-route');
+    expect(changesRoute).not.toHaveClass('hidden');
+    expect(changesRoute).toHaveAttribute('aria-hidden', 'false');
+    expect(screen.getByTestId('changes-page')).toBeInTheDocument();
+  });
+
+  it('keeps the changes route mounted but hidden after switching to another tab', () => {
+    renderComponent({ changesPageContent: <div data-testid="changes-page">Changes</div> });
+
+    act(() => {
+      mockHandlers.onNavigationClick('/changes');
+    });
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+
+    const changesRoute = screen.getByTestId('changes-route');
+    expect(changesRoute).toBeInTheDocument();
+    expect(changesRoute).toHaveClass('hidden');
+    expect(changesRoute).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('changes-page')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+  });
+
+  it('renders no changes route when changesPageContent is absent', () => {
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/changes');
+    });
+
+    expect(screen.queryByTestId('changes-route')).not.toBeInTheDocument();
+  });
 });
