@@ -216,3 +216,39 @@ depends on W3; W6 last.
    Mastra internals.
 5. Whether `run-range` revert needs cross-thread awareness (two threads editing
    the same file) in v1 or an explicit conflict is enough.
+
+## 11. Spike findings (BST-1110)
+
+Measured on 2026-08-03, corpus: the real brainstrike checkout (111 registered
+worktrees — 34 in-root agent worktrees under `.claude/worktrees/`) plus a
+166-repo / 288-worktree multi-root sweep of `~/Documents/GitHub`.
+Full data: `spikes/changeset-discovery/RECOMMENDATION.md`; teardown:
+`docs/superpowers/research/2026-08-03-diff-review-competitive-teardown.md`.
+
+| §10 question | Ruling |
+| --- | --- |
+| Q1 walk cost / indexer reuse | Independent main-process walk (maxDepth 6, own ignore set) — do NOT reuse the indexer traversal (opposite ignore semantics: the explorer stack natively ignores `.git` and the walk must find `.claude/worktrees/*`). Walk is the cheap phase (69ms warm / 327ms cold single-root; 894ms cold across the 166-repo multi-root sweep); enumerate dominates at ~6.5–7.7ms/spawn — dedup on the **resolved common dir** before any `rev-parse` (eliminates 76 of 242 spawns in the multi-root run). **Correction (post-review 2026-08-04):** the earlier wording "dedup on the parsed `gitdir:` pointer" was wrong — each linked worktree's `.git` file points at a *unique* `<common>/.git/worktrees/<name>`, so deduping the raw pointer strings merges nothing. Resolve each pointer to its common dir first (read `<gitdir>/commondir`, still no process spawn; a `.git` **directory** is its own common dir) and key the dedup on that. The multi-root sweep's 3.5s total wall-clock time (166 repos) is mostly enumerate, not walk: only 894ms of that 3.5s total was the walk phase. |
+| Q2 .git watching | Separate main-process `@parcel/watcher` subscription per repo common `.git` dir (one per repo covers ALL linked worktrees' git metadata — Task 5 confirmed; never working-tree content), on the `changes` domain's own single event channel. Does not violate the explorer one-pipeline ruling: that ruling scopes to the explorer refresh pipeline's consumers, and this stream touches neither `fs:watch-event` nor `FILE_EXPLORER_REFRESH_EVENT`. Binding caveats: realpath the root, explicit `worktrees/[^/]+$` clause, close the `packed-refs` false-negative hole, fixed-300ms-window spanning tolerance. **Annotation (post-review 2026-08-04) — why the subscription must be the `changes` domain's own:** `.git` is ignored at the **native** layer by the shared watcher engine (`packages/utils/src/path-filter.ts` `DEFAULT_IGNORE_PATTERNS` → `packages/file-system/src/adapters/parcel-watchers.ts` native ignore globs `**/.git`, `**/.git/**`), so git-metadata events are dropped before reaching any consumer of the shared pipeline. The `changes` domain therefore needs its **own** subscription path that opts out of those globs, narrowed to git metadata dirs only. Broadening the shared ignore list is the wrong fix — it would push `.git` churn into the explorer tree. (The spike harness subscribed raw with no ignore globs, which is why it saw HEAD/index/refs events at all.) Also size the `changes` domain against `MAX_FS_WATCHERS_PER_OWNER = 32` (`apps/desktop/src/ipc-domains/file-system-watch-ipc.ts`): one subscription per repo common dir is fine for this corpus, but a workspace with >32 distinct repos hits the cap. |
+| Q3 size caps / laziness | Eager `ChangesetView` + lazy per-file `StructuredFileDiff` CONFIRMED (list ~30–50ms flat; content 6.2ms/file serialized → 1247ms at 200 files, ~12s extrapolated at 2,000). Per-file per-side full-content cap **2 MB** (journal capture-cap parity); over-cap or binary files degrade to hunk-only rendering with the §7 visible truncation marker (hunk payload bounded per the `GIT_MAX_OUTPUT_BYTES` 1 MB soft-ceiling pattern) — never silent truncation. |
+| Q4 tombstone seam | New sidecar table `brainstrike_assistant_message_tombstones` (migration-055 parents precedent; both runners + bootstrap mirror, no FKs, factory-reset + thread-delete cascade registration); filter at BOTH Brainstrike-owned reads — app-shell hydration LEFT-JOIN + `PgliteMemoryStore.listMessagesWhere` (the store extends Mastra's public `MemoryStorage`; not a fork); redo = delete the latest `revert_id` batch; next-user-message finalization hard-deletes via the store's existing `deleteMessages` override. **W5 preconditions (mastra-boundary review): sanction filtered recall + rule on OM/semanticRecall read paths and observed-message residue; BST-993 ruling on widening `mind_ops.entity_kind` for message deletes.** |
+| Q5 cross-thread conflicts | Existing per-file hash-compare conflict surfacing suffices for v1 — writer-agnostic, explicit, no silent loss; NO proactive cross-thread detection (weaker second mechanism: blind to non-journaled writers, false-positives on already-reverted edits, cannot replace the apply-time check). W5 acceptance criterion: pre-apply hash check surfaces every conflicting file by path and requires acknowledgment before any part applies. |
+
+Scope adjustments from the teardown:
+
+- **Fold mid-run live refresh for `agent-run` changesets into W3** as an
+  acceptance criterion (journal already writes per-edit; emit on the same
+  `changes` channel behind the generation guard) — not a later polish ticket.
+- **W3 treats `run-range` as load-bearing**, not optional after `agent-run`
+  (differentiators 1/5 and W5's revert preview all hang off it), and needs at
+  least one fixture whose agent edits land entirely outside any git repo.
+- **W4 additions:** two cheap worktree context actions ("Open in…", "Add as
+  workspace root" — the visible-but-locked unlock path); inline diff comments
+  routed to the composer as a stretch or immediate follow-on (batched dispatch,
+  Claude Code-style); the changeset header states scope provenance in words
+  ("agent edits only" vs "all working-tree changes"); the TreeTable
+  render-stability test is blocking.
+- **W5 pairing rule:** revert-time after-capture lands in the SAME change as
+  range-revert (redo over an unjournaled revert would be silent degradation).
+- **Explicitly out of scope** (recorded here (§11), filed as follow-ons): PR
+  creation + CI monitoring from the review surface; worktree lifecycle ops
+  (create/promote/archive). Per-hunk staging remains a settled concession.
