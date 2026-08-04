@@ -7,6 +7,7 @@ import {
   isGuardedToolError,
 } from '@brainstrike/assistant-contract';
 import {
+  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
@@ -691,6 +692,25 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_PARENTS_TABLE} (
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_parents_thread_idx
   ON ${ASSISTANT_MESSAGE_PARENTS_TABLE} (thread_id, resource_id);
+
+-- Soft-rewind tombstones (BST-1115). Bootstrapped here AND created by
+-- migration 080 — keep the shape byte-identical to 080. A tombstoned message
+-- keeps its Mastra content row and is excluded by every Brainstrike-owned
+-- read; the row is hard-deleted when the next user message finalizes the
+-- rewind. message_id is the PK: a message is tombstoned at most once, which is
+-- what makes deleting a revert_id batch an exact redo.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (
+  message_id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  revert_id text NOT NULL,
+  tombstoned_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_thread_idx
+  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_revert_idx
+  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (revert_id);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,

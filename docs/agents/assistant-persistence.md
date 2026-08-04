@@ -842,6 +842,52 @@ Paired tests: `migration-079-mind-ops-log.test.ts`, the tombstone cases in
 `pglite-memory-store.integration.spec.ts`, and
 `prompt-item-repository.test.ts`.
 
+## CONVERSATION REWIND TOMBSTONES (BST-1115)
+
+Soft rewind hides a contiguous suffix of a thread without destroying it, so a
+one-level redo is exact and the messages only die when the next user message
+finalizes the rewind.
+
+- **Where state lives:** `brainstrike_assistant_message_tombstones` (migration
+  080 in BOTH runners plus the byte-identical app-shell bootstrap mirror; no
+  FKs — migration 055 message-parents precedent, since numbered migrations run
+  against a bare schema with no Mastra tables). Columns:
+  `message_id` (PRIMARY KEY), `thread_id`, `revert_id`, `tombstoned_at`.
+  Indexed on `(thread_id)` for the read-path anti-join and `(revert_id)` for
+  batch redo. Registered in `THREAD_DELETE_SIDECAR_TABLES` (all three
+  thread-delete cascades derive from it) and in the reset registry.
+- **`message_id` is the primary key on purpose.** A message is tombstoned at
+  most once, by exactly one batch — that is what makes "delete the newest
+  `revert_id` batch" an exact inverse. A second rewind re-covering an already
+  hidden message keeps the ORIGINAL batch's row (`ON CONFLICT DO NOTHING`), so
+  undoing the newer rewind cannot resurrect what the older one hid.
+- **Mastra stays the writer of message content.** Nothing here alters a
+  `mastra_*` table; hiding is an anti-join in Brainstrike-owned reads, and the
+  finalizing hard delete goes through Mastra's own `deleteMessages` storage
+  API. Brainstrike-owned message read paths that must apply the exclusion:
+  the app-shell hydration window (`assistant-memory-repository.listMessages`)
+  and, in `PgliteMemoryStore`, `listMessagesWhere` PLUS its include-window
+  helpers `findMessageRowById` / `listAdjacentThreadMessageRows` — semantic
+  recall reaches messages through `listMessages({ include })`, whose targets
+  and neighbour windows are fetched by those two helpers and never pass
+  through the main WHERE clause. Observational memory reads only
+  `listMessages` / `listMessagesByResourceId`, so it is covered by
+  `listMessagesWhere` alone. Observations ALREADY generated from a message
+  that is later tombstoned are residue: Mastra exposes no partial un-observe,
+  only a full `clearObservationalMemory`.
+- **No `mind_ops` row, by ruling.** `brainstrike_mind_ops.entity_kind` is
+  CHECK-constrained to {`thread`, `prompt_item`} and widening that vocabulary
+  is a conscious migration for when a sync engine is actually chosen (BST-993,
+  above) — a tombstone is not a deletion at all, and the finalizing message
+  delete follows the existing precedent that per-message deletes emit no op.
+
+Paired tests: `migration-080-assistant-message-tombstones.test.ts` (both
+runners, indexes, the at-most-once invariant, reset registration), the
+thread-delete cascade case in
+`assistant-memory-repository.integration.test.ts`, and the clear/reset
+sentinels in `clear-data.integration.test.tsx` and
+`ipc-handlers-db-clear-all.integration.test.ts`.
+
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
 Per-run cost/outcome analytics over tables the assistant already writes.

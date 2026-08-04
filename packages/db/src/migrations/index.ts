@@ -78,6 +78,7 @@ import { migration076AssistantRunErrors } from './076-assistant-run-errors.js';
 import { migration077RunUsageKind } from './077-run-usage-kind.js';
 import { migration078JobQueueDedupeActiveIndex } from './078-job-queue-dedupe-active-index.js';
 import { migration079MindOpsLog } from './079-mind-ops-log.js';
+import { migration080AssistantMessageTombstones } from './080-assistant-message-tombstones.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -162,6 +163,7 @@ export const migrations: Migration[] = [
   migration077RunUsageKind,
   migration078JobQueueDedupeActiveIndex,
   migration079MindOpsLog,
+  migration080AssistantMessageTombstones,
 ];
 
 // Export base migrations (without chunks table) for test environments

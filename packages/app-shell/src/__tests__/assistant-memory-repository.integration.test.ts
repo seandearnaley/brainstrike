@@ -3182,6 +3182,14 @@ describe('createPgliteAssistantThreadRepository integration', () => {
        VALUES ('run-delete', $1, 'workspace-a', 'provider_error', NOW())`,
       [thread.id]
     );
+    // Soft-rewind tombstones (BST-1115) are a thread-keyed sidecar: a deleted
+    // thread must not leave rows hiding messages that no longer exist.
+    await db.query(
+      `INSERT INTO brainstrike_assistant_message_tombstones
+        (message_id, thread_id, revert_id)
+       VALUES ('message-delete', $1, 'revert-delete')`,
+      [thread.id]
+    );
 
     await repository.deleteThread(thread.id);
 
@@ -3198,6 +3206,9 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_run_errors', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_message_tombstones', 'thread_id', thread.id)
     ).resolves.toBe(0);
   });
 
