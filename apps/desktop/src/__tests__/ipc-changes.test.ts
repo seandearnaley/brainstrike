@@ -21,6 +21,7 @@ function stubHandlers() {
   return {
     applyRewind: vi.fn(async () => ({ ok: true, value: {} }) as never),
     fileDiff: vi.fn(async () => ({ ok: true, value: {} }) as never),
+    finalizeRewinds: vi.fn(async () => ({ ok: true, value: {} }) as never),
     inventory: vi.fn(async () => ({ ok: true, value: {} }) as never),
     redoRewind: vi.fn(async () => ({ ok: true, value: {} }) as never),
     resolveView: vi.fn(async () => ({ ok: true, value: {} }) as never),
@@ -97,9 +98,10 @@ describe('registerChangesIpcHandlers', () => {
         DESKTOP_IPC_CHANNELS.changes.rewindPreview,
         DESKTOP_IPC_CHANNELS.changes.applyRewind,
         DESKTOP_IPC_CHANNELS.changes.redoRewind,
+        DESKTOP_IPC_CHANNELS.changes.finalizeRewinds,
       ])
     );
-    expect(removedChannels).toHaveLength(6);
+    expect(removedChannels).toHaveLength(7);
   });
 
   // BST-1115 W5 T4: each rewind channel must be wired to its OWN handler, and
@@ -127,5 +129,9 @@ describe('registerChangesIpcHandlers', () => {
 
     await handlerFor(DESKTOP_IPC_CHANNELS.changes.redoRewind)({}, { rewindId: 'r1' });
     expect(handlers.redoRewind).toHaveBeenCalledWith({ rewindId: 'r1' });
+
+    // W5 T4b.
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.finalizeRewinds)({}, { threadId: 't1' });
+    expect(handlers.finalizeRewinds).toHaveBeenCalledWith({ threadId: 't1' });
   });
 });

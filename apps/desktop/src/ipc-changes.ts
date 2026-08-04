@@ -43,6 +43,11 @@ export function registerChangesIpcHandlers(
     DESKTOP_IPC_CHANNELS.changes.redoRewind,
     (_event, payload: unknown) => handlers.redoRewind(payload)
   );
+  registry.registerInvoke(
+    'changes',
+    DESKTOP_IPC_CHANNELS.changes.finalizeRewinds,
+    (_event, payload: unknown) => handlers.finalizeRewinds(payload)
+  );
 
   return () => {
     registry.unregisterAll();

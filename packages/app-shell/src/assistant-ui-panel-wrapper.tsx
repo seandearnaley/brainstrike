@@ -124,6 +124,7 @@ import {
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
+import { useRewindFinalization } from './changes/use-rewind-finalization';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
@@ -1411,6 +1412,11 @@ export function AssistantUiPanelWrapper({
     },
     [clearThreadLiveRunUsage, completePreparedRequest]
   );
+  // Conversation Rewind finalization (BST-1115 W5 T4b): the hook owns the
+  // whole trigger (composer submit AND run creation, plus the failure
+  // surfacing) and hands back `prepareRequestData` with it composed in.
+  const { markUserAuthoredSend, prepareRequestData: prepareRequestDataWithFinalization } =
+    useRewindFinalization({ prepareRequestData, threadId: selectedMemoryThreadId });
   const resolveModelPricing = useCallback<ModelPricingResolver>(
     (provider: string, model: string) => {
       if (!isSupportedProvider(provider)) {
@@ -1753,12 +1759,13 @@ export function AssistantUiPanelWrapper({
                 onRunFinished={handleRunFinished}
                 onStepUsage={handleStepUsage}
                 onStreamActivity={renewActiveAssistantForegroundActivity}
+                onThreadRunStart={markUserAuthoredSend}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}
                 {...(operatingRoot ? { operatingRoot } : {})}
                 pickerModels={pickerModels}
                 pickerProviders={pickerProviders}
-                prepareRequestData={prepareRequestData}
+                prepareRequestData={prepareRequestDataWithFinalization}
                 providerGroups={providerGroups}
                 providerSettings={effectiveProviderSettings}
                 recentModels={validRecentModels}

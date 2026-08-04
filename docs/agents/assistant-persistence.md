@@ -923,6 +923,35 @@ finalizes the rewind.
   turn. Mastra exposes no partial un-observe — only `clearObservationalMemory`,
   which would discard the whole thread's memory to erase one turn. Do NOT
   scrub observation text; that is guesswork over prose the observer wrote.
+- **FINALIZATION — where it runs, and what triggers it (W5 T4b).**
+  `finalizeThreadRewinds` lists a thread's tombstones, hard-deletes those
+  messages through `PgliteMemoryStore.deleteMessages`, and drops the sidecar
+  rows. It lives in MAIN because everything it touches does: the store is
+  constructed in `assistant-server/mastra-memory.ts` (main), the sidecar is
+  written only by `assistant-server/rewind-repository.ts` (main), and the
+  renderer holds no store instance at all — a renderer-side finalization could
+  only reach `mastra_messages` with raw SQL, which is exactly the second-writer
+  the read-path rules above forbid. `createRewindFinalizationDeps` builds a
+  BARE `PgliteMemoryStore` over the main database rather than a full
+  `createPgliteMastraMemory`, which throws without an embedder under some
+  memory settings; `deleteMessages` needs only the database handle.
+  - **The trigger is renderer-side, over `changes:finalizeRewinds`.** A
+    USER-AUTHORED message starting a NEW run — the conjunction of the composer
+    submit and the run-creation seam. See the RUN-CREATION SEAM section in
+    `assistant-runtime.md` for why one signal alone is wrong in both directions.
+  - **The delete runs FIRST and its failure PROPAGATES**, so a thread whose
+    messages could not be removed keeps its tombstones and stays hidden.
+    Dropping the sidecar rows anyway would resurrect a rewound conversation
+    silently. The CALLER never blocks the send on it: the failure is logged and
+    toasted, and the next send retries.
+  - **Idempotent and serialized per thread.** A thread with nothing outstanding
+    answers `finalized: false` and writes nothing, so a double fire is free.
+    `withThreadRewindLock` serializes finalization against `redoRewind`,
+    because they are the two ways a batch stops existing and both are one click
+    away from each other. Redo re-reads its batch INSIDE the lock so it can
+    LOSE: a redo racing a committed finalization returns the typed
+    `rewind-not-found` refusal before touching a file, instead of reverting the
+    files and reporting success over an empty restore set.
 - **No `mind_ops` row, by ruling.** `brainstrike_mind_ops.entity_kind` is
   CHECK-constrained to {`thread`, `prompt_item`} and widening that vocabulary
   is a conscious migration for when a sync engine is actually chosen (BST-993,
@@ -938,7 +967,12 @@ the `soft-rewind tombstone hydration` cases plus the thread-delete cascade case
 in `assistant-memory-repository.integration.test.ts`, the `soft-rewind
 tombstones` cases in `search-thread-message-index.test.ts`, and the clear/reset
 sentinels in `clear-data.integration.test.tsx` and
-`ipc-handlers-db-clear-all.integration.test.ts`.
+`ipc-handlers-db-clear-all.integration.test.ts`. Finalization adds the
+`finalizeThreadRewinds` and `redoRewind vs finalizeThreadRewinds` cases in
+`rewind-service.integration.test.ts` (idempotency, double-fire, the redo race
+in either order), the `changes:finalizeRewinds` cases in
+`rewind-ipc-handlers.integration.test.ts`, and the two renderer-trigger suites
+named in `assistant-runtime.md`.
 
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 

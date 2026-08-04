@@ -31,6 +31,19 @@
  * If the process dies between the two, the thread is hidden but the files are
  * untouched — a state redo fully undoes. The reverse order would leave files
  * reverted with a live conversation and no batch to redo.
+ *
+ * EVERY TOMBSTONE MUTATION IS SERIALIZED PER THREAD (W5 T4b) — apply, redo and
+ * finalization alike. Redo and finalization are the two ways a batch stops
+ * existing, they are raised by two independent user gestures (the toast's Redo
+ * button and the next send), and they are reachable at the same instant.
+ * Interleaved they produce a lie: redo reads a batch, finalization hard-deletes
+ * those messages and drops the sidecar rows, and redo then reverts the files
+ * back and reports success with an empty `restoredMessageIds` — a workspace
+ * restored to a conversation that no longer exists.
+ * `withThreadRewindLock` makes the outcome deterministic instead:
+ * whichever gesture reaches the lock first completes in full, and the loser
+ * re-reads and refuses with a NAMED reason. Redo re-reads its batch INSIDE the
+ * lock precisely so it can lose.
  */
 
 import type { AssistantEditCheckpointRecord } from '@brainstrike/agent';
@@ -82,6 +95,47 @@ export interface RewindFinalizationDeps {
 }
 
 type RunRangeChangeset = Extract<Changeset, { kind: 'run-range' }>;
+
+/** Tail of the in-flight promise chain per serialized thread id. */
+const threadRewindLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Serialize thread-scoped tombstone mutations (redo, finalization).
+ *
+ * The promise-chain shape is the same as `withFileLock`
+ * (packages/agent/src/tools/file-write-lock.ts) and deliberately NOT that
+ * function: keying a lock named for FILES by a thread id would misdescribe
+ * what is being serialized, and these two locks must never contend with each
+ * other. Tasks for the same thread run strictly in submission order; different
+ * threads stay concurrent. The lock is released however the task settles, so a
+ * failing finalization never wedges the thread's redo.
+ */
+function withThreadRewindLock<T>(threadId: string, task: () => Promise<T>): Promise<T> {
+  const previous = threadRewindLocks.get(threadId) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  // The chain tail swallows rejection so the NEXT waiter is not rejected by an
+  // earlier task's failure; the real result still reaches THIS caller.
+  const chain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  threadRewindLocks.set(threadId, chain);
+  void chain.finally(() => {
+    if (threadRewindLocks.get(threadId) === chain) {
+      threadRewindLocks.delete(threadId);
+    }
+  });
+  return run;
+}
+
+function rewindNotFound(rewindId: string): AssistantRewindRedoResult {
+  return {
+    conflicts: [],
+    message: `rewind batch "${rewindId}" was not found (already redone or finalized).`,
+    ok: false,
+    reason: 'rewind-not-found',
+  };
+}
 
 function changesetForRange(
   threadId: string,
@@ -299,8 +353,26 @@ function refuseConflicts(conflicts: readonly AssistantRewindConflict[]): Assista
  * silently reverts files. `conversation-only` writes the tombstone batch with
  * `revert_id = NULL`, touches no file, writes no journal row, and the
  * acknowledgment gate does not apply to it because nothing reaches disk.
+ *
+ * Holds the thread lock for the same reason redo and finalization do: this is
+ * the THIRD writer of the tombstone table, and a finalization landing between
+ * this batch's insert and its file reverts would leave a rewind whose files are
+ * reverted but whose batch no longer exists to redo.
  */
 export async function applyRewind(
+  db: EditCheckpointDatabase,
+  args: {
+    readonly acknowledgeConflicts?: boolean;
+    readonly messageId: string;
+    readonly mode: AssistantRewindMode;
+    readonly threadId: string;
+  },
+  deps: RewindServiceDeps
+): Promise<AssistantRewindResult> {
+  return await withThreadRewindLock(args.threadId, () => applyRewindLocked(db, args, deps));
+}
+
+async function applyRewindLocked(
   db: EditCheckpointDatabase,
   args: {
     readonly acknowledgeConflicts?: boolean;
@@ -390,83 +462,108 @@ export async function applyRewind(
  * (the user edited them after the rewind), the WHOLE redo refuses, including
  * the un-tombstone. A conversation that reappeared without its files would be
  * a lie about what was restored.
+ *
+ * RACING FINALIZATION. The first read below only resolves which thread to
+ * serialize on; the batch is read AGAIN inside the lock and that second read
+ * is the authoritative one. A finalization that reached the lock first has
+ * hard-deleted the messages, so the batch is genuinely gone and this returns
+ * the typed `rewind-not-found` refusal — before touching a single file. The
+ * unserialized version of this function could revert the files and then report
+ * success over an empty restore set, which is exactly the silent no-op the
+ * one-level-redo contract must not have.
  */
 export async function redoRewind(
   db: EditCheckpointDatabase,
   args: { readonly acknowledgeConflicts?: boolean; readonly rewindId: string },
   deps: RewindServiceDeps
 ): Promise<AssistantRewindRedoResult> {
-  const batch = await listTombstoneBatch(db, args.rewindId);
-  const first = batch[0];
-  if (!first) {
-    return {
-      conflicts: [],
-      message: `rewind batch "${args.rewindId}" was not found (already redone or finalized).`,
-      ok: false,
-      reason: 'rewind-not-found',
-    };
+  const probe = await listTombstoneBatch(db, args.rewindId);
+  const probed = probe[0];
+  if (!probed) {
+    return rewindNotFound(args.rewindId);
   }
-  if (!(await isLatestRewindBatch(db, first.threadId, args.rewindId))) {
-    return {
-      conflicts: [],
-      message: `rewind batch "${args.rewindId}" is not the newest rewind in thread "${first.threadId}"; redo one level at a time.`,
-      ok: false,
-      reason: 'not-latest-rewind',
-    };
-  }
-
-  const revertId = first.revertId;
-  let fileOutcomes: readonly AssistantRewindFileOutcome[] = [];
-  let rootOutcomes: readonly AssistantRewindRootOutcome[] = [];
-  if (revertId !== null) {
-    const captures = await listRunCheckpoints(db, revertId, first.threadId);
-    const plan = await scanRewindRange(db, captures);
-    if (plan.conflicts.length > 0 && args.acknowledgeConflicts !== true) {
-      return refuseConflicts(plan.conflicts);
+  return await withThreadRewindLock(probed.threadId, async () => {
+    const batch = await listTombstoneBatch(db, args.rewindId);
+    const first = batch[0];
+    if (!first) {
+      return rewindNotFound(args.rewindId);
     }
-    // No after-capture on a redo: redo is one level deep, so there is no
-    // second-order undo to journal for.
-    fileOutcomes = await executePlan(db, plan, deps, null);
-    rootOutcomes = buildRootOutcomes(plan, fileOutcomes);
-  }
+    if (!(await isLatestRewindBatch(db, first.threadId, args.rewindId))) {
+      return {
+        conflicts: [],
+        message: `rewind batch "${args.rewindId}" is not the newest rewind in thread "${first.threadId}"; redo one level at a time.`,
+        ok: false,
+        reason: 'not-latest-rewind',
+      };
+    }
 
-  const restoredMessageIds = await deleteTombstoneBatch(db, args.rewindId);
-  return {
-    fileOutcomes,
-    ok: true,
-    restoredMessageIds,
-    revertId,
-    rewindId: args.rewindId,
-    rootOutcomes,
-  };
+    const revertId = first.revertId;
+    let fileOutcomes: readonly AssistantRewindFileOutcome[] = [];
+    let rootOutcomes: readonly AssistantRewindRootOutcome[] = [];
+    if (revertId !== null) {
+      const captures = await listRunCheckpoints(db, revertId, first.threadId);
+      const plan = await scanRewindRange(db, captures);
+      if (plan.conflicts.length > 0 && args.acknowledgeConflicts !== true) {
+        return refuseConflicts(plan.conflicts);
+      }
+      // No after-capture on a redo: redo is one level deep, so there is no
+      // second-order undo to journal for.
+      fileOutcomes = await executePlan(db, plan, deps, null);
+      rootOutcomes = buildRootOutcomes(plan, fileOutcomes);
+    }
+
+    const restoredMessageIds = await deleteTombstoneBatch(db, args.rewindId);
+    return {
+      fileOutcomes,
+      ok: true,
+      restoredMessageIds,
+      revertId,
+      rewindId: args.rewindId,
+      rootOutcomes,
+    };
+  });
 }
 
 /**
- * Finalize every outstanding rewind in a thread — the hook the next user
- * message fires. Tombstoned messages are hard-deleted through Mastra's own
- * `deleteMessages` storage path and their sidecar rows go with them, which is
- * what ends the one-level redo window.
+ * Finalize every outstanding rewind in a thread — the hook the next USER
+ * message fires (wired in the renderer at the run-creation seam; see
+ * `use-rewind-finalization.ts` and `docs/agents/assistant-runtime.md`).
+ * Tombstoned messages are hard-deleted through Mastra's own `deleteMessages`
+ * storage path and their sidecar rows go with them, which is what ends the
+ * one-level redo window.
  *
  * The delete runs FIRST and its failure PROPAGATES: if the messages could not
  * be removed, the tombstones must stay so the messages remain hidden. Dropping
  * the sidecar rows anyway would resurrect a rewound conversation without
- * anyone being told.
+ * anyone being told. That propagation is INSIDE this function only — the
+ * caller reports it and never lets it hold up the send that triggered it (the
+ * user's message is not hostage to a cleanup they did not ask for, and a
+ * thread whose tombstones survive is still correctly hidden, so the next send
+ * simply tries again).
+ *
+ * IDEMPOTENT by construction: `finalized: false` with empty sets is the honest
+ * answer for a thread with nothing outstanding, so a double fire — two sends
+ * in flight, a retry after a transport error — costs one query and changes
+ * nothing. Serialized per thread against redo (see `withThreadRewindLock`), so
+ * "nothing outstanding" can never mean "a redo is halfway through undoing it".
  */
 export async function finalizeThreadRewinds(
   db: EditCheckpointDatabase,
   threadId: string,
   deps: RewindFinalizationDeps
 ): Promise<AssistantRewindFinalization> {
-  const tombstones = await listThreadTombstones(db, threadId);
-  if (tombstones.length === 0) {
-    return { deletedMessageIds: [], finalized: false, rewindIds: [] };
-  }
-  const messageIds = tombstones.map((row) => row.messageId);
-  await deps.deleteMessages(messageIds);
-  const deletedMessageIds = await deleteThreadTombstones(db, threadId);
-  return {
-    deletedMessageIds,
-    finalized: true,
-    rewindIds: Array.from(new Set(tombstones.map((row) => row.rewindId))),
-  };
+  return await withThreadRewindLock(threadId, async () => {
+    const tombstones = await listThreadTombstones(db, threadId);
+    if (tombstones.length === 0) {
+      return { deletedMessageIds: [], finalized: false, rewindIds: [] };
+    }
+    const messageIds = tombstones.map((row) => row.messageId);
+    await deps.deleteMessages(messageIds);
+    const deletedMessageIds = await deleteThreadTombstones(db, threadId);
+    return {
+      deletedMessageIds,
+      finalized: true,
+      rewindIds: Array.from(new Set(tombstones.map((row) => row.rewindId))),
+    };
+  });
 }

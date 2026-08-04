@@ -45,6 +45,7 @@ function stubBridge(bridge: Partial<ChangesBridge>): void {
   (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
     applyRewind: vi.fn(),
     fileDiff: vi.fn(),
+    finalizeRewinds: vi.fn(),
     redoRewind: vi.fn(),
     resolveView: vi.fn(),
     rewindPreview: vi.fn(),

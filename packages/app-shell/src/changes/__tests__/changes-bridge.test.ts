@@ -10,6 +10,7 @@ function fullBridge(): ChangesBridge {
   return {
     applyRewind: vi.fn(),
     fileDiff: vi.fn(),
+    finalizeRewinds: vi.fn(),
     inventory: vi.fn(),
     redoRewind: vi.fn(),
     resolveView: vi.fn(),
@@ -115,8 +116,13 @@ describe('resolveChangesBridge', () => {
   // SAME commit that added them to the preload. A desktop build that shipped
   // only the BST-1114 bridge must read as MALFORMED — a half-present rewind
   // bridge would let the affordance render and then throw on click.
+  //
+  // `finalizeRewinds` (W5 T4b) joined on the same terms: a bridge that can
+  // rewind but cannot finalize leaves the redo window permanently open and the
+  // tombstoned messages permanently undeleted.
   it.each([
     'applyRewind',
+    'finalizeRewinds',
     'redoRewind',
     'rewindPreview',
   ] as const)('rejects a pre-rewind bridge that is missing %s', (method) => {

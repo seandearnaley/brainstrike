@@ -15,6 +15,7 @@ export const DESKTOP_IPC_CHANNELS = {
   changes: {
     applyRewind: 'changes:applyRewind',
     fileDiff: 'changes:fileDiff',
+    finalizeRewinds: 'changes:finalizeRewinds',
     inventory: 'changes:inventory',
     redoRewind: 'changes:redoRewind',
     resolveView: 'changes:resolveView',

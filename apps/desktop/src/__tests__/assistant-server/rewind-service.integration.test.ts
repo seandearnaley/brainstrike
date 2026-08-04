@@ -111,6 +111,34 @@ async function tombstoneRows(): Promise<
   return result.rows;
 }
 
+/**
+ * Stand-in for the production hard-delete seam. Production passes
+ * `PgliteMemoryStore.deleteMessages` (Mastra's own storage API); this does the
+ * same thing against the fixture database so the "what does the thread look
+ * like afterwards" assertions are real rather than asserted over a spy.
+ */
+async function deleteMessagesFrom(messageIds: readonly string[]): Promise<void> {
+  await fixture.db.query('DELETE FROM mastra_messages WHERE id = ANY($1::text[])', [
+    [...messageIds],
+  ]);
+}
+
+/** Thread messages that survive AND are not hidden by a tombstone. */
+async function visibleMessageIds(): Promise<string[]> {
+  const result = await fixture.db.query<{ id: string }>(
+    `SELECT messages.id AS "id"
+     FROM mastra_messages AS messages
+     WHERE messages.thread_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM brainstrike_assistant_message_tombstones AS tombstones
+         WHERE tombstones.message_id = messages.id
+       )
+     ORDER BY messages."createdAt" ASC, messages.id ASC`,
+    [THREAD_ID]
+  );
+  return result.rows.map((row) => row.id);
+}
+
 beforeEach(async () => {
   probe = createReindexProbe();
   fixture = await createRewindFixture({ [ROOT_ID]: await makeTempDir() }, 'rewind-service');
@@ -587,6 +615,128 @@ describe('finalizeThreadRewinds', () => {
       },
     });
     expect(outcome).toEqual({ deletedMessageIds: [], finalized: false, rewindIds: [] });
+  });
+
+  // W5 T4b. The trigger is a user send, and two sends can be in flight (a
+  // retry after a transport error, a second panel). A second finalization must
+  // cost one query and change nothing — never a second delete of ids that are
+  // already gone.
+  it('is idempotent when fired twice in a row', async () => {
+    await seedTwoTurnThread();
+    await applyRewind(
+      fixture.db,
+      { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
+      probe
+    );
+    const deleted: string[][] = [];
+    const deps = {
+      deleteMessages: async (ids: readonly string[]): Promise<void> => {
+        deleted.push([...ids]);
+        await deleteMessagesFrom(ids);
+      },
+    };
+
+    const first = await finalizeThreadRewinds(fixture.db, THREAD_ID, deps);
+    const second = await finalizeThreadRewinds(fixture.db, THREAD_ID, deps);
+
+    expect(first.finalized).toBe(true);
+    expect(second).toEqual({ deletedMessageIds: [], finalized: false, rewindIds: [] });
+    expect(deleted).toEqual([['msg-5', 'msg-6']]);
+  });
+
+  it('is double-FIRE safe: two concurrent finalizations delete exactly once', async () => {
+    await seedTwoTurnThread();
+    await applyRewind(
+      fixture.db,
+      { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
+      probe
+    );
+    const deleted: string[][] = [];
+    const deps = {
+      deleteMessages: async (ids: readonly string[]): Promise<void> => {
+        deleted.push([...ids]);
+        await deleteMessagesFrom(ids);
+      },
+    };
+
+    const [first, second] = await Promise.all([
+      finalizeThreadRewinds(fixture.db, THREAD_ID, deps),
+      finalizeThreadRewinds(fixture.db, THREAD_ID, deps),
+    ]);
+
+    // Serialized, so exactly one sees the tombstones. Without the per-thread
+    // lock both read the same rows and `deleteMessages` runs twice.
+    expect([first.finalized, second.finalized].sort()).toEqual([false, true]);
+    expect(deleted).toEqual([['msg-5', 'msg-6']]);
+    expect(await tombstoneRows()).toEqual([]);
+  });
+});
+
+/**
+ * W5 T4b — REDO vs FINALIZATION. These are the two ways a batch stops
+ * existing, raised by two independent gestures (the toast's Redo, the next
+ * send). The contract is that finalization WINS once the send is committed and
+ * redo then refuses with a NAMED reason, never a silent no-op and never a file
+ * revert over a conversation that no longer exists.
+ */
+describe('redoRewind vs finalizeThreadRewinds', () => {
+  async function applyConversationOnlyRewind(): Promise<string> {
+    await seedTwoTurnThread();
+    const result = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
+      probe
+    );
+    if (!result.ok) {
+      throw new Error('fixture rewind was refused');
+    }
+    return result.rewindId;
+  }
+
+  it('refuses a redo of an already-finalized batch with a typed rewind-not-found', async () => {
+    const rewindId = await applyConversationOnlyRewind();
+    await finalizeThreadRewinds(fixture.db, THREAD_ID, { deleteMessages: deleteMessagesFrom });
+
+    const redone = await redoRewind(fixture.db, { rewindId }, probe);
+
+    expect(redone.ok).toBe(false);
+    if (!redone.ok) {
+      expect(redone.reason).toBe('rewind-not-found');
+      expect(redone.message).toContain(rewindId);
+    }
+  });
+
+  it('resolves a redo racing a finalization deterministically, in either order', async () => {
+    const rewindId = await applyConversationOnlyRewind();
+
+    // Both raised in the same tick. The lock, not the scheduler, decides.
+    const [finalization, redone] = await Promise.all([
+      finalizeThreadRewinds(fixture.db, THREAD_ID, { deleteMessages: deleteMessagesFrom }),
+      redoRewind(fixture.db, { rewindId }, probe),
+    ]);
+
+    // Exactly one wins, and the loser says so. The forbidden outcome is BOTH
+    // reporting success — a redo that "restored" nothing while the messages
+    // were being hard-deleted underneath it.
+    expect(finalization.finalized === true && redone.ok === true).toBe(false);
+    if (finalization.finalized) {
+      expect(redone.ok).toBe(false);
+      if (!redone.ok) {
+        expect(redone.reason).toBe('rewind-not-found');
+      }
+      expect(await visibleMessageIds()).toEqual(['msg-1', 'msg-2', 'msg-3', 'msg-4']);
+    } else {
+      expect(redone.ok).toBe(true);
+      expect(await visibleMessageIds()).toEqual([
+        'msg-1',
+        'msg-2',
+        'msg-3',
+        'msg-4',
+        'msg-5',
+        'msg-6',
+      ]);
+    }
+    expect(await tombstoneRows()).toEqual([]);
   });
 });
 

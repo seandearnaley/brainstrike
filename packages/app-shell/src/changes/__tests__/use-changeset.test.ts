@@ -24,6 +24,7 @@ function viewFixture(overrides: Partial<ChangesetView> = {}): ChangesetView {
 function stubBridge(bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'resolveView'>): void {
   (window as unknown as { changes?: ChangesBridge }).changes = {
     applyRewind: vi.fn(),
+    finalizeRewinds: vi.fn(),
     redoRewind: vi.fn(),
     rewindPreview: vi.fn(),
     ...bridge,

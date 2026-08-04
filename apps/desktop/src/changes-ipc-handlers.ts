@@ -14,6 +14,7 @@
  * `git-structured-diff.ts`'s `validateStructuredFileDiffParams` posture.
  */
 import type {
+  AssistantRewindFinalization,
   AssistantRewindMode,
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
@@ -38,9 +39,12 @@ import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-
 import type { CheckpointRevertDeps } from './assistant-server/edit-checkpoint-revert';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import type { GitCommandRunner } from './assistant-server/git-service';
+import { createRewindFinalizationDeps } from './assistant-server/rewind-finalization-deps';
 import { resolveRewindMessageForRun } from './assistant-server/rewind-repository';
 import {
   applyRewind as applyRewindService,
+  finalizeThreadRewinds as finalizeThreadRewindsService,
+  type RewindFinalizationDeps,
   redoRewind as redoRewindService,
   rewindToMessage as rewindToMessageService,
 } from './assistant-server/rewind-service';
@@ -425,6 +429,28 @@ export function validateRewindRedoPayload(value: unknown): GitResult<RewindRedoP
   return { ok: true, value: { acknowledgeConflicts: acknowledgeResult.value, rewindId } };
 }
 
+export interface RewindFinalizePayload {
+  readonly threadId: string;
+}
+
+export function validateRewindFinalizePayload(value: unknown): GitResult<RewindFinalizePayload> {
+  const subject = 'changes:finalizeRewinds';
+  const recordResult = asRecord(value, subject);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const keysResult = rejectUnsupportedKeys(record, ['threadId'], subject);
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const threadId = record['threadId'];
+  if (!isNonEmptyString(threadId)) {
+    return { error: `${subject} requires a non-empty threadId`, ok: false };
+  }
+  return { ok: true, value: { threadId } };
+}
+
 export interface ChangesIpcHandlers {
   /**
    * Apply a Conversation Rewind (BST-1115). `mode` is required — see
@@ -437,6 +463,17 @@ export interface ChangesIpcHandlers {
     changeset: unknown,
     path: unknown
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /**
+   * End the redo window for a thread: hard-delete its tombstoned messages
+   * through the memory store's `deleteMessages` override and drop the sidecar
+   * rows. Fired by the renderer when a USER-authored message starts a new run
+   * (W5 T4b).
+   *
+   * `value.finalized === false` is a normal answer, not a failure — a thread
+   * with no outstanding rewind is the common case, and this call is expected to
+   * be cheap and idempotent.
+   */
+  readonly finalizeRewinds: (payload: unknown) => Promise<GitResult<AssistantRewindFinalization>>;
   /**
    * Repository/worktree topology for the Changes surface's source picker and
    * tree grouping (BST-1114 T0). Takes no renderer-supplied arguments, so
@@ -465,7 +502,20 @@ export interface RewindHandlerDependencies {
     },
     deps: CheckpointRevertDeps
   ) => Promise<AssistantRewindResult>;
+  /**
+   * Resolves the hard-delete seam finalization runs through. Takes no database
+   * argument because the store owns its own handle — the production factory
+   * builds a `PgliteMemoryStore` over the SAME main-process database, and the
+   * narrower `EditCheckpointDatabase` view cannot satisfy it without a cast
+   * that would lie about what a test double provides.
+   */
+  readonly createFinalizationDeps: () => Promise<RewindFinalizationDeps>;
   readonly createRevertDeps: (db: EditCheckpointDatabase) => Promise<CheckpointRevertDeps>;
+  readonly finalizeThreadRewinds: (
+    db: EditCheckpointDatabase,
+    threadId: string,
+    deps: RewindFinalizationDeps
+  ) => Promise<AssistantRewindFinalization>;
   readonly redoRewind: (
     db: EditCheckpointDatabase,
     args: { readonly acknowledgeConflicts?: boolean; readonly rewindId: string },
@@ -484,7 +534,9 @@ export interface RewindHandlerDependencies {
 
 const DEFAULT_REWIND_DEPENDENCIES: RewindHandlerDependencies = {
   applyRewind: applyRewindService,
+  createFinalizationDeps: async () => createRewindFinalizationDeps(await getDatabase()),
   createRevertDeps: createCheckpointReindexDeps,
+  finalizeThreadRewinds: finalizeThreadRewindsService,
   redoRewind: redoRewindService,
   resolveMessageForRun: resolveRewindMessageForRun,
   rewindToMessage: rewindToMessageService,
@@ -586,6 +638,23 @@ export function createChangesIpcHandlers(
       } catch (error) {
         logger.error('Unexpected changes:fileDiff handler failure', { error });
         return { error: error instanceof Error ? error.message : String(error), ok: false };
+      }
+    },
+    finalizeRewinds: async (payload) => {
+      const payloadResult = validateRewindFinalizePayload(payload);
+      if (!payloadResult.ok) {
+        return payloadResult;
+      }
+      const { threadId } = payloadResult.value;
+      try {
+        const db = await resolveDatabase();
+        const finalizationDeps = await rewind.createFinalizationDeps();
+        return {
+          ok: true,
+          value: await rewind.finalizeThreadRewinds(db, threadId, finalizationDeps),
+        };
+      } catch (error) {
+        return failed('changes:finalizeRewinds', error);
       }
     },
     inventory: async () => {

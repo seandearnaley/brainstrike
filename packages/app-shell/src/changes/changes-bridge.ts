@@ -14,6 +14,7 @@
  */
 
 import type {
+  AssistantRewindFinalization,
   AssistantRewindMode,
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
@@ -67,6 +68,10 @@ export interface RewindRedoPayload {
   readonly rewindId: string;
 }
 
+export interface RewindFinalizePayload {
+  readonly threadId: string;
+}
+
 export interface ChangesBridge {
   /** Conversation Rewind: apply. See {@link RewindApplyPayload}. */
   applyRewind: (payload: RewindApplyPayload) => Promise<GitResult<AssistantRewindResult>>;
@@ -75,6 +80,14 @@ export interface ChangesBridge {
     changeset: Changeset,
     path: string
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /**
+   * Conversation Rewind: end the redo window for a thread (W5 T4b). Fired when
+   * a USER-authored message starts a new run. `value.finalized === false` means
+   * the thread had no outstanding rewind — the ordinary case, not a failure.
+   */
+  finalizeRewinds: (
+    payload: RewindFinalizePayload
+  ) => Promise<GitResult<AssistantRewindFinalization>>;
   /**
    * Repository/worktree topology across the active workspace roots
    * (BST-1114 T0). Powers the source picker's git scopes and the changed-files
@@ -100,6 +113,7 @@ export interface ChangesBridge {
 const CHANGES_BRIDGE_REQUIRED_METHOD_SET = {
   applyRewind: true,
   fileDiff: true,
+  finalizeRewinds: true,
   inventory: true,
   redoRewind: true,
   resolveView: true,

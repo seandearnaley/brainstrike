@@ -113,7 +113,12 @@ describe('app-shell assistant contract boundary', () => {
     // `refresh` into the existing handleRunFinished/handleRunFailed callbacks
     // beside refetchCheckpoints — no changeset SELECTION UI lands until W4, so
     // the changeset argument is hardcoded null and the call is inert today.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1800);
+    // Bumped 1800 → 1810 for BST-1115 W5 T4b (rewind finalization): the
+    // wrapper adds ONE hook call and ONE prop. The two-signal trigger, the
+    // arming flag, the `prepareRequestData` composition and all failure
+    // surfacing live in changes/use-rewind-finalization.ts — the wrapper only
+    // supplies the seam and the thread id, and forwards `onThreadRunStart`.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1810);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

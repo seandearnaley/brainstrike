@@ -107,6 +107,7 @@ const CHANGES_INVENTORY_CHANNEL = 'changes:inventory' as const;
 const CHANGES_REWIND_PREVIEW_CHANNEL = 'changes:rewindPreview' as const;
 const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
 const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
+const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1259,6 +1260,11 @@ if (shouldExposeBridge('changes')) {
     }) => ipcRenderer.invoke(CHANGES_APPLY_REWIND_CHANNEL, payload),
     fileDiff: (rootId: string, changeset: Changeset, path: string) =>
       ipcRenderer.invoke(CHANGES_FILE_DIFF_CHANNEL, rootId, changeset, path),
+    // Ends the redo window (BST-1115 W5 T4b). Fired by the renderer when a
+    // USER-authored message starts a new run; a thread with no outstanding
+    // rewind answers `finalized: false` and writes nothing.
+    finalizeRewinds: (payload: { threadId: string }) =>
+      ipcRenderer.invoke(CHANGES_FINALIZE_REWINDS_CHANNEL, payload),
     // Repository/worktree topology for the Changes surface (BST-1114 T0).
     inventory: () => ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL),
     redoRewind: (payload: { acknowledgeConflicts?: boolean; rewindId: string }) =>

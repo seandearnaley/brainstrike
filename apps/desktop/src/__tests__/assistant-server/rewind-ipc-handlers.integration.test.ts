@@ -31,7 +31,12 @@ import type {
 import type { GitResult } from '@brainstrike/types';
 import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
 import { resolveRewindMessageForRun } from '../../assistant-server/rewind-repository';
-import { applyRewind, redoRewind, rewindToMessage } from '../../assistant-server/rewind-service';
+import {
+  applyRewind,
+  finalizeThreadRewinds,
+  redoRewind,
+  rewindToMessage,
+} from '../../assistant-server/rewind-service';
 import { type ChangesIpcHandlers, createChangesIpcHandlers } from '../../changes-ipc-handlers';
 import {
   cleanupTempDirs,
@@ -57,6 +62,8 @@ const PLAIN_C = 'root-plain-c';
 let fixture: RewindFixture;
 let probe: ReindexProbe;
 let handlers: ChangesIpcHandlers;
+/** Message ids each finalization asked the store seam to hard-delete. */
+let finalizedDeletes: string[][];
 
 function rootPath(rootId: string): string {
   const resolved = fixture.rootPaths[rootId];
@@ -136,13 +143,26 @@ beforeEach(async () => {
     },
     `rewind-ipc-${crypto.randomUUID()}`
   );
+  finalizedDeletes = [];
   handlers = createChangesIpcHandlers({
     resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
     rewind: {
       applyRewind,
+      // Stands in for `createRewindFinalizationDeps`, which builds a
+      // `PgliteMemoryStore` over the main-process database. Deleting the rows
+      // for real keeps the post-finalization assertions honest.
+      createFinalizationDeps: async () => ({
+        deleteMessages: async (messageIds: readonly string[]) => {
+          finalizedDeletes.push([...messageIds]);
+          await fixture.db.query('DELETE FROM mastra_messages WHERE id = ANY($1::text[])', [
+            [...messageIds],
+          ]);
+        },
+      }),
       // The real deps resolve an embedding set and fire the app's reindex side
       // effects; the probe keeps this suite about the IPC boundary.
       createRevertDeps: async () => ({ reindex: probe.reindex }),
+      finalizeThreadRewinds,
       redoRewind,
       resolveMessageForRun: resolveRewindMessageForRun,
       rewindToMessage,
@@ -381,5 +401,111 @@ describe('changes:redoRewind', () => {
 
     expect(redone.ok).toBe(false);
     expect(redone.ok === false && redone.reason).toBe('rewind-not-found');
+  });
+});
+
+/**
+ * W5 T4b — `changes:finalizeRewinds`, the channel the renderer fires when a
+ * USER-authored message starts a new run. This is what ends the redo window;
+ * before it existed, `finalizeThreadRewinds` was referenced only from tests and
+ * tombstoned messages were never hard-deleted.
+ */
+describe('changes:finalizeRewinds', () => {
+  async function tombstoneCount(): Promise<number> {
+    const result = await fixture.db.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM brainstrike_assistant_message_tombstones'
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  it.each([
+    [undefined, 'requires an object payload'],
+    [{}, 'requires a non-empty threadId'],
+    [{ threadId: '' }, 'requires a non-empty threadId'],
+    [{ resourceId: 'r', threadId: THREAD_ID }, 'does not accept: resourceId'],
+  ])('rejects a malformed payload (%j)', async (payload, expected) => {
+    const result = await handlers.finalizeRewinds(payload);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain(expected);
+  });
+
+  it('hard-deletes the thread`s tombstoned messages through the store seam', async () => {
+    await seedThreeRootEdits();
+    value(
+      await handlers.applyRewind({
+        messageId: 'msg-2',
+        mode: 'conversation-and-files',
+        threadId: THREAD_ID,
+      })
+    );
+    expect(await tombstoneCount()).toBe(2);
+
+    const finalization = value(await handlers.finalizeRewinds({ threadId: THREAD_ID }));
+
+    expect(finalization.finalized).toBe(true);
+    expect(finalizedDeletes).toEqual([['msg-2', 'msg-3']]);
+    expect([...finalization.deletedMessageIds].sort()).toEqual(['msg-2', 'msg-3']);
+    expect(finalization.rewindIds).toHaveLength(1);
+    expect(await tombstoneCount()).toBe(0);
+  });
+
+  it('closes the redo window: a redo after finalization is a typed refusal', async () => {
+    const outcome = applied(
+      value(
+        await handlers.applyRewind({
+          messageId: 'msg-2',
+          mode: 'conversation-only',
+          threadId: THREAD_ID,
+        })
+      )
+    );
+
+    value(await handlers.finalizeRewinds({ threadId: THREAD_ID }));
+    const redone = value(await handlers.redoRewind({ rewindId: outcome.rewindId }));
+
+    expect(redone.ok).toBe(false);
+    expect(redone.ok === false && redone.reason).toBe('rewind-not-found');
+  });
+
+  it('answers finalized:false for a thread with no outstanding rewind, without deleting', async () => {
+    const finalization = value(await handlers.finalizeRewinds({ threadId: THREAD_ID }));
+
+    expect(finalization).toEqual({ deletedMessageIds: [], finalized: false, rewindIds: [] });
+    expect(finalizedDeletes).toEqual([]);
+  });
+
+  it('reports a store-seam failure as a VISIBLE transport failure, leaving the tombstones', async () => {
+    const failing = createChangesIpcHandlers({
+      resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
+      rewind: {
+        applyRewind,
+        createFinalizationDeps: async () => ({
+          deleteMessages: async () => {
+            throw new Error('memory store unavailable');
+          },
+        }),
+        createRevertDeps: async () => ({ reindex: probe.reindex }),
+        finalizeThreadRewinds,
+        redoRewind,
+        resolveMessageForRun: resolveRewindMessageForRun,
+        rewindToMessage,
+      },
+    });
+    value(
+      await failing.applyRewind({
+        messageId: 'msg-2',
+        mode: 'conversation-only',
+        threadId: THREAD_ID,
+      })
+    );
+
+    const result = await failing.finalizeRewinds({ threadId: THREAD_ID });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('memory store unavailable');
+    // The messages could not be removed, so they must stay HIDDEN — dropping
+    // the sidecar rows anyway would resurrect a rewound conversation.
+    expect(await tombstoneCount()).toBe(2);
   });
 });

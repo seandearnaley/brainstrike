@@ -170,6 +170,7 @@ function installBridge(overrides: Partial<BridgeStub> = {}): BridgeStub {
   };
   (window as unknown as { changes?: ChangesBridge }).changes = {
     fileDiff: vi.fn(async () => ({ error: 'not used', ok: false }) as never),
+    finalizeRewinds: vi.fn(async () => ({ error: 'not used', ok: false }) as never),
     inventory: vi.fn(async () => ({ ok: true, value: { errors: [], repositories: [] } }) as never),
     resolveView: vi.fn(async () => ({ error: 'not used', ok: false }) as never),
     ...stub,
