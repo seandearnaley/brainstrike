@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -7,32 +8,39 @@ import { fileURLToPath } from 'node:url';
 // BST-1117: biome.json enforces style/noExcessiveLinesPerFile (maxLines 1000)
 // for every newly linted file. Files that already exceeded the limit when the
 // rule landed are grandfathered in a single explicit override; this contract
-// keeps that baseline a shrink-only ratchet — entries must be exact paths that
-// still exist and still exceed the limit, so refactored or deleted files fall
-// out of the whitelist instead of quietly re-earning headroom.
+// keeps that baseline a shrink-only ratchet:
+// - entries are exact paths (no globs, including [] character classes)
+// - the entry count may only ever go down from the shipped 136
+// - every entry must still be flagged by Biome itself (`--only` force-runs the
+//   rule past the exemption), so refactored or deleted files fall out of the
+//   whitelist instead of quietly keeping a permanent exemption.
+// Asking Biome — rather than re-counting lines here — matters because the rule
+// counts lines up to the end of the last statement (trailing comment/blank
+// lines don't count), and a hand-rolled count would drift from that.
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const biomeConfigPath = path.join(repoRoot, 'biome.json');
+const biomeBin = path.join(repoRoot, 'node_modules', '@biomejs', 'biome', 'bin', 'biome');
+const RULE = 'lint/style/noExcessiveLinesPerFile';
 const MAX_LINES = 1000;
+// The violator count when the rule shipped. Refactoring a file under the cap
+// removes its entry and lowers this ceiling; it must never go up.
+const MAX_BASELINE_ENTRIES = 136;
 
-function countLines(filePath) {
-  const content = readFileSync(filePath, 'utf8');
-  if (content === '') {
-    return 0;
-  }
-  const lines = content.split('\n');
-  return content.endsWith('\n') ? lines.length - 1 : lines.length;
+function isRuleOff(configured) {
+  return configured === 'off' || configured?.level === 'off';
 }
 
 function findBaselineOverrides(config) {
-  return (config.overrides ?? []).filter(
-    (override) => override.linter?.rules?.style?.noExcessiveLinesPerFile === 'off'
+  return (config.overrides ?? []).filter((override) =>
+    isRuleOff(override.linter?.rules?.style?.noExcessiveLinesPerFile)
   );
 }
 
 function assertMaxFileLinesContract(config) {
   const rule = config.linter?.rules?.style?.noExcessiveLinesPerFile;
   assert.ok(rule, 'biome.json must configure style/noExcessiveLinesPerFile');
+  assert.ok(!isRuleOff(rule), 'noExcessiveLinesPerFile must not be disabled at the top level');
   assert.equal(rule.level, 'error', 'noExcessiveLinesPerFile must be an error, not a warning');
   assert.equal(
     rule.options?.maxLines,
@@ -48,24 +56,58 @@ function assertMaxFileLinesContract(config) {
   );
   const entries = baselines[0].includes ?? [];
   assert.ok(entries.length > 0, 'the grandfather baseline must not be empty');
+  assert.ok(
+    entries.length <= MAX_BASELINE_ENTRIES,
+    `the grandfather baseline may only shrink: ${entries.length} entries > ceiling of ${MAX_BASELINE_ENTRIES}`
+  );
 
   for (const entry of entries) {
     assert.ok(
-      !/[*?{}!]/u.test(entry),
+      !/[*?{}[\]!]/u.test(entry),
       `baseline entry must be an exact path, not a glob: ${entry}`
     );
   }
   return entries;
 }
 
+function biomeFlaggedPaths(entries) {
+  // --only force-runs the rule even for paths the baseline override exempts,
+  // so this reports exactly the entries Biome would still flag today.
+  let stdout;
+  try {
+    stdout = execFileSync(
+      process.execPath,
+      [biomeBin, 'lint', `--only=${RULE}`, '--max-diagnostics=1000', '--reporter=json', ...entries],
+      { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+    );
+  } catch (error) {
+    // Biome exits non-zero when any diagnostic reaches error severity; the
+    // JSON payload is still on stdout.
+    if (typeof error.stdout !== 'string' || error.stdout === '') {
+      throw error;
+    }
+    stdout = error.stdout;
+  }
+  const { diagnostics } = JSON.parse(stdout);
+  return new Set(
+    diagnostics
+      .filter((diagnostic) => diagnostic.category === RULE)
+      .map((diagnostic) => diagnostic.location.path)
+  );
+}
+
 function assertBaselineStillViolates(entries) {
   for (const entry of entries) {
-    const filePath = path.join(repoRoot, entry);
-    assert.ok(existsSync(filePath), `baseline entry no longer exists — remove it: ${entry}`);
-    const lines = countLines(filePath);
     assert.ok(
-      lines > MAX_LINES,
-      `baseline entry is down to ${lines} lines (≤ ${MAX_LINES}) — remove it so it stays capped: ${entry}`
+      existsSync(path.join(repoRoot, entry)),
+      `baseline entry no longer exists — remove it: ${entry}`
+    );
+  }
+  const flagged = biomeFlaggedPaths(entries);
+  for (const entry of entries) {
+    assert.ok(
+      flagged.has(entry),
+      `Biome no longer flags this baseline entry — remove it so it stays capped: ${entry}`
     );
   }
 }
@@ -76,7 +118,7 @@ test('biome.json enforces a 1000-line file cap with a single explicit baseline',
   assertMaxFileLinesContract(biomeConfig);
 });
 
-test('every grandfathered file still exceeds the cap (shrink-only ratchet)', () => {
+test('every grandfathered file is still flagged by Biome (shrink-only ratchet)', () => {
   assertBaselineStillViolates(assertMaxFileLinesContract(biomeConfig));
 });
 
@@ -92,7 +134,7 @@ test('money test: raising maxLines fails the contract', () => {
   assert.throws(() => assertMaxFileLinesContract(raised), /cap files at 1000/);
 });
 
-test('money test: a second exemption override fails the contract', () => {
+test('money test: a second exemption override fails the contract (string form)', () => {
   const widened = structuredClone(biomeConfig);
   widened.overrides.push({
     includes: ['packages/example/src/new-giant-file.ts'],
@@ -101,15 +143,32 @@ test('money test: a second exemption override fails the contract', () => {
   assert.throws(() => assertMaxFileLinesContract(widened), /exactly one biome\.json override/);
 });
 
+test('money test: a second exemption override fails the contract (object form)', () => {
+  const widened = structuredClone(biomeConfig);
+  widened.overrides.push({
+    includes: ['packages/example/src/new-giant-file.ts'],
+    linter: { rules: { style: { noExcessiveLinesPerFile: { level: 'off' } } } },
+  });
+  assert.throws(() => assertMaxFileLinesContract(widened), /exactly one biome\.json override/);
+});
+
+test('money test: growing the baseline past its ceiling fails the contract', () => {
+  const widened = structuredClone(biomeConfig);
+  findBaselineOverrides(widened)[0]?.includes?.push('packages/example/src/new-giant-file.ts');
+  assert.throws(() => assertMaxFileLinesContract(widened), /may only shrink/);
+});
+
 test('money test: a glob baseline entry fails the contract', () => {
   const globbed = structuredClone(biomeConfig);
-  findBaselineOverrides(globbed)[0]?.includes?.push('packages/**/giant-*.ts');
+  const baseline = findBaselineOverrides(globbed)[0];
+  // Replace (not append) so the glob check fires before the count ceiling.
+  baseline.includes = [...baseline.includes.slice(0, -1), 'packages/[a-z]/giant-file.ts'];
   assert.throws(() => assertMaxFileLinesContract(globbed), /exact path, not a glob/);
 });
 
-test('money test: a baseline entry that shrank below the cap fails the ratchet', () => {
+test('money test: a baseline entry Biome no longer flags fails the ratchet', () => {
   assert.throws(
     () => assertBaselineStillViolates(['scripts/__tests__/max-file-lines-contract.test.mjs']),
-    /down to \d+ lines/
+    /Biome no longer flags/
   );
 });
