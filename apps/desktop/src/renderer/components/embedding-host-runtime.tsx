@@ -4,6 +4,7 @@ import {
 } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { createEmbeddingCacheRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
+import { resolveViteEmbeddingWorkerUrlHref as resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import {
   type DeviceCapabilities,
   detectDeviceCapabilities,
@@ -34,7 +35,6 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
-import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');

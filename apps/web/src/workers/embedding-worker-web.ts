@@ -8,8 +8,8 @@ import {
   getDatabaseWorkScheduler,
   type IDatabase,
 } from '@brainstrike/db';
+import { resolveViteEmbeddingWorkerUrlHref as resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
-import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 
 export async function startEmbeddingWorkerWeb(db: IDatabase): Promise<EmbeddingWorkerController> {
   const { startEmbeddingWorker } = await import('@brainstrike/embeddings/worker');
