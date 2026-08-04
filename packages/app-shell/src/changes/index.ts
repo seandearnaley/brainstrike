@@ -12,10 +12,10 @@
  */
 export type { ChangesBridge } from './changes-bridge';
 export { isChangesBridgeAvailable, resolveChangesBridge } from './changes-bridge';
-export { changedFileKey, selectRenderedFiles, useChangesStore } from './changes-store';
 export type { ChangesStoreState } from './changes-store';
+export { changedFileKey, selectRenderedFiles, useChangesStore } from './changes-store';
 export { ChangesSurface } from './ui/changes-surface';
-export { useChangeset } from './use-changeset';
 export type { UseChangesetResult } from './use-changeset';
-export { useGitInventory } from './use-git-inventory';
+export { useChangeset } from './use-changeset';
 export type { UseGitInventoryResult } from './use-git-inventory';
+export { useGitInventory } from './use-git-inventory';

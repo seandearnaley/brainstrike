@@ -19,6 +19,7 @@
 import type { ChangedFileEntry } from '@brainstrike/types';
 import type { TreeTableCellProps, TreeTableColumn } from '@brainstrike/ui';
 import { act, render } from '@testing-library/react';
+import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { changedFileKey, useChangesStore } from '../changes-store';
 import { CHANGED_FILES_TREE_COLUMNS, ChangedFilesTree } from '../ui/changed-files-tree';
@@ -66,14 +67,14 @@ function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
 }
 
 describe('ChangedFilesTree row render stability', () => {
-  let cellRenders: ReturnType<typeof vi.fn>;
+  let cellRenders: Mock<(id: string) => void>;
   let originalCell: TreeTableColumn<ChangedFilesTreeNodeData>['cell'] | undefined;
 
   beforeEach(() => {
     useChangesStore.getState().clearSelection();
     useChangesStore.getState().setExpandedIds(new Set());
 
-    cellRenders = vi.fn();
+    cellRenders = vi.fn<(id: string) => void>();
     const nameColumn = CHANGED_FILES_TREE_COLUMNS[0];
     if (!nameColumn) {
       throw new Error('Expected changed-files-tree.tsx to define a name column');

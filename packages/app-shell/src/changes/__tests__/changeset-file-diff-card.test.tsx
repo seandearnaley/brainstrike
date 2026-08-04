@@ -1,9 +1,5 @@
-import type {
-  ChangedFileEntry,
-  DiffViewSource,
-  GitResult,
-  StructuredFileDiff,
-} from '@brainstrike/types';
+import type { ChangedFileEntry, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type { DiffViewSource } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,6 +28,7 @@ import { ChangesetFileDiffCard } from '../ui/changeset-file-diff-card';
 class ImmediateIntersectionObserver implements IntersectionObserver {
   readonly root = null;
   readonly rootMargin = '';
+  readonly scrollMargin = '';
   readonly thresholds: readonly number[] = [];
   private readonly callback: IntersectionObserverCallback;
 
@@ -65,6 +62,7 @@ class ManualIntersectionObserver implements IntersectionObserver {
   static instances: ManualIntersectionObserver[] = [];
   readonly root = null;
   readonly rootMargin = '';
+  readonly scrollMargin = '';
   readonly thresholds: readonly number[] = [];
   callback: IntersectionObserverCallback;
 

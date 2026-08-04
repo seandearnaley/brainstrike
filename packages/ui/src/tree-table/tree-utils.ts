@@ -46,7 +46,7 @@ function computeSiblingAria<T>(
  */
 interface ResolvedFlattenOptions {
   contextNodeIds: Set<string>;
-  expandedIds: Set<string>;
+  expandedIds: ReadonlySet<string>;
   filterFn?: (node: TreeNode<unknown>) => boolean;
   highlightedIds: Set<string>;
   multiSelectedIds: Set<string>;
@@ -234,7 +234,7 @@ export function flattenPreFlattenedTreeRows<T>(
  */
 export function getVisibleNodeCount<T>(
   nodes: TreeNode<T>[],
-  expandedIds: Set<string>,
+  expandedIds: ReadonlySet<string>,
   getChildren: (node: TreeNode<T>) => TreeNode<T>[]
 ): number {
   let count = 0;
@@ -377,7 +377,7 @@ export function getDescendantIds<T>(
 export function expandToNode<T>(
   nodes: TreeNode<T>[],
   nodeId: string,
-  expandedIds: Set<string>,
+  expandedIds: ReadonlySet<string>,
   getChildren: (node: TreeNode<T>) => TreeNode<T>[]
 ): Set<string> {
   const ancestorIds = getAncestorIds(nodes, nodeId, getChildren);

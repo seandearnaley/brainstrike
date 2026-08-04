@@ -268,8 +268,14 @@ export interface TreeTableProps<T> {
   emptyState?: React.ReactNode;
 
   // Expansion state
-  /** Set of expanded node IDs */
-  expandedIds: Set<string>;
+  /**
+   * Set of expanded node IDs. `ReadonlySet` because TreeTable only ever
+   * READS this set (`.has`, spread) — expansion changes go through
+   * `onToggleExpand`. Widened so a caller holding immutable state can pass it
+   * without an unsound `as Set<string>` cast; every existing `Set<string>`
+   * caller stays assignable.
+   */
+  expandedIds: ReadonlySet<string>;
   /**
    * Optional accessible name for a row's checkbox. Defaults to `Select ${node.id}`
    * when omitted. Use this when the node id is not a human-readable label (e.g.
@@ -492,8 +498,8 @@ export interface UseTreeKeyboardResult {
 export interface FlattenOptions {
   /** Set of node IDs that are in the active context */
   contextNodeIds?: Set<string>;
-  /** Set of expanded node IDs */
-  expandedIds: Set<string>;
+  /** Set of expanded node IDs (read-only; flattening never mutates it) */
+  expandedIds: ReadonlySet<string>;
   /** Filter function to determine which nodes match current filters */
   filterFn?: (node: TreeNode<unknown>) => boolean;
   /** Set of highlighted node IDs */

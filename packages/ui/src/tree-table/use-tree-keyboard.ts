@@ -22,8 +22,8 @@ const EMPTY_MULTI_SELECTED_IDS = new Set<string>();
  * Options for the useTreeKeyboard hook.
  */
 export interface UseTreeKeyboardOptions<T> {
-  /** Set of expanded node IDs */
-  expandedIds: Set<string>;
+  /** Set of expanded node IDs (read-only: expansion changes go through `onToggleExpand`). */
+  expandedIds: ReadonlySet<string>;
   /** Function to get children of a node */
   getChildren: (node: TreeNode<T>) => TreeNode<T>[];
   /** Whether the tree table is focused */
