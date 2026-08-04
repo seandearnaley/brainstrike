@@ -25,8 +25,13 @@ import {
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
+import {
+  createGitInventoryService,
+  type GitInventoryService,
+} from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
+import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -65,7 +70,7 @@ import {
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
-import { createDatabaseRootResolver } from './git-ipc-handlers';
+import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
@@ -727,6 +732,14 @@ let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
+// BST-1112: cross-workspace git worktree inventory. Constructed after
+// `registerIpcHandlers` below (its own private `ElectronFileSystemAdapter`
+// instance does not depend on that call, but this keeps every desktop
+// service's construction site in the same "ready-independent, module load
+// time" neighborhood as its IPC-registration siblings). Stopped as a
+// graceful-shutdown step, before the `database` step, since its `loadRoots`
+// dependency reads from the DB.
+let gitInventoryService: GitInventoryService | null = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -857,6 +870,18 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     recordFailure(
       await runShutdownStep('llm-host', async () => {
         await llmHostManager.dispose();
+      })
+    );
+
+    recordFailure(
+      await runShutdownStep('git-inventory', async () => {
+        // BEFORE 'database' below: this service's `loadRoots` dependency
+        // reads the DB `roots` table, so its watchers/in-flight build must
+        // be torn down while the database is still available to it.
+        if (gitInventoryService) {
+          await gitInventoryService.stop();
+          gitInventoryService = null;
+        }
       })
     );
 
@@ -1216,6 +1241,45 @@ unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
 unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
 unregisterNotesVaultIpcHandlers = registerNotesVaultIpc(storage);
+
+// BST-1112: cross-workspace git worktree inventory service. Uses a PRIVATE
+// `ElectronFileSystemAdapter` instance — never the shared `fileSystem` above
+// and never the renderer-owned `fs:watch` IPC pipeline
+// (`ipc-domains/file-system-watch-ipc.ts` dedupes native subscriptions on
+// `(ownerId, resolvedPath)` ONLY; the ignore-pattern set is not part of that
+// key, so routing this module's fixed `ignorePatterns: []` through the
+// shared pipeline could let an unrelated registration for the same resolved
+// path silently share this filter set). See `ipc-notes-vault.ts:66-105` for
+// the same private-adapter + inline `DirectoryHandle` pattern.
+const gitInventoryWatcherAdapter = new ElectronFileSystemAdapter();
+gitInventoryService = createGitInventoryService({
+  loadRoots: async () => {
+    const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+    return roots.map((root) => ({ id: root.rootId, path: root.path }));
+  },
+  run: execFileGitRunner,
+  // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
+  // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —
+  // adapting with `Promise.resolve(...)` is the documented intent in that
+  // type's own doc comment in `git-inventory-watcher.ts` (no health-
+  // transition gate needed here, unlike `ipc-notes-vault.ts`'s `startWatch`,
+  // because the returned disposer is already safe to use immediately).
+  watchDirectory: (commonDir, callback, onSignal, options) =>
+    Promise.resolve(
+      gitInventoryWatcherAdapter.watchDirectory(
+        {
+          kind: 'directory',
+          name: path.basename(commonDir),
+          path: commonDir,
+          platform: 'electron',
+        },
+        callback,
+        onSignal,
+        options
+      )
+    ),
+});
+gitInventoryService.start();
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {

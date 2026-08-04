@@ -13,6 +13,7 @@
  */
 import { realpath as fsRealpath } from 'node:fs/promises';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/logging';
 import type { GitInventory, GitInventoryRepository, WorktreeDescriptor } from '@brainstrike/types';
 import {
   createNodeInventoryFs,
@@ -24,6 +25,11 @@ import {
   resolveGitEntryAtWorktree,
   walkForGitEntries,
 } from './git-inventory-discovery';
+import {
+  createGitInventoryWatchers,
+  type GitInventoryWatchers,
+  type WatchGitCommonDir,
+} from './git-inventory-watcher';
 import { parseWorktreeSummaries } from './git-repository-parsers';
 import {
   describeFailure,
@@ -33,6 +39,8 @@ import {
   invokeGitHookFree,
   toErrorMessage,
 } from './git-service';
+
+const logger = createLogger('GitInventoryService');
 
 export interface GitInventoryServiceDeps {
   /**
@@ -361,4 +369,192 @@ export async function buildInventorySnapshot(
   }
 
   return { capturedAt: Date.now(), errors, repositories };
+}
+
+/** TTL default (Task 4, plan-pinned): a `getSnapshot()` call within this many ms
+ * of the last successful build's `capturedAt` serves the cached snapshot. Past
+ * it — or immediately, regardless of age, once a watcher invalidation has
+ * marked the cache dirty (see {@link createGitInventoryService}) — the next
+ * call rebuilds. */
+export const GIT_INVENTORY_SNAPSHOT_TTL_MS = 5000;
+
+export interface GitInventoryService {
+  /**
+   * Serve the cached snapshot when it is fresh (within `maxAgeMs`, default
+   * {@link GIT_INVENTORY_SNAPSHOT_TTL_MS}) AND not dirty; otherwise rebuild.
+   * Concurrent calls during a rebuild share the SAME in-flight build (no
+   * thundering herd). Dead-watcher errors (`watchers.getHealthErrors()`) are
+   * folded into `.errors` fresh on EVERY call, cache hit or not, so a watcher
+   * that dies between rebuilds still shows up on the very next call rather
+   * than waiting for the next rebuild to notice it.
+   */
+  readonly getSnapshot: (opts?: { readonly maxAgeMs?: number }) => Promise<GitInventorySnapshot>;
+  /**
+   * Kick off the initial build and watcher sync. Synchronous: the build runs
+   * in the background and its outcome — including a failure that would
+   * otherwise be an unhandled rejection — surfaces through the next
+   * `getSnapshot()`'s `.errors`, never thrown here.
+   *
+   * Calling `start()` while already started throws (a caller bug: starting
+   * twice would orphan the first watcher set without ever disposing it).
+   * Calling `start()` again after `stop()` is supported and creates a fresh
+   * watcher set — see the restart note below.
+   */
+  readonly start: () => void;
+  /**
+   * Dispose every live watcher and drop the cached snapshot (so a `getSnapshot()`
+   * call after `stop()`, if the caller makes one, rebuilds from scratch rather
+   * than serving stale pre-stop data). Idempotent.
+   */
+  readonly stop: () => Promise<void>;
+}
+
+function toBuildFailureSnapshot(error: unknown): GitInventorySnapshot {
+  return {
+    capturedAt: Date.now(),
+    errors: [`git inventory: snapshot build failed: ${toErrorMessage(error)}`],
+    repositories: [],
+  };
+}
+
+type GitInventoryServiceLifecycle = 'idle' | 'started' | 'stopped';
+
+/**
+ * Stateful wrapper around {@link buildInventorySnapshot}: a TTL + dirty-flag
+ * cache with in-flight build coalescing, and per-repo watcher lifecycle
+ * management (Task 4, BST-1112). `git-inventory-watcher.ts`'s `disposeAll()`
+ * is TERMINAL — once a `GitInventoryWatchers` instance is disposed it never
+ * subscribes again — so `stop()` drops the instance entirely rather than
+ * trying to resurrect it, and `start()` always builds a FRESH
+ * `createGitInventoryWatchers()` instance. Restart-after-stop is therefore
+ * supported deliberately (this matches the watcher module's own doc comment,
+ * which frames "call `createGitInventoryWatchers` again" as the intended
+ * restart path); what is NOT supported is calling `start()` twice without an
+ * intervening `stop()` — that would silently orphan the first watcher set,
+ * so it throws instead.
+ *
+ * No factory-reset runtime entry is registered for this service: like the
+ * `fs:watch-telemetry` in-memory counters documented in
+ * `docs/agents/platform-contracts.md`, every piece of state here — the
+ * cached snapshot, the dirty flag, the live watcher subscriptions — is
+ * process-lifetime-only and rebuilt from disk plus the DB `roots` table on
+ * the next `getSnapshot()`/`start()`. There is nothing here that survives a
+ * reset to go stale, and nothing a reset needs to clear.
+ */
+export function createGitInventoryService(
+  deps: GitInventoryServiceDeps & { readonly watchDirectory: WatchGitCommonDir }
+): GitInventoryService {
+  let lifecycle: GitInventoryServiceLifecycle = 'idle';
+  let watchers: GitInventoryWatchers | null = null;
+  let cachedSnapshot: GitInventorySnapshot | null = null;
+  // Starts dirty so the very first getSnapshot()/start() always builds,
+  // regardless of maxAgeMs, instead of serving a nonexistent cache.
+  let dirty = true;
+  let inFlightBuild: Promise<GitInventorySnapshot> | null = null;
+
+  function withLiveHealthErrors(snapshot: GitInventorySnapshot): GitInventorySnapshot {
+    const healthErrors = watchers?.getHealthErrors() ?? [];
+    if (healthErrors.length === 0) {
+      return snapshot;
+    }
+    return { ...snapshot, errors: [...snapshot.errors, ...healthErrors] };
+  }
+
+  async function rebuild(): Promise<GitInventorySnapshot> {
+    // Cleared BEFORE the build starts, not after: an invalidation that
+    // arrives WHILE this build is in flight must re-dirty the cache for the
+    // NEXT call. Clearing it after the build would let a late-arriving
+    // invalidation be silently overwritten by this function's own
+    // `dirty = false`, losing the very change it was reporting.
+    dirty = false;
+    let snapshot: GitInventorySnapshot;
+    try {
+      snapshot = await buildInventorySnapshot(deps);
+    } catch (error) {
+      // `buildInventorySnapshot` documents itself as never-throwing for
+      // every failure mode INSIDE its own walk/spawn pipeline, but
+      // `deps.loadRoots()` — a caller-supplied function (main.ts wires it to
+      // a DB read) — is invoked unguarded at its very first line and CAN
+      // reject (e.g. the database is not ready yet). That must not become an
+      // unhandled rejection here or in `start()`'s fire-and-forget caller; it
+      // becomes a visible `errors` entry instead.
+      snapshot = toBuildFailureSnapshot(error);
+    }
+    if (watchers) {
+      const commonDirs = snapshot.repositories.map((repo) => repo.identity.gitCommonDir);
+      try {
+        await watchers.sync(commonDirs);
+      } catch (error) {
+        snapshot = {
+          ...snapshot,
+          errors: [
+            ...snapshot.errors,
+            `git inventory: watcher sync failed: ${toErrorMessage(error)}`,
+          ],
+        };
+      }
+    }
+    cachedSnapshot = snapshot;
+    return snapshot;
+  }
+
+  async function getSnapshot(opts?: { readonly maxAgeMs?: number }): Promise<GitInventorySnapshot> {
+    const maxAgeMs = opts?.maxAgeMs ?? GIT_INVENTORY_SNAPSHOT_TTL_MS;
+    if (inFlightBuild) {
+      return withLiveHealthErrors(await inFlightBuild);
+    }
+    if (!dirty && cachedSnapshot && Date.now() - cachedSnapshot.capturedAt < maxAgeMs) {
+      return withLiveHealthErrors(cachedSnapshot);
+    }
+    const buildPromise = rebuild();
+    inFlightBuild = buildPromise;
+    try {
+      return withLiveHealthErrors(await buildPromise);
+    } finally {
+      if (inFlightBuild === buildPromise) {
+        inFlightBuild = null;
+      }
+    }
+  }
+
+  function start(): void {
+    if (lifecycle === 'started') {
+      throw new Error(
+        'GitInventoryService.start(): already started. Call stop() before starting again — ' +
+          'starting twice would orphan the first watcher set without disposing it.'
+      );
+    }
+    lifecycle = 'started';
+    watchers = createGitInventoryWatchers({
+      onInvalidate: () => {
+        dirty = true;
+      },
+      watchDirectory: deps.watchDirectory,
+    });
+    dirty = true;
+    // Fire-and-forget by design (`start()` is synchronous per the interface
+    // contract). `getSnapshot()` never rejects — `rebuild()` catches both the
+    // build and the watcher-sync failure paths above — so this `.catch` is
+    // defense in depth, not the primary error-visibility path: it exists so
+    // that an unforeseen rejection can never surface as an unhandled promise
+    // rejection.
+    getSnapshot().catch((error: unknown) => {
+      logger.error('git inventory service: unexpected initial build rejection', {
+        error: toErrorMessage(error),
+      });
+    });
+  }
+
+  async function stop(): Promise<void> {
+    lifecycle = 'stopped';
+    const toDispose = watchers;
+    watchers = null;
+    cachedSnapshot = null;
+    dirty = true;
+    if (toDispose) {
+      await toDispose.disposeAll();
+    }
+  }
+
+  return { getSnapshot, start, stop };
 }
