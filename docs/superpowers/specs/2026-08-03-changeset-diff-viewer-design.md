@@ -54,6 +54,13 @@ New types beside the existing `git.ts` contract:
     runs; this is the conversation-revert preview.
   - `{ kind: 'git-scope', repositoryId, worktreePath, scope }` with
     `scope: 'uncommitted' | 'unstaged' | 'staged' | 'branch-vs-base' | 'commit'`.
+    **Base resolution (post-review correction 2026-08-04):** `branch-vs-base`
+    carries an explicit `baseRef`, defaulting to the repository's *default
+    branch* (`origin/HEAD` → `git symbolic-ref refs/remotes/origin/HEAD`,
+    falling back to `origin/main`) — **not** `@{u}`. A branch's own upstream is
+    `origin/<same-branch>`, so a `@{u}` merge-base is ≈HEAD and the diff is
+    empty (and throws outright when the branch has no upstream). W3 owns the
+    default-branch resolution; W1's types contract already carries `baseRef`.
 - **`ChangesetView`** — common resolution of any changeset: changed-file
   entries (workspace + repo-relative path, status A/M/D/R, +/− counts, owning
   root/repo/worktree, revertibility). UI renders this identically for all
@@ -91,6 +98,31 @@ linked worktree of a repo living inside a granted root (via that repo's own
 inventory as **visible-but-locked** until the user adds them as a root. No
 silent access expansion. The audited containment seam in `git-ipc-handlers.ts`
 remains the single gate; the worktree-provenance exception is contract-tested.
+
+**Hardening (post-review 2026-08-04).** `git worktree list` output derives from
+`<repo>/.git/worktrees/<name>/gitdir` — a plain text file *inside* the repo. It
+is repo-local **mutable data, not authorization**: anything that can write
+inside a granted root (an agent running `git worktree add ~/.ssh`, an untrusted
+repo cloned into the workspace, or a direct write to the `gitdir` file) could
+otherwise name an arbitrary absolute path and have the inventory treat it as
+trusted — silently widening "user granted root R" into "read access to anything
+a writer of R can name". The worktree-provenance exception therefore requires:
+
+1. **Bidirectional validation.** An out-of-root worktree is trusted only when
+   the *target path's own* `.git` file resolves back into the granting repo's
+   common dir — i.e. realpath **both** directions (granting repo's
+   `--git-common-dir` ⇄ target's resolved gitdir/`commondir`) and require they
+   match, with the granting repo's common dir itself resolving inside a granted
+   root. A one-way pointer is never sufficient.
+2. **Failure ⇒ visible-but-locked.** If the back-pointer check fails, the entry
+   is surfaced exactly like an unlinked agent-reported path — visible in the
+   inventory, locked until the user grants it as a root. Never silent access,
+   and equally never a silent drop.
+3. **Adversarial contract tests (W2).** The §8 contract tests must include a
+   *fabricated-gitdir attack fixture* — a `gitdir` file pointing at a path
+   outside the repo (e.g. `$HOME`) whose target does not point back — asserting
+   the entry lands visible-but-locked and no read is served for it. The benign
+   case alone does not exercise the rule.
 
 ## 5. Renderer architecture
 
