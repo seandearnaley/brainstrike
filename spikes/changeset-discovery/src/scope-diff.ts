@@ -1,7 +1,8 @@
 // SPIKE (BST-1110) — throwaway reference. Known shortcuts + caveats recorded in ../RECOMMENDATION.md; do not port verbatim.
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
 import { runGit } from './git.ts';
 
 const CONTENT_CAP_BYTES = 2 * 1024 * 1024; // provisional; Q3 tunes this
@@ -164,7 +165,11 @@ export async function computeScopeDiff(worktreePath: string, scope: DiffScope): 
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isDirectCliInvocation =
+  process.argv[1] !== undefined &&
+  resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1]);
+
+if (isDirectCliInvocation) {
   const [worktreePath, scope] = process.argv.slice(2);
   if (!(worktreePath && ['uncommitted', 'staged', 'branch-vs-base'].includes(scope ?? ''))) {
     // biome-ignore lint/suspicious/noConsole: CLI entry point diagnostic output

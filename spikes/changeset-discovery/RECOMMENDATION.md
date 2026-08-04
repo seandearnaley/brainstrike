@@ -227,6 +227,23 @@ detail):
    (false positives via bare `index.lock` churn), the regex's risk profile
    runs in both directions: it can both over-fire on read-only commands and
    under-fire on a ref-packing write that doesn't touch a loose ref file.
+7. **Added post-review 2026-08-04 — the production port must NOT carry the
+   prototype's direct `@parcel/watcher` subscription; the `.git` watch has
+   to go through the app-owned watcher lifecycle/health seam.** The spike's
+   `watch-git.ts` only unsubscribes on `SIGINT` and logs callback errors —
+   it has no subscribe timeout, no late-cleanup handling once a root is
+   removed mid-subscribe, no ownership/reaping if the owning consumer goes
+   away, no root-disposal/shutdown cleanup path, no typed
+   failed/degraded/stopped health state, and no manual retry. A literal
+   port of that harness can leak a watcher (or keep emitting stale
+   invalidations) for a repo whose root was removed, with no visible
+   capability failure anywhere. **W2 acceptance criterion: the `.git`
+   metadata watcher from this ruling is stood up and torn down through the
+   same watcher lifecycle/health machinery the rest of the app uses — see
+   the watcher lifecycle section of `docs/agents/platform-contracts.md` and
+   the explorer watcher contract in
+   `docs/agents/explorer-search-tapestry.md` — not a bespoke
+   `@parcel/watcher` subscription.**
 
 ## Spike shortcuts taken
 
@@ -462,6 +479,22 @@ Added post-review 2026-08-04 (three cases the record missed):
   comment reads as though `''` were a meaningful "index" sentinel, which
   would invite a production port to preserve it. It isn't; hoist the `':0'`
   choice to one place instead.
+- **The 2 MB cap is a rendering cap, not a resource bound — it is checked
+  AFTER an unbounded full read.** `readSide` does `fs.readFile(join(...))`
+  (worktree side) or buffers the full `cat-file blob` output (ref side) and
+  only compares `buffer.length` against `CONTENT_CAP_BYTES` once the whole
+  file is already in memory; an untracked multi-GB file is read to
+  completion before the code marks it over-cap. The cap protects the
+  *rendered* diff from an oversized string, not the process from an
+  oversized read. A production port needs a bounded read (cap+1 bytes,
+  streaming, or a `stat`-then-truncate check before the read) rather than
+  this read-then-check order. **Not spike-only**: the production W1
+  `structuredFileDiff` engine's `readWorktreeFile`
+  (`apps/desktop/src/assistant-server/git-structured-diff.ts`) currently
+  shares this exact trait — it also does a full `fs.readFile` and checks
+  `content.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES` only after the
+  read completes. Recorded here as an acknowledged W1 follow-up, not fixed
+  in this pass.
 
 ## Answers to spec §10
 
