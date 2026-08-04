@@ -528,7 +528,6 @@
         "packages/file-system/src/__tests__/web-adapter.test.ts",
         "packages/file-tree-worker/src/bfs-engine.test.ts",
         "packages/file-tree-worker/src/bfs-engine.ts",
-        "packages/local-runtime/src/local-runtime-model-catalog.ts",
         "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
         "packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx",
         "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",

@@ -8,6 +8,6 @@ describe('local runtime model catalog architecture', () => {
   test('keeps the catalog service file under the source-file budget', () => {
     const lineCount = readFileSync(catalogFile, 'utf8').split('\n').length;
 
-    expect(lineCount).toBeLessThanOrEqual(1500);
+    expect(lineCount).toBeLessThanOrEqual(1000);
   });
 });

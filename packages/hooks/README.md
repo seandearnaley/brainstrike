@@ -42,7 +42,6 @@ function MyComponent() {
 ## Available Hooks
 
 - **useDebouncedValue**: Creates a debounced version of a value
-- **useQuickFilter**: Filters a tree of IFileNode with debounced include/exclude search
 - **useFileFilters**: Applies include or exclude filters to a file tree using globs or regex
 - **useLoadingManager**: Manages asynchronous loading state for a collection of keys
 

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 // rule landed are grandfathered in a single explicit override; this contract
 // keeps that baseline a shrink-only ratchet:
 // - entries are exact paths (no globs, including [] character classes)
-// - the entry count may only ever go down from the shipped 136
+// - the entry count may only ever go down from its shipped starting point
 // - every entry must still be flagged by Biome itself (`--only` force-runs the
 //   rule past the exemption), so refactored or deleted files fall out of the
 //   whitelist instead of quietly keeping a permanent exemption.
@@ -23,9 +23,9 @@ const biomeConfigPath = path.join(repoRoot, 'biome.json');
 const biomeBin = path.join(repoRoot, 'node_modules', '@biomejs', 'biome', 'bin', 'biome');
 const RULE = 'lint/style/noExcessiveLinesPerFile';
 const MAX_LINES = 1000;
-// The violator count when the rule shipped. Refactoring a file under the cap
-// removes its entry and lowers this ceiling; it must never go up.
-const MAX_BASELINE_ENTRIES = 134;
+// Current violator count. Refactoring a file under the cap removes its entry
+// and lowers this ceiling in lockstep; it must never go up. (Shipped at 136.)
+const MAX_BASELINE_ENTRIES = 133;
 
 function isRuleOff(configured) {
   return configured === 'off' || configured?.level === 'off';
