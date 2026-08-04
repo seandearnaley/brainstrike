@@ -6,6 +6,16 @@
  * touch the real filesystem, so those tests use a real temp directory. Real
  * end-to-end behavior against a real repo lives in
  * `git-service.integration.test.ts`.
+ *
+ * PATH SPACE: every `cat-file` spec below uses the `:./<path>` magic
+ * pathspec form (`HEAD:./x`, `:0:./x`) — see `git-structured-diff.ts`'s
+ * module doc comment. `readRefBlob` now size-PROBES (`cat-file -s <spec>`)
+ * before ever reading a blob, so a fake router branch on a spec generally
+ * needs to answer BOTH the probe (`args.includes('-s')`) and the actual
+ * `blob` read — EXCEPT for an absent/unmerged/over-cap side, where the probe
+ * alone determines the outcome and the `blob` sub-command is never invoked
+ * at all (a router with no matching branch for it will throw "unexpected
+ * invocation" if that invariant is ever violated).
  */
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
@@ -51,10 +61,14 @@ function ok(overrides: Partial<GitCommandRun> = {}): GitCommandRun {
 
 /**
  * A completely fake `GitCommandRunner` dispatched by a caller-supplied router.
- * `invokeHookFree` (used for the mutation-free-but-hook-disabling unified diff
- * call) always probes `config --null --name-only --get-regexp ...` first —
- * answer that transparently ("no configured hooks") so every router below only
- * has to handle the invocations it actually cares about.
+ * Two invocations are transparently answered before reaching the router, so
+ * every test only has to handle the invocations it actually cares about:
+ * - `invokeHookFree`'s `config --null --name-only --get-regexp ...` hook
+ *   probe ("no configured hooks").
+ * - `isPathUntracked`'s `rev-parse --show-prefix` (empty prefix — cwd IS the
+ *   repo root; the non-empty-prefix / sub-root case is exercised at the
+ *   integration level with a real repo, since it needs real git path-space
+ *   behavior, not a faked one).
  */
 function createFakeRunner(
   respond: (args: readonly string[], binaryStdout: boolean | undefined) => GitCommandRun
@@ -64,6 +78,9 @@ function createFakeRunner(
     calls.push({ args, binaryStdout });
     if (args[0] === 'config' && args.includes('--get-regexp')) {
       return Promise.resolve(ok({ exitCode: 1 }));
+    }
+    if (args[0] === 'rev-parse' && args.includes('--show-prefix')) {
+      return Promise.resolve(ok({ stdout: '' }));
     }
     return Promise.resolve(respond(args, binaryStdout));
   };
@@ -81,6 +98,10 @@ function isCatFile(args: readonly string[]): boolean {
   return args.includes('cat-file');
 }
 
+function isCatFileSizeProbe(args: readonly string[]): boolean {
+  return args.includes('cat-file') && args.includes('-s');
+}
+
 function isUnifiedDiff(args: readonly string[]): boolean {
   return args.includes('diff') && !args.includes('--numstat');
 }
@@ -89,23 +110,39 @@ function isStatus(args: readonly string[]): boolean {
   return args.includes('status');
 }
 
+/** Absent-side response: the SIZE PROBE itself fails, so the actual `blob`
+ * read is never reached at all. */
+function absentSpec(path_: string, atRef: 'HEAD' | 'index' = 'HEAD'): GitCommandRun {
+  return atRef === 'HEAD'
+    ? ok({ exitCode: 128, stderr: `fatal: path '${path_}' does not exist in 'HEAD'\n` })
+    : ok({
+        exitCode: 128,
+        stderr: `fatal: path '${path_}' does not exist (neither on disk nor in the index)\n`,
+      });
+}
+
+/** Present-side response for a given spec: answers the size probe with the
+ * real byte length, then the blob read with the actual content. */
+function presentSpec(args: readonly string[], content: Buffer): GitCommandRun {
+  return isCatFileSizeProbe(args)
+    ? ok({ stdout: `${content.byteLength}\n` })
+    : ok({ exitCode: 0, stdoutBuffer: content });
+}
+
 describe('structuredFileDiff — absent-side classification', () => {
-  it('classifies an added file: old side (HEAD:path) absent, new side present', async () => {
+  it('classifies an added file: old side (HEAD:./path) absent, new side present', async () => {
     const cwd = await makeTempDir();
+    const newContent = Buffer.from('a\nb\nc\n', 'utf8');
     const { calls, run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '3\t0\tadded.txt\0' });
       }
       if (isCatFile(args)) {
-        const spec = args[2] ?? '';
-        if (spec.startsWith('HEAD:')) {
-          // HEAD:added.txt never existed.
-          return ok({
-            exitCode: 128,
-            stderr: "fatal: path 'added.txt' does not exist in 'HEAD'\n",
-          });
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./added.txt') {
+          return absentSpec('added.txt');
         }
-        return ok({ exitCode: 0, stdoutBuffer: Buffer.from('a\nb\nc\n', 'utf8') });
+        return presentSpec(args, newContent);
       }
       if (isUnifiedDiff(args)) {
         return ok({
@@ -128,11 +165,15 @@ describe('structuredFileDiff — absent-side classification', () => {
       newContent: 'a\nb\nc\n',
       oldContent: null,
     });
-    // New side for staged mode is read via `:0:<path>`, not the worktree.
+    // New side for staged mode is read via `:0:./<path>`, not the worktree.
     const catFileCalls = calls.filter((c) => isCatFile(c.args));
-    expect(catFileCalls.map((c) => c.args[2])).toContain('HEAD:added.txt');
-    // Every cat-file blob read must request raw bytes, never a lossy utf8 decode.
-    for (const call of catFileCalls) {
+    expect(catFileCalls.map((c) => c.args.at(-1))).toContain('HEAD:./added.txt');
+    expect(catFileCalls.map((c) => c.args.at(-1))).toContain(':0:./added.txt');
+    // Only the actual blob READ requests raw bytes — the `-s` size probe is
+    // plain decimal text.
+    const blobReads = catFileCalls.filter((c) => c.args.includes('blob'));
+    expect(blobReads.length).toBeGreaterThan(0);
+    for (const call of blobReads) {
       expect(call.binaryStdout).toBe(true);
     }
   });
@@ -146,8 +187,10 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
         return ok({ stdout: '1\t1\tbroken.txt\0' });
       }
       if (isCatFile(args)) {
-        // A real read failure whose stderr does NOT match any absent pattern —
-        // must NOT be silently treated as "the file doesn't exist".
+        // A real read failure whose stderr does NOT match any absent or
+        // unmerged pattern — must NOT be silently treated as "the file
+        // doesn't exist". The SIZE PROBE fails this way, so the blob read
+        // is never reached.
         return ok({
           exitCode: 128,
           stderr: 'fatal: unable to read sha1 file for permission-denied object\n',
@@ -166,13 +209,19 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
     expect(result.error).toMatch(/permission-denied/);
   });
 
-  it('treats a maxBuffer overflow on a blob read as a hard failure, never a truncated success', async () => {
+  it('treats a maxBuffer overflow on the ACTUAL blob read as a hard failure, never a truncated success', async () => {
     const cwd = await makeTempDir();
     const { run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '1\t1\thuge.txt\0' });
       }
       if (isCatFile(args)) {
+        if (isCatFileSizeProbe(args)) {
+          // Probe reports a safe size, so the code proceeds to the actual
+          // read — which then unexpectedly overflows (e.g. a concurrent
+          // write grew the blob between the probe and the read).
+          return ok({ stdout: '10\n' });
+        }
         return ok({
           exitCode: null,
           failureReason: 'maxBuffer',
@@ -200,6 +249,13 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
         return ok({ stdout: '1\t0\tnobuf.txt\0' });
       }
       if (isCatFile(args)) {
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./nobuf.txt') {
+          return absentSpec('nobuf.txt');
+        }
+        if (isCatFileSizeProbe(args)) {
+          return ok({ stdout: '1\n' });
+        }
         // Contract violation: binaryStdout was requested and the exit is
         // clean, but the runner didn't populate stdoutBuffer at all.
         return ok({ exitCode: 0 });
@@ -219,6 +275,40 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
   });
 });
 
+describe('structuredFileDiff — unmerged stage-0 (real merge conflict) classification', () => {
+  it('surfaces ok:false naming the path, never status "deleted", when the new side has no stage-0 entry', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      if (isNumstat(args)) {
+        return ok({ stdout: '4\t0\tconflict.txt\0' });
+      }
+      if (isCatFile(args)) {
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./conflict.txt') {
+          return presentSpec(args, Buffer.from('from main\n', 'utf8'));
+        }
+        // :0:./conflict.txt — mid-merge-conflict, no stage-0 entry.
+        return ok({
+          exitCode: 128,
+          stderr: "fatal: path 'conflict.txt' is in the index, but not at stage 0\n",
+        });
+      }
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({ mode: 'staged', path: 'conflict.txt' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/unmerged path/);
+    expect(result.error).toMatch(/resolve merge conflicts/);
+    expect(result.error).toContain('conflict.txt');
+  });
+});
+
 describe('structuredFileDiff — binary detection via stdoutBuffer null byte', () => {
   it('classifies content as binary when either present side contains a null byte', async () => {
     const cwd = await makeTempDir();
@@ -228,14 +318,11 @@ describe('structuredFileDiff — binary detection via stdoutBuffer null byte', (
         return ok({ stdout: '-\t-\timage.png\0' });
       }
       if (isCatFile(args)) {
-        const spec = args[2] ?? '';
-        if (spec.startsWith('HEAD:')) {
-          return ok({
-            exitCode: 128,
-            stderr: "fatal: path 'image.png' does not exist in 'HEAD'\n",
-          });
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./image.png') {
+          return absentSpec('image.png');
         }
-        return ok({ exitCode: 0, stdoutBuffer: binaryBytes });
+        return presentSpec(args, binaryBytes);
       }
       throw new Error(`unexpected invocation: ${args.join(' ')}`);
     });
@@ -253,7 +340,7 @@ describe('structuredFileDiff — binary detection via stdoutBuffer null byte', (
     expect(result.value.deletions).toBeNull();
   });
 
-  it('classifies untracked binary content the same way, without any git cat-file call', async () => {
+  it('classifies untracked binary content the same way, without any git invocation at all', async () => {
     const cwd = await makeTempDir();
     await fsPromises.writeFile(path.join(cwd, 'bin.dat'), Buffer.from([0x00, 0x01, 0x02]));
     const { calls, run } = createFakeRunner((args) => {
@@ -273,20 +360,20 @@ describe('structuredFileDiff — binary detection via stdoutBuffer null byte', (
   });
 });
 
-describe('structuredFileDiff — cap boundary', () => {
+describe('structuredFileDiff — cap boundary (size-probed, never over-reading a blob)', () => {
   it('a side exactly at the cap stays "full"', async () => {
     const cwd = await makeTempDir();
-    const exact = 'a'.repeat(STRUCTURED_DIFF_CONTENT_CAP_BYTES);
+    const exact = Buffer.from('a'.repeat(STRUCTURED_DIFF_CONTENT_CAP_BYTES), 'utf8');
     const { run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '1\t0\tbig.txt\0' });
       }
       if (isCatFile(args)) {
-        const spec = args[2] ?? '';
-        if (spec.startsWith('HEAD:')) {
-          return ok({ exitCode: 128, stderr: "fatal: path 'big.txt' does not exist in 'HEAD'\n" });
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./big.txt') {
+          return absentSpec('big.txt');
         }
-        return ok({ exitCode: 0, stdoutBuffer: Buffer.from(exact, 'utf8') });
+        return presentSpec(args, exact);
       }
       if (isUnifiedDiff(args)) {
         return ok({ stdout: 'diff --git a/big.txt b/big.txt\n@@ -0,0 +1,1 @@\n+a\n' });
@@ -304,19 +391,19 @@ describe('structuredFileDiff — cap boundary', () => {
     expect(result.value.content.kind).toBe('full');
   });
 
-  it('one byte over the cap degrades to hunks-only with reason over-cap-new', async () => {
+  it('one byte over the cap degrades to hunks-only with reason over-cap-new, WITHOUT ever reading the blob', async () => {
     const cwd = await makeTempDir();
-    const overCap = 'a'.repeat(STRUCTURED_DIFF_CONTENT_CAP_BYTES + 1);
-    const { run } = createFakeRunner((args) => {
+    const { calls, run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '1\t0\tbig.txt\0' });
       }
       if (isCatFile(args)) {
-        const spec = args[2] ?? '';
-        if (spec.startsWith('HEAD:')) {
-          return ok({ exitCode: 128, stderr: "fatal: path 'big.txt' does not exist in 'HEAD'\n" });
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./big.txt') {
+          return absentSpec('big.txt');
         }
-        return ok({ exitCode: 0, stdoutBuffer: Buffer.from(overCap, 'utf8') });
+        // New side: the size probe alone reports over-cap — no buffer needed.
+        return ok({ stdout: `${STRUCTURED_DIFF_CONTENT_CAP_BYTES + 1}\n` });
       }
       if (isUnifiedDiff(args)) {
         return ok({ stdout: 'diff --git a/big.txt b/big.txt\n@@ -0,0 +1,1 @@\n+a\n' });
@@ -336,17 +423,19 @@ describe('structuredFileDiff — cap boundary', () => {
       expect(result.value.content.reason).toBe('over-cap-new');
     }
     expect(result.value.hunks).toEqual([{ newLines: 1, newStart: 1, oldLines: 0, oldStart: 0 }]);
+    // The size probe determined "over cap" alone — the `blob` sub-command
+    // must never have been invoked for the new side.
+    expect(calls.some((c) => isCatFile(c.args) && c.args.includes('blob'))).toBe(false);
   });
 
-  it('both sides over cap report reason over-cap-both', async () => {
+  it('both sides over cap report reason over-cap-both, WITHOUT ever reading either blob', async () => {
     const cwd = await makeTempDir();
-    const overCap = 'a'.repeat(STRUCTURED_DIFF_CONTENT_CAP_BYTES + 1);
-    const { run } = createFakeRunner((args) => {
+    const { calls, run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '1\t1\tbig.txt\0' });
       }
       if (isCatFile(args)) {
-        return ok({ exitCode: 0, stdoutBuffer: Buffer.from(overCap, 'utf8') });
+        return ok({ stdout: `${STRUCTURED_DIFF_CONTENT_CAP_BYTES + 1}\n` });
       }
       if (isUnifiedDiff(args)) {
         return ok({ stdout: 'diff --git a/big.txt b/big.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n' });
@@ -365,21 +454,22 @@ describe('structuredFileDiff — cap boundary', () => {
     if (result.value.content.kind === 'hunks-only') {
       expect(result.value.content.reason).toBe('over-cap-both');
     }
+    expect(calls.some((c) => isCatFile(c.args) && c.args.includes('blob'))).toBe(false);
   });
 
   it('only the old side over cap reports reason over-cap-old', async () => {
     const cwd = await makeTempDir();
-    const overCap = 'a'.repeat(STRUCTURED_DIFF_CONTENT_CAP_BYTES + 1);
+    const smallContent = Buffer.from('small\n', 'utf8');
     const { run } = createFakeRunner((args) => {
       if (isNumstat(args)) {
         return ok({ stdout: '0\t1\tbig.txt\0' });
       }
       if (isCatFile(args)) {
-        const spec = args[2] ?? '';
-        if (spec.startsWith('HEAD:')) {
-          return ok({ exitCode: 0, stdoutBuffer: Buffer.from(overCap, 'utf8') });
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./big.txt') {
+          return ok({ stdout: `${STRUCTURED_DIFF_CONTENT_CAP_BYTES + 1}\n` });
         }
-        return ok({ exitCode: 0, stdoutBuffer: Buffer.from('small\n', 'utf8') });
+        return presentSpec(args, smallContent);
       }
       if (isUnifiedDiff(args)) {
         return ok({ stdout: 'diff --git a/big.txt b/big.txt\n@@ -1,1 +1,1 @@\n-a\n+small\n' });
@@ -415,11 +505,11 @@ describe('structuredFileDiff — a maxBuffer overflow on the diff invocation for
         return ok({ stdout: '1\t1\tsmall.txt\0' });
       }
       if (isCatFile(args)) {
-        const spec = args[2] ?? '';
-        if (spec.startsWith('HEAD:')) {
-          return ok({ exitCode: 0, stdoutBuffer: Buffer.from('a\n', 'utf8') });
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./small.txt') {
+          return presentSpec(args, Buffer.from('a\n', 'utf8'));
         }
-        return ok({ exitCode: 0, stdoutBuffer: Buffer.from('b\n', 'utf8') });
+        return presentSpec(args, Buffer.from('b\n', 'utf8'));
       }
       if (isUnifiedDiff(args)) {
         // Both sides are trivially small (2 bytes each), but the DIFF
@@ -465,11 +555,11 @@ describe('structuredFileDiff — rename oldPath read routing', () => {
         return ok({ stdout: '1\t1\t\0old.txt\0new.txt\0' });
       }
       if (isCatFile(args)) {
-        const spec = args[2] ?? '';
-        if (spec === 'HEAD:old.txt') {
-          return ok({ exitCode: 0, stdoutBuffer: Buffer.from('line1\nline2\n', 'utf8') });
+        const spec = args.at(-1) ?? '';
+        if (spec === 'HEAD:./old.txt') {
+          return presentSpec(args, Buffer.from('line1\nline2\n', 'utf8'));
         }
-        return ok({ exitCode: 0, stdoutBuffer: Buffer.from('line1\nline2-edited\n', 'utf8') });
+        return presentSpec(args, Buffer.from('line1\nline2-edited\n', 'utf8'));
       }
       if (isUnifiedDiff(args)) {
         expect(args).toEqual(expect.arrayContaining(['--', 'old.txt', 'new.txt']));
@@ -495,9 +585,9 @@ describe('structuredFileDiff — rename oldPath read routing', () => {
       newContent: 'line1\nline2-edited\n',
       oldContent: 'line1\nline2\n',
     });
-    const oldSideSpec = calls.find((c) => isCatFile(c.args) && c.args[2] === 'HEAD:old.txt');
+    const oldSideSpec = calls.find((c) => isCatFile(c.args) && c.args.at(-1) === 'HEAD:./old.txt');
     expect(oldSideSpec).toBeDefined();
-    const newSideSpec = calls.find((c) => isCatFile(c.args) && c.args[2] === ':0:new.txt');
+    const newSideSpec = calls.find((c) => isCatFile(c.args) && c.args.at(-1) === ':0:./new.txt');
     expect(newSideSpec).toBeDefined();
   });
 });

@@ -1608,7 +1608,10 @@ describe('git service — structuredFileDiff (real repos)', () => {
       return;
     }
     expect(result.value.status).toBe('untracked');
-    expect(result.value.additions).toBe(lineCount);
+    // The stat-size guard means an over-cap file's bytes are never read, so
+    // there is nothing to count lines from — `additions` is honestly `null`
+    // (the type allows it), not a fabricated line count.
+    expect(result.value.additions).toBeNull();
     expect(result.value.deletions).toBe(0);
     expect(result.value.hunks).toEqual([]);
     expect(result.value.content.kind).toBe('hunks-only');
@@ -1821,4 +1824,102 @@ describe('git service — structuredFileDiff (real repos)', () => {
       });
     }
   );
+
+  it('cwd is a SUBDIRECTORY of the worktree — working-mode diff of a file inside it succeeds with correct content', async () => {
+    const repo = await makeRepo();
+    await fsPromises.mkdir(path.join(repo, 'sub', 'dir'), { recursive: true });
+    await writeFile(repo, 'sub/dir/file.txt', 'line1\nline2\nline3\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await writeFile(repo, 'sub/dir/file.txt', 'line1\nline2-edited\nline3\n');
+
+    // The service is created with cwd PINNED TO THE SUBDIRECTORY, not the
+    // worktree root — git's own numstat/diff/cat-file output is repo-root-
+    // relative by default (see the module doc comment's PATH SPACE section);
+    // `path` here is deliberately cwd-relative ("file.txt", not
+    // "sub/dir/file.txt") to prove the sub-root fix actually resolves it.
+    const subService = serviceFor(path.join(repo, 'sub', 'dir'));
+    const result = await subService.structuredFileDiff({ mode: 'working', path: 'file.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('modified');
+    expect(result.value.path).toBe('file.txt');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-edited\nline3\n',
+      oldContent: 'line1\nline2\nline3\n',
+    });
+    expect(result.value.hunks).toEqual([{ newLines: 3, newStart: 1, oldLines: 3, oldStart: 1 }]);
+  });
+
+  it('a tracked file over 4MB at HEAD degrades to hunks-only, never an error (size-probed, never read past the cap)', async () => {
+    const repo = await makeRepo();
+    const line = `${'y'.repeat(100)}\n`;
+    const lineCount = 45_000; // ~4.5MB — over the OLD hard maxBuffer ceiling (GIT_MAX_BUFFER_BYTES, 4MB).
+    await writeFile(repo, 'huge.txt', line.repeat(lineCount));
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'add huge file'], { cwd: repo });
+    // New side is deliberately SMALL (a near-total deletion) so only the OLD
+    // side is over cap — proves the size probe gates each side independently
+    // rather than only ever tripping when both sides happen to be huge.
+    await writeFile(repo, 'huge.txt', 'shrunk\n');
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'huge.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content.kind).toBe('hunks-only');
+    if (result.value.content.kind !== 'hunks-only') {
+      return;
+    }
+    expect(result.value.content.reason).toBe('over-cap-old');
+  });
+
+  it('an unresolved merge conflict (staged mode) surfaces ok:false naming the path, never status "deleted"', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'conflict.txt', 'base\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    const { stdout: originalBranch } = await execFileAsync(
+      'git',
+      ['symbolic-ref', '--short', 'HEAD'],
+      { cwd: repo }
+    );
+
+    await execFileAsync('git', ['checkout', '-qb', 'branch-a'], { cwd: repo });
+    await writeFile(repo, 'conflict.txt', 'from branch-a\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'branch-a change'], { cwd: repo });
+
+    await execFileAsync('git', ['checkout', '-q', originalBranch.trim()], { cwd: repo });
+    await writeFile(repo, 'conflict.txt', 'from main\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'main change'], { cwd: repo });
+
+    await execFileAsync('git', ['merge', '-q', 'branch-a'], { cwd: repo }).catch(() => {
+      // A conflicting merge exits non-zero — expected, that's the fixture.
+    });
+
+    // Only `staged` mode's new side is addressed via `:0:<path>` (the index
+    // stage syntax) — `working` mode reads the raw worktree file (which
+    // still exists, conflict markers and all) and HEAD via the tree syntax,
+    // neither of which can ever produce the "not at stage" wording. The
+    // unmerged classification is therefore inherently staged-mode-specific.
+    const staged = await serviceFor(repo).structuredFileDiff({
+      mode: 'staged',
+      path: 'conflict.txt',
+    });
+    expect(staged.ok).toBe(false);
+    if (staged.ok) {
+      return;
+    }
+    expect(staged.error).toMatch(/unmerged path/);
+    expect(staged.error).toMatch(/resolve merge conflicts/);
+    expect(staged.error).toContain('conflict.txt');
+  });
 });

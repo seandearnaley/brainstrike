@@ -154,7 +154,7 @@ export function toErrorMessage(error: unknown): string {
 }
 
 /** Remove Git's platform record terminator without consuming a POSIX literal CR. */
-function stripLineEnding(value: string): string {
+export function stripLineEnding(value: string): string {
   if (!value.endsWith('\n')) {
     return value;
   }
@@ -427,7 +427,14 @@ export function parsePorcelainV2Z(stdout: string): Omit<GitStatus, 'isRepository
   };
 }
 
-function scopeStatusPaths(
+/**
+ * Rebase git-reported (repo-root-relative) status paths onto `repositoryPrefix`
+ * (the `rev-parse --show-prefix` value for the invocation `cwd`) so every path
+ * this service surfaces is relative to the SAME base the caller passed in —
+ * exported for `git-structured-diff.ts`'s `isPathUntracked`, which needs the
+ * identical cwd-relative rebasing for status paths.
+ */
+export function scopeStatusPaths(
   status: Omit<GitStatus, 'isRepository'>,
   repositoryPrefix: string
 ): GitResult<Omit<GitStatus, 'isRepository'>> {

@@ -414,27 +414,26 @@ describe('git IPC handlers — structuredFileDiff (fake runner, arg + cwd passth
         });
       }
       if (args.includes('cat-file')) {
-        const spec = args[2] ?? '';
-        if (spec.startsWith('HEAD:')) {
-          return binaryStdout
-            ? Promise.resolve({
-                exitCode: 0,
-                stderr: '',
-                stdout: '',
-                stdoutBuffer: Buffer.from('old\n', 'utf8'),
-                timedOut: false,
-              })
-            : Promise.resolve({ exitCode: 0, stderr: '', stdout: 'old\n', timedOut: false });
+        const spec = args.at(-1) ?? '';
+        const content = spec.startsWith('HEAD:') ? 'old\n' : 'new\n';
+        if (args.includes('-s')) {
+          // Size probe (fix B): plain decimal text, never `binaryStdout`.
+          return Promise.resolve({
+            exitCode: 0,
+            stderr: '',
+            stdout: `${Buffer.byteLength(content, 'utf8')}\n`,
+            timedOut: false,
+          });
         }
         return binaryStdout
           ? Promise.resolve({
               exitCode: 0,
               stderr: '',
               stdout: '',
-              stdoutBuffer: Buffer.from('new\n', 'utf8'),
+              stdoutBuffer: Buffer.from(content, 'utf8'),
               timedOut: false,
             })
-          : Promise.resolve({ exitCode: 0, stderr: '', stdout: 'new\n', timedOut: false });
+          : Promise.resolve({ exitCode: 0, stderr: '', stdout: content, timedOut: false });
       }
       if (args.includes('diff')) {
         return Promise.resolve({
@@ -467,14 +466,16 @@ describe('git IPC handlers — structuredFileDiff (fake runner, arg + cwd passth
     for (const call of calls) {
       expect(call.cwd).toBe(dir);
     }
-    // The `HEAD:<path>` cat-file spec proves `path` flowed through the
-    // handler unmodified. (The numstat call is deliberately root-scoped
-    // `-- .` — see `resolveNumstatEntry`'s doc comment — and is invariant to
-    // `path`, so asserting on IT would prove nothing about passthrough.)
+    // The `HEAD:./<path>` cat-file spec proves `path` flowed through the
+    // handler unmodified (the `./` magic pathspec form resolves against cwd —
+    // see `git-structured-diff.ts`'s module doc comment). (The numstat call
+    // is deliberately root-scoped `-- .` — see `resolveNumstatEntry`'s doc
+    // comment — and is invariant to `path`, so asserting on IT would prove
+    // nothing about passthrough.)
     const catFileCall = calls.find(
-      (call) => call.args.includes('cat-file') && call.args[2]?.startsWith('HEAD:')
+      (call) => call.args.includes('cat-file') && call.args.at(-1)?.startsWith('HEAD:')
     );
-    expect(catFileCall?.args[2]).toBe('HEAD:file.txt');
+    expect(catFileCall?.args.at(-1)).toBe('HEAD:./file.txt');
   });
 
   it('rejects an unknown params shape without reaching the service (unsupported keys)', async () => {
@@ -574,6 +575,11 @@ describe('git IPC runner — pinned repository environment', () => {
       GIT_SSH_COMMAND: 'ssh -F /outside/config',
       GIT_TERMINAL_PROMPT: '0',
       HOME: '/Users/example',
+      // Pinned so git's stderr wording stays stable for the structured-diff
+      // engine's programmatic parsing (absent-classification, unmerged
+      // detection, `isNotARepository`) regardless of the host OS locale.
+      LANG: 'C',
+      LC_ALL: 'C',
       SSH_AUTH_SOCK: '/tmp/agent.sock',
     });
     expect(environment.GIT_DIR).toBeUndefined();

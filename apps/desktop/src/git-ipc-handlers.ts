@@ -86,6 +86,13 @@ export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.Pr
   environment['GIT_OPTIONAL_LOCKS'] = '0';
   environment['GIT_LITERAL_PATHSPECS'] = '1';
   environment['GIT_TERMINAL_PROMPT'] = '0';
+  // The structured-diff engine parses git's stderr programmatically (absent
+  // vs. real-error classification, `isNotARepository`) — a localized git
+  // (e.g. a French or German OS locale) emits translated messages that would
+  // silently break every one of those pattern matches. Pin to the C locale so
+  // stderr wording is stable regardless of the host's configured locale.
+  environment['LC_ALL'] = 'C';
+  environment['LANG'] = 'C';
   return environment;
 }
 
