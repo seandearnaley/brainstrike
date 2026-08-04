@@ -30,17 +30,22 @@
  * every DESCENDANT NODE id (files AND groups) to the selection set on a
  * parent toggle, which would pollute the store.
  *
- * CONTEXT MENU SEAM (for Task D — do not implement here, do not touch
- * `packages/context-actions/src/types.ts`): TreeTable already exposes
- * `onRowContextMenu?: (nodeId, node, event) => void`, which this component
- * intentionally leaves unset. Task D wires a `contextmenu` handler by
- * passing that prop on the `<TreeTable>` below, switching on
- * `node.data.kind` — `'file'` maps to a `changed-file` `ContextTarget` from
- * `node.data.entry`, `'worktree'` maps to a `worktree` `ContextTarget` from
- * `node.data.worktreePath`/`node.data.descriptor`. No restructuring needed.
+ * CONTEXT MENU: rows claim a `ContextTarget` synchronously in
+ * `onRowContextMenu` (`'file'` -> `changed-file`, `'worktree'` -> `worktree`),
+ * following `docs/agents/ui-conventions.md`'s recipe and
+ * `optimized-file-tree.tsx`'s wiring: a capture-phase reset on the container
+ * clears the target before any row handler runs, so an unclaimed right-click
+ * (a repository or root group row, or a worktree with no resolved descriptor)
+ * leaves the target `null` and `ActionContextMenu` suppresses the empty menu
+ * rather than showing a dead one. `setTarget` is destructured because the
+ * controller object is NOT referentially stable, and an unstable handler here
+ * would defeat TreeTable's row memoization.
  */
+
+import type { ContextTarget } from '@brainstrike/context-actions';
 import type { ChangedFileEntry, ChangedFileStatus, GitInventory } from '@brainstrike/types';
 import {
+  ActionContextMenu,
   Badge,
   LoadingFallback,
   Tooltip,
@@ -51,6 +56,7 @@ import {
   type TreeTableCheckboxNextState,
   type TreeTableCheckboxRenderState,
   type TreeTableColumn,
+  useContextMenuTarget,
 } from '@brainstrike/ui';
 import { AlertTriangle } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -60,9 +66,16 @@ import {
   type ChangedFilesTreeNode,
   type ChangedFilesTreeNodeData,
   type ChangedFilesWorktreeNodeData,
+  repositoryRootFromNodeId,
 } from './changed-files-tree-model';
 
 export interface ChangedFilesTreeProps {
+  /**
+   * Structural identity of the active changeset. Scopes the first-load
+   * auto-expand so switching source re-expands the NEW tree instead of
+   * leaving it collapsed (the surface stays mounted for the whole session).
+   */
+  readonly changesetKey: string;
   readonly files: readonly ChangedFileEntry[];
   readonly inventory: GitInventory | null;
   readonly loading?: boolean;
@@ -302,7 +315,46 @@ function describeGroupNode(data: ChangedFilesTreeNodeData): string {
   }
 }
 
+/**
+ * Node -> `ContextTarget` adapter. Returns `null` for any row that has no
+ * actionable identity — group rows, and a worktree whose descriptor the
+ * inventory has not resolved (its `name`/`trust` are genuinely unknown, and
+ * fabricating them to satisfy the target shape is exactly the silent
+ * degradation this surface must not do).
+ */
+function nodeToContextTarget(node: ChangedFilesTreeNode): ContextTarget | null {
+  if (node.data.kind === 'file') {
+    const { entry } = node.data;
+    return {
+      kind: 'changed-file',
+      path: entry.path,
+      repositoryRoot: entry.repositoryRoot,
+      rootId: entry.rootId,
+      worktreePath: entry.worktreePath,
+    };
+  }
+  if (node.data.kind === 'worktree') {
+    const { descriptor } = node.data;
+    const repositoryRoot = repositoryRootFromNodeId(node.parentId);
+    if (!(descriptor && repositoryRoot)) {
+      return null;
+    }
+    return {
+      branch: descriptor.branch,
+      containment: descriptor.containment,
+      kind: 'worktree',
+      name: descriptor.name,
+      path: descriptor.path,
+      repositoryRoot,
+      trust: descriptor.trust,
+      trustReason: descriptor.trustReason,
+    };
+  }
+  return null;
+}
+
 export function ChangedFilesTree({
+  changesetKey,
   files,
   inventory,
   loading = false,
@@ -320,21 +372,39 @@ export function ChangedFilesTree({
     () => nodes.filter((node) => node.data.kind !== 'file').map((node) => node.id),
     [nodes]
   );
-  // Expand everything on first load of a changeset, without stomping state
-  // the user (or a previous mount) already set. Runs at most once per
-  // component instance — see the module doc comment's module-vs-instance
-  // note for why "first load" is scoped to the mount, not the changeset id.
-  const hasAutoExpandedRef = useRef(false);
+  // Expand everything on the first POPULATED render of each changeset.
+  //
+  // Scoped to `changesetKey`, not to the mount: the surface stays mounted for
+  // the whole session (`KeepMountedRoute`), so a mount-scoped latch would
+  // auto-expand only the first changeset the user ever opened.
+  //
+  // The latch is written only AFTER the bail-outs. The tree mounts the instant
+  // a changeset is selected, while `useChangeset`'s view is still resolving —
+  // so the first run always sees `files === []` and no group nodes. Latching
+  // before that check burns the one shot on an empty tree and leaves the real
+  // file list collapsed forever.
+  const autoExpandedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (hasAutoExpandedRef.current) {
+    if (autoExpandedKeyRef.current === changesetKey || groupNodeIds.length === 0) {
       return;
     }
-    hasAutoExpandedRef.current = true;
-    if (expandedIds.size > 0 || groupNodeIds.length === 0) {
-      return;
-    }
+    autoExpandedKeyRef.current = changesetKey;
     setExpandedIds(new Set(groupNodeIds));
-  }, []);
+  }, [changesetKey, groupNodeIds, setExpandedIds]);
+
+  // Destructure `setTarget` (stable) rather than depending on the controller
+  // object, which is not referentially stable — see the module doc comment.
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+  const handleRowContextMenu = useCallback(
+    (_nodeId: string, node: ChangedFilesTreeNode) => {
+      setContextMenuTarget(nodeToContextTarget(node));
+    },
+    [setContextMenuTarget]
+  );
+  const resetContextMenuTarget = useCallback(() => {
+    setContextMenuTarget(null);
+  }, [setContextMenuTarget]);
 
   const getCheckboxState = useCallback(
     (node: ChangedFilesTreeNode): TreeTableCheckboxRenderState => {
@@ -393,18 +463,30 @@ export function ChangedFilesTree({
   }
 
   return (
-    <TreeTable
-      ariaLabel="Changed files"
-      columns={CHANGED_FILES_TREE_COLUMNS}
-      emptyState={<EmptyChangedFiles />}
-      expandedIds={expandedIds}
-      getCheckboxAriaLabel={getCheckboxAriaLabel}
-      getCheckboxState={getCheckboxState}
-      nodes={nodes as ChangedFilesTreeNode[]}
-      onCheckboxChange={handleCheckboxChange}
-      onToggleExpand={toggleExpanded}
-      selectionMode="none"
-      showCheckbox={true}
-    />
+    <ActionContextMenu controller={contextMenuController}>
+      {/* Capture-phase reset runs BEFORE any row handler, so every
+          right-click starts from a clean target and an unclaimed one
+          suppresses the menu instead of reusing the previous row's. */}
+      <div
+        className="h-full min-h-0"
+        data-testid="changed-files-tree"
+        onContextMenuCapture={resetContextMenuTarget}
+      >
+        <TreeTable
+          ariaLabel="Changed files"
+          columns={CHANGED_FILES_TREE_COLUMNS}
+          emptyState={<EmptyChangedFiles />}
+          expandedIds={expandedIds}
+          getCheckboxAriaLabel={getCheckboxAriaLabel}
+          getCheckboxState={getCheckboxState}
+          nodes={nodes as ChangedFilesTreeNode[]}
+          onCheckboxChange={handleCheckboxChange}
+          onRowContextMenu={handleRowContextMenu}
+          onToggleExpand={toggleExpanded}
+          selectionMode="none"
+          showCheckbox={true}
+        />
+      </div>
+    </ActionContextMenu>
   );
 }

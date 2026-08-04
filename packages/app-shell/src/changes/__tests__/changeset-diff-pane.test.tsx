@@ -101,7 +101,12 @@ describe('ChangesetDiffPane', () => {
     );
 
     render(
-      <ChangesetDiffPane changesetKind="git-scope" files={files} loadFileDiff={loadFileDiff} />
+      <ChangesetDiffPane
+        changesetKey="test-changeset"
+        changesetKind="git-scope"
+        files={files}
+        loadFileDiff={loadFileDiff}
+      />
     );
 
     const cards = await screen.findAllByTestId('changeset-file-diff-card');
@@ -130,7 +135,12 @@ describe('ChangesetDiffPane', () => {
     );
 
     render(
-      <ChangesetDiffPane changesetKind="git-scope" files={files} loadFileDiff={loadFileDiff} />
+      <ChangesetDiffPane
+        changesetKey="test-changeset"
+        changesetKind="git-scope"
+        files={files}
+        loadFileDiff={loadFileDiff}
+      />
     );
 
     const cards = await screen.findAllByTestId('changeset-file-diff-card');
@@ -151,7 +161,12 @@ describe('ChangesetDiffPane', () => {
     });
 
     render(
-      <ChangesetDiffPane changesetKind="git-scope" files={files} loadFileDiff={loadFileDiff} />
+      <ChangesetDiffPane
+        changesetKey="test-changeset"
+        changesetKind="git-scope"
+        files={files}
+        loadFileDiff={loadFileDiff}
+      />
     );
 
     await waitFor(() => {
@@ -164,7 +179,12 @@ describe('ChangesetDiffPane', () => {
     const loadFileDiff = vi.fn<() => Promise<GitResult<StructuredFileDiff>>>();
 
     const { rerender } = render(
-      <ChangesetDiffPane changesetKind="git-scope" files={[]} loadFileDiff={loadFileDiff} />
+      <ChangesetDiffPane
+        changesetKey="test-changeset"
+        changesetKind="git-scope"
+        files={[]}
+        loadFileDiff={loadFileDiff}
+      />
     );
 
     expect(screen.getByTestId('changeset-diff-pane-empty-changeset')).toHaveTextContent(
@@ -173,15 +193,24 @@ describe('ChangesetDiffPane', () => {
     expect(screen.queryByTestId('changeset-diff-pane-empty-selection')).not.toBeInTheDocument();
 
     const files = [makeEntry({ path: 'src/a.ts' })];
-    // A selection that names no file in the current list ⇒ "nothing selected",
-    // a DIFFERENT fact from "changeset has no files".
+    // A selection that names no file in the current list ⇒ "the selection
+    // matches nothing", a DIFFERENT fact from "changeset has no files". The
+    // copy deliberately does NOT say "no files selected": a selection carried
+    // over from a previous changeset is non-empty, and telling the user they
+    // selected nothing while the tree shows unchecked boxes is the dishonest
+    // state this pane exists to avoid.
     useChangesStore.getState().setSelectedFileKeys(new Set(['nonexistent-key']));
     rerender(
-      <ChangesetDiffPane changesetKind="git-scope" files={files} loadFileDiff={loadFileDiff} />
+      <ChangesetDiffPane
+        changesetKey="test-changeset"
+        changesetKind="git-scope"
+        files={files}
+        loadFileDiff={loadFileDiff}
+      />
     );
 
     expect(screen.getByTestId('changeset-diff-pane-empty-selection')).toHaveTextContent(
-      'No files selected'
+      'No files match the current selection'
     );
     expect(screen.queryByTestId('changeset-diff-pane-empty-changeset')).not.toBeInTheDocument();
   });

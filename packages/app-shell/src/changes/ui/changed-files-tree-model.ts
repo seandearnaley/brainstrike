@@ -95,8 +95,21 @@ function rootNodeId(rootId: string): string {
   return `root:${rootId}`;
 }
 
+/** Node-id prefix for repository group rows. Exported so a consumer can
+ * recover the owning repository of a child row from `TreeNode.parentId`
+ * without the model having to duplicate `repositoryRoot` onto every node. */
+export const REPOSITORY_NODE_ID_PREFIX = 'repo:';
+
 function repositoryNodeId(repositoryRoot: string): string {
-  return `repo:${repositoryRoot}`;
+  return `${REPOSITORY_NODE_ID_PREFIX}${repositoryRoot}`;
+}
+
+/** Inverse of {@link repositoryNodeId}; `null` for any id that is not a repository row. */
+export function repositoryRootFromNodeId(nodeId: string | null): string | null {
+  if (nodeId === null || !nodeId.startsWith(REPOSITORY_NODE_ID_PREFIX)) {
+    return null;
+  }
+  return nodeId.slice(REPOSITORY_NODE_ID_PREFIX.length);
 }
 
 function worktreeNodeId(worktreePath: string): string {

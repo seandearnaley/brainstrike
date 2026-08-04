@@ -16,9 +16,15 @@
  * is a live, shared object, so mutating its `cell` field takes effect
  * immediately without touching how `ChangedFilesTree` references it.
  */
+import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { ChangedFileEntry } from '@brainstrike/types';
-import type { TreeTableCellProps, TreeTableColumn } from '@brainstrike/ui';
+import {
+  ActionRegistryProvider,
+  type TreeTableCellProps,
+  type TreeTableColumn,
+} from '@brainstrike/ui';
 import { act, render } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { changedFileKey, useChangesStore } from '../changes-store';
@@ -51,6 +57,15 @@ vi.mock('@tanstack/react-virtual', () => {
     }),
   };
 });
+
+// `ChangedFilesTree` mounts an `ActionContextMenu`, whose `useActionRegistry`
+// throws without a provider — same wrapper discipline as
+// `file-explorer-ui/src/__tests__/test-helpers.tsx`.
+const testActionRegistry = createTestActionRegistry().registry;
+
+function withRegistry(node: ReactElement): ReactElement {
+  return <ActionRegistryProvider registry={testActionRegistry}>{node}</ActionRegistryProvider>;
+}
 
 function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   return {
@@ -100,19 +115,31 @@ describe('ChangedFilesTree row render stability', () => {
   ];
 
   it('does not re-render row cells when ChangedFilesTree re-renders with unchanged props', () => {
-    const view = render(<ChangedFilesTree files={files} inventory={null} />);
+    const view = render(
+      withRegistry(
+        <ChangedFilesTree changesetKey="test-changeset" files={files} inventory={null} />
+      )
+    );
     const rendersAfterMount = cellRenders.mock.calls.length;
     expect(rendersAfterMount).toBeGreaterThan(0);
 
     // Same element, same prop identities (files/inventory unchanged) — the
     // memo'd rows must bail out.
-    view.rerender(<ChangedFilesTree files={files} inventory={null} />);
+    view.rerender(
+      withRegistry(
+        <ChangedFilesTree changesetKey="test-changeset" files={files} inventory={null} />
+      )
+    );
 
     expect(cellRenders.mock.calls.length).toBe(rendersAfterMount);
   });
 
   it('does not re-render an unaffected row when toggling one row checkbox', () => {
-    render(<ChangedFilesTree files={files} inventory={null} />);
+    render(
+      withRegistry(
+        <ChangedFilesTree changesetKey="test-changeset" files={files} inventory={null} />
+      )
+    );
 
     const targetEntry = files[0];
     const untouchedEntry = files[2];

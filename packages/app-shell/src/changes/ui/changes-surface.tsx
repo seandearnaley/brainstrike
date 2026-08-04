@@ -8,37 +8,36 @@
  * second source of truth: `rootDirectoryHandle.rootId`, falling back to the
  * path->id map for legacy single-root handles.
  *
- * THREAD/RUN IDENTITY (honest gap, not a fabrication): "Last Turn" needs the
- * active thread id and its most recent run id. Both are scoped inside the
- * assistant panel's own resourceId-keyed store (`assistant-thread-store.ts`),
- * which this surface — a SIBLING top-level page, not nested under the
- * assistant panel wrapper — has no reachable resourceId to read from without
- * new plumbing through `root-layout-content.tsx` (outside this task's file
- * list, same root cause as the absent "Undo turn" action in
- * `changeset-header.tsx`). Passing fabricated ids would violate NO SILENT
- * FALLBACKS, so both are `null` here; the source picker already renders
- * "Last Turn" disabled-with-reason when they are. Tracked as a follow-up.
+ * THREAD/RUN IDENTITY: the assistant panel's thread store is resourceId-keyed
+ * and this surface is a SIBLING top-level page, so it cannot read the "active
+ * thread" directly. It does not fabricate one either. Instead the identity
+ * arrives with the navigation handoff: the assistant turn footer's "→ Review"
+ * link publishes a real `agent-run` changeset through
+ * `useChangesNavigationStore`, and both ids are taken FROM that changeset.
+ * Until a handoff has happened the picker renders "Last Turn" and the
+ * run-range control disabled-with-reason, which is the honest state — see the
+ * PR's tracked follow-up for sourcing the active thread without a handoff.
+ *
+ * ACTIVE CHANGESET OWNERSHIP: the selection lives in
+ * `useChangesNavigationStore`, not in this component. The surface stays
+ * mounted for the whole session (`KeepMountedRoute` in
+ * `root-layout-content.tsx`), so a component-local selection would have had to
+ * be re-synced from the store on every external "→ Review" click — an effect
+ * copying store state into `useState`, with all the staleness that invites.
+ * Reading the store directly means the picker and the handoff write the same
+ * value and this component only renders it.
  */
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
-import type { Changeset } from '@brainstrike/types';
-import { type ReactElement, useMemo, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useChangesNavigationStore } from '../changes-navigation-store';
+import { useChangesStore } from '../changes-store';
 import { useChangeset } from '../use-changeset';
 import { useGitInventory } from '../use-git-inventory';
-// These two panes are being written concurrently by sibling W4 tasks and do
-// not exist yet on disk — this surface's own `tsc`/tests intentionally never
-// import this module (see the two tests' file list). The integration step
-// that lands all of W4 together resolves these imports.
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { ChangesetHeader } from './changeset-header';
 
-/** Seeds the initial selection: "Last Turn" when a thread/run is known, else nothing selected. */
-function seedChangeset(threadId: string | null, latestRunId: string | null): Changeset | null {
-  if (threadId && latestRunId) {
-    return { kind: 'agent-run', runId: latestRunId, threadId };
-  }
-  return null;
-}
+const NO_FILES: readonly [] = [];
 
 export function ChangesSurface(): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
@@ -49,18 +48,45 @@ export function ChangesSurface(): ReactElement {
     return rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path) ?? null;
   }, [rootDirectoryHandle, rootIdByPath]);
 
-  // See module doc comment: neither is sourced yet on this standalone page.
-  const threadId: string | null = null;
-  const latestRunId: string | null = null;
+  const changeset = useChangesNavigationStore((state) => state.activeChangeset);
+  const requestChangeset = useChangesNavigationStore((state) => state.requestChangeset);
+  const handoffThreadIdentity = useChangesNavigationStore((state) => state.handoffThreadIdentity);
+  const clearSelection = useChangesStore((state) => state.clearSelection);
 
-  const [changeset, setChangeset] = useState<Changeset | null>(() =>
-    seedChangeset(threadId, latestRunId)
-  );
+  const threadId = handoffThreadIdentity?.threadId ?? null;
+  const latestRunId = handoffThreadIdentity?.latestRunId ?? null;
 
-  const { error, fileDiff, view } = useChangeset(rootId, changeset);
+  const { error, fileDiff, refresh, view } = useChangeset(rootId, changeset);
   const { error: inventoryError, inventory } = useGitInventory();
 
-  const renderedFiles = view ? view.files : [];
+  const handleRetry = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+
+  // A stable empty tuple, not a fresh `[]` per render — both panes memoize on
+  // this array's identity.
+  const renderedFiles = view ? view.files : NO_FILES;
+
+  // Structural identity of the active changeset. Both panes key per-changeset
+  // state on it: the tree re-runs its first-load auto-expand, and the diff
+  // pane remounts its cards so a file present in BOTH changesets cannot keep
+  // showing the diff it loaded for the previous one.
+  const changesetKey = changeset === null ? '' : JSON.stringify(changeset);
+
+  // Dropping the previous changeset's file selection is NOT optional:
+  // `selectedFileKeys` carries no changeset identity, so a selection carried
+  // over from the previous changeset can match nothing in the new one and
+  // filter every file out of the diff pane — over a tree of visibly unchecked
+  // boxes. Keyed on the changeset, and skipped on the very first run so an
+  // externally-requested changeset does not have its selection cleared twice.
+  const clearedForChangesetRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (clearedForChangesetRef.current === changesetKey) {
+      return;
+    }
+    clearedForChangesetRef.current = changesetKey;
+    clearSelection();
+  }, [changesetKey, clearSelection]);
 
   // No native `loading` field on `useChangeset` — derive it: a changeset is
   // selected, nothing has resolved yet, and there is no error to explain why.
@@ -78,7 +104,8 @@ export function ChangesSurface(): ReactElement {
         inventoryError={inventoryError}
         latestRunId={latestRunId}
         loading={loading}
-        onSelectChangeset={setChangeset}
+        onRetry={handleRetry}
+        onSelectChangeset={requestChangeset}
         rootId={rootId}
         threadId={threadId}
         view={view}
@@ -86,10 +113,16 @@ export function ChangesSurface(): ReactElement {
       {rootId && changeset ? (
         <div className="flex min-h-0 flex-1">
           <div className="flex w-72 shrink-0 flex-col border-border border-r">
-            <ChangedFilesTree files={renderedFiles} inventory={inventory} loading={loading} />
+            <ChangedFilesTree
+              changesetKey={changesetKey}
+              files={renderedFiles}
+              inventory={inventory}
+              loading={loading}
+            />
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <ChangesetDiffPane
+              changesetKey={changesetKey}
               changesetKind={changeset.kind}
               files={renderedFiles}
               loadFileDiff={fileDiff}

@@ -37,6 +37,15 @@ import { changedFileKey, selectRenderedFiles, useChangesStore } from '../changes
 import { ChangesetFileDiffCard } from './changeset-file-diff-card';
 
 export interface ChangesetDiffPaneProps {
+  /**
+   * Structural identity of the active changeset. Part of each card's React
+   * key: `changedFileKey` carries no changeset identity, so a file present in
+   * both the old and the new changeset would otherwise REUSE its card
+   * instance — and that card has already latched `hasStarted`, so it would
+   * keep displaying the diff it loaded for the previous changeset while the
+   * header describes the new one.
+   */
+  readonly changesetKey: string;
   readonly changesetKind: Changeset['kind'];
   readonly files: readonly ChangedFileEntry[];
   readonly loadFileDiff: (path: string) => Promise<GitResult<StructuredFileDiff>>;
@@ -60,6 +69,7 @@ function EmptyPaneState({
 }
 
 export function ChangesetDiffPane({
+  changesetKey,
   changesetKind,
   files,
   loadFileDiff,
@@ -82,7 +92,7 @@ export function ChangesetDiffPane({
   if (renderedFiles.length === 0) {
     return (
       <EmptyPaneState
-        message="No files selected — check files in the tree to see their diffs."
+        message="No files match the current selection — check files in the tree to see their diffs."
         testId="changeset-diff-pane-empty-selection"
       />
     );
@@ -95,7 +105,7 @@ export function ChangesetDiffPane({
           <ChangesetFileDiffCard
             changesetKind={changesetKind}
             entry={entry}
-            key={changedFileKey(entry)}
+            key={`${changesetKey}|${changedFileKey(entry)}`}
             loadFileDiff={loadFileDiff}
           />
         ))}
