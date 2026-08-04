@@ -499,7 +499,12 @@ describe('git IPC handlers — structuredFileDiff (fake runner, arg + cwd passth
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toMatch(/unsupported|only accepts/);
+      // BST-1113 widened this engine to `commit`/`range`, so the allowed-key set
+      // is now per-mode and the message names the mode it rejected for. The
+      // assertion stays specific: it must still say the params were REJECTED and
+      // must name the offending key, never just fail opaquely.
+      expect(result.error).toMatch(/does not accept|unsupported|only accepts/);
+      expect(result.error).toContain('extra');
     }
     // Validation rejects the malformed params before any git invocation.
     expect(calls).toHaveLength(0);
