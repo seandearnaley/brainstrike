@@ -54,6 +54,27 @@ function getCanonicalFileHandlePath(fileNode: IFileNode): string {
   return fileNode.path;
 }
 
+function buildFileHandle(fileNode: IFileNode, fileSystemAdapter: FileSystemAdapter): FileHandle {
+  const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
+  const platform: Platform = fileSystemAdapter.platform ?? handlePlatform ?? 'web';
+
+  const fileHandle: FileHandle = {
+    _internal: fileNode.handle,
+    kind: 'file',
+    name: fileNode.name,
+    path: getCanonicalFileHandlePath(fileNode),
+    platform,
+    rootFolderId: fileNode.rootFolderId,
+  };
+
+  const knownFileSize = getKnownFileSize(fileNode.size);
+  if (knownFileSize !== null) {
+    fileHandle.size = knownFileSize;
+  }
+
+  return fileHandle;
+}
+
 function createAbortError(): Error {
   const error = new Error('The file content read was aborted.');
   error.name = 'AbortError';
@@ -89,33 +110,11 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     throwIfAborted(options?.abortSignal);
     const fileReadRequests: FileReadRequest[] = requests.map((req) => ({
       compositeKey: req.compositeKey,
-      handle: this.createFileHandle(req.fileNode, req.fileSystemAdapter),
+      handle: buildFileHandle(req.fileNode, req.fileSystemAdapter),
       path: req.fileNode.path,
     }));
 
     return this.worker(fileReadRequests, onProgress, options);
-  }
-
-  private createFileHandle(fileNode: IFileNode, fileSystemAdapter: FileSystemAdapter): FileHandle {
-    const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-    const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-    const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-    const fileHandle: FileHandle = {
-      _internal: fileNode.handle,
-      kind: 'file',
-      name: fileNode.name,
-      path: getCanonicalFileHandlePath(fileNode),
-      platform,
-      rootFolderId: fileNode.rootFolderId,
-    };
-
-    const knownFileSize = getKnownFileSize(fileNode.size);
-    if (knownFileSize !== null) {
-      fileHandle.size = knownFileSize;
-    }
-
-    return fileHandle;
   }
 }
 
@@ -166,22 +165,7 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       );
     }
 
-    const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-    const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-    const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-    const fileHandle: FileHandle = {
-      _internal: fileNode.handle,
-      kind: 'file',
-      name: fileNode.name,
-      path: getCanonicalFileHandlePath(fileNode),
-      platform,
-      rootFolderId: fileNode.rootFolderId,
-    };
-
-    if (knownFileSize !== null) {
-      fileHandle.size = knownFileSize;
-    }
+    const fileHandle = buildFileHandle(fileNode, fileSystemAdapter);
 
     const content = await fileSystemAdapter.readFile(fileHandle);
     const extension = fileExplorer.getFileExtension(fileNode.path);
