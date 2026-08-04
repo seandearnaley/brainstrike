@@ -16,6 +16,16 @@ export interface WorktreeDescriptor extends GitWorktreeSummary {
   /** Workspace root ids containing this worktree, or 'outside-roots' when none do. */
   readonly containment: readonly string[] | 'outside-roots';
   readonly provenance: WorktreeProvenance;
+  /**
+   * Trust state of this descriptor. A worktree INSIDE a workspace root is
+   * always validated (the user already trusted everything under the root);
+   * one whose containment is 'outside-roots' is validated only when its own
+   * .git was read back and resolves to the SAME repository common dir —
+   * otherwise unvalidated (e.g. a fabricated .git/worktrees/NAME/gitdir
+   * pointing outside every root, whose target does not point back). An
+   * unvalidated entry is still reported, never silently dropped.
+   */
+  readonly trust: 'unvalidated' | 'validated';
 }
 
 export interface GitInventoryRepository {

@@ -584,6 +584,49 @@ export interface GitServiceOptions {
 }
 
 /**
+ * Hook-free `git` invocation, extracted from `createGitService`'s inner
+ * `invokeHookFree` closure so callers OUTSIDE a `GitServiceOptions`-bound
+ * service (namely `git-inventory-service.ts`, which spawns `git` in
+ * discovered, untrusted repositories one unique common dir at a time — never
+ * through `createGitService`'s single fixed `cwd`) can reuse the exact same
+ * hook-disabling logic instead of bare-spawning. `createGitService`'s
+ * `invokeHookFree` now delegates here — zero behavior change.
+ *
+ * Git 2.54 added config-managed hooks that bypass `core.hooksPath`. This
+ * enumerates their friendly names and disables them at command scope, on top
+ * of `core.fsmonitor=false -c core.hooksPath=/dev/null`, before running `args`.
+ * `invoke` is the caller's own git runner, already bound to a `cwd`.
+ */
+export async function invokeGitHookFree(
+  invoke: (args: readonly string[], timeoutMs?: number) => Promise<GitCommandRun>,
+  args: readonly string[],
+  timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
+): Promise<GitCommandRun> {
+  const configuredHooks = await invoke([
+    'config',
+    '--null',
+    '--name-only',
+    '--get-regexp',
+    '^hook\\..*\\.command$',
+  ]);
+  if (configuredHooks.exitCode !== 0 && configuredHooks.exitCode !== 1) {
+    return configuredHooks;
+  }
+  const disabledConfiguredHooks = configuredHooks.stdout
+    .split('\0')
+    .filter(Boolean)
+    .flatMap((key) => ['-c', `${key.slice(0, -'.command'.length)}.enabled=false`]);
+  const hookConfig = ['core.fsmonitor=false', 'core.hooksPath=/dev/null'].flatMap((value) => [
+    '-c',
+    value,
+  ]);
+  // No caller needs `binaryStdout` here today (only `readRefBlob`'s plain
+  // `invoke` reads binary blobs; every hook-free call is text-mode unified-diff
+  // or porcelain output) — re-add the pass-through param if that changes.
+  return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
+}
+
+/**
  * Build the git operations bound to a single, already-validated `cwd`.
  *
  * Every method returns a {@link GitResult}: a git failure becomes
@@ -603,30 +646,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     args: readonly string[],
     timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
   ): Promise<GitCommandRun> {
-    // Git 2.54 added config-managed hooks that bypass core.hooksPath. Enumerate
-    // their friendly names and disable them at command scope before mutations.
-    const configuredHooks = await invoke([
-      'config',
-      '--null',
-      '--name-only',
-      '--get-regexp',
-      '^hook\\..*\\.command$',
-    ]);
-    if (configuredHooks.exitCode !== 0 && configuredHooks.exitCode !== 1) {
-      return configuredHooks;
-    }
-    const disabledConfiguredHooks = configuredHooks.stdout
-      .split('\0')
-      .filter(Boolean)
-      .flatMap((key) => ['-c', `${key.slice(0, -'.command'.length)}.enabled=false`]);
-    const hookConfig = ['core.fsmonitor=false', 'core.hooksPath=/dev/null'].flatMap((value) => [
-      '-c',
-      value,
-    ]);
-    // No caller needs `binaryStdout` here today (only `readRefBlob`'s plain
-    // `invoke` reads binary blobs; every `invokeHookFree` call is text-mode
-    // unified-diff output) — re-add the pass-through param if that changes.
-    return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
+    return await invokeGitHookFree(invoke, args, timeoutMs);
   }
 
   async function resolveWorktreeRoot(): Promise<GitResult<string>> {

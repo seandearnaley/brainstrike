@@ -4,7 +4,21 @@ import type {
   Changeset,
   GitScope,
   StructuredFileDiffContent,
+  WorktreeDescriptor,
 } from '../src/index.js';
+
+function trustLabel(trust: WorktreeDescriptor['trust']): string {
+  switch (trust) {
+    case 'unvalidated':
+      return 'unvalidated';
+    case 'validated':
+      return 'validated';
+    default: {
+      const exhaustive: never = trust;
+      return exhaustive;
+    }
+  }
+}
 
 function contentLabel(content: StructuredFileDiffContent): string {
   switch (content.kind) {
@@ -136,5 +150,38 @@ describe('changeset contracts', () => {
   it('narrows ChangedFileStatus exhaustively', () => {
     const statuses: ChangedFileStatus[] = ['added', 'deleted', 'modified', 'renamed', 'untracked'];
     expect(statuses.map((s) => statusLabel(s))).toEqual(statuses);
+  });
+
+  it('narrows WorktreeDescriptor.trust exhaustively', () => {
+    const trusts: WorktreeDescriptor['trust'][] = ['validated', 'unvalidated'];
+    expect(trusts.map((t) => trustLabel(t))).toEqual(trusts);
+  });
+
+  it('constructs a WorktreeDescriptor with containment and trust', () => {
+    const validated: WorktreeDescriptor = {
+      bare: false,
+      branch: 'main',
+      containment: ['root-1'],
+      current: true,
+      detached: false,
+      head: 'abc123',
+      lockedReason: null,
+      name: 'repo',
+      path: '/root-1/repo',
+      provenance: 'scanned',
+      prunableReason: null,
+      trust: 'validated',
+    };
+    const unvalidated: WorktreeDescriptor = {
+      ...validated,
+      containment: 'outside-roots',
+      current: false,
+      name: 'evil',
+      path: '/outside/evil',
+      trust: 'unvalidated',
+    };
+    expect(validated.trust).toBe('validated');
+    expect(unvalidated.containment).toBe('outside-roots');
+    expect(unvalidated.trust).toBe('unvalidated');
   });
 });
