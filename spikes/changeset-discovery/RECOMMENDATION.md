@@ -316,4 +316,287 @@ Implemented exactly as the brief specified and deliberately not fixed:
 
 ## Answers to spec §10
 
-(Task 8)
+Five rulings for the W2/W3/W5 implementers. Each cites the evidence it stands
+on and names the runner-up. Where a ruling reaches the edge of this spike's
+evidence, the unverified part is named explicitly instead of resolved by guess.
+
+### Q1 — Walk cost, ignore strategy, indexer-traversal reuse
+
+**Ruling: the inventory walk stays independent — a bounded main-process fs walk
+(maxDepth 6, its own small ignore set), NOT a reuse of the Workspace Index
+traversal. The optimization budget goes to the enumerate phase (gitfile-pointer
+dedup before spawning), not the walk.**
+
+Measured basis (Discovery table above):
+
+- The walk is the cheap phase: 69ms warm / 327ms cold single-root, 894ms cold
+  across a 166-repo multi-root sweep. The enumerate phase dominates (277ms /
+  2641ms) and is process-spawn-bound at ~6.5–7.7ms/spawn. Sharing traversal
+  machinery would optimize the phase that is already fast.
+- 76 of the multi-root run's 242 `rev-parse` spawns (34 of 36 single-root) were
+  pure dupe discovery. Parsing the `gitdir:` line out of each `.git` file and
+  deduping on it *before* spawning is the recorded fix — that is where the
+  measured waste is.
+- `maxDepth: 6` missed zero in-root worktrees (all 34 agent worktrees sit at
+  depth 3, `brainstrike/.claude/worktrees/<name>`); out-of-root worktrees come
+  from `worktree list` regardless of walk depth. Keep 6.
+
+Why not reuse `createBackgroundIndexingEntryPolicy`
+(`packages/utils/src/background-indexing-policy.ts`, per
+`docs/agents/explorer-search-tapestry.md` §Workspace Index Traversal):
+
+1. **Opposite ignore semantics — divergence here is a correctness bug, not
+   drift.** The indexer's policy exists to *prune* dependency/generated dirs
+   from content indexing; the inventory walk exists to *find* `.git` entries —
+   including under directories the explorer stack ignores. Concretely:
+   `DEFAULT_IGNORE_PATTERNS` (`packages/utils/src/path-filter.ts`) contains
+   `.git` itself, and 34 of the 35 in-root discoveries live under
+   `.claude/worktrees/*` — exactly the kind of dot-directory an indexing
+   policy is free to exclude tomorrow (un-indexing `.claude/worktrees` is an
+   open indexer question already). A shared list means a future indexer
+   exclusion silently blinds repo discovery — a silent fallback by proxy.
+2. **Coupling direction.** The indexer traversal is renderer-driven (policy
+   consumed by the renderer-side walker, cancellation owned by provider sync
+   runs); `GitInventoryService` is a main-process service. Sharing means
+   importing renderer-lifecycle-shaped machinery into main for no measured win.
+3. **The walk needs different mechanics anyway:** stop descending into `.git`,
+   classify dir-vs-gitfile, keep walking *below* a repo boundary (nested repos
+   under `.claude/worktrees` are real — see `discover-repos.ts`'s boundary
+   comment).
+
+The inventory keeps its own small name-set ignore (the spike's `DEFAULT_IGNORE`:
+`node_modules`, build outputs, caches, `.venv`, etc.). It may *reference* the
+shared list for name choices, but the contract is separate on purpose, and the
+divergence is documented rather than accidental.
+
+**Runner-up:** share the indexer traversal + policy. Rejected on all three
+grounds above; the measured walk cost (tens of ms warm) cannot justify the
+coupling, and the ignore-list "reuse" would actively fight the inventory's job.
+
+### Q2 — `.git` metadata watching vs the one-pipeline ruling
+
+**Ruling: a separate main-process `@parcel/watcher` subscription per repo
+common `.git` dir, owned by the `changes` domain and emitting on the `changes`
+domain's own single event channel — NOT a new signal type on the explorer's
+`fs:watch-event` channel. This does not violate the explorer's one-pipeline
+ruling; confirmed against the doc's actual wording.**
+
+Evidence for per-common-dir sufficiency (Task 5, scenario (b), CONFIRMED): one
+watch rooted at the main repo's `.git` observes every linked worktree's
+ref/index/HEAD activity (`worktrees/<name>/{index,HEAD.lock,logs/HEAD}` plus
+shared `refs/`), because all linked-worktree git metadata lives in the common
+dir. So the subscription count is **one per repo** (166 in the worst measured
+corpus), not one per worktree (288) — and explicitly NOT for working-tree
+content, which stays with the existing explorer refresh pipeline exactly as
+spec §6 already divides it.
+
+Why this is not a second explorer channel — the ruling's wording, checked:
+`docs/agents/explorer-search-tapestry.md` §Explorer tree live refresh opens
+"One pipeline keeps **the visible tree, forest roots, and the background
+indexer** in sync with on-disk changes. Do not add a second event channel or a
+polling fallback." The ruling's scope is the explorer refresh pipeline and its
+three named consumers. A `changes`-domain invalidation stream feeds a different
+consumer (inventory snapshots / changeset stores) under its own contract
+(spec §6: one event channel, monotonic generation guard, no polling) and never
+touches `FILE_EXPLORER_REFRESH_EVENT` or `fs:watch-event`. The discipline the
+ruling encodes — one channel per pipeline, no polling — is preserved *inside*
+the changes domain, not evaded. **Confirmed, not refuted.**
+
+Why the runner-up (new signal type on the existing `fs:watch` channel) loses on
+structure, not taste:
+
+1. The explorer watch stack is natively blind to `.git`:
+   `DEFAULT_IGNORE_PATTERNS` includes `.git` and feeds @parcel/watcher's
+   native-level ignore globs. Surfacing git metadata there means un-ignoring
+   `.git` for every explorer watcher — flooding a pipeline whose consumers
+   (tree refresh, indexer) must then re-filter events they never wanted.
+2. Lifecycle mismatch: explorer watchers are renderer-owned
+   (per-`WebContents`, rooted at workspace roots, reaped with the renderer);
+   repo watchers follow inventory lifecycle (repos appear/disappear with
+   discovery, main-process-owned) and must cover common dirs of out-of-root
+   worktrees' repos — paths that may lie outside every watched workspace root.
+3. Consumer contract mismatch: the explorer channel carries structural tree
+   deltas; this stream carries "invalidate repo X" triggers.
+
+Production requirements carried forward from Task 5 (binding on W2, not
+optional polish — full detail in the watcher caveats list above):
+`fs.realpath` the watch root before slicing event paths; add an explicit
+`(^|\/)worktrees\/[^/]+$` clause (worktree add/remove coverage is currently
+incidental); close the `packed-refs` content-write false-negative hole with an
+explicit `packed-refs` (non-`.lock`) clause; treat the 300ms window as a fixed
+batch window whose invalidations a slow operation can span, and tolerate stray
+late lock events; consider requiring an actual `index` write rather than
+`index.lock` cycling so read-only `git status` stops false-firing.
+
+### Q3 — `StructuredFileDiff` size caps and lazy-hunk strategy
+
+**Ruling: eager `ChangesetView` + lazy per-file `StructuredFileDiff` is
+CONFIRMED by measurement. Per-file, per-side full-content cap: 2 MB (matching
+the journal capture cap). Over-cap files degrade to hunk-only rendering with an
+explicit truncation marker — never full-file context, never a silent trim.**
+
+The numbers (Scope diff section above):
+
+- The eager list phase is flat and cheap: ~30–50ms per changeset regardless of
+  file count (single `numstat` + `status` invocation pair).
+- Eager content does not scale: 200 files cost 1247ms at ~6.2ms/file fully
+  serialized — spawn-bound, matching the independently measured
+  ~6.5–7.7ms/spawn — extrapolating to ~12s for a 2,000-file changeset. Lazy
+  per-file resolution makes the interactive cost one file (~6ms + read) at a
+  time; batching (`git cat-file --batch` or bounded concurrency) is justified
+  the moment any surface legitimately needs content for more than a few dozen
+  files at once (e.g. expand-all), and not before.
+
+Cap value, anchored to the two production precedents rather than invented:
+
+- `GIT_MAX_OUTPUT_BYTES = 1_000_000` (`apps/desktop/src/assistant-server/git-service.ts:72`)
+  is a *soft output* ceiling: `boundOutput` truncates with a visible
+  `…(output truncated)` marker (hard `execFile` buffer 4×).
+- The edit-checkpoint journal caps captured before-content at **2 MB**, and
+  above it records `skipped_too_large` with NULL content — honestly absent,
+  never a truncated snapshot (`docs/agents/workspace-context.md` §Edit
+  Checkpoint Journal).
+
+**Per-side full-content cap = 2 MB** because `agent-run`/`run-range` changesets
+join *journal* before-content, which structurally cannot exceed 2 MB — a larger
+diff-viewer cap would advertise capacity the journal side can never fill, and a
+smaller one would truncate content the journal explicitly preserved. Git-scope
+sides use the same cap for one uniform contract. The rendered *hunk* payload of
+an over-cap file is bounded by the existing `GIT_MAX_OUTPUT_BYTES` pattern
+(1 MB soft, marker on trim).
+
+Over-cap UX (answering spec §7's marker requirement precisely): a file whose
+either side exceeds 2 MB, or whose ref-side read reports binary, resolves with
+`truncated: true` (or the binary flag), **hunk-only rendering** (structured
+hunk ranges + bounded hunk text from `git diff` — real line numbers preserved),
+and NO full-file context lines; the UI renders the §7 visible truncation marker
+stating which side was over cap. Binary files render a binary placeholder, no
+hunks. Both are explicit states in `StructuredFileDiff`, mirroring the
+journal's `skipped_binary`/`skipped_too_large` honesty — the NO SILENT
+FALLBACKS shape of this ruling.
+
+Production port notes from the shortcuts list (binding on W1/W3): ref-side
+reads must use `runGitBuffer` (raw buffer — `runGit`'s utf8 decode mangles
+binary before the null-byte check runs), and `readSide`'s bare catch must be
+split so "absent at ref" (expected) is distinguished from real errors
+(ENOBUFS/EACCES/EISDIR) instead of both becoming a fake 'A' status.
+
+**Runner-up:** eager full-content resolution with a bigger cap (or eager
+hunk extraction for all files). Rejected on the 6.2ms/file serialized
+measurement — it front-loads seconds of spawn time onto changeset open for
+content the user may never scroll to, and 200 files is not pathological
+(a rebase or generated-file dump reaches 10× that).
+
+### Q4 — Mastra message-tombstone seam (soft rewind)
+
+**Ruling: the tombstone marker lives in a new Brainstrike sidecar table —
+`brainstrike_assistant_message_tombstones` — never in `mastra_threads.metadata`
+and never as a column on `mastra_messages`. Filtering happens at BOTH
+Brainstrike-owned read boundaries: the app-shell hydration query and
+`PgliteMemoryStore.listMessagesWhere`. Finalization hard-deletes through
+Mastra's own `deleteMessages` storage API. Two named items require
+mastra-boundary review as W5 preconditions.**
+
+The seam, concretely:
+
+- **Table** (migration-055 `brainstrike_assistant_message_parents` precedent —
+  the existing per-message sidecar): registered in BOTH migration runners +
+  byte-identical bootstrap in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`-style
+  app-shell mirror; NO FKs (numbered runner executes on a bare schema);
+  explicit factory-reset registration and membership in the ordered
+  `THREAD_DELETE_SIDECAR_TABLES` cascade spec. Columns:
+  `message_id` (PK), `thread_id`, `tombstoned_at`, and `revert_id` (uuidv7
+  batch id shared by all rows one soft-rewind created).
+- **(a) Hydration filters without forking Mastra internals.** Two read paths
+  exist and both are Brainstrike code:
+  1. UI hydration — `packages/app-shell/src/assistant-memory-repository.ts`'s
+     80-row window adds a LEFT-JOIN anti-join on the tombstone table (same
+     shape as its existing parents-edge join). Tombstoning always removes a
+     contiguous *suffix* of the thread (everything after the checkpoint), so
+     the parent graph stays closed — only leaves and their descendants vanish.
+  2. Model-facing recall — `PgliteMemoryStore` **extends Mastra's public
+     `MemoryStorage`** (`packages/agent/src/pglite-mastra-memory/memory-store.ts:89`);
+     all list reads funnel through one private `listMessagesWhere` (`:1008`),
+     which gains the same exclusion. This is the sanctioned storage seam, not
+     a fork — precedent: the store already applies the transcript projection
+     policy at its `saveMessages` durable boundary.
+  A shared SQL predicate/fragment must be exported once (the
+  `THREAD_DELETE_SIDECAR_TABLES` / `RUN_LEDGER_AGGREGATION_SQL` single-source
+  convention) so the two filters cannot drift.
+- **(b) One-level redo un-tombstones exactly.** Redo = `DELETE FROM
+  …message_tombstones WHERE revert_id = <latest batch>`. Content rows were
+  never touched, so redo is an exact inverse with no reconstruction — this is
+  why per-message rows beat any boundary marker.
+- **(c) Next user message finalizes.** The send path already writes the new
+  user message's parent edge through the app-shell repository's `append`
+  callback; finalization runs in that same repository seam: resolve the
+  thread's outstanding tombstoned ids, hard-delete via
+  `PgliteMemoryStore.deleteMessages(messageIds)` (an existing `override`,
+  `memory-store.ts:507` — Mastra's own storage API, so Mastra remains the
+  writer of message content), then clear the sidecars (tombstone rows, parents
+  edges; the thread-search index rows are cleared eagerly like thread deletion
+  does, with sync GC as the self-heal).
+
+**W5 preconditions — mastra-boundary review, explicitly NOT resolved here**
+(the evidence reaches its edge; per `docs/agents/mastra-boundary.md` these
+need a ruling, not an assumption):
+
+1. **Sanction filtered `listMessages` output as legitimate storage-seam
+   behavior.** Filtering changes what Mastra believes the thread contains.
+   Unverified in this spike: whether observational-memory observation runs and
+   `semanticRecall` vector reads flow through `listMessagesWhere` — and OM
+   observations *already generated* from later-tombstoned messages cannot be
+   un-observed. W5 must verify those read paths and rule on the OM residue
+   before shipping, or soft rewind silently lies to memory.
+2. **BST-993 mind-ops vocabulary.** Finalization is a real deletion of mind
+   state, but `brainstrike_mind_ops.entity_kind` is CHECK-constrained to
+   `{thread, prompt_item}` and the seam doc says widening is "a conscious
+   migration, never a drift channel". W5 needs the ruling on whether
+   message-level deletes emit ops (they are "the mind"; a future sync engine
+   cannot reconstruct them after the fact).
+
+**Runner-up:** a tombstone-boundary flag in `mastra_threads.metadata`
+(the `operatingRootId` precedent). Rejected: (1) hydration merges progressive
+snapshot rows and breaks ties on equal timestamps — interpreting a time/id
+boundary at every read against that machinery is exactly the ambiguity
+explicit per-message ids eliminate; (2) redo and finalization need batch
+identity (which rows THIS rewind tombstoned), which a single flag cannot
+carry; (3) metadata writes ride `saveThread`, whose transactional semantics
+are already tuned for title policy — a second bookkeeping writer on a
+Mastra-owned row is the wrong direction when every prior per-message need
+(parents 055, search index 067) settled on sidecars.
+
+### Q5 — Cross-thread conflict awareness in v1
+
+**Ruling: the existing per-file hash-compare conflict surfacing is sufficient
+for v1. No proactive cross-thread detection. Recorded as settled for W5.**
+
+The two-thread case, reasoned against the journal's actual semantics
+(`docs/agents/workspace-context.md` §Edit Checkpoint Journal): thread B edits
+file F after thread A's run; A's range-revert compares the stored `after_hash`
+against current disk under the per-file lock → mismatch → per-file conflict
+(`ok:false conflict`), surfaced in the acknowledgment-requiring conflict list
+with "Revert anyway" (force) as the explicit override, and `revertRun` stays
+honest about partial success. Nothing is silently lost or silently skipped —
+which is the house bar (spec §7), and it is *writer-agnostic*: thread B, the
+user's own editor, and an external tool are indistinguishable at the disk and
+are all caught by the same compare. Single-device local-first (no sync layer)
+means there is no writer the hash compare cannot see at apply time.
+
+Adopt the teardown's W5 acceptance criterion as the testable phrasing: a
+revert whose per-file hash check fails must surface every conflicting file by
+path and require explicit acknowledgment before any part of the revert is
+applied — `ConversationRevertService` hash-checks all files first, then
+applies, so the conflict list is pre-apply rather than mid-apply.
+
+**Runner-up:** proactive cross-thread detection (query other threads' journal
+entries touching the same paths and warn before reverting). Rejected for v1
+because it is a strictly weaker second mechanism layered on the authoritative
+one: it sees only journaled writers (blind to the user and external tools —
+false negatives), it flags edits that no longer conflict (B's change itself
+reverted, or content restored to the expected hash — false positives), and it
+cannot replace the apply-time hash check, so it adds UI and a second code path
+without changing any outcome the hash compare doesn't already force into the
+open. A cheap post-v1 enhancement that preserves this ruling: annotate a
+*detected* conflict with the last journaled writer of that path ("modified by
+thread <title>") — enrichment of the honest surface, not a new detector.
