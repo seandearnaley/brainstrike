@@ -9,6 +9,7 @@ let root: string;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'spike-discover-'));
   await mkdir(join(root, 'repo-a', '.git'), { recursive: true });
+  await mkdir(join(root, 'repo-a', '.git', 'modules', 'sub', '.git'), { recursive: true });
   await mkdir(join(root, 'nested', 'repo-b', '.git'), { recursive: true });
   await mkdir(join(root, 'linked-wt'), { recursive: true });
   await writeFile(join(root, 'linked-wt', '.git'), 'gitdir: /elsewhere/.git/worktrees/x\n');

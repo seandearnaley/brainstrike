@@ -10,6 +10,6 @@ describe('runGit', () => {
   it('throws with stderr detail on failure', async () => {
     await expect(
       runGit(process.cwd(), ['rev-parse', '--verify', 'no-such-ref-xyz'])
-    ).rejects.toThrow(/no-such-ref-xyz/);
+    ).rejects.toThrow(/Needed a single revision/);
   });
 });
