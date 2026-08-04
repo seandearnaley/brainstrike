@@ -133,7 +133,7 @@ async function makeSingleRepoRoot(prefix: string): Promise<{
   return { commonDir, fs, rootDir, rootId: 'root-1' };
 }
 
-function makeWorktreeListRunner(rootDir: string): GitCommandRunner {
+function makeWorktreeListRunner(): GitCommandRunner {
   const run: GitCommandRunner = ({ args, cwd }): Promise<GitCommandRun> => {
     if (args[0] === 'config') {
       return Promise.resolve({ exitCode: 1, stderr: '', stdout: '', timedOut: false });
@@ -145,7 +145,6 @@ function makeWorktreeListRunner(rootDir: string): GitCommandRunner {
       timedOut: false,
     });
   };
-  void rootDir;
   return run;
 }
 
@@ -257,7 +256,7 @@ describe('createGitInventoryService', () => {
       const service = makeService({
         fs,
         loadRootsSpy,
-        run: makeWorktreeListRunner(rootDir),
+        run: makeWorktreeListRunner(),
         watchDirectory: fake.watchDirectory,
       });
 
@@ -288,8 +287,14 @@ describe('createGitInventoryService', () => {
 
       const [a, b] = await Promise.all([service.getSnapshot(), service.getSnapshot()]);
 
+      // The call-count assertion is the actual coalescing proof. `toEqual`
+      // (not `toBe`) deliberately: `withLiveHealthErrors` is free to return a
+      // fresh object even for two calls served by the same build (e.g. if it
+      // stopped short-circuiting the empty-health-errors case) without that
+      // being a coalescing regression — an identity assertion here would
+      // couple this test to that unrelated implementation detail.
       expect(loadRootsSpy).toHaveBeenCalledTimes(1);
-      expect(a).toBe(b);
+      expect(a).toEqual(b);
     });
   });
 
@@ -303,7 +308,7 @@ describe('createGitInventoryService', () => {
       const service = makeService({
         fs,
         loadRootsSpy,
-        run: makeWorktreeListRunner(rootDir),
+        run: makeWorktreeListRunner(),
         watchDirectory: fake.watchDirectory,
       });
 
@@ -332,7 +337,7 @@ describe('createGitInventoryService', () => {
       const service = makeService({
         fs,
         loadRootsSpy,
-        run: makeWorktreeListRunner(rootDir),
+        run: makeWorktreeListRunner(),
         watchDirectory: fake.watchDirectory,
       });
 
@@ -371,7 +376,7 @@ describe('createGitInventoryService', () => {
       const service = makeService({
         fs,
         loadRootsSpy,
-        run: makeWorktreeListRunner(rootDir),
+        run: makeWorktreeListRunner(),
         watchDirectory: fake.watchDirectory,
       });
 
@@ -400,7 +405,7 @@ describe('createGitInventoryService', () => {
       const service = makeService({
         fs,
         loadRootsSpy,
-        run: makeWorktreeListRunner(rootDir),
+        run: makeWorktreeListRunner(),
         watchDirectory: fake.watchDirectory,
       });
 
@@ -425,6 +430,433 @@ describe('createGitInventoryService', () => {
       service.start();
       await service.getSnapshot();
       expect(() => service.start()).toThrow(/already started/);
+    });
+  });
+
+  describe('stop() drains an in-flight build (BST-1112 review Blocker 2)', () => {
+    it('does not resolve until the pending build it is draining has settled', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-stop-drain-'
+      );
+      let releaseLoadRoots: (() => void) | null = null;
+      const loadRootsSpy = vi.fn(
+        () =>
+          new Promise<{ id: string; path: string }[]>((resolve) => {
+            releaseLoadRoots = () => resolve([{ id: rootId, path: rootDir }]);
+          })
+      );
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+
+      let stopResolved = false;
+      const stopPromise = service.stop().then(() => {
+        stopResolved = true;
+      });
+
+      // Many microtask ticks — generous slack for anything stop() itself
+      // legitimately awaits (e.g. disposing zero watcher subscriptions,
+      // which still costs a few microtask hops via Promise.all([]) plus the
+      // async-function wrapping) — but the build's `loadRoots()` gate is
+      // still held, and nothing but calling `releaseLoadRoots()` can ever
+      // unblock it, so stop() must not have resolved yet regardless of how
+      // many microtask ticks elapse.
+      let ticksRemaining = 50;
+      while (ticksRemaining > 0) {
+        await Promise.resolve();
+        ticksRemaining -= 1;
+      }
+      expect(stopResolved).toBe(false);
+
+      releaseLoadRoots?.();
+      await stopPromise;
+      expect(stopResolved).toBe(true);
+    });
+
+    it('serves a getSnapshot() call after stop() from a FRESH rebuild, not the drained pre-stop build', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-stop-fresh-'
+      );
+      let releaseFirstLoadRoots: (() => void) | null = null;
+      let loadRootsCallCount = 0;
+      const loadRootsSpy = vi.fn(() => {
+        loadRootsCallCount += 1;
+        if (loadRootsCallCount === 1) {
+          return new Promise<{ id: string; path: string }[]>((resolve) => {
+            releaseFirstLoadRoots = () => resolve([{ id: rootId, path: rootDir }]);
+          });
+        }
+        return Promise.resolve([{ id: rootId, path: rootDir }]);
+      });
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      const stopPromise = service.stop();
+      releaseFirstLoadRoots?.();
+      await stopPromise;
+
+      // stop()'s own doc comment says a post-stop getSnapshot() "rebuilds
+      // from scratch rather than serving stale pre-stop data" — a second
+      // loadRoots() call is the only observable proof of that.
+      await service.getSnapshot();
+      expect(loadRootsCallCount).toBe(2);
+    });
+
+    it('runs a build for the NEW lifecycle after restarting while the pre-stop build was still draining, instead of coalescing onto the stale in-flight promise', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-restart-race-'
+      );
+      let releaseFirstLoadRoots: (() => void) | null = null;
+      let loadRootsCallCount = 0;
+      const loadRootsSpy = vi.fn(() => {
+        loadRootsCallCount += 1;
+        if (loadRootsCallCount === 1) {
+          return new Promise<{ id: string; path: string }[]>((resolve) => {
+            releaseFirstLoadRoots = () => resolve([{ id: rootId, path: rootDir }]);
+          });
+        }
+        return Promise.resolve([{ id: rootId, path: rootDir }]);
+      });
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      expect(loadRootsCallCount).toBe(1);
+
+      // stop() clears `inFlightBuild` SYNCHRONOUSLY, before its first await —
+      // this next line runs before any microtask from the still-pending
+      // build A has a chance to fire, so the restart below cannot observe a
+      // stale (but not-yet-nulled) in-flight promise from build A.
+      const stopPromise = service.stop();
+      service.start();
+      releaseFirstLoadRoots?.();
+
+      await service.getSnapshot();
+      // A build ran for the new lifecycle (a second, distinct loadRoots()
+      // call) rather than being short-circuited onto build A's promise.
+      expect(loadRootsCallCount).toBe(2);
+
+      await stopPromise;
+    });
+
+    it("does not let a stale, pre-stop build sync a NEW lifecycle's watcher set, even though that watcher instance is non-null", async () => {
+      const { rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-generation-sync-'
+      );
+      let releaseFirstLoadRoots: (() => void) | null = null;
+      let loadRootsCallCount = 0;
+      const loadRootsSpy = vi.fn(() => {
+        loadRootsCallCount += 1;
+        if (loadRootsCallCount === 1) {
+          // Build A (generation 0, blocked): reports ONE repo.
+          return new Promise<{ id: string; path: string }[]>((resolve) => {
+            releaseFirstLoadRoots = () => resolve([{ id: rootId, path: rootDir }]);
+          });
+        }
+        // Every later build (the new lifecycle) reports ZERO repos.
+        return Promise.resolve([]);
+      });
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start(); // build A begins, blocked
+      const stopPromise = service.stop(); // generation -> 1, watchers -> null synchronously
+      service.start(); // NEW watchers instance for generation 1
+
+      const fresh = await service.getSnapshot();
+      expect(loadRootsCallCount).toBe(2);
+      expect(fresh.repositories).toEqual([]);
+      // The new lifecycle's own (empty) build subscribed nothing.
+      expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(0);
+
+      // Now let build A (generation 0, ONE repo) finish. Without a generation
+      // check gating the sync() call specifically (not just the cache write),
+      // build A would call `watchers.sync([commonDir])` on the CURRENT
+      // (generation-1, non-null) watchers instance and subscribe a repo the
+      // new lifecycle's own build said does not exist.
+      releaseFirstLoadRoots?.();
+      await stopPromise;
+
+      expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(0);
+    });
+  });
+
+  describe('a failed build leaves the cache dirty (BST-1112 review Should-fix 3)', () => {
+    it('retries loadRoots() on the very next call instead of serving the empty failure snapshot for the rest of the TTL', async () => {
+      let shouldFail = true;
+      const loadRootsSpy = vi.fn(() =>
+        shouldFail ? Promise.reject(new Error('db not ready')) : Promise.resolve([])
+      );
+      const fake = createFakeWatchDirectory();
+      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
+
+      const first = await service.getSnapshot();
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+      expect(first.errors).toHaveLength(1);
+
+      shouldFail = false;
+      // Well inside the TTL — a `dirty=false`-on-failure cache would serve
+      // the same empty failure snapshot for the rest of this window instead
+      // of retrying.
+      await vi.advanceTimersByTimeAsync(100);
+      const second = await service.getSnapshot();
+      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+      expect(second.errors).toEqual([]);
+    });
+  });
+
+  describe("start()'s initial build is pinned (BST-1112 review Should-fix 4)", () => {
+    it('performs the initial build and watcher sync on its own, with no explicit getSnapshot() call', async () => {
+      const { commonDir, fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-eager-'
+      );
+      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      // Real timers for this test only: waiting for start()'s fire-and-forget
+      // build to complete goes through real fs I/O (makeSingleRepoRoot's
+      // temp dir), not just microtasks, so fake timers would stall it.
+      vi.useRealTimers();
+      service.start();
+
+      await vi.waitFor(() => {
+        expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(1);
+      });
+      expect(fake.watchDirectorySpy.mock.calls[0]?.[0]).toBe(commonDir);
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('watcher-sync failure is a reachable, visible error (BST-1112 review Should-fix 5)', () => {
+    it('surfaces a throwing disposer as a "watcher sync failed" error instead of dropping it', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-sync-throw-'
+      );
+      let rootsPresent = true;
+      const loadRootsSpy = vi.fn(() =>
+        Promise.resolve(rootsPresent ? [{ id: rootId, path: rootDir }] : [])
+      );
+      const watchDirectorySpy = vi.fn(
+        () =>
+          Promise.resolve(() => {
+            throw new Error('disposer failed: native handle already closed');
+          }) as ReturnType<WatchGitCommonDir>
+      );
+      const watchDirectory = watchDirectorySpy as unknown as WatchGitCommonDir;
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory,
+      });
+
+      service.start();
+      const first = await service.getSnapshot();
+      expect(first.errors).toEqual([]);
+
+      // The repo disappears from the workspace roots, so the next rebuild's
+      // watchers.sync() disposes the (throwing) subscription.
+      rootsPresent = false;
+      const second = await service.getSnapshot({ maxAgeMs: 0 });
+
+      expect(second.errors).toHaveLength(1);
+      expect(second.errors[0]).toContain('watcher sync failed');
+      expect(second.errors[0]).toContain('disposer failed');
+    });
+  });
+
+  describe('mid-build invalidation is not lost to the rebuild (BST-1112 review Should-fix 6)', () => {
+    it('re-dirties for the next call when an invalidation arrives WHILE a rebuild is in flight', async () => {
+      const { commonDir, fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-midbuild-'
+      );
+      let releaseSecondLoadRoots: (() => void) | null = null;
+      let loadRootsCallCount = 0;
+      const loadRootsSpy = vi.fn(() => {
+        loadRootsCallCount += 1;
+        if (loadRootsCallCount === 2) {
+          return new Promise<{ id: string; path: string }[]>((resolve) => {
+            releaseSecondLoadRoots = () => resolve([{ id: rootId, path: rootDir }]);
+          });
+        }
+        return Promise.resolve([{ id: rootId, path: rootDir }]);
+      });
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      await service.getSnapshot();
+      expect(loadRootsCallCount).toBe(1);
+
+      // Force a second rebuild (bypassing the TTL); it hangs inside
+      // loadRoots() until released below. The synchronous prologue of
+      // getSnapshot()/rebuild()/buildInventorySnapshot already calls
+      // loadRoots() before this line returns, so the count below is
+      // observable with no extra awaits.
+      const secondSnapshotPromise = service.getSnapshot({ maxAgeMs: 0 });
+      expect(loadRootsCallCount).toBe(2);
+
+      // The invalidation arrives WHILE the second rebuild is in flight.
+      const sub = fake.subscriptionsByCommonDir.get(commonDir);
+      expect(sub).toBeDefined();
+      sub?.fireInterestingChange();
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
+
+      releaseSecondLoadRoots?.();
+      await secondSnapshotPromise;
+      expect(loadRootsCallCount).toBe(2);
+
+      // Still well inside the TTL of the second build's capturedAt — a THIRD
+      // rebuild proves the mid-flight invalidation survived the second
+      // build's own completion instead of being silently overwritten by it.
+      await service.getSnapshot();
+      expect(loadRootsCallCount).toBe(3);
+    });
+  });
+
+  describe('getSnapshot() maxAgeMs validation (BST-1112 review Minor 8)', () => {
+    it.each([
+      Number.NaN,
+      -1,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ])('throws for invalid maxAgeMs %p instead of silently coercing it', async (maxAgeMs) => {
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        loadRootsSpy: vi.fn(() => Promise.resolve([])),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      await expect(service.getSnapshot({ maxAgeMs })).rejects.toThrow(/invalid maxAgeMs/);
+    });
+
+    it('still treats maxAgeMs: 0 as a valid "force rebuild" value, not an invalid one', async () => {
+      const loadRootsSpy = vi.fn(() => Promise.resolve([]));
+      const fake = createFakeWatchDirectory();
+      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
+
+      await service.getSnapshot();
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+      await service.getSnapshot({ maxAgeMs: 0 });
+      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('watcher health errors are folded exactly once (BST-1112 review Minor 9)', () => {
+    it('does not double-count a persistently dead watcher across a forced rebuild', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-double-count-'
+      );
+      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
+
+      let subscribeCallCount = 0;
+      let firstOnSignal: ((signal: FileSystemWatchSignal) => void) | undefined;
+      const watchDirectorySpy = vi.fn(
+        (
+          _commonDir: string,
+          _callback: (changes: FileSystemChange[]) => void,
+          onSignal?: (signal: FileSystemWatchSignal) => void
+        ) => {
+          subscribeCallCount += 1;
+          if (subscribeCallCount === 1) {
+            firstOnSignal = onSignal;
+            return Promise.resolve(() => {});
+          }
+          // The resubscribe (retry) attempt also fails, so the watcher stays
+          // dead across the forced rebuild below.
+          return Promise.reject(new Error('watcher backend still unavailable'));
+        }
+      );
+      const watchDirectory = watchDirectorySpy as unknown as WatchGitCommonDir;
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory,
+      });
+
+      service.start();
+      await service.getSnapshot();
+      firstOnSignal?.({ message: 'watcher process crashed', type: 'errored' });
+
+      const forced = await service.getSnapshot({ maxAgeMs: 0 });
+
+      // `rebuild()` must cache the RAW snapshot (no health-error folding);
+      // only `getSnapshot()` folds health errors in, exactly once. Folding
+      // twice (once inside rebuild() before caching, once again in
+      // getSnapshot()) would duplicate this entry.
+      expect(forced.errors).toHaveLength(1);
+      expect(forced.errors[0]).toContain('watcher');
+    });
+  });
+
+  describe('start() still forces a fresh build even when the cache was left non-dirty while stopped', () => {
+    it('subscribes the NEW watcher instance after start(), rather than serving a stale-fresh cache left behind by a getSnapshot() call made while stopped', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot(
+        'brainstrike-git-inv-svc-start-dirty-'
+      );
+      const loadRootsSpy = vi.fn(() => Promise.resolve([{ id: rootId, path: rootDir }]));
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      service.start();
+      await service.getSnapshot();
+      expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(1);
+
+      await service.stop();
+
+      // Documented-supported: getSnapshot() after stop() rebuilds from
+      // scratch. This leaves a FRESH, non-dirty cache behind — but with no
+      // live watchers, since the service is stopped.
+      await service.getSnapshot();
+      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+
+      service.start();
+      await service.getSnapshot();
+      // The freshly-created watcher instance from THIS start() must get its
+      // own sync() call. If start() didn't force `dirty = true`, the
+      // non-dirty cache left by the getSnapshot() call above would make this
+      // getSnapshot() a cache hit that skips rebuild() — and therefore skips
+      // subscribing the new watcher instance to anything.
+      expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -417,8 +417,6 @@ function toBuildFailureSnapshot(error: unknown): GitInventorySnapshot {
   };
 }
 
-type GitInventoryServiceLifecycle = 'idle' | 'started' | 'stopped';
-
 /**
  * Stateful wrapper around {@link buildInventorySnapshot}: a TTL + dirty-flag
  * cache with in-flight build coalescing, and per-repo watcher lifecycle
@@ -444,13 +442,18 @@ type GitInventoryServiceLifecycle = 'idle' | 'started' | 'stopped';
 export function createGitInventoryService(
   deps: GitInventoryServiceDeps & { readonly watchDirectory: WatchGitCommonDir }
 ): GitInventoryService {
-  let lifecycle: GitInventoryServiceLifecycle = 'idle';
+  let started = false;
   let watchers: GitInventoryWatchers | null = null;
   let cachedSnapshot: GitInventorySnapshot | null = null;
   // Starts dirty so the very first getSnapshot()/start() always builds,
   // regardless of maxAgeMs, instead of serving a nonexistent cache.
   let dirty = true;
   let inFlightBuild: Promise<GitInventorySnapshot> | null = null;
+  // Bumped by every stop(). A rebuild() closes over the generation it started
+  // in and refuses to write `cachedSnapshot` (or rely on `watchers` for sync)
+  // once the counter has moved past it — see stop()'s doc comment for the
+  // race this guards.
+  let generation = 0;
 
   function withLiveHealthErrors(snapshot: GitInventorySnapshot): GitInventorySnapshot {
     const healthErrors = watchers?.getHealthErrors() ?? [];
@@ -461,6 +464,7 @@ export function createGitInventoryService(
   }
 
   async function rebuild(): Promise<GitInventorySnapshot> {
+    const myGeneration = generation;
     // Cleared BEFORE the build starts, not after: an invalidation that
     // arrives WHILE this build is in flight must re-dirty the cache for the
     // NEXT call. Clearing it after the build would let a late-arriving
@@ -468,6 +472,7 @@ export function createGitInventoryService(
     // `dirty = false`, losing the very change it was reporting.
     dirty = false;
     let snapshot: GitInventorySnapshot;
+    let buildFailed = false;
     try {
       snapshot = await buildInventorySnapshot(deps);
     } catch (error) {
@@ -479,7 +484,24 @@ export function createGitInventoryService(
       // unhandled rejection here or in `start()`'s fire-and-forget caller; it
       // becomes a visible `errors` entry instead.
       snapshot = toBuildFailureSnapshot(error);
+      buildFailed = true;
     }
+    // A stop() that ran while the build above was in flight bumped
+    // `generation` past the value captured at this function's start — this
+    // build's result belongs to a superseded lifecycle. It must not sync a
+    // NEWER lifecycle's watcher set (checked here even though `watchers`
+    // itself is read live below and may already be a FRESH, non-null
+    // instance from a subsequent start() — generation is the authority on
+    // "does this result still belong", not mere null-ness) and must not
+    // repopulate the cache (nor should a failed build "heal" a lifecycle
+    // that has already moved on).
+    if (generation !== myGeneration) {
+      return snapshot;
+    }
+    // `watchers` is read live (not captured at the top of this function): if
+    // stop() ran while the build above was in flight, it has already set
+    // `watchers = null`, so a late-completing build skips sync() on a
+    // disposed instance rather than reviving it.
     if (watchers) {
       const commonDirs = snapshot.repositories.map((repo) => repo.identity.gitCommonDir);
       try {
@@ -493,13 +515,29 @@ export function createGitInventoryService(
           ],
         };
       }
+      // Re-check: stop() could have run WHILE the sync() above was pending.
+      if (generation !== myGeneration) {
+        return snapshot;
+      }
     }
     cachedSnapshot = snapshot;
+    if (buildFailed) {
+      // A failed build must not be cached as if it were a fresh, authoritative
+      // "no repositories" result: leave the cache dirty so the very next
+      // getSnapshot() retries `loadRoots()` instead of serving an empty
+      // inventory for the rest of the TTL window.
+      dirty = true;
+    }
     return snapshot;
   }
 
   async function getSnapshot(opts?: { readonly maxAgeMs?: number }): Promise<GitInventorySnapshot> {
     const maxAgeMs = opts?.maxAgeMs ?? GIT_INVENTORY_SNAPSHOT_TTL_MS;
+    if (!Number.isFinite(maxAgeMs) || maxAgeMs < 0) {
+      throw new Error(
+        `GitInventoryService.getSnapshot(): invalid maxAgeMs ${maxAgeMs} — must be a finite number >= 0.`
+      );
+    }
     if (inFlightBuild) {
       return withLiveHealthErrors(await inFlightBuild);
     }
@@ -518,19 +556,27 @@ export function createGitInventoryService(
   }
 
   function start(): void {
-    if (lifecycle === 'started') {
+    if (started) {
       throw new Error(
         'GitInventoryService.start(): already started. Call stop() before starting again — ' +
           'starting twice would orphan the first watcher set without disposing it.'
       );
     }
-    lifecycle = 'started';
+    started = true;
     watchers = createGitInventoryWatchers({
       onInvalidate: () => {
         dirty = true;
       },
       watchDirectory: deps.watchDirectory,
     });
+    // NOT dead: a fresh `watchers` instance has zero subscriptions until the
+    // next rebuild's `watchers.sync(...)` call, and the eager `getSnapshot()`
+    // below is the only thing that triggers one. Without forcing `dirty`
+    // here, a caller that calls `getSnapshot()` while stopped (documented as
+    // supported on `stop()`) can leave a fresh, non-dirty cache in place;
+    // `start()` would then hit getSnapshot()'s cache-hit path and return
+    // without ever calling rebuild() — subscribing this new `watchers`
+    // instance to nothing.
     dirty = true;
     // Fire-and-forget by design (`start()` is synchronous per the interface
     // contract). `getSnapshot()` never rejects — `rebuild()` catches both the
@@ -545,10 +591,37 @@ export function createGitInventoryService(
     });
   }
 
+  /**
+   * Disposes every live watcher and drops the cache, so a `getSnapshot()`
+   * call after `stop()` rebuilds from scratch rather than serving stale
+   * pre-stop data. Idempotent (a second call sees `inFlightBuild === null`
+   * and `watchers === null`, so both `await`s below are skipped).
+   *
+   * Awaits any in-flight build (rather than abandoning it) so the caller's
+   * "torn down while the DB is still available" ordering — `main.ts` runs
+   * this step BEFORE the `database` shutdown step precisely because
+   * `loadRoots` reads the DB — actually holds: a build's `deps.loadRoots()`
+   * DB read is guaranteed to have settled (resolved or rejected) before
+   * `stop()` resolves and the caller proceeds to close the database.
+   *
+   * `generation` is bumped BEFORE that await, and `rebuild()` re-checks it
+   * after every `await` point: a build already in flight when `stop()` runs
+   * will neither write `cachedSnapshot` (it would otherwise resurrect a
+   * stopped service's cache, silently undoing `cachedSnapshot = null` /
+   * `dirty = true` below) nor sync the new lifecycle's watcher set (the
+   * `watchers = null` swap below already prevents it from syncing the OLD,
+   * disposed instance).
+   */
   async function stop(): Promise<void> {
-    lifecycle = 'stopped';
+    started = false;
+    generation += 1;
+    const pendingBuild = inFlightBuild;
+    inFlightBuild = null;
     const toDispose = watchers;
     watchers = null;
+    if (pendingBuild) {
+      await pendingBuild.catch(() => undefined);
+    }
     cachedSnapshot = null;
     dirty = true;
     if (toDispose) {
