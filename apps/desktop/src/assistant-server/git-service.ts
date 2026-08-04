@@ -18,7 +18,7 @@
  * The caller (the IPC handler) is responsible for resolving + containment-
  * checking the `cwd` against a known workspace root before calling in here.
  */
-import { readFile, realpath } from 'node:fs/promises';
+import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   ChangedFileStatus,
@@ -616,6 +616,34 @@ function classifyOverCapReason(
 }
 
 /**
+ * `hunks-only` reason when the unified diff invocation itself hit `maxBuffer`
+ * (the `StructuredFileDiffContent` union has no dedicated "diff output
+ * overflowed" reason — only the three per-side-cap values). When at least one
+ * side is individually over the per-file cap, that's the honest, precise
+ * reason. The remaining case — a `maxBuffer` overflow with BOTH sides
+ * individually under cap (e.g. many small scattered edits across two
+ * large-but-under-cap files inflate the diff text past the 4MB hard buffer
+ * ceiling) — has no exact label in the union, so this attributes it to
+ * whichever side is larger as the best available signal. Either way the
+ * content kind is still an honest `hunks-only`, never a `full` claim with
+ * short/wrong hunks.
+ */
+function resolveOverCapReason(
+  oldOverCap: boolean,
+  newOverCap: boolean,
+  diffTruncated: boolean,
+  oldContent: Buffer | null,
+  newContent: Buffer | null
+): 'over-cap-both' | 'over-cap-new' | 'over-cap-old' {
+  if (oldOverCap || newOverCap) {
+    return classifyOverCapReason(oldOverCap, newOverCap);
+  }
+  const oldBytes = oldContent?.byteLength ?? 0;
+  const newBytes = newContent?.byteLength ?? 0;
+  return diffTruncated && oldBytes > newBytes ? 'over-cap-old' : 'over-cap-new';
+}
+
+/**
  * SECURITY: the untracked diff path is handed to `git diff --no-index`, which
  * reads the filesystem directly. `resolveContainedPathArg` only validates
  * LEXICAL containment (relative, no `..`). The real escape is a symlinked
@@ -680,8 +708,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
 
   async function invokeHookFree(
     args: readonly string[],
-    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS,
-    binaryStdout?: boolean
+    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
   ): Promise<GitCommandRun> {
     // Git 2.54 added config-managed hooks that bypass core.hooksPath. Enumerate
     // their friendly names and disable them at command scope before mutations.
@@ -703,11 +730,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       '-c',
       value,
     ]);
-    return await invoke(
-      [...hookConfig, ...disabledConfiguredHooks, ...args],
-      timeoutMs,
-      binaryStdout
-    );
+    // No caller needs `binaryStdout` here today (only `readRefBlob`'s plain
+    // `invoke` reads binary blobs; every `invokeHookFree` call is text-mode
+    // unified-diff output) — re-add the pass-through param if that changes.
+    return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
   }
 
   async function resolveWorktreeRoot(): Promise<GitResult<string>> {
@@ -1123,7 +1149,14 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       return { error: `reading "${spec}" exceeded the output buffer limit`, ok: false };
     }
     if (run_.exitCode === 0) {
-      return { ok: true, value: run_.stdoutBuffer ?? Buffer.alloc(0) };
+      // A clean exit with `binaryStdout: true` MUST carry `stdoutBuffer` per
+      // the `GitCommandRunner` contract (see its doc comment) — an absent
+      // buffer here means the runner violated that contract, not that the
+      // blob is empty. Never fabricate an empty blob for a contract breach.
+      if (run_.stdoutBuffer === undefined) {
+        return { error: `runner returned no buffer for "${spec}"`, ok: false };
+      }
+      return { ok: true, value: run_.stdoutBuffer };
     }
     if (run_.exitCode === 128 && CAT_FILE_ABSENT_STDERR_PATTERN.test(run_.stderr)) {
       return { ok: true, value: null };
@@ -1137,14 +1170,34 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
    * (the same symlinked-ancestor escape it guards against applies here too —
    * this also reads the filesystem directly). ENOENT ⇒ absent (deleted since
    * the last diffed side); any other errno is a real failure.
+   *
+   * SECURITY: `assertUntrackedDiffPathContained` deliberately does NOT
+   * dereference the leaf component — it allows a leaf symlink because git
+   * itself only `lstat`s the final path component, so a leaf symlink can never
+   * leak the TARGET's content through git. `fs.readFile` has no such property:
+   * it OPENS through a symlink, so reading straight through the containment
+   * check would (a) leak out-of-root content for an untracked symlink pointing
+   * outside the opened root, and (b) for a TRACKED symlink, read the
+   * dereferenced target's bytes as the "new" side while `readRefBlob`'s
+   * `cat-file blob` naturally returns the raw 120000 blob (the link TEXT) as
+   * the "old" side — an inconsistent diff between two different notions of
+   * "content" for the same path. Fix: `lstat` first; a symlink's CONTENT for
+   * this diff is its link text (the target path string), matching exactly what
+   * git itself renders for a 120000 entry — never a dereferenced read.
    */
   async function readWorktreeFile(pathArg: string): Promise<GitResult<Buffer | null>> {
     const containment = await assertUntrackedDiffPathContained(cwd, pathArg);
     if (!containment.ok) {
       return containment;
     }
+    const resolved = path.resolve(cwd, pathArg);
     try {
-      const buffer = await readFile(path.resolve(cwd, pathArg));
+      const stats = await lstat(resolved);
+      if (stats.isSymbolicLink()) {
+        const target = await readlink(resolved);
+        return { ok: true, value: Buffer.from(target, 'utf8') };
+      }
+      const buffer = await readFile(resolved);
       return { ok: true, value: buffer };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -1175,10 +1228,12 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   }
 
   /**
-   * Unified diff for exactly ONE file's structured hunks / hunks-only content —
-   * always a plain two-way `git diff` (HEAD, the index, or `/dev/null`), never
-   * `--cc`/merge output, satisfying {@link parseHunkHeaders}'s single-file,
-   * two-way precondition by construction.
+   * Unified diff for exactly ONE tracked-mode file's structured hunks /
+   * hunks-only content — always a plain two-way `git diff` (HEAD or the
+   * index), never `--cc`/merge output, satisfying {@link parseHunkHeaders}'s
+   * single-file, two-way precondition by construction. `untracked` mode never
+   * calls this (see {@link structuredUntrackedDiff}: it never populates
+   * `hunks`, so there is no diff invocation to make for it here).
    *
    * For a rename BOTH `oldPath` and `pathArg` are passed as pathspecs. This is
    * NOT optional: gitdiffcore(7) documents that pathspec limiting happens
@@ -1190,29 +1245,37 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
    * (a plain add), not the `1\t1\t\0old.txt\0new.txt` rename triple that the
    * SAME command WITHOUT a path restriction (or with both paths) produces.
    */
+  interface UnifiedDiffRun {
+    readonly text: string;
+    /** True when `text` is a possibly-malformed PARTIAL capture (the diff
+     * invocation itself hit `maxBuffer`) — never feed this to `parseHunkHeaders`
+     * as though it were the complete diff; see the callers below. */
+    readonly truncated: boolean;
+  }
+
   async function computeUnifiedDiff(
-    mode: 'staged' | 'untracked' | 'working',
+    mode: 'staged' | 'working',
     pathArg: string,
     oldPath: string | null
-  ): Promise<GitResult<string>> {
-    const untracked = mode === 'untracked';
-    const args = untracked
-      ? ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', pathArg]
-      : [
-          'diff',
-          ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
-          '--no-ext-diff',
-          '--no-textconv',
-          '--find-renames',
-          '--',
-          ...(oldPath !== null && oldPath !== pathArg ? [oldPath, pathArg] : [pathArg]),
-        ];
-    const run_ = await (untracked ? invoke : invokeHookFree)(args);
-    const failure = describeDiffFailure(run_, untracked);
+  ): Promise<GitResult<UnifiedDiffRun>> {
+    const args = [
+      'diff',
+      ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
+      '--no-ext-diff',
+      '--no-textconv',
+      '--find-renames',
+      '--',
+      ...(oldPath !== null && oldPath !== pathArg ? [oldPath, pathArg] : [pathArg]),
+    ];
+    const run_ = await invokeHookFree(args);
+    const failure = describeDiffFailure(run_, false);
     if (failure) {
       return { error: failure, ok: false };
     }
-    return { ok: true, value: run_.stdout };
+    return {
+      ok: true,
+      value: { text: run_.stdout, truncated: run_.failureReason === 'maxBuffer' },
+    };
   }
 
   /**
@@ -1268,21 +1331,24 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         },
       };
     }
-    const text = content.toString('utf8');
-    const additions = countLines(text);
+    // Cap check BEFORE decoding: an over-cap file's decoded string is never
+    // returned (only `full` content stores it), so decode straight to the
+    // shape we're actually going to keep instead of eagerly transcoding a
+    // multi-megabyte buffer we're about to discard.
     if (content.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES) {
-      const unifiedDiff = await computeUnifiedDiff('untracked', pathArg, null);
-      if (!unifiedDiff.ok) {
-        return unifiedDiff;
-      }
-      const bounded = boundOutput(unifiedDiff.value);
+      // Over cap: skip a second `git diff --no-index` invocation entirely —
+      // untracked mode never populates `hunks`, and a whole-file addition
+      // diff is roughly the size of the file itself, so there is no
+      // structured value to buy with that extra process (and its own
+      // maxBuffer exposure), only cost. Keep the union shape honest with an
+      // empty, non-truncated `hunkText` rather than a fabricated preview.
       return {
         ok: true,
         value: {
-          additions,
+          additions: countLines(content.toString('utf8')),
           content: {
-            hunkText: bounded.text,
-            hunkTextTruncated: bounded.truncated,
+            hunkText: '',
+            hunkTextTruncated: false,
             kind: 'hunks-only',
             reason: 'over-cap-new',
           },
@@ -1293,10 +1359,11 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         },
       };
     }
+    const text = content.toString('utf8');
     return {
       ok: true,
       value: {
-        additions,
+        additions: countLines(text),
         content: { kind: 'full', newContent: text, oldContent: null },
         deletions: 0,
         hunks: [],
@@ -1337,7 +1404,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return { error: `no differences for '${pathArg}' in ${mode} scope`, ok: false };
   }
 
-  /** Structured diff for the `working`/`staged` modes: HEAD vs. worktree/index. */
+  /** Both read sides of a tracked-mode diff, plus the status/oldPath they
+   * already determine — the shared handoff between {@link readTrackedSides}
+   * and {@link assembleTrackedContent}. */
   interface TrackedSides {
     readonly newContent: Buffer | null;
     readonly oldContent: Buffer | null;
@@ -1397,26 +1466,44 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (!unifiedDiff.ok) {
       return unifiedDiff;
     }
-    const hunks = parseHunkHeaders(unifiedDiff.value);
 
     const oldOverCap =
       oldContent !== null && oldContent.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES;
     const newOverCap =
       newContent !== null && newContent.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES;
-    if (oldOverCap || newOverCap) {
-      const bounded = boundOutput(unifiedDiff.value);
+
+    // A `maxBuffer` overflow on the diff invocation itself means `text` is a
+    // possibly-malformed PARTIAL capture (git was killed mid-stream) — force
+    // `hunks-only` regardless of whether either SIDE individually crossed the
+    // per-file cap. Never claim `full` content with hunks silently short (or
+    // worse, let a mid-header cutoff reach `parseHunkHeaders` as if it were a
+    // complete diff and throw a confusing "malformed hunk header").
+    if (unifiedDiff.value.truncated || oldOverCap || newOverCap) {
+      const bounded = boundOutput(unifiedDiff.value.text);
       return {
         ok: true,
         value: {
           additions: entry.additions,
           content: {
             hunkText: bounded.text,
-            hunkTextTruncated: bounded.truncated,
+            hunkTextTruncated: bounded.truncated || unifiedDiff.value.truncated,
             kind: 'hunks-only',
-            reason: classifyOverCapReason(oldOverCap, newOverCap),
+            reason: resolveOverCapReason(
+              oldOverCap,
+              newOverCap,
+              unifiedDiff.value.truncated,
+              oldContent,
+              newContent
+            ),
           },
           deletions: entry.deletions,
-          hunks,
+          // Safe even on a `maxBuffer`-truncated raw capture: `boundOutput`'s
+          // 1MB soft ceiling is always well under the 4MB hard buffer cap, so
+          // it always re-truncates at a CLEAN boundary ending in the marker
+          // line — exactly the shape `parseHunkHeaders` tolerates (a
+          // hunk-header candidate immediately followed by the marker is
+          // skipped, never thrown).
+          hunks: parseHunkHeaders(bounded.text),
         },
       };
     }
@@ -1431,7 +1518,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           oldContent: oldContent === null ? null : oldContent.toString('utf8'),
         },
         deletions: entry.deletions,
-        hunks,
+        hunks: parseHunkHeaders(unifiedDiff.value.text),
       },
     };
   }

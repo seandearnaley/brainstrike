@@ -129,8 +129,12 @@ describe('structuredFileDiff — absent-side classification', () => {
       oldContent: null,
     });
     // New side for staged mode is read via `:0:<path>`, not the worktree.
-    const catFileSpecs = calls.filter((c) => isCatFile(c.args)).map((c) => c.args[2]);
-    expect(catFileSpecs).toContain('HEAD:added.txt');
+    const catFileCalls = calls.filter((c) => isCatFile(c.args));
+    expect(catFileCalls.map((c) => c.args[2])).toContain('HEAD:added.txt');
+    // Every cat-file blob read must request raw bytes, never a lossy utf8 decode.
+    for (const call of catFileCalls) {
+      expect(call.binaryStdout).toBe(true);
+    }
   });
 });
 
@@ -187,6 +191,31 @@ describe('structuredFileDiff — real-error vs absent classification (spike bug)
       return;
     }
     expect(result.error).toMatch(/buffer/i);
+  });
+
+  it('surfaces ok:false, never a fabricated empty blob, when the runner returns no stdoutBuffer on a clean exit', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      if (isNumstat(args)) {
+        return ok({ stdout: '1\t0\tnobuf.txt\0' });
+      }
+      if (isCatFile(args)) {
+        // Contract violation: binaryStdout was requested and the exit is
+        // clean, but the runner didn't populate stdoutBuffer at all.
+        return ok({ exitCode: 0 });
+      }
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({ mode: 'staged', path: 'nobuf.txt' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/no buffer/i);
+    expect(result.error).toContain('nobuf.txt');
   });
 });
 
@@ -336,6 +365,94 @@ describe('structuredFileDiff — cap boundary', () => {
     if (result.value.content.kind === 'hunks-only') {
       expect(result.value.content.reason).toBe('over-cap-both');
     }
+  });
+
+  it('only the old side over cap reports reason over-cap-old', async () => {
+    const cwd = await makeTempDir();
+    const overCap = 'a'.repeat(STRUCTURED_DIFF_CONTENT_CAP_BYTES + 1);
+    const { run } = createFakeRunner((args) => {
+      if (isNumstat(args)) {
+        return ok({ stdout: '0\t1\tbig.txt\0' });
+      }
+      if (isCatFile(args)) {
+        const spec = args[2] ?? '';
+        if (spec.startsWith('HEAD:')) {
+          return ok({ exitCode: 0, stdoutBuffer: Buffer.from(overCap, 'utf8') });
+        }
+        return ok({ exitCode: 0, stdoutBuffer: Buffer.from('small\n', 'utf8') });
+      }
+      if (isUnifiedDiff(args)) {
+        return ok({ stdout: 'diff --git a/big.txt b/big.txt\n@@ -1,1 +1,1 @@\n-a\n+small\n' });
+      }
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({ mode: 'staged', path: 'big.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content.kind).toBe('hunks-only');
+    if (result.value.content.kind === 'hunks-only') {
+      expect(result.value.content.reason).toBe('over-cap-old');
+    }
+  });
+});
+
+describe('structuredFileDiff — a maxBuffer overflow on the diff invocation forces hunks-only', () => {
+  it('never claims full content with short/wrong hunks when the unified diff itself overflows, even though both sides are small', async () => {
+    const cwd = await makeTempDir();
+    // Real, over 1MB (GIT_MAX_OUTPUT_BYTES) so boundOutput's own truncation
+    // actually engages — the guarantee parseHunkHeaders relies on (a clean,
+    // marker-terminated prefix) only holds once boundOutput has truncated.
+    // The one real hunk header appears well before the cut, so it survives
+    // intact; only the trailing filler content past it gets cut.
+    const hugeDiffText = `diff --git a/small.txt b/small.txt\n@@ -1,1 +1,1 @@\n-a\n+${'x'.repeat(1_100_000)}\n`;
+    const { run } = createFakeRunner((args) => {
+      if (isNumstat(args)) {
+        return ok({ stdout: '1\t1\tsmall.txt\0' });
+      }
+      if (isCatFile(args)) {
+        const spec = args[2] ?? '';
+        if (spec.startsWith('HEAD:')) {
+          return ok({ exitCode: 0, stdoutBuffer: Buffer.from('a\n', 'utf8') });
+        }
+        return ok({ exitCode: 0, stdoutBuffer: Buffer.from('b\n', 'utf8') });
+      }
+      if (isUnifiedDiff(args)) {
+        // Both sides are trivially small (2 bytes each), but the DIFF
+        // INVOCATION ITSELF overflowed git's output buffer — the exact
+        // scenario `describeDiffFailure` treats as a non-failure text
+        // "success" (a raw execFile maxBuffer kill has exitCode null).
+        return ok({
+          exitCode: null,
+          failureReason: 'maxBuffer',
+          stdout: hugeDiffText,
+        });
+      }
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({ mode: 'staged', path: 'small.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    // Never 'full' with silently-short hunks — always an honest hunks-only.
+    expect(result.value.content.kind).toBe('hunks-only');
+    if (result.value.content.kind !== 'hunks-only') {
+      return;
+    }
+    expect(result.value.content.hunkTextTruncated).toBe(true);
+    expect(result.value.content.hunkText).toContain('…(output truncated)');
+    // Both sides individually small ⇒ falls to the over-cap-new tie-break.
+    expect(result.value.content.reason).toBe('over-cap-new');
+    // The one hunk header that appeared before the cut point still parses.
+    expect(result.value.hunks).toEqual([{ newLines: 1, newStart: 1, oldLines: 1, oldStart: 1 }]);
   });
 });
 

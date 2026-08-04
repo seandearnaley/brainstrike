@@ -1699,4 +1699,94 @@ describe('git service — structuredFileDiff (real repos)', () => {
     }
     expect(result.error).toMatch(/no differences/);
   });
+
+  it('working mode: rename+edit — status "renamed", oldPath set (uncommitted, HEAD vs. worktree combined)', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'old.txt', 'line1\nline2\nline3\nline4\nline5\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFileAsync('git', ['mv', 'old.txt', 'new.txt'], { cwd: repo });
+    await writeFile(repo, 'new.txt', 'line1\nline2-edited\nline3\nline4\nline5\n');
+    // Deliberately NOT staged again — `git mv` auto-stages the rename, and this
+    // further edit is left unstaged. `working` mode (HEAD vs. worktree) must
+    // still see the combined rename+edit as ONE renamed entry.
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'new.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('renamed');
+    expect(result.value.oldPath).toBe('old.txt');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-edited\nline3\nline4\nline5\n',
+      oldContent: 'line1\nline2\nline3\nline4\nline5\n',
+    });
+  });
+
+  it('SECURITY: untracked mode reads a symlink as its link text, never a dereferenced out-of-root target', async () => {
+    const repo = await makeRepo();
+    const secretRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-outside-'));
+    const secretReal = await fsPromises.realpath(secretRoot);
+    createdRoots.push(secretReal);
+    const secretFile = path.join(secretReal, 'secret.txt');
+    await fsPromises.writeFile(secretFile, 'TOP SECRET CONTENT\n', 'utf8');
+
+    // `assertUntrackedDiffPathContained` only checks the PARENT chain, not the
+    // leaf — this symlink's PARENT is the repo root itself (contained), but
+    // its TARGET points entirely outside the opened root.
+    await fsPromises.symlink(secretFile, path.join(repo, 'link-to-secret.txt'));
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      mode: 'untracked',
+      path: 'link-to-secret.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content.kind).toBe('full');
+    if (result.value.content.kind !== 'full') {
+      return;
+    }
+    // Content is the LINK TEXT (the target path string) — never the
+    // dereferenced out-of-root file's actual bytes.
+    expect(result.value.content.newContent).toBe(secretFile);
+    expect(result.value.content.newContent).not.toContain('TOP SECRET');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'SECURITY: working mode reads a modified symlink as link text on both sides, never dereferenced content',
+    async () => {
+      const repo = await makeRepo();
+      await fsPromises.symlink('old-target.txt', path.join(repo, 'link.txt'));
+      await execFileAsync('git', ['add', '.'], { cwd: repo });
+      await execFileAsync('git', ['commit', '-qm', 'init symlink'], { cwd: repo });
+
+      await fsPromises.rm(path.join(repo, 'link.txt'));
+      await fsPromises.symlink('new-target.txt', path.join(repo, 'link.txt'));
+
+      const result = await serviceFor(repo).structuredFileDiff({
+        mode: 'working',
+        path: 'link.txt',
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.value.status).toBe('modified');
+      // Old side comes from `cat-file blob` (git's own 120000 rendering: the
+      // link TEXT). New side must be consistent — also the link text, never a
+      // dereferenced read through a (here, dangling) symlink target.
+      expect(result.value.content).toEqual({
+        kind: 'full',
+        newContent: 'new-target.txt',
+        oldContent: 'old-target.txt',
+      });
+    }
+  );
 });
