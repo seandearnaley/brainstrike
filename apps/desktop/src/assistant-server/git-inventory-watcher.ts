@@ -108,7 +108,19 @@ export interface GitInventoryWatchers {
 }
 
 interface Subscription {
-  /** Interesting-per-seen counters for the CURRENT batch — see {@link logAndResetBatchCounters}. Zero-cost: two integers, reset every time a batch closes. */
+  /**
+   * Interesting-vs-seen counters ACCUMULATED SINCE THE LAST BATCH CLOSE —
+   * see {@link logAndResetBatchCounters}. NOT scoped to "the current batch":
+   * a batch only opens once an interesting event arrives, so a noise-only
+   * period (e.g. sustained `objects/**` churn with no interesting event)
+   * keeps incrementing `batchEventsSeen` with no batch open at all. That is
+   * deliberate, not a gap — it is the MORE useful measurement, because it
+   * captures noise the debounce window itself never saw: the first
+   * interesting event to arrive after such a period reports the full
+   * accumulated noise, not just its own delivery. Zero-cost: two integers,
+   * reset every time a batch closes (normal debounce fire or forced
+   * overflow fire).
+   */
   batchEventsInteresting: number;
   batchEventsSeen: number;
   dead: boolean;
@@ -174,13 +186,16 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
 
   /**
    * Zero-cost measurement seam (no new infra, no persistence, no new
-   * dependency, no new public interface): logs how many raw events this
-   * batch SAW versus how many PASSED {@link isInterestingGitMetadataPath},
-   * at debug level, right before the batch closes (a normal debounce fire
-   * or a forced overflow fire). Attributed per common dir so the numbers
-   * are actionable — this is the data the `ignorePatterns: []` tradeoff
-   * comment (in {@link subscribe}) says to gather before reaching for a
-   * native ignore-pattern change.
+   * dependency, no new public interface): logs how many raw events were SEEN
+   * versus how many PASSED {@link isInterestingGitMetadataPath} SINCE THE
+   * LAST TIME A BATCH CLOSED for this common dir (see the doc on
+   * {@link Subscription.batchEventsSeen} for why that is not the same as
+   * "the current batch" and why that is the more useful measurement), at
+   * debug level, right before this batch closes (a normal debounce fire or
+   * a forced overflow fire). Attributed per common dir so the numbers are
+   * actionable — this is the data the `ignorePatterns: []` tradeoff comment
+   * (in {@link subscribe}) says to gather before reaching for a native
+   * ignore-pattern change.
    */
   function logAndResetBatchCounters(commonDir: string, sub: Subscription): void {
     logger.debug('git inventory watcher batch: interesting/seen event counts', {

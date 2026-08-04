@@ -628,6 +628,39 @@ describe('createGitInventoryWatchers', () => {
     });
   });
 
+  describe('pre-watchDirectory stale guard', () => {
+    it('never opens a real watch when disposeAll() tears the subscription down while realpath() is still pending', async () => {
+      // Real timers + a manually-resolvable realpath() so disposeAll() can
+      // be interleaved deterministically BETWEEN realpath() resolving and
+      // watchDirectory() being called — the exact window the guard at
+      // `subscribe()` ("checked BEFORE opening the real watch, not just
+      // after") claims to cover. Without it, a torn-down attempt would still
+      // open a real native watch (later cleaned up by the post-watch guard,
+      // so no leak — but the watch really did open, which is the whole
+      // point of checking before, not just after).
+      vi.useRealTimers();
+      let resolveRealpath: ((value: string) => void) | null = null;
+      const realpath = () =>
+        new Promise<string>((resolve) => {
+          resolveRealpath = resolve;
+        });
+      const fake = createFakeWatchDirectory();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ realpath, watchDirectory: fake.watchDirectory })
+      );
+
+      const syncPromise = watchers.sync(['/repo/.git']);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(resolveRealpath).not.toBeNull();
+
+      await watchers.disposeAll();
+      resolveRealpath?.('/repo/.git');
+      await syncPromise;
+
+      expect(fake.records).toHaveLength(0);
+    });
+  });
+
   describe('max-wait cap on the trailing debounce', () => {
     it('forces an invalidation at the cap under sustained churn, even though events never stop', async () => {
       const fake = createFakeWatchDirectory();
