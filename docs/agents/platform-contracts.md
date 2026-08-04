@@ -579,6 +579,37 @@ indexed state only.
   expires entries after one hour, and is cleared through the
   `read-workspace-file-cursors` factory-reset runtime. It must never move to
   durable storage, and unknown handles must never trigger a fresh-read fallback.
+- **Per-subscription ignore override (BST-1112)**: `StartParcelWatchOptions.ignorePatterns`
+  (threaded from `WatchDirectoryOptions.ignorePatterns`) lets a caller REPLACE
+  `DEFAULT_IGNORE_PATTERNS` for its own subscription only — both the native
+  ignore globs and the `fileFilter.shouldIgnorePath` guard — e.g. a
+  main-owned git-metadata watcher that needs `.git/HEAD` events the default
+  patterns would drop. `undefined` keeps the default patterns unchanged;
+  `[]` means "ignore nothing", never a silent fallback to defaults. Overrides
+  cannot reach the desktop `fs:watch` IPC domain: `StartFileSystemWatch`
+  takes no `ignorePatterns`, and that domain deduplicates native
+  subscriptions on `(ownerId, resolvedPath)` only. Any future caller that
+  threads an override through it MUST add the pattern set to
+  `subscriptionKey`, or two registrations for the same root would silently
+  share one filter set. The shared Explorer refresh pipeline never passes
+  this option — "same names, never broader" stays true for that path (see
+  `docs/agents/explorer-search-tapestry.md`).
+- **Git-inventory watcher dead-on-failure (BST-1112)**: `git-inventory-watcher.ts`'s
+  per-repo subscriptions (one per common dir, using the ignore override above)
+  mark themselves dead on an `'errored'` signal — visible via typed state, never
+  a silent no-op and never an auto-restart — and retry only when an explicit
+  `sync()` call still lists that common dir. An `'overflow'` signal is
+  different: it forces an IMMEDIATE invalidation (events may have been
+  missed, so the whole repo's metadata is treated as stale) WITHOUT marking
+  the watcher dead — it stays live and keeps batching normally afterward. The
+  trailing debounce that batches interesting events also has a max-wait cap
+  (`GIT_INVENTORY_WATCH_MAX_BATCH_MS`, 2000ms): sustained churn (a long
+  `git checkout`/rebase/`gc`) would otherwise re-arm the debounce forever and
+  starve invalidation indefinitely. Finally, `disposeAll()` is TERMINAL — once
+  called, a `GitInventoryWatchers` instance never subscribes again, even if a
+  later `sync()` lists a common dir; `git-inventory-service.ts`'s `stop()`
+  drops the instance entirely, and a later `start()` always builds a fresh one
+  rather than trying to resurrect a disposed instance.
 - **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
   (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
   asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).

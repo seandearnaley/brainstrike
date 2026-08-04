@@ -16,6 +16,36 @@ export interface WorktreeDescriptor extends GitWorktreeSummary {
   /** Workspace root ids containing this worktree, or 'outside-roots' when none do. */
   readonly containment: readonly string[] | 'outside-roots';
   readonly provenance: WorktreeProvenance;
+  /**
+   * Trust state of this descriptor. This answers "is this path safe to
+   * touch", NOT "does this repository actually own this worktree" — the two
+   * come apart for an in-root entry (see below).
+   *
+   * A worktree INSIDE a workspace root is always `'validated'` — but that
+   * means only "inside a user-granted root", not "ownership verified": the
+   * bidirectional check below is skipped entirely for it (the rationale is
+   * that the user already trusted everything under the root), so a
+   * fabricated `.git/worktrees/<name>/gitdir` pointing at a path INSIDE a
+   * root (e.g. another repo's own worktree in the same workspace) still
+   * reads `'validated'` here without ever being cross-checked against that
+   * target's own `.git`.
+   *
+   * A worktree whose containment is `'outside-roots'` is `'validated'` only
+   * when its own `.git` was read back and resolves to the SAME repository
+   * common dir — that IS a genuine bidirectional ownership check — otherwise
+   * `'unvalidated'` (e.g. a fabricated `.git/worktrees/<name>/gitdir`
+   * pointing outside every root, whose target does not point back). An
+   * unvalidated entry is still reported, never silently dropped.
+   */
+  readonly trust: 'unvalidated' | 'validated';
+  /**
+   * Why {@link trust} is what it is, for an operator debugging an unexpected
+   * `unvalidated` worktree. Null when `trust` is `'validated'` (nothing to
+   * explain) OR when the worktree is in-root and the check was never run.
+   * Non-null only for an outside-roots worktree whose bidirectional check
+   * failed to resolve or resolved to the wrong common dir.
+   */
+  readonly trustReason: string | null;
 }
 
 export interface GitInventoryRepository {

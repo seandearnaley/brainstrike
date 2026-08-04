@@ -55,6 +55,15 @@ export function resolveWatcherBackend(
 }
 
 export interface WatchDirectoryOptions {
+  /**
+   * Per-subscription ignore override (BST-1112): when provided, REPLACES
+   * DEFAULT_IGNORE_PATTERNS for THIS watch only — e.g. a main-owned
+   * git-metadata watcher that needs `.git/HEAD` events the default patterns
+   * would drop. `undefined` (the default) keeps the shared default patterns
+   * unchanged; `[]` means "ignore nothing", never a silent fallback to
+   * defaults. The shared Explorer refresh pipeline never passes this option.
+   */
+  ignorePatterns?: readonly string[] | undefined;
   /** Typed watcher health transitions (BST-568 slice 3). */
   onHealth?: (event: WatcherHealthTransition) => void;
 }
@@ -616,7 +625,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       }
     };
 
-    startParcelWatch(handle, callbackWithCacheInvalidation, { onHealth })
+    startParcelWatch(handle, callbackWithCacheInvalidation, {
+      ignorePatterns: options?.ignorePatterns,
+      onHealth,
+    })
       .then((stop) => {
         if (closed) {
           stop();
