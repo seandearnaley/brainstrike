@@ -6,13 +6,13 @@
  */
 
 import type { FolderState } from './file-explorer-persisted-state-types.js';
-import type {
-  QuerySelectionManifest,
-  SelectionMode,
-  SelectionModel,
-  SelectionQueryDescriptor,
+import {
+  createEmptySelectionModel,
+  type QuerySelectionManifest,
+  type SelectionMode,
+  type SelectionModel,
+  type SelectionQueryDescriptor,
 } from './file-explorer-selection-types.js';
-import { createEmptySelectionModel } from './file-explorer-selection-types.js';
 
 // Multi-root types (Phase 4)
 
