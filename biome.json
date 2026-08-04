@@ -531,7 +531,6 @@
         "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
         "packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx",
         "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
-        "packages/token-cache/src/use-background-token-indexer.ts",
         "packages/ui/src/__tests__/assistant-ui-panel.test.tsx",
         "packages/ui/src/__tests__/data-stream-runtime.test.ts",
         "packages/ui/src/__tests__/ide-layout.test.tsx",
