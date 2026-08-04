@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
 import { cn } from '../lib/utils';
+import { type DiffViewSource, resolveDiffPresentation } from './diff-view-source';
 
 const logger = createLogger('DiffView');
 
@@ -100,12 +101,23 @@ export interface DiffViewProps {
   readonly filename?: string | undefined;
   /** Explicit language name override (takes precedence over `filename`). */
   readonly language?: string | undefined;
-  /** "After" content (right / modified side). */
-  readonly modified: string;
-  /** "Before" content (left / original side). */
-  readonly original: string;
+  /** "After" content (right / modified side). Legacy; ignored when `source` is given. */
+  readonly modified?: string | undefined;
+  /** "Before" content (left / original side). Legacy; ignored when `source` is given. */
+  readonly original?: string | undefined;
+  /**
+   * Preferred content source. Takes precedence over `original`/`modified`/
+   * `truncated` when present. Neither `source` nor the legacy string props
+   * being given is a contract violation — `DiffView` throws rather than
+   * rendering blank.
+   */
+  readonly source?: DiffViewSource | undefined;
   readonly testId?: string | undefined;
-  /** When true, render a "diff truncated" note (the IPC bounds large diffs). */
+  /**
+   * When true, render a "diff truncated" note (the IPC bounds large diffs).
+   * Legacy; ignored when `source` is given (structured `hunks-only` content
+   * drives the same note via `hunkTextTruncated`).
+   */
   readonly truncated?: boolean | undefined;
 }
 
@@ -130,7 +142,8 @@ export function DiffView({
   language,
   original,
   modified,
-  truncated = false,
+  source,
+  truncated,
   testId,
 }: DiffViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -141,12 +154,34 @@ export function DiffView({
     [language, filename]
   );
 
+  const presentation = useMemo(
+    () => resolveDiffPresentation({ modified, original, source, truncated }),
+    [modified, original, source, truncated]
+  );
+  // Split/unified toggling only applies when there are two documents to
+  // compare — `hunks-only` is a single bounded text and `binary` mounts
+  // nothing, so neither has a mode to switch.
+  const modeTogglable = presentation.kind === 'text';
+  const truncatedNoteVisible =
+    presentation.kind === 'text'
+      ? presentation.truncated
+      : presentation.kind === 'hunks-only' && presentation.hunkTextTruncated;
+  const statSummary =
+    source?.kind === 'structured' &&
+    source.diff.additions !== null &&
+    source.diff.deletions !== null
+      ? { additions: source.diff.additions, deletions: source.diff.deletions }
+      : null;
+
   // Re-mount the CodeMirror view whenever the inputs that affect its construction
   // change. `@codemirror/merge`'s MergeView has no simple "swap docs" API for a
   // read-only view, so a clean teardown/rebuild is the simplest correct approach
   // (the documents here are bounded diffs, not whole large files). A plain string
-  // concat is cheap — no useMemo needed.
-  const renderKey = `${mode}:${resolvedLanguage.label}`;
+  // concat is cheap — no useMemo needed. Folds in the source/content kind so a
+  // strings↔structured or full↔hunks-only↔binary transition rebuilds cleanly too.
+  const sourceKind = source?.kind ?? 'strings';
+  const contentKind = source?.kind === 'structured' ? source.diff.content.kind : 'text';
+  const renderKey = `${mode}:${resolvedLanguage.label}:${sourceKind}:${contentKind}`;
 
   const toggleMode = useCallback(() => {
     setMode((current) => (current === 'split' ? 'unified' : 'split'));
@@ -154,6 +189,8 @@ export function DiffView({
 
   useEffect(() => {
     const host = hostRef.current;
+    // `binary` renders no `<section>` (see JSX below), so `host` is already
+    // null in that case — nothing further to guard here.
     if (!host) {
       return;
     }
@@ -168,43 +205,66 @@ export function DiffView({
       }
       const languageExtension: Extension = languageSupport ?? [];
 
-      if (mode === 'split') {
-        mergeView = new MergeView({
-          a: {
-            doc: original,
-            extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
-          },
-          b: {
-            doc: modified,
-            extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
-          },
-          collapseUnchanged: { margin: 3, minSize: 4 },
-          gutter: true,
-          highlightChanges: true,
-          orientation: 'a-b',
-          parent: host,
-        });
-        return;
-      }
+      switch (presentation.kind) {
+        case 'binary':
+          return;
+        case 'hunks-only': {
+          editorView = new EditorView({
+            parent: host,
+            state: EditorState.create({
+              doc: presentation.hunkText,
+              extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+            }),
+          });
+          return;
+        }
+        case 'text': {
+          const { original: originalDoc, modified: modifiedDoc } = presentation;
 
-      editorView = new EditorView({
-        parent: host,
-        state: EditorState.create({
-          doc: modified,
-          extensions: [
-            ...BASE_EXTENSIONS,
-            READ_ONLY_EXTENSIONS,
-            languageExtension,
-            unifiedMergeView({
+          if (mode === 'split') {
+            mergeView = new MergeView({
+              a: {
+                doc: originalDoc,
+                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+              },
+              b: {
+                doc: modifiedDoc,
+                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+              },
               collapseUnchanged: { margin: 3, minSize: 4 },
               gutter: true,
-              // Read-only viewer: never show accept/reject chunk controls.
-              mergeControls: false,
-              original,
+              highlightChanges: true,
+              orientation: 'a-b',
+              parent: host,
+            });
+            return;
+          }
+
+          editorView = new EditorView({
+            parent: host,
+            state: EditorState.create({
+              doc: modifiedDoc,
+              extensions: [
+                ...BASE_EXTENSIONS,
+                READ_ONLY_EXTENSIONS,
+                languageExtension,
+                unifiedMergeView({
+                  collapseUnchanged: { margin: 3, minSize: 4 },
+                  gutter: true,
+                  // Read-only viewer: never show accept/reject chunk controls.
+                  mergeControls: false,
+                  original: originalDoc,
+                }),
+              ],
             }),
-          ],
-        }),
-      });
+          });
+          return;
+        }
+        default: {
+          const exhaustive: never = presentation;
+          throw new Error(`Unhandled diff presentation kind: ${JSON.stringify(exhaustive)}`);
+        }
+      }
     };
 
     // Build immediately with plaintext, then upgrade once async language support
@@ -240,8 +300,9 @@ export function DiffView({
       editorView?.destroy();
     };
     // `renderKey` is intentionally a dependency: it folds `mode` +
-    // `resolvedLanguage.label` so a mode/language switch rebuilds the view.
-  }, [renderKey, original, modified, mode, resolvedLanguage]);
+    // `resolvedLanguage.label` + source/content kind so any of those
+    // transitions rebuild the view.
+  }, [renderKey, presentation, mode, resolvedLanguage]);
 
   return (
     <div
@@ -251,9 +312,22 @@ export function DiffView({
       data-testid={testId}
     >
       <div className="flex items-center justify-between gap-2 border-border border-b px-2 py-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium text-muted-foreground text-xs">{filename ?? 'Diff'}</span>
-          {truncated ? (
+          {statSummary ? (
+            <span className="text-muted-foreground text-xs" data-testid="diff-stat-summary">
+              +{statSummary.additions} −{statSummary.deletions}
+            </span>
+          ) : null}
+          {presentation.kind === 'hunks-only' ? (
+            <span
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              data-testid="diff-over-cap-note"
+            >
+              {presentation.sideNote}
+            </span>
+          ) : null}
+          {truncatedNoteVisible ? (
             <span
               className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
               data-testid="diff-truncated-note"
@@ -262,25 +336,36 @@ export function DiffView({
             </span>
           ) : null}
         </div>
-        <Button
-          aria-label={mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
-          aria-pressed={mode === 'unified'}
-          onClick={toggleMode}
-          size="xs"
-          type="button"
-          variant="outline"
-        >
-          {mode === 'split' ? 'Inline' : 'Side by side'}
-        </Button>
+        {modeTogglable ? (
+          <Button
+            aria-label={mode === 'split' ? 'Switch to inline diff' : 'Switch to side-by-side diff'}
+            aria-pressed={mode === 'unified'}
+            onClick={toggleMode}
+            size="xs"
+            type="button"
+            variant="outline"
+          >
+            {mode === 'split' ? 'Inline' : 'Side by side'}
+          </Button>
+        ) : null}
       </div>
-      {/* The CodeMirror MergeView / EditorView is imperatively mounted here. The
-          labelled region groups the diff content for assistive tech. */}
-      <section
-        aria-label={ariaLabel}
-        className="min-h-0 flex-1 overflow-hidden"
-        key={renderKey}
-        ref={hostRef}
-      />
+      {presentation.kind === 'binary' ? (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground text-sm"
+          data-testid="diff-binary-note"
+        >
+          Binary file — no text diff
+        </div>
+      ) : (
+        // The CodeMirror MergeView / EditorView is imperatively mounted here. The
+        // labelled region groups the diff content for assistive tech.
+        <section
+          aria-label={ariaLabel}
+          className="min-h-0 flex-1 overflow-hidden"
+          key={renderKey}
+          ref={hostRef}
+        />
+      )}
     </div>
   );
 }
