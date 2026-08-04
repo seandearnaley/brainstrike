@@ -108,6 +108,9 @@ export interface GitInventoryWatchers {
 }
 
 interface Subscription {
+  /** Interesting-per-seen counters for the CURRENT batch — see {@link logAndResetBatchCounters}. Zero-cost: two integers, reset every time a batch closes. */
+  batchEventsInteresting: number;
+  batchEventsSeen: number;
   dead: boolean;
   deadReason: string | null;
   dispose: () => void;
@@ -170,6 +173,26 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
   let disposed = false;
 
   /**
+   * Zero-cost measurement seam (no new infra, no persistence, no new
+   * dependency, no new public interface): logs how many raw events this
+   * batch SAW versus how many PASSED {@link isInterestingGitMetadataPath},
+   * at debug level, right before the batch closes (a normal debounce fire
+   * or a forced overflow fire). Attributed per common dir so the numbers
+   * are actionable — this is the data the `ignorePatterns: []` tradeoff
+   * comment (in {@link subscribe}) says to gather before reaching for a
+   * native ignore-pattern change.
+   */
+  function logAndResetBatchCounters(commonDir: string, sub: Subscription): void {
+    logger.debug('git inventory watcher batch: interesting/seen event counts', {
+      commonDir,
+      eventsInteresting: sub.batchEventsInteresting,
+      eventsSeen: sub.batchEventsSeen,
+    });
+    sub.batchEventsInteresting = 0;
+    sub.batchEventsSeen = 0;
+  }
+
+  /**
    * TRUE trailing debounce, WITH a max-wait cap: every interesting event
    * clears and re-arms a fresh {@link GIT_INVENTORY_WATCH_BATCH_MS} window
    * from ITS OWN arrival time, never from the first event's. An event burst
@@ -198,6 +221,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     sub.timer = setTimeout(() => {
       sub.timer = null;
       sub.firstEventAt = null;
+      logAndResetBatchCounters(commonDir, sub);
       deps.onInvalidate(commonDir);
     }, delay);
   }
@@ -218,11 +242,18 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     // actually opened against, realpath'd) — every change path the adapter
     // reports is under that real tree, not necessarily under the ORIGINAL
     // (possibly symlinked) `commonDir` key used for the invalidation/dead-set
-    // identity below.
-    const hasInteresting = changes.some((change) =>
-      isInterestingGitMetadataPath(toRelativePosixPath(watchRoot, change.path))
-    );
-    if (!hasInteresting) {
+    // identity below. Counted in full (not short-circuited) so
+    // `batchEventsInteresting` reflects every interesting change in this
+    // delivery, not just whether at least one existed.
+    let interestingInThisDelivery = 0;
+    for (const change of changes) {
+      if (isInterestingGitMetadataPath(toRelativePosixPath(watchRoot, change.path))) {
+        interestingInThisDelivery += 1;
+      }
+    }
+    sub.batchEventsSeen += changes.length;
+    sub.batchEventsInteresting += interestingInThisDelivery;
+    if (interestingInThisDelivery === 0) {
       return;
     }
     scheduleInvalidate(commonDir, sub);
@@ -245,6 +276,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
         sub.timer = null;
       }
       sub.firstEventAt = null;
+      logAndResetBatchCounters(commonDir, sub);
       deps.onInvalidate(commonDir);
       return;
     }
@@ -292,6 +324,8 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       return;
     }
     const sub: Subscription = {
+      batchEventsInteresting: 0,
+      batchEventsSeen: 0,
       dead: false,
       deadReason: null,
       dispose: () => {},
@@ -334,6 +368,37 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
 
     let dispose: () => void;
     try {
+      // `ignorePatterns: []` is LOAD-BEARING, not a perf oversight — do not
+      // "fix" it back to the default. `DEFAULT_IGNORE_PATTERNS`
+      // (packages/utils/src/path-filter.ts) includes `.git`, so a
+      // subscription rooted AT `.git` would have every single event dropped
+      // by the native filter before it ever reached this module.
+      //
+      // The cost this buys: `[]` disables native filtering ENTIRELY, not
+      // just for `.git`. `parcel-watchers.ts`'s `processEvent` only calls
+      // `shouldIgnore()` before `fs.stat()`-ing a non-delete event; with no
+      // patterns, `shouldIgnore()` never matches, so every event reaches
+      // that `stat()`. During a `git fetch`/`gc`, `.git/objects/**` writes
+      // can number in the thousands — each one costs a main-process `stat`
+      // call, and our own {@link isInterestingGitMetadataPath} then discards
+      // nearly all of them anyway (see {@link logAndResetBatchCounters} for
+      // a debug-level, per-repo seen-vs-interesting counter that measures
+      // this live instead of by speculation).
+      //
+      // Rejected fix: `ignorePatterns: ['objects', 'logs']` would kill the
+      // native storm, but `buildIgnorePatternRegex` (same file) is
+      // PATH-SEGMENT based — it matches a pattern against ANY segment,
+      // anywhere in the path — so it would also silently ignore a branch
+      // literally named `objects` or `logs` (e.g. `refs/heads/objects`).
+      // That is exactly the silent-false-negative class this repo bans; do
+      // not reach for segment patterns here.
+      //
+      // Sanctioned direction if live measurement ever justifies it:
+      // ROOT-ANCHORED PREFIX ignores — extend the `ignorePatterns` /
+      // `WatchDirectoryOptions` mechanism so `objects/**` anchors at the
+      // subscription root instead of matching any segment. Nothing like
+      // that exists in `path-filter.ts` or `parcel-watchers.ts` today; it
+      // would need to be built, not approximated with segment patterns.
       dispose = await deps.watchDirectory(
         watchRoot,
         (changes) => handleChanges(commonDir, watchRoot, sub, changes),

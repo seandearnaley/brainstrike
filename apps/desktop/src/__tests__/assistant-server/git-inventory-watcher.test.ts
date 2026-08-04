@@ -11,13 +11,14 @@ import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerErrorSpy = vi.hoisted(() => vi.fn());
+const loggerDebugSpy = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: (...args: Parameters<typeof actual.createLogger>) => {
       const real = actual.createLogger(...args);
-      return { ...real, error: loggerErrorSpy };
+      return { ...real, debug: loggerDebugSpy, error: loggerErrorSpy };
     },
   };
 });
@@ -101,6 +102,7 @@ describe('createGitInventoryWatchers', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     loggerErrorSpy.mockClear();
+    loggerDebugSpy.mockClear();
   });
 
   afterEach(() => {
@@ -656,6 +658,89 @@ describe('createGitInventoryWatchers', () => {
       // The cap must have forced exactly one fire partway through, even
       // though the churn never stopped.
       expect(onInvalidate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('batch seen-vs-interesting event counters (measurement seam for the ignorePatterns:[] tradeoff)', () => {
+    it('logs the exact seen and interesting counts for the batch, attributed to the common dir', async () => {
+      const fake = createFakeWatchDirectory();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      // First delivery: 1 interesting (HEAD), 1 noise (objects/**).
+      record.fireChanges([change('/repo/.git', 'HEAD'), change('/repo/.git', 'objects/ab/cd1234')]);
+      // Second delivery, same batch (before the debounce fires): 2
+      // interesting (index, refs/heads/main), 1 noise (config).
+      record.fireChanges([
+        change('/repo/.git', 'index'),
+        change('/repo/.git', 'refs/heads/main'),
+        change('/repo/.git', 'config'),
+      ]);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
+
+      // Total across the batch: 5 seen, 3 interesting. A mutation that
+      // counts every seen event as interesting (or never counts at all)
+      // fails this exact-value assertion.
+      expect(loggerDebugSpy).toHaveBeenCalledExactlyOnceWith(
+        'git inventory watcher batch: interesting/seen event counts',
+        { commonDir: '/repo/.git', eventsInteresting: 3, eventsSeen: 5 }
+      );
+    });
+
+    it('resets the counters after a batch closes, so the next batch logs only its own events', async () => {
+      const fake = createFakeWatchDirectory();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      record.fireChanges([change('/repo/.git', 'HEAD')]);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
+      expect(loggerDebugSpy).toHaveBeenCalledTimes(1);
+
+      record.fireChanges([change('/repo/.git', 'index')]);
+      await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
+
+      // If the counters were never reset after the first batch closed, this
+      // second log would show the ACCUMULATED totals (2 seen, 2 interesting)
+      // instead of just the second batch's own single event.
+      expect(loggerDebugSpy).toHaveBeenCalledTimes(2);
+      expect(loggerDebugSpy).toHaveBeenLastCalledWith(
+        'git inventory watcher batch: interesting/seen event counts',
+        { commonDir: '/repo/.git', eventsInteresting: 1, eventsSeen: 1 }
+      );
+    });
+
+    it('logs accumulated counts and resets on a forced overflow fire too', async () => {
+      const fake = createFakeWatchDirectory();
+      const watchers = createGitInventoryWatchers(
+        makeDeps({ watchDirectory: fake.watchDirectory })
+      );
+      await watchers.sync(['/repo/.git']);
+      const record = fake.records[0];
+      if (!record) {
+        throw new Error('expected a subscription record');
+      }
+
+      // One noise-only delivery (0 interesting, 1 seen) still pending when
+      // overflow forces the batch closed early.
+      record.fireChanges([change('/repo/.git', 'objects/ab/cd1234')]);
+      record.fireSignal({ type: 'overflow' });
+
+      expect(loggerDebugSpy).toHaveBeenCalledExactlyOnceWith(
+        'git inventory watcher batch: interesting/seen event counts',
+        { commonDir: '/repo/.git', eventsInteresting: 0, eventsSeen: 1 }
+      );
     });
   });
 
