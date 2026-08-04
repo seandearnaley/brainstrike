@@ -13,6 +13,12 @@
  * `isElectron()` check anywhere.
  */
 
+import type {
+  AssistantRewindMode,
+  AssistantRewindPreviewResult,
+  AssistantRewindRedoResult,
+  AssistantRewindResult,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type {
   Changeset,
@@ -32,7 +38,38 @@ export type {
 
 const logger = createLogger('ChangesBridge');
 
+/**
+ * Which message a rewind targets. `messageId` is the assistant panel's
+ * affordance; `runId` is the Changes header's (Amendment 1 A1.3) — the surface
+ * knows a run and never a message, and the main process resolves the one from
+ * the other rather than the renderer guessing. Exactly one is accepted.
+ */
+export type RewindPreviewPayload = { readonly threadId: string } & (
+  | { readonly messageId: string; readonly runId?: never }
+  | { readonly messageId?: never; readonly runId: string }
+);
+
+export interface RewindApplyPayload {
+  /**
+   * REQUIRED before any part of a conflicted files-mode rewind applies. One
+   * conflicting file blocks the WHOLE apply until the user has been shown every
+   * named path; there is deliberately no per-file override.
+   */
+  readonly acknowledgeConflicts?: boolean;
+  readonly messageId: string;
+  /** Explicit scope choice (Amendment 1) — no default reaches the filesystem. */
+  readonly mode: AssistantRewindMode;
+  readonly threadId: string;
+}
+
+export interface RewindRedoPayload {
+  readonly acknowledgeConflicts?: boolean;
+  readonly rewindId: string;
+}
+
 export interface ChangesBridge {
+  /** Conversation Rewind: apply. See {@link RewindApplyPayload}. */
+  applyRewind: (payload: RewindApplyPayload) => Promise<GitResult<AssistantRewindResult>>;
   fileDiff: (
     rootId: string,
     changeset: Changeset,
@@ -46,7 +83,13 @@ export interface ChangesBridge {
    * rather than silently degrading.
    */
   inventory: () => Promise<GitResult<GitInventory>>;
+  /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
+  redoRewind: (payload: RewindRedoPayload) => Promise<GitResult<AssistantRewindRedoResult>>;
   resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
+  /** Conversation Rewind: pre-apply preview (range, tombstones, conflicts, view). */
+  rewindPreview: (
+    payload: RewindPreviewPayload
+  ) => Promise<GitResult<AssistantRewindPreviewResult>>;
 }
 
 // Compile-time exact-set proof: `satisfies Record<keyof ChangesBridge, true>`
@@ -55,9 +98,12 @@ export interface ChangesBridge {
 // the interface. The runtime pin only checks preload ↔ constant; this closes
 // interface ↔ constant.
 const CHANGES_BRIDGE_REQUIRED_METHOD_SET = {
+  applyRewind: true,
   fileDiff: true,
   inventory: true,
+  redoRewind: true,
   resolveView: true,
+  rewindPreview: true,
 } as const satisfies Record<keyof ChangesBridge, true>;
 
 /**
@@ -69,6 +115,10 @@ const CHANGES_BRIDGE_REQUIRED_METHOD_SET = {
  * preload exposes must be listed here. There is no such thing as an optional
  * bridge method: a preload method missing from this list (or vice versa)
  * disables the entire surface via the resolver below.
+ *
+ * The three rewind methods joined this list in the SAME commit that added them
+ * to the preload (BST-1115 W5 T4) — a bridge that exposes them on one side only
+ * is malformed, and a malformed bridge is absent, never half-working.
  */
 export const CHANGES_BRIDGE_REQUIRED_METHODS = Object.keys(
   CHANGES_BRIDGE_REQUIRED_METHOD_SET

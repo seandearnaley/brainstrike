@@ -3,12 +3,14 @@ import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { resetContextUsageStore } from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
 import { resetFollowUpQueueStore } from '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store';
+import { useRewindComposerStore } from '@brainstrike/ui/assistant-ui-panel/rewind-composer-store';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
+import { useRewindStore } from './changes/rewind-store';
 import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
 import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
 import { resetThreadSearchStore } from './thread-search-store';
@@ -99,4 +101,17 @@ registerFactoryResetSessionStore(() => {
   // Selection/expansion are view-only, but a selection carried over past a
   // reset can filter every file out of a diff pane that no longer exists.
   useChangesStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // An open Conversation Rewind request names a thread/message/run the reset
+  // just wiped; leaving it up would show a confirm modal for a conversation
+  // that no longer exists.
+  useRewindStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // A pending composer repopulation is the text of a message the reset just
+  // deleted — it must not land in a fresh profile's first prompt.
+  useRewindComposerStore.getState().consume();
 });

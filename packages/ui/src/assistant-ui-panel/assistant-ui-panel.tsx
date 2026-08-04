@@ -103,6 +103,7 @@ import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
+import { MessageRewindAction, RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
 
@@ -1224,6 +1225,10 @@ const ChatThreadUI = ({
           {...(threadKey ? { threadKey } : {})}
         />
         <FollowUpQueueBridge threadKey={threadKey} />
+        {/* Drains a successful rewind's target prompt back into the composer
+            (Amendment 2). Mounted here rather than on the message, whose own
+            button is unmounted by the rewind that hides it. */}
+        <RewindComposerBridge />
         {/**
          * Messages viewport + scroll region + jump-to-latest button, all owned by
          * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
@@ -1551,6 +1556,7 @@ export const AssistantUiPanel = ({
 // __tests__/assistant-chat-polish.browser.test.tsx (BST-898 hover-float
 // geometry) alongside __tests__/user-action-bar-copy.test.tsx.
 export const UserMessage = () => {
+  const threadKey = use(ActiveThreadKeyContext);
   // Approval action messages ("Approved <tool>.") are transport bookkeeping —
   // kept in thread state (outcome locking + resume runConfig ride on them,
   // and they are excluded from every outbound payload at the transport seam)
@@ -1586,6 +1592,10 @@ export const UserMessage = () => {
       </ExpandableMessageContent>
 
       <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
+
+      {/* "Restore to before this message" — null without a RewindProvider
+          binding (web / no changes bridge) or while a run is in flight. */}
+      <MessageRewindAction threadId={threadKey} />
     </MessagePrimitive.Root>
   );
 };

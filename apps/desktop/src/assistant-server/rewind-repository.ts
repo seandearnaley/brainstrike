@@ -154,6 +154,59 @@ export async function resolveRewindRunRange(
   return { fromRunId, kind: 'runs', runIds };
 }
 
+/**
+ * Resolve the message a rewind must target so that its range STARTS at `runId`
+ * — the inverse of {@link resolveRewindRunRange}, and the only way the Changes
+ * surface's header action (Amendment 1 A1.3) can reach the rewind API, which
+ * is keyed by message and never by run.
+ *
+ * Same race, read the other way round: the renderer creates the run row on
+ * send while Mastra persists the user message during the request, so the
+ * message that TRIGGERED a run is the EARLIEST one whose `createdAt` is
+ * strictly after that run's `started_at`. `resolveRewindRunRange` then
+ * re-derives the range from that message's predecessor and lands back on this
+ * run.
+ *
+ * `null` when the run is not in this thread, when Mastra's message table does
+ * not exist yet, or when no message follows the run's start — a run whose
+ * messages were never persisted has no message to rewind to, and inventing one
+ * would be a silent fallback. Callers surface that as a visible refusal.
+ *
+ * The resolved id is ADVISORY in exactly one direction: the preview it feeds
+ * re-runs the full range resolution and reports the range it actually found,
+ * so a boundary tie can never silently widen or narrow what the user confirms
+ * against — the modal shows the resolved range, not the requested one.
+ */
+export async function resolveRewindMessageForRun(
+  db: EditCheckpointDatabase,
+  threadId: string,
+  runId: string
+): Promise<string | null> {
+  if (!(await relationExists(db, RUNS_TABLE))) {
+    return null;
+  }
+  if (!(await relationExists(db, MASTRA_MEMORY_TABLES.messages))) {
+    return null;
+  }
+  const runResult = await db.query<{ startedAt: string }>(
+    `SELECT started_at::text AS "startedAt" FROM ${RUNS_TABLE} WHERE id = $1 AND thread_id = $2`,
+    [runId, threadId]
+  );
+  const startedAt = runResult.rows[0]?.startedAt;
+  if (startedAt === undefined) {
+    return null;
+  }
+  const messageResult = await db.query<{ id: string }>(
+    `SELECT id AS "id"
+     FROM ${MASTRA_MEMORY_TABLES.messages}
+     WHERE thread_id = $1 AND "createdAt" > $2::timestamptz
+     ORDER BY "createdAt" ASC, id ASC
+     LIMIT 1`,
+    [threadId, startedAt]
+  );
+  return messageResult.rows[0]?.id ?? null;
+}
+
 export interface TombstoneRow {
   readonly messageId: string;
   readonly revertId: string | null;

@@ -193,4 +193,23 @@ function useToast() {
   };
 }
 
+/**
+ * Drop every toast and its pending auto-dismiss timer.
+ *
+ * TEST HYGIENE SEAM, mirroring `resetFollowUpQueueStore`/`resetContextUsageStore`.
+ * `memoryState` is module-scope, so toasts raised by one test are still mounted
+ * during the next one — and a test that clicks "the toast's action button"
+ * then silently drives the PREVIOUS test's closure instead of its own. That
+ * fails with "not called", pointing nowhere near the cause.
+ */
+export function resetToastStore(): void {
+  for (const toastId of [...toastTimeouts.keys()]) {
+    clearToastTimeout(toastId);
+  }
+  memoryState = { toasts: [] };
+  for (const listener of listeners) {
+    listener(memoryState);
+  }
+}
+
 export { toast, useToast };

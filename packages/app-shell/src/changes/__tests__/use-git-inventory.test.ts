@@ -36,10 +36,18 @@ function inventoryFixture(overrides: Partial<GitInventory> = {}): GitInventory {
   };
 }
 
+/**
+ * Fills in every method this suite does not exercise — `resolveChangesBridge`
+ * requires a FULLY formed bridge, so an omitted rewind method (BST-1115) reads
+ * as malformed and the hook goes inert.
+ */
 function stubBridge(bridge: Partial<ChangesBridge>): void {
   (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
+    applyRewind: vi.fn(),
     fileDiff: vi.fn(),
+    redoRewind: vi.fn(),
     resolveView: vi.fn(),
+    rewindPreview: vi.fn(),
     ...bridge,
   };
 }

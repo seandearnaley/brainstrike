@@ -143,6 +143,13 @@ export default defineConfig({
         ),
       },
       {
+        find: '@brainstrike/ui/assistant-ui-panel/rewind-composer-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../ui/src/assistant-ui-panel/rewind-composer-store.ts'
+        ),
+      },
+      {
         find: '@brainstrike/ui/assistant-ui-panel',
         replacement: path.resolve(import.meta.dirname, '../ui/src/assistant-ui-panel/index.ts'),
       },

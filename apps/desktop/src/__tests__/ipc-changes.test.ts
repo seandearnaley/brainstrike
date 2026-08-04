@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerChangesIpcHandlers } from '../ipc-changes';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 
@@ -17,14 +17,29 @@ vi.mock('electron', () => ({
  * `DESKTOP_IPC_CHANNELS.changes.*` constants (a copy-paste channel swap would
  * fail nothing), or that the disposer actually removes both.
  */
+function stubHandlers() {
+  return {
+    applyRewind: vi.fn(async () => ({ ok: true, value: {} }) as never),
+    fileDiff: vi.fn(async () => ({ ok: true, value: {} }) as never),
+    inventory: vi.fn(async () => ({ ok: true, value: {} }) as never),
+    redoRewind: vi.fn(async () => ({ ok: true, value: {} }) as never),
+    resolveView: vi.fn(async () => ({ ok: true, value: {} }) as never),
+    rewindPreview: vi.fn(async () => ({ ok: true, value: {} }) as never),
+  };
+}
+
 describe('registerChangesIpcHandlers', () => {
+  // The `ipcMain` mock is module-scoped, so its `handle` calls accumulate
+  // across tests: without this, looking a channel up by `find` returns the
+  // FIRST test's handler and every forwarding assertion silently tests the
+  // wrong closure.
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('registers resolveView and fileDiff against the correct channel constants', async () => {
     const { ipcMain } = await import('electron');
-    const handlers = {
-      fileDiff: vi.fn(async () => ({ ok: true, value: {} }) as never),
-      inventory: vi.fn(async () => ({ ok: true, value: {} }) as never),
-      resolveView: vi.fn(async () => ({ ok: true, value: {} }) as never),
-    };
+    const handlers = stubHandlers();
 
     registerChangesIpcHandlers(handlers);
 
@@ -67,11 +82,7 @@ describe('registerChangesIpcHandlers', () => {
 
   it('disposer removes every registered channel', async () => {
     const { ipcMain } = await import('electron');
-    const handlers = {
-      fileDiff: vi.fn(async () => ({ ok: true, value: {} }) as never),
-      inventory: vi.fn(async () => ({ ok: true, value: {} }) as never),
-      resolveView: vi.fn(async () => ({ ok: true, value: {} }) as never),
-    };
+    const handlers = stubHandlers();
 
     const dispose = registerChangesIpcHandlers(handlers);
     dispose();
@@ -83,8 +94,38 @@ describe('registerChangesIpcHandlers', () => {
         DESKTOP_IPC_CHANNELS.changes.resolveView,
         DESKTOP_IPC_CHANNELS.changes.fileDiff,
         DESKTOP_IPC_CHANNELS.changes.inventory,
+        DESKTOP_IPC_CHANNELS.changes.rewindPreview,
+        DESKTOP_IPC_CHANNELS.changes.applyRewind,
+        DESKTOP_IPC_CHANNELS.changes.redoRewind,
       ])
     );
-    expect(removedChannels).toHaveLength(3);
+    expect(removedChannels).toHaveLength(6);
+  });
+
+  // BST-1115 W5 T4: each rewind channel must be wired to its OWN handler, and
+  // each must forward the renderer payload WITHOUT the IpcMainInvokeEvent.
+  it('registers each rewind channel against its own handler', async () => {
+    const { ipcMain } = await import('electron');
+    const handlers = stubHandlers();
+
+    registerChangesIpcHandlers(handlers);
+
+    const handleMock = ipcMain.handle as unknown as ReturnType<typeof vi.fn>;
+    const handlerFor = (channel: string) =>
+      handleMock.mock.calls.find(([registered]) => registered === channel)?.[1] as (
+        event: unknown,
+        payload: unknown
+      ) => unknown;
+
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.rewindPreview)({}, { messageId: 'm1' });
+    expect(handlers.rewindPreview).toHaveBeenCalledWith({ messageId: 'm1' });
+    expect(handlers.applyRewind).not.toHaveBeenCalled();
+    expect(handlers.redoRewind).not.toHaveBeenCalled();
+
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.applyRewind)({}, { messageId: 'm1' });
+    expect(handlers.applyRewind).toHaveBeenCalledWith({ messageId: 'm1' });
+
+    await handlerFor(DESKTOP_IPC_CHANNELS.changes.redoRewind)({}, { rewindId: 'r1' });
+    expect(handlers.redoRewind).toHaveBeenCalledWith({ rewindId: 'r1' });
   });
 });

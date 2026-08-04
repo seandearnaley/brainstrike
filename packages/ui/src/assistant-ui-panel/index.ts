@@ -50,6 +50,22 @@ export {
 } from './follow-up-queue-store';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
+  MessageRewindAction,
+  REWIND_ACTION_LABEL,
+  RewindComposerBridge,
+  selectRewindComposerText,
+} from './message-rewind-action';
+export {
+  type RewindComposerState,
+  useRewindComposerStore,
+} from './rewind-composer-store';
+export {
+  type RewindContextValue,
+  RewindProvider,
+  type RewindRequestFromMessage,
+  useRewindContext,
+} from './rewind-context';
+export {
   type RunVerdictContextValue,
   RunVerdictProvider,
   type RunVerdictValue,

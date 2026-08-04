@@ -1,5 +1,9 @@
 import type {
   AssistantPersonasListResult,
+  AssistantRewindMode,
+  AssistantRewindPreviewResult,
+  AssistantRewindRedoResult,
+  AssistantRewindResult,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -125,13 +129,29 @@ declare global {
      * versa — disables the Changes surface at runtime.
      */
     changes?: {
+      /** Conversation Rewind: apply (BST-1115 W5 T4). */
+      applyRewind: (payload: {
+        acknowledgeConflicts?: boolean;
+        messageId: string;
+        mode: AssistantRewindMode;
+        threadId: string;
+      }) => Promise<GitResult<AssistantRewindResult>>;
       fileDiff: (
         rootId: string,
         changeset: Changeset,
         path: string
       ) => Promise<GitResult<StructuredFileDiff>>;
       inventory: () => Promise<GitResult<GitInventory>>;
+      /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
+      redoRewind: (payload: {
+        acknowledgeConflicts?: boolean;
+        rewindId: string;
+      }) => Promise<GitResult<AssistantRewindRedoResult>>;
       resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
+      /** Conversation Rewind: pre-apply preview (range, tombstones, conflicts, view). */
+      rewindPreview: (
+        payload: { threadId: string } & ({ messageId: string } | { runId: string })
+      ) => Promise<GitResult<AssistantRewindPreviewResult>>;
     };
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;

@@ -16,8 +16,18 @@ function viewFixture(overrides: Partial<ChangesetView> = {}): ChangesetView {
   };
 }
 
-function stubBridge(bridge: ChangesBridge): void {
-  (window as unknown as { changes?: ChangesBridge }).changes = bridge;
+/**
+ * Accepts the changeset-diff half of the bridge and fills in the rewind half
+ * (BST-1115) with inert mocks — these tests exercise `useChangeset`, which
+ * never calls them, but `resolveChangesBridge` requires a FULLY formed bridge.
+ */
+function stubBridge(bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'resolveView'>): void {
+  (window as unknown as { changes?: ChangesBridge }).changes = {
+    applyRewind: vi.fn(),
+    redoRewind: vi.fn(),
+    rewindPreview: vi.fn(),
+    ...bridge,
+  };
 }
 
 afterEach(() => {
