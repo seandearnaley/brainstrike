@@ -107,7 +107,13 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 1740 → 1790 after rebasing onto main's thread auto-naming
     // (#2060): the union of that wrapper wiring and the BST-953 review fixes
     // (live-sum terminal clears + zero-baseline hydration) measures 1780.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1790);
+    // Bumped 1790 → 1800 for the BST-1113 changeset lifecycle refresh: the
+    // wrapper only calls useChangeset (hook + policy in
+    // packages/app-shell/src/changes/use-changeset.ts) and composes its
+    // `refresh` into the existing handleRunFinished/handleRunFailed callbacks
+    // beside refetchCheckpoints — no changeset SELECTION UI lands until W4, so
+    // the changeset argument is hardcoded null and the call is inert today.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1800);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
@@ -120,7 +126,11 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 2025 → 2075 for the composer attachment gating tests: the
     // transport-hidden case plus the vision-unsupported disabled-with-reason /
     // vision-supported enabled transitions under the data-stream transport.
-    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2075);
+    // Bumped 2075 → 2100 for the BST-1113 changeset lifecycle refresh
+    // composition test (mocked `useChangeset`, proving both
+    // handleRunFinished/handleRunFailed call `refresh` and that every call is
+    // wired with a null changeset until W4 lands a selection).
+    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2100);
   });
 
   it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {
