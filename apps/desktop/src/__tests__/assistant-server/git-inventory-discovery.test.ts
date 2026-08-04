@@ -28,6 +28,7 @@ class FakeFs implements InventoryFs {
   private readonly nodes = new Map<string, FakeNode>();
   private readonly realpaths = new Map<string, string>();
   readonly readdirCalls: string[] = [];
+  readonly readFileCalls: string[] = [];
 
   addDir(dirPath: string, children: readonly string[]): void {
     this.nodes.set(dirPath, { children, type: 'dir' });
@@ -74,6 +75,7 @@ class FakeFs implements InventoryFs {
   }
 
   async readFile(filePath: string): Promise<string> {
+    this.readFileCalls.push(filePath);
     const node = this.nodes.get(filePath);
     if (node?.type !== 'file') {
       throw enoent(filePath);
@@ -205,7 +207,6 @@ describe('walkForGitEntries', () => {
     });
 
     expect(result.errors).toEqual([]);
-    expect(maxInFlight).toBeLessThanOrEqual(4);
     expect(maxInFlight).toBe(4);
   });
 
@@ -339,14 +340,18 @@ describe('resolveGitEntryAtWorktree (bidirectional trust check)', () => {
     expect(result).toEqual({ ok: true, value: '/main-repo/.git' });
   });
 
-  it('fails validation for a fabricated-gitdir target whose ".git" does not exist at all — and reads NOTHING else', async () => {
+  it('fails validation for a fabricated-gitdir target whose ".git" does not exist at all — and reads NOTHING else under the target', async () => {
     const fs = new FakeFs();
-    // The attack target directory exists on disk but has no `.git` of its own
-    // (it is not a real linked worktree) — only `<target>/.git`'s absence is
-    // checked; nothing else under the target is ever touched by this fake, so
-    // any further read would throw ENOENT and fail the test via an unhandled
-    // rejection.
+    // The attack target directory exists on disk WITH unrelated real
+    // content — it is not a real linked worktree of the repo under test (it
+    // has no `.git` of its own). Only `<target>/.git`'s absence is checked.
+    // Asserted DIRECTLY below via the fake's call log — a mutation that reads
+    // every entry under the target (e.g. an added `readdir` + `readFile`
+    // sweep) would sail through silently if that content happened to be
+    // registered, so relying on an incidental unhandled ENOENT rejection
+    // (the previous version of this comment's claim) is not proof.
     fs.addDir('/attack-target', ['some-file.txt']);
+    fs.addFile('/attack-target/some-file.txt', 'should never be read');
 
     const result = await resolveGitEntryAtWorktree({ fs, worktreePath: '/attack-target' });
 
@@ -355,6 +360,8 @@ describe('resolveGitEntryAtWorktree (bidirectional trust check)', () => {
         'could not stat "/attack-target/.git": ENOENT: no such file or directory \'/attack-target/.git\'',
       ok: false,
     });
+    expect(fs.readdirCalls).not.toContain('/attack-target');
+    expect(fs.readFileCalls).toEqual([]);
   });
 
   it('fails validation for a fabricated-gitdir target whose ".git" points at an unrelated repo', async () => {
@@ -370,5 +377,7 @@ describe('resolveGitEntryAtWorktree (bidirectional trust check)', () => {
     // reports the target's own true common dir without touching more than
     // its `.git`.
     expect(result).toEqual({ ok: true, value: '/attack-target/.git' });
+    expect(fs.readdirCalls).not.toContain('/attack-target');
+    expect(fs.readFileCalls).toEqual([]);
   });
 });

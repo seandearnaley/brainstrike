@@ -35,6 +35,14 @@ import {
 } from './git-service';
 
 export interface GitInventoryServiceDeps {
+  /**
+   * Overrides the production {@link createNodeInventoryFs}. Tests inject a
+   * fake (hermetic unit coverage) or a real-fs call-recording wrapper
+   * (integration coverage proving the "no content access beyond a
+   * worktree's own `.git`" invariant for real). Defaults to
+   * `createNodeInventoryFs()` when omitted.
+   */
+  readonly fs?: InventoryFs;
   /** Wraps `loadWorkspaceRootsFromDatabase` — this module never touches the DB directly. */
   readonly loadRoots: () => Promise<readonly { id: string; path: string }[]>;
   /** Hook-free callers only — see `invokeGitHookFree` usage below. Used hook-free. */
@@ -156,6 +164,11 @@ function computeContainment(
   return containingIds.length > 0 ? containingIds : 'outside-roots';
 }
 
+interface WorktreeTrustResult {
+  readonly trust: 'unvalidated' | 'validated';
+  readonly trustReason: string | null;
+}
+
 /**
  * Bidirectional trust check for a worktree the repo CLAIMS but that lies
  * outside every root: read the target worktree path's own .git back and
@@ -163,17 +176,26 @@ function computeContainment(
  * entry (the attack this guards against) points at a target whose own .git
  * either does not exist or resolves elsewhere — either way this returns
  * unvalidated, and the caller keeps the descriptor rather than dropping it.
+ * The failure reason is carried alongside the verdict (never discarded) so
+ * an operator debugging an unexpected `unvalidated` worktree has something
+ * to act on.
  */
 async function resolveWorktreeTrust(
   fs: InventoryFs,
   worktreePath: string,
   expectedCommonDir: string
-): Promise<'unvalidated' | 'validated'> {
+): Promise<WorktreeTrustResult> {
   const resolved = await resolveGitEntryAtWorktree({ fs, worktreePath });
   if (!resolved.ok) {
-    return 'unvalidated';
+    return { trust: 'unvalidated', trustReason: resolved.error };
   }
-  return resolved.value === expectedCommonDir ? 'validated' : 'unvalidated';
+  if (resolved.value !== expectedCommonDir) {
+    return {
+      trust: 'unvalidated',
+      trustReason: `worktree's own ".git" resolves to common dir "${resolved.value}", not the expected "${expectedCommonDir}"`,
+    };
+  }
+  return { trust: 'validated', trustReason: null };
 }
 
 async function buildRepository(
@@ -228,12 +250,47 @@ async function buildRepository(
 
   const worktrees: WorktreeDescriptor[] = [];
   for (const summary of summaries) {
-    const containment = computeContainment(summary.path, resolvedRoots);
-    const trust: 'unvalidated' | 'validated' =
+    // `summary.path` is git's own report of the worktree location, sourced
+    // from the attacker-writable `.git/worktrees/<name>/gitdir` file — git
+    // NEVER canonicalizes it before printing. A committed symlink can make a
+    // worktree LEXICALLY sit inside a trusted root while its REAL target
+    // lies outside every root; comparing the raw path against the roots
+    // would misclassify it as in-root and skip the bidirectional trust
+    // check entirely (in-root ⇒ unconditionally `validated` below). Realpath
+    // BEFORE computing containment/trust, and report that CANONICAL path in
+    // the descriptor too — the raw, possibly-misleading report is never
+    // something a caller should act on once we know the true location. A
+    // realpath failure (deleted worktree, dangling symlink, permission
+    // error) fails CLOSED and VISIBLY: outside-roots + unvalidated + an
+    // `errors` entry, keeping git's raw path as the only value available.
+    let canonicalPath: string;
+    try {
+      canonicalPath = await fsRealpath(summary.path);
+    } catch (error) {
+      const message = `git inventory: worktree "${summary.path}" for common dir "${group.commonDir}" could not be resolved: ${toErrorMessage(error)}`;
+      errors.push(message);
+      worktrees.push({
+        ...summary,
+        containment: 'outside-roots',
+        provenance: 'scanned',
+        trust: 'unvalidated',
+        trustReason: message,
+      });
+      continue;
+    }
+    const containment = computeContainment(canonicalPath, resolvedRoots);
+    const { trust, trustReason }: WorktreeTrustResult =
       containment === 'outside-roots'
-        ? await resolveWorktreeTrust(fs, summary.path, group.commonDir)
-        : 'validated';
-    worktrees.push({ ...summary, containment, provenance: 'scanned', trust });
+        ? await resolveWorktreeTrust(fs, canonicalPath, group.commonDir)
+        : { trust: 'validated', trustReason: null };
+    worktrees.push({
+      ...summary,
+      containment,
+      path: canonicalPath,
+      provenance: 'scanned',
+      trust,
+      trustReason,
+    });
   }
 
   return {
@@ -258,7 +315,7 @@ export async function buildInventorySnapshot(
   const roots = await deps.loadRoots();
   const resolvedRoots = await resolveRoots(roots, errors);
 
-  const fs = createNodeInventoryFs();
+  const fs = deps.fs ?? createNodeInventoryFs();
   const walkResults = await Promise.all(
     resolvedRoots.map((root) =>
       walkForGitEntries({

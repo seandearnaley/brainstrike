@@ -187,6 +187,12 @@ async function walkDirectory(
       continue;
     }
 
+    // A `Dirent` for a SYMLINKED directory reports neither `isDirectory()`
+    // nor `isFile()` true (it reports `isSymbolicLink()`, which this walk
+    // never checks) — so a symlinked directory is silently never descended
+    // into. Deliberate: the walk only ever follows real directory structure,
+    // never chases an arbitrary symlink target while looking for `.git`
+    // entries to enumerate.
     if (!entry.isDirectory()) {
       continue;
     }
@@ -373,5 +379,9 @@ export async function resolveGitEntryAtWorktree(
   if (stat.isFile()) {
     return await resolveCommonDir({ fs: params.fs, gitEntryKind: 'file', gitEntryPath: gitPath });
   }
+  // `lstat` does not follow the FINAL path component, so a legitimate
+  // worktree whose `.git` is itself a symlink lands here too, not just a
+  // fabricated/garbage entry — deliberate fail-closed: this check does not
+  // chase that symlink, it only ever trusts a real directory or file.
   return { error: `"${gitPath}" is neither a directory nor a file`, ok: false };
 }

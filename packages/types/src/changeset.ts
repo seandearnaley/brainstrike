@@ -26,6 +26,14 @@ export interface WorktreeDescriptor extends GitWorktreeSummary {
    * unvalidated entry is still reported, never silently dropped.
    */
   readonly trust: 'unvalidated' | 'validated';
+  /**
+   * Why {@link trust} is what it is, for an operator debugging an unexpected
+   * `unvalidated` worktree. Null when `trust` is `'validated'` (nothing to
+   * explain) OR when the worktree is in-root and the check was never run.
+   * Non-null only for an outside-roots worktree whose bidirectional check
+   * failed to resolve or resolved to the wrong common dir.
+   */
+  readonly trustReason: string | null;
 }
 
 export interface GitInventoryRepository {

@@ -171,6 +171,7 @@ describe('changeset contracts', () => {
       provenance: 'scanned',
       prunableReason: null,
       trust: 'validated',
+      trustReason: null,
     };
     const unvalidated: WorktreeDescriptor = {
       ...validated,
@@ -179,6 +180,7 @@ describe('changeset contracts', () => {
       name: 'evil',
       path: '/outside/evil',
       trust: 'unvalidated',
+      trustReason: 'own ".git" resolves to a different common dir',
     };
     expect(validated.trust).toBe('validated');
     expect(unvalidated.containment).toBe('outside-roots');

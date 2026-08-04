@@ -16,6 +16,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitInventoryRepository, WorktreeDescriptor } from '@brainstrike/types';
 import { afterEach, describe, expect, it } from 'vitest';
+import {
+  createNodeInventoryFs,
+  type InventoryFs,
+} from '../../assistant-server/git-inventory-discovery';
 import { buildInventorySnapshot } from '../../assistant-server/git-inventory-service';
 import { execFileGitRunner } from '../../git-ipc-handlers';
 
@@ -59,6 +63,24 @@ async function commitFile(repo: string, name: string, content: string): Promise<
   await fsPromises.writeFile(path.join(repo, name), content, 'utf8');
   await execFileAsync('git', ['add', name], { cwd: repo });
   await execFileAsync('git', ['commit', '-q', '-m', `add ${name}`], { cwd: repo });
+}
+
+/**
+ * Hand-write a `.git/worktrees/<name>/gitdir` admin entry — the
+ * attacker-writable file `git worktree list` trusts verbatim, never
+ * canonicalizing it. `targetGitPath` is whatever the attack wants git to
+ * report as this worktree's location; it need not point at anything real.
+ */
+async function writeFabricatedWorktreeAdmin(
+  repo: string,
+  name: string,
+  targetGitPath: string
+): Promise<void> {
+  const adminDir = path.join(repo, '.git', 'worktrees', name);
+  await fsPromises.mkdir(adminDir, { recursive: true });
+  await fsPromises.writeFile(path.join(adminDir, 'gitdir'), `${targetGitPath}\n`, 'utf8');
+  await fsPromises.writeFile(path.join(adminDir, 'HEAD'), 'ref: refs/heads/master\n', 'utf8');
+  await fsPromises.writeFile(path.join(adminDir, 'commondir'), '../..\n', 'utf8');
 }
 
 afterEach(async () => {
@@ -151,6 +173,12 @@ describe('buildInventorySnapshot', () => {
     });
 
     expect(snapshot.errors).toEqual([]);
+    // Exactly ONE repository entry: the main `.git` DIRECTORY and the linked
+    // worktree's `.git` FILE both resolve to the same common dir and must be
+    // deduped into a single group BEFORE any `git worktree list` spawn — a
+    // dedup keyed by `${commonDir}::${entryPath}` instead of `commonDir`
+    // alone would spawn twice and report this repository twice.
+    expect(snapshot.repositories).toHaveLength(1);
     const repository = findRepoByCommonDir(snapshot.repositories, '.git');
     expect(repository).toBeDefined();
     const linkedDescriptor = findWorktreeByPath(repository?.worktrees ?? [], linkedReal);
@@ -217,25 +245,30 @@ describe('buildInventorySnapshot', () => {
       'should never be read',
       'utf8'
     );
+    await writeFabricatedWorktreeAdmin(repo, 'evil', path.join(attackTarget, '.git'));
 
-    await fsPromises.mkdir(path.join(repo, '.git', 'worktrees', 'evil'), { recursive: true });
-    await fsPromises.writeFile(
-      path.join(repo, '.git', 'worktrees', 'evil', 'gitdir'),
-      `${path.join(attackTarget, '.git')}\n`,
-      'utf8'
-    );
-    await fsPromises.writeFile(
-      path.join(repo, '.git', 'worktrees', 'evil', 'HEAD'),
-      'ref: refs/heads/master\n',
-      'utf8'
-    );
-    await fsPromises.writeFile(
-      path.join(repo, '.git', 'worktrees', 'evil', 'commondir'),
-      '../..\n',
-      'utf8'
-    );
+    // Wrap the REAL fs with a call recorder so "no content access beyond its
+    // own .git" is proven, not just asserted in a comment — a mutation that
+    // reads/lists everything under a discovered worktree's target would
+    // otherwise stay green here even with `secret.txt` sitting right there.
+    const realFs = createNodeInventoryFs();
+    const readdirCalls: string[] = [];
+    const readFileCalls: string[] = [];
+    const recordingFs: InventoryFs = {
+      lstat: (targetPath) => realFs.lstat(targetPath),
+      readdir: (dirPath) => {
+        readdirCalls.push(dirPath);
+        return realFs.readdir(dirPath);
+      },
+      readFile: (filePath) => {
+        readFileCalls.push(filePath);
+        return realFs.readFile(filePath);
+      },
+      realpath: (targetPath) => realFs.realpath(targetPath),
+    };
 
     const snapshot = await buildInventorySnapshot({
+      fs: recordingFs,
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
       run: execFileGitRunner,
     });
@@ -249,6 +282,114 @@ describe('buildInventorySnapshot', () => {
     expect(evilDescriptor).toBeDefined();
     expect(evilDescriptor?.containment).toBe('outside-roots');
     expect(evilDescriptor?.trust).toBe('unvalidated');
+    // The failure reason is carried, not discarded — an operator debugging
+    // this entry has something to act on beyond the bare 'unvalidated' bit.
+    expect(evilDescriptor?.trustReason).toContain('could not stat');
+
+    // The security property: the attack target's own content (secret.txt) is
+    // never listed or read — only its (nonexistent) `.git` is probed.
+    expect(readdirCalls).not.toContain(attackTarget);
+    expect(readFileCalls.some((filePath) => filePath.includes('secret.txt'))).toBe(false);
+  });
+
+  it('symlink-defeats-containment attack: a committed in-root symlink to an outside target is NOT auto-validated', async () => {
+    const repo = await makeRepo();
+    await commitFile(repo, 'a.txt', 'a');
+
+    const outsideTarget = await makeDir('brainstrike-git-inventory-symlink-target-');
+    // The symlink lives INSIDE the repo — attacker-writable via a normal
+    // commit — but its REAL target is OUTSIDE every workspace root. `git
+    // worktree list` will report this worktree's path exactly as the
+    // fabricated `gitdir` file says: LEXICALLY inside the root.
+    const insideLinkPath = path.join(repo, 'inside-link');
+    await fsPromises.symlink(outsideTarget, insideLinkPath, 'dir');
+    await execFileAsync('git', ['add', 'inside-link'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add inside-link symlink'], { cwd: repo });
+
+    await writeFabricatedWorktreeAdmin(repo, 'evil', path.join(insideLinkPath, '.git'));
+
+    const snapshot = await buildInventorySnapshot({
+      loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
+      run: execFileGitRunner,
+    });
+
+    expect(snapshot.errors).toEqual([]);
+    const repository = findRepoByCommonDir(snapshot.repositories, '.git');
+    const outsideTargetReal = await fsPromises.realpath(outsideTarget);
+    const evilDescriptor = findWorktreeByPath(repository?.worktrees ?? [], outsideTargetReal);
+    expect(evilDescriptor).toBeDefined();
+    // Canonicalized BEFORE containment: the symlink's true target is outside
+    // every root, so this must NOT be lexically classified as in-root
+    // (which would skip the trust check entirely and auto-`validated`).
+    expect(evilDescriptor?.containment).toBe('outside-roots');
+    expect(evilDescriptor?.trust).toBe('unvalidated');
+  });
+
+  it('fabricated-gitdir attack pointing at a DIFFERENT real repository: resolves but the common dir mismatches — unvalidated', async () => {
+    const repo = await makeRepo();
+    await commitFile(repo, 'a.txt', 'a');
+    // A completely different, real repository (e.g. the user's other
+    // checkout) — its `.git` genuinely exists and resolves, so the ONLY
+    // thing that can distinguish this from a real worktree is the equality
+    // comparison against the EXPECTED common dir, not merely "does its .git
+    // resolve at all".
+    const otherRepo = await makeRepo();
+    await commitFile(otherRepo, 'other.txt', 'other');
+
+    await writeFabricatedWorktreeAdmin(repo, 'evil', path.join(otherRepo, '.git'));
+
+    const snapshot = await buildInventorySnapshot({
+      loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
+      run: execFileGitRunner,
+    });
+
+    expect(snapshot.errors).toEqual([]);
+    const repository = findRepoByCommonDir(
+      snapshot.repositories,
+      path.join(path.basename(repo), '.git')
+    );
+    const evilDescriptor = findWorktreeByPath(repository?.worktrees ?? [], otherRepo);
+    expect(evilDescriptor).toBeDefined();
+    expect(evilDescriptor?.containment).toBe('outside-roots');
+    expect(evilDescriptor?.trust).toBe('unvalidated');
+    expect(evilDescriptor?.trustReason).toContain('resolves to common dir');
+  });
+
+  it('discovers a repository ONLY via a linked worktree inside the root, with the main worktree outside every root (cwd-selection deviation)', async () => {
+    // The main worktree lives OUTSIDE every root — never walked, never
+    // discovered directly. Only its linked worktree, inside the one active
+    // root, is ever found by the fs walk. `chooseGroupCwd` must fall back to
+    // the linked worktree's `.git` FILE (no `.git` DIRECTORY was ever
+    // discovered in this group) to pick a cwd for `git worktree list`, which
+    // then reports the full inventory including the outside main worktree.
+    const repo = await makeRepo();
+    await commitFile(repo, 'a.txt', 'a');
+    await execFileAsync('git', ['branch', 'feat'], { cwd: repo });
+    const container = await makeDir('brainstrike-git-inventory-linked-only-root-');
+    const linkedPath = path.join(container, 'linked-wt');
+    await execFileAsync('git', ['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
+    const linkedReal = await fsPromises.realpath(linkedPath);
+
+    const snapshot = await buildInventorySnapshot({
+      loadRoots: loadRootsFrom([{ id: 'root-linked-only', path: container }]),
+      run: execFileGitRunner,
+    });
+
+    expect(snapshot.errors).toEqual([]);
+    const repository = findRepoByCommonDir(snapshot.repositories, '.git');
+    expect(repository).toBeDefined();
+    // repositoryRoot is always the MAIN worktree (git worktree list's first
+    // entry) even though only the linked worktree was ever walked.
+    expect(repository?.identity.repositoryRoot).toBe(repo);
+
+    const mainDescriptor = findWorktreeByPath(repository?.worktrees ?? [], repo);
+    expect(mainDescriptor).toBeDefined();
+    expect(mainDescriptor?.containment).toBe('outside-roots');
+    expect(mainDescriptor?.trust).toBe('validated');
+
+    const linkedDescriptor = findWorktreeByPath(repository?.worktrees ?? [], linkedReal);
+    expect(linkedDescriptor).toBeDefined();
+    expect(linkedDescriptor?.containment).toEqual(['root-linked-only']);
   });
 
   it('tolerates a broken repo (unresolvable gitdir) alongside a healthy one — errors entry, rest of inventory intact', async () => {

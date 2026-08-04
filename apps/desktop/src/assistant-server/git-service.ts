@@ -602,6 +602,13 @@ export async function invokeGitHookFree(
   args: readonly string[],
   timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
 ): Promise<GitCommandRun> {
+  // This probe itself is the ONE spawn not preceded by `-c
+  // core.fsmonitor=false -c core.hooksPath=/dev/null` (those flags are
+  // computed FROM its result, below). Pre-existing and almost certainly
+  // harmless — `git config` never reads the index or runs hooks — but note
+  // that since `git-inventory-service.ts` started reusing this helper, it now
+  // runs against arbitrary discovered repositories, not just one
+  // user-chosen root.
   const configuredHooks = await invoke([
     'config',
     '--null',
