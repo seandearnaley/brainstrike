@@ -25,7 +25,7 @@ import { createLogger } from '@brainstrike/logging';
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
-import { GitBranch, GitCompare, NotebookPen, SquareTerminal } from 'lucide-react';
+import { GitBranch, NotebookPen, SquareTerminal } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
 // Task A's changes-page-content.tsx exports this by name (not default,
@@ -36,11 +36,6 @@ import GitPageContent from './git-page-content';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 
-const CHANGES_NAVIGATION_ITEM: NavigationItem = {
-  icon: GitCompare,
-  name: 'Changes',
-  path: '/changes',
-};
 const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
 const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
 const TERMINAL_NAVIGATION_ITEM: NavigationItem = {
@@ -120,14 +115,11 @@ export default function RootLayoutContent() {
     if (gitAvailable) {
       items.push(GIT_NAVIGATION_ITEM);
     }
-    if (changesAvailable) {
-      items.push(CHANGES_NAVIGATION_ITEM);
-    }
     if (terminalAvailable) {
       items.push(TERMINAL_NAVIGATION_ITEM);
     }
     return items;
-  }, [changesAvailable, gitAvailable, terminalAvailable, notesAvailable]);
+  }, [gitAvailable, terminalAvailable, notesAvailable]);
   const loadEmbeddingQueue = useCallback(
     () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []

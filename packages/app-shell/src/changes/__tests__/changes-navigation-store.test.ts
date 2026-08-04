@@ -13,12 +13,17 @@ const GIT_SCOPE: Changeset = {
 
 describe('useChangesNavigationStore', () => {
   beforeEach(() => {
-    useChangesNavigationStore.setState({ activeChangeset: null, handoffThreadIdentity: null });
+    useChangesNavigationStore.setState({
+      activeChangeset: null,
+      handoffThreadIdentity: null,
+      openRequestId: 0,
+    });
   });
 
   it('starts with nothing selected', () => {
     expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
     expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+    expect(useChangesNavigationStore.getState().openRequestId).toBe(0);
   });
 
   it('makes a requested changeset the active one', () => {
@@ -85,5 +90,45 @@ describe('useChangesNavigationStore', () => {
 
     expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
     expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+  });
+
+  describe('openChangeset', () => {
+    it('sets the active changeset the same way requestChangeset does', () => {
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+      expect(useChangesNavigationStore.getState().handoffThreadIdentity).toEqual({
+        latestRunId: 'run-1',
+        threadId: 'thread-1',
+      });
+    });
+
+    it('bumps openRequestId, unlike a plain requestChangeset call', () => {
+      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+      expect(useChangesNavigationStore.getState().openRequestId).toBe(0);
+
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+      expect(useChangesNavigationStore.getState().openRequestId).toBe(1);
+    });
+
+    it('bumps openRequestId again on a second click for the SAME changeset', () => {
+      // The workspace-panel tab host watches this counter (not activeChangeset)
+      // precisely so a second "Review" click on an unchanged run still
+      // re-triggers the tab switch — see the store's doc comment.
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+
+      expect(useChangesNavigationStore.getState().openRequestId).toBe(2);
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+    });
+
+    it('reset() also clears openRequestId', () => {
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+      expect(useChangesNavigationStore.getState().openRequestId).toBeGreaterThan(0);
+
+      useChangesNavigationStore.getState().reset();
+
+      expect(useChangesNavigationStore.getState().openRequestId).toBe(0);
+    });
   });
 });

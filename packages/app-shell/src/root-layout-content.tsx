@@ -61,6 +61,7 @@ import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
+import { WorkspacePanelTabs } from './workspace-panel-tabs';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
 
@@ -147,9 +148,12 @@ export interface RootLayoutContentProps {
   /**
    * Optional Changes surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.changes` bridge is present; web never constructs it
-   * (capability gating, not an isElectron check). When absent, no Changes nav
-   * item is rendered, and the "→ Review" assistant-turn footer link stays
-   * hidden (its provider binds to this same presence check).
+   * (capability gating, not an isElectron check). Rendered as a tab INSIDE
+   * the workspace panel, next to Context Explorer (BST-1114 smoke-test
+   * feedback relocation — see `workspace-panel-tabs.tsx`), not as its own
+   * nav-rail page. When absent, no Changes tab trigger renders at all, and
+   * the "→ Review" assistant-turn footer link stays hidden (its provider
+   * binds to this same presence check).
    */
   readonly changesPageContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
@@ -194,7 +198,6 @@ export interface RootLayoutContentProps {
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
-  '/changes': 'changes',
   '/git': 'git',
   '/notes': 'notes',
   '/settings': 'settings',
@@ -246,23 +249,32 @@ function KeepMountedRoute({
  * `RootLayoutContent`) purely to keep that already-large component's
  * cognitive complexity under the lint budget — the logic itself is a
  * straight capability-presence gate, same shape as `gitPageContent`/etc.
+ *
+ * The Changes surface now lives as a tab inside the workspace panel
+ * (`workspace-panel-tabs.tsx`), not its own top-level route, so opening it
+ * from here is two steps: bring the shell back to the `explorer` route (in
+ * case the user is on Settings/Git/etc — the workspace panel only exists on
+ * that route), and hand the changeset to `openChangeset`, which bumps
+ * `openRequestId` so `WorkspacePanelTabs` switches its own local tab state to
+ * "changes" (see that store action's doc comment for why `openChangeset`,
+ * not `requestChangeset`, is the one external callers use).
  */
 function useChangesReviewValue(
   changesPageContent: ReactNode,
   setActiveTab: (tab: PanelTab) => void
 ): ChangesReviewContextValue | null {
-  const requestChangeset = useChangesNavigationStore((state) => state.requestChangeset);
+  const openChangeset = useChangesNavigationStore((state) => state.openChangeset);
   return useMemo(() => {
     if (!changesPageContent) {
       return null;
     }
     return {
       openChangesForRun: (runId: string, threadId: string) => {
-        requestChangeset({ kind: 'agent-run', runId, threadId });
-        setActiveTab('changes');
+        openChangeset({ kind: 'agent-run', runId, threadId });
+        setActiveTab('explorer');
       },
     };
-  }, [changesPageContent, requestChangeset, setActiveTab]);
+  }, [changesPageContent, openChangeset, setActiveTab]);
 }
 
 function useDebouncedPanelLayoutChange(options: {
@@ -403,6 +415,7 @@ function ContextExplorerSurface({
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
+  changesPageContent,
   contextExplorerPanelContent,
   contextExplorerPageContent,
   databaseTabChunkingMode,
@@ -411,6 +424,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   preloadDatabaseTabOnMount,
   visible,
 }: {
+  readonly changesPageContent?: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly databaseTabChunkingMode: 'host-proxy' | 'local';
@@ -456,9 +470,14 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           />
         }
         workspaceContent={
-          <ContextExplorerSurface
-            contextExplorerPageContent={contextExplorerPageContent}
-            contextExplorerPanelContent={contextExplorerPanelContent}
+          <WorkspacePanelTabs
+            changesPageContent={changesPageContent}
+            contextExplorerContent={
+              <ContextExplorerSurface
+                contextExplorerPageContent={contextExplorerPageContent}
+                contextExplorerPanelContent={contextExplorerPanelContent}
+              />
+            }
           />
         }
       />
@@ -605,6 +624,7 @@ export function RootLayoutContent({
                     onChange={handlePanelLayoutChange}
                   >
                     <ExplorerAppSurface
+                      changesPageContent={changesPageContent}
                       contextExplorerPageContent={contextExplorerPageContent}
                       contextExplorerPanelContent={contextExplorerPanelContent}
                       databaseTabChunkingMode={databaseTabChunkingMode}
@@ -635,12 +655,6 @@ export function RootLayoutContent({
                   mountedTabs={mountedTabs}
                   shellTab={shellTab}
                   tab="git"
-                />
-                <KeepMountedRoute
-                  content={changesPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="changes"
                 />
                 <KeepMountedRoute
                   content={terminalPageContent}

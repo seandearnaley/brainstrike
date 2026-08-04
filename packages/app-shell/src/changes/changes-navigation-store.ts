@@ -36,9 +36,34 @@ export interface ChangesNavigationState {
   /** Thread/run identity from the most recent `agent-run` handoff, if any. */
   readonly handoffThreadIdentity: ChangesHandoffThreadIdentity | null;
   /**
-   * Show `changeset` on the Changes surface. Used by the surface's own source
-   * picker AND by external entry points, which call this and then switch the
-   * active panel tab to `'changes'`.
+   * Show `changeset` on the Changes surface AND ask whatever is hosting the
+   * surface to switch to it. Used ONLY by external entry points — currently
+   * the assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
+   * `useChangesReviewValue` in `root-layout-content.tsx`) — since the Changes
+   * surface now lives as a tab inside the workspace panel
+   * (`workspace-panel-tabs.tsx`), not its own top-level route, and that tab
+   * host has no other way to learn "an external caller wants the Changes tab
+   * open" than watching this store.
+   *
+   * Bumps {@link ChangesNavigationState.openRequestId} in addition to setting
+   * `activeChangeset` (via `requestChangeset`) so a second "Review" click on
+   * the SAME changeset still re-triggers the tab switch: zustand's `set`
+   * always produces a fresh state slice, but `activeChangeset`'s value can be
+   * referentially unchanged (re-requesting the same object), and a consumer
+   * diffing on `activeChangeset` alone would treat that as a no-op. The
+   * monotonically increasing token has no such ambiguity.
+   */
+  readonly openChangeset: (changeset: Changeset) => void;
+  /**
+   * Bumped by every {@link ChangesNavigationState.openChangeset} call —
+   * never by `requestChangeset`. See `openChangeset`'s doc comment for why a
+   * separate counter exists instead of diffing `activeChangeset`.
+   */
+  readonly openRequestId: number;
+  /**
+   * Show `changeset` on the Changes surface, WITHOUT requesting a tab switch.
+   * Used by the surface's own internal source picker — it only fires while
+   * the surface is already visible, so there is nothing to switch to.
    */
   readonly requestChangeset: (changeset: Changeset) => void;
   /**
@@ -50,9 +75,14 @@ export interface ChangesNavigationState {
   readonly reset: () => void;
 }
 
-export const useChangesNavigationStore = create<ChangesNavigationState>((set) => ({
+export const useChangesNavigationStore = create<ChangesNavigationState>((set, get) => ({
   activeChangeset: null,
   handoffThreadIdentity: null,
+  openChangeset: (changeset) => {
+    get().requestChangeset(changeset);
+    set((state) => ({ openRequestId: state.openRequestId + 1 }));
+  },
+  openRequestId: 0,
   requestChangeset: (changeset) =>
     set(
       changeset.kind === 'agent-run'
@@ -65,5 +95,5 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set) =>
           }
         : { activeChangeset: changeset }
     ),
-  reset: () => set({ activeChangeset: null, handoffThreadIdentity: null }),
+  reset: () => set({ activeChangeset: null, handoffThreadIdentity: null, openRequestId: 0 }),
 }));
