@@ -4,6 +4,7 @@ import type {
   AssistantEditCheckpointOp,
   AssistantEditCheckpointRecord,
 } from '@brainstrike/agent';
+import type { GitResult } from '@brainstrike/types';
 
 /**
  * Per-turn edit checkpoint journal (undo of agent file edits): record, list, and
@@ -14,6 +15,13 @@ import type {
  */
 
 const TABLE = 'brainstrike_assistant_edit_checkpoints';
+
+/**
+ * Renderer-lazy bootstrap-only DDL (`assistant-memory-repository`), never a
+ * numbered migration — see `docs/agents/assistant-persistence.md`. A fresh
+ * profile that has never run the assistant will not have this table yet.
+ */
+const RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 
 /** Minimal query surface both the main-process handle and test doubles satisfy. */
 export interface EditCheckpointDatabase {
@@ -244,6 +252,171 @@ export async function listThreadCheckpoints(
     [threadId]
   );
   return result.rows.map(mapCheckpointRecordRow);
+}
+
+/**
+ * All journal entries for a single run, oldest-first. Used by W3's changeset
+ * resolution for the `agent-run` changeset kind.
+ */
+export async function listRunCheckpoints(
+  db: EditCheckpointDatabase,
+  runId: string
+): Promise<AssistantEditCheckpointRecord[]> {
+  const result = await db.query<CheckpointRecordRow>(
+    `SELECT ${SELECT_RECORD_COLUMNS} FROM ${TABLE}
+     WHERE run_id = $1
+     ORDER BY occurred_at ASC, id ASC`,
+    [runId]
+  );
+  return result.rows.map(mapCheckpointRecordRow);
+}
+
+export interface RunRangeCheckpointsParams {
+  readonly fromRunId: string;
+  readonly threadId: string;
+  readonly toRunId?: string;
+}
+
+/**
+ * `id`/`started_at` shape read from the runs table to resolve a range anchor.
+ * `startedAt` is read back with an explicit `::text` cast (never left to the
+ * driver's `timestamptz`→`Date` coercion): PGlite/pg parse `timestamptz` into
+ * a JS `Date`, which is millisecond-resolution and silently truncates the
+ * sub-millisecond fraction Postgres actually stores. Feeding a truncated
+ * `Date` back into the range query as a bound could then exclude the very
+ * anchor row it came from — an honest range would look empty instead of
+ * erroring. The `::text` cast preserves full microsecond precision, and the
+ * range query below casts it straight back to `timestamptz` without ever
+ * routing it through a `Date`.
+ */
+interface RunAnchorRow {
+  id: string;
+  startedAt: string;
+}
+
+/**
+ * `to_regclass` PROBE for `brainstrike_assistant_thread_runs` — never a
+ * try/catch on `undefined_table` (42P01). The house gotcha (see
+ * `docs/agents/assistant-persistence.md`): catching 42P01 INSIDE a
+ * transaction cannot tolerate absence, because the failed statement already
+ * aborted the transaction — a subsequent COMMIT silently ROLLBACKs, which
+ * would make an honest "table not there yet" indistinguishable from a
+ * quietly-discarded read. `to_regclass` returns NULL for an absent relation
+ * instead of raising, so the probe can never poison a transaction, and it
+ * works identically whether or not this call happens to run inside one.
+ * `RUNS_TABLE` is a fixed constant (never caller-supplied), so a stale name
+ * can't masquerade as "absent" the way an interpolated user string could.
+ * Deliberately UNQUALIFIED (no `public.` prefix): the bootstrap DDL that
+ * creates this table resolves the name via `search_path`, same as every
+ * other `to_regclass` probe in this codebase (`memory-store.ts`,
+ * `063-index-consolidation.ts`) — a hardcoded `public.` schema prefix would
+ * report "absent" for a table that exists under a different `search_path`.
+ */
+async function runsTableExists(db: EditCheckpointDatabase): Promise<boolean> {
+  const probe = await db.query<{ present: boolean }>(
+    `SELECT to_regclass('${RUNS_TABLE}') IS NOT NULL AS present`
+  );
+  return probe.rows[0]?.present === true;
+}
+
+/**
+ * Resolve the journal entries for every run in `[fromRunId, toRunId]` of one
+ * thread (`toRunId` omitted ⇒ open-ended to the latest run), and return them
+ * oldest-first as a `GitResult`-style envelope.
+ *
+ * READ-ONLY: this never creates `brainstrike_assistant_thread_runs` and never
+ * writes a run. That table is renderer-lazy bootstrap-only DDL, and the runId
+ * provenance invariant (`docs/agents/assistant-persistence.md`, settled)
+ * forbids a second producer — `repository.createThreadRun` is the sole one.
+ * A fresh profile with no assistant use yet will not have the table; that is
+ * reported as a visible `runs-unavailable` error, never silently bootstrapped
+ * or coerced into an empty result.
+ *
+ * Range membership is a row-value comparison on `(started_at, id)`, never on
+ * `id` alone: `id` is a UUID with no relationship to run order, so sorting or
+ * bounding by it alone would produce an arbitrary membership set. Two runs
+ * that started in the same millisecond are disambiguated deterministically by
+ * the `id` tiebreak. This predicate does NOT match the leading column of
+ * `brainstrike_assistant_thread_runs_thread_latest_idx`
+ * (`resource_id, thread_id, started_at DESC, id DESC`) — this query has no
+ * `resource_id` filter, so it is a sequential scan over the thread's runs,
+ * not an index scan. State that honestly; do not claim index coverage
+ * without checking the leading column.
+ *
+ * A range whose anchors both resolve but which simply has no journaled edits
+ * — or, symmetrically, an INVERTED range (`toRunId` started before
+ * `fromRunId`, so no run can satisfy both bounds) — is a legitimate, honest
+ * empty view: `{ ok: true, value: [] }`, not an error. That is a deliberate
+ * reading of the plan's "empty range ⇒ ok:true" rule, not an accident.
+ * Only a MISSING anchor run (a `fromRunId`/`toRunId` that does not exist in
+ * THIS thread — an id that belongs to a different thread counts as missing,
+ * never a cross-thread leak) is an error; it is prefixed `run-anchor-missing:`
+ * (mirroring the `runs-unavailable:` prefix above) and names which id and
+ * which thread, so callers can distinguish "no assistant history yet" from
+ * "that run is gone" without parsing prose.
+ */
+export async function listRunRangeCheckpoints(
+  db: EditCheckpointDatabase,
+  params: RunRangeCheckpointsParams
+): Promise<GitResult<AssistantEditCheckpointRecord[]>> {
+  if (!(await runsTableExists(db))) {
+    return {
+      error: `runs-unavailable: "${RUNS_TABLE}" does not exist yet (no assistant run has been recorded on this profile).`,
+      ok: false,
+    };
+  }
+
+  const anchorIds = Array.from(
+    new Set(params.toRunId ? [params.fromRunId, params.toRunId] : [params.fromRunId])
+  );
+  const anchorRows = await db.query<RunAnchorRow>(
+    `SELECT id AS "id", started_at::text AS "startedAt"
+     FROM ${RUNS_TABLE}
+     WHERE thread_id = $1 AND id = ANY($2)`,
+    [params.threadId, anchorIds]
+  );
+  const anchorsById = new Map(anchorRows.rows.map((row) => [row.id, row]));
+
+  const fromAnchor = anchorsById.get(params.fromRunId);
+  if (!fromAnchor) {
+    return {
+      error: `run-anchor-missing: fromRunId "${params.fromRunId}" was not found in thread "${params.threadId}".`,
+      ok: false,
+    };
+  }
+  const toAnchor = params.toRunId ? anchorsById.get(params.toRunId) : undefined;
+  if (params.toRunId && !toAnchor) {
+    return {
+      error: `run-anchor-missing: toRunId "${params.toRunId}" was not found in thread "${params.threadId}".`,
+      ok: false,
+    };
+  }
+
+  // Bounds are bound back in as TEXT and cast to timestamptz at the DB —
+  // never through a JS `Date` — so the comparison sees the exact value
+  // Postgres stored, including any sub-millisecond fraction (see
+  // `RunAnchorRow`).
+  const rangeSql = toAnchor
+    ? `SELECT id AS "id" FROM ${RUNS_TABLE}
+       WHERE thread_id = $1 AND (started_at, id) >= ($2::timestamptz, $3) AND (started_at, id) <= ($4::timestamptz, $5)`
+    : `SELECT id AS "id" FROM ${RUNS_TABLE}
+       WHERE thread_id = $1 AND (started_at, id) >= ($2::timestamptz, $3)`;
+  const rangeParams = toAnchor
+    ? [params.threadId, fromAnchor.startedAt, fromAnchor.id, toAnchor.startedAt, toAnchor.id]
+    : [params.threadId, fromAnchor.startedAt, fromAnchor.id];
+  const rangeResult = await db.query<{ id: string }>(rangeSql, rangeParams);
+  const runIds = rangeResult.rows.map((row) => row.id);
+  if (runIds.length === 0) {
+    return { ok: true, value: [] };
+  }
+
+  const journalResult = await db.query<CheckpointRecordRow>(
+    `SELECT ${SELECT_RECORD_COLUMNS} FROM ${TABLE}
+     WHERE run_id = ANY($1)
+     ORDER BY occurred_at ASC, id ASC`,
+    [runIds]
+  );
+  return { ok: true, value: journalResult.rows.map(mapCheckpointRecordRow) };
 }
 
 /**
