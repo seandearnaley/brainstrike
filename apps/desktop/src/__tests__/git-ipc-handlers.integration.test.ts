@@ -467,11 +467,14 @@ describe('git IPC handlers — structuredFileDiff (fake runner, arg + cwd passth
     for (const call of calls) {
       expect(call.cwd).toBe(dir);
     }
-    // The numstat call proves `path` flowed through the handler unmodified.
-    const numstatCall = calls.find((call) => call.args.includes('--numstat'));
-    expect(numstatCall?.args).toEqual(
-      expect.arrayContaining(['diff', '--cached', '--numstat', '-z', '--find-renames', '--', '.'])
+    // The `HEAD:<path>` cat-file spec proves `path` flowed through the
+    // handler unmodified. (The numstat call is deliberately root-scoped
+    // `-- .` — see `resolveNumstatEntry`'s doc comment — and is invariant to
+    // `path`, so asserting on IT would prove nothing about passthrough.)
+    const catFileCall = calls.find(
+      (call) => call.args.includes('cat-file') && call.args[2]?.startsWith('HEAD:')
     );
+    expect(catFileCall?.args[2]).toBe('HEAD:file.txt');
   });
 
   it('rejects an unknown params shape without reaching the service (unsupported keys)', async () => {
