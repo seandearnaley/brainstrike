@@ -102,6 +102,20 @@ export interface GitCommandRun {
    * Populated ONLY when the run was requested with `binaryStdout: true` — the
    * exact captured bytes (no utf8 decode). When present, {@link stdout} is `''`.
    * Undefined for every other run, including today's text-mode callers.
+   *
+   * On a CLEAN run (`exitCode === 0`, no {@link failureReason}) this is the
+   * complete blob content — safe to treat as-is.
+   *
+   * When {@link failureReason} or a non-zero {@link exitCode} is set, this
+   * buffer is a possibly-empty, possibly-TRUNCATED partial capture — an empty
+   * Buffer here is NOT evidence of an empty blob, it just means nothing (or
+   * nothing more) was captured before the run failed. Do NOT reuse the text
+   * path's `exitCode === 0 || failureReason === 'maxBuffer'` "truncated is
+   * still success" pattern for binary reads: unlike a diff, a git blob has no
+   * self-describing boundary a caller can use to detect that it was cut off,
+   * so presenting a truncated blob as complete would be silent corruption.
+   * `failureReason === 'maxBuffer'` MUST be treated as a hard failure for
+   * binary reads, never a bounded success.
    */
   readonly stdoutBuffer?: Buffer;
   /** True when the invocation was killed because it exceeded its timeout. */

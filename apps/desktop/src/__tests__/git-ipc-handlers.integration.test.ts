@@ -509,4 +509,26 @@ describe('execFileGitRunner — binary stdout (real runner)', () => {
     expect(run.stdout.trim()).toMatch(/^[0-9a-f]{40}$/);
     expect(run.stdoutBuffer).toBeUndefined();
   });
+
+  it('returns an empty stdoutBuffer and text stderr on a binary-mode failure (missing path)', async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(path.join(repo, 'text.txt'), 'hello\n', 'utf8');
+    await execFileAsync('git', ['add', 'text.txt'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-q', '-m', 'add text file'], { cwd: repo });
+
+    const run = await execFileGitRunner({
+      args: ['cat-file', 'blob', 'HEAD:missing'],
+      binaryStdout: true,
+      cwd: repo,
+      timeoutMs: 5000,
+    });
+
+    expect(run.exitCode).toBe(128);
+    // `encoding: 'buffer'` makes BOTH streams Buffers; guards the `stderr:
+    // stderr.toString('utf8')` conversion against ever regressing to
+    // '[object Object]' from an un-decoded Buffer.
+    expect(run.stderr).toMatch(/fatal:/);
+    expect(run.stdoutBuffer).toBeInstanceOf(Buffer);
+    expect(run.stdoutBuffer).toEqual(Buffer.alloc(0));
+  });
 });
