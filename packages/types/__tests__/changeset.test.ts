@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   ChangedFileStatus,
   Changeset,
+  ChangesetView,
   GitScope,
   StructuredFileDiffContent,
 } from '../src/index.js';
@@ -136,5 +137,30 @@ describe('changeset contracts', () => {
   it('narrows ChangedFileStatus exhaustively', () => {
     const statuses: ChangedFileStatus[] = ['added', 'deleted', 'modified', 'renamed', 'untracked'];
     expect(statuses.map((s) => statusLabel(s))).toEqual(statuses);
+  });
+
+  it('ChangesetView.totalAdditions/totalDeletions accept a literal null (journal sources) AND a real number (git-scope sources)', () => {
+    // The settled contract: null means "not computable for this source"
+    // (every journal-backed changeset); a git-scope changeset always
+    // computes a real number, including a real 0 when every file is binary.
+    const journalSourced: ChangesetView = {
+      changeset: { kind: 'agent-run', runId: 'r', threadId: 't' },
+      files: [],
+      totalAdditions: null,
+      totalDeletions: null,
+    };
+    const gitScopeSourced: ChangesetView = {
+      changeset: {
+        kind: 'git-scope',
+        repositoryRoot: '/r',
+        scope: { kind: 'uncommitted' },
+        worktreePath: '/r',
+      },
+      files: [],
+      totalAdditions: 0,
+      totalDeletions: 0,
+    };
+    expect(journalSourced.totalAdditions).toBeNull();
+    expect(gitScopeSourced.totalAdditions).toBe(0);
   });
 });

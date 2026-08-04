@@ -419,6 +419,57 @@ export async function listRunRangeCheckpoints(
   return { ok: true, value: journalResult.rows.map(mapCheckpointRecordRow) };
 }
 
+export interface CheckpointBeforeContent {
+  readonly beforeContent: string | null;
+  readonly beforeExisted: boolean;
+}
+
+/**
+ * MAIN-ONLY, READ-ONLY full-row read of exactly ONE journal record's raw
+ * `before_content` (+`before_existed`, needed to distinguish "legitimately no
+ * before-state" from "before-state existed but was never captured/has
+ * expired"). This is NOT the same claim as "these bytes never leave the main
+ * process" — they DO, verbatim, as `StructuredFileDiff.content.oldContent`
+ * over the `changes:fileDiff` IPC call once `changeset-journal-view.ts`
+ * assembles the diff. What actually never crosses IPC is the LIST DTO: the
+ * renderer-facing `AssistantEditCheckpointRecord` (returned by
+ * `listRunCheckpoints`/`listRunRangeCheckpoints`, which back `changes:resolveView`)
+ * deliberately OMITS `before_content` so a `ChangesetView` listing never rides
+ * raw file bytes — only a per-file `fileDiff` call does, and only for the one
+ * path requested. This helper is that per-file seam's ONLY caller.
+ * `before_content` is also returned UNBOUNDED here, unlike the journal
+ * `fileDiff`'s new (disk) side, which IS capped at
+ * `STRUCTURED_DIFF_CONTENT_CAP_BYTES` — safe because capture-time already
+ * refuses to store anything over `MAX_WRITE_WORKSPACE_FILE_BYTES`
+ * (`captureBeforeState` in `edit-checkpoint-capture.ts` marks an oversized
+ * before-state `skipped_too_large` and stores no content at all), so a
+ * stored `before_content` is already guaranteed small; the `over-cap-old`/
+ * `over-cap-both` `StructuredFileDiffContent` reasons are consequently
+ * unreachable for a journal-sourced diff. SELECT only — no DDL, no writes,
+ * ever.
+ */
+export async function readCheckpointBeforeContent(
+  db: EditCheckpointDatabase,
+  id: string
+): Promise<GitResult<CheckpointBeforeContent>> {
+  const result = await db.query<{ beforeContent: string | null; beforeExisted: boolean }>(
+    `SELECT before_content AS "beforeContent", before_existed AS "beforeExisted"
+     FROM ${TABLE} WHERE id = $1`,
+    [id]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return {
+      error: `edit checkpoint "${id}" was not found while reading its before-content.`,
+      ok: false,
+    };
+  }
+  return {
+    ok: true,
+    value: { beforeContent: row.beforeContent, beforeExisted: row.beforeExisted },
+  };
+}
+
 /**
  * Bound per-thread disk use. First the byte budget: while stored before-content
  * exceeds the budget, NULL the OLDEST non-reverted entries' before_content and
