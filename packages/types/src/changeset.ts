@@ -152,6 +152,37 @@ export interface StructuredFileDiff {
 /** Params for the per-file structured diff (git-scope sources; journal sources are W3). */
 export type StructuredFileDiffParams =
   | {
+      /** Full git object id (40-64 hex chars) — never a symbolic ref; the
+       * engine never resolves refs itself. */
+      readonly commitId: string;
+      /** Diffs `<commitId>^` vs `<commitId>` for ONE path. A root commit
+       * (no parent) falls back to git's empty-tree object id as the old
+       * side, yielding an `added` file with `oldContent: null` rather than
+       * an error. For a MERGE commit `^` is the FIRST parent, so this is a
+       * first-parent diff (matching the `commitDiff` IPC precedent in
+       * `git-history.ts`): changes that arrived via the merged branch show
+       * as the merge's own changes, and mainline changes between the
+       * merge-base and the merge show as no difference. */
+      readonly mode: 'commit';
+      readonly path: string;
+    }
+  | {
+      /** An ALREADY-RESOLVED ref (a SHA, branch name, tag, or the
+       * empty-tree object id) — the caller resolves `origin/HEAD`,
+       * merge-base, or the unborn-HEAD empty-tree case; the engine never
+       * resolves refs itself. */
+      readonly baseRef: string;
+      /** Diffs `baseRef` vs the new side (HEAD's committed blob — see
+       * `git-structured-diff-refs.ts`/`git-structured-diff.ts` for why the
+       * new side is HEAD rather than the live worktree: it must stay
+       * consistent with the `branch-vs-base` scope's own numstat listing,
+       * which likewise compares committed state via a three-dot merge-base
+       * diff, not uncommitted local edits) for ONE path. A path added since
+       * `baseRef` has `oldContent: null`. */
+      readonly mode: 'range';
+      readonly path: string;
+    }
+  | {
       readonly mode: 'staged';
       readonly path: string;
     }

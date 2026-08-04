@@ -39,6 +39,23 @@
  *   for `status`) reported paths before comparing — the exact
  *   `scopeStatusPaths` precedent `git-service.ts`'s `status()` method already
  *   uses for the same reason.
+ *
+ * MODES `commit`/`range` (BST-1113): two more comparisons past the original
+ * `working`/`staged`/`untracked` trio, both comparing two REFS rather than a
+ * ref against the worktree/index — `commit` diffs `<commitId>^` vs
+ * `<commitId>`; `range` diffs a caller-resolved `baseRef` vs HEAD (see
+ * {@link StructuredFileDiffParams}'s doc comment in `@brainstrike/types` for
+ * why the new side is HEAD, not the worktree). Both sides are read via the
+ * SAME `readRefBlob`/`./` magic-pathspec machinery as `staged` mode's old
+ * side — no new path-space convention. Ref-injection safety validation and
+ * the root-commit empty-tree fallback live in the sibling
+ * `git-structured-diff-refs.ts` module (kept separate to hold this file
+ * under its line-count ratchet); the unified-diff / numstat / cap / binary
+ * assembly machinery below is GENERALIZED (not duplicated) to accept an
+ * arbitrary diff target — `['--cached']`, `['HEAD']`, or an explicit
+ * `[oldRef, newRef]` pair — so `commit`/`range` reuse the exact same
+ * size-probe-before-read, `hunks-only` degradation, and binary-detection
+ * code paths `staged`/`working` already exercise.
  */
 import { lstat, open, readlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -61,6 +78,7 @@ import {
   stripLineEnding,
   toErrorMessage,
 } from './git-service';
+import { resolveCommitOldRef, validateBaseRef, validateCommitId } from './git-structured-diff-refs';
 import {
   countLines,
   type NumstatEntry,
@@ -191,7 +209,14 @@ function resolveOverCapReason(
   return 'diff-overflow';
 }
 
-/** Validate {@link StructuredFileDiffParams}: unlike `validateDiffParams` in `git-service.ts`, `path` is required in EVERY mode. */
+/**
+ * Validate {@link StructuredFileDiffParams}: unlike `validateDiffParams` in
+ * `git-service.ts`, `path` is required in EVERY mode. `commitId` (mode
+ * `commit`) and `baseRef` (mode `range`) get additional ref-injection-safety
+ * validation from `git-structured-diff-refs.ts` — see that module's doc
+ * comment — and are REJECTED as unsupported keys on every other mode
+ * (including each other's), never silently ignored.
+ */
 function validateStructuredFileDiffParams(
   params: StructuredFileDiffParams
 ): GitResult<StructuredFileDiffParams> {
@@ -202,22 +227,46 @@ function validateStructuredFileDiffParams(
     };
   }
   const record = params as unknown as Record<string, unknown>;
-  const unsupportedKeys = Object.keys(record).filter((key) => key !== 'mode' && key !== 'path');
-  if (unsupportedKeys.length > 0) {
+  const mode = record['mode'];
+  if (
+    mode !== 'working' &&
+    mode !== 'staged' &&
+    mode !== 'untracked' &&
+    mode !== 'commit' &&
+    mode !== 'range'
+  ) {
     return {
-      error: `structured diff only accepts "mode" and "path"; received ${unsupportedKeys.join(', ')}`,
+      error: 'structured diff mode must be "working", "staged", "untracked", "commit", or "range"',
       ok: false,
     };
   }
-  if (
-    record['mode'] !== 'working' &&
-    record['mode'] !== 'staged' &&
-    record['mode'] !== 'untracked'
-  ) {
-    return { error: 'structured diff mode must be "working", "staged", or "untracked"', ok: false };
+  const allowedKeys = [
+    'mode',
+    'path',
+    ...(mode === 'commit' ? ['commitId'] : []),
+    ...(mode === 'range' ? ['baseRef'] : []),
+  ];
+  const unsupportedKeys = Object.keys(record).filter((key) => !allowedKeys.includes(key));
+  if (unsupportedKeys.length > 0) {
+    return {
+      error: `structured diff mode "${mode}" does not accept: ${unsupportedKeys.join(', ')}`,
+      ok: false,
+    };
   }
   if (typeof record['path'] !== 'string' || record['path'].length === 0) {
     return { error: 'structured diff requires a non-empty path', ok: false };
+  }
+  if (mode === 'commit') {
+    const commitIdResult = validateCommitId(record['commitId']);
+    if (!commitIdResult.ok) {
+      return commitIdResult;
+    }
+  }
+  if (mode === 'range') {
+    const baseRefResult = validateBaseRef(record['baseRef']);
+    if (!baseRefResult.ok) {
+      return baseRefResult;
+    }
   }
   return { ok: true, value: params };
 }
@@ -241,10 +290,10 @@ function validateStructuredFileDiffParams(
  * (a plain add), not the `1\t1\t\0old.txt\0new.txt` rename triple that the
  * SAME command WITHOUT a path restriction (or with both paths) produces.
  *
- * `--relative` is added for the tracked (`staged`/`working`) branch so the
- * diff headers (and the pathspecs, which were already cwd-relative) agree —
- * see the module doc comment's PATH SPACE section. `--no-index` has no
- * repo-root concept, so the `untracked` branch needs no such flag.
+ * `--relative` is added for the ref-comparing branch so the diff headers
+ * (and the pathspecs, which were already cwd-relative) agree — see the
+ * module doc comment's PATH SPACE section. `--no-index` has no repo-root
+ * concept, so the `untracked` branch needs no such flag.
  */
 interface UnifiedDiffRun {
   readonly text: string;
@@ -452,17 +501,25 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     };
   }
 
+  /**
+   * `target` selects WHAT is being compared: `'untracked'` for the
+   * no-HEAD/no-index `--no-index` form, or an explicit `diff` target-args
+   * array otherwise — `['--cached']` (staged), `['HEAD']` (working), or an
+   * arbitrary `[oldRef, newRef]` pair (`commit`/`range`, BST-1113). This is
+   * a plain arg-array rather than a mode enum specifically so `commit`/
+   * `range` need no new branch here at all — they're just another target.
+   */
   async function computeUnifiedDiff(
-    mode: 'staged' | 'untracked' | 'working',
+    target: readonly string[] | 'untracked',
     pathArg: string,
     oldPath: string | null
   ): Promise<GitResult<UnifiedDiffRun>> {
-    const untracked = mode === 'untracked';
+    const untracked = target === 'untracked';
     const args = untracked
       ? ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', pathArg]
       : [
           'diff',
-          ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
+          ...target,
           '--no-ext-diff',
           '--no-textconv',
           '--find-renames',
@@ -493,13 +550,18 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * `GIT_MAX_OUTPUT_BYTES`/`GIT_MAX_BUFFER_BYTES` ceiling as every other git
    * invocation in `git-service.ts`.
    */
-  async function resolveNumstatEntry(
-    mode: 'staged' | 'working',
+  /** `target` is the same `diff` target-args convention {@link computeUnifiedDiff}
+   * uses (minus the `'untracked'` case, which has no numstat concept —
+   * untracked mode never calls this). Split out so `commit`/`range` reuse it
+   * via {@link resolveRefNumstatEntry} instead of duplicating the numstat
+   * invocation + parse. */
+  async function runNumstat(
+    target: readonly string[],
     pathArg: string
   ): Promise<GitResult<NumstatEntry | null>> {
     const numstatRun = await invoke([
       'diff',
-      ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
+      ...target,
       '--numstat',
       '-z',
       '--find-renames',
@@ -512,6 +574,23 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     }
     const entries = parseNumstatZ(numstatRun.stdout);
     return { ok: true, value: entries.find((candidate) => candidate.path === pathArg) ?? null };
+  }
+
+  async function resolveNumstatEntry(
+    mode: 'staged' | 'working',
+    pathArg: string
+  ): Promise<GitResult<NumstatEntry | null>> {
+    return await runNumstat(mode === 'staged' ? ['--cached'] : ['HEAD'], pathArg);
+  }
+
+  /** `commit`/`range` numstat entry — same shape as {@link resolveNumstatEntry}
+   * but comparing two explicit refs instead of HEAD-vs-index/worktree. */
+  async function resolveRefNumstatEntry(
+    oldRef: string,
+    newRef: string,
+    pathArg: string
+  ): Promise<GitResult<NumstatEntry | null>> {
+    return await runNumstat([oldRef, newRef], pathArg);
   }
 
   /** Structured diff for the `untracked` mode: no HEAD/index side, whole-file addition. */
@@ -612,25 +691,29 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     return { error: `no differences for '${pathArg}' in ${mode} scope`, ok: false };
   }
 
-  /** Read both sides of a tracked-mode diff and classify status — split out to
-   * keep {@link structuredTrackedDiff}'s cognitive complexity under the limit.
-   * `HEAD:./<path>` / `:0:./<path>` use the `./` magic pathspec form so the
-   * spec resolves against `cwd` — see the module doc comment's PATH SPACE
-   * section; `pathArg` is threaded through for the unmerged-path message
-   * even though the OLD side's spec may read `oldPath` for a rename. */
-  async function readTrackedSides(
-    mode: 'staged' | 'working',
+  /** Read both sides of a two-sided diff and classify status — split out to
+   * keep {@link structuredTrackedDiff}'s cognitive complexity under the
+   * limit. Shared by `staged`/`working` (via {@link readTrackedSides}) AND
+   * `commit`/`range` (via `structuredRefDiff`, which supplies its own
+   * `oldSpec`/`newSideReader`) — the OLD side is always a `readRefBlob` spec
+   * (`HEAD:./<path>` for tracked modes, `<oldRef>:./<path>` for ref-pair
+   * modes; the `./` magic pathspec form so the spec resolves against `cwd`
+   * — see the module doc comment's PATH SPACE section); the NEW side is
+   * whatever the caller's `newSideReader` resolves (index, worktree, or
+   * another `readRefBlob` spec). `pathArg` is threaded through for the
+   * unmerged-path message even though the OLD side's spec may read
+   * `oldPath` for a rename. */
+  async function readDiffSides(
+    oldSpec: string,
     pathArg: string,
+    newSideReader: () => Promise<GitResult<SideRead>>,
     oldPath: string | null
   ): Promise<GitResult<TrackedSides>> {
-    const oldRead = await readRefBlob(`HEAD:./${oldPath ?? pathArg}`, pathArg);
+    const oldRead = await readRefBlob(oldSpec, pathArg);
     if (!oldRead.ok) {
       return oldRead;
     }
-    const newRead =
-      mode === 'staged'
-        ? await readRefBlob(`:0:./${pathArg}`, pathArg)
-        : await readWorktreeFile(pathArg);
+    const newRead = await newSideReader();
     if (!newRead.ok) {
       return newRead;
     }
@@ -647,6 +730,22 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     };
   }
 
+  /** `staged`/`working` sides via {@link readDiffSides}: old = `HEAD:./<path>`;
+   * new = the index (`staged`) or the worktree file (`working`). */
+  async function readTrackedSides(
+    mode: 'staged' | 'working',
+    pathArg: string,
+    oldPath: string | null
+  ): Promise<GitResult<TrackedSides>> {
+    return await readDiffSides(
+      `HEAD:./${oldPath ?? pathArg}`,
+      pathArg,
+      () =>
+        mode === 'staged' ? readRefBlob(`:0:./${pathArg}`, pathArg) : readWorktreeFile(pathArg),
+      oldPath
+    );
+  }
+
   /** Assemble the `additions`/`content`/`deletions`/`hunks` fields once both
    * sides are known — the binary / cap / full branching, isolated from status
    * and side-reading so {@link structuredTrackedDiff} stays under the
@@ -654,11 +753,12 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
    * EITHER side was actually read and found to contain a null byte — an
    * `over-cap` side (never read) simply can't contribute evidence either
    * way, so it never blocks a confirmed-binary classification from the OTHER
-   * side. */
-  async function assembleTrackedContent(
-    mode: 'staged' | 'working',
-    pathArg: string,
-    oldPath: string | null,
+   * side. `computeDiff` is injected (rather than a `mode` string) so this is
+   * shared, unmodified, between `staged`/`working` and `commit`/`range`
+   * (BST-1113) — every mode's over-cap/binary/`maxBuffer` handling is
+   * IDENTICAL; only how the unified diff itself gets computed differs. */
+  async function assembleDiffContent(
+    computeDiff: () => Promise<GitResult<UnifiedDiffRun>>,
     entry: NumstatEntry,
     sides: Pick<TrackedSides, 'newSide' | 'oldSide'>
   ): Promise<GitResult<Pick<StructuredFileDiff, 'additions' | 'content' | 'deletions' | 'hunks'>>> {
@@ -672,7 +772,7 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
       };
     }
 
-    const unifiedDiff = await computeUnifiedDiff(mode, pathArg, oldPath);
+    const unifiedDiff = await computeDiff();
     if (!unifiedDiff.ok) {
       return unifiedDiff;
     }
@@ -742,7 +842,87 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
     }
     const sides = sidesResult.value;
 
-    const contentResult = await assembleTrackedContent(mode, pathArg, entry.oldPath, entry, sides);
+    const contentResult = await assembleDiffContent(
+      () => computeUnifiedDiff(mode === 'staged' ? ['--cached'] : ['HEAD'], pathArg, entry.oldPath),
+      entry,
+      sides
+    );
+    if (!contentResult.ok) {
+      return contentResult;
+    }
+
+    return {
+      ok: true,
+      value: {
+        ...contentResult.value,
+        ...sides.oldPathField,
+        path: pathArg,
+        status: sides.status,
+      },
+    };
+  }
+
+  /** `commit`/`range` numstat entry, or the correctly-directed error when
+   * there isn't one — the ref-pair counterpart to
+   * {@link resolveTrackedEntryForPath}. No untracked-redirect branch: `commit`
+   * and `range` compare two historical/ref snapshots, and "untracked" (never
+   * tracked by git at all) has no meaning for either. */
+  async function resolveRefEntryForPath(
+    oldRef: string,
+    newRef: string,
+    pathArg: string,
+    modeLabel: 'commit' | 'range'
+  ): Promise<GitResult<NumstatEntry>> {
+    const entryResult = await resolveRefNumstatEntry(oldRef, newRef, pathArg);
+    if (!entryResult.ok) {
+      return entryResult;
+    }
+    if (entryResult.value) {
+      return { ok: true, value: entryResult.value };
+    }
+    return { error: `no differences for '${pathArg}' in ${modeLabel} scope`, ok: false };
+  }
+
+  /**
+   * Structured diff for the `commit`/`range` modes (BST-1113): two explicit
+   * refs, both sides read via `readRefBlob` — never the worktree or index.
+   * `oldRef`/`newRef` are already-resolved by the caller (`structuredFileDiff`
+   * below resolves `commit` mode's `oldRef` via `resolveCommitOldRef`;
+   * `range` mode's `oldRef` is the caller-supplied `baseRef` verbatim, and
+   * its `newRef` is always the literal `'HEAD'` — see
+   * `StructuredFileDiffParams`'s `range` doc comment in `@brainstrike/types`
+   * for why HEAD, not the worktree). Mirrors {@link structuredTrackedDiff}'s
+   * three-step shape (numstat entry → both sides → assemble content) via the
+   * SAME {@link readDiffSides}/{@link assembleDiffContent} machinery.
+   */
+  async function structuredRefDiff(
+    oldRef: string,
+    newRef: string,
+    pathArg: string,
+    modeLabel: 'commit' | 'range'
+  ): Promise<GitResult<StructuredFileDiff>> {
+    const entryResult = await resolveRefEntryForPath(oldRef, newRef, pathArg, modeLabel);
+    if (!entryResult.ok) {
+      return entryResult;
+    }
+    const entry = entryResult.value;
+
+    const sidesResult = await readDiffSides(
+      `${oldRef}:./${entry.oldPath ?? pathArg}`,
+      pathArg,
+      () => readRefBlob(`${newRef}:./${pathArg}`, pathArg),
+      entry.oldPath
+    );
+    if (!sidesResult.ok) {
+      return sidesResult;
+    }
+    const sides = sidesResult.value;
+
+    const contentResult = await assembleDiffContent(
+      () => computeUnifiedDiff([oldRef, newRef], pathArg, entry.oldPath),
+      entry,
+      sides
+    );
     if (!contentResult.ok) {
       return contentResult;
     }
@@ -763,8 +943,10 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
      * Both-sides file content + structured hunk ranges for one path (spec §3,
      * §11 Q3) — the `StructuredFileDiff` replacement for the unified-diff-string
      * `diff()` contract. `mode` selects the comparison: `working` (HEAD vs.
-     * worktree, i.e. all uncommitted changes), `staged` (HEAD vs. index), or
-     * `untracked` (no HEAD/index side at all).
+     * worktree, i.e. all uncommitted changes), `staged` (HEAD vs. index),
+     * `untracked` (no HEAD/index side at all), `commit` (`<commitId>^` vs.
+     * `<commitId>`, BST-1113), or `range` (a caller-resolved `baseRef` vs.
+     * HEAD, BST-1113).
      */
     structuredFileDiff: async (
       params: StructuredFileDiffParams
@@ -782,9 +964,21 @@ export function createStructuredDiffOps({ cwd, invoke, invokeHookFree }: Structu
           return { error: 'structured diff requires a non-empty path', ok: false };
         }
         const pathArg = pathResult.value;
-        return validated.value.mode === 'untracked'
-          ? await structuredUntrackedDiff(pathArg)
-          : await structuredTrackedDiff(validated.value.mode, pathArg);
+        const validatedParams = validated.value;
+        if (validatedParams.mode === 'untracked') {
+          return await structuredUntrackedDiff(pathArg);
+        }
+        if (validatedParams.mode === 'staged' || validatedParams.mode === 'working') {
+          return await structuredTrackedDiff(validatedParams.mode, pathArg);
+        }
+        if (validatedParams.mode === 'commit') {
+          const oldRef = await resolveCommitOldRef(invoke, validatedParams.commitId);
+          if (!oldRef.ok) {
+            return oldRef;
+          }
+          return await structuredRefDiff(oldRef.value, validatedParams.commitId, pathArg, 'commit');
+        }
+        return await structuredRefDiff(validatedParams.baseRef, 'HEAD', pathArg, 'range');
       } catch (error) {
         return { error: toErrorMessage(error), ok: false };
       }
