@@ -108,6 +108,21 @@ test('uses Windows path semantics for a Windows pnpm entrypoint on every test ho
   );
 });
 
+test('re-enters a corepack-shimmed pnpm whose entrypoint is pnpm.mjs', () => {
+  const corepackExecPath = '/Users/dev/Library/Caches/node/corepack/v1/pnpm/10.12.1/bin/pnpm.mjs';
+  assert.deepEqual(
+    resolvePnpmInvocation({
+      env: { npm_execpath: corepackExecPath },
+      execPath: '/usr/local/bin/node',
+      platform: 'darwin',
+    }),
+    {
+      argsPrefix: [corepackExecPath],
+      command: '/usr/local/bin/node',
+    }
+  );
+});
+
 test('rejects npm_execpath values that are not pnpm JavaScript entrypoints', () => {
   for (const npmExecPath of ['C:\\tools\\npm-cli.js', 'C:\\tools\\pnpm.cmd', 'tools\\pnpm.cjs']) {
     assert.throws(
@@ -117,7 +132,7 @@ test('rejects npm_execpath values that are not pnpm JavaScript entrypoints', () 
           execPath: 'C:\\tools\\node.exe',
           platform: 'win32',
         }),
-      /must point to an absolute pnpm\.cjs or pnpm\.js entry/
+      /must point to an absolute pnpm\.cjs, pnpm\.js, or pnpm\.mjs entry/
     );
   }
 });
