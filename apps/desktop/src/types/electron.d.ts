@@ -15,6 +15,8 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
+  Changeset,
+  ChangesetView,
   DatabaseWorkOptions,
   ElectronChunkInsert,
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
@@ -30,6 +32,7 @@ import type {
   GitStatus,
   GitSwitchBranchResult,
   IFileNode,
+  StructuredFileDiff,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -104,6 +107,23 @@ declare global {
      */
     assistantPersonas?: {
       list: () => Promise<AssistantPersonasListResult>;
+    };
+    /**
+     * Desktop-only changeset diff bridge (BST-1113). Resolves any
+     * `Changeset` (agent-run / run-range / git-scope) to an eager
+     * `ChangesetView` and loads per-file `StructuredFileDiff`s lazily.
+     * Absent on web (no preload) — consumers MUST capability-check
+     * `window.changes` rather than `isElectron()`. Task 1 wires typed stub
+     * handlers that always return a `not-implemented` `GitResult` failure;
+     * Task 3/4 land the real `ChangesetDiffService` implementation.
+     */
+    changes?: {
+      fileDiff: (
+        rootId: string,
+        changeset: Changeset,
+        path: string
+      ) => Promise<GitResult<StructuredFileDiff>>;
+      resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
     };
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;

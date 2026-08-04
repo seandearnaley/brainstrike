@@ -8,6 +8,10 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
+  Changeset,
+  ChangesetView,
+  GitResult,
+  StructuredFileDiff,
 } from '@brainstrike/types';
 
 declare global {
@@ -28,6 +32,21 @@ declare global {
         runId: string,
         options?: { force?: boolean }
       ) => Promise<AssistantCheckpointRevertRunResult>;
+    };
+    /**
+     * Desktop-only changeset diff bridge (BST-1113). Absent on web (no
+     * preload) — capability-check via `resolveChangesBridge()`
+     * (`changes-bridge.ts`) rather than `isElectron()`. Task 1 wires typed
+     * stub handlers that always return a `not-implemented` `GitResult`
+     * failure; Task 3/4 land the real `ChangesetDiffService` implementation.
+     */
+    changes?: {
+      fileDiff?: (
+        rootId: string,
+        changeset: Changeset,
+        path: string
+      ) => Promise<GitResult<StructuredFileDiff>>;
+      resolveView?: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
     };
     mcp?: {
       getConfig?: () => Promise<

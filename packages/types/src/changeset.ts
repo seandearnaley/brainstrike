@@ -122,12 +122,35 @@ export interface ChangedFileEntry {
   readonly worktreePath: string | null;
 }
 
-/** Eager resolution of a Changeset: file list + stats. Per-file diffs load lazily. */
+/**
+ * Eager resolution of a Changeset: file list + stats. Per-file diffs load
+ * lazily.
+ *
+ * `totalAdditions`/`totalDeletions` are `number | null` — NOT a sentinel
+ * `0` — because "not computable" and "computed to exactly zero" are
+ * different facts and this project's settled house rule is
+ * make-invalid-states-unrepresentable (the same reasoning that keeps
+ * `ChangedFileEntry.additions`/`.deletions` nullable per-file, rather than
+ * coercing a binary file's unknown line count to `0`).
+ *
+ * - `null` ⇒ the changeset's source cannot report totals at all. Today this
+ *   is EVERY journal-backed changeset (`agent-run`/`run-range`): the edit
+ *   checkpoint journal never records line counts, so there is nothing to
+ *   sum.
+ * - A `git-scope` changeset ALWAYS computes real totals from `git diff
+ *   --numstat` and is therefore NEVER `null` — including when every changed
+ *   file is binary, which correctly totals `0`/`0` (a real computed zero,
+ *   not "unknown"). A binary file's own `null` per-file
+ *   `additions`/`deletions` are EXCLUDED from the sum (never coerced to
+ *   `0`) — that per-file exclusion is what produces the real `0` total when
+ *   ALL files are binary, and it is a DIFFERENT fact from a journal
+ *   changeset's `null` total.
+ */
 export interface ChangesetView {
   readonly changeset: Changeset;
   readonly files: readonly ChangedFileEntry[];
-  readonly totalAdditions: number;
-  readonly totalDeletions: number;
+  readonly totalAdditions: number | null;
+  readonly totalDeletions: number | null;
 }
 
 /** Absolute line ranges from a unified-diff @@ header. */
@@ -172,7 +195,20 @@ export interface StructuredFileDiff {
   readonly additions: number | null;
   readonly content: StructuredFileDiffContent;
   readonly deletions: number | null;
-  /** Absolute-line hunk ranges; empty for binary. */
+  /**
+   * Absolute-line hunk ranges — populated ONLY when a git unified diff was
+   * actually computed for this file; empty otherwise. That covers three
+   * cases, all legitimate, none dishonest: binary content (no line-level
+   * diff is meaningful), an `untracked` whole-file addition (git-scope
+   * `structuredFileDiff`'s `untracked` mode never runs a two-sided `git
+   * diff`, so there is no unified diff to parse hunks from), and every
+   * journal-sourced diff (`agent-run`/`run-range` — the old side is a raw
+   * DB-stored string, not a git ref, so there is no git invocation to
+   * produce hunk ranges from at all; see `changeset-journal-view.ts`'s
+   * `assembleJournalDiff`). A `full` `content` payload with empty `hunks` is
+   * NOT a contradiction — `full` only promises both sides' complete text,
+   * never that hunk ranges were computed.
+   */
   readonly hunks: readonly StructuredDiffHunk[];
   readonly oldPath?: string;
   readonly path: string;
@@ -182,11 +218,54 @@ export interface StructuredFileDiff {
 /** Params for the per-file structured diff (git-scope sources; journal sources are W3). */
 export type StructuredFileDiffParams =
   | {
+      /** Full git object id (40-64 hex chars) — never a symbolic ref; the
+       * engine never resolves refs itself. */
+      readonly commitId: string;
+      /** Diffs `<commitId>^` vs `<commitId>` for ONE path. A root commit
+       * (no parent) falls back to git's empty-tree object id as the old
+       * side, yielding an `added` file with `oldContent: null` rather than
+       * an error. For a MERGE commit `^` is the FIRST parent, so this is a
+       * first-parent diff (matching the `commitDiff` IPC precedent in
+       * `git-history.ts`): changes that arrived via the merged branch show
+       * as the merge's own changes, and mainline changes between the
+       * merge-base and the merge show as no difference. */
+      readonly mode: 'commit';
+      readonly path: string;
+    }
+  | {
+      /** An ALREADY-RESOLVED ref (a SHA, branch name, tag, or the
+       * empty-tree object id) — the caller resolves `origin/HEAD`,
+       * merge-base, or the unborn-HEAD empty-tree case; the engine never
+       * resolves refs itself. */
+      readonly baseRef: string;
+      /** Diffs `baseRef` vs the new side (HEAD's committed blob — see
+       * `git-structured-diff-refs.ts`/`git-structured-diff.ts` for why the
+       * new side is HEAD rather than the live worktree: it must stay
+       * consistent with the `branch-vs-base` scope's own numstat listing,
+       * which likewise compares committed state via a three-dot merge-base
+       * diff, not uncommitted local edits) for ONE path. A path added since
+       * `baseRef` has `oldContent: null`. */
+      readonly mode: 'range';
+      readonly path: string;
+    }
+  | {
       readonly mode: 'staged';
       readonly path: string;
     }
   | {
       readonly mode: 'untracked';
+      readonly path: string;
+    }
+  | {
+      /** Diffs the INDEX vs the worktree (`:0:./<path>` vs the live file) for
+       * ONE path — the per-file counterpart to the `unstaged` git-scope's own
+       * LISTING comparison (`git diff` with no ref args), so a file's listed
+       * additions/deletions and its rendered diff can never disagree (review
+       * finding, BST-1113: the `unstaged` scope used to map its per-file diff
+       * to `working` (HEAD vs worktree), a DIFFERENT comparison than its own
+       * index-vs-worktree listing — for a file with both staged and unstaged
+       * edits the two visibly contradicted each other). */
+      readonly mode: 'unstaged';
       readonly path: string;
     }
   | {

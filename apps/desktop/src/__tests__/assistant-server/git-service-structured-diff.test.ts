@@ -629,6 +629,196 @@ describe('structuredFileDiff — validation', () => {
   });
 });
 
+const VALID_COMMIT_ID = 'a'.repeat(40);
+
+describe('structuredFileDiff — commit/range validation (BST-1113)', () => {
+  it('rejects baseRef supplied on mode "commit"', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      baseRef: 'origin/main',
+      commitId: VALID_COMMIT_ID,
+      mode: 'commit',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/baseRef/);
+    expect(result.error).toMatch(/commit/);
+  });
+
+  it('rejects commitId supplied on mode "range"', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      baseRef: 'origin/main',
+      commitId: VALID_COMMIT_ID,
+      mode: 'range',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/commitId/);
+    expect(result.error).toMatch(/range/);
+  });
+
+  it('rejects a missing commitId on mode "commit"', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      mode: 'commit',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/commitId/);
+  });
+
+  it('rejects an empty-string commitId on mode "commit"', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      commitId: '',
+      mode: 'commit',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/commitId/);
+  });
+
+  it('rejects a commitId that is not a full git object id', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      commitId: 'not-a-sha',
+      mode: 'commit',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/full object id/);
+  });
+
+  it('rejects a commitId starting with "-" (never let a ref be read as a git option), WITHOUT ever invoking git', async () => {
+    const cwd = await makeTempDir();
+    const { calls, run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      commitId: `-${'a'.repeat(39)}`,
+      mode: 'commit',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/commitId/);
+    expect(result.error).toMatch(/-/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('rejects a baseRef starting with "-", WITHOUT ever invoking git', async () => {
+    const cwd = await makeTempDir();
+    const { calls, run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      baseRef: '--upload-pack=evil',
+      mode: 'range',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/baseRef/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('rejects a baseRef containing whitespace', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      baseRef: 'origin main',
+      mode: 'range',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/baseRef/);
+  });
+
+  it('rejects a baseRef containing ":" (would corrupt the "<ref>:./<path>" spec form)', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      baseRef: 'origin:main',
+      mode: 'range',
+      path: 'a.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/baseRef/);
+  });
+});
+
 describe('structuredFileDiff — working mode zero-numstat-entries directs to untracked', () => {
   it('returns a directing error when the path is untracked, not a generic "no differences"', async () => {
     const cwd = await makeTempDir();
@@ -689,5 +879,92 @@ describe('structuredFileDiff — working mode zero-numstat-entries directs to un
 
     expect(result.ok).toBe(false);
     expect(calls.some((c) => isStatus(c.args))).toBe(false);
+  });
+});
+
+describe('structuredFileDiff — "unstaged" mode (BST-1113 review finding)', () => {
+  it('is accepted by validation with only mode/path, mirroring staged/working', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      if (isNumstat(args)) {
+        return ok({ stdout: '' });
+      }
+      if (isStatus(args)) {
+        return ok({ stdout: '' });
+      }
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({ mode: 'unstaged', path: 'x.txt' });
+
+    // Reaches the SAME "no differences" outcome staged/working would for an
+    // unchanged path — i.e. the mode is recognized and routed, not rejected
+    // as unsupported.
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/no differences/);
+  });
+
+  it('rejects an unsupported extra key on mode "unstaged"', async () => {
+    const cwd = await makeTempDir();
+    const { run } = createFakeRunner((args) => {
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({
+      commitId: 'a'.repeat(40),
+      mode: 'unstaged',
+      path: 'x.txt',
+    } as unknown as StructuredFileDiffParams);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/commitId/);
+    expect(result.error).toMatch(/unstaged/);
+  });
+
+  it('reads the OLD side from the INDEX (:0:./<path>), never HEAD — the review-fixed bug', async () => {
+    const cwd = await makeTempDir();
+    const oldContent = Buffer.from('index-side\n', 'utf8');
+    const newContent = Buffer.from('worktree-side\n', 'utf8');
+    await fsPromises.writeFile(path.join(cwd, 'x.txt'), newContent);
+    const { calls, run } = createFakeRunner((args) => {
+      if (isNumstat(args)) {
+        // `unstaged`'s numstat target is `[]` (no ref args) — index vs
+        // worktree, the SAME comparison `unstaged`'s own scope LISTING uses.
+        return ok({ stdout: '1\t1\tx.txt\0' });
+      }
+      if (isCatFile(args)) {
+        // Old side MUST be the index (`:0:./x.txt`), never `HEAD:./x.txt`.
+        if (args.some((arg) => arg.includes('HEAD:'))) {
+          throw new Error(`unstaged mode must never read HEAD: ${args.join(' ')}`);
+        }
+        return presentSpec(args, oldContent);
+      }
+      if (isUnifiedDiff(args)) {
+        return ok({ stdout: '' });
+      }
+      throw new Error(`unexpected invocation: ${args.join(' ')}`);
+    });
+    const service = createGitService({ cwd, run });
+
+    const result = await service.structuredFileDiff({ mode: 'unstaged', path: 'x.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'worktree-side\n',
+      oldContent: 'index-side\n',
+    });
+    expect(calls.some((call) => call.args.some((arg) => arg.includes(':0:./x.txt')))).toBe(true);
   });
 });

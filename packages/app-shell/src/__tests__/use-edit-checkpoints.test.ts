@@ -270,10 +270,21 @@ describe('useEditCheckpoints outcome labeling', () => {
       revertedAt: '2026-07-16T12:00:00.000Z',
       toolCallId: 'call-b',
     });
+    // A THIRD entry for the same run whose captureStatus is 'expired' — not
+    // revertible, and not reverted here. It must never count toward the
+    // denominator: if the revertible filter is ever widened (e.g. an
+    // accidental `|| true`), this entry inflates '2/2' into '2/3' and flips
+    // the verdict from 'failed' to 'mixed', so this fixture pins the
+    // exclusion, not just the inclusion, of isRevertibleCaptureStatus.
+    const expiredC = makeEntry({
+      captureStatus: 'expired',
+      id: 'e3',
+      toolCallId: 'call-c',
+    });
     const listThreadCheckpoints = vi
       .fn()
       .mockResolvedValueOnce(initial)
-      .mockResolvedValue([revertedA, revertedB]);
+      .mockResolvedValue([revertedA, revertedB, expiredC]);
     const recordRunOutcome = vi.fn().mockResolvedValue(undefined);
     const revertRun = vi.fn().mockResolvedValue({
       outcomes: [

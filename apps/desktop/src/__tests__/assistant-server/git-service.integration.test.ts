@@ -1923,3 +1923,235 @@ describe('git service — structuredFileDiff (real repos)', () => {
     expect(staged.error).toContain('conflict.txt');
   });
 });
+
+describe('git service — structuredFileDiff commit/range modes (real repos, BST-1113)', () => {
+  it('commit mode: ordinary commit — correct old/new content, hunks, additions/deletions, status "modified"', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'line1\nline2\nline3\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await writeFile(repo, 'a.txt', 'line1\nline2-edited\nline3\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'edit'], { cwd: repo });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const commitId = stdout.trim();
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      commitId,
+      mode: 'commit',
+      path: 'a.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('modified');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-edited\nline3\n',
+      oldContent: 'line1\nline2\nline3\n',
+    });
+    expect(result.value.additions).toBe(1);
+    expect(result.value.deletions).toBe(1);
+    expect(result.value.hunks).toEqual([{ newLines: 3, newStart: 1, oldLines: 3, oldStart: 1 }]);
+  });
+
+  it('commit mode: a ROOT commit (no parent) falls back to the empty-tree old ref — status "added", oldContent null', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'root content\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'root commit'], { cwd: repo });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const commitId = stdout.trim();
+    // Confirm this really is a root commit (no parent) — the fixture the
+    // fallback path needs, not an assumption.
+    await expect(
+      execFileAsync('git', ['rev-parse', '--verify', `${commitId}^`], { cwd: repo })
+    ).rejects.toThrow();
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      commitId,
+      mode: 'commit',
+      path: 'a.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('added');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'root content\n',
+      oldContent: null,
+    });
+  });
+
+  it('commit mode: a file DELETED in that commit — newContent null, status "deleted"', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'hello\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await fsPromises.rm(path.join(repo, 'a.txt'));
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'delete a.txt'], { cwd: repo });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const commitId = stdout.trim();
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      commitId,
+      mode: 'commit',
+      path: 'a.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('deleted');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: null,
+      oldContent: 'hello\n',
+    });
+  });
+
+  it("range mode: baseRef vs HEAD — modified path's old side comes from baseRef; a path added since baseRef has oldContent null", async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'v1\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    const { stdout: baseStdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const baseRef = baseStdout.trim();
+
+    await writeFile(repo, 'a.txt', 'v2\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'edit a'], { cwd: repo });
+    await writeFile(repo, 'new.txt', 'brand new\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'add new'], { cwd: repo });
+
+    const modified = await serviceFor(repo).structuredFileDiff({
+      baseRef,
+      mode: 'range',
+      path: 'a.txt',
+    });
+    expect(modified.ok).toBe(true);
+    if (!modified.ok) {
+      return;
+    }
+    expect(modified.value.status).toBe('modified');
+    expect(modified.value.content).toEqual({
+      kind: 'full',
+      newContent: 'v2\n',
+      oldContent: 'v1\n',
+    });
+
+    const added = await serviceFor(repo).structuredFileDiff({
+      baseRef,
+      mode: 'range',
+      path: 'new.txt',
+    });
+    expect(added.ok).toBe(true);
+    if (!added.ok) {
+      return;
+    }
+    expect(added.value.status).toBe('added');
+    expect(added.value.content).toEqual({
+      kind: 'full',
+      newContent: 'brand new\n',
+      oldContent: null,
+    });
+  });
+
+  it('range mode: new side is HEAD, NOT the live worktree — an uncommitted edit left on disk is invisible', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'v1\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    const { stdout: baseStdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const baseRef = baseStdout.trim();
+
+    await writeFile(repo, 'a.txt', 'v2\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'edit a'], { cwd: repo });
+    // Left dirty AFTER the commit HEAD sits at — range mode must not see this.
+    await writeFile(repo, 'a.txt', 'v3-uncommitted\n');
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      baseRef,
+      mode: 'range',
+      path: 'a.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content).toEqual({ kind: 'full', newContent: 'v2\n', oldContent: 'v1\n' });
+  });
+
+  it('commit mode: old side over the 2MB cap degrades to hunks-only with reason "over-cap-old" (size-probe machinery reached, not bypassed)', async () => {
+    const repo = await makeRepo();
+    const line = `${'y'.repeat(100)}\n`;
+    const lineCount = 45_000; // ~4.5MB — over the content cap and the old hard maxBuffer ceiling.
+    await writeFile(repo, 'huge.txt', line.repeat(lineCount));
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'add huge file'], { cwd: repo });
+    await writeFile(repo, 'huge.txt', 'shrunk\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'shrink huge file'], { cwd: repo });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const commitId = stdout.trim();
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      commitId,
+      mode: 'commit',
+      path: 'huge.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content.kind).toBe('hunks-only');
+    if (result.value.content.kind !== 'hunks-only') {
+      return;
+    }
+    expect(result.value.content.reason).toBe('over-cap-old');
+  });
+
+  it('range mode: a binary file — content kind "binary", hunks empty, additions/deletions null', async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(
+      path.join(repo, 'img.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d])
+    );
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init binary'], { cwd: repo });
+    const { stdout: baseStdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const baseRef = baseStdout.trim();
+    await fsPromises.writeFile(
+      path.join(repo, 'img.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x0e])
+    );
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'edit binary'], { cwd: repo });
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      baseRef,
+      mode: 'range',
+      path: 'img.png',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content).toEqual({ kind: 'binary' });
+    expect(result.value.hunks).toEqual([]);
+    expect(result.value.additions).toBeNull();
+    expect(result.value.deletions).toBeNull();
+  });
+});

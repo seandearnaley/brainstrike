@@ -73,6 +73,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
@@ -725,6 +726,7 @@ let unregisterClipboardIpcHandlers: null | (() => void) = null;
 let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterChangesIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterSkillsIpcHandlers: null | (() => void) = null;
@@ -1233,6 +1235,7 @@ unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterFileExportsIpcHandlers = registerFileExportsIpcHandlers();
 unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
+unregisterChangesIpcHandlers = registerChangesIpcHandlers();
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
@@ -1972,6 +1975,8 @@ app.on('will-quit', () => {
     unregisterGitIpcHandlers();
     unregisterGitIpcHandlers = null;
   }
+  unregisterChangesIpcHandlers?.();
+  unregisterChangesIpcHandlers = null;
   if (unregisterHooksIpcHandlers) {
     unregisterHooksIpcHandlers();
     unregisterHooksIpcHandlers = null;

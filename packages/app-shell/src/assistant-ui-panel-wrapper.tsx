@@ -123,6 +123,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useChangeset } from './changes/use-changeset';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
@@ -1676,6 +1677,15 @@ export function AssistantUiPanelWrapper({
   // cost-tracking/use-daily-spend.ts — this is wiring only.
   const budgetGuardrailBinding = useBudgetGuardrailBinding(memoryResourceId);
 
+  // Changeset lifecycle refresh (BST-1113 Task 4): no changeset SELECTION UI
+  // exists yet (W4 wires it), so `changeset` is hardcoded null here — the
+  // hook's own inertness (no bridge call for a null changeset) makes
+  // `refreshChangeset` a no-op today by construction, not by a branch here.
+  // `mainRootId` is the assistant's OPERATING root (see the MULTI-ROOT
+  // PARTITION comment above `selectionData`), matching the git IPC domain's
+  // own rootId-scoped cwd concept.
+  const { refresh: refreshChangeset } = useChangeset(mainRootId ?? null, null);
+
   // Re-read the checkpoint journal when a run reaches a terminal state — the
   // journal rows are written in main during tool execution, after the last
   // thread-open read, so the turn-level "Revert all edits" footer would
@@ -1684,15 +1694,17 @@ export function AssistantUiPanelWrapper({
     (event: AssistantRunEvent) => {
       onRunFinished(event);
       void refetchCheckpoints();
+      void refreshChangeset();
     },
-    [onRunFinished, refetchCheckpoints]
+    [onRunFinished, refetchCheckpoints, refreshChangeset]
   );
   const handleRunFailed = useCallback(
     (event: AssistantRunEvent) => {
       onRunFailed(event);
       void refetchCheckpoints();
+      void refreshChangeset();
     },
-    [onRunFailed, refetchCheckpoints]
+    [onRunFailed, refetchCheckpoints, refreshChangeset]
   );
 
   // Grant actions for the tool-approval notice ("Always allow" / "Allow

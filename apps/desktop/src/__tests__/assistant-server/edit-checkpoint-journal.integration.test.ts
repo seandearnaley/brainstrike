@@ -9,6 +9,8 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type EditCheckpointInput,
+  listRunCheckpoints,
+  listRunRangeCheckpoints,
   listThreadCheckpoints,
   recordEditCheckpoint,
   sha256Hex,
@@ -20,6 +22,7 @@ const THREAD = 'thread-1';
 const RESOURCE = 'workspace-a';
 const RUN = 'run-1';
 const ROOT = 'root-1';
+const RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 
 function writeInput(overrides: Partial<EditCheckpointInput> = {}): EditCheckpointInput {
   const before = 'before-bytes\n';
@@ -41,6 +44,49 @@ function writeInput(overrides: Partial<EditCheckpointInput> = {}): EditCheckpoin
     toolName: 'brainstrike.stringReplaceWorkspaceFile',
     ...overrides,
   } as EditCheckpointInput;
+}
+
+/**
+ * The runs table is renderer-lazy bootstrap-only DDL (never a numbered
+ * migration), so `migrate(db)` in `beforeEach` below never creates it. Tests
+ * that exercise `listRunRangeCheckpoints`' anchor resolution create a minimal
+ * stand-in here — same shape the production bootstrap SQL uses for the three
+ * columns the range query reads (id/thread_id/started_at), without the FK to
+ * the Mastra threads table this journal module never touches.
+ */
+async function createRunsTable(): Promise<void> {
+  await db.query(`
+    CREATE TABLE ${RUNS_TABLE} (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      started_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+}
+
+/**
+ * `startedAt` accepts a raw SQL-literal string (e.g. a microsecond-precision
+ * timestamp such as `'2026-08-04 04:15:00.123456+00'`) as well as a `Date`,
+ * so a test can insert a run with sub-millisecond precision that a `Date` —
+ * millisecond-resolution — could never represent in the first place.
+ */
+async function insertRun(input: {
+  id: string;
+  startedAt: Date | string;
+  threadId?: string;
+}): Promise<void> {
+  await db.query(`INSERT INTO ${RUNS_TABLE} (id, thread_id, started_at) VALUES ($1, $2, $3)`, [
+    input.id,
+    input.threadId ?? THREAD,
+    input.startedAt,
+  ]);
+}
+
+async function runsTableIsPresent(): Promise<boolean> {
+  const probe = await db.query<{ present: boolean }>(
+    `SELECT to_regclass('${RUNS_TABLE}') IS NOT NULL AS present`
+  );
+  return probe.rows[0]?.present === true;
 }
 
 beforeEach(async () => {
@@ -137,6 +183,293 @@ describe('recordEditCheckpoint + listThreadCheckpoints', () => {
     );
     const listed = await listThreadCheckpoints(db, THREAD);
     expect(listed.map((entry) => entry.path)).toEqual(['/first.txt', '/second.txt']);
+  });
+});
+
+describe('listRunCheckpoints', () => {
+  it('returns only that run’s records, oldest-first', async () => {
+    const base = Date.now();
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(base + 2000), path: '/b-second.txt', runId: RUN })
+    );
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(base + 1000), path: '/b-first.txt', runId: RUN })
+    );
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(base + 1500), path: '/other-run.txt', runId: 'run-other' })
+    );
+
+    const listed = await listRunCheckpoints(db, RUN, THREAD);
+    expect(listed.map((entry) => entry.path)).toEqual(['/b-first.txt', '/b-second.txt']);
+    expect(listed.every((entry) => entry.runId === RUN)).toBe(true);
+  });
+
+  it('a real run supplied with the WRONG thread is a typed miss — the other thread’s records never leak (review finding, BST-1113)', async () => {
+    // `RUN` genuinely has journal entries, but they belong to `THREAD` — a
+    // caller supplying `RUN` alongside a DIFFERENT thread id must see
+    // NOTHING for it, never that other thread's real records (the exploit:
+    // `changes:fileDiff` would otherwise serve stored `before_content` for a
+    // run the caller's own thread never owns).
+    const base = Date.now();
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(base), path: '/owned-by-thread-1.txt', runId: RUN })
+    );
+
+    const crossThreadResult = await listRunCheckpoints(db, RUN, 'thread-2');
+    expect(crossThreadResult).toEqual([]);
+
+    // Sanity: the SAME run, with its OWN thread, still returns the real record.
+    const ownThreadResult = await listRunCheckpoints(db, RUN, THREAD);
+    expect(ownThreadResult.map((entry) => entry.path)).toEqual(['/owned-by-thread-1.txt']);
+  });
+});
+
+describe('listRunRangeCheckpoints', () => {
+  it('returns a typed runs-unavailable error when the runs table was never bootstrapped, and issues no DDL', async () => {
+    expect(await runsTableIsPresent()).toBe(false);
+
+    const result = await listRunRangeCheckpoints(db, { fromRunId: 'run-a', threadId: THREAD });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/runs-unavailable/);
+    }
+    // The read-only invariant: a probe miss must never fall through to a
+    // bootstrap. The table must still be absent after the call.
+    expect(await runsTableIsPresent()).toBe(false);
+  });
+
+  describe('with a bootstrapped runs table', () => {
+    const base = Date.now();
+    const at = (offsetMs: number): Date => new Date(base + offsetMs);
+
+    beforeEach(async () => {
+      await createRunsTable();
+      await insertRun({ id: 'run-a', startedAt: at(0) });
+      await insertRun({ id: 'run-b', startedAt: at(1000) });
+      await insertRun({ id: 'run-c', startedAt: at(2000) });
+      await insertRun({ id: 'run-d', startedAt: at(3000) });
+      await recordEditCheckpoint(
+        db,
+        writeInput({ occurredAt: at(0), path: '/a.txt', runId: 'run-a' })
+      );
+      await recordEditCheckpoint(
+        db,
+        writeInput({ occurredAt: at(1000), path: '/b.txt', runId: 'run-b' })
+      );
+      await recordEditCheckpoint(
+        db,
+        writeInput({ occurredAt: at(2000), path: '/c.txt', runId: 'run-c' })
+      );
+      await recordEditCheckpoint(
+        db,
+        writeInput({ occurredAt: at(3000), path: '/d.txt', runId: 'run-d' })
+      );
+
+      // A DECOY in a different thread ('thread-2'), timed at(1500) — inside
+      // both the [run-a, run-c] and [run-b, ) windows below. Every exact-array
+      // assertion in this describe therefore also pins thread scoping: if the
+      // range or anchor query ever dropped its `thread_id = $1` filter, this
+      // row (and its journal entry) would leak into results that must not
+      // contain it.
+      await insertRun({ id: 'run-thread-b-x', startedAt: at(1500), threadId: 'thread-2' });
+      await recordEditCheckpoint(
+        db,
+        writeInput({
+          occurredAt: at(1500),
+          path: '/thread-b-x.txt',
+          runId: 'run-thread-b-x',
+          threadId: 'thread-2',
+        })
+      );
+    });
+
+    it('a full closed range includes both anchors and everything between, excluding runs outside (and the other thread’s decoy)', async () => {
+      const result = await listRunRangeCheckpoints(db, {
+        fromRunId: 'run-a',
+        threadId: THREAD,
+        toRunId: 'run-c',
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.map((entry) => entry.path)).toEqual(['/a.txt', '/b.txt', '/c.txt']);
+      }
+    });
+
+    it('an open-ended range (toRunId omitted) reaches the latest run (and excludes the other thread’s decoy)', async () => {
+      const result = await listRunRangeCheckpoints(db, { fromRunId: 'run-b', threadId: THREAD });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.map((entry) => entry.path)).toEqual(['/b.txt', '/c.txt', '/d.txt']);
+      }
+    });
+
+    it('a same-run range (from === to) returns exactly that run’s records', async () => {
+      const result = await listRunRangeCheckpoints(db, {
+        fromRunId: 'run-b',
+        threadId: THREAD,
+        toRunId: 'run-b',
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.map((entry) => entry.path)).toEqual(['/b.txt']);
+      }
+    });
+
+    it('a missing fromRunId anchor is a prefixed, typed error naming that id', async () => {
+      const result = await listRunRangeCheckpoints(db, {
+        fromRunId: 'run-missing',
+        threadId: THREAD,
+        toRunId: 'run-c',
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatch(/^run-anchor-missing:/);
+        expect(result.error).toContain('run-missing');
+      }
+    });
+
+    it('a missing toRunId anchor is a prefixed, typed error naming that id', async () => {
+      const result = await listRunRangeCheckpoints(db, {
+        fromRunId: 'run-a',
+        threadId: THREAD,
+        toRunId: 'run-missing',
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatch(/^run-anchor-missing:/);
+        expect(result.error).toContain('run-missing');
+      }
+    });
+
+    it('a toRunId that exists only in a different thread is reported as a missing anchor, never a cross-thread leak', async () => {
+      const result = await listRunRangeCheckpoints(db, {
+        fromRunId: 'run-a',
+        threadId: THREAD,
+        toRunId: 'run-thread-b-x',
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatch(/^run-anchor-missing:/);
+        expect(result.error).toContain('run-thread-b-x');
+      }
+    });
+
+    it('an inverted range (toRunId started before fromRunId) is an honest empty view, not an error — a ruling, not an accident', async () => {
+      // run-c started AFTER run-a, so anchoring `from` on run-c and `to` on
+      // run-a means no run can satisfy both bounds. Both anchors resolve
+      // fine; this exercises the `runIds.length === 0` early return distinct
+      // from "anchors resolved but zero journal rows" below.
+      const result = await listRunRangeCheckpoints(db, {
+        fromRunId: 'run-c',
+        threadId: THREAD,
+        toRunId: 'run-a',
+      });
+      expect(result).toEqual({ ok: true, value: [] });
+    });
+  });
+
+  it('valid anchors with zero journal rows yield an empty view, not an error', async () => {
+    const zeroRowsBase = Date.now();
+    await createRunsTable();
+    await insertRun({ id: 'run-i', startedAt: new Date(zeroRowsBase) });
+    await insertRun({ id: 'run-j', startedAt: new Date(zeroRowsBase + 1000) });
+
+    const result = await listRunRangeCheckpoints(db, {
+      fromRunId: 'run-i',
+      threadId: THREAD,
+      toRunId: 'run-j',
+    });
+    expect(result).toEqual({ ok: true, value: [] });
+  });
+
+  it('preserves sub-millisecond started_at precision — a closed range anchored on its own run must not exclude itself', async () => {
+    // A JS `Date` cannot represent this timestamp: it is millisecond
+    // resolution and would truncate the ".123456" fraction. Inserted here as
+    // a raw SQL-literal string so the DB stores the full microsecond value
+    // from the start (see `insertRun`'s doc comment).
+    const preciseStartedAt = '2026-08-04 04:15:00.123456+00';
+    await createRunsTable();
+    await insertRun({ id: 'run-precise', startedAt: preciseStartedAt });
+    await recordEditCheckpoint(
+      db,
+      writeInput({
+        occurredAt: new Date('2026-08-04T04:15:00.123Z'),
+        path: '/precise.txt',
+        runId: 'run-precise',
+      })
+    );
+
+    // If the anchor's started_at were ever routed through a JS `Date` (which
+    // truncates the microsecond fraction) before being bound back in as the
+    // upper bound, the truncated bound would sit BELOW the row's actual
+    // (untruncated) started_at, and this row — its own range anchor — would
+    // be excluded: an honest range would incorrectly look empty.
+    const result = await listRunRangeCheckpoints(db, {
+      fromRunId: 'run-precise',
+      threadId: THREAD,
+      toRunId: 'run-precise',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.map((entry) => entry.path)).toEqual(['/precise.txt']);
+    }
+  });
+
+  it('same-millisecond runs: the id tiebreak makes range membership deterministic', async () => {
+    const tieBase = Date.now();
+    const tied = new Date(tieBase + 5000);
+    await createRunsTable();
+    await insertRun({ id: 'run-before', startedAt: new Date(tieBase + 4000) });
+    // Two runs sharing the exact same started_at; 'run-e' sorts before 'run-f'.
+    await insertRun({ id: 'run-e', startedAt: tied });
+    await insertRun({ id: 'run-f', startedAt: tied });
+    await insertRun({ id: 'run-after', startedAt: new Date(tieBase + 6000) });
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(tieBase + 4000), path: '/before.txt', runId: 'run-before' })
+    );
+    // Journal occurredAt values are kept distinct even though the two runs'
+    // started_at is tied — the tiebreak under test is the RANGE MEMBERSHIP
+    // query over the runs table, not journal-row ordering (which is its own,
+    // separately-tested occurred_at/id sort and would otherwise make this
+    // assertion's expected order depend on a randomly-generated row id).
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: tied, path: '/e.txt', runId: 'run-e' })
+    );
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(tieBase + 5500), path: '/f.txt', runId: 'run-f' })
+    );
+    await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(tieBase + 6000), path: '/after.txt', runId: 'run-after' })
+    );
+
+    // Anchoring the open-ended range on 'run-f' (the lexically LATER of the two
+    // tied runs) must exclude 'run-e': if the query compared started_at alone,
+    // 'run-e' would incorrectly tie into the range too.
+    const openEnded = await listRunRangeCheckpoints(db, { fromRunId: 'run-f', threadId: THREAD });
+    expect(openEnded.ok).toBe(true);
+    if (openEnded.ok) {
+      expect(openEnded.value.map((entry) => entry.path)).toEqual(['/f.txt', '/after.txt']);
+    }
+
+    // A closed range spanning both tied runs picks up exactly the two of them.
+    const closed = await listRunRangeCheckpoints(db, {
+      fromRunId: 'run-e',
+      threadId: THREAD,
+      toRunId: 'run-f',
+    });
+    expect(closed.ok).toBe(true);
+    if (closed.ok) {
+      expect(closed.value.map((entry) => entry.path)).toEqual(['/e.txt', '/f.txt']);
+    }
   });
 });
 
