@@ -3060,6 +3060,11 @@ export function createPgliteAssistantThreadRepository(
                -- insertion-order ties need a future monotonic schema column.
                ORDER BY "createdAt" DESC, id DESC
                LIMIT $3`;
+      // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
+      // it applies before `limitLatest` — the hydration window is the latest N
+      // VISIBLE messages, not N rows of which some are then dropped. Reload
+      // hydration is this query, which is why a tombstoned message stays gone
+      // across a restart without any renderer-side memory of the rewind.
       const sql = `SELECT
           recent_messages.id,
           recent_messages.role,
@@ -3071,6 +3076,10 @@ export function createPgliteAssistantThreadRepository(
           SELECT id, role, content, "createdAt"
           FROM ${MASTRA_MEMORY_TABLES.messages}
           WHERE thread_id = $1 AND "resourceId" = $2
+            AND NOT EXISTS (
+              SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
+              WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
+            )
           ${limitClause}
         ) AS recent_messages
         LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents

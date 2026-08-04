@@ -67,6 +67,7 @@ import {
   withoutBufferedReflection,
 } from './memory-row-mapping';
 import {
+  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
@@ -86,12 +87,57 @@ interface PgliteMemoryStoreOptions {
   runId?: string;
 }
 
+/** A window row plus its soft-rewind visibility flag (see `listAdjacentThreadMessageRows`). */
+interface AdjacentMessageRow extends MessageRow {
+  readonly hidden: boolean;
+}
+
+/**
+ * "This message is hidden by a soft rewind" (BST-1115). Negate it for the
+ * anti-join; use it bare where a row must be FLAGGED rather than dropped.
+ *
+ * KNOWN LIMITATION — OM residue (accepted, not fixable by filtering). Hiding a
+ * message stops it being RE-READ; it cannot retract observations the
+ * observational-memory observer already distilled from it into
+ * `mastra_observational_memory."activeObservations"`. Mastra exposes no
+ * partial un-observe — only `clearObservationalMemory`, which would throw away
+ * the whole thread's memory to erase one turn. So after a rewind the model can
+ * still carry a summary of what the hidden turn said. Do NOT "fix" this by
+ * scrubbing observation text; that is guesswork over prose the observer wrote.
+ *
+ * Built ON DEMAND, deliberately NOT a module-scope constant: it interpolates
+ * `ASSISTANT_MESSAGE_TOMBSTONES_TABLE`, imported from
+ * `@brainstrike/assistant-contract`. Reading that binding during chunk
+ * initialization is the measured BST-558 failure mode — an uninitialized
+ * binding does not throw here, it splices the literal string "undefined" into
+ * the DDL/DML. Keep it a function.
+ */
+function tombstonedPredicateSql(messageIdExpression: string): string {
+  return `EXISTS (
+      SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
+      WHERE tombstones.message_id = ${messageIdExpression}
+    )`;
+}
+
 export class PgliteMemoryStore extends MemoryStorage {
   override readonly supportsObservationalMemory = true;
   private readonly database: PgliteDatabase;
   private readonly eventSink: AssistantRunEventSink | undefined;
   private readonly runId: string | undefined;
   private initPromise: Promise<void> | null = null;
+  /**
+   * Soft-rewind sidecar presence, latched TRUE and never back to false.
+   *
+   * The table is owned by migration 080 / the app-shell bootstrap mirror, not
+   * by this class — `initialize()` creates only the Mastra schema, so a
+   * STANDALONE store legitimately lacks it (the same reason `deleteThread`
+   * probes its cascade tables). Latching only the positive answer is what
+   * keeps this from becoming a silent fallback: a store built before the
+   * migration ran re-probes on every read until the table appears and then
+   * filters forever after, instead of caching "absent" and hiding nothing for
+   * the rest of the process's life.
+   */
+  private tombstoneSidecarInstalled = false;
 
   constructor(options: PgliteMemoryStoreOptions) {
     super();
@@ -1005,12 +1051,43 @@ export class PgliteMemoryStore extends MemoryStorage {
     await this.saveObservationalMemoryRecord(record);
   }
 
+  /**
+   * `to_regclass` presence check for the soft-rewind tombstone sidecar — the
+   * sanctioned absence probe (catching 42P01 cannot work inside a transaction,
+   * #1978, and swallowing it outside one would silently disable hiding).
+   * Answers from the latch once the table has been seen.
+   */
+  private async hasTombstoneSidecar(): Promise<boolean> {
+    if (this.tombstoneSidecarInstalled) {
+      return true;
+    }
+    const probe = await this.database.query<{ present: boolean }>(
+      'SELECT to_regclass($1) IS NOT NULL AS present',
+      [ASSISTANT_MESSAGE_TOMBSTONES_TABLE]
+    );
+    const row = probe.rows[0];
+    if (!row) {
+      throw new Error('Tombstone sidecar presence probe returned no rows.');
+    }
+    this.tombstoneSidecarInstalled = row.present;
+    return row.present;
+  }
+
   private async listMessagesWhere(args: MessageListArgs): Promise<StorageListMessagesOutput> {
     const page = normalizePage(args.page);
     const perPage = normalizePerPage(args.perPage, DEFAULT_MESSAGES_PER_PAGE);
     const where: string[] = [];
     const values: PgliteQueryValue[] = [];
 
+    // Soft-rewind exclusion (BST-1115) goes in BOTH the COUNT and the page
+    // query — they share `whereSql` — so `total`/`hasMore` describe the same
+    // visible set the caller receives. This covers observational memory, whose
+    // only message reads are listMessages / listMessagesByResourceId; semantic
+    // recall's include window does NOT pass through here and is filtered at
+    // findMessageRowById / listAdjacentThreadMessageRows instead.
+    if (await this.hasTombstoneSidecar()) {
+      where.push(`NOT ${tombstonedPredicateSql(`${MASTRA_MEMORY_TABLES.messages}.id`)}`);
+    }
     if (args.threadIds) {
       values.push(args.threadIds);
       where.push(`thread_id = ANY($${values.length}::text[])`);
@@ -1148,11 +1225,20 @@ export class PgliteMemoryStore extends MemoryStorage {
     messageIds.add(row.id);
   }
 
+  /**
+   * Semantic recall's include TARGETS land here. A tombstoned target resolves
+   * to null, and `appendIncludedMessages` then skips the whole include item —
+   * so a hidden message contributes neither itself nor a neighbour window.
+   */
   private async findMessageRowById(id: string): Promise<MessageRow | null> {
+    const notTombstonedSql = (await this.hasTombstoneSidecar())
+      ? `AND NOT ${tombstonedPredicateSql(`${MASTRA_MEMORY_TABLES.messages}.id`)}`
+      : '';
     const result = await this.database.query<MessageRow>(
       `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
        FROM ${MASTRA_MEMORY_TABLES.messages}
-       WHERE id = $1`,
+       WHERE id = $1
+       ${notTombstonedSql}`,
       [id]
     );
     return result.rows[0] ?? null;
@@ -1169,8 +1255,22 @@ export class PgliteMemoryStore extends MemoryStorage {
     const isPrevious = direction === 'previous';
     const comparisonOperator = isPrevious ? '<' : '>';
     const sortDirection = isPrevious ? 'DESC' : 'ASC';
-    const result = await this.database.query<MessageRow>(
-      `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
+    // Soft-rewind tombstones TRUNCATE this window; they are deliberately NOT
+    // filtered out of the WHERE clause (BST-1115).
+    //
+    // `withPreviousMessages: 2` means "the two messages immediately before the
+    // hit". Excluding hidden rows in the WHERE clause would silently redefine
+    // that as "the two nearest VISIBLE messages", so the LIMIT would reach
+    // further back than the caller asked for, splice two turns that were never
+    // adjacent into one window, and inflate the token budget the recall config
+    // was tuned against. Flagging in place and cutting at the first hidden row
+    // returns less context instead of fabricated context.
+    const hiddenSql = (await this.hasTombstoneSidecar())
+      ? tombstonedPredicateSql(`${MASTRA_MEMORY_TABLES.messages}.id`)
+      : 'FALSE';
+    const result = await this.database.query<AdjacentMessageRow>(
+      `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId",
+              ${hiddenSql} AS hidden
        FROM ${MASTRA_MEMORY_TABLES.messages}
        WHERE thread_id = $1
          AND (
@@ -1181,7 +1281,12 @@ export class PgliteMemoryStore extends MemoryStorage {
        LIMIT $4`,
       [targetRow.threadId, toDate(targetRow.createdAt), targetRow.id, limit]
     );
-    return isPrevious ? [...result.rows].reverse() : result.rows;
+    // Rows arrive nearest-target-first in BOTH directions, so cutting at the
+    // first hidden row walks outward from the target and stops at the hole.
+    const firstHiddenIndex = result.rows.findIndex((row) => row.hidden);
+    const visibleRows =
+      firstHiddenIndex === -1 ? result.rows : result.rows.slice(0, firstHiddenIndex);
+    return isPrevious ? [...visibleRows].reverse() : visibleRows;
   }
 
   private async findObservationalMemoryRecordById(id: string): Promise<ObservationalMemoryRecord> {

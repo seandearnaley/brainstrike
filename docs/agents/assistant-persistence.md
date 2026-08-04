@@ -872,17 +872,57 @@ finalizes the rewind.
 - **Mastra stays the writer of message content.** Nothing here alters a
   `mastra_*` table; hiding is an anti-join in Brainstrike-owned reads, and the
   finalizing hard delete goes through Mastra's own `deleteMessages` storage
-  API. Brainstrike-owned message read paths that must apply the exclusion:
-  the app-shell hydration window (`assistant-memory-repository.listMessages`)
-  and, in `PgliteMemoryStore`, `listMessagesWhere` PLUS its include-window
-  helpers `findMessageRowById` / `listAdjacentThreadMessageRows` — semantic
-  recall reaches messages through `listMessages({ include })`, whose targets
-  and neighbour windows are fetched by those two helpers and never pass
-  through the main WHERE clause. Observational memory reads only
-  `listMessages` / `listMessagesByResourceId`, so it is covered by
-  `listMessagesWhere` alone. Observations ALREADY generated from a message
-  that is later tombstoned are residue: Mastra exposes no partial un-observe,
-  only a full `clearObservationalMemory`.
+  API. **FIVE read paths apply the exclusion — they are separate seams, and
+  four of them do NOT share a WHERE clause with the first:**
+  1. `PgliteMemoryStore.listMessagesWhere` — `listMessages` /
+     `listMessagesByResourceId`. Exclusion sits in the shared `where[]`, so
+     the COUNT and the page query agree and `total`/`hasMore` describe the
+     VISIBLE set. Observational memory reads messages ONLY through these two
+     entry points, so this one clause covers all of OM.
+  2. `PgliteMemoryStore.findMessageRowById` — semantic recall's include
+     TARGETS. Recall reaches messages via `listMessages({ include })`, which
+     never passes its targets through the main WHERE clause. A hidden target
+     resolves to null and `appendIncludedMessages` skips the whole item, so it
+     contributes no neighbour window either.
+  3. `PgliteMemoryStore.listAdjacentThreadMessageRows` — the include NEIGHBOUR
+     window. **TRUNCATES at a tombstone; it does NOT skip over one.**
+     `withPreviousMessages: 2` means "the two messages immediately before the
+     hit". Filtering hidden rows out of the WHERE clause would silently
+     redefine that as "the two nearest VISIBLE messages" — reaching further
+     back than asked, splicing two never-adjacent turns into one window and
+     inflating the token budget the recall config was tuned against. The rows
+     are flagged in place and cut at the first hidden one: less context, never
+     fabricated context.
+  4. `app-shell assistant-memory-repository.listMessages` — the renderer
+     hydration window. The exclusion is INSIDE the windowing subquery so it
+     applies before `limitLatest`: the window is the latest N VISIBLE
+     messages. This query is also what a reload runs, which is why a rewind
+     survives a restart with no renderer-side state at all.
+  5. `db thread-search-repository` — Explorer search, `fullTextSearch` and
+     `searchSimilar`. A message hidden from its thread must not surface as a
+     hit that navigates nowhere. **Applied to the SEARCH ARMS only**, never to
+     `sync` / `refreshActiveThreads` / `getCoverage`: the index row and its
+     embedding deliberately stay put so redo restores visibility instantly
+     instead of owing a re-embed, and because the sync membership fast path
+     compares `COUNT(*) FROM mastra_messages` against the index count —
+     skipping tombstoned rows on insert would hold those counts permanently
+     unequal AND the orphan GC (which keys off a MISSING source row) would
+     never converge. Finalization deletes the message through Mastra and the
+     GC reaps the index row on its own.
+- **Sidecar presence is PROBED in `PgliteMemoryStore`, not assumed.** That
+  class's `initialize()` creates only the Mastra schema, so a standalone store
+  legitimately lacks the table (same reason `deleteThread` probes its cascade
+  tables). `to_regclass` answers, and the result is latched TRUE only —
+  caching "absent" would leave a store built before migrations ran ignoring
+  every rewind for the life of the process. The app-shell repository and the
+  db repository both assume the table: they run against a bootstrapped /
+  migrated database by construction.
+- **KNOWN LIMITATION — OM residue (accepted; do not try to fix).**
+  Observations the observer ALREADY distilled from a message survive that
+  message being tombstoned, so the model can still carry a summary of a hidden
+  turn. Mastra exposes no partial un-observe — only `clearObservationalMemory`,
+  which would discard the whole thread's memory to erase one turn. Do NOT
+  scrub observation text; that is guesswork over prose the observer wrote.
 - **No `mind_ops` row, by ruling.** `brainstrike_mind_ops.entity_kind` is
   CHECK-constrained to {`thread`, `prompt_item`} and widening that vocabulary
   is a conscious migration for when a sync engine is actually chosen (BST-993,
@@ -891,9 +931,12 @@ finalizes the rewind.
 
 Paired tests: `migration-080-assistant-message-tombstones.test.ts` (both
 runners, indexes, the at-most-once invariant, the conversation-only NULL
-`revert_id` shape, the NOT NULL `rewind_id`, reset registration), the
-thread-delete cascade case in
-`assistant-memory-repository.integration.test.ts`, and the clear/reset
+`revert_id` shape, the NOT NULL `rewind_id`, reset registration),
+`pglite-memory-store-tombstones.integration.spec.ts` (one case per store seam,
+the window-truncation contract, redo, reload, and the presence-probe latch),
+the `soft-rewind tombstone hydration` cases plus the thread-delete cascade case
+in `assistant-memory-repository.integration.test.ts`, the `soft-rewind
+tombstones` cases in `search-thread-message-index.test.ts`, and the clear/reset
 sentinels in `clear-data.integration.test.tsx` and
 `ipc-handlers-db-clear-all.integration.test.ts`.
 

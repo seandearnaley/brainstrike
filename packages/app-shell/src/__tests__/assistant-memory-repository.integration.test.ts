@@ -3132,6 +3132,99 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ]);
   });
 
+  describe('soft-rewind tombstone hydration (BST-1115)', () => {
+    async function seedRewindThread(dataDirName: string): Promise<{
+      db: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
+      repository: AssistantThreadRepository;
+      threadId: string;
+    }> {
+      pgliteDataDir = createPgliteTestDataDir(dataDirName);
+      const db = await wasmLoader.createPGlite(pgliteDataDir);
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      const thread = await repository.createThread('workspace-a');
+      for (const [index, id] of ['message-1', 'message-2', 'message-3'].entries()) {
+        await db.query(
+          `INSERT INTO mastra_messages
+            (id, thread_id, content, role, type, "createdAt", "resourceId")
+           VALUES ($1, $2, $3::jsonb, $4, 'text', $5, 'workspace-a')`,
+          [
+            id,
+            thread.id,
+            JSON.stringify({ content: `turn ${index + 1}` }),
+            index % 2 === 0 ? 'user' : 'assistant',
+            new Date(`2026-08-04T10:00:0${index}Z`),
+          ]
+        );
+      }
+      return { db, repository, threadId: thread.id };
+    }
+
+    async function tombstone(
+      db: Pick<DbHandle, 'query'>,
+      threadId: string,
+      messageId: string
+    ): Promise<void> {
+      await db.query(
+        `INSERT INTO brainstrike_assistant_message_tombstones (message_id, thread_id, rewind_id)
+         VALUES ($1, $2, 'rewind-1')`,
+        [messageId, threadId]
+      );
+    }
+
+    it('omits a tombstoned message from the hydration window', async () => {
+      const { db, repository, threadId } = await seedRewindThread('assistant-rewind-hydration');
+      await tombstone(db, threadId, 'message-3');
+
+      const messages = await repository.listMessages(threadId, 'workspace-a');
+
+      expect(messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
+    });
+
+    it('keeps the message hidden after a simulated reload', async () => {
+      const { db, threadId } = await seedRewindThread('assistant-rewind-reload');
+      await tombstone(db, threadId, 'message-3');
+
+      // A reload rebuilds the repository from nothing over the same database:
+      // the tombstone row is the only thing carrying the rewind across it, and
+      // the renderer holds no memory of the rewind at all.
+      const reloadedRepository = createPgliteAssistantThreadRepository(db as DbHandle);
+      const history = await createAssistantThreadHistoryAdapter({
+        repository: reloadedRepository,
+        resourceId: 'workspace-a',
+        threadId,
+      }).load();
+
+      expect(history.messages.map((item) => item.message.id)).toEqual(['message-1', 'message-2']);
+    });
+
+    it('restores the message when the rewind batch is undone (redo)', async () => {
+      const { db, repository, threadId } = await seedRewindThread('assistant-rewind-redo');
+      await tombstone(db, threadId, 'message-3');
+      await db.query(
+        `DELETE FROM brainstrike_assistant_message_tombstones WHERE rewind_id = 'rewind-1'`
+      );
+
+      const messages = await repository.listMessages(threadId, 'workspace-a');
+
+      expect(messages.map((message) => message.id)).toEqual([
+        'message-1',
+        'message-2',
+        'message-3',
+      ]);
+    });
+
+    it('fills the bounded hydration window with VISIBLE messages, not hidden ones', async () => {
+      const { db, repository, threadId } = await seedRewindThread('assistant-rewind-window');
+      await tombstone(db, threadId, 'message-2');
+
+      // limitLatest applies AFTER the exclusion, so a window of 2 returns the
+      // two newest visible messages rather than one message and a hole.
+      const messages = await repository.listMessages(threadId, 'workspace-a', { limitLatest: 2 });
+
+      expect(messages.map((message) => message.id)).toEqual(['message-1', 'message-3']);
+    });
+  });
+
   it('deletes messages and cascades thread runs and run events in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-cascade');
     const db = await wasmLoader.createPGlite(pgliteDataDir);

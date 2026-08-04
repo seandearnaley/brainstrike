@@ -21,6 +21,28 @@ const PROFILE_ID = 'default';
 const INDEX_TABLE = 'brainstrike_thread_message_index';
 const PROFILES_TABLE = 'brainstrike_thread_search_profiles';
 const STATE_TABLE = 'brainstrike_thread_search_state';
+const TOMBSTONES_TABLE = 'brainstrike_assistant_message_tombstones';
+
+/**
+ * Soft-rewind exclusion for the SEARCH ARMS only (BST-1115): a message hidden
+ * from its thread must not surface as an Explorer hit, or the hit navigates to
+ * a message the thread no longer shows.
+ *
+ * Deliberately NOT applied to `sync` / `refreshActiveThreads` / `getCoverage`:
+ * the index row and its embedding stay put while a message is tombstoned.
+ * 1. Rewind is undoable — redo must restore visibility instantly, not schedule
+ *    a re-embed of everything it hid.
+ * 2. The sync membership fast path compares `COUNT(*) FROM mastra_messages`
+ *    against `COUNT(*) FROM the index`. Skipping tombstoned rows on insert
+ *    would hold those counts permanently unequal, so every pass would run the
+ *    full anti-join and orphan GC — and the GC keys off a MISSING source row,
+ *    so it would never converge either.
+ * Finalization deletes the message through Mastra, and the orphan GC then
+ * reaps the index row on its own.
+ */
+const NOT_TOMBSTONED_SQL = `NOT EXISTS (
+           SELECT 1 FROM ${TOMBSTONES_TABLE} ts WHERE ts.message_id = i.message_id
+         )`;
 
 const DEFAULT_SYNC_BATCH_SIZE = 500;
 const DEFAULT_SYNC_MAX_BATCHES = 20;
@@ -399,6 +421,7 @@ export class ThreadSearchRepository {
        CROSS JOIN (SELECT websearch_to_tsquery('english', $1) AS query) q
        WHERE i.resource_id = $2
          AND i.content_tsvector @@ q.query
+         AND ${NOT_TOMBSTONED_SQL}
        ORDER BY rank DESC, i.message_created_at DESC
        LIMIT $3`,
       [trimmed, options.resourceId, options.limit]
@@ -447,6 +470,7 @@ export class ThreadSearchRepository {
          AND i.embedding IS NOT NULL
          AND i.embedding_profile_id = $3
          AND 1 - (i.embedding <=> $1::vector) >= $4
+         AND ${NOT_TOMBSTONED_SQL}
        ORDER BY i.embedding <=> $1::vector ASC, i.message_created_at DESC
        LIMIT $5`,
       [queryVector, options.resourceId, profile.id, threshold, options.limit]
