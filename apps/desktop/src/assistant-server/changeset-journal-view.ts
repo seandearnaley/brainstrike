@@ -42,7 +42,19 @@
  * A file that pre-existed the range (or was already a `renamed` entry from
  * an earlier hop) folds a further rename to `status: 'renamed'` with
  * `oldPath` CHAIN-COMPRESSED to the ORIGINAL pre-range path (so A→B→C in one
- * changeset reports `oldPath: 'A'`, not the intermediate `'B'`).
+ * changeset reports `oldPath: 'A'`, not the intermediate `'B'`). That
+ * pre-range identity can come from EITHER contributor a rename touches — the
+ * renamed-FROM chain (`prior`, keyed at `fromPath`) or an ABSORBED occupant
+ * already sitting at the destination (see RENAME/DELETE-REKEY DESTINATION
+ * COLLISION below and `mergePreRangeIdentity`) — whichever one actually
+ * pre-existed the range; when BOTH did, `prior` wins (R7b, review finding:
+ * the pre-R7b code derived this identity from `prior` alone, so an absorbed
+ * occupant's genuine pre-range identity was silently discarded whenever
+ * `prior` itself was `createdInRange`). If the merged entry's surviving
+ * pre-range identity equals the rename's OWN destination path (the occupant
+ * or `prior` pre-existed under that exact name), the entry reports
+ * `status: 'modified'` with no `oldPath` — there was no NET rename relative
+ * to whichever identity survived, only a same-named replacement.
  *
  * `oldPath` is reported ONLY when the final status is `'renamed'` — a
  * `deleted`/`modified`/`added` entry never carries a stale rename breadcrumb.
@@ -190,20 +202,73 @@ function absorbFinishedOccupant(
 }
 
 /**
- * Merge `createdInRange` across an (optional) rename/delete-rekey `prior`
- * AND an (optional) absorbed occupant (R7, review finding): the merged
- * entry is `createdInRange` ONLY when BOTH contributing histories are —
- * absent contributors count as `true` for THIS conjunct so a real
- * contributor's `false` always wins (an absent `prior` already means
- * "path pre-existed the range" via its own `?? false` fallback at each call
- * site; an absent `occupant` means "nothing was absorbed," which must never
- * flip an otherwise-true `prior` to `false`).
+ * Merge `createdInRange` across an (optional) delete-rekey `prior` AND an
+ * (optional) absorbed occupant (R7, review finding): the merged entry is
+ * `createdInRange` ONLY when BOTH contributing histories are — absent
+ * contributors count as `true` for THIS conjunct so a real contributor's
+ * `false` always wins (an absent `prior` already means "path pre-existed the
+ * range" via its own `?? false` fallback at each call site; an absent
+ * `occupant` means "nothing was absorbed," which must never flip an
+ * otherwise-true `prior` to `false`).
+ *
+ * Used ONLY by {@link foldDeleteRecord}. `foldRenameRecord` derives
+ * `createdInRange` directly from {@link mergePreRangeIdentity}'s result
+ * (`identity === null`) instead of calling this — R7b (review finding) was
+ * exactly this function and the pre-R7b rename identity computation
+ * disagreeing about which contributor "won," because they were two separate
+ * functions expressing the same precedence rule. A delete-rekey has no
+ * identity string of its own to derive from (its `identityKey` is a plain
+ * `prior.oldPath ?? record.path`, unrelated to which contributor pre-existed
+ * — see {@link foldDeleteRecord}), so it keeps this explicit boolean merge.
  */
 function mergeCreatedInRange(
   prior: JournalFoldEntry | undefined,
   occupant: JournalFoldEntry | null
 ): boolean {
   return (prior?.createdInRange ?? false) && (occupant?.createdInRange ?? true);
+}
+
+/**
+ * Resolve the pre-range PATH IDENTITY a rename's merged entry should carry —
+ * the string counterpart to {@link mergeCreatedInRange}'s boolean, and the
+ * fix for R7b (review finding): R7 corrected the `createdInRange` FLAG when
+ * absorbing a finished occupant but left the identity STRING still derived
+ * from `prior` alone (`prior?.oldPath ?? fromKey`), so a `prior` that was
+ * itself `createdInRange` (its own `oldPath` is `null` by construction — see
+ * {@link foldWriteRecord}) made `?? fromKey` fall through to an in-range-only
+ * name, discarding the occupant's REAL pre-range identity
+ * (`occupant.oldPath ?? occupant.path`) even when the occupant was the one
+ * that actually pre-existed.
+ *
+ * Precedence (`prior` wins when BOTH contribute — mirrors
+ * {@link absorbFinishedOccupant}'s NTH-2 trade-off: only ONE identity
+ * survives per merged path):
+ * - `prior` is either MISSING (per the FOLD KEYING RULE in this module's doc
+ *   comment, a rename `fromPath` with no accumulator entry means the journal
+ *   never saw that file created in-range, so it must have pre-existed — the
+ *   `fallbackKey` argument IS that implicit identity) or present with
+ *   `createdInRange: false` (an explicit pre-range contributor, chain-
+ *   compressed via its own `oldPath`): either way `prior` pre-existed, and
+ *   wins outright — even over an occupant that ALSO pre-existed.
+ * - Otherwise, when `occupant` pre-existed (`createdInRange: false`), its own
+ *   identity (`occupant.oldPath ?? occupant.path`) is the one to surface —
+ *   the fact R7b left undiscovered.
+ * - Otherwise NEITHER contributor pre-existed the range: `null`, meaning
+ *   `createdInRange` for the merged entry (derived as `identity === null` at
+ *   the call site — ONE source of truth, not two functions that can drift).
+ */
+function mergePreRangeIdentity(
+  prior: JournalFoldEntry | undefined,
+  occupant: JournalFoldEntry | null,
+  fallbackKey: string
+): string | null {
+  if (!prior?.createdInRange) {
+    return prior?.oldPath ?? fallbackKey;
+  }
+  if (occupant && !occupant.createdInRange) {
+    return occupant.oldPath ?? occupant.path;
+  }
+  return null;
 }
 
 /** Fold ONE `rename` record into `byPath` — split out of
@@ -226,14 +291,14 @@ function foldRenameRecord(
   byPath.delete(fromKey);
   const renameChain = prior ? [...prior.chainRecords, record] : [record];
   const chainRecords = occupant ? [...occupant.chainRecords, ...renameChain] : renameChain;
-  const createdInRange = mergeCreatedInRange(prior, occupant);
+  const identity = mergePreRangeIdentity(prior, occupant, fromKey);
   byPath.set(record.path, {
     chainRecords,
-    createdInRange,
-    oldPath: createdInRange ? null : (prior?.oldPath ?? fromKey),
+    createdInRange: identity === null,
+    oldPath: identity === record.path ? null : identity,
     path: record.path,
     rootId: record.rootId,
-    status: createdInRange ? 'added' : 'renamed',
+    status: identity === null ? 'added' : identity === record.path ? 'modified' : 'renamed',
   });
 }
 
