@@ -25,7 +25,7 @@ const RULE = 'lint/style/noExcessiveLinesPerFile';
 const MAX_LINES = 1000;
 // The violator count when the rule shipped. Refactoring a file under the cap
 // removes its entry and lowers this ceiling; it must never go up.
-const MAX_BASELINE_ENTRIES = 135;
+const MAX_BASELINE_ENTRIES = 134;
 
 function isRuleOff(configured) {
   return configured === 'off' || configured?.level === 'off';
