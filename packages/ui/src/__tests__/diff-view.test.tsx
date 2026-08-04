@@ -1,6 +1,7 @@
 import type { StructuredFileDiff } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DiffView } from '../diff-view';
 import { parseUnifiedDiff } from '../diff-view/parse-unified-diff';
@@ -95,11 +96,12 @@ describe('DiffView structured mode', () => {
     expect(surface.querySelectorAll('.cm-editor').length).toBeGreaterThanOrEqual(2);
     // Real line numbers require full documents fed to the vanilla `lineNumbers()`
     // gutter — a single-hunk reconstruction could never produce '42' here.
-    const gutters = surface.querySelectorAll('.cm-gutter');
-    const gutterText = Array.from(gutters)
-      .map((gutter) => gutter.textContent ?? '')
-      .join('\n');
-    expect(gutterText).toContain('42');
+    // Array membership (not a substring join) so this can't false-positive on
+    // e.g. a gutter that happens to render '142' or '421' elsewhere.
+    const gutterLineNumbers = Array.from(surface.querySelectorAll('.cm-gutterElement')).map(
+      (element) => element.textContent?.trim() ?? ''
+    );
+    expect(gutterLineNumbers).toContain('42');
   });
 
   it('shows the +/− stat summary beside the filename when additions/deletions are non-null', async () => {
@@ -115,7 +117,7 @@ describe('DiffView structured mode', () => {
     expect(await screen.findByTestId('diff-stat-summary')).toHaveTextContent('+3 −2');
   });
 
-  it('renders a read-only unified view naming the over-cap side for hunks-only content', async () => {
+  it('renders a read-only unified view naming the over-cap side for hunks-only content, with no fabricated line numbers', async () => {
     const diff = makeStructuredDiff({
       content: {
         hunkText: '@@ -1,2 +1,2 @@\n-old\n+new\n',
@@ -133,6 +135,15 @@ describe('DiffView structured mode', () => {
     // A single read-only view, not a MergeView (no a/b pair).
     expect(surface.querySelectorAll('.cm-editor').length).toBe(1);
     expect(surface).toHaveTextContent('+new');
+    // `hunkText` isn't a real file — its lines don't map to any correct
+    // absolute position, so this view must NOT render a lineNumbers() gutter
+    // (fabricated positions right next to the gutter Task 6 made authoritative).
+    expect(surface.querySelectorAll('.cm-gutterElement').length).toBe(0);
+    // Decoration choice: tint hunk lines by their leading +/- marker,
+    // reusing the same theme classes the full-document view uses, since a
+    // language grammar can't run over raw diff text either.
+    expect(surface.querySelector('.cm-insertedLine')).not.toBeNull();
+    expect(surface.querySelector('.cm-deletedChunk')).not.toBeNull();
   });
 
   it('names both sides for over-cap-both and shows the truncated badge when hunkTextTruncated', async () => {
@@ -170,15 +181,146 @@ describe('DiffView structured mode', () => {
     );
   });
 
-  it('renders a binary placeholder with zero mounted editors', async () => {
+  it('renders a binary placeholder with zero mounted editors, no data-mode, and an accessible label', async () => {
     const diff = makeStructuredDiff({ content: { kind: 'binary' } });
 
-    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+    render(
+      <DiffView ariaLabel="Diff for logo.png" source={{ diff, kind: 'structured' }} testId="diff" />
+    );
 
     const note = await screen.findByTestId('diff-binary-note');
     expect(note).toHaveTextContent('Binary file — no text diff');
+    expect(note).toHaveAttribute('role', 'status');
+    expect(note).toHaveAttribute('aria-label', 'Diff for logo.png');
     const surface = await screen.findByTestId('diff');
     expect(surface.querySelectorAll('.cm-editor').length).toBe(0);
+    // `split`/`unified` don't apply to a placeholder with no editor at all.
+    expect(surface).not.toHaveAttribute('data-mode');
+  });
+
+  it('omits data-mode for hunks-only content (no split/unified to toggle between)', async () => {
+    const diff = makeStructuredDiff({
+      content: {
+        hunkText: '@@ -1,2 +1,2 @@\n-old\n+new\n',
+        hunkTextTruncated: false,
+        kind: 'hunks-only',
+        reason: 'over-cap-new',
+      },
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    expect(surface).not.toHaveAttribute('data-mode');
+    // No mode toggle button either.
+    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull();
+  });
+
+  it('shows a status chip in structured mode, even when additions/deletions are both null', async () => {
+    const diff = makeStructuredDiff({
+      additions: null,
+      content: { kind: 'binary' },
+      deletions: null,
+      status: 'renamed',
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    expect(await screen.findByTestId('diff-status-chip')).toHaveTextContent('Renamed');
+    // The both-null case must not ALSO claim a (fabricated) stat summary.
+    expect(screen.queryByTestId('diff-stat-summary')).toBeNull();
+  });
+
+  it('exposes a screen-reader-friendly expansion of the +/− stat summary', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      additions: 1,
+      content: { kind: 'full', newContent: modified, oldContent: original },
+      deletions: 2,
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const summary = await screen.findByTestId('diff-stat-summary');
+    expect(summary).toHaveTextContent('1 addition, 2 deletions');
+  });
+
+  it('falls back to the structured diff path for language resolution when `filename` is omitted', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      content: { kind: 'full', newContent: modified, oldContent: original },
+      path: 'src/fallback-example.py',
+    });
+
+    render(<DiffView source={{ diff, kind: 'structured' }} testId="diff" />);
+
+    const surface = await screen.findByTestId('diff');
+    expect(surface).toHaveAttribute('data-language', 'Python');
+    expect(surface).toHaveTextContent('src/fallback-example.py');
+  });
+
+  it('keeps the same CodeMirror DOM node across a parent re-render with a freshly-allocated structured `source` literal (no flicker)', async () => {
+    const { original, modified } = buildSixtyLineDocs();
+    const diff = makeStructuredDiff({
+      content: { kind: 'full', newContent: modified, oldContent: original },
+    });
+
+    function StructuredProbe() {
+      const [tick, setTick] = useState(0);
+      return (
+        <div>
+          <button onClick={() => setTick((value) => value + 1)} type="button">
+            bump {tick}
+          </button>
+          {/* A fresh `source` object literal every render — this is the exact
+              pattern the multi-file surface uses when passing a per-file diff
+              down from parent state. `language="plain"` pins out the
+              progressive async language-upgrade rebuild (an unrelated,
+              expected one-time rebuild once the grammar loads) so this probe
+              isolates ONLY the source-identity behavior under test. */}
+          <DiffView language="plain" source={{ diff, kind: 'structured' }} testId="diff" />
+        </div>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<StructuredProbe />);
+
+    const surface = await screen.findByTestId('diff');
+    const editorBefore = surface.querySelector('.cm-editor');
+    expect(editorBefore).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /bump/ }));
+    await user.click(screen.getByRole('button', { name: /bump/ }));
+
+    const editorAfter = surface.querySelector('.cm-editor');
+    expect(editorAfter).toBe(editorBefore);
+  });
+
+  it('control: keeps the same CodeMirror DOM node across a parent re-render with fresh legacy string props (already-passing baseline)', async () => {
+    function LegacyProbe() {
+      const [tick, setTick] = useState(0);
+      return (
+        <div>
+          <button onClick={() => setTick((value) => value + 1)} type="button">
+            bump {tick}
+          </button>
+          <DiffView modified={`${MODIFIED}`} original={`${ORIGINAL}`} testId="diff" />
+        </div>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<LegacyProbe />);
+
+    const surface = await screen.findByTestId('diff');
+    const editorBefore = surface.querySelector('.cm-editor');
+    expect(editorBefore).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /bump/ }));
+
+    const editorAfter = surface.querySelector('.cm-editor');
+    expect(editorAfter).toBe(editorBefore);
   });
 
   it('throws when neither `source` nor legacy `original`/`modified` props are given', () => {
@@ -186,10 +328,13 @@ describe('DiffView structured mode', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {
       // intentionally empty
     });
-    // `original`/`modified` are optional in the type (kept OPTIONAL-when-source-given
-    // for the legacy string-prop path), so this compiles — the missing-contract
-    // violation is a runtime throw, not a type error.
-    expect(() => render(<DiffView testId="diff" />)).toThrow();
+    expect(() => {
+      // @ts-expect-error — `DiffViewProps` now enforces `source` XOR
+      // `original`+`modified` at compile time; this exercises the runtime
+      // backstop in `resolveDiffPresentation` for anything that reaches the
+      // component past that (an untyped caller, or a type escape).
+      render(<DiffView testId="diff" />);
+    }).toThrow();
   });
 });
 
