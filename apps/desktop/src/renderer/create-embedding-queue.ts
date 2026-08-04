@@ -1,4 +1,4 @@
-import { resolveViteEmbeddingWorkerUrlHref as resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
+import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import {
   registerEmbeddingQueueFactory,
   registerEmbeddingRuntimeConfig,
@@ -9,7 +9,7 @@ import { createBrowserEmbeddingQueue } from '@brainstrike/queue/browser';
 let singletonQueue: QueueAdapter | null = null;
 
 function registerEmbeddingWorkerRuntime(): string {
-  const embeddingWorkerUrl: string = resolveEmbeddingWorkerUrlHref();
+  const embeddingWorkerUrl: string = resolveViteEmbeddingWorkerUrlHref();
   registerEmbeddingRuntimeConfig({
     streamingWorkerUrl: embeddingWorkerUrl,
   });

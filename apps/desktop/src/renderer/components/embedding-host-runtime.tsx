@@ -4,7 +4,7 @@ import {
 } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { createEmbeddingCacheRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
-import { resolveViteEmbeddingWorkerUrlHref as resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
+import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import {
   type DeviceCapabilities,
   detectDeviceCapabilities,
@@ -427,7 +427,7 @@ async function getQueryEmbeddingService(
   const modelConfig = await loadQueryEmbeddingModelConfig(db, request);
   const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
   const service = new SimpleEmbeddingService({
-    streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
+    streamingWorkerUrl: resolveViteEmbeddingWorkerUrlHref(),
   });
   await service.initializeWithModel(modelConfig, undefined, hydratedDevicePref);
   serviceStateRef.current = {
@@ -615,7 +615,7 @@ async function startEmbeddingHostWorkerRuntime({
       onWorkerActivityChange,
       reinitEveryN: hydratedPreferences.reinitEveryN,
       stopOnFatalLocalError: true,
-      streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
+      streamingWorkerUrl: resolveViteEmbeddingWorkerUrlHref(),
     });
     if (isDisposed()) {
       logger.info(

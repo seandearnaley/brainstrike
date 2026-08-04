@@ -8,7 +8,7 @@ import {
   getDatabaseWorkScheduler,
   type IDatabase,
 } from '@brainstrike/db';
-import { resolveViteEmbeddingWorkerUrlHref as resolveEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
+import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
 
 export async function startEmbeddingWorkerWeb(db: IDatabase): Promise<EmbeddingWorkerController> {
@@ -23,7 +23,7 @@ export async function startEmbeddingWorkerWeb(db: IDatabase): Promise<EmbeddingW
     db,
     embeddingCache: createEmbeddingCacheRepository(db),
     enable: true,
-    streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
+    streamingWorkerUrl: resolveViteEmbeddingWorkerUrlHref(),
     waitForBackgroundPermit: pressureController.waitForBackgroundPermit,
   });
 }
