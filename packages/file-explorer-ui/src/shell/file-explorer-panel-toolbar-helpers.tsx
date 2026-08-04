@@ -25,6 +25,7 @@ import {
   type useOptionalForestTreeActions,
 } from './forest-tree-actions-context';
 
+// Same scope as file-explorer-panel.tsx on purpose: createLogger caches by scope, so both modules share one logger instance.
 const logger = createLogger('FileExplorerPanel');
 
 /** Eye toggle for the filter-chips row (from #1192), extracted for the complexity cap. */
