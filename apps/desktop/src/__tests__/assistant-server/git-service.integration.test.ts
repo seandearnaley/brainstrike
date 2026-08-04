@@ -1501,3 +1501,202 @@ describe('git service — push', () => {
     }
   );
 });
+
+describe('git service — structuredFileDiff (real repos)', () => {
+  it('working mode: modify — full content both sides, correct absolute hunk ranges, additions/deletions', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'line1\nline2\nline3\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await writeFile(repo, 'a.txt', 'line1\nline2-edited\nline3\n');
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'a.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('modified');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-edited\nline3\n',
+      oldContent: 'line1\nline2\nline3\n',
+    });
+    expect(result.value.additions).toBe(1);
+    expect(result.value.deletions).toBe(1);
+    expect(result.value.hunks).toEqual([{ newLines: 3, newStart: 1, oldLines: 3, oldStart: 1 }]);
+  });
+
+  it('working mode: delete — newContent null, oldContent from HEAD', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'hello\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await fsPromises.rm(path.join(repo, 'a.txt'));
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'a.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('deleted');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: null,
+      oldContent: 'hello\n',
+    });
+  });
+
+  it('staged mode: rename+edit — status "renamed", oldPath set, old content read from oldPath', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'old.txt', 'line1\nline2\nline3\nline4\nline5\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFileAsync('git', ['mv', 'old.txt', 'new.txt'], { cwd: repo });
+    await writeFile(repo, 'new.txt', 'line1\nline2-edited\nline3\nline4\nline5\n');
+    await execFileAsync('git', ['add', 'new.txt'], { cwd: repo });
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'staged', path: 'new.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('renamed');
+    expect(result.value.oldPath).toBe('old.txt');
+    expect(result.value.content).toEqual({
+      kind: 'full',
+      newContent: 'line1\nline2-edited\nline3\nline4\nline5\n',
+      oldContent: 'line1\nline2\nline3\nline4\nline5\n',
+    });
+  });
+
+  it('untracked mode: additions equals countLines with no trailing-newline off-by-one', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'new.txt', 'new\n');
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      mode: 'untracked',
+      path: 'new.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('untracked');
+    expect(result.value.additions).toBe(1);
+    expect(result.value.deletions).toBe(0);
+    expect(result.value.content).toEqual({ kind: 'full', newContent: 'new\n', oldContent: null });
+    expect(result.value.hunks).toEqual([]);
+  });
+
+  it('staged mode: modify — new side reads the INDEX (:0:), not a later unstaged worktree edit', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'v1\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await writeFile(repo, 'a.txt', 'v2\n');
+    await execFileAsync('git', ['add', 'a.txt'], { cwd: repo });
+    // Further edit AFTER staging, left unstaged — staged mode must NOT see this.
+    await writeFile(repo, 'a.txt', 'v3-unstaged\n');
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'staged', path: 'a.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.status).toBe('modified');
+    expect(result.value.content).toEqual({ kind: 'full', newContent: 'v2\n', oldContent: 'v1\n' });
+  });
+
+  it('binary file — content kind "binary", hunks empty, additions/deletions null', async () => {
+    const repo = await makeRepo();
+    await fsPromises.writeFile(
+      path.join(repo, 'img.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d])
+    );
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init binary'], { cwd: repo });
+    await fsPromises.writeFile(
+      path.join(repo, 'img.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x0e])
+    );
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'img.png' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.content).toEqual({ kind: 'binary' });
+    expect(result.value.hunks).toEqual([]);
+    expect(result.value.additions).toBeNull();
+    expect(result.value.deletions).toBeNull();
+  });
+
+  it('a file over the 2MB per-side cap degrades to hunks-only, with a visible truncation marker when the diff text also overflows', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'big.txt', 'small\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    const line = `${'x'.repeat(100)}\n`;
+    const lineCount = 25_000; // ~2.5MB, over both the 2MB content cap and the 1MB diff-output cap.
+    await writeFile(repo, 'big.txt', line.repeat(lineCount));
+
+    const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'big.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.additions).toBe(lineCount);
+    expect(result.value.content.kind).toBe('hunks-only');
+    if (result.value.content.kind !== 'hunks-only') {
+      return;
+    }
+    expect(result.value.content.reason).toBe('over-cap-new');
+    expect(result.value.content.hunkTextTruncated).toBe(true);
+    expect(result.value.content.hunkText).toContain('…(output truncated)');
+  });
+
+  it('working mode: a zero-numstat, actually-untracked path is directed to mode "untracked", not a generic "no differences"', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'tracked.txt', 'v1\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await writeFile(repo, 'brand-new.txt', 'hi\n');
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      mode: 'working',
+      path: 'brand-new.txt',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/untracked/);
+    expect(result.error).toMatch(/mode/);
+  });
+
+  it('working mode: an unchanged tracked path reports a generic "no differences" error', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'tracked.txt', 'v1\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+
+    const result = await serviceFor(repo).structuredFileDiff({
+      mode: 'working',
+      path: 'tracked.txt',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatch(/no differences/);
+  });
+});

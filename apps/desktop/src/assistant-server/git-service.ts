@@ -18,9 +18,10 @@
  * The caller (the IPC handler) is responsible for resolving + containment-
  * checking the `cwd` against a known workspace root before calling in here.
  */
-import { realpath } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  ChangedFileStatus,
   GitAheadBehind,
   GitBranchSummary,
   GitCommitFile,
@@ -35,6 +36,8 @@ import type {
   GitStatusFile,
   GitSwitchBranchResult,
   GitWorktreeSummary,
+  StructuredFileDiff,
+  StructuredFileDiffParams,
 } from '@brainstrike/types';
 import {
   parseBranchSummaries,
@@ -42,6 +45,12 @@ import {
   parseHistoryPage,
   parseWorktreeSummaries,
 } from './git-repository-parsers';
+import {
+  countLines,
+  type NumstatEntry,
+  parseHunkHeaders,
+  parseNumstatZ,
+} from './structured-diff-parsers';
 
 export type {
   GitAheadBehind,
@@ -80,6 +89,18 @@ export const GIT_MAX_OUTPUT_BYTES = 1_000_000;
  * than a null-exit error.
  */
 export const GIT_MAX_BUFFER_BYTES = GIT_MAX_OUTPUT_BYTES * 4;
+/**
+ * Per-side full-content cap for {@link StructuredFileDiff}: a side (old or new)
+ * larger than this degrades that file's `content` to `hunks-only` instead of
+ * inlining full text (spec §11 Q3). Deliberately kept in NOMINAL parity with the
+ * edit-checkpoint journal's per-file capture cap (`MAX_WRITE_WORKSPACE_FILE_BYTES`
+ * in `file-mutation-tools.ts`, `2_000_000` bytes) — both exist so a single file
+ * can't blow main-process memory on a read that has to hold full before/after
+ * text. The two constants are NOT byte-identical today (`2 * 1024 * 1024` here
+ * vs `2_000_000` there); this is the structured-diff engine's own cap, but the
+ * two should move together if either is revisited.
+ */
+export const STRUCTURED_DIFF_CONTENT_CAP_BYTES = 2 * 1024 * 1024;
 
 /**
  * Distinguishes the cause of a non-clean `git` run so the service maps each to an
@@ -522,6 +543,78 @@ function validateDiffParams(params: GitDiffParams): GitResult<GitDiffParams> {
   return { ok: true, value: params };
 }
 
+/** Validate {@link StructuredFileDiffParams}: unlike {@link validateDiffParams}, `path` is required in EVERY mode. */
+function validateStructuredFileDiffParams(
+  params: StructuredFileDiffParams
+): GitResult<StructuredFileDiffParams> {
+  if (!(params && typeof params === 'object') || Array.isArray(params)) {
+    return {
+      error: 'structured diff params must be an object with an explicit mode',
+      ok: false,
+    };
+  }
+  const record = params as unknown as Record<string, unknown>;
+  const unsupportedKeys = Object.keys(record).filter((key) => key !== 'mode' && key !== 'path');
+  if (unsupportedKeys.length > 0) {
+    return {
+      error: `structured diff only accepts "mode" and "path"; received ${unsupportedKeys.join(', ')}`,
+      ok: false,
+    };
+  }
+  if (
+    record['mode'] !== 'working' &&
+    record['mode'] !== 'staged' &&
+    record['mode'] !== 'untracked'
+  ) {
+    return { error: 'structured diff mode must be "working", "staged", or "untracked"', ok: false };
+  }
+  if (typeof record['path'] !== 'string' || record['path'].length === 0) {
+    return { error: 'structured diff requires a non-empty path', ok: false };
+  }
+  return { ok: true, value: params };
+}
+
+/**
+ * Exit-128 stderr wording `git cat-file blob` uses for an ABSENT object spec —
+ * empirically confirmed against real git 2.54 in a scratch repo (never guessed):
+ * - `HEAD:<path>` never existed at HEAD → "does not exist in 'HEAD'"
+ * - `HEAD:<path>` before the first commit (unborn HEAD) → "invalid object name 'HEAD'."
+ * - `:0:<path>` with no index entry at all → "does not exist (neither on disk nor in the index)"
+ * - `:0:<path>` present on disk but not staged (e.g. `git rm --cached`) →
+ *   "exists on disk, but not in the index"
+ * - `:0:<path>` mid-merge-conflict (no stage-0 entry) → "is in the index, but not at stage 0"
+ * ANY other exit-128 stderr (a real read error) must NOT match this and falls
+ * through to `ok: false` — this is the spike's exact absent-vs-error bug.
+ */
+const CAT_FILE_ABSENT_STDERR_PATTERN =
+  /does not exist|exists on disk, but not in|invalid object name|is in the index, but not at stage/;
+
+/** Pure status classification for a tracked-mode structured diff entry. */
+function classifyTrackedStatus(
+  isRename: boolean,
+  oldContent: Buffer | null,
+  newContent: Buffer | null
+): ChangedFileStatus {
+  if (isRename) {
+    return 'renamed';
+  }
+  if (oldContent === null) {
+    return 'added';
+  }
+  return newContent === null ? 'deleted' : 'modified';
+}
+
+/** Pure `hunks-only` reason classification from the two per-side cap checks. */
+function classifyOverCapReason(
+  oldOverCap: boolean,
+  newOverCap: boolean
+): 'over-cap-both' | 'over-cap-new' | 'over-cap-old' {
+  if (oldOverCap && newOverCap) {
+    return 'over-cap-both';
+  }
+  return oldOverCap ? 'over-cap-old' : 'over-cap-new';
+}
+
 /**
  * SECURITY: the untracked diff path is handed to `git diff --no-index`, which
  * reads the filesystem directly. `resolveContainedPathArg` only validates
@@ -579,14 +672,16 @@ export interface GitServiceOptions {
 export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   async function invoke(
     args: readonly string[],
-    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
+    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS,
+    binaryStdout?: boolean
   ): Promise<GitCommandRun> {
-    return await run({ args, cwd, signal, timeoutMs });
+    return await run({ args, binaryStdout, cwd, signal, timeoutMs });
   }
 
   async function invokeHookFree(
     args: readonly string[],
-    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
+    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS,
+    binaryStdout?: boolean
   ): Promise<GitCommandRun> {
     // Git 2.54 added config-managed hooks that bypass core.hooksPath. Enumerate
     // their friendly names and disable them at command scope before mutations.
@@ -608,7 +703,11 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       '-c',
       value,
     ]);
-    return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
+    return await invoke(
+      [...hookConfig, ...disabledConfiguredHooks, ...args],
+      timeoutMs,
+      binaryStdout
+    );
   }
 
   async function resolveWorktreeRoot(): Promise<GitResult<string>> {
@@ -1007,6 +1106,365 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         repositoryRoot: inventory.value.repositoryRoot,
         scope: openedReal === worktreeReal ? 'repository' : 'workspace',
         worktrees: inventory.value.worktrees,
+      },
+    };
+  }
+
+  /**
+   * Read one ref-addressed blob (`HEAD:<path>` or `:0:<path>`) via `cat-file
+   * blob`, classifying the result into present / absent / hard-error. A
+   * `maxBuffer` overflow is ALWAYS a hard failure here (never a truncated
+   * success): unlike a diff, a blob has no self-describing boundary a caller
+   * could use to detect a silent truncation (see {@link GitCommandRun.stdoutBuffer}).
+   */
+  async function readRefBlob(spec: string): Promise<GitResult<Buffer | null>> {
+    const run_ = await invoke(['cat-file', 'blob', spec], GIT_DEFAULT_TIMEOUT_MS, true);
+    if (run_.failureReason === 'maxBuffer') {
+      return { error: `reading "${spec}" exceeded the output buffer limit`, ok: false };
+    }
+    if (run_.exitCode === 0) {
+      return { ok: true, value: run_.stdoutBuffer ?? Buffer.alloc(0) };
+    }
+    if (run_.exitCode === 128 && CAT_FILE_ABSENT_STDERR_PATTERN.test(run_.stderr)) {
+      return { ok: true, value: null };
+    }
+    return { error: describeFailure(run_), ok: false };
+  }
+
+  /**
+   * Read the working-tree side of a structured diff. Reuses
+   * {@link assertUntrackedDiffPathContained}'s parent-realpath containment rule
+   * (the same symlinked-ancestor escape it guards against applies here too —
+   * this also reads the filesystem directly). ENOENT ⇒ absent (deleted since
+   * the last diffed side); any other errno is a real failure.
+   */
+  async function readWorktreeFile(pathArg: string): Promise<GitResult<Buffer | null>> {
+    const containment = await assertUntrackedDiffPathContained(cwd, pathArg);
+    if (!containment.ok) {
+      return containment;
+    }
+    try {
+      const buffer = await readFile(path.resolve(cwd, pathArg));
+      return { ok: true, value: buffer };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { ok: true, value: null };
+      }
+      return { error: toErrorMessage(error), ok: false };
+    }
+  }
+
+  /** True when `pathArg` (scoped to the opened root) shows as untracked in status. */
+  async function isPathUntracked(pathArg: string): Promise<GitResult<boolean>> {
+    const run_ = await invoke([
+      'status',
+      '--porcelain=v2',
+      '--untracked-files=all',
+      '-z',
+      '--',
+      pathArg,
+    ]);
+    if (run_.exitCode !== 0) {
+      return { error: describeFailure(run_), ok: false };
+    }
+    const parsed = parsePorcelainV2Z(run_.stdout);
+    return {
+      ok: true,
+      value: parsed.files.some((file) => file.untracked && file.path === pathArg),
+    };
+  }
+
+  /**
+   * Unified diff for exactly ONE file's structured hunks / hunks-only content —
+   * always a plain two-way `git diff` (HEAD, the index, or `/dev/null`), never
+   * `--cc`/merge output, satisfying {@link parseHunkHeaders}'s single-file,
+   * two-way precondition by construction.
+   *
+   * For a rename BOTH `oldPath` and `pathArg` are passed as pathspecs. This is
+   * NOT optional: gitdiffcore(7) documents that pathspec limiting happens
+   * BEFORE rename pairing ("the commands themselves first ... limit the two
+   * sets of files by any pathspecs ... and compare corresponding paths in the
+   * two resulting sets"), so a pathspec naming only the new path can never pair
+   * with its old name — empirically confirmed: `git diff --cached --numstat -z
+   * --find-renames -- new.txt` on a real staged rename reports `5\t0\tnew.txt`
+   * (a plain add), not the `1\t1\t\0old.txt\0new.txt` rename triple that the
+   * SAME command WITHOUT a path restriction (or with both paths) produces.
+   */
+  async function computeUnifiedDiff(
+    mode: 'staged' | 'untracked' | 'working',
+    pathArg: string,
+    oldPath: string | null
+  ): Promise<GitResult<string>> {
+    const untracked = mode === 'untracked';
+    const args = untracked
+      ? ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', pathArg]
+      : [
+          'diff',
+          ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
+          '--no-ext-diff',
+          '--no-textconv',
+          '--find-renames',
+          '--',
+          ...(oldPath !== null && oldPath !== pathArg ? [oldPath, pathArg] : [pathArg]),
+        ];
+    const run_ = await (untracked ? invoke : invokeHookFree)(args);
+    const failure = describeDiffFailure(run_, untracked);
+    if (failure) {
+      return { error: failure, ok: false };
+    }
+    return { ok: true, value: run_.stdout };
+  }
+
+  /**
+   * Resolve the `working`/`staged` numstat entry for `pathArg`.
+   *
+   * Deliberately scoped to the opened root (`-- .`), NOT `-- <pathArg>` — see
+   * {@link computeUnifiedDiff}'s doc comment: a single-path pathspec here would
+   * silence rename detection for exactly the record we need it for. The numstat
+   * text output (paths + counts, no content) stays bounded by the same
+   * `GIT_MAX_OUTPUT_BYTES`/`GIT_MAX_BUFFER_BYTES` ceiling as every other git
+   * invocation in this service.
+   */
+  async function resolveNumstatEntry(
+    mode: 'staged' | 'working',
+    pathArg: string
+  ): Promise<GitResult<NumstatEntry | null>> {
+    const numstatRun = await invoke([
+      'diff',
+      ...(mode === 'staged' ? ['--cached'] : ['HEAD']),
+      '--numstat',
+      '-z',
+      '--find-renames',
+      '--',
+      '.',
+    ]);
+    if (numstatRun.exitCode !== 0) {
+      return { error: describeFailure(numstatRun), ok: false };
+    }
+    const entries = parseNumstatZ(numstatRun.stdout);
+    return { ok: true, value: entries.find((candidate) => candidate.path === pathArg) ?? null };
+  }
+
+  /** Structured diff for the `untracked` mode: no HEAD/index side, whole-file addition. */
+  async function structuredUntrackedDiff(pathArg: string): Promise<GitResult<StructuredFileDiff>> {
+    const worktreeRead = await readWorktreeFile(pathArg);
+    if (!worktreeRead.ok) {
+      return worktreeRead;
+    }
+    if (worktreeRead.value === null) {
+      return { error: `no differences for '${pathArg}' in untracked scope`, ok: false };
+    }
+    const content = worktreeRead.value;
+    if (content.includes(0)) {
+      return {
+        ok: true,
+        value: {
+          additions: null,
+          content: { kind: 'binary' },
+          deletions: null,
+          hunks: [],
+          path: pathArg,
+          status: 'untracked',
+        },
+      };
+    }
+    const text = content.toString('utf8');
+    const additions = countLines(text);
+    if (content.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES) {
+      const unifiedDiff = await computeUnifiedDiff('untracked', pathArg, null);
+      if (!unifiedDiff.ok) {
+        return unifiedDiff;
+      }
+      const bounded = boundOutput(unifiedDiff.value);
+      return {
+        ok: true,
+        value: {
+          additions,
+          content: {
+            hunkText: bounded.text,
+            hunkTextTruncated: bounded.truncated,
+            kind: 'hunks-only',
+            reason: 'over-cap-new',
+          },
+          deletions: 0,
+          hunks: [],
+          path: pathArg,
+          status: 'untracked',
+        },
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        additions,
+        content: { kind: 'full', newContent: text, oldContent: null },
+        deletions: 0,
+        hunks: [],
+        path: pathArg,
+        status: 'untracked',
+      },
+    };
+  }
+
+  /**
+   * Resolve the numstat entry for `pathArg`, or the correctly-directed error
+   * when there isn't one — split out of {@link structuredTrackedDiff} to keep
+   * that function's cognitive complexity down.
+   */
+  async function resolveTrackedEntryForPath(
+    mode: 'staged' | 'working',
+    pathArg: string
+  ): Promise<GitResult<NumstatEntry>> {
+    const entryResult = await resolveNumstatEntry(mode, pathArg);
+    if (!entryResult.ok) {
+      return entryResult;
+    }
+    if (entryResult.value) {
+      return { ok: true, value: entryResult.value };
+    }
+    if (mode === 'working') {
+      const untrackedCheck = await isPathUntracked(pathArg);
+      if (!untrackedCheck.ok) {
+        return untrackedCheck;
+      }
+      if (untrackedCheck.value) {
+        return {
+          error: `path "${pathArg}" is untracked; use mode "untracked" instead`,
+          ok: false,
+        };
+      }
+    }
+    return { error: `no differences for '${pathArg}' in ${mode} scope`, ok: false };
+  }
+
+  /** Structured diff for the `working`/`staged` modes: HEAD vs. worktree/index. */
+  interface TrackedSides {
+    readonly newContent: Buffer | null;
+    readonly oldContent: Buffer | null;
+    readonly oldPathField: { oldPath?: string };
+    readonly status: ChangedFileStatus;
+  }
+
+  /** Read both sides of a tracked-mode diff and classify status — split out to
+   * keep {@link structuredTrackedDiff}'s cognitive complexity under the limit. */
+  async function readTrackedSides(
+    mode: 'staged' | 'working',
+    pathArg: string,
+    oldPath: string | null
+  ): Promise<GitResult<TrackedSides>> {
+    const oldRead = await readRefBlob(`HEAD:${oldPath ?? pathArg}`);
+    if (!oldRead.ok) {
+      return oldRead;
+    }
+    const newRead =
+      mode === 'staged' ? await readRefBlob(`:0:${pathArg}`) : await readWorktreeFile(pathArg);
+    if (!newRead.ok) {
+      return newRead;
+    }
+    const oldContent = oldRead.value;
+    const newContent = newRead.value;
+    return {
+      ok: true,
+      value: {
+        newContent,
+        oldContent,
+        oldPathField: oldPath === null ? {} : { oldPath },
+        status: classifyTrackedStatus(oldPath !== null, oldContent, newContent),
+      },
+    };
+  }
+
+  /** Assemble the `additions`/`content`/`deletions`/`hunks` fields once both
+   * sides are known — the binary / cap / full branching, isolated from status
+   * and side-reading so {@link structuredTrackedDiff} stays under the
+   * complexity limit. */
+  async function assembleTrackedContent(
+    mode: 'staged' | 'working',
+    pathArg: string,
+    oldPath: string | null,
+    entry: NumstatEntry,
+    sides: Pick<TrackedSides, 'newContent' | 'oldContent'>
+  ): Promise<GitResult<Pick<StructuredFileDiff, 'additions' | 'content' | 'deletions' | 'hunks'>>> {
+    const { newContent, oldContent } = sides;
+    if (oldContent?.includes(0) || newContent?.includes(0)) {
+      return {
+        ok: true,
+        value: { additions: null, content: { kind: 'binary' }, deletions: null, hunks: [] },
+      };
+    }
+
+    const unifiedDiff = await computeUnifiedDiff(mode, pathArg, oldPath);
+    if (!unifiedDiff.ok) {
+      return unifiedDiff;
+    }
+    const hunks = parseHunkHeaders(unifiedDiff.value);
+
+    const oldOverCap =
+      oldContent !== null && oldContent.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES;
+    const newOverCap =
+      newContent !== null && newContent.byteLength > STRUCTURED_DIFF_CONTENT_CAP_BYTES;
+    if (oldOverCap || newOverCap) {
+      const bounded = boundOutput(unifiedDiff.value);
+      return {
+        ok: true,
+        value: {
+          additions: entry.additions,
+          content: {
+            hunkText: bounded.text,
+            hunkTextTruncated: bounded.truncated,
+            kind: 'hunks-only',
+            reason: classifyOverCapReason(oldOverCap, newOverCap),
+          },
+          deletions: entry.deletions,
+          hunks,
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        additions: entry.additions,
+        content: {
+          kind: 'full',
+          newContent: newContent === null ? null : newContent.toString('utf8'),
+          oldContent: oldContent === null ? null : oldContent.toString('utf8'),
+        },
+        deletions: entry.deletions,
+        hunks,
+      },
+    };
+  }
+
+  /** Structured diff for the `working`/`staged` modes: HEAD vs. worktree/index. */
+  async function structuredTrackedDiff(
+    mode: 'staged' | 'working',
+    pathArg: string
+  ): Promise<GitResult<StructuredFileDiff>> {
+    const entryResult = await resolveTrackedEntryForPath(mode, pathArg);
+    if (!entryResult.ok) {
+      return entryResult;
+    }
+    const entry = entryResult.value;
+
+    const sidesResult = await readTrackedSides(mode, pathArg, entry.oldPath);
+    if (!sidesResult.ok) {
+      return sidesResult;
+    }
+    const sides = sidesResult.value;
+
+    const contentResult = await assembleTrackedContent(mode, pathArg, entry.oldPath, entry, sides);
+    if (!contentResult.ok) {
+      return contentResult;
+    }
+
+    return {
+      ok: true,
+      value: {
+        ...contentResult.value,
+        ...sides.oldPathField,
+        path: pathArg,
+        status: sides.status,
       },
     };
   }
@@ -1415,6 +1873,37 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           ok: true,
           value: { isRepository: true, ...parsed.value },
         };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /**
+     * Both-sides file content + structured hunk ranges for one path (spec §3,
+     * §11 Q3) — the `StructuredFileDiff` replacement for the unified-diff-string
+     * `diff()` contract. `mode` selects the comparison: `working` (HEAD vs.
+     * worktree, i.e. all uncommitted changes), `staged` (HEAD vs. index), or
+     * `untracked` (no HEAD/index side at all).
+     */
+    structuredFileDiff: async (
+      params: StructuredFileDiffParams
+    ): Promise<GitResult<StructuredFileDiff>> => {
+      try {
+        const validated = validateStructuredFileDiffParams(params);
+        if (!validated.ok) {
+          return validated;
+        }
+        const pathResult = resolveContainedPathArg(cwd, validated.value.path);
+        if (!pathResult.ok) {
+          return pathResult;
+        }
+        if (pathResult.value === null) {
+          return { error: 'structured diff requires a non-empty path', ok: false };
+        }
+        const pathArg = pathResult.value;
+        return validated.value.mode === 'untracked'
+          ? await structuredUntrackedDiff(pathArg)
+          : await structuredTrackedDiff(validated.value.mode, pathArg);
       } catch (error) {
         return { error: toErrorMessage(error), ok: false };
       }
