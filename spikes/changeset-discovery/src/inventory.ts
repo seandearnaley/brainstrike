@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DEFAULT_IGNORE, discoverRepos } from './discover-repos.ts';
@@ -53,26 +54,46 @@ export function parseWorktreePorcelain(
   });
 }
 
+// rootPaths must already be canonicalized (resolved + realpath'd) — git's own
+// absolute-path output is always canonical (symlink-resolved), so comparing
+// against non-canonical roots silently misclassifies containment on any
+// platform where a temp/home/mount directory is itself a symlink (e.g.
+// macOS /tmp -> /private/tmp, /var -> /private/var).
 function classifyContainment(
   worktreePath: string,
-  rootPaths: string[]
+  canonicalRootPaths: string[]
 ): string[] | 'outside-roots' {
-  const containing = rootPaths.filter(
-    (root) => worktreePath === root || worktreePath.startsWith(resolve(root) + sep)
+  const containing = canonicalRootPaths.filter(
+    (root) => worktreePath === root || worktreePath.startsWith(root + sep)
   );
   return containing.length > 0 ? containing : 'outside-roots';
+}
+
+// Resolves each root to an absolute, symlink-free path once per buildInventory
+// call. A root that can't be canonicalized (doesn't exist, permission denied,
+// etc.) is never silently dropped from view: it's recorded in errors and
+// excluded from the scan, rather than passed through unresolved (which would
+// silently degrade containment classification for every worktree under it).
+async function canonicalizeRoots(rootPaths: string[], errors: string[]): Promise<string[]> {
+  const canonical: string[] = [];
+  for (const root of rootPaths) {
+    try {
+      canonical.push(await realpath(resolve(root)));
+    } catch (error) {
+      errors.push(`root ${root}: ${String(error)}`);
+    }
+  }
+  return canonical;
 }
 
 export async function buildInventory(rootPaths: string[]): Promise<Inventory> {
   const t0 = performance.now();
   const errors: string[] = [];
-  const entries = await discoverRepos(
-    rootPaths.map((r) => resolve(r)),
-    {
-      ignore: DEFAULT_IGNORE,
-      maxDepth: 6,
-    }
-  );
+  const canonicalRoots = await canonicalizeRoots(rootPaths, errors);
+  const entries = await discoverRepos(canonicalRoots, {
+    ignore: DEFAULT_IGNORE,
+    maxDepth: 6,
+  });
   const t1 = performance.now();
 
   const repos = new Map<string, RepoEntry>();
@@ -96,10 +117,7 @@ export async function buildInventory(rootPaths: string[]): Promise<Inventory> {
         repositoryRoot: main.path,
         worktrees: parsed.map((w) => ({
           ...w,
-          containment: classifyContainment(
-            w.path,
-            rootPaths.map((r) => resolve(r))
-          ),
+          containment: classifyContainment(w.path, canonicalRoots),
           provenance: 'scanned',
         })),
       });
