@@ -4,7 +4,11 @@
  * Master switch + per-skill enable toggles, persisted in the skills
  * preferences store (durable keys — see `deriveSkillPreferenceKey`) and
  * applied server-side per request. The list loads through the
- * capability-gated `window.skills` scan bridge (desktop main scans
+ * capability-gated `window.skills` scan bridge, resolved via the shared
+ * `resolveSkillsBridge()` contract (`@brainstrike/assistant-contract/skills-bridge`
+ * — settings-ui cannot import app-shell's resolver: package cycle). A
+ * present-but-malformed bridge resolves to null (fail closed, logged), which
+ * renders the same desktop-only note as no bridge at all (desktop main scans
  * `.brainstrike/skills` + `.claude/skills` across mounted roots and home) —
  * INCLUDING invalid skills with their exact validation errors and shadowed
  * skills with their winner, so authors see exactly what loaded and why not
@@ -21,6 +25,7 @@ import type {
   SkillScanEntrySummary,
   SkillsScanResultSummary,
 } from '@brainstrike/assistant-contract';
+import { resolveSkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import {
   Badge,
   Button,
@@ -34,18 +39,6 @@ import {
 } from '@brainstrike/ui';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-
-interface SkillsBridge {
-  scan: () => Promise<SkillsScanResultSummary>;
-}
-
-function getSkillsBridge(): SkillsBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = (window as Window & { skills?: SkillsBridge }).skills;
-  return bridge && typeof bridge.scan === 'function' ? bridge : null;
-}
 
 const TIER_DIR_LABEL: Record<SkillScanEntrySummary['tier'], string> = {
   'global-brainstrike': '~/.brainstrike/skills',
@@ -134,7 +127,7 @@ export function SkillsSettingsSection(): React.JSX.Element {
   const setMasterEnabled = useSkillsPreferencesStore((state) => state.setMasterEnabled);
   const setSkillDisabled = useSkillsPreferencesStore((state) => state.setSkillDisabled);
 
-  const hasBridge = getSkillsBridge() !== null;
+  const hasBridge = resolveSkillsBridge() !== null;
   const [scanState, setScanState] = useState<ScanState>(
     hasBridge ? { kind: 'loading' } : { kind: 'ready', result: { entries: [] } }
   );
@@ -145,7 +138,7 @@ export function SkillsSettingsSection(): React.JSX.Element {
   // initializer and retry() sets it from the event handler — no synchronous
   // setState inside the effect body (React Compiler / react-doctor rule).
   useEffect(() => {
-    const bridge = getSkillsBridge();
+    const bridge = resolveSkillsBridge();
     if (!bridge) {
       return;
     }

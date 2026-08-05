@@ -142,9 +142,6 @@
       "@brainstrike/app-shell/platform-bridge": [
         "../../packages/app-shell/src/platform-bridge.ts"
       ],
-      "@brainstrike/app-shell/skills-bridge": [
-        "../../packages/app-shell/src/skills-bridge.ts"
-      ],
       "@brainstrike/app-shell/terminal-panel/availability": [
         "../../packages/app-shell/src/terminal-panel/availability.ts"
       ],

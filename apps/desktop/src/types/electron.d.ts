@@ -507,8 +507,9 @@ declare global {
      * discovered across `.brainstrike/skills` + `.claude/skills`.
      *
      * ⚠️ MUST stay in sync with `SkillsBridge` in
-     * `packages/app-shell/src/skills-bridge.ts`; `resolveSkillsBridge()`
-     * rejects a bridge missing any method.
+     * `packages/assistant-contract/src/skills-bridge.ts` (shared by app-shell
+     * and settings-ui); `resolveSkillsBridge()` rejects a bridge missing any
+     * method.
      */
     skills?: {
       scan: () => Promise<SkillsScanResultSummary>;

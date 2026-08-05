@@ -103,10 +103,6 @@
       "types": "./dist/platform-bridge.d.ts",
       "import": "./dist/platform-bridge.js"
     },
-    "./skills-bridge": {
-      "types": "./dist/skills-bridge.d.ts",
-      "import": "./dist/skills-bridge.js"
-    },
     "./user-commands-bridge": {
       "types": "./dist/user-commands-bridge.d.ts",
       "import": "./dist/user-commands-bridge.js"
