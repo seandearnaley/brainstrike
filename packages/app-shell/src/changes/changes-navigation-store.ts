@@ -49,6 +49,20 @@ import { create } from 'zustand';
  * latest one must never start following new runs just because the ids
  * matched at pin time.
  *
+ * `liveRefreshNonce` (BST-1115 smoke feedback: "the ux needs to show changes
+ * in real time — we need to review what the agent is doing") is how the
+ * Last Turn view GROWS while the run that produced it is still going. The
+ * edit-checkpoint journal is written in main per edit, so re-resolving the
+ * SAME `agent-run` changeset mid-run returns the files journaled so far —
+ * there is nothing to invent and no new IPC to add. `AssistantUiPanelWrapper`
+ * bumps this (throttled) from the renderer's own run stream every time a
+ * file-mutation tool completes, and `useChangeset` re-resolves on it exactly
+ * as it already does on `useRewindStore`'s generation. NOT polling (the house
+ * rule forbids it): the bump is caused by an observed tool completion, so a
+ * quiet run costs nothing. NOT a main→renderer push channel either — that is
+ * BST-1161's larger job; this is the smallest honest mechanism using a seam
+ * the renderer already has.
+ *
  * `activeWorkspacePanelTab`/`changesTabMounted` own WHICH tab of the
  * workspace panel (`workspace-panel-tabs.tsx`) is showing. React Doctor
  * flagged an earlier shape of this fix (BST-1114 smoke feedback,
@@ -105,6 +119,15 @@ export interface ChangesNavigationState {
   /** Whether the current selection is "Last Turn" — see this file's doc comment. */
   readonly isOnLastTurn: boolean;
   /**
+   * Monotonic counter `useChangeset` re-resolves on (BST-1115 smoke feedback:
+   * "the ux needs to show changes in real time — we need to review what the
+   * agent is doing"). Bumped ONLY by
+   * {@link ChangesNavigationState.requestLiveLastTurnRefresh}; see that
+   * action's doc comment for the guard and this file's for why the live view
+   * is a re-resolve rather than a push channel.
+   */
+  readonly liveRefreshNonce: number;
+  /**
    * Show `changeset` on the Changes surface AND switch the workspace panel
    * to the Changes tab. Used ONLY by external entry points — today the
    * assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
@@ -130,6 +153,19 @@ export interface ChangesNavigationState {
    * unless it comes through `selectLastTurn` below.
    */
   readonly requestChangeset: (changeset: Changeset) => void;
+  /**
+   * Ask the Changes surface to re-resolve its view because the running turn
+   * just journaled another edit (BST-1115 smoke feedback). A STRICT no-op
+   * unless the surface is actually showing `threadId`'s Last Turn: the
+   * selection must be "Last Turn" (`isOnLastTurn`), the active changeset must
+   * be an `agent-run` one, and it must belong to `threadId`. A git scope, a
+   * pinned run, or another thread's run is never refetched behind the user —
+   * a live refresh is only ever the thing the user asked to watch.
+   *
+   * Callers throttle (see `AssistantUiPanelWrapper`); this action itself is
+   * unconditional per call so the store stays a pure state transition.
+   */
+  readonly requestLiveLastTurnRefresh: (threadId: string) => void;
   /**
    * Factory-reset entry point (AGENTS.md invariant: "Any new persistent
    * store/state must be wired into factory reset"). Without a reload, a
@@ -168,6 +204,7 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
   changesTabMounted: false,
   handoffThreadIdentity: null,
   isOnLastTurn: false,
+  liveRefreshNonce: 0,
   openChangeset: (changeset) => {
     get().requestChangeset(changeset);
     set({ activeWorkspacePanelTab: 'changes', changesTabMounted: true });
@@ -185,6 +222,17 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
           }
         : { activeChangeset: changeset, isOnLastTurn: false }
     ),
+  requestLiveLastTurnRefresh: (threadId) =>
+    set((state) => {
+      if (
+        !state.isOnLastTurn ||
+        state.activeChangeset?.kind !== 'agent-run' ||
+        state.activeChangeset.threadId !== threadId
+      ) {
+        return {};
+      }
+      return { liveRefreshNonce: state.liveRefreshNonce + 1 };
+    }),
   reset: () =>
     set({
       activeChangeset: null,
@@ -193,6 +241,7 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
       changesTabMounted: false,
       handoffThreadIdentity: null,
       isOnLastTurn: false,
+      liveRefreshNonce: 0,
     }),
   selectLastTurn: () => {
     const identity = get().activeThreadIdentity;

@@ -67,6 +67,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ChangesBridge, resolveChangesBridge } from './changes-bridge';
+import { useChangesNavigationStore } from './changes-navigation-store';
 import { useRewindStore } from './rewind-store';
 
 const logger = createLogger('UseChangeset');
@@ -202,6 +203,16 @@ export function useChangeset(
   // load stale in exactly the way a changeset change does.
   const rewindGeneration = useRewindStore((state) => state.generation);
 
+  // LIVE LAST TURN (BST-1115 smoke feedback): a run writing files while the
+  // user watches the Changes surface must grow the list as it goes. The
+  // journal rows land in main per edit, so a re-resolve of the SAME changeset
+  // returns more files — nothing about the changeset itself changes, which is
+  // why (exactly like `rewindGeneration` above) this is its own `loadView`
+  // input rather than a second effect. The store only bumps it when the
+  // active changeset IS the running thread's Last Turn, so a git scope or a
+  // pinned run never refetches behind the user's back.
+  const liveRefreshNonce = useChangesNavigationStore((state) => state.liveRefreshNonce);
+
   const loadView = useCallback(async (): Promise<GitResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
@@ -220,7 +231,7 @@ export function useChangeset(
       setError(result.ok ? null : result.error);
     }
     return result;
-  }, [bridge, rewindGeneration, rootId, stableChangeset]);
+  }, [bridge, liveRefreshNonce, rewindGeneration, rootId, stableChangeset]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();

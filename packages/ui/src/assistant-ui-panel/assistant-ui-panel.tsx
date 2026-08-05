@@ -381,6 +381,11 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    * Only ever fires for the Mastra-loop transport (hosted providers / desktop
    * local-via-data-stream) — the in-renderer local runtime has no run events.
    */
+  /**
+   * Live, in-run activity that can have changed files on disk — see
+   * `RunLifecycleNotificationCallbacks.onRunEditActivity`.
+   */
+  onRunEditActivity?: (event: AssistantRunEvent) => void;
   onRunFailed?: (event: AssistantRunEvent) => void;
   /** Reports a `run.finished` run event exactly once (deduped by event id). */
   onRunFinished?: (event: AssistantRunEvent) => void;
@@ -742,6 +747,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
   /** Mid-run steer transport (BST-588); absent = queue-only composer. */
@@ -789,6 +795,7 @@ const LocalRuntimeChat = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunEditActivity,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
@@ -893,6 +900,7 @@ const LocalRuntimeChat = ({
           onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onRunEditActivity={onRunEditActivity}
           onRunFailed={onRunFailed}
           onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
@@ -935,6 +943,7 @@ const DataStreamRuntimeChat = ({
   onContextBreakdown,
   onChildRunUsage,
   onStepUsage,
+  onRunEditActivity,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
@@ -1077,6 +1086,7 @@ const DataStreamRuntimeChat = ({
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
             onThreadRunStart={onThreadRunStart}
@@ -1133,6 +1143,7 @@ const ChatThreadUI = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunEditActivity,
   onRunFailed,
   onRunFinished,
   onThreadRunStart,
@@ -1172,6 +1183,7 @@ const ChatThreadUI = ({
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
+  onRunEditActivity?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
   onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
@@ -1233,6 +1245,7 @@ const ChatThreadUI = ({
           onComposerTextChange={onComposerTextChange}
         />
         <RunLifecycleNotificationBridge
+          {...(onRunEditActivity ? { onRunEditActivity } : {})}
           {...(onRunFailed ? { onRunFailed } : {})}
           {...(onRunFinished ? { onRunFinished } : {})}
           {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
@@ -1389,6 +1402,7 @@ export const AssistantUiPanel = ({
   prepareRequestData,
   onModelChange,
   onExitPlanMode,
+  onRunEditActivity,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
@@ -1478,6 +1492,7 @@ export const AssistantUiPanel = ({
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
             onStreamActivity={onStreamActivity}
@@ -1523,6 +1538,7 @@ export const AssistantUiPanel = ({
             omSegment={omSegment}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunEditActivity={onRunEditActivity}
             onRunFailed={onRunFailed}
             onRunFinished={onRunFinished}
             onStreamActivity={onStreamActivity}

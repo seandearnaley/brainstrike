@@ -748,6 +748,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onThreadRunStart,
     onRunFinished,
     onRunFailed,
+    onRunEditActivity,
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
@@ -781,6 +782,11 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onThreadRunStart?: () => void;
     onRunFinished?: (event: { runId: string; kind: string }) => void;
     onRunFailed?: (event: { runId: string; kind: string }) => void;
+    onRunEditActivity?: (event: {
+      runId?: string;
+      kind: string;
+      metadata?: Record<string, unknown>;
+    }) => void;
     completePreparedRequest?: (
       requestData: Record<string, unknown> | undefined,
       status: 'cancelled' | 'completed' | 'failed',
@@ -852,6 +858,26 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Trigger run finished
+        </button>
+        <button
+          data-testid="trigger-run-started"
+          onClick={() => onRunEditActivity?.({ kind: 'run.started', runId: 'run-live-next' })}
+          type="button"
+        >
+          Trigger run started
+        </button>
+        <button
+          data-testid="trigger-edit-tool-completed"
+          onClick={() =>
+            onRunEditActivity?.({
+              kind: 'tool.completed',
+              metadata: { toolName: 'brainstrike.writeWorkspaceFile' },
+              runId: 'run-live-next',
+            })
+          }
+          type="button"
+        >
+          Trigger edit tool completed
         </button>
         <button
           data-testid="trigger-run-failed"

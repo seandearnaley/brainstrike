@@ -163,6 +163,13 @@ export interface AssistantUiPanelWrapperProps {
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
+/**
+ * Leading+trailing throttle window for the live "Last Turn" re-resolve
+ * (BST-1115 smoke feedback). Long enough that a burst of tool completions
+ * costs one round-trip, short enough to read as real time.
+ */
+const LIVE_CHANGES_REFRESH_THROTTLE_MS = 500;
+
 declare global {
   interface Window {
     __brainstrikeAssistantRuntimeTestHooks__:
@@ -1753,6 +1760,73 @@ export function AssistantUiPanelWrapper({
     ]
   );
 
+  // LIVE Changes while the agent works (BST-1115 smoke feedback: "the ux needs
+  // to show changes in real time — we need to review what the agent is
+  // doing"). Two distinct jobs, both driven off the renderer's OWN run stream
+  // (`onRunEditActivity`) rather than any polling or new transport:
+  //
+  // - `run.started` publishes the new run as the standing identity
+  //   IMMEDIATELY, not at `run.finished`. A viewer already on "Last Turn"
+  //   retargets to the run that is starting and then watches it fill in,
+  //   instead of staring at the previous turn until this one ends. Resolving
+  //   an in-flight run is honest: the VIEW path reads the journal and returns
+  //   the rows written so far (the running-run refusal lives in the REWIND
+  //   path, and stays there).
+  // - a completed file-mutation tool asks the surface to re-resolve. The
+  //   journal is written per edit in main, so each re-resolve picks up the
+  //   file that tool just wrote.
+  //
+  // THROTTLED leading+trailing: a tool burst must not fire an IPC round-trip
+  // per call, and the LAST completion in a burst must still be reflected —
+  // dropping it would leave the list one file short until the run ended.
+  const requestLiveLastTurnRefresh = useChangesNavigationStore(
+    (state) => state.requestLiveLastTurnRefresh
+  );
+  const liveRefreshThrottleRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    lastFiredAt: number;
+  }>({ lastFiredAt: 0, timer: null });
+  useEffect(() => {
+    const throttle = liveRefreshThrottleRef.current;
+    return () => {
+      if (throttle.timer !== null) {
+        clearTimeout(throttle.timer);
+        throttle.timer = null;
+      }
+    };
+  }, []);
+  const handleRunEditActivity = useCallback(
+    (event: AssistantRunEvent) => {
+      if (!selectedMemoryThreadId) {
+        return;
+      }
+      if (event.kind === 'run.started') {
+        if (event.runId) {
+          setActiveThreadIdentity({ latestRunId: event.runId, threadId: selectedMemoryThreadId });
+        }
+        return;
+      }
+      const threadId = selectedMemoryThreadId;
+      const throttle = liveRefreshThrottleRef.current;
+      const now = Date.now();
+      const elapsed = now - throttle.lastFiredAt;
+      if (elapsed >= LIVE_CHANGES_REFRESH_THROTTLE_MS) {
+        throttle.lastFiredAt = now;
+        requestLiveLastTurnRefresh(threadId);
+        return;
+      }
+      if (throttle.timer !== null) {
+        return;
+      }
+      throttle.timer = setTimeout(() => {
+        throttle.timer = null;
+        throttle.lastFiredAt = Date.now();
+        requestLiveLastTurnRefresh(threadId);
+      }, LIVE_CHANGES_REFRESH_THROTTLE_MS - elapsed);
+    },
+    [requestLiveLastTurnRefresh, selectedMemoryThreadId, setActiveThreadIdentity]
+  );
+
   // Grant actions for the tool-approval notice ("Always allow" / "Allow
   // <category> this session"). Store-backed and stable: the wrapper already
   // subscribes to perToolOverrides/sessionGrants for the request snapshot, so a
@@ -1795,6 +1869,7 @@ export function AssistantUiPanelWrapper({
                 onContextBreakdown={handleContextBreakdown}
                 onProviderSettingsChange={handleProviderSettingsChange}
                 onProviderSettingsValidationChange={providerDraft.report}
+                onRunEditActivity={handleRunEditActivity}
                 onRunFailed={handleRunFailed}
                 onRunFinished={handleRunFinished}
                 onStepUsage={handleStepUsage}

@@ -303,4 +303,52 @@ describe('useChangesNavigationStore', () => {
       expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
     });
   });
+
+  describe('requestLiveLastTurnRefresh', () => {
+    function arriveOnLastTurn(): void {
+      useChangesNavigationStore
+        .getState()
+        .setActiveThreadIdentity({ latestRunId: 'run-1', threadId: 'thread-1' });
+      useChangesNavigationStore.getState().selectLastTurn();
+    }
+
+    it('bumps the nonce while the surface is on THIS thread\u2019s Last Turn', () => {
+      arriveOnLastTurn();
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before + 1);
+    });
+
+    it('is a no-op for a DIFFERENT thread\u2019s run', () => {
+      arriveOnLastTurn();
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-other');
+
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before);
+    });
+
+    it('is a no-op once the user pins a specific run (isOnLastTurn cleared)', () => {
+      arriveOnLastTurn();
+      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before);
+    });
+
+    it('is a no-op while a git scope is showing', () => {
+      arriveOnLastTurn();
+      useChangesNavigationStore.getState().requestChangeset(GIT_SCOPE);
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before);
+    });
+  });
 });

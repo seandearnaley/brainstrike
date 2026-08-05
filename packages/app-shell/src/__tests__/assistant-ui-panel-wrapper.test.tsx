@@ -201,6 +201,87 @@ describe('AssistantUiPanelWrapper', () => {
       });
     });
 
+    test('retargets to the run that just STARTED, not only at run.finished', async () => {
+      const user = userEvent.setup();
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity?.threadId).toBe(
+          'thread-existing'
+        );
+      });
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-run-finished'));
+      });
+      act(() => {
+        useChangesNavigationStore.getState().selectLastTurn();
+      });
+
+      // A NEW run beginning must move the view onto it immediately, so the
+      // user watches the turn fill in instead of the previous one.
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-run-started'));
+      });
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual({
+        kind: 'agent-run',
+        runId: 'run-live-next',
+        threadId: 'thread-existing',
+      });
+    });
+
+    test('asks for a live re-resolve when a file-mutation tool completes mid-run', async () => {
+      const user = userEvent.setup();
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity?.threadId).toBe(
+          'thread-existing'
+        );
+      });
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-run-finished'));
+      });
+      act(() => {
+        useChangesNavigationStore.getState().selectLastTurn();
+      });
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-edit-tool-completed'));
+      });
+
+      // Leading edge fires immediately — the first completion of a burst must
+      // not wait out the throttle window.
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before + 1);
+    });
+
+    test('does NOT ask for a live re-resolve while a git scope is pinned', async () => {
+      const user = userEvent.setup();
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity?.threadId).toBe(
+          'thread-existing'
+        );
+      });
+      act(() => {
+        useChangesNavigationStore.getState().requestChangeset({
+          kind: 'git-scope',
+          repositoryRoot: '/repo',
+          scope: { kind: 'uncommitted' },
+          worktreePath: '/repo',
+        });
+      });
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-edit-tool-completed'));
+      });
+
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before);
+    });
+
     test('does NOT retarget a pinned git-scope changeset when a run finishes', async () => {
       const user = userEvent.setup();
       await renderAssistantThreadPanel(['openai'], 'thread-existing');

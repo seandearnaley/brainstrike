@@ -1,7 +1,9 @@
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
 import {
+  createEditActivityRunEventsSelector,
   createTerminalRunEventsSelector,
   createToolApprovalRequestsSelector,
   selectTerminalRunEvents,
@@ -174,5 +176,78 @@ describe('selectToolApprovalRequests', () => {
 
   it('returns an empty array for an empty thread', () => {
     expect(selectToolApprovalRequests([])).toEqual([]);
+  });
+});
+
+describe('createEditActivityRunEventsSelector', () => {
+  const editEvent = (id: string, toolName: string) => ({
+    id,
+    kind: 'tool.completed',
+    label: 'Tool completed',
+    metadata: { toolName },
+    status: 'completed',
+    timestamp: ts,
+  });
+
+  function selected(messages: unknown[]): Array<{ id: string; kind: string }> {
+    return JSON.parse(createEditActivityRunEventsSelector()(messages));
+  }
+
+  it('reports run.started so a live view can retarget before the run ends', () => {
+    expect(
+      selected([
+        runEventMessage({
+          id: 'started',
+          kind: 'run.started',
+          label: 'Run started',
+          runId: 'run-1',
+          status: 'running',
+          timestamp: ts,
+        }),
+      ]).map((event) => event.kind)
+    ).toEqual(['run.started']);
+  });
+
+  it('reports a completed file-mutation tool, by its dotted AND its Mastra-sanitized name', () => {
+    expect(
+      selected([
+        runEventMessage(editEvent('dotted', NATIVE_TOOL_ID.writeWorkspaceFile)),
+        runEventMessage(editEvent('sanitized', 'brainstrike_writeWorkspaceFile')),
+      ]).map((event) => event.id)
+    ).toEqual(['dotted', 'sanitized']);
+  });
+
+  it('ignores a completed READ-ONLY tool — a live refresh must cost nothing on a quiet run', () => {
+    expect(
+      selected([runEventMessage(editEvent('read', NATIVE_TOOL_ID.readWorkspaceFile))])
+    ).toEqual([]);
+  });
+
+  it('ignores tool.started and tool.failed — only a COMPLETED edit journals a row', () => {
+    expect(
+      selected([
+        runEventMessage({
+          ...editEvent('started', NATIVE_TOOL_ID.writeWorkspaceFile),
+          kind: 'tool.started',
+          status: 'running',
+        }),
+        runEventMessage({
+          ...editEvent('failed', NATIVE_TOOL_ID.writeWorkspaceFile),
+          kind: 'tool.failed',
+          status: 'failed',
+        }),
+      ])
+    ).toEqual([]);
+  });
+
+  it("reports a SUBAGENT's completed edit — a delegated write changes the same files", () => {
+    expect(
+      selected([
+        runEventMessage({
+          ...editEvent('subagent', NATIVE_TOOL_ID.writeWorkspaceFile),
+          kind: 'subagent.tool.completed',
+        }),
+      ]).map((event) => event.id)
+    ).toEqual(['subagent']);
   });
 });

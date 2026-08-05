@@ -24,10 +24,28 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  buildNativeToolRiskMap,
+  denormalizeNativeToolName,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { useEffect, useRef, useState } from 'react';
 import { getMessageParts } from './assistant-run-timeline';
 
 export interface RunLifecycleNotificationCallbacks {
+  /**
+   * LIVE run activity that can have changed files on disk (BST-1115 smoke
+   * feedback), reported AS IT HAPPENS rather than at the end of the run:
+   * `run.started`, and every `tool.completed`/`subagent.tool.completed` for a
+   * native tool the shared registry classifies `riskCategory: 'edit'`.
+   *
+   * This is the seam the Changes surface's live "Last Turn" refresh consumes
+   * — a run-scoped observation this module already has (it scans the same
+   * streamed run-event data parts for the terminal events), so nothing polls
+   * and no new transport is invented. Deliberately reports the raw event and
+   * makes no decision: which of these matter, and what to do about them, is
+   * app-shell's business exactly as the notification DECISION already is.
+   */
+  readonly onRunEditActivity?: (event: AssistantRunEvent) => void;
   readonly onRunFailed?: (event: AssistantRunEvent) => void;
   readonly onRunFinished?: (event: AssistantRunEvent) => void;
   readonly onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
@@ -44,6 +62,54 @@ function readTerminalRunEvent(value: unknown): AssistantRunEvent | undefined {
   return event && (event.kind === 'run.finished' || event.kind === 'run.failed')
     ? event
     : undefined;
+}
+
+/**
+ * Native tool ids the shared registry classifies `riskCategory: 'edit'` —
+ * the tools whose completion can have written the edit-checkpoint journal.
+ *
+ * Derived from the registry, never hand-listed: a new mutation tool must not
+ * be able to ship without the live Changes view noticing it. Built LAZILY on
+ * first use rather than at module scope, so importing this module never runs
+ * registry initialization during chunk evaluation.
+ */
+let editRiskToolIds: ReadonlySet<string> | undefined;
+
+function isEditRiskToolName(toolName: unknown): boolean {
+  if (typeof toolName !== 'string') {
+    return false;
+  }
+  if (!editRiskToolIds) {
+    const riskByTool = buildNativeToolRiskMap();
+    editRiskToolIds = new Set(
+      Object.entries(riskByTool)
+        .filter(([, risk]) => risk === 'edit')
+        .map(([toolId]) => toolId)
+    );
+  }
+  // The live stream carries dotted native ids; persisted/replayed parts carry
+  // the Mastra-sanitized form. `denormalizeNativeToolName` is the canonical
+  // reverse for known native ids and passes anything else through unchanged.
+  return editRiskToolIds.has(denormalizeNativeToolName(toolName));
+}
+
+/**
+ * A run-event that means "files on disk may have just changed": the run
+ * beginning (the view should retarget to it immediately, in-progress) or a
+ * completed edit-risk tool call, including one a subagent made.
+ */
+function readEditActivityRunEvent(value: unknown): AssistantRunEvent | undefined {
+  const event = readAssistantRunEvent(value);
+  if (!event) {
+    return;
+  }
+  if (event.kind === 'run.started') {
+    return event;
+  }
+  if (event.kind !== 'tool.completed' && event.kind !== 'subagent.tool.completed') {
+    return;
+  }
+  return isEditRiskToolName(event.metadata?.['toolName']) ? event : undefined;
 }
 
 function isToolApprovalRequest(value: unknown): value is AssistantToolApprovalRequest {
@@ -245,6 +311,13 @@ export function createTerminalRunEventsSelector(): (messages: readonly unknown[]
   });
 }
 
+export function createEditActivityRunEventsSelector(): (messages: readonly unknown[]) => string {
+  return createIncrementalSerializedSelector({
+    getData: (part) => readEditActivityRunEvent(getPartData(part, ASSISTANT_RUN_EVENT_DATA_NAME)),
+    getKey: (event) => event.id,
+  });
+}
+
 export function createToolApprovalRequestsSelector(): (messages: readonly unknown[]) => string {
   return createIncrementalSerializedSelector({
     getData: (part) => {
@@ -256,10 +329,66 @@ export function createToolApprovalRequestsSelector(): (messages: readonly unknow
 }
 
 /**
- * Reports each NEW terminal run event / tool-approval request exactly once
- * (tracked via refs, so remounts within the same panel instance don't
- * re-fire for events already seen). Never dedupes ACROSS panel instances —
- * that's the dispatcher's job (see `createRunNotificationDispatcher`).
+ * Report each value in `values` whose key has not been seen yet, ONCE.
+ *
+ * Shared by every stream observation this module makes (terminal run events,
+ * tool-approval requests, and live edit activity) because the seeding
+ * discipline is identical for all three and must not drift between them: while
+ * history is hydrating, neither seed nor report; on the first settled pass for
+ * a mount — or after a `threadKey` switch — seed the baseline from whatever is
+ * already replayed WITHOUT reporting it; only afterwards report genuinely new
+ * values.
+ */
+function useNewStreamValues<T>(args: {
+  isHistoryLoading: boolean;
+  keyOf: (value: T) => string;
+  onNew: (value: T) => void;
+  serializedValues: string;
+  threadKey: string | undefined;
+}): void {
+  const { isHistoryLoading, serializedValues, threadKey } = args;
+  const handlersRef = useRef(args);
+  handlersRef.current = args;
+
+  const seenKeysRef = useRef<Set<string>>(new Set());
+  const seededRef = useRef(false);
+  const seededThreadKeyRef = useRef<string | undefined>(threadKey);
+
+  useEffect(() => {
+    if (isHistoryLoading) {
+      // History is still hydrating; defer seeding so the baseline captures the
+      // full replayed snapshot instead of an empty one.
+      return;
+    }
+    const { keyOf, onNew } = handlersRef.current;
+    const values = JSON.parse(serializedValues) as T[];
+    const isThreadSwitch = seededRef.current && seededThreadKeyRef.current !== threadKey;
+    if (!seededRef.current || isThreadSwitch) {
+      // First invocation for this mount/thread, or a switch to a different
+      // thread: seed the baseline from already-present (replayed) values
+      // without notifying, then track ONLY genuinely new ones from here.
+      seenKeysRef.current = new Set(values.map(keyOf));
+      seededRef.current = true;
+      seededThreadKeyRef.current = threadKey;
+      return;
+    }
+    for (const value of values) {
+      const key = keyOf(value);
+      if (seenKeysRef.current.has(key)) {
+        continue;
+      }
+      seenKeysRef.current.add(key);
+      onNew(value);
+    }
+  }, [serializedValues, threadKey, isHistoryLoading]);
+}
+
+/**
+ * Reports each NEW terminal run event / tool-approval request / live edit
+ * activity event exactly once (tracked via refs, so remounts within the same
+ * panel instance don't re-fire for events already seen). Never dedupes ACROSS
+ * panel instances — that's the dispatcher's job (see
+ * `createRunNotificationDispatcher`).
  *
  * Hydration guard: reload hydration re-weaves EVERY historical run-event /
  * approval data part into `state.thread.messages` (see docs/agents/assistant-persistence.md "ASSISTANT
@@ -274,7 +403,8 @@ export function createToolApprovalRequestsSelector(): (messages: readonly unknow
  * (`isLoading` stays false) and seeds an empty baseline immediately.
  * `threadKey` (the panel's `threadKey` prop) marks thread switches so a later
  * switch re-seeds against the new thread's history instead of treating it as a
- * replay of the previous thread.
+ * replay of the previous thread. {@link useNewStreamValues} owns that
+ * discipline for all three observations so it cannot drift between them.
  */
 export function useRunLifecycleNotifications(
   callbacks: RunLifecycleNotificationCallbacks,
@@ -285,6 +415,7 @@ export function useRunLifecycleNotifications(
 
   const [selectTerminalEventsJson] = useState(createTerminalRunEventsSelector);
   const [selectApprovalRequestsJson] = useState(createToolApprovalRequestsSelector);
+  const [selectEditActivityJson] = useState(createEditActivityRunEventsSelector);
 
   const terminalEventsJson = useAuiState((state) =>
     selectTerminalEventsJson(state.thread.messages)
@@ -292,69 +423,42 @@ export function useRunLifecycleNotifications(
   const approvalRequestsJson = useAuiState((state) =>
     selectApprovalRequestsJson(state.thread.messages)
   );
+  const editActivityJson = useAuiState((state) => selectEditActivityJson(state.thread.messages));
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
 
-  const seenEventIdsRef = useRef<Set<string>>(new Set());
-  const seededEventsThreadRef = useRef(false);
-  const seededEventsThreadKeyRef = useRef<string | undefined>(threadKey);
-  useEffect(() => {
-    if (isHistoryLoading) {
-      // History is still hydrating; defer seeding so the baseline captures the
-      // full replayed snapshot instead of an empty one.
-      return;
-    }
-    const events = JSON.parse(terminalEventsJson) as AssistantRunEvent[];
-    const isThreadSwitch =
-      seededEventsThreadRef.current && seededEventsThreadKeyRef.current !== threadKey;
-    if (!seededEventsThreadRef.current || isThreadSwitch) {
-      // First invocation for this mount/thread, or a switch to a different
-      // thread: seed the baseline from already-present (replayed) events
-      // without notifying, then track ONLY genuinely new events from here.
-      seenEventIdsRef.current = new Set(events.map((event) => event.id));
-      seededEventsThreadRef.current = true;
-      seededEventsThreadKeyRef.current = threadKey;
-      return;
-    }
-    for (const event of events) {
-      if (seenEventIdsRef.current.has(event.id)) {
-        continue;
-      }
-      seenEventIdsRef.current.add(event.id);
+  useNewStreamValues<AssistantRunEvent>({
+    isHistoryLoading,
+    keyOf: (event) => event.id,
+    onNew: (event) => {
       if (event.kind === 'run.finished') {
         callbacksRef.current.onRunFinished?.(event);
       } else {
         callbacksRef.current.onRunFailed?.(event);
       }
-    }
-  }, [terminalEventsJson, threadKey, isHistoryLoading]);
+    },
+    serializedValues: terminalEventsJson,
+    threadKey,
+  });
 
-  const seenApprovalKeysRef = useRef<Set<string>>(new Set());
-  const seededApprovalsThreadRef = useRef(false);
-  const seededApprovalsThreadKeyRef = useRef<string | undefined>(threadKey);
-  useEffect(() => {
-    if (isHistoryLoading) {
-      return;
-    }
-    const requests = JSON.parse(approvalRequestsJson) as AssistantToolApprovalRequest[];
-    const isThreadSwitch =
-      seededApprovalsThreadRef.current && seededApprovalsThreadKeyRef.current !== threadKey;
-    if (!seededApprovalsThreadRef.current || isThreadSwitch) {
-      seenApprovalKeysRef.current = new Set(
-        requests.map((request) => `${request.runId}:${request.toolCallId}`)
-      );
-      seededApprovalsThreadRef.current = true;
-      seededApprovalsThreadKeyRef.current = threadKey;
-      return;
-    }
-    for (const request of requests) {
-      const key = `${request.runId}:${request.toolCallId}`;
-      if (seenApprovalKeysRef.current.has(key)) {
-        continue;
-      }
-      seenApprovalKeysRef.current.add(key);
+  useNewStreamValues<AssistantToolApprovalRequest>({
+    isHistoryLoading,
+    keyOf: (request) => `${request.runId}:${request.toolCallId}`,
+    onNew: (request) => {
       callbacksRef.current.onToolApprovalRequired?.(request);
-    }
-  }, [approvalRequestsJson, threadKey, isHistoryLoading]);
+    },
+    serializedValues: approvalRequestsJson,
+    threadKey,
+  });
+
+  useNewStreamValues<AssistantRunEvent>({
+    isHistoryLoading,
+    keyOf: (event) => event.id,
+    onNew: (event) => {
+      callbacksRef.current.onRunEditActivity?.(event);
+    },
+    serializedValues: editActivityJson,
+    threadKey,
+  });
 }
 
 /** Always-mounted, render-nothing bridge — see module doc for placement. */

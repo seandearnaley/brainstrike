@@ -2,6 +2,7 @@ import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@b
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
+import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useRewindStore } from '../rewind-store';
 import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
 
@@ -36,6 +37,7 @@ afterEach(() => {
   vi.useRealTimers();
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   useRewindStore.getState().reset();
+  useChangesNavigationStore.getState().reset();
 });
 
 describe('useChangeset', () => {
@@ -94,6 +96,35 @@ describe('useChangeset', () => {
 
     expect(result.current.view).toBeNull();
     expect(result.current.error).toContain('changeset-resolve-timeout:');
+  });
+
+  it('re-resolves the active changeset when the live Last Turn nonce is bumped', async () => {
+    const resolveView = vi.fn(
+      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+    );
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
+    act(() => {
+      useChangesNavigationStore.getState().selectLastTurn();
+      useChangesNavigationStore.getState().setActiveThreadIdentity({
+        latestRunId: 'run-1',
+        threadId: 'thread-1',
+      });
+      useChangesNavigationStore.getState().selectLastTurn();
+    });
+
+    renderHook(() => useChangeset('root-1', CHANGESET));
+    await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+    });
+    await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(2));
+
+    // A bump for a DIFFERENT thread is a no-op, so nothing refetches.
+    act(() => {
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-other');
+    });
+    await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(2));
   });
 
   it('is inert with a null changeset even when the bridge is present', async () => {
