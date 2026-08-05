@@ -1,0 +1,585 @@
+# Changeset Diff: Engine, Trust, IPC, and Renderer Surfaces
+
+> Created for BST-1116/BST-1111-1114 (Changeset Diff Viewer + W6 git-panel
+> convergence). Read before touching git-scope/journal diff resolution, the
+> `changes` IPC domain, the git inventory (trust/containment), or the Changes
+> surface / git panel Changes+History tabs. Keep this doc and its paired
+> tests updated with the code. Design doc (pre-implementation; verify
+> against code before trusting a specific claim from it):
+> `docs/superpowers/specs/2026-08-03-changeset-diff-viewer-design.md`.
+
+## TYPES (`packages/types/src/changeset.ts`)
+
+The domain contract. Its own doc comments are unusually rich and are the
+first source of truth — read them before this section.
+
+- **`Changeset`** — discriminated union: `agent-run` (`runId`/`threadId`,
+  edit-checkpoint journal), `run-range` (`fromRunId`/`toRunId?`/`threadId`,
+  aggregate across runs), `git-scope` (`repositoryRoot`/`worktreePath`/
+  `scope: GitScope`).
+- **`GitScope`** — `branch-vs-base` (`baseRef?`), `commit` (`commitId`),
+  `staged`, `uncommitted`, `unstaged`. Each carries only the fields it
+  needs.
+- **`ChangedFileEntry`** — `additions`/`deletions: number | null` (null =
+  binary, never coerced to `0`), `revertible: boolean`, `rootId: string |
+  null`, `worktreePath: string | null` (null for every journal-sourced
+  entry — see Selection semantics under RENDERER SURFACES below).
+- **`ChangesetView.totalAdditions`/`totalDeletions: number | null`** — `null`
+  means the source cannot report totals at all (every journal-backed
+  changeset: the journal never records line counts). A `git-scope`
+  changeset is NEVER `null`, including when every file is binary (a real
+  computed `0`) — binary files' `null` per-file counts are excluded from
+  the sum, not coerced. `null` (unknown) and `0` (computed exactly zero)
+  are deliberately different facts (make-invalid-states-unrepresentable).
+- **`StructuredFileDiffContent`** — three variants, not four (the shipped
+  shape; an early PR body described a 4-reason union — see CORRECTIONS
+  below): `binary`, `full` (`oldContent`/`newContent: string | null`),
+  `hunks-only` (`hunkText`, `hunkTextTruncated`, `reason:
+  'diff-overflow' | 'over-cap-both' | 'over-cap-new' | 'over-cap-old'`).
+  A `full` payload with empty `hunks` is not a contradiction — `full` only
+  promises both sides' complete text, never that hunk ranges were computed
+  (binary, `untracked` whole-file adds, and every journal-sourced diff all
+  have empty `hunks` for that reason).
+- **`WorktreeDescriptor`** — `containment: readonly string[] | 'outside-roots'`,
+  `provenance: 'agent-reported' | 'both' | 'scanned'`, `trust:
+  'unvalidated' | 'validated'`, `trustReason: string | null`. See TRUST RULE
+  below — the type's own doc comment states the rule precisely and is worth
+  re-reading in place.
+- **`StructuredFileDiffParams`** — the per-file diff request: `mode: 'commit'
+  | 'range' | 'staged' | 'untracked' | 'unstaged' | 'working'`, each with its
+  own doc comment recording why that mode compares what it compares (the
+  `unstaged` mode's comment records the BST-1113 review finding — see
+  DIFF ENGINE below).
+
+## SERVICES
+
+### Diff engine — `apps/desktop/src/assistant-server/git-structured-diff.ts` (+ `git-structured-diff-refs.ts`)
+
+`createStructuredDiffOps({ cwd, invoke, invokeHookFree })` returns
+`structuredFileDiff(params: StructuredFileDiffParams) =>
+Promise<GitResult<StructuredFileDiff>>`. No Electron imports; every git
+failure resolves to `{ ok: false, error }`, never a throw across the IPC
+boundary.
+
+Per-mode git plumbing (all via the CWD-relative `:./<path>` magic pathspec
+and `--relative`, not the repo-root-relative default — see the file's own
+PATH SPACE doc comment for the empirically-verified reasons):
+
+| mode | old side | new side | numstat target |
+| --- | --- | --- | --- |
+| `working` | `HEAD:./<path>` | live worktree file | `['HEAD']` |
+| `staged` | `HEAD:./<path>` | index, `:0:./<path>` | `['--cached']` |
+| `unstaged` | index, `:0:./<path>` | live worktree file | `[]` |
+| `untracked` | none | live worktree file (off disk, no git invocation on the happy path) | n/a |
+| `commit` | `resolveCommitOldRef` (`<commitId>^`, or the empty-tree object id for a root commit) | `commitId` | two-ref numstat |
+| `range` | caller-resolved `baseRef` | literal `'HEAD'` | two-ref numstat |
+
+`unstaged`'s old side is the **index**, not HEAD — added because the
+`unstaged` git-scope's own file LISTING (`changeset-git-scope.ts`'s
+`listRefComparisonChanges(invoke, [])`) is index-vs-worktree; before this
+mode existed, `unstaged` mapped its per-file diff to `working`
+(HEAD-vs-worktree), so a file with both staged and unstaged edits reported
+contradictory numbers between the list and the rendered diff (BST-1113
+review finding). Guarded by
+`apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.test.ts`
+`'reads the OLD side from the INDEX (:0:./<path>), never HEAD — the
+review-fixed bug'`.
+
+**Caps.** `STRUCTURED_DIFF_CONTENT_CAP_BYTES = 2 * 1024 * 1024` (2MB,
+per-side full-content cap, nominal parity with the edit-checkpoint
+journal's `MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000` — NOT byte-identical
+today, the two should move together if either is revisited). A side is
+size-PROBED (`cat-file -s`) before any read, so an over-cap side's bytes
+are never actually read. The shared `boundOutput` ceiling
+(`GIT_MAX_OUTPUT_BYTES = 1_000_000`, `git-service.ts`) truncates any
+oversized diff/status output at a clean boundary with a visible marker;
+`GIT_MAX_BUFFER_BYTES = GIT_MAX_OUTPUT_BYTES * 4` is the hard `execFile`
+capture ceiling — a `maxBuffer` overflow on an actual blob READ is a hard
+failure, never a truncated success (distinct from an overflow on the DIFF
+invocation, which degrades to `hunks-only`).
+
+The four `hunks-only` reasons are decided by two pure functions in
+`git-structured-diff.ts`:
+
+```ts
+function classifyOverCapReason(oldOverCap, newOverCap) {
+  if (oldOverCap && newOverCap) return 'over-cap-both';
+  return oldOverCap ? 'over-cap-old' : 'over-cap-new';
+}
+function resolveOverCapReason(oldOverCap, newOverCap) {
+  if (oldOverCap || newOverCap) return classifyOverCapReason(oldOverCap, newOverCap);
+  return 'diff-overflow';
+}
+```
+
+`'diff-overflow'` fires when the unified-diff invocation itself hit
+`maxBuffer` while NEITHER side individually exceeded the per-file cap
+(many small scattered edits across two large-but-under-cap files);
+`'over-cap-*'` fires per which side(s) exceeded the cap. Binary detection
+is a null-byte check on an actually-read side (`Buffer.includes(0)`),
+checked FIRST and winning whenever either side was read and found
+binary — an over-cap side (never read) can never block a confirmed-binary
+call from the other side. Guarded by
+`git-service-structured-diff.test.ts`'s `describe`s `'structuredFileDiff —
+cap boundary'`, `'... a maxBuffer overflow on the diff invocation forces
+hunks-only'`, and `'... binary detection via stdoutBuffer null byte'`.
+
+**Rename parity.** `commit`/`range`/`staged`'s numstat runs
+`--find-renames` scoped `-- .` (the WHOLE opened root), never `-- <path>` —
+gitdiffcore(7)'s pathspec limiting happens BEFORE rename pairing, so a
+pathspec naming only the new path could never pair with its old name. The
+matching numstat entry's `oldPath` then feeds both the old-side blob spec
+and the unified-diff pathspecs. Proven end-to-end for `staged` mode by
+`'routes the old-side read through oldPath, not the current path'`
+(`git-service-structured-diff.test.ts`); `commit`/`range` share the
+identical mechanism via `structuredRefDiff` with no separate rename
+codepath to diverge (confirmed by reading `structuredRefDiff`, not
+assumed).
+
+`git-structured-diff-refs.ts` adds ref-injection-safety validation
+(`validateCommitId`/`validateBaseRef` — non-empty, no whitespace, no `:`,
+no leading `-`; `commitId` additionally the full 40–64 hex object-id shape)
+and the root-commit empty-tree fallback (`resolveCommitOldRef`, via `git
+rev-list --parents`). For a MERGE commit, `commit` mode's `^` is the FIRST
+parent (first-parent diff, matching `git-history.ts`'s `commitDiff`
+precedent).
+
+### Changeset resolution — `changeset-git-scope.ts` / `changeset-journal-view.ts`, dispatched by `changeset-diff-service.ts`
+
+`ChangesetDiffService` (`{ fileDiff, resolveView }`) dispatches purely on
+`changeset.kind`: `git-scope` → `changeset-git-scope.ts`; `agent-run` /
+`run-range` → `changeset-journal-view.ts`. Every failure carries a stable
+machine-readable prefix (`journal-content-expired:`,
+`journal-path-collision:`, `outside-roots-unsupported:`,
+`base-ref-unresolved:`, `head-unborn:`, `commit-id-unresolved:`,
+`unmerged-path:`, `runs-unavailable:`, `run-anchor-missing:`) so the UI can
+branch on it — see `changeset-diff-service.ts`'s top doc comment for the
+authoritative list.
+
+**`changeset-git-scope.ts`** maps each `GitScope` kind to a listing command
+and a `StructuredFileDiffParams.mode`:
+
+| `GitScope.kind` | listing | per-file `mode` |
+| --- | --- | --- |
+| `staged` | `git diff --cached --numstat` (+ empty-tree fallback on unborn HEAD) | `staged` |
+| `unstaged` | `git diff --numstat` (no ref args) | `unstaged` |
+| `uncommitted` | `git diff HEAD --numstat` (empty-tree fallback on unborn HEAD) + `listUntrackedChanges` (`git status --porcelain=v2 --untracked-files=all`) | `working` or `untracked`, re-probed **per path** via `isPathUntrackedInScope` |
+| `commit` | two-ref numstat (`<id>^`/empty-tree vs `<id>`) | `commit` |
+| `branch-vs-base` | two-ref numstat (resolved `baseRef` vs merge-base) | `range` |
+
+`untracked` is reachable **only** through the `uncommitted` scope — no
+other branch of `resolveGitScopeStructuredFileDiffParams` ever returns
+`mode: 'untracked'`, because `unstaged`/`staged` numstat has no untracked
+listing flag at all (structural guarantee, not merely tested). A
+typechange (`T`, e.g. symlink↔file) maps to `'modified'`; `C` maps to
+`'added'`; an unresolved merge conflict (`U`) is a hard `unmerged-path:`
+error, never surfaced as `'deleted'`.
+
+`totalAdditions`/`totalDeletions` are real, non-null sums
+(`total += record.additions ?? 0`) — a binary file's `null` per-file count
+is excluded via `?? 0`, never coerced on the entry itself, which is what
+produces a real `0` total when every file is binary.
+
+**`changeset-journal-view.ts`** resolves `agent-run`/`run-range` from the
+edit-checkpoint journal (READ-ONLY — the journal has one producer, per
+`docs/agents/assistant-persistence.md`'s runId-provenance invariant).
+`foldJournalRecords` folds records per `(rootId, path)` into
+`JournalFoldEntry[]`, carrying `chainRecords` across renames.
+`journalFoldEntryToChangedFileEntry` computes `revertible`:
+
+```ts
+function isEntryRevertible(entry: JournalFoldEntry): boolean {
+  return entry.chainRecords.every(
+    (record) => isRevertibleCaptureStatus(record.captureStatus) && record.revertedAt === null
+  );
+}
+```
+
+Revertible iff **every** record in the entry's whole chain has a
+revertible `captureStatus` AND is unreverted — an entry with any
+`expired`/`skipped_*` or already-reverted record in its chain is honestly
+non-revertible but still appears (never dropped). Guarded by
+`changeset-journal-view.test.ts`'s `describe('foldJournalRecords —
+revertible')` (three cases: all-revertible, one expired record, one
+reverted record). `assembleJournalDiff` hardcodes `hunks: []` on every
+return branch (binary / over-cap / full) — the journal's old side is a raw
+DB-stored string, not a git ref, so there is no `git diff` invocation to
+compute hunk ranges from. `resolveJournalChangesetView` always returns
+`totalAdditions: null, totalDeletions: null` (journal carries no line
+counts at all). **A path created AND deleted entirely within the range is
+omitted** from the listing (`isPhantomEntry`) — distinct from an
+`expired` capture, which stays visible and non-revertible because
+something really did change.
+
+**No `ConversationRevertService` exists on this branch.** The design spec
+scopes a soft-rewind/tombstone revert service (W5) and mentions "rewind" as
+a service; searching `apps/` and `packages/` finds no
+`ConversationRevertService`, no conversation-revert module, and no
+soft-rewind/tombstone implementation anywhere. `revertible` above is the
+only piece of that design that ships today — a computed field, not a
+revert operation.
+
+### Git inventory — `git-inventory-service.ts` / `-discovery.ts` / `-watcher.ts`
+
+`buildInventorySnapshot(deps, signal)`: resolve workspace roots → walk each
+for `.git` entries (`walkForGitEntries`, discovery module, bounded
+`maxDepth 6` / `maxConcurrency 32`, never spawns git) → dedupe by
+**resolved common dir** (`resolveCommonDir`, before any spawn) → for each
+unique repo, spawn `git worktree list --porcelain -z` hook-free
+(`invokeGitHookFree`) and classify every worktree's containment + trust.
+`createGitInventoryService` wraps this in a `GIT_INVENTORY_SNAPSHOT_TTL_MS
+= 5000` cache with dirty-flag invalidation and in-flight build coalescing.
+Never throws — every failure mode is a visible `errors` entry.
+
+`provenance` is typed as `'agent-reported' | 'both' | 'scanned'`, but
+**only `'scanned'` is ever produced** — grepping `git-inventory-*.ts`
+finds exactly two `provenance:` assignments, both the literal `'scanned'`.
+Nothing in the codebase constructs `'agent-reported'` or `'both'`. The
+design spec's "merge agent-reported workspaces from the journal"
+(GitInventoryService responsibility) is not implemented; do not assume
+provenance distinguishes agent-created worktrees today.
+
+## TRUST RULE + BIDIRECTIONAL VALIDATION
+
+Decision site, `buildRepository` in `git-inventory-service.ts`:
+
+```ts
+const containment = computeContainment(canonicalPath, resolvedRoots);
+const { trust, trustReason } =
+  containment === 'outside-roots'
+    ? await resolveWorktreeTrust(fs, canonicalPath, group.commonDir)
+    : { trust: 'validated', trustReason: null };
+```
+
+A worktree **inside** a workspace root is unconditionally `'validated'` —
+the bidirectional check is never even called. This means "inside a
+user-granted root", NOT "ownership verified": a fabricated
+`.git/worktrees/<name>/gitdir` pointing at a path inside a root (e.g.
+another repo's own worktree in the same workspace) reads `'validated'`
+without ever being cross-checked. Only a worktree whose containment is
+`'outside-roots'` gets the genuine bidirectional check
+(`resolveWorktreeTrust`): its own `.git` is read back
+(`resolveGitEntryAtWorktree`, discovery module) and must resolve to the
+SAME `group.commonDir` as the granting repo — a one-way pointer is never
+sufficient. Failure (unreadable, or resolves elsewhere) → `'unvalidated'`
+with a non-null `trustReason`; success → `'validated'` with `trustReason:
+null`. An unvalidated entry is **still reported**, never dropped — every
+branch still pushes the descriptor.
+
+Containment/trust are computed on the **realpath'd** worktree path
+(`canonicalPath`), never the raw git-reported `summary.path` — this closes
+a symlink-defeats-containment attack (a committed in-root symlink whose
+real target is outside every root must not be misclassified as in-root and
+auto-validated).
+
+Guarding tests, `apps/desktop/src/__tests__/assistant-server/git-inventory.integration.test.ts`:
+- in-root always validated — `'reports a linked worktree INSIDE the active
+  roots with containment set'` (asserts `trust: 'validated'` for a real
+  in-root worktree, bidirectional check never exercised).
+- outside-roots, genuine → validated — `'reports a REAL linked worktree
+  OUTSIDE every root as outside-roots but still validated'`.
+- outside-roots, fabricated/unreadable target → unvalidated, no content
+  leak — `'fabricated-gitdir attack: a hand-written worktree admin entry
+  pointing outside every root is present but UNVALIDATED, with no content
+  access beyond its own .git'`.
+- outside-roots, fabricated pointer at a real DIFFERENT repo (common-dir
+  mismatch) → unvalidated — `'fabricated-gitdir attack pointing at a
+  DIFFERENT real repository: resolves but the common dir mismatches —
+  unvalidated'`.
+- symlink defeats containment — `'symlink-defeats-containment attack: a
+  committed in-root symlink to an outside target is NOT auto-validated'`.
+- prunable (deleted, not GC'd) worktree is a trust state, not an inventory
+  error — `'treats a merely-prunable ... linked worktree as trust state,
+  not an inventory error'` (asserts `snapshot.errors` is `[]`).
+
+## THE `changes` IPC DOMAIN
+
+Main-process registration: `apps/desktop/src/ipc-changes.ts` registers
+three channels (`apps/desktop/src/platform/desktop-ipc-channels.ts`:
+`changes.resolveView` → `'changes:resolveView'`, `changes.fileDiff` →
+`'changes:fileDiff'`, `changes.inventory` → `'changes:inventory'`) against
+handlers in `apps/desktop/src/changes-ipc-handlers.ts`. Handlers accept
+`unknown` renderer-supplied arguments and structurally validate
+(`validateChangeset`/`validatePath`/`validateGitScope`) before anything
+typed reaches `ChangesetDiffService` — unknown `Changeset.kind`s and
+unsupported/extra keys are rejected explicitly, mirroring
+`git-structured-diff.ts`'s own params validation.
+
+Preload exposes `window.changes` (`fileDiff`, `inventory`, `resolveView`)
+gated by `shouldExposeBridge('changes')`. Renderer capability resolution:
+`packages/app-shell/src/changes/changes-bridge.ts`'s `resolveChangesBridge()`
+— returns `null` on web (no bridge), and `null` **plus a logged error** for
+a present-but-malformed bridge (missing any of `REQUIRED_METHODS`). No
+`isElectron()` check anywhere. Guarded by `changes-bridge.test.ts`'s
+`it.each` over every `ChangesBridge` key.
+
+The `commit`/`range` `StructuredFileDiffParams` modes are exposed on the
+**separate** `git` IPC domain (`window.git.structuredFileDiff`), not
+`window.changes` — the History tab's commit-diff pane calls straight
+through `window.git` (the same bridge it already uses for
+`history`/`commitFiles`) rather than adding a second bridge dependency
+(see RENDERER SURFACES below). `commitDiff` remains defined on `GitBridge`
+and wired end-to-end (preload → IPC → main → `git-history.ts`) but has
+zero call sites left in `packages/app-shell` — a tracked-but-not-yet-done
+follow-up, not a broken feature.
+
+## REFRESH SEAMS
+
+**Git-metadata watcher** (`git-inventory-watcher.ts`): one filesystem
+subscription per repository **common dir** (covers every linked worktree's
+git metadata), opened via a **private** `ElectronFileSystemAdapter`
+instance in `main.ts` — deliberately never the shared `fs:watch` IPC
+pipeline (`ipc-domains/file-system-watch-ipc.ts`), because that pipeline
+dedupes native subscriptions on `(ownerId, resolvedPath)` only, without
+the ignore-pattern set in the key; routing this module's `ignorePatterns:
+[]` (needed since `.git` is globally ignored by default) through the
+shared pipeline could let an unrelated registration for the same path
+silently share this filter set. Interesting-path filtering
+(`isInterestingGitMetadataPath`) matches `HEAD`/`ORIG_HEAD`/`index`/
+`packed-refs`/`refs/**` and `worktrees/<name>/...` lifecycle paths, never
+`objects/**` or `*.lock`. A TRUE trailing debounce
+(`GIT_INVENTORY_WATCH_BATCH_MS = 300`) re-arms on every interesting event,
+capped by `GIT_INVENTORY_WATCH_MAX_BATCH_MS = 2000` so sustained churn
+(long rebase/gc) still forces a fire. An interesting event marks the
+service snapshot dirty; the next `getSnapshot()` call rebuilds. No
+max-worktree/max-repository count cap exists anywhere in the inventory
+pipeline — the only bounds are the discovery walk's depth (6) and
+concurrency (32).
+
+**No push-to-renderer invalidation channel exists.** The design spec (§6)
+describes a live-update channel with a monotonic generation guard so
+git-scope changesets refresh without polling; as shipped, the `changes`
+domain has no `webContents.send` anywhere — the git-metadata watcher only
+invalidates the **main-process service's own cache**. `useChangeset`/
+`useGitInventory` load once on mount (or on `rootId`/`changeset` change)
+and otherwise only refetch via an explicit `refresh()` call (e.g. a Retry
+button). The "agent-run changesets refresh on `onRunFinished`" acceptance
+criterion is similarly not wired to the real UI today:
+`assistant-ui-panel-wrapper.tsx` does call `useChangeset(mainRootId,
+null).refresh` from `handleRunFinished`/`handleRunFailed`, but its own
+comment states the changeset is "hardcoded null" pending a real selection
+UI — the hook's inertness on a `null` changeset (see `use-changeset.ts`'s
+doc comment) makes that call a no-op by construction. The Changes
+surface's own `useChangeset` instance (holding the real active changeset,
+in `changes-surface.tsx`) is a **separate hook instance** with no listener
+on run-finished/run-failed at all. Do not assume opening the Changes
+surface during or after an agent turn auto-refreshes what it shows.
+
+## RENDERER SURFACES
+
+### Changes surface (`packages/app-shell/src/changes/`)
+
+Lazy-mounted workspace-panel tab (capability-gated: absent unless
+`window.changes` is present, no `isElectron()`). `ChangesSurface`
+(`ui/changes-surface.tsx`) composes `ChangesetHeader` (source picker),
+`ChangedFilesTree` (canonical `TreeTable`, root → repo → worktree →
+file), and `ChangesetDiffPane` (stacked `ChangesetFileDiffCard`s).
+
+**Resolution root for a `git-scope` changeset is the workspace root
+CONTAINING its worktree**, per the inventory's `WorktreeDescriptor.containment`
+— NOT the surface's single focused root:
+
+```ts
+function resolveGitScopeResolutionRootId(changeset, inventory) {
+  // find the repository/worktree matching changeset.repositoryRoot/worktreePath
+  return worktree.containment === 'outside-roots' ? null : (worktree.containment[0] ?? null);
+}
+```
+
+In a multi-root workspace the source picker offers scopes for worktrees
+under every mounted root, but the main-process containment check
+(`resolveContainedWorktreeCwd`) deterministically fails
+(`outside-roots-unsupported:`) unless resolution uses a root that actually
+contains the worktree (BST-1114 PR #2274 review finding). `null` when the
+worktree can't be found or has no containing root — `useChangeset` stays
+inert (no fetch) rather than guessing.
+
+**Selection semantics** (`changes-store.ts`, module-level Zustand
+singleton shared between the Changes surface and the git panel's Changes
+tab — see below): an **empty** `selectedFileKeys` means "no explicit
+selection — render every file in the changeset", not "render nothing"; a
+changeset with genuinely no files is a different fact reported by
+`ChangesetView.files`. `hasExplicitSelection` exists so callers state
+which of the two they mean rather than re-deriving `.size > 0`.
+`changedFileKey` is keyed on `(rootId, worktreePath, path)`, NUL-joined:
+
+```ts
+export function changedFileKey(entry: ChangedFileEntry): string {
+  return `${entry.rootId ?? ''}\u0000${entry.worktreePath ?? ''}\u0000${entry.path}`;
+}
+```
+
+`path` alone collapses across two worktrees of the same repo;
+`worktreePath` is `null` for every journal-sourced entry, so `rootId`
+distinguishes those (two roots can share a relative path). Guarded by
+`changes-store.test.ts`'s `'renders every file when nothing is explicitly
+selected'` (asserts `selectRenderedFiles` returns the SAME array
+reference on an empty selection) and its `changedFileKey` composite-key
+cases.
+
+`ChangesetFileDiffCard` (`ui/changeset-file-diff-card.tsx`) is the shared,
+prop-driven diff-rendering leaf (own lazy `IntersectionObserver`-gated
+load, own generation-guarded staleness protection). Its content branches:
+`binary` → a dedicated explanatory card; `full`/`hunks-only` → the shared
+`DiffView` via the `{ kind: 'structured', diff }` source (journal-backed
+changesets flow through the identical path — the only journal-specific
+handling is rendering `null` additions/deletions as `"—"`, never `"0"`);
+an error whose message starts with `journal-content-expired:` (the real
+prefix from `changeset-journal-view.ts`) → a dedicated explanatory card
+naming the file; any other error → the real message plus a per-card Retry.
+It has two additive optional props: `bodyClassName` (default `'h-[420px]
+min-h-0'`, the sizing tuned for the surface's vertically-stacked multi-file
+pane) and `className` on the card ROOT (default `undefined`, i.e. the
+surface's original markup). A single-card host needs BOTH — the git panel
+passes `className='flex min-h-0 flex-1 flex-col'` +
+`bodyClassName='min-h-0 flex-1'`. `bodyClassName='h-full'` alone does
+nothing: the card root is an auto-height block, so a percentage height
+resolves to `auto` against it and the diff sizes to its own content
+(measured, not assumed) instead of filling the pane — which also defeats
+`DiffView`'s internal scroller, whose CodeMirror theme pins `.cm-editor`
+to `height: 100%`.
+
+### Git panel (`packages/app-shell/src/git-panel/`) — converged in W6
+
+Two tabs: Changes (`git-changes-view.tsx`) and History
+(`git-history-view.tsx`); both now resolve diffs through the structured
+engine and render `ChangesetFileDiffCard`. `git-diff-surface.tsx` and
+`packages/ui/src/diff-view/parse-unified-diff.ts` are **deleted** — `git
+grep parseUnifiedDiff` finds zero code references, only historical mentions
+in doc comments and planning docs.
+
+**Staging composition is a settled, do-not-relitigate ruling** (recorded
+verbatim in `git-changes-view.tsx`'s top doc comment): the panel's left
+staged/unstaged/untracked list, its per-row stage/unstage buttons, and the
+tri-state stage-all control stay **panel-owned**, still driven straight
+off `window.git`'s `GitStatus.files` — the panel does NOT compose onto the
+shared `ChangedFilesTree`. Two reasons: (1) `ChangedFilesTree`'s checkboxes
+mean "which files' diffs to render", a different semantic from this
+panel's tri-state, which means "which INDEX a stage/unstage action
+targets"; (2) `changes-store.ts` is the module-level singleton described
+above, shared with the Changes surface tab which can be mounted
+simultaneously — writing the panel's selection into `selectedFileKeys`
+would silently clobber the Changes surface's own selection and vice versa.
+The panel therefore never imports `changes-store.ts` and never mounts
+`ChangesetDiffPane` (which reads that store internally); it mounts
+`ChangesetFileDiffCard` directly instead — a fully prop-driven leaf with
+no store coupling.
+
+**Per-row scope pinning**: a `git-scope` changeset carries exactly one
+`GitScope`, so the panel re-pins the changeset to the selected row's own
+bucket on every selection change — staged → `{ kind: 'staged' }`, unstaged
+→ `{ kind: 'unstaged' }`, untracked → `{ kind: 'uncommitted' }`
+(untracked's only route, per the engine mapping above).
+
+**History tab**: `CommitFilesSidebar` (commit-files listing) is
+unchanged — still `bridge.commitFiles`, its own request-generation
+staleness guard. The diff pane calls `useGitPanel.loadCommitFileDiff`,
+which calls `bridge.structuredFileDiff(rootId, { commitId, mode: 'commit',
+path })` — routed through `window.git`, not `window.changes`, since
+`commit` mode is already exposed there (see IPC DOMAIN above).
+`ChangesetFileDiffCard` is mounted with `key={`${commitId}:${path}`}`:
+selecting a different commit or file remounts a fresh card instance with
+its own generation counter, so a slow response for a prior selection lands
+on an unmounted component and is dropped by React rather than clobbering
+the current card. `use-git-panel.ts`'s `loadDiff` (the old
+`parseUnifiedDiff`-backed Changes-tab loader) is removed as dead; no
+`loadCommitDiff` export exists either — only `loadCommitFileDiff` /
+`loadCommitFiles`. Guarded by `git-panel.test.tsx`'s `'never lets a late
+historical diff replace the current commit diff'`.
+
+**Worktree dropdown** (`git-workbench-header.tsx`): each entry publishes a
+`git-scope` changeset (`scope: { kind: 'uncommitted' }`) via
+`useChangesNavigationStore.openChangeset` — which itself sets
+`activeWorkspacePanelTab: 'changes'` — and then switches the SHELL route
+back to `explorer` via `usePanelLayoutStore.setActiveTab`, because the
+Changes surface is a workspace-panel tab on that route, not a route of its
+own. Two distinct stores, two distinct "tab" concepts; both writes are
+required. Trust gating, priority-ordered, each disabled state stating its
+own reason (never a silent disable):
+
+```ts
+if (!available) return { navigable: false, disabledReason: 'Repository inventory is unavailable in this build.' };
+if (inventoryError) return { navigable: false, disabledReason: `Repository inventory unavailable: ${inventoryError}` };
+if (!inventory) return { navigable: false, disabledReason: 'Loading repository inventory…' };
+if (!descriptor) return { navigable: false, disabledReason: 'Not found in the workspace inventory yet.' };
+if (descriptor.trust === 'unvalidated') return { navigable: false, disabledReason: descriptor.trustReason ?? '...' };
+if (descriptor.containment === 'outside-roots') return { navigable: false, disabledReason: "isn't inside any workspace root…" };
+if (worktree.lockedReason !== null) return { navigable: false, disabledReason: `Locked: ${worktree.lockedReason}` };
+return { navigable: true, disabledReason: null };
+```
+
+The `unvalidated` check precedes the `outside-roots` check deliberately:
+`trust: 'unvalidated'` only ever occurs for an outside-roots worktree (see
+TRUST RULE above), so it is the strictly narrower case and carries the
+more specific, bidirectional-check-derived reason. The `available` check is
+first because a bridge-less build reports `inventory: null` with `error:
+null`, which would otherwise read as a permanent "Loading…" that never
+resolves. Guarded by `git-workbench-header.test.tsx`'s seven gating tests,
+one per branch.
+
+### `DiffView`'s `strings` source
+
+`packages/ui/src/diff-view/` still exports the legacy `{ kind: 'strings',
+original, modified }` source alongside `{ kind: 'structured', diff }`.
+`assistant-tool-approval-notice.tsx` (tool-approval preview, which has
+direct old/new text and no `StructuredFileDiff` to build) is its only
+remaining production consumer — both git-panel tabs retired their own
+`strings` call sites in W6. Do not delete `strings` while that consumer
+exists; do not add a new `strings` call site to a surface that has a real
+`StructuredFileDiff` available.
+
+## CAPS (summary)
+
+| Cap | Value | Where |
+| --- | --- | --- |
+| Per-side full-content inline cap | 2 MB (`STRUCTURED_DIFF_CONTENT_CAP_BYTES`) | `git-structured-diff.ts` |
+| Bounded/truncated output soft ceiling | 1 MB (`GIT_MAX_OUTPUT_BYTES`) | `git-service.ts`, shared |
+| Hard `execFile` buffer (maxBuffer) | 4 MB (`GIT_MAX_BUFFER_BYTES`) | `git-service.ts`, shared |
+| Inventory walk depth | 6 (`DEFAULT_WALK_MAX_DEPTH`) | `git-inventory-discovery.ts` |
+| Inventory walk concurrency | 32 (`DEFAULT_WALK_MAX_CONCURRENCY`) | `git-inventory-discovery.ts` |
+| Inventory snapshot cache TTL | 5000ms (`GIT_INVENTORY_SNAPSHOT_TTL_MS`) | `git-inventory-service.ts` |
+| Inventory watcher debounce / max-batch | 300ms / 2000ms | `git-inventory-watcher.ts` |
+
+No repository or worktree COUNT cap exists anywhere in the inventory
+pipeline.
+
+## DO-NOT-RELITIGATE RULINGS
+
+- **`ChangesetView.totalAdditions`/`totalDeletions` is `number | null`, never
+  a `0` sentinel.** Rejected shape (already relitigated once per the PR
+  history) — `null` and computed-`0` are different facts.
+- **`unstaged` per-file diff is index-vs-worktree, not HEAD-vs-worktree.**
+  The old `working`-mode mapping visibly contradicted its own listing;
+  fixed as `mode: 'unstaged'` and documented as settled in
+  `StructuredFileDiffParams`'s own doc comment.
+- **The git panel's staged/unstaged/untracked list stays panel-owned, never
+  composed onto `ChangedFilesTree`.** See STAGING COMPOSITION above —
+  two independent, load-bearing reasons (checkbox semantic collision,
+  cross-surface store clobbering), recorded in `git-changes-view.tsx`.
+- **A worktree inside a workspace root is unconditionally `'validated'`.**
+  This is "inside a granted root", not "ownership verified" — do not
+  "fix" this to run the bidirectional check for in-root worktrees; that
+  check exists specifically for the outside-roots case where containment
+  itself isn't already a trust signal.
+- **An unvalidated/prunable worktree is always reported, never dropped.**
+  Any change that filters `GitInventory.repositories[].worktrees` before
+  display must preserve this.
+- **Journal-sourced diffs never have hunks and never have real totals.**
+  Structural facts (the journal has no git ref and no line counts), not
+  incidental gaps to "improve" without a design change.
+
+## CORRECTIONS TO EARLIER PLANNING DOCS (verify before trusting)
+
+- **`StructuredFileDiffContent` is a 3-variant union** (`binary` | `full` |
+  `hunks-only`), where `hunks-only` carries a 4-value `reason`. PR #2252's
+  body describes "a 4-reason content union (`hunks`, `binary`, `too-large`,
+  `error`)" — that is not what shipped; read `packages/types/src/changeset.ts`
+  directly rather than that PR body.
+- **No `ConversationRevertService`/soft-rewind exists.** The design spec's
+  W5 scope is unimplemented on this branch; only the `revertible` field
+  (computed by `foldJournalRecords`/`isEntryRevertible`) ships.
+- **`WorktreeProvenance`'s `'agent-reported'`/`'both'` values are never
+  produced.** Only `'scanned'` — see SERVICES above.
+- **No live push-to-renderer refresh exists**, despite the design spec's
+  §6 promise of one event channel + generation guard. See REFRESH SEAMS
+  above for exactly what does and doesn't refresh today.

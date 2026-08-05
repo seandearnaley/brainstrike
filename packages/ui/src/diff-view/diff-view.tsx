@@ -19,6 +19,11 @@ import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
 import { cn } from '../lib/utils';
 import {
+  buildSlicedTextDiff,
+  createSlicedLineNumberFormatter,
+  type SlicedTextDiff,
+} from './diff-view-slice';
+import {
   type DiffViewSource,
   type ResolvedDiffPresentation,
   resolveDiffView,
@@ -213,8 +218,14 @@ function extractHunkText(presentation: ResolvedDiffPresentation): string | null 
  * sides — comfortably under the service cap — can freeze the whole UI for
  * seconds with no spinner and no way to bail. Below both thresholds, the
  * two sides are small enough to diff interactively; at or above either
- * one, `DiffView` skips the diff entirely and falls back to a single
- * read-only view of one side (see `resolveOversizedDoc`).
+ * one, `DiffView` never hands the WHOLE documents to `@codemirror/merge`.
+ * It first tries to slice both sides down to just the changed regions using
+ * the absolute hunk ranges git already computed in the main process (see
+ * `diff-view-slice.ts`) and re-checks THAT pair against these same
+ * thresholds; only when there are no hunk ranges to slice around, or the
+ * slice is itself still over threshold, does it fall back to a single
+ * read-only view of one side with no change highlighting at all (see
+ * `resolveOversizedDoc`).
  *
  * `RENDER_SIDE_SIZE_THRESHOLD_BYTES` is measured in JS string `.length`
  * (UTF-16 code units), not exact UTF-8 bytes — encoding the whole string
@@ -292,6 +303,239 @@ function resolveOversizedDoc(
     return null;
   }
   return pickOversizedDoc(status, textOriginal, textModified);
+}
+
+/**
+ * Which oversize note the header should show, as one exhaustive value
+ * instead of two overlapping booleans — `'sliced'` when the changed regions
+ * ARE being shown, `'unsliceable'` for the honest "we could not locate the
+ * changes" state, `'none'` when the content was never over threshold.
+ * Extracted to a plain function for the same cognitive-complexity-budget
+ * reason as {@link resolveTruncatedNoteVisible}.
+ */
+function resolveOversizeNote(
+  oversizedDoc: string | null,
+  sliced: SlicedTextDiff | null
+): 'none' | 'sliced' | 'unsliceable' {
+  if (sliced !== null) {
+    return 'sliced';
+  }
+  return oversizedDoc === null ? 'none' : 'unsliceable';
+}
+
+/**
+ * Whether the split/unified toggle applies. Only a REAL two-document diff
+ * has a mode to switch: `hunks-only`/`binary` never mount one, and an
+ * oversized `text` with no usable slice falls back to a single read-only
+ * view. A SLICED diff is a real two-document diff and keeps the toggle.
+ */
+function resolveModeTogglable(
+  contentKind: ResolvedDiffPresentation['kind'],
+  oversizedDoc: string | null,
+  sliced: SlicedTextDiff | null
+): boolean {
+  if (contentKind !== 'text') {
+    return false;
+  }
+  return oversizedDoc === null || sliced !== null;
+}
+
+/**
+ * The sliced document pair to diff when `text` content is over the
+ * render-side thresholds, or `null` when the single read-only side is the
+ * only honest thing left to show — either because there are no hunk ranges
+ * to slice around (see {@link buildSlicedTextDiff}), or because the slice is
+ * itself still too large.
+ *
+ * That second check is the one that keeps the guarantee: a file where nearly
+ * every line changed slices to nearly itself, and handing THAT to
+ * `MergeView` would reintroduce exactly the O(n·d) main-thread freeze the
+ * thresholds exist to prevent. Extracted to a plain function (rather than an
+ * inline `useMemo` body) for the same cognitive-complexity-budget reason as
+ * {@link resolveTruncatedNoteVisible}.
+ */
+function resolveSlicedDiff(
+  oversizedDoc: string | null,
+  textOriginal: string | null,
+  textModified: string | null,
+  hunksKey: string
+): SlicedTextDiff | null {
+  if (oversizedDoc === null || textOriginal === null || textModified === null) {
+    return null;
+  }
+  const candidate = buildSlicedTextDiff(textOriginal, textModified, hunksKey);
+  if (candidate === null) {
+    return null;
+  }
+  return isTextContentTooLargeToDiffInline(candidate.original, candidate.modified)
+    ? null
+    : candidate;
+}
+
+/**
+ * A `lineNumbers()` gutter that reports each SLICED document line's absolute
+ * file line instead of its position in the slice. This is the seam that lets
+ * an over-threshold diff keep REAL line numbers: the slice drops whole
+ * unchanged regions, so the vanilla gutter's 1..n counting would be wrong by
+ * however many lines were elided above.
+ */
+function slicedLineNumbers(lineMap: readonly number[]): Extension {
+  return lineNumbers({ formatNumber: createSlicedLineNumberFormatter(lineMap) });
+}
+
+/** What a `text`-kind build mounted, so the effect can track it for teardown. */
+interface MountedTextDiff {
+  readonly editorView: EditorView | null;
+  readonly mergeView: MergeView | null;
+}
+
+/**
+ * Mounts a real two-document diff over the SLICED pair — the same
+ * `MergeView`/`unifiedMergeView` rendering as the under-threshold case, just
+ * fed documents cut down to the changed regions, with absolute-line gutters
+ * (see {@link slicedLineNumbers}).
+ *
+ * `collapseUnchanged` is deliberately omitted here: the slice has already
+ * elided every unchanged region worth eliding, and collapsing again inside
+ * an already-sliced view would stack two different "lines are hidden here"
+ * affordances on top of each other.
+ */
+function mountSlicedDiff(params: {
+  readonly host: HTMLElement;
+  readonly languageExtension: Extension;
+  readonly mode: DiffViewMode;
+  readonly sliced: SlicedTextDiff;
+}): MountedTextDiff {
+  const { host, languageExtension, mode, sliced } = params;
+  const originalExtensions: Extension[] = [
+    slicedLineNumbers(sliced.originalLineMap),
+    ...BASE_EXTENSIONS_NO_GUTTER,
+    READ_ONLY_EXTENSIONS,
+    languageExtension,
+  ];
+  const modifiedExtensions: Extension[] = [
+    slicedLineNumbers(sliced.modifiedLineMap),
+    ...BASE_EXTENSIONS_NO_GUTTER,
+    READ_ONLY_EXTENSIONS,
+    languageExtension,
+  ];
+
+  if (mode === 'split') {
+    return {
+      editorView: null,
+      mergeView: new MergeView({
+        a: { doc: sliced.original, extensions: originalExtensions },
+        b: { doc: sliced.modified, extensions: modifiedExtensions },
+        gutter: true,
+        highlightChanges: true,
+        orientation: 'a-b',
+        parent: host,
+      }),
+    };
+  }
+
+  return {
+    editorView: new EditorView({
+      parent: host,
+      state: EditorState.create({
+        doc: sliced.modified,
+        extensions: [
+          ...modifiedExtensions,
+          unifiedMergeView({
+            gutter: true,
+            mergeControls: false,
+            original: sliced.original,
+          }),
+        ],
+      }),
+    }),
+    mergeView: null,
+  };
+}
+
+/**
+ * Mounts the `text` presentation, in preference order: the sliced diff when
+ * one could be built, else the single read-only side when the content is
+ * over the render-side thresholds, else the normal whole-document
+ * `MergeView`/`unifiedMergeView`. Extracted from the build effect's `switch`
+ * so `buildWithLanguage` stays under Biome's cognitive-complexity limit.
+ */
+function mountTextDiff(params: {
+  readonly host: HTMLElement;
+  readonly languageExtension: Extension;
+  readonly mode: DiffViewMode;
+  readonly modified: string;
+  readonly original: string;
+  readonly oversizedDoc: string | null;
+  readonly sliced: SlicedTextDiff | null;
+}): MountedTextDiff {
+  const { host, languageExtension, mode, modified, original, oversizedDoc, sliced } = params;
+
+  if (sliced !== null) {
+    return mountSlicedDiff({ host, languageExtension, mode, sliced });
+  }
+
+  if (oversizedDoc !== null) {
+    // See RENDER_SIDE_SIZE_THRESHOLD_BYTES's doc comment: over threshold
+    // with no sliceable hunk ranges (or a slice that is itself still too
+    // large), skip the synchronous MergeView/unifiedMergeView diff entirely
+    // and show one side read-only instead. Still gets real line numbers
+    // (BASE_EXTENSIONS) and the file's language grammar — this IS the file's
+    // actual content, just not diffed against the other side.
+    return {
+      editorView: new EditorView({
+        parent: host,
+        state: EditorState.create({
+          doc: oversizedDoc,
+          extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+        }),
+      }),
+      mergeView: null,
+    };
+  }
+
+  if (mode === 'split') {
+    return {
+      editorView: null,
+      mergeView: new MergeView({
+        a: {
+          doc: original,
+          extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+        },
+        b: {
+          doc: modified,
+          extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
+        },
+        collapseUnchanged: { margin: 3, minSize: 4 },
+        gutter: true,
+        highlightChanges: true,
+        orientation: 'a-b',
+        parent: host,
+      }),
+    };
+  }
+
+  return {
+    editorView: new EditorView({
+      parent: host,
+      state: EditorState.create({
+        doc: modified,
+        extensions: [
+          ...BASE_EXTENSIONS,
+          READ_ONLY_EXTENSIONS,
+          languageExtension,
+          unifiedMergeView({
+            collapseUnchanged: { margin: 3, minSize: 4 },
+            gutter: true,
+            // Read-only viewer: never show accept/reject chunk controls.
+            mergeControls: false,
+            original,
+          }),
+        ],
+      }),
+    }),
+    mergeView: null,
+  };
 }
 
 /**
@@ -438,11 +682,38 @@ export function DiffView({
     resolved.status
   );
 
-  // Split/unified toggling only applies to a REAL two-document diff —
-  // `hunks-only`/`binary` never mount one, and an oversized `text` falls
-  // back to a single read-only view (see `oversizedDoc` above), so neither
-  // has a mode to switch.
-  const modeTogglable = contentKind === 'text' && oversizedDoc === null;
+  // Non-null when an over-threshold `text` pair could be cut down to just
+  // its changed regions AND that slice is itself small enough to diff
+  // interactively.
+  //
+  // Computed inline rather than in a `useMemo`, and used ONLY for the header
+  // note and the mode toggle below — the build effect deliberately calls
+  // `resolveSlicedDiff` again with the same scalars rather than closing over
+  // this object. Two reasons, and they point the same way:
+  //
+  //   1. Effect-dependency discipline. Every dependency of the build effect
+  //      is a scalar so that a caller re-rendering with a freshly-allocated
+  //      `source` literal carrying equal content does not tear down and
+  //      rebuild CodeMirror. A sliced-diff OBJECT in that array would be a
+  //      fresh identity every render and reintroduce exactly that bug; only
+  //      a `useMemo` could have made it stable.
+  //   2. That `useMemo` is precisely what React Compiler refuses to preserve
+  //      (`react-hooks/preserve-manual-memoization`). All four of its
+  //      dependencies trace back through `extractTextDocs`/`resolveDiffView`
+  //      to one object the compiler cannot prove is never mutated, so it
+  //      bails on optimizing the whole component rather than keeping the
+  //      memo — the same bail the pre-existing `resolvedLanguage` memo
+  //      takes on `effectiveFilename`.
+  //
+  // `resolveSlicedDiff` is pure, so the render's answer and the effect's are
+  // necessarily the same: the note can never claim a sliced view the effect
+  // did not mount. Do not "optimize" one side into reusing the other's
+  // object — that is what puts an unstable identity back in the array.
+  const { hunksKey } = resolved;
+  const slicedDiff = resolveSlicedDiff(oversizedDoc, textOriginal, textModified, hunksKey);
+
+  const modeTogglable = resolveModeTogglable(contentKind, oversizedDoc, slicedDiff);
+  const oversizeNote = resolveOversizeNote(oversizedDoc, slicedDiff);
 
   // Only mode/language/content-KIND drive a full `<section>` remount —
   // content CHANGES within the same kind (including crossing the oversized
@@ -501,60 +772,20 @@ export function DiffView({
           assertNonNull(textOriginal, 'DiffView: text content resolved with no original.');
           assertNonNull(textModified, 'DiffView: text content resolved with no modified.');
 
-          if (oversizedDoc !== null) {
-            // See RENDER_SIDE_SIZE_THRESHOLD_BYTES's doc comment: skip the
-            // synchronous MergeView/unifiedMergeView diff entirely above the
-            // threshold and show one side read-only instead. Still gets real
-            // line numbers (BASE_EXTENSIONS) and the file's language grammar
-            // — this IS the file's actual content, just not diffed against
-            // the other side.
-            editorView = new EditorView({
-              parent: host,
-              state: EditorState.create({
-                doc: oversizedDoc,
-                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
-              }),
-            });
-            return;
-          }
-
-          if (mode === 'split') {
-            mergeView = new MergeView({
-              a: {
-                doc: textOriginal,
-                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
-              },
-              b: {
-                doc: textModified,
-                extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
-              },
-              collapseUnchanged: { margin: 3, minSize: 4 },
-              gutter: true,
-              highlightChanges: true,
-              orientation: 'a-b',
-              parent: host,
-            });
-            return;
-          }
-
-          editorView = new EditorView({
-            parent: host,
-            state: EditorState.create({
-              doc: textModified,
-              extensions: [
-                ...BASE_EXTENSIONS,
-                READ_ONLY_EXTENSIONS,
-                languageExtension,
-                unifiedMergeView({
-                  collapseUnchanged: { margin: 3, minSize: 4 },
-                  gutter: true,
-                  // Read-only viewer: never show accept/reject chunk controls.
-                  mergeControls: false,
-                  original: textOriginal,
-                }),
-              ],
-            }),
+          const mounted = mountTextDiff({
+            host,
+            languageExtension,
+            mode,
+            modified: textModified,
+            original: textOriginal,
+            oversizedDoc,
+            // Rebuilt from the same scalars the render used, rather than
+            // closed over from the render — see `slicedDiff`'s comment for
+            // why this effect's dependency array admits scalars only.
+            sliced: resolveSlicedDiff(oversizedDoc, textOriginal, textModified, hunksKey),
           });
+          mergeView = mounted.mergeView;
+          editorView = mounted.editorView;
           return;
         }
         default: {
@@ -606,7 +837,10 @@ export function DiffView({
     // clean array, not a suppressed warning. `oversizedDoc` is technically
     // derivable from `textOriginal`/`textModified`/`contentKind` (already
     // listed), but the effect body reads `oversizedDoc` directly, so it's
-    // listed too — redundant-but-consistent beats implicit.
+    // listed too — redundant-but-consistent beats implicit. `hunksKey` is
+    // the serialized stand-in for the identity-unstable `hunks` array (see
+    // its doc comment); the effect body slices with it rather than closing
+    // over a sliced-diff object, keeping every entry here a scalar.
     // Plain strings compare by value (`Object.is` on two equal strings is
     // `true` regardless of which object they came from), so a caller
     // re-rendering with a freshly-allocated `source` object literal
@@ -616,7 +850,16 @@ export function DiffView({
     // (losing scroll/selection/collapsed-hunk state, re-running async
     // language load) on every unrelated parent render, since `presentation`
     // is a fresh object every time even when its fields are unchanged.
-  }, [contentKind, textOriginal, textModified, hunkText, oversizedDoc, mode, resolvedLanguage]);
+  }, [
+    contentKind,
+    textOriginal,
+    textModified,
+    hunkText,
+    oversizedDoc,
+    hunksKey,
+    mode,
+    resolvedLanguage,
+  ]);
 
   return (
     <div
@@ -659,14 +902,26 @@ export function DiffView({
               {presentation.sideNote}
             </span>
           ) : null}
-          {oversizedDoc === null ? null : (
+          {oversizeNote === 'sliced' ? (
+            <span
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
+              data-testid="diff-sliced-note"
+            >
+              File too large to diff in full — showing changed regions with surrounding context
+            </span>
+          ) : null}
+          {/* Shown only when there was no usable slice — the honest "we
+              cannot locate the changes" state (no hunk ranges, or a slice
+              still too large to diff interactively), never a
+              silently-degraded stand-in for the sliced view. */}
+          {oversizeNote === 'unsliceable' ? (
             <span
               className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"
               data-testid="diff-too-large-note"
             >
               File too large to diff inline — showing content without change highlighting
             </span>
-          )}
+          ) : null}
           {truncatedNoteVisible ? (
             <span
               className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 text-xs dark:text-amber-400"

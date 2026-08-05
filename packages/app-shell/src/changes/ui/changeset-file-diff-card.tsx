@@ -43,7 +43,32 @@ import { Button, DiffView } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 
 export interface ChangesetFileDiffCardProps {
+  /**
+   * Height/sizing class for the mounted `DiffView` body (the `full`/
+   * `hunks-only` branch of {@link LoadedBody}) — additive prop (BST-1116 W6
+   * Task A). Defaults to the original fixed `h-[420px]` sizing tuned for
+   * this card's native habitat, a vertically-stacked multi-file pane
+   * (`ChangesetDiffPane`). The git panel's Changes tab hosts exactly ONE
+   * card filling its whole diff pane, where a fixed 420px box wastes most of
+   * the available height — it passes `min-h-0 flex-1` instead, paired with
+   * {@link ChangesetFileDiffCardProps.className}. Purely a presentational
+   * sizing hook; does not affect load/error/binary state.
+   */
+  readonly bodyClassName?: string;
   readonly changesetKind: Changeset['kind'];
+  /**
+   * Class for this card's ROOT element — additive prop (BST-1116 W6 review
+   * finding), defaulting to `undefined` so the multi-file pane renders the
+   * exact markup it always did. A single-card host must pass a definite-height
+   * layout here (the git panel passes `flex min-h-0 flex-1 flex-col`): the
+   * root is otherwise an auto-height block, so a percentage `bodyClassName`
+   * height would resolve to `auto` against it and the diff would size to its
+   * own content instead of filling the pane. Making the root a flex column is
+   * what gives `bodyClassName`'s `flex-1` a definite box to grow into, and
+   * restores `DiffView`'s own internal scrolling (which needs a bounded
+   * height) rather than growing the whole document.
+   */
+  readonly className?: string;
   readonly entry: ChangedFileEntry;
   /**
    * `entry.rootId` is threaded on every call (not just the surface's focused
@@ -57,6 +82,8 @@ export interface ChangesetFileDiffCardProps {
     rootId: string | null
   ) => Promise<GitResult<StructuredFileDiff>>;
 }
+
+const DEFAULT_BODY_CLASS_NAME = 'h-[420px] min-h-0';
 
 type LoadState =
   | { readonly diff: StructuredFileDiff; readonly kind: 'loaded' }
@@ -183,9 +210,11 @@ function ErrorBody({
  * Journal-backed changesets (`agent-run`/`run-range`) flow through here
  * exactly like git-scope changesets; see this module's doc comment. */
 function LoadedBody({
+  bodyClassName,
   diff,
   entry,
 }: {
+  readonly bodyClassName: string;
   readonly diff: StructuredFileDiff;
   readonly entry: ChangedFileEntry;
 }): ReactElement {
@@ -193,7 +222,7 @@ function LoadedBody({
     return <BinaryBody />;
   }
   return (
-    <div className="h-[420px] min-h-0" data-testid="changeset-file-diff-card-diff-view">
+    <div className={bodyClassName} data-testid="changeset-file-diff-card-diff-view">
       <DiffView
         ariaLabel={`Diff for ${entry.path}`}
         filename={entry.path}
@@ -204,11 +233,13 @@ function LoadedBody({
 }
 
 export function ChangesetFileDiffCard({
+  bodyClassName = DEFAULT_BODY_CLASS_NAME,
   // Part of the fixed cross-task prop contract (BST-1114 W4) but not read
   // here: journal-backed changesets are deliberately NOT special-cased (see
   // this module's doc comment) — the only journal-specific handling is the
   // generic null-stat rendering every changeset already goes through.
   changesetKind: _changesetKind,
+  className,
   entry,
   loadFileDiff,
 }: ChangesetFileDiffCardProps): ReactElement {
@@ -276,7 +307,7 @@ export function ChangesetFileDiffCard({
   }, [runLoad]);
 
   return (
-    <div data-testid="changeset-file-diff-card" ref={containerRef}>
+    <div className={className} data-testid="changeset-file-diff-card" ref={containerRef}>
       <CardHeader entry={entry} />
       {state.kind === 'idle' || state.kind === 'loading' ? <LoadingBody /> : null}
       {state.kind === 'error' ? (
@@ -286,7 +317,9 @@ export function ChangesetFileDiffCard({
           <ErrorBody message={state.message} onRetry={retry} />
         )
       ) : null}
-      {state.kind === 'loaded' ? <LoadedBody diff={state.diff} entry={entry} /> : null}
+      {state.kind === 'loaded' ? (
+        <LoadedBody bodyClassName={bodyClassName} diff={state.diff} entry={entry} />
+      ) : null}
     </div>
   );
 }

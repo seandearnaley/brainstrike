@@ -1,19 +1,79 @@
-import { Badge, Button, ScrollArea } from '@brainstrike/ui';
+/**
+ * DIFF-SOURCING DESIGN (BST-1116 W6 Task B): the History tab's commit diff no
+ * longer reconstructs a unified-diff string via `parseUnifiedDiff` (through
+ * `git-diff-surface.tsx`, deleted by this task, which used
+ * `useGitPanel.loadCommitDiff` — also removed). It resolves through the
+ * structured diff engine's `commit` mode directly
+ * (`StructuredFileDiffParams`, `packages/types/src/changeset.ts`:
+ * `{ commitId, mode: 'commit', path }`, diffing `<commitId>^` vs
+ * `<commitId>` for one path) via `useGitPanel.loadCommitFileDiff`, and
+ * renders the result with the shared `ChangesetFileDiffCard`
+ * (`../changes/ui/changeset-file-diff-card`) — the same leaf component Task
+ * A's Changes tab renders through.
+ *
+ * WHY NOT `useChangeset`/`window.changes` (the route Task A's Changes tab
+ * takes): that route exists because the Changes tab's diff must be scoped to
+ * whichever `staged`/`unstaged`/`uncommitted` `GitScope` the selected row
+ * belongs to, and only the changeset engine's `window.changes` bridge
+ * resolves a `GitScope`. The History tab's need is narrower — exactly one
+ * commit, one path — and `StructuredFileDiffParams`'s `commit` mode is
+ * already exposed directly on `window.git` (the SAME bridge `commitFiles`/
+ * `history` below already use), so this view calls straight through
+ * `useGitPanel` instead of adding a second bridge dependency for no
+ * behavioral gain.
+ *
+ * WHAT STAYED PANEL-OWNED: the `bridge.commitFiles`-driven commit file
+ * listing (`CommitFilesSidebar`) is completely unchanged — still a flat
+ * `GitCommitFile[]` list with its own request-generation staleness guard
+ * (`filesRequestRef`). `parseUnifiedDiff` never touched that listing; only
+ * the diff PANE moved.
+ *
+ * RENAME PARITY (verified, not assumed — BST-1116 W6 Task B): the old path
+ * passed `file.originalPath` to `commitDiff` as an explicit `originalPath`
+ * pathspec. `StructuredFileDiffParams`'s `commit` mode has no such field —
+ * only `path`. Reading `git-structured-diff.ts`'s `structuredRefDiff`
+ * (shared, unmodified, between `commit` and `range` mode) confirms the
+ * engine detects the rename itself: `resolveRefEntryForPath` runs its
+ * `--find-renames` numstat UNRESTRICTED by pathspec (`-- .`, the whole
+ * worktree — see `runNumstat`'s doc comment), so it can pair the new path
+ * back to its old one even though only the new path was requested; the
+ * resulting `entry.oldPath` is then threaded into BOTH the old-side blob
+ * read and the unified-diff pathspecs (`readDiffSides`/`computeUnifiedDiff`
+ * calls, lines ~945-957), matching the module's own documented requirement
+ * that a rename's old AND new paths must both be passed as pathspecs
+ * together (doc comment, lines ~297-311) or pairing silently fails. The unit
+ * test `apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.test.ts`
+ * ("routes the old-side read through oldPath, not the current path") proves
+ * this exact mechanism end-to-end for `staged` mode, which shares the
+ * identical `runNumstat`/`readDiffSides`/`computeUnifiedDiff` machinery with
+ * `commit` mode via `structuredRefDiff` — no separate `commit`-mode rename
+ * codepath exists to diverge. No new engine test was added per this task's
+ * scope; this is a read-and-confirm, not a new claim.
+ *
+ * STALENESS: `ChangesetFileDiffCard` is mounted with `key={commitId:path}` —
+ * selecting a different commit or file remounts a fresh card instance with
+ * its own generation counter (see that module's doc comment), so a slow
+ * response for a PRIOR selection can never clobber the newer card: the old
+ * instance is gone, and React drops a `setState` call against an unmounted
+ * component rather than committing it. This replaces the `cancelled`-flag
+ * guard the old `useEffect`-based load used for the same property.
+ */
+import type {
+  ChangedFileEntry,
+  ChangedFileStatus,
+  GitResult,
+  StructuredFileDiff,
+} from '@brainstrike/types';
+import { Badge, Button, ScrollArea, useToast } from '@brainstrike/ui';
 import { GitCommitHorizontal, GitMerge, LoaderCircle } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
-import type { GitCommitFile, GitHistoryCommit } from './git-bridge';
-import { GitDiffSurface, type GitDiffSurfaceState } from './git-diff-surface';
-import type { LoadedDiff, UseGitPanelResult } from './use-git-panel';
+import { ChangesetFileDiffCard } from '../changes/ui/changeset-file-diff-card';
+import type { GitCommitFile, GitHistoryCommit, GitRepository } from './git-bridge';
+import type { UseGitPanelResult } from './use-git-panel';
 
 interface HistoricalSelection {
   readonly commit: GitHistoryCommit;
   readonly file: GitCommitFile | null;
-}
-
-interface LoadedHistoricalDiff {
-  readonly commitId: string;
-  readonly diff: LoadedDiff | null;
-  readonly path: string;
 }
 
 interface HistoryListState {
@@ -39,28 +99,27 @@ function formatCommitDate(value: string): string {
   return COMMIT_DATE_FORMATTER.format(new Date(value));
 }
 
-function resolveHistoricalDiffState(
-  selection: HistoricalSelection | null,
-  resolvedDiff: LoadedHistoricalDiff | null
-): GitDiffSurfaceState {
-  if (!selection?.file) {
-    return {
-      kind: 'empty',
-      message: selection
-        ? 'Select a file from this commit to inspect its diff.'
-        : 'Select a commit to inspect its changes.',
-    };
+/** `GitCommitFile.status` is git's raw porcelain-v2 letter (untyped —
+ * `packages/types/src/git.ts`); this is a display-only best-effort mapping
+ * onto the shared engine's closed `ChangedFileStatus` union for
+ * `ChangesetFileDiffCard`'s header label. It never gates behavior. Mirrors
+ * `git-changes-view.tsx`'s `statusLetterToChangedFileStatus` (Task A's
+ * precedent for this exact kind of mapping) — not shared/imported because
+ * the two source types (`GitStatusFile`, `GitCommitFile`) are structurally
+ * distinct despite the overlapping `status` letter convention. */
+function statusLetterToChangedFileStatus(status: string): ChangedFileStatus {
+  switch (status) {
+    case '?':
+      return 'untracked';
+    case 'A':
+      return 'added';
+    case 'D':
+      return 'deleted';
+    case 'R':
+      return 'renamed';
+    default:
+      return 'modified';
   }
-  if (resolvedDiff?.commitId !== selection.commit.id || resolvedDiff.path !== selection.file.path) {
-    return { kind: 'loading', message: `Loading ${selection.file.path}…` };
-  }
-  if (!resolvedDiff.diff) {
-    return {
-      kind: 'error',
-      message: `Could not load the historical diff for ${selection.file.path}.`,
-    };
-  }
-  return { diff: resolvedDiff.diff, kind: 'loaded', path: selection.file.path };
 }
 
 function HistorySidebar({
@@ -232,12 +291,94 @@ function CommitFilesSidebar({
   );
 }
 
-function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
+function HistoricalDiffPane({
+  loadCommitFileDiff,
+  repository,
+  rootId,
+  selection,
+}: {
+  readonly loadCommitFileDiff: UseGitPanelResult['loadCommitFileDiff'];
+  readonly repository: GitRepository;
+  readonly rootId: string | null;
+  readonly selection: HistoricalSelection | null;
+}): ReactElement {
+  const { toast } = useToast();
+
+  // Rebuilt whenever the selected commit/file changes — the card below is
+  // remounted (`key`) at the same cadence, so this closure's `commitId` is
+  // never stale for the instance that calls it. See this module's doc
+  // comment (STALENESS).
+  const loadFileDiff = useCallback(
+    async (path: string): Promise<GitResult<StructuredFileDiff>> => {
+      const commitId = selection?.commit.id;
+      if (!commitId) {
+        return { error: 'no commit selected', ok: false };
+      }
+      const result = await loadCommitFileDiff(commitId, path);
+      if (!result.ok) {
+        toast({ description: result.error, title: 'Commit diff failed', variant: 'destructive' });
+      }
+      return result;
+    },
+    [loadCommitFileDiff, selection?.commit.id, toast]
+  );
+
+  if (!selection?.file) {
+    return (
+      <div className="grid h-full min-h-0 place-items-center px-8 text-center text-muted-foreground text-sm">
+        <div className="max-w-sm leading-relaxed">
+          {selection
+            ? 'Select a file from this commit to inspect its diff.'
+            : 'Select a commit to inspect its changes.'}
+        </div>
+      </div>
+    );
+  }
+
+  const { file } = selection;
+  const entry: ChangedFileEntry = {
+    additions: null,
+    deletions: null,
+    ...(file.originalPath ? { oldPath: file.originalPath } : {}),
+    path: file.path,
+    repositoryRoot: repository.repositoryRoot,
+    revertible: false,
+    rootId,
+    status: statusLetterToChangedFileStatus(file.status),
+    // The OPENED root, not `currentWorktree.path` — `bridge.commitFiles`
+    // returns paths already scoped to the opened folder, and
+    // `ChangedFileEntry.path` is contractually "relative to the owning
+    // worktree root". Identical outside `repository.scope === 'workspace'`.
+    // (Display-only here: `loadCommitFileDiff` resolves its cwd from
+    // `rootId` on the `git` domain, never from this field.)
+    worktreePath: repository.openedRoot,
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ChangesetFileDiffCard
+        bodyClassName="min-h-0 flex-1"
+        changesetKind="git-scope"
+        className="flex min-h-0 flex-1 flex-col"
+        entry={entry}
+        key={`${selection.commit.id}:${file.path}`}
+        loadFileDiff={loadFileDiff}
+      />
+    </div>
+  );
+}
+
+function GitHistoryBrowser({
+  panel,
+  repository,
+}: {
+  readonly panel: UseGitPanelResult;
+  readonly repository: GitRepository;
+}): ReactElement {
   const [historyList, setHistoryList] = useState<HistoryListState>(INITIAL_HISTORY_LIST_STATE);
   const [selection, setSelection] = useState<HistoricalSelection | null>(null);
   const [files, setFiles] = useState<readonly GitCommitFile[] | null>(null);
   const [filesError, setFilesError] = useState(false);
-  const [resolvedDiff, setResolvedDiff] = useState<LoadedHistoricalDiff | null>(null);
   const filesRequestRef = useRef(0);
   const historyGenerationRef = useRef(0);
   const { isLoadingMore, nextOffset } = historyList;
@@ -360,28 +501,10 @@ function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): Re
     };
   }, [panel.loadCommitFiles, selection?.commit.id]);
 
-  useEffect(() => {
-    const commitId = selection?.commit.id;
-    const file = selection?.file;
-    if (!(commitId && file)) {
-      return;
-    }
-    let cancelled = false;
-    void panel.loadCommitDiff(commitId, file.path, file.originalPath).then((diff) => {
-      if (!cancelled) {
-        setResolvedDiff({ commitId, diff, path: file.path });
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [panel.loadCommitDiff, selection?.commit.id, selection?.file]);
-
   const selectCommit = (commit: GitHistoryCommit): void => {
     setSelection({ commit, file: null });
     setFiles(null);
     setFilesError(false);
-    setResolvedDiff(null);
   };
 
   const selectFile = (file: GitCommitFile): void => {
@@ -389,7 +512,6 @@ function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): Re
       return;
     }
     setSelection({ commit: selection.commit, file });
-    setResolvedDiff(null);
   };
 
   const retryFiles = (): void => {
@@ -400,8 +522,6 @@ function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): Re
     setFilesError(false);
     void requestFiles(selection.commit.id);
   };
-
-  const diffState = resolveHistoricalDiffState(selection, resolvedDiff);
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -446,8 +566,13 @@ function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): Re
               selection={selection}
             />
           ) : null}
-          <div className="min-w-0 flex-1">
-            <GitDiffSurface state={diffState} />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <HistoricalDiffPane
+              loadCommitFileDiff={panel.loadCommitFileDiff}
+              repository={repository}
+              rootId={panel.activeRootId}
+              selection={selection}
+            />
           </div>
         </div>
       </section>
@@ -455,6 +580,18 @@ function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): Re
   );
 }
 
-export function GitHistoryView({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
-  return <GitHistoryBrowser key={panel.activeRootId ?? 'no-active-root'} panel={panel} />;
+export function GitHistoryView({
+  panel,
+  repository,
+}: {
+  readonly panel: UseGitPanelResult;
+  readonly repository: GitRepository;
+}): ReactElement {
+  return (
+    <GitHistoryBrowser
+      key={panel.activeRootId ?? 'no-active-root'}
+      panel={panel}
+      repository={repository}
+    />
+  );
 }
