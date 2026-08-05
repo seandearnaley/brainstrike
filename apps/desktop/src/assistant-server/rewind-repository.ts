@@ -84,8 +84,6 @@ export interface RewindTarget {
   /** Full-precision `::text` timestamp — never routed through a JS `Date`. */
   readonly createdAt: string;
   readonly messageId: string;
-  /** `(createdAt, id)` of the message immediately BEFORE the target, if any. */
-  readonly previous: { readonly createdAt: string; readonly id: string } | null;
   readonly threadId: string;
   /** Messages the rewind hides, oldest-first, INCLUDING the target itself. */
   readonly tombstoneMessageIds: readonly string[];
@@ -126,30 +124,17 @@ export async function resolveRewindTarget(
     return null;
   }
 
-  // Independent reads over the same anchor (`target.createdAt`/`target.id`):
-  // neither's predicate depends on the other's result, so they run together.
-  const [previousResult, tombstonesResult] = await Promise.all([
-    db.query<MessageAnchorRow>(
-      `SELECT id AS "id", "createdAt"::text AS "createdAt"
-       FROM ${MASTRA_MEMORY_TABLES.messages}
-       WHERE thread_id = $1 AND ("createdAt", id) < ($2::timestamptz, $3)
-       ORDER BY "createdAt" DESC, id DESC
-       LIMIT 1`,
-      [threadId, target.createdAt, target.id]
-    ),
-    db.query<{ id: string }>(
-      `SELECT id AS "id"
-       FROM ${MASTRA_MEMORY_TABLES.messages}
-       WHERE thread_id = $1 AND ("createdAt", id) >= ($2::timestamptz, $3)
-       ORDER BY "createdAt" ASC, id ASC`,
-      [threadId, target.createdAt, target.id]
-    ),
-  ]);
+  const tombstonesResult = await db.query<{ id: string }>(
+    `SELECT id AS "id"
+     FROM ${MASTRA_MEMORY_TABLES.messages}
+     WHERE thread_id = $1 AND ("createdAt", id) >= ($2::timestamptz, $3)
+     ORDER BY "createdAt" ASC, id ASC`,
+    [threadId, target.createdAt, target.id]
+  );
 
   return {
     createdAt: target.createdAt,
     messageId: target.id,
-    previous: previousResult.rows[0] ?? null,
     threadId,
     tombstoneMessageIds: tombstonesResult.rows.map((row) => row.id),
   };
@@ -158,23 +143,42 @@ export async function resolveRewindTarget(
 /**
  * Which runs a rewind's file revert covers.
  *
- * THE ANCHOR IS THE *PREVIOUS* MESSAGE, NOT THE TARGET — this is the subtle
- * part and it is deliberate. A run row is created by the RENDERER the moment
- * the user hits send (`createAssistantThreadRunPromise`), while the user
- * message itself is persisted by Mastra during the request. The run that a
- * message TRIGGERED therefore has `started_at` EARLIER than that message's
- * `createdAt`, so anchoring on `started_at >= target.createdAt` would silently
- * exclude the single most important run in the range — the one whose edits the
- * user is asking to undo. Anchoring strictly after the PRECEDING message's
- * `createdAt` is robust to when within a run Mastra chooses to save messages:
- * the previous turn's messages are always durable before the next run starts.
+ * THE ANCHOR IS THE TARGET MESSAGE, AND IT IS COMPARED AGAINST `completed_at`.
+ * A run is in range when it had NOT yet finished at the moment the target
+ * message was sent. Both halves of that sentence are load-bearing:
+ *
+ *  - `completed_at` rather than `started_at`, because a run row is created by
+ *    the RENDERER the moment the user hits send
+ *    (`createAssistantThreadRunPromise`) while Mastra persists the user message
+ *    during the request — the run a message TRIGGERED can be stamped a few
+ *    milliseconds EARLIER than the message itself. A `started_at` comparison
+ *    against the target would drop that run, which is the single most important
+ *    one in the range. It always ends LATER, so `completed_at` orders it
+ *    unambiguously.
+ *  - the TARGET rather than the message before it. Anchoring on the PRECEDING
+ *    message (the original W5 T3 rule) assumed a turn's runs all start before
+ *    that turn's assistant message is durable. They do not: a turn is not one
+ *    run. Every tool-approval / askUser resume mints a NEW run row through the
+ *    same `prepareRequestData` -> `createThreadRun` seam, while the assistant
+ *    message row is persisted at the START of the turn and upserted in place as
+ *    the turn streams on. So the previous turn's later runs — usually the ones
+ *    that did the file work — start after the previous message and were swept
+ *    into the range. Recovered from the 2026-08-05 live smoke: a run that
+ *    started 81 seconds BEFORE the message being rewound to, and had already
+ *    completed 28 seconds before it, was reverted; because its capture was a
+ *    `created` row, the revert DELETED the user's file. See the regression in
+ *    `rewind-service.integration.test.ts`.
  *
  * The comparison is STRICT (`>`), so a tie resolves toward reverting LESS. An
  * under-revert leaves visible file changes the user can still act on; an
  * over-revert destroys work they meant to keep. Those are not symmetric.
  *
- * A target that is the thread's first message has no preceding anchor, so the
- * range is every run in the thread.
+ * A NULL `completed_at` counts as in range — it is the fail-safe read of "this
+ * run never reported finishing" — but it is not reachable from `applyRewind`:
+ * `hasInFlightThreadRun` refuses the whole rewind while any run in the thread
+ * is non-terminal, and `completeThreadRun` stamps status and `completed_at`
+ * together. A preview over a thread with an unfinished run still describes the
+ * wider range honestly rather than hiding it.
  *
  * `runs-table-absent` is reported distinctly from `no-runs-after-message`:
  * this function never bootstraps the runs table, and "this profile has never
@@ -188,16 +192,12 @@ export async function resolveRewindRunRange(
   if (!(await relationExists(db, RUNS_TABLE))) {
     return { kind: 'none', reason: 'runs-table-absent' };
   }
-  const previous = target.previous;
-  const sql = previous
-    ? `SELECT id AS "id" FROM ${RUNS_TABLE}
-       WHERE thread_id = $1 AND started_at > $2::timestamptz
-       ORDER BY started_at ASC, id ASC`
-    : `SELECT id AS "id" FROM ${RUNS_TABLE}
-       WHERE thread_id = $1
-       ORDER BY started_at ASC, id ASC`;
-  const params = previous ? [target.threadId, previous.createdAt] : [target.threadId];
-  const result = await db.query<{ id: string }>(sql, params);
+  const result = await db.query<{ id: string }>(
+    `SELECT id AS "id" FROM ${RUNS_TABLE}
+     WHERE thread_id = $1 AND (completed_at IS NULL OR completed_at > $2::timestamptz)
+     ORDER BY started_at ASC, id ASC`,
+    [target.threadId, target.createdAt]
+  );
   const runIds = result.rows.map((row) => row.id);
   const fromRunId = runIds[0];
   if (!fromRunId) {
@@ -215,9 +215,23 @@ export async function resolveRewindRunRange(
  * Same race, read the other way round: the renderer creates the run row on
  * send while Mastra persists the user message during the request, so the
  * message that TRIGGERED a run is the EARLIEST one whose `createdAt` is
- * strictly after that run's `started_at`. `resolveRewindRunRange` then
- * re-derives the range from that message's predecessor and lands back on this
- * run.
+ * strictly after that run's `started_at`. For a run that OPENS a turn,
+ * `resolveRewindRunRange` re-derives the range from that message and lands back
+ * on this run (the run is still in flight when its own message is persisted, so
+ * its `completed_at` is later).
+ *
+ * KNOWN LIMITATION — a MID-TURN run does not round-trip. A turn is not one run:
+ * every tool-approval / askUser resume mints a new row, and no column links a
+ * run to the message whose turn it belongs to (a stored link is the seam this
+ * would need; timestamps alone cannot separate a resume of turn N from the
+ * opening run of turn N+1, which are milliseconds apart in the ambiguous
+ * direction). So a resume run resolves to the NEXT turn's message, whose range
+ * starts after that run — the rewind then covers LESS than the run the user
+ * clicked. That is the safe direction of the asymmetry
+ * `resolveRewindRunRange` documents, and the modal shows the resolved range
+ * (below), so the user is never shown one range and given another. Rewinding
+ * the opening run of the turn covers the resume as well, which is the gesture
+ * that does what a user asking to undo a turn means.
  *
  * `null` when the run is not in this thread, when Mastra's message table does
  * not exist yet, or when no message follows the run's start — a run whose

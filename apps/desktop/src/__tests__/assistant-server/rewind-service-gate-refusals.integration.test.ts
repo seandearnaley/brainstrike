@@ -55,8 +55,8 @@ function root(): string {
 }
 
 /** Same two-turn, two-run shape as `rewind-service.integration.test.ts` —
- * see that file's `seedTwoTurnThread` for why the range anchors on the
- * PRECEDING message. */
+ * see that file's `seedTwoTurnThread` for why the range anchors the TARGET
+ * message against `completed_at`. */
 async function seedTwoTurnThread(): Promise<void> {
   await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:00Z', id: 'msg-1' });
   await insertMessage(fixture.db, {
@@ -64,14 +64,22 @@ async function seedTwoTurnThread(): Promise<void> {
     id: 'msg-2',
     role: 'assistant',
   });
-  await insertRun(fixture.db, { id: 'run-1', startedAt: '2026-01-01T00:00:20Z' });
+  await insertRun(fixture.db, {
+    completedAt: '2026-01-01T00:00:35Z',
+    id: 'run-1',
+    startedAt: '2026-01-01T00:00:20Z',
+  });
   await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:21Z', id: 'msg-3' });
   await insertMessage(fixture.db, {
     createdAt: '2026-01-01T00:00:30Z',
     id: 'msg-4',
     role: 'assistant',
   });
-  await insertRun(fixture.db, { id: 'run-2', startedAt: '2026-01-01T00:00:40Z' });
+  await insertRun(fixture.db, {
+    completedAt: '2026-01-01T00:00:55Z',
+    id: 'run-2',
+    startedAt: '2026-01-01T00:00:40Z',
+  });
   await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:41Z', id: 'msg-5' });
   await insertMessage(fixture.db, {
     createdAt: '2026-01-01T00:00:50Z',

@@ -115,10 +115,18 @@ export async function insertMessage(
  * `status` defaults to `'completed'` — a finished turn is what almost every
  * rewind test needs. Pass `'running'` to seed the in-flight run that the
  * `run-in-flight` gate refuses on.
+ *
+ * `completedAt` is the range anchor (`resolveRewindRunRange`): a run that
+ * finished BEFORE the target message was sent is not part of that message's
+ * rewind. Omitting it seeds a run with no completion stamp, which in production
+ * only ever means "still in flight" — the `run-in-flight` gate refuses those
+ * before a range is ever resolved, so a test that omits it is describing a
+ * thread the gate would reject.
  */
 export async function insertRun(
   db: PGlite,
   args: {
+    completedAt?: string;
     id: string;
     startedAt: string;
     status?: 'cancelled' | 'completed' | 'failed' | 'running';
@@ -128,10 +136,17 @@ export async function insertRun(
   await db.query(
     `INSERT INTO brainstrike_assistant_thread_runs
        (id, resource_id, thread_id, provider, model, runtime_kind, status,
-        started_at, created_at, updated_at)
+        started_at, completed_at, created_at, updated_at)
      VALUES ($1, $2, $3, 'anthropic', 'test-model', 'hosted', $5,
-             $4::timestamptz, $4::timestamptz, $4::timestamptz)`,
-    [args.id, RESOURCE_ID, args.threadId ?? THREAD_ID, args.startedAt, args.status ?? 'completed']
+             $4::timestamptz, $6::timestamptz, $4::timestamptz, $4::timestamptz)`,
+    [
+      args.id,
+      RESOURCE_ID,
+      args.threadId ?? THREAD_ID,
+      args.startedAt,
+      args.status ?? 'completed',
+      args.completedAt ?? null,
+    ]
   );
 }
 

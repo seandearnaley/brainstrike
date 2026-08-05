@@ -869,6 +869,26 @@ finalizes the rewind.
   `rewind_id` batch" an exact inverse. A second rewind re-covering an already
   hidden message keeps the ORIGINAL batch's row (`ON CONFLICT DO NOTHING`), so
   undoing the newer rewind cannot resurrect what the older one hid.
+- **THE FILE-REVERT RANGE ANCHORS THE TARGET MESSAGE AGAINST `completed_at`**
+  (`resolveRewindRunRange`): a run is in range when it had not yet finished at
+  the moment the target message was sent. **A TURN IS NOT ONE RUN** — every
+  tool-approval / askUser resume mints another `brainstrike_assistant_thread_runs`
+  row through `prepareRequestData` -> `createThreadRun`, while the turn's
+  assistant message row is persisted at the START of the turn and upserted in
+  place as it streams on. The original rule anchored on the message PRECEDING
+  the target and compared `started_at`, which swept the previous turn's resume
+  runs into the revert; the 2026-08-05 live smoke reverted a run that started 81
+  seconds BEFORE the message rewound to, and because that run's capture was a
+  `created` row the revert DELETED the user's file. `completed_at` also settles
+  the boundary the old rule was built around: a run row is minted milliseconds
+  BEFORE its own user message is persisted, so `started_at` cannot order them,
+  but the run always ends later. NULL `completed_at` counts as in range and is
+  unreachable from `applyRewind` (`hasInFlightThreadRun` refuses first).
+  **Run -> message is the inverse that does NOT round-trip**: no column links a
+  run to the message whose turn it belongs to, so `resolveRewindMessageForRun`
+  maps a MID-TURN run to the next turn's message and the rewind covers less than
+  that run. Under-revert is the safe direction and the modal shows the resolved
+  range; closing it needs a stored run<->turn link, not another timestamp rule.
 - **Mastra stays the writer of message content.** Nothing here alters a
   `mastra_*` table; hiding is an anti-join in Brainstrike-owned reads, and the
   finalizing hard delete goes through Mastra's own `deleteMessages` storage

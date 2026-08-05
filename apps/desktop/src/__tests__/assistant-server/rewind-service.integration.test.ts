@@ -60,10 +60,11 @@ function root(): string {
 }
 
 /**
- * Two turns, two runs. The run a message triggers starts BEFORE that message
- * is persisted (the renderer creates the run row on send; Mastra saves the
- * message during the request), which is exactly why the range anchors on the
- * PRECEDING message — see `resolveRewindRunRange`.
+ * Two turns, two runs. The run a message triggers starts BEFORE that message is
+ * persisted (the renderer creates the run row on send; Mastra saves the message
+ * during the request) and finishes AFTER that turn's assistant message — which
+ * is why the range anchors the TARGET message against `completed_at` rather
+ * than either message against `started_at`. See `resolveRewindRunRange`.
  */
 async function seedTwoTurnThread(): Promise<void> {
   await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:00Z', id: 'msg-1' });
@@ -72,14 +73,22 @@ async function seedTwoTurnThread(): Promise<void> {
     id: 'msg-2',
     role: 'assistant',
   });
-  await insertRun(fixture.db, { id: 'run-1', startedAt: '2026-01-01T00:00:20Z' });
+  await insertRun(fixture.db, {
+    completedAt: '2026-01-01T00:00:35Z',
+    id: 'run-1',
+    startedAt: '2026-01-01T00:00:20Z',
+  });
   await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:21Z', id: 'msg-3' });
   await insertMessage(fixture.db, {
     createdAt: '2026-01-01T00:00:30Z',
     id: 'msg-4',
     role: 'assistant',
   });
-  await insertRun(fixture.db, { id: 'run-2', startedAt: '2026-01-01T00:00:40Z' });
+  await insertRun(fixture.db, {
+    completedAt: '2026-01-01T00:00:55Z',
+    id: 'run-2',
+    startedAt: '2026-01-01T00:00:40Z',
+  });
   await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:41Z', id: 'msg-5' });
   await insertMessage(fixture.db, {
     createdAt: '2026-01-01T00:00:50Z',
@@ -835,5 +844,128 @@ describe('applyRewind — created files', () => {
     const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, probe);
     expect(redone.ok).toBe(true);
     expect(await readDiskFile(root(), '/new.txt')).toBe('brand new');
+  });
+});
+
+/**
+ * REGRESSION — the destructive defect from the 2026-08-05 live smoke, recovered
+ * verbatim from the production journal (thread-f73c888a): rewinding one turn
+ * DELETED a file an EARLIER turn had created, instead of restoring it.
+ *
+ * A user turn is not one run. Every tool-approval / askUser resume mints a new
+ * run row through the same `prepareRequestData` -> `createThreadRun` seam, and
+ * the turn's assistant message row is persisted at the START of the turn (it is
+ * upserted in place as the turn streams on). So a turn's LATER runs — the ones
+ * that usually do the file work — start well AFTER that turn's own assistant
+ * message. Anchoring the range on the message PRECEDING the target therefore
+ * swept the previous turn's tail into the revert, and reverting its `created`
+ * capture is an `unlink`.
+ *
+ * Production numbers this mirrors: target message at 04:58:19.849; the swept
+ * run started at 04:56:58.397 — 81 SECONDS BEFORE the message the user rewound
+ * to — and had already completed at 04:57:51.341.
+ */
+describe('applyRewind — the range never reaches back past the target message', () => {
+  async function seedResumedTurnThread(): Promise<void> {
+    // Turn A: prompt, first run, assistant row, then a RESUME run that creates
+    // the file. Run rows are minted on send, ~milliseconds before Mastra
+    // persists the user message — the ordering the old anchor was built around.
+    await insertRun(fixture.db, {
+      completedAt: '2026-03-01T00:01:20Z',
+      id: 'run-a1',
+      startedAt: '2026-03-01T00:00:59Z',
+    });
+    await insertMessage(fixture.db, { createdAt: '2026-03-01T00:01:00Z', id: 'msg-a' });
+    await insertMessage(fixture.db, {
+      createdAt: '2026-03-01T00:01:05Z',
+      id: 'msg-b',
+      role: 'assistant',
+    });
+    await insertRun(fixture.db, {
+      completedAt: '2026-03-01T00:02:00Z',
+      id: 'run-a2',
+      startedAt: '2026-03-01T00:01:25Z',
+    });
+    // Turn B: the prompt the user rewinds to, and the run that edits the file.
+    await insertRun(fixture.db, {
+      completedAt: '2026-03-01T00:03:30Z',
+      id: 'run-b1',
+      startedAt: '2026-03-01T00:02:59Z',
+    });
+    await insertMessage(fixture.db, { createdAt: '2026-03-01T00:03:00Z', id: 'msg-c' });
+    await insertMessage(fixture.db, {
+      createdAt: '2026-03-01T00:03:10Z',
+      id: 'msg-d',
+      role: 'assistant',
+    });
+  }
+
+  it('restores a file the PREVIOUS turn created instead of deleting it', async () => {
+    await seedResumedTurnThread();
+    await seedWrite(fixture, {
+      after: 'the page turn A built',
+      before: null,
+      occurredAt: '2026-03-01T00:01:40Z',
+      path: '/page.html',
+      rootId: ROOT_ID,
+      runId: 'run-a2',
+    });
+    await seedWrite(fixture, {
+      after: 'the page turn B edited',
+      before: 'the page turn A built',
+      occurredAt: '2026-03-01T00:03:20Z',
+      path: '/page.html',
+      rootId: ROOT_ID,
+      runId: 'run-b1',
+    });
+
+    const result = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-c', mode: 'conversation-and-files', threadId: THREAD_ID },
+      probe
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    // Turn A's create is NOT in range: exactly one file operation is reverted.
+    expect(result.fileOutcomes.map((outcome) => outcome.code)).toEqual(['reverted']);
+    expect(result.range.kind === 'runs' ? result.range.runIds : []).toEqual(['run-b1']);
+    // The file the user asked to keep still exists, with turn A's content.
+    expect(await readDiskFile(root(), '/page.html')).toBe('the page turn A built');
+    // Only turn B's messages are hidden — the conversation side was never wrong.
+    expect(result.tombstonedMessageIds).toEqual(['msg-c', 'msg-d']);
+  });
+
+  it('previews the same narrowed range it would apply', async () => {
+    await seedResumedTurnThread();
+    await seedWrite(fixture, {
+      after: 'the page turn A built',
+      before: null,
+      occurredAt: '2026-03-01T00:01:40Z',
+      path: '/page.html',
+      rootId: ROOT_ID,
+      runId: 'run-a2',
+    });
+    await seedWrite(fixture, {
+      after: 'the page turn B edited',
+      before: 'the page turn A built',
+      occurredAt: '2026-03-01T00:03:20Z',
+      path: '/page.html',
+      rootId: ROOT_ID,
+      runId: 'run-b1',
+    });
+
+    const preview = await rewindToMessage(fixture.db, {
+      messageId: 'msg-c',
+      threadId: THREAD_ID,
+    });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) {
+      return;
+    }
+    expect(preview.range.kind === 'runs' ? preview.range.runIds : []).toEqual(['run-b1']);
   });
 });

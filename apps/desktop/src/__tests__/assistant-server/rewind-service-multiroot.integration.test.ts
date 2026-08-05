@@ -66,9 +66,17 @@ async function seedThread(): Promise<void> {
     id: 'msg-1',
     role: 'assistant',
   });
-  await insertRun(fixture.db, { id: 'run-1', startedAt: '2026-02-01T00:00:10Z' });
+  await insertRun(fixture.db, {
+    completedAt: '2026-02-01T00:00:15Z',
+    id: 'run-1',
+    startedAt: '2026-02-01T00:00:10Z',
+  });
   await insertMessage(fixture.db, { createdAt: '2026-02-01T00:00:11Z', id: 'msg-2' });
-  await insertRun(fixture.db, { id: 'run-2', startedAt: '2026-02-01T00:00:20Z' });
+  await insertRun(fixture.db, {
+    completedAt: '2026-02-01T00:00:25Z',
+    id: 'run-2',
+    startedAt: '2026-02-01T00:00:20Z',
+  });
   await insertMessage(fixture.db, { createdAt: '2026-02-01T00:00:21Z', id: 'msg-3' });
 }
 
