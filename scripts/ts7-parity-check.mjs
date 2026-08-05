@@ -156,7 +156,7 @@ function splitChain(command) {
 // Flattens a package's `type-check` script into an ordered list of concrete
 // shell command strings, following `pnpm <script-name>` references within the
 // SAME package (e.g. apps/desktop's `type-check` -> `type-check:main` +
-// `type-check:e2e`).
+// `type-check:test` + `type-check:e2e`).
 //
 // `inProgress` tracks the CURRENT RECURSION PATH, not every script ever seen.
 // The distinction matters: a diamond (`type-check` -> a -> shared, and

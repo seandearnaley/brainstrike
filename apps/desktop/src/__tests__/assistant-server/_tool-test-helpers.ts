@@ -31,15 +31,20 @@ export function requireTool(tools: MastraTools, id: string): MastraTool {
  * streamer and abortSignal, runSkillScript) — pass a real context when the
  * test exercises those paths. The `{}` default matches what the pre-typed
  * tests exercised (no streamer, no signal) without changing behavior.
+ *
+ * `TResult` defaults to the erased `any` Mastra's own execute returns so the
+ * existing suites keep their loose result assertions; pass an explicit type
+ * argument to get a typed result where a test wants real checking.
  */
-export function requireToolExecute(
+export function requireToolExecute<TResult = Awaited<ReturnType<ErasedExecute>>>(
   tools: MastraTools,
   id: string
-): (params: unknown, options?: unknown) => ReturnType<ErasedExecute> {
+): (params: unknown, options?: unknown) => Promise<TResult> {
   const tool = requireTool(tools, id);
   const execute = (tool as { execute?: ErasedExecute }).execute;
   if (typeof execute !== 'function') {
     throw new Error(`Expected tool '${id}' to have an execute implementation`);
   }
-  return (params: unknown, options?: unknown) => execute.call(tool, params, options ?? {});
+  return (params: unknown, options?: unknown) =>
+    execute.call(tool, params, options ?? {}) as Promise<TResult>;
 }

@@ -63,7 +63,7 @@ export const convertAssistantUiMessages = vi.fn(
   (messages: readonly unknown[]): unknown[] => messages as unknown[]
 );
 
-export async function makeAssistantServerHttpMock(): Promise<Record<string, unknown>> {
+export async function makeAssistantServerHttpMock() {
   const actual = await vi.importActual<typeof import('../../assistant-server/http')>(
     '../../assistant-server/http'
   );
@@ -90,7 +90,7 @@ export async function makeAgentClientLoaderMock() {
   };
 }
 
-export async function makeSecretsMock(): Promise<Record<string, unknown>> {
+export async function makeSecretsMock() {
   const actual = await vi.importActual<typeof import('../../secrets')>('../../secrets');
   return {
     ...actual,

@@ -59,6 +59,28 @@ SOURCE, and `@brainstrike/text-splitter` exports only `./dist`, so the package
 specifier would silently benchmark a stale build. Expect to triage new findings
 this way on the next bump rather than assuming the tree regressed.
 
+### App test-tsconfig programs (`tsconfig.test.json`)
+
+`apps/web` and `apps/desktop` type-check their test files through a dedicated
+`tsconfig.test.json` in the `type-check` chain. Both set `"paths": {}` so
+workspace deps resolve to built `dist` declarations (each produced under its
+own package's tsconfig) instead of recompiling foreign sources under the app's
+ambient shims. Two consequences to keep in mind:
+
+- `type-check:test` needs deps built first. Turbo's `type-check` task
+  (`dependsOn: ["build"]`) covers CI and `pnpm type-check`; a bare
+  `pnpm --filter <app> type-check` in a fresh clone will not have `dist/`.
+- The app's production `src` files reached from tests are checked TWICE under
+  two different resolution graphs (src-paths in the main program, dist in the
+  test program), so `type-check:main` passing does not imply `type-check:test`
+  passes on the same file. Desktop additionally excludes its renderer-only
+  PGlite shims (`src/types/pglite*.d.ts`) from the test program — an ambient
+  `declare module` would otherwise shadow the real `@electric-sql/pglite`
+  types for everything the tests pull in. The test programs also set
+  `declaration: false`: a `noEmit` program never emits d.ts, and inheriting
+  `declaration: true` makes exported `vi.fn()` mocks fail TS2883 portability
+  checks that vary with pnpm store layout.
+
 ### Vercel Preview is advisory
 
 The Vercel GitHub integration reports a `Vercel` commit status on pull
