@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAppCommandContext, createAppCommandRegistry } from '../command-registry';
 import { buildAppActionRegistryParts } from '../context-action-registry';
 
-type MutableWindow = Window & { platform?: unknown };
+// Deliberately NOT `Window & {...}`: the ambient `Window['platform']` is
+// `Partial<PlatformBridge>`, and intersecting with it would reject the
+// `= undefined` reset under exactOptionalPropertyTypes.
+interface MutableWindow {
+  platform?: unknown;
+}
 
 afterEach(() => {
   (window as MutableWindow).platform = undefined;

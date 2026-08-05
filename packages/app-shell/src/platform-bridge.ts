@@ -22,6 +22,17 @@ export interface PlatformBridge {
   showItemInFolder: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
+// Compile-time exact-set proof: `satisfies Record<keyof PlatformBridge, true>`
+// fails the build if any interface method is missing here, and excess keys are
+// rejected — so the pin can never silently become a subset (or superset) of
+// the interface. The runtime pin only checks preload ↔ constant; this closes
+// interface ↔ constant.
+const PLATFORM_BRIDGE_REQUIRED_METHOD_SET = {
+  openExternal: true,
+  openPath: true,
+  showItemInFolder: true,
+} as const satisfies Record<keyof PlatformBridge, true>;
+
 /**
  * Every method name the bridge must expose to be considered fully formed.
  * Exported so the desktop preload-runtime contract test can pin the
@@ -32,11 +43,9 @@ export interface PlatformBridge {
  * bridge method: a preload method missing from this list (or vice versa)
  * disables the entire surface via the resolver below.
  */
-export const PLATFORM_BRIDGE_REQUIRED_METHODS: readonly (keyof PlatformBridge)[] = [
-  'openExternal',
-  'openPath',
-  'showItemInFolder',
-];
+export const PLATFORM_BRIDGE_REQUIRED_METHODS = Object.keys(
+  PLATFORM_BRIDGE_REQUIRED_METHOD_SET
+) as readonly (keyof PlatformBridge)[];
 
 /**
  * Resolve the `window.platform` bridge, or `null` when it is absent (web) or
@@ -55,7 +64,9 @@ export function resolvePlatformBridge(): PlatformBridge | null {
     (method) => typeof bridge[method] !== 'function'
   );
   if (missing.length > 0) {
-    logger.error('window.platform bridge is malformed; shell actions disabled', { missing });
+    logger.error('window.platform bridge is malformed; shell actions + markdown preview disabled', {
+      missing,
+    });
     return null;
   }
   return bridge as PlatformBridge;

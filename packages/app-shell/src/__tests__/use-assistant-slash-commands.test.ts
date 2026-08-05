@@ -16,7 +16,12 @@ import {
   selectSlashCommandSource,
 } from '../slash-command-source';
 
-type MutableWindow = Window & { platform?: unknown };
+// Deliberately NOT `Window & {...}`: the ambient `Window['platform']` is
+// `Partial<PlatformBridge>`, and intersecting with it would reject the
+// `= undefined` reset under exactOptionalPropertyTypes.
+interface MutableWindow {
+  platform?: unknown;
+}
 
 afterEach(() => {
   (window as MutableWindow).platform = undefined;

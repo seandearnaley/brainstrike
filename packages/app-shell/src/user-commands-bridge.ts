@@ -23,6 +23,15 @@ export interface UserCommandsBridge {
   list: () => Promise<UserSlashCommandsListResult>;
 }
 
+// Compile-time exact-set proof: `satisfies Record<keyof UserCommandsBridge,
+// true>` fails the build if any interface method is missing here, and excess
+// keys are rejected — so the pin can never silently become a subset (or
+// superset) of the interface. The runtime pin only checks preload ↔ constant;
+// this closes interface ↔ constant.
+const USER_COMMANDS_BRIDGE_REQUIRED_METHOD_SET = {
+  list: true,
+} as const satisfies Record<keyof UserCommandsBridge, true>;
+
 /**
  * Every method name the bridge must expose to be considered fully formed.
  * Exported so the desktop preload-runtime contract test can pin the
@@ -33,9 +42,9 @@ export interface UserCommandsBridge {
  * bridge method: a preload method missing from this list (or vice versa)
  * disables the entire surface via the resolver below.
  */
-export const USER_COMMANDS_BRIDGE_REQUIRED_METHODS: readonly (keyof UserCommandsBridge)[] = [
-  'list',
-];
+export const USER_COMMANDS_BRIDGE_REQUIRED_METHODS = Object.keys(
+  USER_COMMANDS_BRIDGE_REQUIRED_METHOD_SET
+) as readonly (keyof UserCommandsBridge)[];
 
 /**
  * Resolve the `window.userCommands` bridge, or `null` when it is absent (web)
@@ -46,7 +55,7 @@ export function resolveUserCommandsBridge(): UserCommandsBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = window.userCommands;
+  const bridge = (window as Window & { userCommands?: Partial<UserCommandsBridge> }).userCommands;
   if (!bridge) {
     return null;
   }

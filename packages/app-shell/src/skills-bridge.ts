@@ -22,6 +22,15 @@ export interface SkillsBridge {
   scan: () => Promise<SkillsScanResultSummary>;
 }
 
+// Compile-time exact-set proof: `satisfies Record<keyof SkillsBridge, true>`
+// fails the build if any interface method is missing here, and excess keys are
+// rejected — so the pin can never silently become a subset (or superset) of
+// the interface. The runtime pin only checks preload ↔ constant; this closes
+// interface ↔ constant.
+const SKILLS_BRIDGE_REQUIRED_METHOD_SET = {
+  scan: true,
+} as const satisfies Record<keyof SkillsBridge, true>;
+
 /**
  * Every method name the bridge must expose to be considered fully formed.
  * Exported so the desktop preload-runtime contract test can pin the
@@ -32,7 +41,9 @@ export interface SkillsBridge {
  * bridge method: a preload method missing from this list (or vice versa)
  * disables the entire surface via the resolver below.
  */
-export const SKILLS_BRIDGE_REQUIRED_METHODS: readonly (keyof SkillsBridge)[] = ['scan'];
+export const SKILLS_BRIDGE_REQUIRED_METHODS = Object.keys(
+  SKILLS_BRIDGE_REQUIRED_METHOD_SET
+) as readonly (keyof SkillsBridge)[];
 
 /**
  * Resolve the `window.skills` bridge, or `null` when it is absent (web) or
@@ -43,7 +54,7 @@ export function resolveSkillsBridge(): SkillsBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = window.skills;
+  const bridge = (window as Window & { skills?: Partial<SkillsBridge> }).skills;
   if (!bridge) {
     return null;
   }

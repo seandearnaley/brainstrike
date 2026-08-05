@@ -8,6 +8,7 @@ import type {
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import type { ChangesBridge } from '../changes/changes-bridge';
+import type { PlatformBridge } from '../platform-bridge';
 import type { SkillsBridge } from '../skills-bridge';
 import type { UserCommandsBridge } from '../user-commands-bridge';
 
@@ -96,6 +97,15 @@ declare global {
         ) => void
       ) => (() => void) | undefined;
     };
+    /**
+     * Desktop-only OS shell integration bridge. Absent on web (no preload) —
+     * capability-check via `resolvePlatformBridge()` (`platform-bridge.ts`)
+     * rather than `isElectron()`. Derived from `PlatformBridge` so this
+     * declaration cannot drift from the interface; `Partial` because a
+     * present-but-incomplete bridge is possible until the resolver validates
+     * it.
+     */
+    platform?: Partial<PlatformBridge>;
     /**
      * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
      * capability-check via `resolveSkillsBridge()` (`skills-bridge.ts`) rather

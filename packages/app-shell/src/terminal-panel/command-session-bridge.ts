@@ -72,6 +72,19 @@ export interface CommandSessionBridge {
   ) => Promise<CommandSessionResult>;
 }
 
+// Compile-time exact-set proof: `satisfies Record<keyof CommandSessionBridge,
+// true>` fails the build if any interface method is missing here, and excess
+// keys are rejected — so the pin can never silently become a subset (or
+// superset) of the interface. The runtime pin only checks preload ↔ constant;
+// this closes interface ↔ constant.
+const COMMAND_SESSION_BRIDGE_REQUIRED_METHOD_SET = {
+  list: true,
+  read: true,
+  remove: true,
+  stop: true,
+  write: true,
+} as const satisfies Record<keyof CommandSessionBridge, true>;
+
 /**
  * Every method name the bridge must expose to be considered fully formed.
  * Exported so the desktop preload-runtime contract test can pin the
@@ -82,13 +95,9 @@ export interface CommandSessionBridge {
  * bridge method: a preload method missing from this list (or vice versa)
  * disables the entire surface via the resolver below.
  */
-export const COMMAND_SESSION_BRIDGE_REQUIRED_METHODS: readonly (keyof CommandSessionBridge)[] = [
-  'list',
-  'read',
-  'write',
-  'stop',
-  'remove',
-];
+export const COMMAND_SESSION_BRIDGE_REQUIRED_METHODS = Object.keys(
+  COMMAND_SESSION_BRIDGE_REQUIRED_METHOD_SET
+) as readonly (keyof CommandSessionBridge)[];
 
 export function resolveCommandSessionBridge(): CommandSessionBridge | null {
   if (typeof window === 'undefined') {

@@ -64,6 +64,27 @@ export interface NotesVaultBridge {
   writeFile(path: string, content: string): Promise<NotesVaultResult<{ lastModified: number }>>;
 }
 
+// Compile-time exact-set proof: `satisfies Record<keyof NotesVaultBridge,
+// true>` fails the build if any interface method is missing here, and excess
+// keys are rejected — so the pin can never silently become a subset (or
+// superset) of the interface. The runtime pin only checks preload ↔ constant;
+// this closes interface ↔ constant.
+const NOTES_VAULT_BRIDGE_REQUIRED_METHOD_SET = {
+  createDirectory: true,
+  deleteEntry: true,
+  ensureDefaultVault: true,
+  listDirectory: true,
+  onChanged: true,
+  pickDirectory: true,
+  readFile: true,
+  registerRoot: true,
+  rename: true,
+  statEntry: true,
+  unwatch: true,
+  watch: true,
+  writeFile: true,
+} as const satisfies Record<keyof NotesVaultBridge, true>;
+
 /**
  * Every method name the bridge must expose to be considered fully formed.
  * Exported so the desktop preload-runtime contract test can pin the
@@ -74,21 +95,9 @@ export interface NotesVaultBridge {
  * bridge method: a preload method missing from this list (or vice versa)
  * disables the entire surface via the resolver below.
  */
-export const NOTES_VAULT_BRIDGE_REQUIRED_METHODS: readonly (keyof NotesVaultBridge)[] = [
-  'createDirectory',
-  'deleteEntry',
-  'rename',
-  'ensureDefaultVault',
-  'pickDirectory',
-  'registerRoot',
-  'listDirectory',
-  'statEntry',
-  'readFile',
-  'writeFile',
-  'watch',
-  'unwatch',
-  'onChanged',
-];
+export const NOTES_VAULT_BRIDGE_REQUIRED_METHODS = Object.keys(
+  NOTES_VAULT_BRIDGE_REQUIRED_METHOD_SET
+) as readonly (keyof NotesVaultBridge)[];
 
 /**
  * Resolves window.notesVault if present AND fully formed. A present-but-
