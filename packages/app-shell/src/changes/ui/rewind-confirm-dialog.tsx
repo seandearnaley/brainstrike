@@ -145,8 +145,13 @@ function RewindConfirmBody({
   // to it — this is not a bypass, it is the mode having nothing to conflict on.
   const gateBlocks = filesMode && conflicts.length > 0 && !acknowledged;
 
-  const onRedo = async (rewindId: string): Promise<void> => {
-    const redone = await rewind.redo({ rewindId });
+  // `acknowledgeConflicts` defaults false: the FIRST attempt must always be an
+  // honest pre-scan, never a blind force. Only the toast's own retry action
+  // (raised below, in response to THIS call's own `conflicts-unacknowledged`
+  // refusal) ever passes `true` — the acknowledgment is for the paths this
+  // specific redo just named, never a standing override.
+  const onRedo = async (rewindId: string, acknowledgeConflicts = false): Promise<void> => {
+    const redone = await rewind.redo({ acknowledgeConflicts, rewindId });
     if (!redone.ok) {
       toast({
         description: redone.error,
@@ -156,6 +161,27 @@ function RewindConfirmBody({
       return;
     }
     if (!redone.value.ok) {
+      // A conflicted redo is not a dead end: the SAME conflicting paths named
+      // in `redone.value.message` can be forced from this toast, mirroring
+      // the confirm modal's own gate — the force is scoped to exactly what
+      // THIS refusal reported, never a blanket retry.
+      if (redone.value.reason === 'conflicts-unacknowledged') {
+        toast({
+          action: (
+            <ToastAction
+              altText="Undo anyway, overwriting the listed files"
+              data-testid="rewind-redo-force-toast-action"
+              onClick={() => void onRedo(rewindId, true)}
+            >
+              Undo anyway
+            </ToastAction>
+          ),
+          description: redone.value.message,
+          title: 'Could not undo the rewind',
+          variant: 'destructive',
+        });
+        return;
+      }
       toast({
         description: redone.value.message,
         title: 'Could not undo the rewind',

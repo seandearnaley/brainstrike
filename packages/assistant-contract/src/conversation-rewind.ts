@@ -156,15 +156,40 @@ export interface AssistantRewindApplied {
  * but that is the CHEAP half — the entry point on the Changes surface has no
  * assistant-runtime state to read, so the authoritative refusal is the
  * main-process one that produces this reason.
+ *
+ * `already-tombstoned` refuses a `conversation-and-files` apply whose target
+ * messages are ALL already tombstoned by an earlier, still-outstanding rewind
+ * (`insertTombstoneBatch`'s `ON CONFLICT DO NOTHING` returns zero rows).
+ * Proceeding anyway would revert files under a `rewindId` with no sidecar
+ * tombstone row, which makes that revert permanently un-redoable the moment it
+ * lands — refused before a single file is touched instead.
+ *
+ * `range-already-reverted` refuses an apply whose range resolved journal
+ * entries but every one of them already carries `reverted_at` (the pre-flight
+ * scan excludes them, so nothing would apply) while genuinely nothing needed
+ * reverting is reported as a `runs`/`none` range with zero records, never this
+ * reason. Reachable only when an earlier rewind over the SAME range was
+ * reverted and then redone without clearing the original entries' stamps — the
+ * fail-safe response is a named refusal, not a silent `ok: true` with empty
+ * `fileOutcomes`.
+ *
+ * `redo-incomplete` refuses to complete a redo when the pre-scan passed clean
+ * but one or more files still failed during the actual revert (a TOCTOU change
+ * between scan and write). The tombstone batch is left in place — NOT deleted
+ * — so the messages stay hidden and the batch remains redoable once the
+ * conflicting files are resolved.
  */
 export interface AssistantRewindRefused {
   readonly conflicts: readonly AssistantRewindConflict[];
   readonly message: string;
   readonly ok: false;
   readonly reason:
+    | 'already-tombstoned'
     | 'conflicts-unacknowledged'
     | 'message-not-found'
+    | 'range-already-reverted'
     | 'range-unresolvable'
+    | 'redo-incomplete'
     | 'rewind-not-found'
     | 'run-in-flight'
     | 'not-latest-rewind';

@@ -126,21 +126,25 @@ export async function resolveRewindTarget(
     return null;
   }
 
-  const previousResult = await db.query<MessageAnchorRow>(
-    `SELECT id AS "id", "createdAt"::text AS "createdAt"
-     FROM ${MASTRA_MEMORY_TABLES.messages}
-     WHERE thread_id = $1 AND ("createdAt", id) < ($2::timestamptz, $3)
-     ORDER BY "createdAt" DESC, id DESC
-     LIMIT 1`,
-    [threadId, target.createdAt, target.id]
-  );
-  const tombstonesResult = await db.query<{ id: string }>(
-    `SELECT id AS "id"
-     FROM ${MASTRA_MEMORY_TABLES.messages}
-     WHERE thread_id = $1 AND ("createdAt", id) >= ($2::timestamptz, $3)
-     ORDER BY "createdAt" ASC, id ASC`,
-    [threadId, target.createdAt, target.id]
-  );
+  // Independent reads over the same anchor (`target.createdAt`/`target.id`):
+  // neither's predicate depends on the other's result, so they run together.
+  const [previousResult, tombstonesResult] = await Promise.all([
+    db.query<MessageAnchorRow>(
+      `SELECT id AS "id", "createdAt"::text AS "createdAt"
+       FROM ${MASTRA_MEMORY_TABLES.messages}
+       WHERE thread_id = $1 AND ("createdAt", id) < ($2::timestamptz, $3)
+       ORDER BY "createdAt" DESC, id DESC
+       LIMIT 1`,
+      [threadId, target.createdAt, target.id]
+    ),
+    db.query<{ id: string }>(
+      `SELECT id AS "id"
+       FROM ${MASTRA_MEMORY_TABLES.messages}
+       WHERE thread_id = $1 AND ("createdAt", id) >= ($2::timestamptz, $3)
+       ORDER BY "createdAt" ASC, id ASC`,
+      [threadId, target.createdAt, target.id]
+    ),
+  ]);
 
   return {
     createdAt: target.createdAt,

@@ -44,6 +44,25 @@ export function dedupeConflictsForDisplay(
   return unique;
 }
 
+/**
+ * `disk-changed`/`path-occupied` are the only codes `force` actually overrides
+ * — `revertCheckpointEntry` (`edit-checkpoint-revert.ts`) checks `force` inside
+ * `assertNoConflict`, which those two dispatch branches call. `root-unavailable`
+ * and `capture-unavailable` never reach that check at all: the executor throws
+ * `CheckpointNotRevertibleError` (root resolution / capture-status guard)
+ * BEFORE `force` is ever consulted, so ticking the box cannot make those files
+ * restore — it only lets the apply proceed with them reported under "Not
+ * restored" afterward. The checkbox copy says which is true for THIS set.
+ */
+const FORCEABLE_CONFLICT_CODES: ReadonlySet<AssistantRewindConflict['code']> = new Set([
+  'disk-changed',
+  'path-occupied',
+]);
+
+function allForceable(conflicts: readonly AssistantRewindConflict[]): boolean {
+  return conflicts.every((conflict) => FORCEABLE_CONFLICT_CODES.has(conflict.code));
+}
+
 export function RewindConflictList({
   acknowledged,
   conflicts,
@@ -57,6 +76,9 @@ export function RewindConflictList({
   if (unique.length === 0) {
     return null;
   }
+  const acknowledgeCopy = allForceable(unique)
+    ? 'I understand these files will be overwritten with their earlier contents, and that restoring is all-or-nothing — nothing is restored until this is checked.'
+    : 'I understand that restoring is all-or-nothing: files that changed since the checkpoint will be overwritten with their earlier contents, and files whose workspace root is disconnected or whose before-state is no longer stored will be left as they are. Nothing is restored until this is checked.';
 
   return (
     <div
@@ -83,10 +105,7 @@ export function RewindConflictList({
           id="rewind-acknowledge-conflicts"
           onCheckedChange={(next) => onAcknowledgedChange(next === true)}
         />
-        <span className="text-muted-foreground leading-tight">
-          I understand these files will be overwritten with their earlier contents, and that
-          restoring is all-or-nothing — nothing is restored until this is checked.
-        </span>
+        <span className="text-muted-foreground leading-tight">{acknowledgeCopy}</span>
       </label>
     </div>
   );

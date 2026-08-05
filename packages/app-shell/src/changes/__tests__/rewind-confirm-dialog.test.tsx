@@ -508,8 +508,85 @@ describe('RewindConfirmDialog', () => {
     fireEvent.click(undo);
 
     await waitFor(() => {
-      expect(bridge.redoRewind).toHaveBeenCalledWith({ rewindId: 'rewind-1' });
+      // The FIRST redo attempt is always an honest pre-scan, never a blind
+      // force — `acknowledgeConflicts` is explicit-false until a
+      // `conflicts-unacknowledged` refusal's own retry action sends `true`.
+      expect(bridge.redoRewind).toHaveBeenCalledWith({
+        acknowledgeConflicts: false,
+        rewindId: 'rewind-1',
+      });
     });
+  });
+
+  it('a conflicted redo is not a dead end: the toast carries its own force-retry action', async () => {
+    const user = userEvent.setup();
+    let redoCalls = 0;
+    const bridge = installBridge({
+      redoRewind: vi.fn(async (): Promise<GitResult<AssistantRewindRedoResult>> => {
+        redoCalls += 1;
+        if (redoCalls === 1) {
+          return {
+            ok: true,
+            value: {
+              conflicts: [conflict(ROOT_A, 'src/index.ts', 'Repo A')],
+              message:
+                '1 file(s) cannot be restored cleanly and nothing was applied: src/index.ts. Re-issue with acknowledgeConflicts to proceed.',
+              ok: false,
+              reason: 'conflicts-unacknowledged',
+            },
+          };
+        }
+        return {
+          ok: true,
+          value: {
+            fileOutcomes: [],
+            ok: true,
+            restoredMessageIds: ['msg-2', 'msg-3'],
+            revertId: 'revert-1',
+            rewindId: 'rewind-1',
+            rootOutcomes: [],
+          },
+        };
+      }),
+    });
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+    await screen.findByTestId('rewind-outcome-summary');
+    await user.click(screen.getByTestId('rewind-done'));
+
+    const [undo] = await screen.findAllByTestId('rewind-undo-toast-action');
+    if (!undo) {
+      throw new Error('expected the toast to carry a redo affordance');
+    }
+    fireEvent.click(undo);
+
+    // The FIRST redo refuses. Rather than a permanent dead end, the SAME
+    // toast now offers a scoped force-retry — not a blanket override, only
+    // for the conflicts THIS refusal just named.
+    const [forceRetry] = await screen.findAllByTestId('rewind-redo-force-toast-action');
+    if (!forceRetry) {
+      throw new Error('expected the conflicted redo toast to carry a force-retry action');
+    }
+    fireEvent.click(forceRetry);
+
+    await waitFor(() => {
+      expect(redoCalls).toBe(2);
+    });
+    expect(bridge.redoRewind).toHaveBeenNthCalledWith(1, {
+      acknowledgeConflicts: false,
+      rewindId: 'rewind-1',
+    });
+    expect(bridge.redoRewind).toHaveBeenNthCalledWith(2, {
+      acknowledgeConflicts: true,
+      rewindId: 'rewind-1',
+    });
+    await screen.findByText(/2 message\(s\) are back\./);
   });
 
   // ===== Composer repopulation (Amendment 2) =====

@@ -235,6 +235,10 @@ async function countCaptureRows(db: EditCheckpointDatabase, revertId: string): P
   return Number(result.rows[0]?.count ?? 0);
 }
 
+function outcomeSummary(outcome: AssistantRewindFileOutcome): string {
+  return outcome.message ? `${outcome.path}: ${outcome.message}` : outcome.path;
+}
+
 /**
  * Execute a revert plan in ONE sequential newest-first pass.
  *
@@ -272,9 +276,16 @@ async function executePlan(
  * one after-capture row under `revertId`. A mismatch means a file was mutated
  * without a journal row to undo it, which makes redo silently lossy — so it
  * throws rather than returning a result that looks fine.
+ *
+ * `rewindId` is carried in the thrown message (never dropped) even though the
+ * tombstone batch and the files are already committed by the time this fires:
+ * `changes-ipc-handlers.ts`'s `failed()` forwards `Error#message` verbatim as
+ * the renderer's `outcome.error`, so this is the ONE channel that reaches the
+ * user, and it is also the id needed to find the batch again for recovery.
  */
 async function assertAfterCapturePairing(
   db: EditCheckpointDatabase,
+  rewindId: string,
   revertId: string,
   outcomes: readonly AssistantRewindFileOutcome[]
 ): Promise<void> {
@@ -282,7 +293,7 @@ async function assertAfterCapturePairing(
   const captured = await countCaptureRows(db, revertId);
   if (captured !== reverted) {
     throw new Error(
-      `rewind-pairing-violation: revert batch "${revertId}" reverted ${reverted} file(s) but journaled ${captured} after-capture row(s); redo would be lossy.`
+      `rewind-pairing-violation: rewind "${rewindId}" revert batch "${revertId}" reverted ${reverted} file(s) but journaled ${captured} after-capture row(s); redo would be lossy.`
     );
   }
 }
@@ -358,6 +369,71 @@ function refuseConflicts(conflicts: readonly AssistantRewindConflict[]): Assista
     message: `${conflicts.length} file(s) cannot be restored cleanly and nothing was applied: ${paths}. Re-issue with acknowledgeConflicts to proceed.`,
     ok: false,
     reason: 'conflicts-unacknowledged',
+  };
+}
+
+/**
+ * `insertTombstoneBatch`'s `ON CONFLICT DO NOTHING` (rewind-repository.ts)
+ * returned zero rows: every message this rewind would hide is already
+ * tombstoned by an earlier, still-outstanding batch. Proceeding to revert
+ * files under a fresh `revertId` here would leave that revert owned by a
+ * `rewindId` with no sidecar tombstone row — `redoRewind`'s `listTombstoneBatch`
+ * probe would find nothing and return `rewind-not-found`, so the revert would
+ * be permanently un-redoable the moment it landed. Refused before a single
+ * file is touched instead.
+ */
+function refuseAlreadyTombstoned(threadId: string): AssistantRewindRefused {
+  return {
+    conflicts: [],
+    message: `every message this rewind would hide in thread "${threadId}" is already tombstoned by an earlier, still-outstanding rewind; nothing was applied. Redo or finalize that rewind before rewinding this range again.`,
+    ok: false,
+    reason: 'already-tombstoned',
+  };
+}
+
+/**
+ * The range resolved journal entries, but every one of them already carries
+ * `reverted_at` — the pre-flight scan (`scanRewindRange`) excludes reverted
+ * entries by design, so `plan.records` came back empty even though the range
+ * is not genuinely empty. This is NEVER "nothing needed reverting" (that case
+ * has no un-reverted entries to begin with and never reaches here) — it is
+ * reachable ONLY when an earlier rewind over this same range was applied and
+ * then redone WITHOUT clearing the original entries' `reverted_at` stamps
+ * (tracked minor (f): "redo leaves records stamped"). Reporting `ok: true`
+ * with empty `fileOutcomes` here would be a silent no-op dressed as success;
+ * refusing by name is the fail-safe direction on this seam.
+ */
+function refuseRangeAlreadyReverted(threadId: string): AssistantRewindRefused {
+  return {
+    conflicts: [],
+    message: `every file this rewind would revert in thread "${threadId}" was already reverted by an earlier rewind that was redone without clearing its journal stamps; nothing was applied. Re-open that rewind's Changes entry to inspect the files by hand.`,
+    ok: false,
+    reason: 'range-already-reverted',
+  };
+}
+
+/**
+ * The redo's pre-scan passed clean, but one or more files still failed during
+ * the actual revert — a TOCTOU change between the scan and the write (the
+ * same inherent race `applyRewind`'s own header documents). Unlike apply,
+ * redo's whole point is un-tombstoning messages IN STEP with restoring their
+ * files, so a partial file failure here must not delete the tombstone batch:
+ * doing so would un-hide the messages while leaving some files un-restored,
+ * with no batch left to retry against. The batch stays; the caller can retry
+ * once the named files stop conflicting (already-succeeded entries are
+ * idempotent no-ops on retry via `revertCheckpointEntry`'s own `reverted_at`
+ * check).
+ */
+function refuseRedoIncomplete(
+  rewindId: string,
+  failed: readonly AssistantRewindFileOutcome[]
+): AssistantRewindRefused {
+  const paths = failed.map((outcome) => outcomeSummary(outcome)).join('; ');
+  return {
+    conflicts: [],
+    message: `redo "${rewindId}" could not restore ${failed.length} file(s) because they changed after the rewind was applied: ${paths}. The messages stay hidden and the batch was left in place; resolve the conflicts and retry redo.`,
+    ok: false,
+    reason: 'redo-incomplete',
   };
 }
 
@@ -450,6 +526,13 @@ async function applyRewindLocked(
     return { conflicts: [], message: recordsResult.error, ok: false, reason: 'range-unresolvable' };
   }
   const plan = await scanRewindRange(db, recordsResult.records);
+  // Every entry in range already shows `reverted_at` (see
+  // `refuseRangeAlreadyReverted`): a prior rewind over this same range was
+  // applied and then redone without clearing the original stamps. Refuse by
+  // name rather than silently reporting `ok: true` with nothing done.
+  if (recordsResult.records.length > 0 && plan.records.length === 0) {
+    return refuseRangeAlreadyReverted(args.threadId);
+  }
   // THE GATE. Nothing above this line has written anything; nothing below it
   // runs until the caller has been shown every named path and acknowledged.
   if (plan.conflicts.length > 0 && args.acknowledgeConflicts !== true) {
@@ -463,11 +546,18 @@ async function applyRewindLocked(
     rewindId,
     threadId: args.threadId,
   });
+  // Every target message was already tombstoned by an earlier, still-open
+  // batch (`ON CONFLICT DO NOTHING` inserted nothing): refuse before touching
+  // a single file rather than reverting under a `rewindId` no sidecar row
+  // will ever back — see `refuseAlreadyTombstoned`.
+  if (tombstoned.length === 0) {
+    return refuseAlreadyTombstoned(args.threadId);
+  }
   const fileOutcomes = await executePlan(db, plan, deps, {
     revertId,
     toolName: REWIND_REVERT_TOOL_NAME,
   });
-  await assertAfterCapturePairing(db, revertId, fileOutcomes);
+  await assertAfterCapturePairing(db, rewindId, revertId, fileOutcomes);
 
   return {
     fileOutcomes,
@@ -493,7 +583,10 @@ async function applyRewindLocked(
  * The same acknowledgment gate applies: if restoring the files would conflict
  * (the user edited them after the rewind), the WHOLE redo refuses, including
  * the un-tombstone. A conversation that reappeared without its files would be
- * a lie about what was restored.
+ * a lie about what was restored. That gate binds the PRE-SCAN; a file that
+ * still fails during the actual revert (TOCTOU) refuses with `redo-incomplete`
+ * and leaves the tombstone batch in place rather than deleting it out from
+ * under a partial restore — see `refuseRedoIncomplete`.
  *
  * RACING FINALIZATION. The first read below only resolves which thread to
  * serialize on; the batch is read AGAIN inside the lock and that second read
@@ -542,6 +635,15 @@ export async function redoRewind(
       // second-order undo to journal for.
       fileOutcomes = await executePlan(db, plan, deps, null);
       rootOutcomes = buildRootOutcomes(plan, fileOutcomes);
+      // The pre-scan passed clean, but a file still failed during the actual
+      // revert (TOCTOU between scan and write). Deleting the tombstone batch
+      // below would un-hide the messages while leaving that file un-restored
+      // and no batch left to retry against — refuse instead and leave the
+      // batch in place. See `refuseRedoIncomplete`.
+      const failed = fileOutcomes.filter((outcome) => outcome.code !== 'reverted');
+      if (failed.length > 0) {
+        return refuseRedoIncomplete(args.rewindId, failed);
+      }
     }
 
     const restoredMessageIds = await deleteTombstoneBatch(db, args.rewindId);

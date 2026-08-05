@@ -33,6 +33,8 @@ import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import { readDiskState } from './edit-checkpoint-revert';
 import { loadWorkspaceRootsFromDatabase } from './workspace-roots';
 
+const CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
+
 /** NUL separator — see `changeset-journal-view.ts`'s `foldKey` for why a
  * printable delimiter cannot disambiguate `(rootId, path)` pairs. Written via
  * `fromCharCode` so this source file never contains a raw NUL byte. */
@@ -65,23 +67,48 @@ export interface RewindRevertPlan {
 }
 
 /**
- * Reverse apply order across the WHOLE range: `(occurredAt, id)` descending.
- * `occurredAt` is monotonic within a run and runs are ordered by `started_at`,
- * so one global descending sort is the correct newest-first sequence across
- * runs — there is no need to group by run first.
+ * Reverse apply order across the WHOLE range: `(occurred_at, id)` descending,
+ * resolved in SQL rather than by sorting the already-loaded records in JS.
+ *
+ * `AssistantEditCheckpointRecord.occurredAt` (`edit-checkpoint-journal.ts`'s
+ * `mapCheckpointRecordRow` → `toIso`) is `new Date(value).toISOString()`,
+ * which is millisecond-resolution; `occurred_at` itself stores microseconds.
+ * Two checkpoints for the same file inside one millisecond therefore compare
+ * EQUAL on that field, and a JS-side tiebreak on `id` (`crypto.randomUUID()`,
+ * a v4 UUID with no relationship to time) would decide the order with a coin
+ * flip. Reverted out of order, the older record's `afterHash` would not match
+ * disk, both records would land in `conflicts`, and forcing them would leave
+ * the file holding the wrong record's before-content while reporting
+ * `reverted` — a wrong restore reported as a correct one. Ordering in SQL
+ * against the full microsecond value avoids the truncation entirely, the same
+ * way `revertCheckpointRun:549` (`edit-checkpoint-revert.ts`) already does;
+ * this does not re-derive `occurredAt` as `::text` and thread a second
+ * timestamp field through `AssistantEditCheckpointRecord` everywhere it flows.
  *
  * This is the single definition of revert order. Do not sort again at the call
  * site, and never hand this list to `Promise.all`: for a file touched by more
  * than one run, order IS correctness, not a performance preference.
  */
-export function orderRewindRecordsNewestFirst(
+export async function orderRewindRecordsNewestFirst(
+  db: EditCheckpointDatabase,
   records: readonly AssistantEditCheckpointRecord[]
-): readonly AssistantEditCheckpointRecord[] {
-  return [...records].sort((left, right) => {
-    if (left.occurredAt === right.occurredAt) {
-      return left.id < right.id ? 1 : left.id > right.id ? -1 : 0;
+): Promise<readonly AssistantEditCheckpointRecord[]> {
+  if (records.length === 0) {
+    return [];
+  }
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const result = await db.query<{ id: string }>(
+    `SELECT id AS "id" FROM ${CHECKPOINTS_TABLE}
+     WHERE id = ANY($1)
+     ORDER BY occurred_at DESC, id DESC`,
+    [records.map((record) => record.id)]
+  );
+  return result.rows.map((row) => {
+    const record = byId.get(row.id);
+    if (!record) {
+      throw new Error(`rewind order resolution lost record "${row.id}" between load and sort.`);
     }
-    return left.occurredAt < right.occurredAt ? 1 : -1;
+    return record;
   });
 }
 
@@ -254,7 +281,8 @@ export async function scanRewindRange(
   db: EditCheckpointDatabase,
   records: readonly AssistantEditCheckpointRecord[]
 ): Promise<RewindRevertPlan> {
-  const plan = orderRewindRecordsNewestFirst(
+  const plan = await orderRewindRecordsNewestFirst(
+    db,
     records.filter((record) => record.revertedAt === null)
   );
   const connected = await loadWorkspaceRootsFromDatabase(db);
