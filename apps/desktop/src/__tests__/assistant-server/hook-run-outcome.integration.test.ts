@@ -35,10 +35,10 @@ interface OutcomeRow {
 }
 
 async function readOutcome(db: Awaited<ReturnType<typeof wasmLoader.createPGlite>>, runId: string) {
-  const result = await db.query<OutcomeRow>(
+  const result = (await db.query(
     'SELECT thread_id, resource_id, verdict, source, detail FROM brainstrike_assistant_run_outcomes WHERE run_id = $1',
     [runId]
-  );
+  )) as { rows: OutcomeRow[] };
   return result.rows;
 }
 

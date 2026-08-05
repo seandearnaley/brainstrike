@@ -99,12 +99,13 @@ describe('Desktop CSP Utils', () => {
       expect(devCSP).toContain("'wasm-unsafe-eval'");
       expect(prodCSP).toContain("'wasm-unsafe-eval'");
       expect(prodCSP).not.toContain("'unsafe-eval' ");
-      const scriptSrcOf = (csp) =>
-        csp.split(';').find((d) => d.trim().startsWith('script-src')) ?? '';
+      const scriptSrcOf = (csp: string) =>
+        csp.split(';').find((directive: string) => directive.trim().startsWith('script-src')) ?? '';
       expect(scriptSrcOf(prodCSP)).not.toContain('jsdelivr');
       expect(scriptSrcOf(devCSP)).not.toContain('jsdelivr');
-      const connectSrcOf = (csp) =>
-        csp.split(';').find((d) => d.trim().startsWith('connect-src')) ?? '';
+      const connectSrcOf = (csp: string) =>
+        csp.split(';').find((directive: string) => directive.trim().startsWith('connect-src')) ??
+        '';
       expect(connectSrcOf(prodCSP)).toContain('https://cdn.jsdelivr.net');
     });
   });

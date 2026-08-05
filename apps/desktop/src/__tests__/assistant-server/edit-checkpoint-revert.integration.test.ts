@@ -24,6 +24,7 @@ vi.mock('../../db-main', () => ({
 }));
 
 import {
+  type EditCheckpointDatabase,
   type EditCheckpointInput,
   recordEditCheckpoint,
   sha256Hex,
@@ -34,7 +35,7 @@ import {
   revertCheckpointRun,
 } from '../../assistant-server/edit-checkpoint-revert';
 
-let db: PGlite;
+let db: PGlite & EditCheckpointDatabase;
 let rootPath: string;
 const ROOT_ID = 'root-1';
 const THREAD = 'thread-1';

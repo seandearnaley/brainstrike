@@ -38,7 +38,11 @@ describe('App Initialization Integration', () => {
   it('should have access to electron API in test environment', () => {
     // Test that the electron API mock is available
     expect(window.electronAPI).toBeDefined();
-    expect(window.electronAPI.storage).toBeDefined();
-    expect(window.electronAPI.fileSystem).toBeDefined();
+    const electronApi = window.electronAPI;
+    if (!electronApi) {
+      throw new Error('Expected the Electron API mock to be available.');
+    }
+    expect(electronApi.storage).toBeDefined();
+    expect(electronApi.fileSystem).toBeDefined();
   });
 });

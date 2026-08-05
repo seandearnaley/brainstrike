@@ -28,8 +28,9 @@ function createMockDb(
     return { rows: [] };
   });
 
+  const db = { maintenance: { exec }, query };
   return {
-    db: { maintenance: { exec }, query },
+    db: db as unknown as Parameters<typeof probeDimensionIndexRuntimeCapabilities>[0]['db'],
     exec,
     query,
   };
@@ -72,7 +73,9 @@ describe('probeDimensionIndexRuntimeCapabilities', () => {
   it('fails closed when maintenance exec support is unavailable', async () => {
     await expect(
       probeDimensionIndexRuntimeCapabilities({
-        db: { query: vi.fn(async () => ({ rows: [] })) },
+        db: { query: vi.fn(async () => ({ rows: [] })) } as unknown as Parameters<
+          typeof probeDimensionIndexRuntimeCapabilities
+        >[0]['db'],
         initialMemoryBytes: null,
         now: () => new Date('2026-06-18T14:00:00.000Z'),
         scratchTableName: 'brainstrike_hnsw_probe_unit_test',

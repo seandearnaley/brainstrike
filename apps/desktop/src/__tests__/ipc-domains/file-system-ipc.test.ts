@@ -185,7 +185,7 @@ describe('file system IPC domain', () => {
 
   it('returns structured file-read payloads for expected read failures', async () => {
     const readFile = handlers.get('fs:readFile');
-    const handle = { id: 'real-file', path: '/users/test/large.txt' } as FileHandle;
+    const handle = { id: 'real-file', path: '/users/test/large.txt' } as unknown as FileHandle;
     vi.mocked(fileSystem.readFile).mockRejectedValueOnce(
       new AccessError('File too large: 1.1MB (max: 750KB)', handle.path, 'read')
     );

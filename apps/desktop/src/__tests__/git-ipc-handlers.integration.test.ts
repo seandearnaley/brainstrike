@@ -201,7 +201,7 @@ describe('git IPC handlers — root resolution + containment', () => {
 describe('git IPC handlers — push/pull command construction (no network)', () => {
   it('builds the push command and maps a network failure to a structured error', async () => {
     const dir = await makeDir();
-    const responses = [
+    const responses: GitCommandRun[] = [
       { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: '\n', timedOut: false },
@@ -222,7 +222,10 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
         calls.push({ args, cwd });
         const response = responses[index] ?? responses.at(-1);
         index += 1;
-        return Promise.resolve(response ?? responses[3]);
+        if (!response) {
+          throw new Error('Expected a canned git command response.');
+        }
+        return Promise.resolve(response);
       },
     });
 
@@ -259,7 +262,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
   it('uses a bare `git push` when the branch already has an upstream', async () => {
     const dir = await makeDir();
     // Per-call responses: full-root probe, current branch, upstream, then push.
-    const responses = [
+    const responses: GitCommandRun[] = [
       { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
@@ -347,7 +350,10 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       run: () => {
         const response = responses[index] ?? responses.at(-1);
         index += 1;
-        return Promise.resolve(response ?? responses[2]);
+        if (!response) {
+          throw new Error('Expected a canned git command response.');
+        }
+        return Promise.resolve(response);
       },
     });
 
@@ -587,20 +593,20 @@ describe('git IPC runner — pinned repository environment', () => {
       LC_ALL: 'C',
       SSH_AUTH_SOCK: '/tmp/agent.sock',
     });
-    expect(environment.GIT_DIR).toBeUndefined();
-    expect(environment.GIT_WORK_TREE).toBeUndefined();
-    expect(environment.GIT_COMMON_DIR).toBeUndefined();
-    expect(environment.GIT_INDEX_FILE).toBeUndefined();
-    expect(environment.GIT_ALTERNATE_OBJECT_DIRECTORIES).toBeUndefined();
-    expect(environment.GIT_CONFIG).toBeUndefined();
-    expect(environment.GIT_CONFIG_COUNT).toBeUndefined();
-    expect(environment.GIT_CONFIG_KEY_0).toBeUndefined();
-    expect(environment.GIT_CONFIG_VALUE_0).toBeUndefined();
-    expect(environment.GIT_GRAFT_FILE).toBeUndefined();
-    expect(environment.GIT_REPLACE_REF_BASE).toBeUndefined();
-    expect(environment.GIT_SHALLOW_FILE).toBeUndefined();
-    expect(environment.Git_Config).toBeUndefined();
-    expect(environment.git_dir).toBeUndefined();
+    expect(environment['GIT_DIR']).toBeUndefined();
+    expect(environment['GIT_WORK_TREE']).toBeUndefined();
+    expect(environment['GIT_COMMON_DIR']).toBeUndefined();
+    expect(environment['GIT_INDEX_FILE']).toBeUndefined();
+    expect(environment['GIT_ALTERNATE_OBJECT_DIRECTORIES']).toBeUndefined();
+    expect(environment['GIT_CONFIG']).toBeUndefined();
+    expect(environment['GIT_CONFIG_COUNT']).toBeUndefined();
+    expect(environment['GIT_CONFIG_KEY_0']).toBeUndefined();
+    expect(environment['GIT_CONFIG_VALUE_0']).toBeUndefined();
+    expect(environment['GIT_GRAFT_FILE']).toBeUndefined();
+    expect(environment['GIT_REPLACE_REF_BASE']).toBeUndefined();
+    expect(environment['GIT_SHALLOW_FILE']).toBeUndefined();
+    expect(environment['Git_Config']).toBeUndefined();
+    expect(environment['git_dir']).toBeUndefined();
   });
 });
 

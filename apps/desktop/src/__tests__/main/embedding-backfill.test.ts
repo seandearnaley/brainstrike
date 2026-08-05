@@ -25,13 +25,17 @@ interface RepairableMockQueue {
   requeueFailed: QueueRepairFunction;
 }
 
-function withQueueRepair<T extends object>(jobQueue: T): T & RepairableMockQueue {
+type EmbeddingBackfillJobQueue = Parameters<typeof enqueueEmbeddingBackfill>[1];
+
+function withQueueRepair<T extends object>(
+  jobQueue: T
+): T & RepairableMockQueue & EmbeddingBackfillJobQueue {
   const repairableQueue = jobQueue as Partial<RepairableMockQueue>;
   return {
     ...jobQueue,
     repairUnclaimableQueued: repairableQueue.repairUnclaimableQueued ?? vi.fn(async () => 0),
     requeueFailed: repairableQueue.requeueFailed ?? vi.fn(async () => 0),
-  };
+  } as unknown as T & RepairableMockQueue & EmbeddingBackfillJobQueue;
 }
 
 function isBackfillCandidateCountQuery(sql: string): boolean {
@@ -63,19 +67,32 @@ function isDimensionIndexMaintenanceQuery(sql: string): boolean {
   );
 }
 
-function withMaintenanceExec<
-  T extends { query: (sql: string, params?: readonly unknown[]) => unknown },
->(db: T): T & { maintenance: { exec: (sql: string, params?: readonly unknown[]) => unknown } } {
+type EmbeddingBackfillDatabase = Parameters<typeof enqueueEmbeddingBackfill>[0];
+
+function withMaintenanceExec<T extends object>(
+  db: T
+): T &
+  EmbeddingBackfillDatabase & {
+    maintenance: { exec: (sql: string, params?: readonly unknown[]) => Promise<unknown> };
+  } {
+  const query = (
+    db as unknown as {
+      query: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+    }
+  ).query;
   return {
     ...db,
     maintenance: {
-      exec: vi.fn((sql: string, params?: readonly unknown[]) => db.query(sql, params)),
+      exec: vi.fn((sql: string, params?: readonly unknown[]) => query(sql, params)),
     },
-  };
+  } as unknown as T &
+    EmbeddingBackfillDatabase & {
+      maintenance: { exec: (sql: string, params?: readonly unknown[]) => Promise<unknown> };
+    };
 }
 
 function enqueueTestEmbeddingBackfill(
-  db: Parameters<typeof enqueueEmbeddingBackfill>[0],
+  db: object,
   jobQueue: Parameters<typeof enqueueEmbeddingBackfill>[1],
   embeddingSetId: string,
   onProgress: (done: number, total: number) => void,

@@ -1,6 +1,9 @@
 import { LogLevel } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
-import { collectDesktopPlatformDiagnostics } from '../desktop-platform-diagnostics';
+import {
+  collectDesktopPlatformDiagnostics,
+  type DesktopPlatformDiagnosticsProviders,
+} from '../desktop-platform-diagnostics';
 
 describe('desktop platform diagnostics', () => {
   it('collects one typed snapshot across database, scheduler, hosts, logging, and reset state', async () => {
@@ -168,7 +171,7 @@ describe('desktop platform diagnostics', () => {
         })),
       },
       telemetry: { getRuntimeMetrics: vi.fn(() => runtimeMetrics) },
-    });
+    } as unknown as DesktopPlatformDiagnosticsProviders);
 
     expect(snapshot).toMatchObject({
       crashRecovery,

@@ -23,6 +23,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import type { WebSearchToolDependencies } from '../../assistant-server/web-search-tool';
+import { requireTool } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
 // an empty generator). Everything else from the package keeps its real impl.
@@ -114,8 +115,7 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
     };
 
     const tools = buildDesktopAssistantTools({} as RuntimeData, { webSearch: webSearchDeps });
-    const webSearchTool = tools['brainstrike.webSearch'];
-    expect(webSearchTool).toBeDefined();
+    const webSearchTool = requireTool(tools, 'brainstrike.webSearch');
 
     const hostClient = createScriptedHostClient('how to cancel fetch');
 
@@ -180,7 +180,7 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
       resolveApiKey: () => Promise.resolve(undefined),
     };
     const tools = buildDesktopAssistantTools({} as RuntimeData, { webSearch: webSearchDeps });
-    const webSearchTool = tools['brainstrike.webSearch'];
+    const webSearchTool = requireTool(tools, 'brainstrike.webSearch');
 
     const hostClient = createScriptedHostClient('anything');
 

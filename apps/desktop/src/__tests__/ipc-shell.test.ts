@@ -10,12 +10,15 @@ function makeShell() {
 }
 
 function makeStatPath() {
-  return vi.fn().mockResolvedValue({ isDirectory: () => false, isFile: () => true });
+  return vi.fn(async (_target: string) => ({ isDirectory: () => false, isFile: () => true }));
 }
 
 function makeHandlers(
   shell = makeShell(),
-  paths: { lstatPath?: ReturnType<typeof vi.fn>; statPath?: ReturnType<typeof vi.fn> } = {}
+  paths: {
+    lstatPath?: ReturnType<typeof makeStatPath>;
+    statPath?: ReturnType<typeof makeStatPath>;
+  } = {}
 ) {
   return createShellIpcHandlers({
     lstatPath: paths.lstatPath ?? makeStatPath(),

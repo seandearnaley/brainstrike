@@ -23,8 +23,7 @@ interface LoadResult {
 
 function mockWatchImpl(setter: (cb: WatchCallback) => void, ret: { close: () => void }) {
   const mock = watchMcpConfig as unknown as import('vitest').Mock<
-    [onChange: WatchCallback],
-    { close: () => void }
+    (onChange: WatchCallback) => { close: () => void }
   >;
   mock.mockImplementation((cb: WatchCallback) => {
     setter(cb);
@@ -95,8 +94,7 @@ describe('ipc-mcp handlers', () => {
 
     // Capture handlers when registered
     const mockHandle = ipcMain.handle as unknown as import('vitest').Mock<
-      [channel: string, handler: RegisteredHandler],
-      void
+      (channel: string, handler: RegisteredHandler) => void
     >;
     mockHandle.mockImplementation((channel: string, handler: RegisteredHandler) => {
       handlers.set(channel, handler);

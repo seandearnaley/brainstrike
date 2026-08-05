@@ -82,7 +82,10 @@ interface McpApi {
 }
 
 const getWindowWithExtensions = () =>
-  window as typeof window & { secrets?: SecretsApi; mcp?: McpApi };
+  window as unknown as Omit<typeof window, 'mcp' | 'secrets'> & {
+    secrets?: SecretsApi;
+    mcp?: McpApi;
+  };
 
 let originalResizeObserver: typeof ResizeObserver | undefined;
 

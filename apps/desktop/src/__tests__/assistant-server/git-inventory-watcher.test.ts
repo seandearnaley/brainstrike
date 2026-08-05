@@ -98,6 +98,16 @@ function makeDeps(
   };
 }
 
+function requireCallback<TArgs extends unknown[]>(
+  callback: ((...args: TArgs) => void) | null,
+  description: string
+): (...args: TArgs) => void {
+  if (!callback) {
+    throw new Error(`expected ${description}`);
+  }
+  return callback;
+}
+
 describe('createGitInventoryWatchers', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -428,7 +438,10 @@ describe('createGitInventoryWatchers', () => {
       // must notice the Subscription it holds is no longer the one tracked
       // (disposeAll already deleted it) and invoke this real disposer too —
       // otherwise the underlying native watch would leak forever.
-      resolveWatch?.(() => {
+      requireCallback<[() => void]>(
+        resolveWatch,
+        'watch resolver'
+      )(() => {
         disposeCallCount += 1;
       });
       await syncPromise;
@@ -596,7 +609,10 @@ describe('createGitInventoryWatchers', () => {
 
       await watchers.disposeAll();
       loggerErrorSpy.mockClear();
-      rejectRealpath?.(new Error('ENOENT: no such directory'));
+      requireCallback<[Error]>(
+        rejectRealpath,
+        'realpath rejecter'
+      )(new Error('ENOENT: no such directory'));
       await syncPromise;
 
       expect(watchers.getDeadCommonDirs().size).toBe(0);
@@ -619,7 +635,7 @@ describe('createGitInventoryWatchers', () => {
 
       await watchers.disposeAll();
       loggerErrorSpy.mockClear();
-      rejectWatch?.(new Error('parcel binding missing'));
+      requireCallback<[Error]>(rejectWatch, 'watch rejecter')(new Error('parcel binding missing'));
       await syncPromise;
 
       expect(watchers.getDeadCommonDirs().size).toBe(0);
@@ -654,7 +670,7 @@ describe('createGitInventoryWatchers', () => {
       expect(resolveRealpath).not.toBeNull();
 
       await watchers.disposeAll();
-      resolveRealpath?.('/repo/.git');
+      requireCallback<[string]>(resolveRealpath, 'realpath resolver')('/repo/.git');
       await syncPromise;
 
       expect(fake.records).toHaveLength(0);

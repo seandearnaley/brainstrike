@@ -15,7 +15,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 const resolvePathWithinRootMock = vi.fn();
-const isPathInsideRootMock = vi.fn(() => true);
+const isPathInsideRootMock = vi.fn((..._args: unknown[]) => true);
 
 vi.mock('../../mcp/paths', () => ({
   isPathInsideRoot: (...args: unknown[]) => isPathInsideRootMock(...args),

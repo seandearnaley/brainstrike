@@ -26,6 +26,7 @@ import type {
 } from '@brainstrike/agent/local-llm';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { requireTool } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -109,8 +110,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
 
     try {
       const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
-      const editTool = tools['brainstrike.stringReplaceWorkspaceFile'];
-      expect(editTool).toBeDefined();
+      const editTool = requireTool(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
       const hostClient = createScriptedHostClient({
         newStr: '  retries: 5,',

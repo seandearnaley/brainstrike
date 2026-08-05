@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import { type IpcMainInvokeEvent, ipcMain } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { registerAgentIpcHandlers } from '../ipc-agent';
 
 // Mock electron
@@ -78,8 +78,12 @@ describe('registerAgentIpcHandlers', () => {
     beforeEach(() => {
       registerAgentIpcHandlers();
       // Coerce to a Vitest Mock without using `any`
-      const handleMock = ipcMain.handle as unknown as vi.Mock;
-      chatHandler = handleMock.mock.calls[0][1];
+      const handleMock = ipcMain.handle as unknown as Mock;
+      const registration = handleMock.mock.calls[0];
+      if (!registration || typeof registration[1] !== 'function') {
+        throw new Error('Expected the agent chat IPC handler to be registered.');
+      }
+      chatHandler = registration[1] as typeof chatHandler;
     });
 
     it('should handle chat messages and return stream chunks', async () => {
@@ -474,8 +478,8 @@ describe('registerAgentIpcHandlers', () => {
         unknown,
         { runtime: Record<string, unknown> },
       ];
-      expect(options.runtime.provider).toBe('openai');
-      expect(options.runtime.mcpConfig).toEqual(rawConfig);
+      expect(options.runtime['provider']).toBe('openai');
+      expect(options.runtime['mcpConfig']).toEqual(rawConfig);
     });
 
     it('throws when provider is missing or unsupported', async () => {
@@ -539,9 +543,11 @@ describe('registerAgentIpcHandlers', () => {
 
       const mcpConfig = { servers: {} };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
-      vi.mocked(readOpenAIApiKey).mockResolvedValue(null);
+      vi.mocked(readOpenAIApiKey).mockResolvedValue(
+        null as unknown as Awaited<ReturnType<typeof readOpenAIApiKey>>
+      );
 
-      const messages = [];
+      const messages: AgentMessage[] = [];
 
       await expect(chatHandler({} as IpcMainInvokeEvent, messages)).rejects.toThrow(
         'missing_provider'

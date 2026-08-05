@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { IpcMainInvokeEvent } from 'electron';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { clearCachedAgentClient } from '../../agent-client-loader';
 import type { DesktopEnvLoadFailure } from '../../desktop-env';
 
@@ -12,7 +12,7 @@ vi.mock('electron', () => ({
 }));
 
 interface SecretsServiceMock {
-  clearAll: ReturnType<typeof vi.fn>;
+  clearAll?: ReturnType<typeof vi.fn>;
   deleteKey: ReturnType<typeof vi.fn>;
   getKey: ReturnType<typeof vi.fn>;
   listProviders: ReturnType<typeof vi.fn>;
@@ -71,7 +71,9 @@ describe('registerSecretsIpcHandlers', () => {
       { envFileFailures }
     );
 
-    const handleMock = ipcMain.handle as unknown as vi.Mock;
+    const handleMock = ipcMain.handle as unknown as Mock<
+      (channel: string, handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void
+    >;
     const getHandler = (channel: string) => {
       const entry = handleMock.mock.calls.find(([name]) => name === channel);
       return entry?.[1] as ((event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) | undefined;

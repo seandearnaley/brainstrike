@@ -131,31 +131,25 @@ describe('main E2E window isolation', () => {
     vi.resetModules();
     vi.clearAllMocks();
     process.argv = ORIGINAL_ARGV.filter((arg) => arg !== '--test-mode');
-    // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
-    delete process.env['BRAINSTRIKE_AGENT_DEVTOOLS'];
-    // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
-    delete process.env['ELECTRON_IS_E2E_TEST'];
-    // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
-    delete process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_AGENT_DEVTOOLS');
+    Reflect.deleteProperty(process.env, 'ELECTRON_IS_E2E_TEST');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_E2E_USER_DATA_DIR');
   });
 
   afterEach(() => {
     process.argv = [...ORIGINAL_ARGV];
     if (ORIGINAL_AGENT_DEVTOOLS === undefined) {
-      // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
-      delete process.env['BRAINSTRIKE_AGENT_DEVTOOLS'];
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_AGENT_DEVTOOLS');
     } else {
       process.env['BRAINSTRIKE_AGENT_DEVTOOLS'] = ORIGINAL_AGENT_DEVTOOLS;
     }
     if (ORIGINAL_ELECTRON_E2E === undefined) {
-      // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
-      delete process.env['ELECTRON_IS_E2E_TEST'];
+      Reflect.deleteProperty(process.env, 'ELECTRON_IS_E2E_TEST');
     } else {
       process.env['ELECTRON_IS_E2E_TEST'] = ORIGINAL_ELECTRON_E2E;
     }
     if (ORIGINAL_E2E_USER_DATA_DIR === undefined) {
-      // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
-      delete process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_E2E_USER_DATA_DIR');
     } else {
       process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'] = ORIGINAL_E2E_USER_DATA_DIR;
     }
@@ -171,6 +165,9 @@ describe('main E2E window isolation', () => {
     const mockedApp = electronMockState.app;
 
     expect(mockedApp).not.toBeNull();
+    if (!mockedApp) {
+      throw new Error('expected Electron app mock');
+    }
     expect(mockedApp.requestSingleInstanceLock).not.toHaveBeenCalled();
     expect(mockedApp.on).not.toHaveBeenCalledWith('second-instance', expect.any(Function));
 
@@ -191,6 +188,9 @@ describe('main E2E window isolation', () => {
     const mockedApp = electronMockState.app;
 
     expect(mockedApp).not.toBeNull();
+    if (!mockedApp) {
+      throw new Error('expected Electron app mock');
+    }
     expect(mockedApp.setPath).toHaveBeenCalledWith(
       'userData',
       '/tmp/brainstrike-e2e-isolated-profile'
@@ -211,6 +211,9 @@ describe('main E2E window isolation', () => {
     const mockedApp = electronMockState.app;
 
     expect(mockedApp).not.toBeNull();
+    if (!mockedApp) {
+      throw new Error('expected Electron app mock');
+    }
     expect(mockedApp.setPath).toHaveBeenCalledWith(
       'userData',
       '/tmp/brainstrike-agent-isolated-profile'
@@ -237,6 +240,9 @@ describe('main E2E window isolation', () => {
     const mockedApp = electronMockState.app;
 
     expect(mockedApp).not.toBeNull();
+    if (!mockedApp) {
+      throw new Error('expected Electron app mock');
+    }
     expect(mockedApp.requestSingleInstanceLock).toHaveBeenCalled();
     expect(mockedApp.on).toHaveBeenCalledWith('second-instance', expect.any(Function));
   });

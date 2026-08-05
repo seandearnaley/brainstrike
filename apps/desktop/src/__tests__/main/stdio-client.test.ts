@@ -28,13 +28,13 @@ const {
   const closeClient = vi.fn(async () => {});
   const closeTransport = vi.fn(async () => {});
   function MockClient(this: Record<string, unknown>) {
-    this.connect = connect;
-    this.listTools = listTools;
-    this.callTool = callTool;
-    this.close = closeClient;
+    this['connect'] = connect;
+    this['listTools'] = listTools;
+    this['callTool'] = callTool;
+    this['close'] = closeClient;
   }
   function MockTransport(this: Record<string, unknown>) {
-    this.close = closeTransport;
+    this['close'] = closeTransport;
   }
 
   return {

@@ -11,6 +11,7 @@ import {
   clearWindowRoleByWebContentsId,
   type DesktopWindowRole,
 } from '../../window-role';
+import { requireToolExecute } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -131,9 +132,13 @@ describe('assistant-tools edit lifecycle', () => {
         // ProjectA is focused; the model targets ProjectB. The file is validated
         // against ProjectB's real path and the broadcast carries rootPath so the
         // renderer can route to the matching client folder.
-        const result = await buildDesktopAssistantTools(routingRuntime(rootA, rootB))[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools(routingRuntime(rootA, rootB)),
           'brainstrike.updateWorkspaceContextSelection'
-        ].execute({ context: { filePaths: ['/src/main.ts'], mode: 'replace', root: 'ProjectB' } });
+        );
+        const result = await executeTool({
+          context: { filePaths: ['/src/main.ts'], mode: 'replace', root: 'ProjectB' },
+        });
         expect(result.appliedCount).toBe(1);
         expect(send).toHaveBeenCalledWith(
           'assistant:workspace-context-selection-update',
@@ -150,10 +155,14 @@ describe('assistant-tools edit lifecycle', () => {
       const send = vi.fn();
       getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2002, role: 'visible-ui', send })]);
       try {
-        await buildDesktopAssistantTools({
-          selectionFolderId: 'client-a',
-          workspaceRootPath: rootA,
-        } as RuntimeData)['brainstrike.updateWorkspaceContextSelection'].execute({
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({
+            selectionFolderId: 'client-a',
+            workspaceRootPath: rootA,
+          } as RuntimeData),
+          'brainstrike.updateWorkspaceContextSelection'
+        );
+        await executeTool({
           context: { filePaths: ['/src/main.ts'], mode: 'replace' },
         });
         const payload = send.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
@@ -170,10 +179,12 @@ describe('assistant-tools edit lifecycle', () => {
       const send = vi.fn();
       getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2003, role: 'visible-ui', send })]);
       try {
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools(routingRuntime(rootA, rootB)),
+          'brainstrike.updateWorkspaceContextSelection'
+        );
         await expect(
-          buildDesktopAssistantTools(routingRuntime(rootA, rootB))[
-            'brainstrike.updateWorkspaceContextSelection'
-          ].execute({ context: { filePaths: ['/src/main.ts'], root: 'Nope' } })
+          executeTool({ context: { filePaths: ['/src/main.ts'], root: 'Nope' } })
         ).rejects.toThrow(/no folder "Nope"/i);
         expect(send).not.toHaveBeenCalled();
       } finally {
@@ -188,9 +199,11 @@ describe('assistant-tools edit lifecycle', () => {
       const send = vi.fn();
       getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2004, role: 'visible-ui', send })]);
       try {
-        await buildDesktopAssistantTools(routingRuntime(rootA, rootB))[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools(routingRuntime(rootA, rootB)),
           'brainstrike.updateWorkspaceTapestrySelections'
-        ].execute({
+        );
+        await executeTool({
           context: {
             root: 'ProjectB',
             updates: [{ path: '/src/main.ts', ranges: [{ endLine: 2, startLine: 1 }] }],
@@ -219,8 +232,9 @@ describe('assistant-tools edit lifecycle', () => {
       selectionFolderId: 'root-1',
       workspaceRootPath,
     } as RuntimeData);
+    const executeTool = requireToolExecute(tools, 'brainstrike.updateWorkspaceTapestrySelections');
 
-    const result = await tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
+    const result = await executeTool({
       context: {
         mode: 'replace',
         selectFiles: true,
@@ -264,11 +278,12 @@ describe('assistant-tools edit lifecycle', () => {
     it('deletes an existing file and reports indexInvalidated: false when no workspace index', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
+        );
 
-        const result = await tool.execute({ context: { path: '/src/lib/math.ts' } });
+        const result = await executeTool({ context: { path: '/src/lib/math.ts' } });
 
         expect(result).toMatchObject({
           indexInvalidated: false,
@@ -292,12 +307,15 @@ describe('assistant-tools edit lifecycle', () => {
         deletedFileRecordIds: ['rec-1'],
       });
       try {
-        const tool = buildDesktopAssistantTools({
-          workspaceIndexEmbeddingSetId: 'set-1',
-          workspaceRootPath,
-        } as RuntimeData)['brainstrike.deleteWorkspaceFile'];
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({
+            workspaceIndexEmbeddingSetId: 'set-1',
+            workspaceRootPath,
+          } as RuntimeData),
+          'brainstrike.deleteWorkspaceFile'
+        );
 
-        const result = await tool.execute({ context: { path: '/src/lib/math.ts' } });
+        const result = await executeTool({ context: { path: '/src/lib/math.ts' } });
 
         expect(result.ok).toBe(true);
         expect(result.indexInvalidated).toBe(true);
@@ -315,10 +333,11 @@ describe('assistant-tools edit lifecycle', () => {
     it('throws a not-found error for a missing file', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
-        await expect(tool.execute({ context: { path: '/src/does-not-exist.ts' } })).rejects.toThrow(
+        );
+        await expect(executeTool({ context: { path: '/src/does-not-exist.ts' } })).rejects.toThrow(
           /does not exist/i
         );
       } finally {
@@ -329,10 +348,11 @@ describe('assistant-tools edit lifecycle', () => {
     it('refuses to delete a directory (suggests executeCommand)', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
-        await expect(tool.execute({ context: { path: '/src' } })).rejects.toThrow(
+        );
+        await expect(executeTool({ context: { path: '/src' } })).rejects.toThrow(
           /is a directory.*executeCommand/is
         );
         // The directory is untouched.
@@ -354,10 +374,11 @@ describe('assistant-tools edit lifecycle', () => {
       // The clamped path "/escaped.txt" lives INSIDE the root.
       await fsPromises.writeFile(path.join(workspaceRootPath, 'escaped.txt'), 'in root', 'utf8');
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
-        const result = await tool.execute({ context: { path: '../escaped.txt' } });
+        );
+        const result = await executeTool({ context: { path: '../escaped.txt' } });
         // Unrooted input keeps the relative convention; ".." is clamped so it
         // resolves to the in-root file, never the sibling dir.
         expect(result.path).toBe('escaped.txt');
@@ -390,10 +411,11 @@ describe('assistant-tools edit lifecycle', () => {
           }
           throw error;
         }
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
-        await expect(tool.execute({ context: { path: '/src/linked/secret.txt' } })).rejects.toThrow(
+        );
+        await expect(executeTool({ context: { path: '/src/linked/secret.txt' } })).rejects.toThrow(
           /outside the selected workspace root/i
         );
         // The outside file was NOT deleted through the symlink.
@@ -418,11 +440,12 @@ describe('assistant-tools edit lifecycle', () => {
           }
           throw error;
         }
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
+        );
 
-        const result = await tool.execute({ context: { path: '/src/alias.ts' } });
+        const result = await executeTool({ context: { path: '/src/alias.ts' } });
 
         expect(result).toMatchObject({ ok: true, path: '/src/alias.ts' });
         // The LINK is gone; the target file it pointed at is intact.
@@ -447,11 +470,12 @@ describe('assistant-tools edit lifecycle', () => {
           }
           throw error;
         }
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
+        );
 
-        const result = await tool.execute({ context: { path: '/src/dangling.ts' } });
+        const result = await executeTool({ context: { path: '/src/dangling.ts' } });
 
         expect(result.ok).toBe(true);
         await expect(fsPromises.lstat(linkPath)).rejects.toThrow();
@@ -476,10 +500,11 @@ describe('assistant-tools edit lifecycle', () => {
           }
           throw error;
         }
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
-        ];
-        await expect(tool.execute({ context: { path: '/src/out-alias.ts' } })).rejects.toThrow(
+        );
+        await expect(executeTool({ context: { path: '/src/out-alias.ts' } })).rejects.toThrow(
           /outside the selected workspace root/i
         );
         // Neither the link nor the outside target was removed.
@@ -492,8 +517,11 @@ describe('assistant-tools edit lifecycle', () => {
     });
 
     it('fails explicitly when no workspace folder is open', async () => {
-      const tool = buildDesktopAssistantTools(undefined)['brainstrike.deleteWorkspaceFile'];
-      await expect(tool.execute({ context: { path: '/x.ts' } })).rejects.toThrow(
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(undefined),
+        'brainstrike.deleteWorkspaceFile'
+      );
+      await expect(executeTool({ context: { path: '/x.ts' } })).rejects.toThrow(
         /No folder is open/i
       );
     });
@@ -503,11 +531,12 @@ describe('assistant-tools edit lifecycle', () => {
     it('renames a file within the root and reports both paths', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
 
-        const result = await tool.execute({
+        const result = await executeTool({
           context: { fromPath: '/src/lib/math.ts', toPath: '/src/lib/arithmetic.ts' },
         });
 
@@ -534,10 +563,11 @@ describe('assistant-tools edit lifecycle', () => {
     it('creates missing destination parent directories', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
-        await tool.execute({
+        );
+        await executeTool({
           context: { fromPath: '/README.md', toPath: '/docs/moved/README.md' },
         });
         expect(
@@ -562,12 +592,15 @@ describe('assistant-tools edit lifecycle', () => {
         deletedFileRecordIds: ['rec-src'],
       });
       try {
-        const tool = buildDesktopAssistantTools({
-          workspaceIndexEmbeddingSetId: 'set-1',
-          workspaceRootPath,
-        } as RuntimeData)['brainstrike.renameWorkspaceFile'];
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({
+            workspaceIndexEmbeddingSetId: 'set-1',
+            workspaceRootPath,
+          } as RuntimeData),
+          'brainstrike.renameWorkspaceFile'
+        );
 
-        const result = await tool.execute({
+        const result = await executeTool({
           context: { fromPath: '/src/lib/math.ts', toPath: '/src/lib/arithmetic.ts' },
         });
 
@@ -586,11 +619,12 @@ describe('assistant-tools edit lifecycle', () => {
     it('refuses to overwrite an existing destination (no overwrite in v1)', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
         await expect(
-          tool.execute({ context: { fromPath: '/src/lib/math.ts', toPath: '/README.md' } })
+          executeTool({ context: { fromPath: '/src/lib/math.ts', toPath: '/README.md' } })
         ).rejects.toThrow(/already exists/i);
         // Both files are untouched.
         expect(
@@ -607,11 +641,12 @@ describe('assistant-tools edit lifecycle', () => {
     it('throws a not-found error when the source file is missing', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
         await expect(
-          tool.execute({ context: { fromPath: '/src/nope.ts', toPath: '/src/yep.ts' } })
+          executeTool({ context: { fromPath: '/src/nope.ts', toPath: '/src/yep.ts' } })
         ).rejects.toThrow(/does not exist/i);
       } finally {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
@@ -621,11 +656,12 @@ describe('assistant-tools edit lifecycle', () => {
     it('refuses to rename a directory', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
         await expect(
-          tool.execute({ context: { fromPath: '/src/lib', toPath: '/src/library' } })
+          executeTool({ context: { fromPath: '/src/lib', toPath: '/src/library' } })
         ).rejects.toThrow(/is a directory/i);
       } finally {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
@@ -635,10 +671,11 @@ describe('assistant-tools edit lifecycle', () => {
     it('clamps a "../" escape in the destination to inside the root', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
-        const result = await tool.execute({
+        );
+        const result = await executeTool({
           context: { fromPath: '/README.md', toPath: '../escaped.md' },
         });
         // Unrooted destination keeps the relative convention; ".." is clamped so
@@ -669,11 +706,12 @@ describe('assistant-tools edit lifecycle', () => {
           }
           throw error;
         }
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
         await expect(
-          tool.execute({ context: { fromPath: '/README.md', toPath: '/src/linked/pwned.md' } })
+          executeTool({ context: { fromPath: '/README.md', toPath: '/src/linked/pwned.md' } })
         ).rejects.toThrow(/outside the selected workspace root/i);
         // Nothing landed in the outside dir and the source is intact.
         await expect(fsPromises.access(path.join(outsideRoot, 'pwned.md'))).rejects.toThrow();
@@ -732,15 +770,16 @@ describe('assistant-tools edit lifecycle', () => {
           'content b\n',
           'utf8'
         );
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
         // Guard: if this ever hangs (e.g. a regression to naive from-then-to lock
         // ordering), fail with a timeout error instead of an infinite hang.
         const results = await Promise.race([
           Promise.allSettled([
-            tool.execute({ context: { fromPath: '/swap-a.ts', toPath: '/swap-b.ts' } }),
-            tool.execute({ context: { fromPath: '/swap-b.ts', toPath: '/swap-a.ts' } }),
+            executeTool({ context: { fromPath: '/swap-a.ts', toPath: '/swap-b.ts' } }),
+            executeTool({ context: { fromPath: '/swap-b.ts', toPath: '/swap-a.ts' } }),
           ]),
           new Promise<'deadlock'>((resolve) => setTimeout(() => resolve('deadlock'), 4000)),
         ]);
@@ -780,11 +819,12 @@ describe('assistant-tools edit lifecycle', () => {
           }
           throw error;
         }
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
 
-        const result = await tool.execute({
+        const result = await executeTool({
           context: { fromPath: '/src/alias.ts', toPath: '/src/renamed-alias.ts' },
         });
 
@@ -821,11 +861,12 @@ describe('assistant-tools edit lifecycle', () => {
           }
           throw error;
         }
-        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+        const executeTool = requireToolExecute(
+          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
-        ];
+        );
         await expect(
-          tool.execute({ context: { fromPath: '/src/out-alias.ts', toPath: '/src/moved.ts' } })
+          executeTool({ context: { fromPath: '/src/out-alias.ts', toPath: '/src/moved.ts' } })
         ).rejects.toThrow(/outside the selected workspace root/i);
         // The outside target is intact and nothing was moved into place.
         expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('secret');
@@ -839,9 +880,12 @@ describe('assistant-tools edit lifecycle', () => {
     });
 
     it('fails explicitly when no workspace folder is open', async () => {
-      const tool = buildDesktopAssistantTools(undefined)['brainstrike.renameWorkspaceFile'];
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(undefined),
+        'brainstrike.renameWorkspaceFile'
+      );
       await expect(
-        tool.execute({ context: { fromPath: '/a.ts', toPath: '/b.ts' } })
+        executeTool({ context: { fromPath: '/a.ts', toPath: '/b.ts' } })
       ).rejects.toThrow(/No folder is open/i);
     });
   });
@@ -858,8 +902,9 @@ describe('assistant-tools edit lifecycle', () => {
       selectionFolderId: 'root-1',
       workspaceRootPath,
     } as RuntimeData);
+    const executeTool = requireToolExecute(tools, 'brainstrike.updateWorkspaceTapestrySelections');
 
-    await tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
+    await executeTool({
       context: {
         mode: 'replace',
         updates: [
@@ -875,10 +920,21 @@ describe('assistant-tools edit lifecycle', () => {
       (call) => call[0] === 'assistant:workspace-context-tapestry-update'
     );
     expect(tapestryCall).toBeDefined();
-    const capturedTapestryPayload = tapestryCall?.[1] as {
+    if (!tapestryCall) {
+      throw new Error('expected a workspace tapestry update broadcast');
+    }
+    const capturedTapestryPayload = tapestryCall[1] as {
       updates: { ranges: { startLine: number; endLine: number; color?: string }[] }[];
     };
-    expect(capturedTapestryPayload.updates[0].ranges[0]).toMatchObject({
+    const firstUpdate = capturedTapestryPayload.updates[0];
+    if (!firstUpdate) {
+      throw new Error('expected a workspace tapestry update');
+    }
+    const firstRange = firstUpdate.ranges[0];
+    if (!firstRange) {
+      throw new Error('expected a workspace tapestry range');
+    }
+    expect(firstRange).toMatchObject({
       color: 'blue',
       endLine: 2,
       startLine: 1,

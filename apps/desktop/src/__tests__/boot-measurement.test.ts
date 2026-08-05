@@ -5,8 +5,8 @@ const START_ENV = 'BRAINSTRIKE_BOOT_MEASURE_START_MS';
 const QUIT_ENV = 'BRAINSTRIKE_BOOT_MEASURE_QUIT_AFTER_LISTEN';
 
 afterEach(() => {
-  delete process.env[START_ENV];
-  delete process.env[QUIT_ENV];
+  Reflect.deleteProperty(process.env, START_ENV);
+  Reflect.deleteProperty(process.env, QUIT_ENV);
   vi.restoreAllMocks();
 });
 
@@ -16,7 +16,11 @@ describe('emitBootMeasurementMark', () => {
     const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     emitBootMeasurementMark('app-ready', false);
     expect(write).toHaveBeenCalledTimes(1);
-    expect(write.mock.calls[0][0]).toMatch(/^BOOT_MARK app-ready [0-9]+(?:\.[0-9]+)?\n$/);
+    const call = write.mock.calls[0];
+    if (!call) {
+      throw new Error('expected stdout write call');
+    }
+    expect(call[0]).toMatch(/^BOOT_MARK app-ready [0-9]+(?:\.[0-9]+)?\n$/);
   });
 
   it('is unreachable in a packaged build even with the env var set', () => {
@@ -33,7 +37,7 @@ describe('emitBootMeasurementMark', () => {
 
   it.each(['', undefined])('treats %j as measurement-off when unpackaged', (value) => {
     if (value === undefined) {
-      delete process.env[START_ENV];
+      Reflect.deleteProperty(process.env, START_ENV);
     } else {
       process.env[START_ENV] = value;
     }

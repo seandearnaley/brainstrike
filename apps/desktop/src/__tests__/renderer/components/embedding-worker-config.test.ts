@@ -140,11 +140,15 @@ import { createEmbeddingWorkerConfig } from '../../../renderer/components/embedd
 function createScheduledTestDb(
   options: Parameters<typeof createDatabaseWorkScheduler>[0] = { foregroundQuietMs: 0 }
 ) {
-  const db = { query: vi.fn(async () => ({ rows: [] })) };
+  const db = { query: vi.fn(async () => ({ rows: [] as Array<{ count: number }> })) };
   const scheduler = createDatabaseWorkScheduler(options);
   return {
     db,
-    scheduledDb: createScheduledDbHandle(db, scheduler, 'background'),
+    scheduledDb: createScheduledDbHandle(
+      db as unknown as Parameters<typeof createScheduledDbHandle>[0],
+      scheduler,
+      'background'
+    ),
   };
 }
 
@@ -396,11 +400,10 @@ describe('createEmbeddingWorkerConfig', () => {
       throw new Error('Test scheduled DB handle did not expose its scheduler.');
     }
     const schedulerSnapshot = vi.fn(async () => snapshot);
-    Object.assign(window.electronAPI, {
-      db: {
+    (window.electronAPI as unknown as { db: { schedulerSnapshot: typeof schedulerSnapshot } }).db =
+      {
         schedulerSnapshot,
-      },
-    });
+      };
 
     const config = createEmbeddingWorkerConfig({
       query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
@@ -434,11 +437,11 @@ describe('createEmbeddingWorkerConfig', () => {
         .mockResolvedValueOnce(idleSnapshot)
         .mockRejectedValueOnce(new Error('scheduler unavailable'))
         .mockResolvedValueOnce(pressuredSnapshot);
-      Object.assign(window.electronAPI, {
-        db: {
-          schedulerSnapshot,
-        },
-      });
+      (
+        window.electronAPI as unknown as {
+          db: { schedulerSnapshot: typeof schedulerSnapshot };
+        }
+      ).db = { schedulerSnapshot };
 
       const config = createEmbeddingWorkerConfig({
         query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
@@ -459,11 +462,10 @@ describe('createEmbeddingWorkerConfig', () => {
     const schedulerSnapshot = vi.fn(() => {
       throw new Error('scheduler crashed synchronously');
     });
-    Object.assign(window.electronAPI, {
-      db: {
+    (window.electronAPI as unknown as { db: { schedulerSnapshot: typeof schedulerSnapshot } }).db =
+      {
         schedulerSnapshot,
-      },
-    });
+      };
 
     const config = createEmbeddingWorkerConfig({
       query: vi.fn(async () => ({ rows: [{ count: 0 }] })),

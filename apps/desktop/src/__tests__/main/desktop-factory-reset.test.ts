@@ -4,9 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const fsMocks = vi.hoisted(() => ({
   existsSync: vi.fn(() => true),
   mkdirSync: vi.fn(),
-  readdirSync: vi.fn(() => []),
-  rename: vi.fn(async () => undefined),
-  rm: vi.fn(async () => undefined),
+  readdirSync: vi.fn((_path?: string): string[] => []),
+  rename: vi.fn(async (_oldPath: string, _newPath: string): Promise<void> => undefined),
+  rm: vi.fn(async (_path: string, _options?: unknown): Promise<void> => undefined),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -14,7 +14,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...mod,
     ...fsMocks,
-    default: { ...mod.default, ...fsMocks },
+    default: { ...mod, ...fsMocks },
   };
 });
 
@@ -22,7 +22,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const mod = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...mod,
-    default: { ...mod.default, rename: fsMocks.rename, rm: fsMocks.rm },
+    default: { ...mod, rename: fsMocks.rename, rm: fsMocks.rm },
     rename: fsMocks.rename,
     rm: fsMocks.rm,
   };
@@ -60,6 +60,9 @@ describe('resetDesktopApplicationData', () => {
 
     const stopOrder = stopBackgroundRuntimes.mock.invocationCallOrder[0];
     const resetOrder = resetDatabaseProfile.mock.invocationCallOrder[0];
+    if (stopOrder === undefined || resetOrder === undefined) {
+      throw new Error('expected runtime stop and database reset calls');
+    }
     expect(stopOrder).toBeLessThan(resetOrder);
     expect(resetDatabaseProfile).toHaveBeenCalledTimes(1);
     expect(fsMocks.readdirSync).toHaveBeenCalledWith('/mock/userData');

@@ -62,10 +62,10 @@ interface CheckpointRow {
 }
 
 async function listCheckpoints(): Promise<CheckpointRow[]> {
-  const result = await db.query<CheckpointRow>(
+  const result = (await db.query(
     `SELECT op, path, from_path, before_existed, capture_status, tool_call_id, run_id, thread_id
      FROM brainstrike_assistant_edit_checkpoints ORDER BY occurred_at ASC, id ASC`
-  );
+  )) as { rows: CheckpointRow[] };
   return result.rows;
 }
 

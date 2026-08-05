@@ -16,7 +16,9 @@ function createMockIpcMain() {
 describe('desktop IPC registry', () => {
   it('registers invoke and event channels with stable domain metadata', () => {
     const ipcMain = createMockIpcMain();
-    const registry = createDesktopIpcRegistry({ ipcMain });
+    const registry = createDesktopIpcRegistry({
+      ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
+    });
     const invokeHandler = vi.fn();
     const eventHandler = vi.fn();
 
@@ -33,7 +35,9 @@ describe('desktop IPC registry', () => {
 
   it('rejects duplicate channel registration instead of silently replacing handlers', () => {
     const ipcMain = createMockIpcMain();
-    const registry = createDesktopIpcRegistry({ ipcMain });
+    const registry = createDesktopIpcRegistry({
+      ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
+    });
 
     registry.registerInvoke('db', 'db:query', vi.fn());
 
@@ -45,7 +49,9 @@ describe('desktop IPC registry', () => {
 
   it('rejects invalid channel names before registration', () => {
     const ipcMain = createMockIpcMain();
-    const registry = createDesktopIpcRegistry({ ipcMain });
+    const registry = createDesktopIpcRegistry({
+      ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
+    });
 
     expect(() => registry.registerInvoke('db', '  ', vi.fn())).toThrow(
       'Desktop IPC channel must be a non-empty string.'
@@ -58,7 +64,9 @@ describe('desktop IPC registry', () => {
 
   it('unregisters owned invoke and event channels', () => {
     const ipcMain = createMockIpcMain();
-    const registry = createDesktopIpcRegistry({ ipcMain });
+    const registry = createDesktopIpcRegistry({
+      ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
+    });
     const eventHandler = vi.fn();
 
     registry.registerInvoke('embeddings', 'embedding-host:ensure-started', vi.fn());

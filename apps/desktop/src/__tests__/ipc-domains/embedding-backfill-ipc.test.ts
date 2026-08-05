@@ -171,9 +171,11 @@ describe('embedding backfill IPC domain', () => {
       handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)?.({} as IpcMainInvokeEvent, 'set-1')
     ).resolves.toEqual({ enqueued: true });
 
-    const call = backfillMocks.runDesktopEmbeddingBackfill.mock.calls.at(-1)?.[0] as
-      | { onDetachedFailure?: (error: unknown) => Promise<void> }
-      | undefined;
+    const call = (
+      backfillMocks.runDesktopEmbeddingBackfill.mock.calls as unknown as [
+        { onDetachedFailure?: (error: unknown) => Promise<void> },
+      ][]
+    ).at(-1)?.[0];
     expect(call?.onDetachedFailure).toBeTypeOf('function');
     dbMainMocks.isCorruptionError.mockReturnValueOnce(true);
 
