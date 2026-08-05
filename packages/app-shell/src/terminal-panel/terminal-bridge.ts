@@ -59,6 +59,11 @@ export interface TerminalBridge {
  * Every method name the bridge must expose to be considered fully formed.
  * Exported so the desktop preload-runtime contract test can pin the
  * `window.terminal` `exposeInMainWorld` key set to this exact list.
+ *
+ * NOTE: the pin is EXACT set equality, not a subset check — every method the
+ * preload exposes must be listed here. There is no such thing as an optional
+ * bridge method: a preload method missing from this list (or vice versa)
+ * disables the entire surface via the resolver below.
  */
 export const TERMINAL_BRIDGE_REQUIRED_METHODS: readonly (keyof TerminalBridge)[] = [
   'create',
