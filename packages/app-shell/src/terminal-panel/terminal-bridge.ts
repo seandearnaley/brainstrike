@@ -55,8 +55,12 @@ export interface TerminalBridge {
   write: (params: { terminalId: string; data: string }) => Promise<TerminalResult>;
 }
 
-/** Every method name the bridge must expose to be considered fully formed. */
-const REQUIRED_METHODS: readonly (keyof TerminalBridge)[] = [
+/**
+ * Every method name the bridge must expose to be considered fully formed.
+ * Exported so the desktop preload-runtime contract test can pin the
+ * `window.terminal` `exposeInMainWorld` key set to this exact list.
+ */
+export const TERMINAL_BRIDGE_REQUIRED_METHODS: readonly (keyof TerminalBridge)[] = [
   'create',
   'write',
   'resize',
@@ -78,7 +82,9 @@ export function resolveTerminalBridge(): TerminalBridge | null {
   if (!bridge) {
     return null;
   }
-  const missing = REQUIRED_METHODS.filter((method) => typeof bridge[method] !== 'function');
+  const missing = TERMINAL_BRIDGE_REQUIRED_METHODS.filter(
+    (method) => typeof bridge[method] !== 'function'
+  );
   if (missing.length > 0) {
     logger.error('window.terminal bridge is malformed; Terminal panel disabled', { missing });
     return null;

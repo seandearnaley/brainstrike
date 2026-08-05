@@ -1,5 +1,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
+import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
+import {
+  COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+  TERMINAL_BRIDGE_REQUIRED_METHODS,
+} from '@brainstrike/app-shell/terminal-panel/availability';
+import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
 import { describe, expect, it } from 'vitest';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
@@ -24,6 +31,85 @@ function removePreloadStringConstantDefinitions(source: string): string {
     /const\s+[A-Z0-9_]+_(?:CHANNEL|EVENT)\s*=\s*['"][^'"]+['"]\s+as\s+const;/g,
     ''
   );
+}
+
+function skipStringLiteral(source: string, startIndex: number): number {
+  const quote = source[startIndex];
+  let index = startIndex + 1;
+  while (index < source.length) {
+    if (source[index] === '\\') {
+      index += 2;
+      continue;
+    }
+    if (source[index] === quote) {
+      return index + 1;
+    }
+    index += 1;
+  }
+  throw new Error('Unterminated string literal while scanning preload source.');
+}
+
+/**
+ * Extract the top-level property names of the object literal passed to
+ * `contextBridge.exposeInMainWorld('<bridgeName>', {...})`, via a small
+ * depth-tracking scan: a name counts only at object depth 1 outside any
+ * parentheses, so nested callback bodies, typed params, and comments never
+ * contribute keys.
+ */
+function extractExposedBridgeMethodNames(source: string, bridgeName: string): string[] {
+  const callStart = source.indexOf(`contextBridge.exposeInMainWorld('${bridgeName}',`);
+  if (callStart === -1) {
+    throw new Error(`Missing contextBridge.exposeInMainWorld('${bridgeName}', ...) in preload.`);
+  }
+  const objectStart = source.indexOf('{', callStart);
+  if (objectStart === -1) {
+    throw new Error(`Missing object literal for exposeInMainWorld('${bridgeName}', ...).`);
+  }
+  const methodNames: string[] = [];
+  let braceDepth = 0;
+  let parenDepth = 0;
+  let index = objectStart;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === "'" || char === '"' || char === '`') {
+      index = skipStringLiteral(source, index);
+      continue;
+    }
+    if (char === '/' && source[index + 1] === '/') {
+      index = source.indexOf('\n', index);
+      continue;
+    }
+    if (char === '/' && source[index + 1] === '*') {
+      index = source.indexOf('*/', index) + 2;
+      continue;
+    }
+    if (char === '{') {
+      braceDepth += 1;
+    } else if (char === '}') {
+      braceDepth -= 1;
+      if (braceDepth === 0) {
+        return methodNames;
+      }
+    } else if (char === '(') {
+      parenDepth += 1;
+    } else if (char === ')') {
+      parenDepth -= 1;
+    } else if (char && /[A-Za-z_$]/.test(char)) {
+      const identifierMatch = source.slice(index).match(/^[A-Za-z_$][\w$]*/);
+      const identifier = identifierMatch?.[0] ?? char;
+      if (
+        braceDepth === 1 &&
+        parenDepth === 0 &&
+        /^\s*:/.test(source.slice(index + identifier.length))
+      ) {
+        methodNames.push(identifier);
+      }
+      index += identifier.length;
+      continue;
+    }
+    index += 1;
+  }
+  throw new Error(`Unterminated exposeInMainWorld('${bridgeName}', ...) object literal.`);
 }
 
 function findRawIpcRendererChannels(source: string): string[] {
@@ -258,6 +344,27 @@ describe('preload runtime contract', () => {
     for (const channel of Object.values(expectedConstants)) {
       expect(preloadWithoutContractDefinitions).not.toContain(`'${channel}'`);
       expect(preloadWithoutContractDefinitions).not.toContain(`"${channel}"`);
+    }
+  });
+
+  it('keeps resolver-gated bridge key sets in parity with their required-method contracts', () => {
+    const preloadSource = readPreloadSource();
+    // Each of these bridges is disabled WHOLESALE by its resolver when any
+    // required method is missing from the preload surface, so the exposed key
+    // set must match the resolver's required-method list exactly.
+    const expectedBridgeMethods: Record<string, readonly string[]> = {
+      changes: CHANGES_BRIDGE_REQUIRED_METHODS,
+      commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+      git: GIT_BRIDGE_REQUIRED_METHODS,
+      notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
+      terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
+    };
+
+    for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {
+      expect({
+        bridge: bridgeName,
+        methods: [...extractExposedBridgeMethodNames(preloadSource, bridgeName)].sort(),
+      }).toEqual({ bridge: bridgeName, methods: [...requiredMethods].sort() });
     }
   });
 

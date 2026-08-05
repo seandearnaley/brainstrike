@@ -133,6 +133,18 @@
       "@brainstrike/app-shell/assistant-memory-repository": [
         "../../packages/app-shell/src/assistant-memory-repository.ts"
       ],
+      "@brainstrike/app-shell/changes/availability": [
+        "../../packages/app-shell/src/changes/availability.ts"
+      ],
+      "@brainstrike/app-shell/git-panel/availability": [
+        "../../packages/app-shell/src/git-panel/availability.ts"
+      ],
+      "@brainstrike/app-shell/terminal-panel/availability": [
+        "../../packages/app-shell/src/terminal-panel/availability.ts"
+      ],
+      "@brainstrike/notes-vault/desktop-contract": [
+        "../../packages/notes-vault/src/desktop/bridge-contract.ts"
+      ],
       "@brainstrike/platform-utils": [
         "../../packages/platform-utils/src"
       ],

@@ -49,8 +49,16 @@ export interface ChangesBridge {
   resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
 }
 
-/** Every method name the bridge must expose to be considered fully formed. */
-const REQUIRED_METHODS: readonly (keyof ChangesBridge)[] = ['fileDiff', 'inventory', 'resolveView'];
+/**
+ * Every method name the bridge must expose to be considered fully formed.
+ * Exported so the desktop preload-runtime contract test can pin the
+ * `window.changes` `exposeInMainWorld` key set to this exact list.
+ */
+export const CHANGES_BRIDGE_REQUIRED_METHODS: readonly (keyof ChangesBridge)[] = [
+  'fileDiff',
+  'inventory',
+  'resolveView',
+];
 
 /**
  * Resolve the `window.changes` bridge, or `null` when it is absent (web) or
@@ -65,7 +73,9 @@ export function resolveChangesBridge(): ChangesBridge | null {
   if (!bridge) {
     return null;
   }
-  const missing = REQUIRED_METHODS.filter((method) => typeof bridge[method] !== 'function');
+  const missing = CHANGES_BRIDGE_REQUIRED_METHODS.filter(
+    (method) => typeof bridge[method] !== 'function'
+  );
   if (missing.length > 0) {
     logger.error('window.changes bridge is malformed; changes disabled', { missing });
     return null;

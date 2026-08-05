@@ -72,7 +72,12 @@ export interface CommandSessionBridge {
   ) => Promise<CommandSessionResult>;
 }
 
-const REQUIRED_METHODS: readonly (keyof CommandSessionBridge)[] = [
+/**
+ * Every method name the bridge must expose to be considered fully formed.
+ * Exported so the desktop preload-runtime contract test can pin the
+ * `window.commandSessions` `exposeInMainWorld` key set to this exact list.
+ */
+export const COMMAND_SESSION_BRIDGE_REQUIRED_METHODS: readonly (keyof CommandSessionBridge)[] = [
   'list',
   'read',
   'write',
@@ -89,7 +94,9 @@ export function resolveCommandSessionBridge(): CommandSessionBridge | null {
   if (!bridge) {
     return null;
   }
-  const missing = REQUIRED_METHODS.filter((method) => typeof bridge[method] !== 'function');
+  const missing = COMMAND_SESSION_BRIDGE_REQUIRED_METHODS.filter(
+    (method) => typeof bridge[method] !== 'function'
+  );
   if (missing.length > 0) {
     logger.error('window.commandSessions bridge is malformed; inventory disabled', { missing });
     return null;
