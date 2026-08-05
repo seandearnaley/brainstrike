@@ -50,6 +50,23 @@
  *   `{ kind: 'uncommitted' }` — every time the selection changes, so the
  *   rendered diff always matches the row the user actually clicked instead
  *   of silently drifting to a different comparison.
+ * - `worktreePath` IS `repository.openedRoot`, NOT
+ *   `repository.currentWorktree.path` (W6 review finding). Two independent
+ *   reasons, both only visible when `repository.scope === 'workspace'` (the
+ *   opened folder is BELOW the git worktree root — `GitRepository.scope`'s
+ *   own doc comment): (1) the main-process resolver
+ *   (`changeset-git-scope.ts`'s `resolveContainedWorktreeCwd`) requires the
+ *   root resolved from `rootId` to CONTAIN `worktreePath`, and the worktree
+ *   root is an ANCESTOR of the opened root in that configuration, so passing
+ *   it fails every diff with `outside-roots-unsupported:`; (2) it becomes the
+ *   git cwd, and this panel's own row paths come from `window.git`'s
+ *   `GitStatus.files`, which `git-service.ts`'s `scopeStatusPaths` has
+ *   already made relative to the OPENED root — a worktree-root cwd would
+ *   diff a differently-prefixed path. `openedRoot` is exactly
+ *   `realpath(resolveRootCwd(rootId))` (`git-service.ts`
+ *   `createRepositorySnapshot`), so it satisfies both by construction and is
+ *   identical to `currentWorktree.path` in the ordinary
+ *   `scope === 'repository'` case.
  */
 import type {
   ChangedFileEntry,
@@ -402,9 +419,9 @@ export function GitChangesView({
       kind: 'git-scope',
       repositoryRoot: repository.repositoryRoot,
       scope: scopeForSelection(selected),
-      worktreePath: repository.currentWorktree.path,
+      worktreePath: repository.openedRoot,
     };
-  }, [selected, repository.repositoryRoot, repository.currentWorktree.path]);
+  }, [selected, repository.repositoryRoot, repository.openedRoot]);
 
   const changeset = useChangeset(panel.activeRootId, pinnedChangeset);
 
@@ -423,9 +440,9 @@ export function GitChangesView({
       revertible: false,
       rootId: panel.activeRootId,
       status: statusLetterToChangedFileStatus(selected.status),
-      worktreePath: repository.currentWorktree.path,
+      worktreePath: repository.openedRoot,
     };
-  }, [selected, repository.repositoryRoot, repository.currentWorktree.path, panel.activeRootId]);
+  }, [selected, repository.repositoryRoot, repository.openedRoot, panel.activeRootId]);
 
   // Thin toast-on-failure wrapper around `changeset.fileDiff`: the shared
   // `ChangesetFileDiffCard` already renders a visible inline error for a
@@ -573,11 +590,12 @@ export function GitChangesView({
             {selected?.path ?? 'Working tree changes'}
           </span>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col">
           {selected && selectedEntry ? (
             <ChangesetFileDiffCard
-              bodyClassName="h-full min-h-0"
+              bodyClassName="min-h-0 flex-1"
               changesetKind="git-scope"
+              className="flex min-h-0 flex-1 flex-col"
               entry={selectedEntry}
               key={`${selected.path}:${selected.staged}:${selected.untracked}`}
               loadFileDiff={loadFileDiff}

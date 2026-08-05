@@ -68,9 +68,13 @@ export interface ChangesNavigationState {
   readonly handoffThreadIdentity: ChangesHandoffThreadIdentity | null;
   /**
    * Show `changeset` on the Changes surface AND switch the workspace panel
-   * to the Changes tab. Used ONLY by external entry points — currently the
+   * to the Changes tab. Used ONLY by external entry points — today the
    * assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
-   * `useChangesReviewValue` in `root-layout-content.tsx`). Sets
+   * `useChangesReviewValue` in `root-layout-content.tsx`) and the git
+   * panel's worktree dropdown (BST-1116 W6, `git-workbench-header.tsx`).
+   * Both pair this call with a SHELL-route switch to `explorer` via
+   * `usePanelLayoutStore.setActiveTab`, since the workspace panel only
+   * exists on that route; this action owns only the panel-tab half. Sets
    * `activeWorkspacePanelTab: 'changes'` UNCONDITIONALLY on every call, so a
    * second "Review" click for the same changeset still re-activates the tab
    * even if the user had since clicked back to Context Explorer — no

@@ -163,7 +163,7 @@ and a `StructuredFileDiffParams.mode`:
 | --- | --- | --- |
 | `staged` | `git diff --cached --numstat` (+ empty-tree fallback on unborn HEAD) | `staged` |
 | `unstaged` | `git diff --numstat` (no ref args) | `unstaged` |
-| `uncommitted` | `staged`'s comparison + `listUntrackedChanges` (`git status --porcelain=v2 --untracked-files=all`) | `working` or `untracked`, re-probed **per path** via `isPathUntrackedInScope` |
+| `uncommitted` | `git diff HEAD --numstat` (empty-tree fallback on unborn HEAD) + `listUntrackedChanges` (`git status --porcelain=v2 --untracked-files=all`) | `working` or `untracked`, re-probed **per path** via `isPathUntrackedInScope` |
 | `commit` | two-ref numstat (`<id>^`/empty-tree vs `<id>`) | `commit` |
 | `branch-vs-base` | two-ref numstat (resolved `baseRef` vs merge-base) | `range` |
 
@@ -427,18 +427,26 @@ handling is rendering `null` additions/deletions as `"—"`, never `"0"`);
 an error whose message starts with `journal-content-expired:` (the real
 prefix from `changeset-journal-view.ts`) → a dedicated explanatory card
 naming the file; any other error → the real message plus a per-card Retry.
-It has one additive optional prop, `bodyClassName` (default `'h-[420px]
-min-h-0'`, the sizing tuned for the surface's vertically-stacked
-multi-file pane); the git panel passes `'h-full min-h-0'` since it hosts
-exactly one card filling its whole pane.
+It has two additive optional props: `bodyClassName` (default `'h-[420px]
+min-h-0'`, the sizing tuned for the surface's vertically-stacked multi-file
+pane) and `className` on the card ROOT (default `undefined`, i.e. the
+surface's original markup). A single-card host needs BOTH — the git panel
+passes `className='flex min-h-0 flex-1 flex-col'` +
+`bodyClassName='min-h-0 flex-1'`. `bodyClassName='h-full'` alone does
+nothing: the card root is an auto-height block, so a percentage height
+resolves to `auto` against it and the diff sizes to its own content
+(measured, not assumed) instead of filling the pane — which also defeats
+`DiffView`'s internal scroller, whose CodeMirror theme pins `.cm-editor`
+to `height: 100%`.
 
 ### Git panel (`packages/app-shell/src/git-panel/`) — converged in W6
 
 Two tabs: Changes (`git-changes-view.tsx`) and History
 (`git-history-view.tsx`); both now resolve diffs through the structured
 engine and render `ChangesetFileDiffCard`. `git-diff-surface.tsx` and
-`packages/ui/src/diff-view/parse-unified-diff.ts` are **deleted** — grep
-confirms zero remaining references anywhere in the repo.
+`packages/ui/src/diff-view/parse-unified-diff.ts` are **deleted** — `git
+grep parseUnifiedDiff` finds zero code references, only historical mentions
+in doc comments and planning docs.
 
 **Staging composition is a settled, do-not-relitigate ruling** (recorded
 verbatim in `git-changes-view.tsx`'s top doc comment): the panel's left
@@ -481,12 +489,16 @@ historical diff replace the current commit diff'`.
 
 **Worktree dropdown** (`git-workbench-header.tsx`): each entry publishes a
 `git-scope` changeset (`scope: { kind: 'uncommitted' }`) via
-`useChangesNavigationStore.openChangeset`, then switches the active
-workspace-panel tab to `'explorer'` (the Changes surface is a panel tab,
-not a route). Trust gating, priority-ordered, each disabled state stating
-its own reason (never a silent disable):
+`useChangesNavigationStore.openChangeset` — which itself sets
+`activeWorkspacePanelTab: 'changes'` — and then switches the SHELL route
+back to `explorer` via `usePanelLayoutStore.setActiveTab`, because the
+Changes surface is a workspace-panel tab on that route, not a route of its
+own. Two distinct stores, two distinct "tab" concepts; both writes are
+required. Trust gating, priority-ordered, each disabled state stating its
+own reason (never a silent disable):
 
 ```ts
+if (!available) return { navigable: false, disabledReason: 'Repository inventory is unavailable in this build.' };
 if (inventoryError) return { navigable: false, disabledReason: `Repository inventory unavailable: ${inventoryError}` };
 if (!inventory) return { navigable: false, disabledReason: 'Loading repository inventory…' };
 if (!descriptor) return { navigable: false, disabledReason: 'Not found in the workspace inventory yet.' };
@@ -499,8 +511,11 @@ return { navigable: true, disabledReason: null };
 The `unvalidated` check precedes the `outside-roots` check deliberately:
 `trust: 'unvalidated'` only ever occurs for an outside-roots worktree (see
 TRUST RULE above), so it is the strictly narrower case and carries the
-more specific, bidirectional-check-derived reason. Guarded by
-`git-workbench-header.test.tsx`'s six gating tests, one per branch.
+more specific, bidirectional-check-derived reason. The `available` check is
+first because a bridge-less build reports `inventory: null` with `error:
+null`, which would otherwise read as a permanent "Loading…" that never
+resolves. Guarded by `git-workbench-header.test.tsx`'s seven gating tests,
+one per branch.
 
 ### `DiffView`'s `strings` source
 

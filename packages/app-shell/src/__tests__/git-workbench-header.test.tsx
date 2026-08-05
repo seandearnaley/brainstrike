@@ -277,6 +277,20 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
   });
 
+  it('states the bridge is absent rather than a "Loading…" that will never resolve', async () => {
+    // Without a `window.changes` bridge `useGitInventory` reports
+    // `{ available: false, inventory: null, error: null }` FOREVER — the
+    // not-yet-loaded copy would be a permanently false statement.
+    setInventoryResult({ available: false, error: null, inventory: null });
+    renderHeader(makeRepository());
+
+    await openWorktreeMenu();
+    const item = screen.getByRole('menuitem', {
+      name: 'Review changes in repo — Repository inventory is unavailable in this build.',
+    });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+  });
+
   it('is honest — not silently enabled — while the inventory has not loaded yet', async () => {
     setInventoryResult({ error: null, inventory: null });
     renderHeader(makeRepository());

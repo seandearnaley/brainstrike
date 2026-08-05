@@ -345,14 +345,21 @@ function HistoricalDiffPane({
     revertible: false,
     rootId,
     status: statusLetterToChangedFileStatus(file.status),
-    worktreePath: repository.currentWorktree.path,
+    // The OPENED root, not `currentWorktree.path` — `bridge.commitFiles`
+    // returns paths already scoped to the opened folder, and
+    // `ChangedFileEntry.path` is contractually "relative to the owning
+    // worktree root". Identical outside `repository.scope === 'workspace'`.
+    // (Display-only here: `loadCommitFileDiff` resolves its cwd from
+    // `rootId` on the `git` domain, never from this field.)
+    worktreePath: repository.openedRoot,
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col">
       <ChangesetFileDiffCard
-        bodyClassName="h-full min-h-0"
+        bodyClassName="min-h-0 flex-1"
         changesetKind="git-scope"
+        className="flex min-h-0 flex-1 flex-col"
         entry={entry}
         key={`${selection.commit.id}:${file.path}`}
         loadFileDiff={loadFileDiff}

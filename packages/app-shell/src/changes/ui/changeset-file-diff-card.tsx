@@ -50,11 +50,25 @@ export interface ChangesetFileDiffCardProps {
    * this card's native habitat, a vertically-stacked multi-file pane
    * (`ChangesetDiffPane`). The git panel's Changes tab hosts exactly ONE
    * card filling its whole diff pane, where a fixed 420px box wastes most of
-   * the available height — it passes `h-full` instead. Purely a
-   * presentational sizing hook; does not affect load/error/binary state.
+   * the available height — it passes `min-h-0 flex-1` instead, paired with
+   * {@link ChangesetFileDiffCardProps.className}. Purely a presentational
+   * sizing hook; does not affect load/error/binary state.
    */
   readonly bodyClassName?: string;
   readonly changesetKind: Changeset['kind'];
+  /**
+   * Class for this card's ROOT element — additive prop (BST-1116 W6 review
+   * finding), defaulting to `undefined` so the multi-file pane renders the
+   * exact markup it always did. A single-card host must pass a definite-height
+   * layout here (the git panel passes `flex min-h-0 flex-1 flex-col`): the
+   * root is otherwise an auto-height block, so a percentage `bodyClassName`
+   * height would resolve to `auto` against it and the diff would size to its
+   * own content instead of filling the pane. Making the root a flex column is
+   * what gives `bodyClassName`'s `flex-1` a definite box to grow into, and
+   * restores `DiffView`'s own internal scrolling (which needs a bounded
+   * height) rather than growing the whole document.
+   */
+  readonly className?: string;
   readonly entry: ChangedFileEntry;
   /**
    * `entry.rootId` is threaded on every call (not just the surface's focused
@@ -225,6 +239,7 @@ export function ChangesetFileDiffCard({
   // this module's doc comment) — the only journal-specific handling is the
   // generic null-stat rendering every changeset already goes through.
   changesetKind: _changesetKind,
+  className,
   entry,
   loadFileDiff,
 }: ChangesetFileDiffCardProps): ReactElement {
@@ -292,7 +307,7 @@ export function ChangesetFileDiffCard({
   }, [runLoad]);
 
   return (
-    <div data-testid="changeset-file-diff-card" ref={containerRef}>
+    <div className={className} data-testid="changeset-file-diff-card" ref={containerRef}>
       <CardHeader entry={entry} />
       {state.kind === 'idle' || state.kind === 'loading' ? <LoadingBody /> : null}
       {state.kind === 'error' ? (

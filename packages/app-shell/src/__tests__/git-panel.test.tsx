@@ -470,6 +470,46 @@ describe('GitPanel', () => {
     );
   });
 
+  it('pins the changeset to the OPENED root, not the worktree root, for a subfolder workspace', async () => {
+    // W6 review finding: `resolveContainedWorktreeCwd` requires the root
+    // resolved from `rootId` to CONTAIN `worktreePath`. When the opened
+    // folder is BELOW the worktree root (`scope: 'workspace'`), the worktree
+    // root is an ANCESTOR of it, so pinning `currentWorktree.path` would fail
+    // every diff with `outside-roots-unsupported:` — and would also diff a
+    // differently-prefixed path, since this panel's row paths are already
+    // relative to the opened root.
+    const user = userEvent.setup();
+    installBridge({
+      repository: vi.fn(async () =>
+        ok(
+          makeRepository({
+            openedRoot: '/abs/repo/packages/app',
+            scope: 'workspace',
+          })
+        )
+      ),
+    });
+    const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff()));
+    installChangesBridge({ fileDiff });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.click(screen.getByRole('button', { name: 'staged.ts' }));
+
+    await waitFor(() =>
+      expect(fileDiff).toHaveBeenCalledWith(
+        'root-1',
+        {
+          kind: 'git-scope',
+          repositoryRoot: '/abs/repo',
+          scope: { kind: 'staged' },
+          worktreePath: '/abs/repo/packages/app',
+        },
+        'staged.ts'
+      )
+    );
+  });
+
   it('does not refetch an unchanged diff when the file filter changes', async () => {
     const user = userEvent.setup();
     installBridge({});

@@ -59,7 +59,9 @@ function findWorktreeDescriptor(
 /**
  * Trust-gates a worktree dropdown entry (BST-1116 Task C). NO SILENT
  * FALLBACKS: an out-of-root, unvalidated, locked, or not-yet-indexed worktree
- * is disabled with a stated reason, never quietly enabled or hidden. Mirrors
+ * is disabled with a stated reason, never quietly enabled or hidden — and the
+ * stated reason must be TRUE, which is why `inventoryAvailable` is its own
+ * branch rather than collapsing into the not-yet-loaded one. Mirrors
  * `changeset-source-picker.tsx`'s worktree gating (same `outside-roots`
  * copy) plus the additional lock/trust/inventory-honesty checks this task
  * brief requires.
@@ -68,8 +70,21 @@ function resolveWorktreeNavigation(
   worktree: GitWorktreeSummary,
   repositoryRoot: string,
   inventory: GitInventory | null,
-  inventoryError: string | null
+  inventoryError: string | null,
+  inventoryAvailable: boolean
 ): WorktreeNavigation {
+  // Checked FIRST: without a `window.changes` bridge `useGitInventory`
+  // reports `inventory: null` with `error: null` forever, which the
+  // not-yet-loaded branch below would render as a permanent "Loading…" —
+  // a stated reason that is simply false. (`git` and `changes` are
+  // independently gated in `preload.ts`'s `shouldExposeBridge`, so one can
+  // be present without the other.)
+  if (!inventoryAvailable) {
+    return {
+      disabledReason: 'Repository inventory is unavailable in this build.',
+      navigable: false,
+    };
+  }
   if (inventoryError) {
     return {
       disabledReason: `Repository inventory unavailable: ${inventoryError}`,
@@ -154,7 +169,7 @@ export function GitWorkbenchHeader({
 }: GitWorkbenchHeaderProps): ReactElement {
   const currentRemote = repository.defaultRemote;
   const branchName = status.branch ?? 'Detached HEAD';
-  const { error: inventoryError, inventory } = useGitInventory();
+  const { available: inventoryAvailable, error: inventoryError, inventory } = useGitInventory();
   const openChangeset = useChangesNavigationStore((state) => state.openChangeset);
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
 
@@ -224,7 +239,8 @@ export function GitWorkbenchHeader({
               worktree,
               repository.repositoryRoot,
               inventory,
-              inventoryError
+              inventoryError,
+              inventoryAvailable
             );
             const accessibleName = disabledReason
               ? `Review changes in ${worktree.name} — ${disabledReason}`
