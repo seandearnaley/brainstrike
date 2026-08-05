@@ -64,7 +64,17 @@ export interface NotesVaultBridge {
   writeFile(path: string, content: string): Promise<NotesVaultResult<{ lastModified: number }>>;
 }
 
-const REQUIRED_METHODS: readonly (keyof NotesVaultBridge)[] = [
+/**
+ * Every method name the bridge must expose to be considered fully formed.
+ * Exported so the desktop preload-runtime contract test can pin the
+ * `window.notesVault` `exposeInMainWorld` key set to this exact list.
+ *
+ * NOTE: the pin is EXACT set equality, not a subset check — every method the
+ * preload exposes must be listed here. There is no such thing as an optional
+ * bridge method: a preload method missing from this list (or vice versa)
+ * disables the entire surface via the resolver below.
+ */
+export const NOTES_VAULT_BRIDGE_REQUIRED_METHODS: readonly (keyof NotesVaultBridge)[] = [
   'createDirectory',
   'deleteEntry',
   'rename',
@@ -93,7 +103,7 @@ export function resolveNotesVaultBridge(): NotesVaultBridge | null {
   if (!candidate || typeof candidate !== 'object') {
     return null;
   }
-  for (const method of REQUIRED_METHODS) {
+  for (const method of NOTES_VAULT_BRIDGE_REQUIRED_METHODS) {
     if (typeof (candidate as Record<string, unknown>)[method] !== 'function') {
       return null;
     }

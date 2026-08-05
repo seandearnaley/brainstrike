@@ -1,5 +1,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
+import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
+import {
+  COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+  TERMINAL_BRIDGE_REQUIRED_METHODS,
+} from '@brainstrike/app-shell/terminal-panel/availability';
+import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
@@ -24,6 +32,61 @@ function removePreloadStringConstantDefinitions(source: string): string {
     /const\s+[A-Z0-9_]+_(?:CHANNEL|EVENT)\s*=\s*['"][^'"]+['"]\s+as\s+const;/g,
     ''
   );
+}
+
+/**
+ * Extract the top-level property names of the object literal passed to
+ * `contextBridge.exposeInMainWorld('<bridgeName>', {...})` from the real
+ * TypeScript AST. Any property form other than a plain `identifier: value`
+ * assignment (spread, computed/quoted key, shorthand, method) throws, so the
+ * exposed surface can never silently diverge from what this parity check sees.
+ */
+function extractExposedBridgeMethodNames(source: string, bridgeName: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    'preload.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  let bridgeObject: ts.ObjectLiteralExpression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'contextBridge' &&
+      node.expression.name.text === 'exposeInMainWorld'
+    ) {
+      const [nameArgument, apiArgument] = node.arguments;
+      if (nameArgument && ts.isStringLiteral(nameArgument) && nameArgument.text === bridgeName) {
+        if (bridgeObject) {
+          throw new Error(`Multiple exposeInMainWorld('${bridgeName}', ...) calls in preload.`);
+        }
+        if (!(apiArgument && ts.isObjectLiteralExpression(apiArgument))) {
+          throw new Error(
+            `exposeInMainWorld('${bridgeName}', ...) is not passed an inline object literal.`
+          );
+        }
+        bridgeObject = apiArgument;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!bridgeObject) {
+    throw new Error(`Missing contextBridge.exposeInMainWorld('${bridgeName}', ...) in preload.`);
+  }
+  return bridgeObject.properties.map((property) => {
+    if (!(ts.isPropertyAssignment(property) && ts.isIdentifier(property.name))) {
+      throw new Error(
+        `Unsupported property form in exposeInMainWorld('${bridgeName}', ...) object ` +
+          '(only plain identifier-keyed property assignments are modeled — extend ' +
+          'extractExposedBridgeMethodNames).'
+      );
+    }
+    return property.name.text;
+  });
 }
 
 function findRawIpcRendererChannels(source: string): string[] {
@@ -258,6 +321,29 @@ describe('preload runtime contract', () => {
     for (const channel of Object.values(expectedConstants)) {
       expect(preloadWithoutContractDefinitions).not.toContain(`'${channel}'`);
       expect(preloadWithoutContractDefinitions).not.toContain(`"${channel}"`);
+    }
+  });
+
+  it('keeps resolver-gated bridge key sets in parity with their required-method contracts', () => {
+    const preloadSource = readPreloadSource();
+    // Each of these bridges is disabled WHOLESALE by its resolver when any
+    // required method is missing from the preload surface, so the exposed key
+    // set must match the resolver's required-method list exactly.
+    const expectedBridgeMethods: Record<string, readonly string[]> = {
+      changes: CHANGES_BRIDGE_REQUIRED_METHODS,
+      commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+      git: GIT_BRIDGE_REQUIRED_METHODS,
+      notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
+      terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
+    };
+
+    for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {
+      expect
+        .soft({
+          bridge: bridgeName,
+          methods: [...extractExposedBridgeMethodNames(preloadSource, bridgeName)].sort(),
+        })
+        .toEqual({ bridge: bridgeName, methods: [...requiredMethods].sort() });
     }
   });
 

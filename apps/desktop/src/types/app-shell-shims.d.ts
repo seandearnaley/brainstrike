@@ -52,18 +52,13 @@ declare module '@brainstrike/app-shell/changes' {
   export function isChangesBridgeAvailable(): boolean;
 }
 
-declare module '@brainstrike/app-shell/changes/availability' {
-  /** True when the desktop `window.changes` bridge is present and fully formed. */
-  export function isChangesBridgeAvailable(): boolean;
-}
+// NOTE: no shims for the `/changes/availability`, `/git-panel/availability`,
+// and `/terminal-panel/availability` subpaths — tsconfig `paths` pins them to
+// real app-shell source (an ambient declaration here would shadow that pin and
+// hide the true export surface, e.g. the *_BRIDGE_REQUIRED_METHODS constants).
 
 declare module '@brainstrike/app-shell/git-panel' {
   export const GitPanel: React.ComponentType;
-  /** True when the desktop `window.git` bridge is present and fully formed. */
-  export function isGitBridgeAvailable(): boolean;
-}
-
-declare module '@brainstrike/app-shell/git-panel/availability' {
   /** True when the desktop `window.git` bridge is present and fully formed. */
   export function isGitBridgeAvailable(): boolean;
 }

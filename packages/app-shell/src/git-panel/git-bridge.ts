@@ -84,8 +84,17 @@ export interface GitBridge {
   unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
 }
 
-/** Every method name the bridge must expose to be considered fully formed. */
-const REQUIRED_METHODS: readonly (keyof GitBridge)[] = [
+/**
+ * Every method name the bridge must expose to be considered fully formed.
+ * Exported so the desktop preload-runtime contract test can pin the
+ * `window.git` `exposeInMainWorld` key set to this exact list.
+ *
+ * NOTE: the pin is EXACT set equality, not a subset check — every method the
+ * preload exposes must be listed here. There is no such thing as an optional
+ * bridge method: a preload method missing from this list (or vice versa)
+ * disables the entire surface via the resolver below.
+ */
+export const GIT_BRIDGE_REQUIRED_METHODS: readonly (keyof GitBridge)[] = [
   'status',
   'diff',
   'commitDiff',
@@ -116,7 +125,9 @@ export function resolveGitBridge(): GitBridge | null {
   if (!bridge) {
     return null;
   }
-  const missing = REQUIRED_METHODS.filter((method) => typeof bridge[method] !== 'function');
+  const missing = GIT_BRIDGE_REQUIRED_METHODS.filter(
+    (method) => typeof bridge[method] !== 'function'
+  );
   if (missing.length > 0) {
     logger.error('window.git bridge is malformed; Git panel disabled', { missing });
     return null;
