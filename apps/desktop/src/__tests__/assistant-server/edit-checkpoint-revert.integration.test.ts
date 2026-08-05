@@ -330,6 +330,97 @@ describe('revertCheckpointEntry', () => {
   });
 });
 
+/**
+ * BST-1115 smoke round 2, defect 1. The journal records FILE ops only, so
+ * un-creating a scaffolded file used to leave its whole directory tree behind.
+ * The prune is OPT-IN (rewind's apply path only) — see
+ * `pruneEmptyAncestorDirectories`.
+ */
+describe('revertCheckpointEntry — empty-directory prune', () => {
+  async function directoryExists(rel: string): Promise<boolean> {
+    try {
+      const stats = await fsPromises.stat(path.join(rootPath, rel));
+      return stats.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  async function seedCreated(workspacePath: string, content: string) {
+    await writeDiskFile(workspacePath.replace(/^\//, ''), content);
+    return await seed({
+      afterExisted: true,
+      afterHash: sha256Hex(content),
+      beforeExisted: false,
+      captureStatus: 'created',
+      op: 'write',
+      path: workspacePath,
+    });
+  }
+
+  it('removes the whole scaffolded tree once its only file is un-created', async () => {
+    const record = await seedCreated('/app/src/components/Button.tsx', 'export const Button = 1;');
+
+    const result = await revertCheckpointEntry(
+      db,
+      { id: record.id, pruneEmptyDirectories: true },
+      deps()
+    );
+
+    expect(result.ok).toBe(true);
+    expect(await readDiskFile('app/src/components/Button.tsx')).toBeNull();
+    expect(await directoryExists('app/src/components')).toBe(false);
+    expect(await directoryExists('app/src')).toBe(false);
+    expect(await directoryExists('app')).toBe(false);
+  });
+
+  it('stops at the first ancestor the run did not empty', async () => {
+    const record = await seedCreated('/app/src/components/Button.tsx', 'export const Button = 1;');
+    // A file the rewind is NOT reverting, sitting in an ancestor directory.
+    await writeDiskFile('app/src/keep-me.txt', 'MINE');
+
+    const result = await revertCheckpointEntry(
+      db,
+      { id: record.id, pruneEmptyDirectories: true },
+      deps()
+    );
+
+    expect(result.ok).toBe(true);
+    expect(await directoryExists('app/src/components')).toBe(false);
+    expect(await directoryExists('app/src')).toBe(true);
+    expect(await directoryExists('app')).toBe(true);
+    expect(await readDiskFile('app/src/keep-me.txt')).toBe('MINE');
+  });
+
+  it('never removes the workspace root, even when the revert empties it', async () => {
+    // The created file sits DIRECTLY in the root, so after the unlink the root
+    // itself is an empty directory — the one ancestor the walk must refuse.
+    const record = await seedCreated('/index.html', '<!doctype html>');
+
+    const result = await revertCheckpointEntry(
+      db,
+      { id: record.id, pruneEmptyDirectories: true },
+      deps()
+    );
+
+    expect(result.ok).toBe(true);
+    expect(await readDiskFile('index.html')).toBeNull();
+    const rootStats = await fsPromises.stat(rootPath);
+    expect(rootStats.isDirectory()).toBe(true);
+  });
+
+  it('leaves directories standing when the prune is not requested', async () => {
+    // The per-turn checkpoint revert and rewind's REDO both take this path.
+    const record = await seedCreated('/app/src/components/Button.tsx', 'export const Button = 1;');
+
+    const result = await revertCheckpointEntry(db, { id: record.id }, deps());
+
+    expect(result.ok).toBe(true);
+    expect(await readDiskFile('app/src/components/Button.tsx')).toBeNull();
+    expect(await directoryExists('app/src/components')).toBe(true);
+  });
+});
+
 describe('revertCheckpointRun', () => {
   it('reverts multiple same-file edits in reverse order to the pre-turn state', async () => {
     // Two sequential edits to the same file in one turn: '' -> 'V1' -> 'V2'.

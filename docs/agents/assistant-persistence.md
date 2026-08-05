@@ -907,6 +907,35 @@ finalizes the rewind.
   composer text the rewind just repopulated. The modal bumps BEFORE handing text
   to `useRewindComposerStore`, because `RewindComposerBridge` lives inside the
   remounted runtime and it is the new instance that must drain it.
+- **THE JOURNAL RECORDS FILE OPS, SO THE REVERT MUST PRUNE DIRECTORIES.** A
+  turn that scaffolds a project journals one row per FILE; the directories
+  `ensureContainedDirectory` created on the way have no row at all. The
+  2026-08-05 smoke round 2 rewound a scaffolded React app and got every file
+  unlinked over an intact folder tree. `revertCheckpointEntry` takes
+  `pruneEmptyDirectories` (default FALSE): after unlinking a `created` file it
+  walks UP from the file's parent removing each now-empty directory, stopping
+  at the first `rmdir` refusal (ENOTEMPTY = something the run did not create)
+  and unconditionally at the workspace root — that inequality is the boundary,
+  since `isWithinRoot` is true FOR the root. Failures are swallowed: the file
+  is already gone and a leftover directory must not report a successful revert
+  as failed. **Rewind's APPLY passes true; the per-turn checkpoint revert and
+  rewind's REDO both leave it false** — redo restores the PRE-rewind state, in
+  which those directories existed. KNOWN LIMITATION, accepted: an
+  intentionally-empty pre-existing directory on the created file's exact path
+  is indistinguishable from a scaffolded one and will be pruned; journaling
+  directory creation is the real fix.
+- **CAPTURE SCOPE IS STATED, NOT IMPLIED.** The journal only sees mutations
+  made through the assistant's own file tools. A `package-lock.json` an
+  `npm install` wrote, or a `dist/` a build emitted, has no row and is NOT
+  restored — the same smoke hit exactly that. Expanding capture to shell side
+  effects is separate work; until it exists the honest fix is copy.
+  `REWIND_SHELL_CAPTURE_QUALIFIER`
+  (`packages/app-shell/src/changes/ui/rewind-copy.ts`) is ONE constant rendered
+  in TWO places: permanently in the files-mode confirmation, beside the
+  open-files notice, and once in the outcome summary when the reverted set is
+  non-empty (a rewind that restored nothing makes no claim to bound). Both
+  renderers are pinned to the literal text by test — do not paraphrase either
+  copy independently, or the post-apply line reads as new news.
 - **Mastra stays the writer of message content.** Nothing here alters a
   `mastra_*` table; hiding is an anti-join in Brainstrike-owned reads, and the
   finalizing hard delete goes through Mastra's own `deleteMessages` storage

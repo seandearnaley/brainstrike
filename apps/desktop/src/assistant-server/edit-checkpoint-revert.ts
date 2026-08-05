@@ -27,6 +27,7 @@ import {
   sha256Hex,
 } from './edit-checkpoint-journal';
 import { MAX_WRITE_WORKSPACE_FILE_BYTES, withTwoFileLocks } from './file-mutation-tools';
+import { isWithinRoot } from './workspace-path';
 import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution';
 import { loadWorkspaceRootsFromDatabase } from './workspace-roots';
 
@@ -327,12 +328,60 @@ async function applyRestoreWrite(
   });
 }
 
+/**
+ * DIRECTORY PRUNE (BST-1115, rewind apply only).
+ *
+ * The journal records FILE ops only. A scaffolding turn that writes
+ * `app/src/components/Button.tsx` journals ONE `created` file; the `app/`,
+ * `app/src/` and `app/src/components/` directories that
+ * `ensureContainedDirectory` made on the way are invisible to it. Unlinking the
+ * file therefore used to leave the entire scaffolded tree standing after a
+ * rewind — the folder structure of a project the user asked to un-create.
+ *
+ * So after unlinking a created file we walk UP from its parent, removing each
+ * directory that is now EMPTY, and stop at the first directory `rmdir` refuses:
+ * ENOTEMPTY (something the run did not create still lives there) or any other
+ * error. The walk also stops unconditionally at the workspace root — the root
+ * is the boundary, never a candidate, and nothing at or above it is ever
+ * removed.
+ *
+ * KNOWN LIMITATION, accepted for W5: an intentionally-empty directory that
+ * already existed on the created file's exact path is indistinguishable from
+ * one the run scaffolded, and will be pruned. Journaling directory creation is
+ * the real fix and is out of scope here.
+ *
+ * Failures are deliberately swallowed rather than raised: the file — the thing
+ * the journal actually promised to revert — is already gone, and a leftover
+ * directory must not turn a successful revert into a reported failure.
+ */
+async function pruneEmptyAncestorDirectories(
+  canonicalRootPath: string,
+  startDirectory: string
+): Promise<void> {
+  let current = startDirectory;
+  // The root itself terminates the walk. `isWithinRoot` is TRUE for the root,
+  // so this inequality — not the containment check — is the boundary stop.
+  while (current !== canonicalRootPath && isWithinRoot(canonicalRootPath, current)) {
+    try {
+      await fsPromises.rmdir(current);
+    } catch {
+      return;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return;
+    }
+    current = parent;
+  }
+}
+
 async function applyDeleteCreated(
   row: CheckpointFullRow,
   rootPath: string,
   force: boolean,
   deps: CheckpointRevertDeps,
-  capture: RevertCaptureFn
+  capture: RevertCaptureFn,
+  pruneEmptyDirectories: boolean
 ): Promise<void> {
   const resolved = await resolveWorkspaceWritePath(rootPath, row.path);
   const mutationPath = await resolveWorkspaceLeafMutationPath(
@@ -360,6 +409,12 @@ async function applyDeleteCreated(
         throw error;
       }
     });
+    if (pruneEmptyDirectories) {
+      await pruneEmptyAncestorDirectories(
+        resolved.canonicalRootPath,
+        path.dirname(resolved.absolutePath)
+      );
+    }
     await deps.reindex({
       kind: 'delete',
       rootId: row.rootId,
@@ -464,13 +519,24 @@ async function applyRenameBack(
  * reverted (idempotent) states, resolves the root, detects on-disk conflicts
  * (hash compare — `force` overrides), applies the per-op inverse under the file
  * lock, runs the matching reindex seam, and stamps `reverted_at`.
+ *
+ * `pruneEmptyDirectories` is OPT-IN and defaults to false — see
+ * {@link pruneEmptyAncestorDirectories}. Rewind's apply path passes true; the
+ * per-turn checkpoint revert and rewind's REDO both leave it off, redo because
+ * it restores the PRE-rewind state, in which those directories existed.
  */
 export async function revertCheckpointEntry(
   db: EditCheckpointDatabase,
-  args: { id: string; force?: boolean; afterCapture?: RevertAfterCapture },
+  args: {
+    id: string;
+    force?: boolean;
+    afterCapture?: RevertAfterCapture;
+    pruneEmptyDirectories?: boolean;
+  },
   deps: CheckpointRevertDeps
 ): Promise<AssistantCheckpointRevertResult> {
   const force = args.force ?? false;
+  const pruneEmptyDirectories = args.pruneEmptyDirectories ?? false;
   const safeDeps = withNonFatalReindex(deps);
   try {
     const row = await loadCheckpointRow(db, args.id);
@@ -493,7 +559,7 @@ export async function revertCheckpointEntry(
     if (row.op === 'rename') {
       await applyRenameBack(row, rootPath, force, safeDeps, capture);
     } else if (row.op === 'write' && row.captureStatus === 'created') {
-      await applyDeleteCreated(row, rootPath, force, safeDeps, capture);
+      await applyDeleteCreated(row, rootPath, force, safeDeps, capture, pruneEmptyDirectories);
     } else if (row.op === 'delete') {
       await applyRecreateDeleted(row, rootPath, force, safeDeps, capture);
     } else {

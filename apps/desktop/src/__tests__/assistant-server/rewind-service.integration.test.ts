@@ -845,6 +845,49 @@ describe('applyRewind — created files', () => {
     expect(redone.ok).toBe(true);
     expect(await readDiskFile(root(), '/new.txt')).toBe('brand new');
   });
+
+  /**
+   * REGRESSION — 2026-08-05 smoke round 2, defect 1. A turn that scaffolded a
+   * modular app left its whole `app/` directory tree standing after the rewind,
+   * because the journal records FILE ops only. The apply path now prunes the
+   * emptied ancestors; REDO must not (it restores the pre-rewind state, in
+   * which those directories existed) — recreating them is `writeFile`'s job.
+   */
+  it('prunes the directory tree a scaffolding turn created, and redo rebuilds it', async () => {
+    await seedTwoTurnThread();
+    for (const [index, filePath] of [
+      '/app/src/main.tsx',
+      '/app/src/components/Button.tsx',
+      '/app/package.json',
+    ].entries()) {
+      await seedWrite(fixture, {
+        after: `scaffold ${index}`,
+        before: null,
+        occurredAt: `2026-01-01T00:00:2${5 + index}Z`,
+        path: filePath,
+        rootId: ROOT_ID,
+        runId: 'run-1',
+      });
+    }
+
+    const result = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      probe
+    );
+    expect(result.ok).toBe(true);
+    await expect(fsPromises.stat(absolutePathFor(root(), '/app'))).rejects.toThrow();
+    // The root is the boundary, never a prune candidate.
+    expect((await fsPromises.stat(root())).isDirectory()).toBe(true);
+
+    if (!result.ok) {
+      return;
+    }
+    const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, probe);
+    expect(redone.ok).toBe(true);
+    expect(await readDiskFile(root(), '/app/src/components/Button.tsx')).toBe('scaffold 1');
+    expect((await fsPromises.stat(absolutePathFor(root(), '/app/src'))).isDirectory()).toBe(true);
+  });
 });
 
 /**

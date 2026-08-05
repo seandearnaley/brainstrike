@@ -247,12 +247,19 @@ function outcomeSummary(outcome: AssistantRewindFileOutcome): string {
  * silently clobber an unrelated file changed between the scan and the apply —
  * the acknowledgment is for the paths the user was SHOWN, not a global
  * override.
+ *
+ * `pruneEmptyDirectories` is TRUE for an apply and FALSE for a redo. The
+ * journal records file ops only, so un-creating a scaffolded file leaves its
+ * directories behind unless the executor prunes them (see
+ * `edit-checkpoint-revert.ts`). Redo must NOT prune: it restores the state that
+ * existed before the rewind, and in that state those directories were present.
  */
 async function executePlan(
   db: EditCheckpointDatabase,
   plan: RewindRevertPlan,
   deps: RewindServiceDeps,
-  afterCapture: { readonly revertId: string; readonly toolName: string } | null
+  afterCapture: { readonly revertId: string; readonly toolName: string } | null,
+  pruneEmptyDirectories: boolean
 ): Promise<readonly AssistantRewindFileOutcome[]> {
   const forced = new Set(plan.conflicts.map((conflict) => conflict.checkpointId));
   const outcomes: AssistantRewindFileOutcome[] = [];
@@ -262,6 +269,7 @@ async function executePlan(
       {
         force: forced.has(record.id),
         id: record.id,
+        pruneEmptyDirectories,
         ...(afterCapture ? { afterCapture } : {}),
       },
       deps
@@ -553,10 +561,16 @@ async function applyRewindLocked(
   if (tombstoned.length === 0) {
     return refuseAlreadyTombstoned(args.threadId);
   }
-  const fileOutcomes = await executePlan(db, plan, deps, {
-    revertId,
-    toolName: REWIND_REVERT_TOOL_NAME,
-  });
+  const fileOutcomes = await executePlan(
+    db,
+    plan,
+    deps,
+    {
+      revertId,
+      toolName: REWIND_REVERT_TOOL_NAME,
+    },
+    true
+  );
   await assertAfterCapturePairing(db, rewindId, revertId, fileOutcomes);
 
   return {
@@ -632,8 +646,9 @@ export async function redoRewind(
         return refuseConflicts(plan.conflicts);
       }
       // No after-capture on a redo: redo is one level deep, so there is no
-      // second-order undo to journal for.
-      fileOutcomes = await executePlan(db, plan, deps, null);
+      // second-order undo to journal for. No directory prune either — redo
+      // restores the pre-rewind state, and those directories were part of it.
+      fileOutcomes = await executePlan(db, plan, deps, null, false);
       rootOutcomes = buildRootOutcomes(plan, fileOutcomes);
       // The pre-scan passed clean, but a file still failed during the actual
       // revert (TOCTOU between scan and write). Deleting the tombstone batch
