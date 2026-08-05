@@ -93,7 +93,7 @@ const CORE_RESET_TABLES = [
  * these previously survived a web factory reset while dying on desktop. All
  * six are seed-free caches/bookkeeping that rebuild on demand. Clear
  * Database keeps them on BOTH surfaces (desktop `db:clearAll` never cleared
- * them either — the 27-relation clear-set parity is untouched).
+ * them either — clear-set parity with {@link getResetTables} is untouched).
  *
  * `view_filter_presets` is deliberately NOT here despite being in the
  * original status-quo family: it is migration-SEEDED configuration

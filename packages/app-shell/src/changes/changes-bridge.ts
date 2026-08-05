@@ -130,9 +130,10 @@ const CHANGES_BRIDGE_REQUIRED_METHOD_SET = {
  * bridge method: a preload method missing from this list (or vice versa)
  * disables the entire surface via the resolver below.
  *
- * The three rewind methods joined this list in the SAME commit that added them
- * to the preload (BST-1115 W5 T4) — a bridge that exposes them on one side only
- * is malformed, and a malformed bridge is absent, never half-working.
+ * Each rewind method joined this list in the SAME commit that added it to the
+ * preload (BST-1115 W5 T4 for preview/apply/redo, T4b for finalize) — a bridge
+ * that exposes one on a single side only is malformed, and a malformed bridge
+ * is absent, never half-working.
  */
 export const CHANGES_BRIDGE_REQUIRED_METHODS = Object.keys(
   CHANGES_BRIDGE_REQUIRED_METHOD_SET
