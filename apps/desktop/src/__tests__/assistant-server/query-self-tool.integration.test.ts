@@ -47,11 +47,7 @@ const { wasmLoader } = await import('@brainstrike/db');
 
 interface PGliteTransactionShape {
   exec: (sql: string) => Promise<unknown>;
-  query: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
-}
-
-interface TransactionCapablePGlite extends PGlite {
-  transaction: <T>(fn: (tx: PGliteTransactionShape) => Promise<T>) => Promise<T>;
+  query: (sql: string, params?: unknown[], options?: { rowMode?: 'array' }) => Promise<unknown>;
 }
 
 /**
@@ -89,7 +85,7 @@ function asRemoteClientShape(db: PGlite) {
 
   return {
     transaction: async <T>(fn: (tx: ReturnType<typeof wrapTx>) => Promise<T>): Promise<T> =>
-      await (db as unknown as TransactionCapablePGlite).transaction(async (tx) => fn(wrapTx(tx))),
+      await db.transaction(async (tx) => fn(wrapTx(tx))),
   };
 }
 
@@ -286,7 +282,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
     // mangled columns — a wrong answer the model would have believed.
     const droppingClient = {
       transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
-        await (db as unknown as TransactionCapablePGlite).transaction(
+        await db.transaction(
           async (tx) =>
             await fn({
               exec: async (sql: string) =>

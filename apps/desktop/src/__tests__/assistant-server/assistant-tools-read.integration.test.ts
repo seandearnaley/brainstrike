@@ -1340,17 +1340,6 @@ describe('assistant-tools read tools', () => {
     const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
     const executeInspect = requireToolExecute(tools, 'brainstrike.inspectCommandSessions');
     const executeManage = requireToolExecute(tools, 'brainstrike.manageCommandSession');
-    const manageTool = requireTool(tools, 'brainstrike.manageCommandSession');
-    const executeManageWithOptions = (
-      manageTool as unknown as {
-        execute?: (input: unknown, options: { abortSignal: AbortSignal }) => Promise<unknown>;
-      }
-    ).execute;
-    if (typeof executeManageWithOptions !== 'function') {
-      throw new Error(
-        "Expected tool 'brainstrike.manageCommandSession' to have an execute implementation"
-      );
-    }
     const abortController = new AbortController();
 
     expect(
@@ -1372,8 +1361,7 @@ describe('assistant-tools read tools', () => {
       })
     ).toMatchObject({ nextCursor: 5, output: 'ready', session });
     await expect(
-      executeManageWithOptions.call(
-        manageTool,
+      executeManage(
         {
           operation: { action: 'start', command: 'pnpm dev' },
           root: 'api',

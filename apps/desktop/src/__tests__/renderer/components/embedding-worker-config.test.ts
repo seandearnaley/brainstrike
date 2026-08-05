@@ -144,7 +144,11 @@ function createScheduledTestDb(
   const scheduler = createDatabaseWorkScheduler(options);
   return {
     db,
-    scheduledDb: createScheduledDbHandle(db as never, scheduler, 'background'),
+    scheduledDb: createScheduledDbHandle(
+      db as unknown as Parameters<typeof createScheduledDbHandle>[0],
+      scheduler,
+      'background'
+    ),
   };
 }
 

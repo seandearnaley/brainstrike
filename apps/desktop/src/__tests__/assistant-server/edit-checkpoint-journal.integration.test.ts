@@ -91,8 +91,7 @@ async function runsTableIsPresent(): Promise<boolean> {
 }
 
 beforeEach(async () => {
-  db = (await wasmLoader.createPGlite('memory://edit-checkpoint-journal')) as unknown as PGlite &
-    EditCheckpointDatabase;
+  db = await wasmLoader.createPGlite('memory://edit-checkpoint-journal');
   await migrate(db);
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES');
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_MAX_ROWS');

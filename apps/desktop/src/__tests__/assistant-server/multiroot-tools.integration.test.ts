@@ -12,7 +12,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import { type FileChunkDatabase, FileChunkRepository, migrate, wasmLoader } from '@brainstrike/db';
+import { FileChunkRepository, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -141,7 +141,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
       ]
     );
 
-    const repo = new FileChunkRepository(db as unknown as FileChunkDatabase);
+    const repo = new FileChunkRepository(db);
     const baseChunk = {
       chunkSize: 50,
       chunkType: 'code' as const,

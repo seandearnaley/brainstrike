@@ -84,8 +84,7 @@ async function seed(input: Partial<EditCheckpointInput> & { op: EditCheckpointIn
 beforeEach(async () => {
   reindex.mockClear();
   rootPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-ckpt-revert-'));
-  db = (await wasmLoader.createPGlite('memory://edit-checkpoint-revert')) as unknown as PGlite &
-    EditCheckpointDatabase;
+  db = await wasmLoader.createPGlite('memory://edit-checkpoint-revert');
   await migrate(db);
   await db.query(
     `INSERT INTO roots (id, kind, display_name, path, status, created_at)

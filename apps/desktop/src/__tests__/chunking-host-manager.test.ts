@@ -54,6 +54,9 @@ vi.mock('../renderer-host-lifecycle', () => ({
 
 import { ChunkingHostManager } from '../chunking-host-manager';
 
+// Omit<T, never> is NOT a no-op: it maps over the class's public keys and
+// yields a plain object type without private members, which is what lets the
+// intersection below redeclare internals as test-visible seams.
 type TestableChunkingHostManager = Omit<ChunkingHostManager, never> & {
   acceptResponseReport: (
     senderId: number,

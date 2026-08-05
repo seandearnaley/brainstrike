@@ -318,7 +318,7 @@ describe('command session manager', () => {
         decodedByteLengths.push(end - start);
       }
       return originalToString.call(this, encoding, start, end);
-    } as unknown as never);
+    } as unknown as typeof Buffer.prototype.toString);
 
     let page: ReturnType<typeof manager.read>;
     try {

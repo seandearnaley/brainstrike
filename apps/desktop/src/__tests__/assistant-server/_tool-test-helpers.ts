@@ -4,9 +4,9 @@ type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 type MastraTool = MastraTools[string];
 
 // Mastra's ToolsInput erases each tool's concrete signature to a union whose
-// execute is optional and takes (params, options). Desktop's tools ignore the
-// options argument, and every value flowing through the erased signature is
-// already `any` upstream — the `any` here mirrors that, it does not add any.
+// execute is optional and takes (params, options). The comment mirrors the
+// erased upstream signature — every value flowing through it is already `any`
+// upstream; the `any` here does not add any.
 // biome-ignore-start lint/suspicious/noExplicitAny: mirrors Mastra's erased execute signature
 type ErasedExecute = (params: any, options: unknown) => Promise<any>;
 // biome-ignore-end lint/suspicious/noExplicitAny: mirrors Mastra's erased execute signature
@@ -26,19 +26,20 @@ export function requireTool(tools: MastraTools, id: string): MastraTool {
 }
 
 /**
- * Returns the tool's execute bound to the single-argument call shape the
- * existing tests use. Mastra's type requires a second `options` argument that
- * desktop's tool implementations never read; passing `{}` keeps the call
- * type-correct without changing observable behavior.
+ * Returns the tool's execute with Mastra's second `options` argument made
+ * optional. Some desktop tools DO read options (executeCommand's output
+ * streamer and abortSignal, runSkillScript) — pass a real context when the
+ * test exercises those paths. The `{}` default matches what the pre-typed
+ * tests exercised (no streamer, no signal) without changing behavior.
  */
 export function requireToolExecute(
   tools: MastraTools,
   id: string
-): (params: unknown) => ReturnType<ErasedExecute> {
+): (params: unknown, options?: unknown) => ReturnType<ErasedExecute> {
   const tool = requireTool(tools, id);
   const execute = (tool as { execute?: ErasedExecute }).execute;
   if (typeof execute !== 'function') {
     throw new Error(`Expected tool '${id}' to have an execute implementation`);
   }
-  return (params: unknown) => execute.call(tool, params, {});
+  return (params: unknown, options?: unknown) => execute.call(tool, params, options ?? {});
 }

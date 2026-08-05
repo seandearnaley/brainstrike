@@ -21,6 +21,10 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "src/types/pglite.d.ts",
+    "src/types/pglite-live.d.ts",
+    "src/types/pglite-trgm.d.ts",
+    "src/types/pglite-vector.d.ts"
   ]
 }

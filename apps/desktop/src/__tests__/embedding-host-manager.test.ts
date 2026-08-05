@@ -90,6 +90,10 @@ vi.mock('../renderer-host-lifecycle', () => ({
 
 import { EmbeddingHostManager } from '../embedding-host-manager';
 
+// Omit<T, never> is NOT a no-op: it maps over the class's public keys and
+// yields a plain object type without private members, which is what lets the
+// intersection below redeclare private internals (syncPowerSaveBlocker) as
+// test-visible seams.
 type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
   syncPowerSaveBlocker: (status: {
     active: boolean;
