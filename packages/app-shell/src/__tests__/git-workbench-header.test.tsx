@@ -16,7 +16,7 @@
  */
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
@@ -191,6 +191,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
   it('disables an unvalidated worktree and states its trust reason', async () => {
     setInventoryResult({
       inventory: makeInventory([
+        makeWorktreeDescriptor(),
         makeWorktreeDescriptor({
           containment: 'outside-roots',
           current: false,
@@ -226,6 +227,12 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
         makeWorktreeDescriptor(),
         makeWorktreeDescriptor({
           current: false,
+          // The lock state is read off the INVENTORY descriptor, not off the
+          // `window.git` summary: entries are driven from one path vocabulary
+          // (see `git-workbench-header.tsx`'s PATH VOCABULARY comment), and
+          // `WorktreeDescriptor extends GitWorktreeSummary`, so it carries
+          // `lockedReason` itself.
+          lockedReason: 'administrator locked this worktree',
           name: 'locked-wt',
           path: '/abs/locked-wt',
           trust: 'validated',
@@ -291,8 +298,8 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     expect(item).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('is honest — not silently enabled — while the inventory has not loaded yet', async () => {
-    setInventoryResult({ error: null, inventory: null });
+  it('is honest — not silently enabled — while the inventory load is in flight', async () => {
+    setInventoryResult({ error: null, inventory: null, loading: true });
     renderHeader(makeRepository());
 
     await openWorktreeMenu();
@@ -302,27 +309,193 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     expect(item).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('is honest — not silently enabled — when the inventory failed to load', async () => {
+  it('distinguishes "never requested" from "loading" now that the initial load is deferred', async () => {
+    // `deferInitialLoad` (finding 4) makes `{ inventory: null, loading: false }`
+    // separately reachable: no scan is running, because none has been asked
+    // for. Calling that "Loading…" would be the same false-forever statement
+    // the missing-bridge branch exists to avoid — and unlike that branch, this
+    // one HAS a remedy, so the copy names it.
+    setInventoryResult({ error: null, inventory: null, loading: false });
+    renderHeader(makeRepository());
+
+    await openWorktreeMenu();
+    const item = screen.getByRole('menuitem', {
+      name: 'Review changes in repo — Repository inventory has not been read yet — use Refresh Git status to load it.',
+    });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('is honest — not silently enabled — when the inventory failed to load, and names the remedy', async () => {
     setInventoryResult({ error: 'IPC exploded', inventory: null });
     renderHeader(makeRepository());
 
     await openWorktreeMenu();
     const item = screen.getByRole('menuitem', {
-      name: 'Review changes in repo — Repository inventory unavailable: IPC exploded',
+      name: 'Review changes in repo — Repository inventory unavailable: IPC exploded. Reopen this menu or use Refresh Git status to retry.',
     });
     expect(item).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('disables a worktree absent from a successfully-loaded inventory rather than guessing', async () => {
-    // Inventory loaded fine, but has no repository/worktree matching this one —
-    // e.g. a fresh worktree the inventory scan hasn't picked up yet.
+  it('disables every entry when this repository is absent from a successfully-loaded inventory rather than guessing', async () => {
+    // Inventory loaded fine, but nothing in it contains this panel's
+    // `openedRoot` — e.g. a repository the scan hasn't picked up yet.
     setInventoryResult({ inventory: makeInventory([], '/abs/repo') });
     renderHeader(makeRepository());
 
     await openWorktreeMenu();
     const item = screen.getByRole('menuitem', {
-      name: 'Review changes in repo — Not found in the workspace inventory yet.',
+      name: 'Review changes in repo — This repository is not in the workspace inventory yet — use Refresh Git status to rescan.',
     });
     expect(item).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  // ── Path vocabulary (W6 review finding 2) ──────────────────────────────────
+
+  it('matches a symlinked repository through the canonical openedRoot, not the raw git paths', async () => {
+    // `window.git` reports RAW git output: reach the repo through a symlink
+    // and `repositoryRoot`/`currentWorktree.path` are the SYMLINK path. The
+    // inventory realpaths everything. The old string-equal cross-bridge match
+    // made every entry fall into "not in the inventory" here — the whole
+    // feature silently disabling itself. `openedRoot` is realpath'd on the
+    // `window.git` side too (`createRepositorySnapshot`), so it is the only
+    // field that can anchor the match. Mirrors the desktop suite's
+    // "raw path passed, canonical expected" precedent
+    // (`git-inventory.integration.test.ts`).
+    setInventoryResult({
+      inventory: makeInventory(
+        [makeWorktreeDescriptor({ path: '/abs/real/repo' })],
+        '/abs/real/repo'
+      ),
+    });
+    renderHeader(
+      makeRepository({
+        currentWorktree: makeWorktreeSummary({ path: '/abs/link/repo' }),
+        openedRoot: '/abs/real/repo',
+        repositoryRoot: '/abs/link/repo',
+      })
+    );
+
+    const user = await openWorktreeMenu();
+    const item = screen.getByRole('menuitem', { name: 'Review changes in repo' });
+    expect(item).not.toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(item);
+
+    // BOTH published paths are the canonical ones: the Changes surface
+    // cross-references `changeset.repositoryRoot` against
+    // `identity.repositoryRoot` with `!==`, so a raw root would strand it.
+    expect(useChangesNavigationStore.getState().activeChangeset).toEqual({
+      kind: 'git-scope',
+      repositoryRoot: '/abs/real/repo',
+      scope: { kind: 'uncommitted' },
+      worktreePath: '/abs/real/repo',
+    });
+  });
+
+  it('resolves the repository by containment for a subfolder workspace root', async () => {
+    // `scope: 'workspace'` — the opened folder sits BELOW the worktree root,
+    // so `openedRoot` is not EQUAL to any descriptor path; it is contained by
+    // one.
+    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]) });
+    renderHeader(makeRepository({ openedRoot: '/abs/repo/packages/app', scope: 'workspace' }));
+
+    const user = await openWorktreeMenu();
+    await user.click(screen.getByRole('menuitem', { name: 'Review changes in repo' }));
+
+    expect(useChangesNavigationStore.getState().activeChangeset).toEqual({
+      kind: 'git-scope',
+      repositoryRoot: '/abs/repo',
+      scope: { kind: 'uncommitted' },
+      // The WORKTREE root, not the opened subfolder: the entry describes a
+      // worktree, and the descriptor is the source of that path.
+      worktreePath: '/abs/repo',
+    });
+  });
+
+  it('renders worktrees the git bridge never listed, from the inventory alone', async () => {
+    // Entries come from the inventory descriptors, so a worktree the
+    // `window.git` snapshot has not caught up with still appears — and, being
+    // a descriptor, arrives fully trust-gated.
+    setInventoryResult({
+      inventory: makeInventory([
+        makeWorktreeDescriptor(),
+        makeWorktreeDescriptor({ current: false, name: 'feature-wt', path: '/abs/feature-wt' }),
+      ]),
+    });
+    renderHeader(makeRepository({ worktrees: [] }));
+
+    await openWorktreeMenu();
+    expect(
+      screen.getByRole('menuitem', { name: 'Review changes in feature-wt' })
+    ).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  // ── Deferred load + refresh wiring (W6 review finding 4) ───────────────────
+
+  it('reads the inventory on dropdown open, so mounting the header alone never scans', async () => {
+    const refresh = vi.fn(async () => undefined);
+    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]), refresh });
+    renderHeader(makeRepository());
+
+    expect(refresh).not.toHaveBeenCalled();
+
+    await openWorktreeMenu();
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the inventory alongside git status from the panel refresh control', async () => {
+    const refresh = vi.fn(async () => undefined);
+    const refreshStatus = vi.fn();
+    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]), refresh });
+    render(
+      <GitWorkbenchHeader
+        fetchRemote={NOOP_ASYNC}
+        isLoading={false}
+        isSyncing={false}
+        refreshStatus={refreshStatus}
+        repository={makeRepository()}
+        status={makeStatus()}
+        switchBranch={NOOP_ASYNC}
+      />
+    );
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh Git status' }));
+
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the inventory after a branch switch, which changes what the dropdown reports', async () => {
+    const refresh = vi.fn(async () => undefined);
+    const switchBranch = vi.fn(async () => undefined);
+    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]), refresh });
+    render(
+      <GitWorkbenchHeader
+        fetchRemote={NOOP_ASYNC}
+        isLoading={false}
+        isSyncing={false}
+        refreshStatus={vi.fn()}
+        repository={makeRepository({
+          branches: [
+            {
+              current: false,
+              head: '1123456789012345678901234567890123456789',
+              name: 'feature/search',
+              upstream: null,
+              worktreePath: null,
+            },
+          ],
+        })}
+        status={makeStatus()}
+        switchBranch={switchBranch}
+      />
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Current branch/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'feature/search' }));
+
+    expect(switchBranch).toHaveBeenCalledWith('feature/search');
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });
 });

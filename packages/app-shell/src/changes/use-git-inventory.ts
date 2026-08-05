@@ -21,6 +21,13 @@
  * repositories, which is an honest "no git repositories in your workspace
  * roots". Consumers must distinguish the two.
  *
+ * Loading is eager by default. `deferInitialLoad` (BST-1116 W6 review finding
+ * 4) is an OPT-IN escape for callers behind a user gesture — see
+ * {@link UseGitInventoryOptions.deferInitialLoad}. A whole repo/worktree scan
+ * across every workspace root is not free, and the git panel header used to
+ * pay for it on every panel mount whether or not its worktree dropdown was
+ * ever opened.
+ *
  * `inventory.errors` is a first-class part of the payload: per-repository
  * failures are reported there rather than dropping the repository, so a
  * consumer that ignores `errors` is hiding real breakage.
@@ -31,6 +38,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveChangesBridge } from './changes-bridge';
 
 const logger = createLogger('UseGitInventory');
+
+export interface UseGitInventoryOptions {
+  /**
+   * Skip the mount-time load. OPT-IN, default `false` — the Changes surface
+   * (`changes-surface.tsx`, the original caller) needs the inventory eagerly
+   * for its source picker and its changed-files grouping, and must keep
+   * loading on mount.
+   *
+   * A caller that only needs the inventory behind a user gesture (the git
+   * panel's worktree dropdown, BST-1116 W6 review finding 4) passes `true` so
+   * merely MOUNTING that surface no longer triggers a full repo/worktree scan
+   * across every workspace root. Such a caller MUST invoke {@link
+   * UseGitInventoryResult.refresh} from the gesture that reveals the data —
+   * deferring without ever calling `refresh` would leave `inventory` `null`
+   * forever, which is a silent disable, not a deferral.
+   *
+   * The deferred pre-first-load state is observable and must not be conflated
+   * with "loading": `{ inventory: null, loading: false, error: null }` while
+   * `available` is `true` means "not requested yet", and a consumer rendering
+   * a reason for it has to say so (see `git-workbench-header.tsx`).
+   */
+  readonly deferInitialLoad?: boolean;
+}
 
 export interface UseGitInventoryResult {
   /** True when the desktop `window.changes` bridge is present and well-formed. */
@@ -49,7 +79,8 @@ export interface UseGitInventoryResult {
   readonly refresh: () => Promise<void>;
 }
 
-export function useGitInventory(): UseGitInventoryResult {
+export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInventoryResult {
+  const { deferInitialLoad = false } = options;
   // Resolved ONCE per hook instance, not per render — see doc comment.
   const bridge = useMemo(() => resolveChangesBridge(), []);
   const [inventory, setInventory] = useState<GitInventory | null>(null);
@@ -99,8 +130,11 @@ export function useGitInventory(): UseGitInventoryResult {
   }, [bridge]);
 
   useEffect(() => {
+    if (deferInitialLoad) {
+      return;
+    }
     void refresh();
-  }, [refresh]);
+  }, [deferInitialLoad, refresh]);
 
   return {
     available: bridge !== null,

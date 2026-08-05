@@ -118,6 +118,44 @@ describe('useGitInventory', () => {
     expect(result.current.inventory).toBeNull();
   });
 
+  it('loads on mount by default, so the Changes surface keeps its eager inventory', async () => {
+    const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
+    stubBridge({ inventory });
+
+    renderHook(() => useGitInventory());
+
+    await waitFor(() => {
+      expect(inventory).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('skips the mount-time load with deferInitialLoad, then loads on the first refresh', async () => {
+    // BST-1116 W6 review finding 4: the git panel header must not trigger a
+    // full repo/worktree scan just by mounting. Deferral is OPT-IN so the
+    // Changes surface (which needs the inventory eagerly) is untouched.
+    const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
+    stubBridge({ inventory });
+
+    const { result } = renderHook(() => useGitInventory({ deferInitialLoad: true }));
+
+    await waitFor(() => {
+      expect(result.current.available).toBe(true);
+    });
+    expect(inventory).not.toHaveBeenCalled();
+    // The deferred pre-load state is distinguishable from "loading": no scan
+    // is in flight, because none has been requested.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.inventory).toBeNull();
+    expect(result.current.error).toBeNull();
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(inventory).toHaveBeenCalledTimes(1);
+    expect(result.current.inventory).toEqual(inventoryFixture());
+  });
+
   it('ignores a stale in-flight load when a newer refresh supersedes it', async () => {
     const slow = inventoryFixture();
     const fresh = inventoryFixture({ errors: ['newer'] });

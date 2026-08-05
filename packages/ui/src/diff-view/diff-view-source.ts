@@ -3,6 +3,7 @@ import type {
   StructuredFileDiff,
   StructuredFileDiffContent,
 } from '@brainstrike/types';
+import { serializeHunkRanges } from './diff-view-slice';
 
 /**
  * How a {@link DiffView} gets its content. `strings` is the legacy shape
@@ -68,6 +69,18 @@ export interface ResolvedDiffView {
    * expect the diff's own path to drive it.
    */
   readonly filenameFallback: string | undefined;
+  /**
+   * `source.diff.hunks` flattened to a string by {@link serializeHunkRanges};
+   * `''` for the legacy `strings` source (which carries no hunk ranges) and
+   * for any structured diff whose `hunks` are empty.
+   *
+   * A STRING rather than the array, deliberately: `DiffView` feeds this
+   * straight into its build effect's dependency array, which admits scalars
+   * only so that a caller re-rendering with a freshly-allocated `source`
+   * literal carrying equal content does not tear down and rebuild CodeMirror
+   * (see the effect's dependency comment, and `serializeHunkRanges`'s).
+   */
+  readonly hunksKey: string;
   readonly presentation: ResolvedDiffPresentation;
   readonly sourceKind: 'strings' | 'structured';
   /** `null` when not computable (binary) or when rendering the legacy `strings` source. */
@@ -103,6 +116,7 @@ function resolveStructuredDiffView(diff: StructuredFileDiff): ResolvedDiffView {
       : { additions: diff.additions, deletions: diff.deletions };
   const shared = {
     filenameFallback: diff.path,
+    hunksKey: serializeHunkRanges(diff.hunks),
     sourceKind: 'structured' as const,
     statSummary,
     status: diff.status,
@@ -165,6 +179,7 @@ export function resolveDiffView(props: {
         return {
           contentKind: 'text',
           filenameFallback: undefined,
+          hunksKey: '',
           presentation: {
             kind: 'text',
             modified: source.modified,
@@ -191,6 +206,7 @@ export function resolveDiffView(props: {
   return {
     contentKind: 'text',
     filenameFallback: undefined,
+    hunksKey: '',
     presentation: { kind: 'text', modified, original, truncated: truncated ?? false },
     sourceKind: 'strings',
     statSummary: null,

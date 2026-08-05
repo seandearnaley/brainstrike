@@ -67,6 +67,12 @@
  *   `createRepositorySnapshot`), so it satisfies both by construction and is
  *   identical to `currentWorktree.path` in the ordinary
  *   `scope === 'repository'` case.
+ * - SELECTION SURVIVES A STAGE (W6 review finding 3). The selection is
+ *   reconciled against every fresh `GitStatus` (`reconcileSelection`) so a
+ *   staged row is followed into its new section instead of leaving a
+ *   highlighted-nowhere selection behind, and the diff card is keyed on that
+ *   section so the bucket change remounts it rather than latching the
+ *   pre-stage diff. Rationales in those two symbols' own comments.
  */
 import type {
   ChangedFileEntry,
@@ -110,6 +116,105 @@ interface SelectedFile {
   readonly staged: boolean;
   readonly status: string;
   readonly untracked: boolean;
+}
+
+/** Which of the three list sections a row belongs to. */
+type SelectionBucket = 'staged' | 'unstaged' | 'untracked';
+
+function bucketOf(selected: SelectedFile): SelectionBucket {
+  if (selected.untracked) {
+    return 'untracked';
+  }
+  return selected.staged ? 'staged' : 'unstaged';
+}
+
+function fileIsInBucket(file: GitStatusFile, bucket: SelectionBucket): boolean {
+  if (bucket === 'untracked') {
+    return file.untracked;
+  }
+  if (bucket === 'staged') {
+    return file.staged;
+  }
+  return file.unstaged;
+}
+
+/**
+ * Where the file lives NOW. Prefers STAYING put: a partially-staged file
+ * legitimately occupies both the Staged and the Unstaged section, so a
+ * refresh that leaves the clicked row in place must not relocate the
+ * selection. `null` ⇒ the file is in no section at all.
+ */
+function resolveBucket(
+  file: GitStatusFile,
+  previousBucket: SelectionBucket
+): SelectionBucket | null {
+  if (fileIsInBucket(file, previousBucket)) {
+    return previousBucket;
+  }
+  if (file.untracked) {
+    return 'untracked';
+  }
+  if (file.staged) {
+    return 'staged';
+  }
+  if (file.unstaged) {
+    return 'unstaged';
+  }
+  return null;
+}
+
+/**
+ * SELECTION RECONCILIATION (BST-1116 W6 review finding 3, half 1).
+ *
+ * The selection is stored as a click record — `{ path, staged, untracked }` —
+ * but every stage/unstage refetches `GitStatus`, and the selected file MOVES
+ * between the Staged / Unstaged / Untracked sections when it does. Left
+ * unreconciled, the stored record kept pointing at a section the file had
+ * already left: no row rendered as highlighted, yet the diff pane still
+ * showed a selection, and the pinned scope still named the old bucket.
+ *
+ * JUDGMENT CALL — the file is FOLLOWED into its new section, not cleared.
+ * Both are defensible; following is the less surprising one for the gesture
+ * that actually causes this. A user who clicks "stage" on the file they are
+ * reading has expressed interest in that file, not in that index: clearing
+ * would blank the diff pane they are mid-read of and make them re-click the
+ * same file in a different section to get it back — the app punishing them
+ * for using its own button. Following keeps the file on screen, moves the
+ * highlight to where the file now is, and re-pins the scope so the diff
+ * describes the row that is now selected. The pane blanks only when there is
+ * genuinely nothing left to show (the file has left `status.files`
+ * entirely — committed, discarded or reverted), which is honest rather than
+ * surprising.
+ *
+ * Derived, not stored: `selected` remains the raw click and this runs against
+ * every fresh `status.files`, so there is no second source of truth to fall
+ * out of sync and no reconciliation effect to order against the status load.
+ */
+function reconcileSelection(
+  selected: SelectedFile | null,
+  files: readonly GitStatusFile[]
+): SelectedFile | null {
+  if (!selected) {
+    return null;
+  }
+  const file = files.find((candidate) => candidate.path === selected.path);
+  if (!file) {
+    return null;
+  }
+  const bucket = resolveBucket(file, bucketOf(selected));
+  if (bucket === null) {
+    return null;
+  }
+  // `status`/`originalPath` are re-read from the fresh row too: staging an
+  // untracked file turns its porcelain letter from `?` into `A`, and that
+  // letter is what labels the diff card's header.
+  return {
+    ...(file.originalPath ? { originalPath: file.originalPath } : {}),
+    path: file.path,
+    staged: bucket === 'staged',
+    status: file.status,
+    untracked: bucket === 'untracked',
+  };
 }
 
 /** The scope a selected row's diff must be pinned to — see this module's
@@ -356,9 +461,18 @@ export function GitChangesView({
   const { toast } = useToast();
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter.trim().toLocaleLowerCase());
-  const [selected, setSelected] = useState<SelectedFile | null>(null);
+  const [clicked, setClicked] = useState<SelectedFile | null>(null);
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
+
+  // The effective selection: the last click, re-resolved against the FRESH
+  // status on every refresh — see `reconcileSelection`. Everything downstream
+  // (row highlight, pinned scope, diff entry, card key) reads this, never the
+  // raw click.
+  const selected = useMemo(
+    () => reconcileSelection(clicked, status.files),
+    [clicked, status.files]
+  );
 
   const filteredFiles = useMemo(
     () =>
@@ -390,7 +504,7 @@ export function GitChangesView({
   const visibleFileLabel = `${filteredFiles.length} visible ${filteredFiles.length === 1 ? 'file' : 'files'}`;
 
   const selectFile = useCallback((file: GitStatusFile, staged: boolean) => {
-    setSelected({
+    setClicked({
       ...(file.originalPath ? { originalPath: file.originalPath } : {}),
       path: file.path,
       staged,
@@ -597,7 +711,16 @@ export function GitChangesView({
               changesetKind="git-scope"
               className="flex min-h-0 flex-1 flex-col"
               entry={selectedEntry}
-              key={`${selected.path}:${selected.staged}:${selected.untracked}`}
+              // KEYED ON SECTION MEMBERSHIP, not path alone (BST-1116 W6
+              // review finding 3, half 2). `ChangesetFileDiffCard` latches
+              // `hasStarted`, so a card instance that survives a bucket change
+              // would keep rendering the diff it loaded for the OLD scope —
+              // after staging the selected row, a HEAD-vs-worktree diff that
+              // is no longer true of the row now shown. Including the bucket
+              // remounts it with a fresh generation counter, exactly as
+              // `changeset-diff-pane.tsx` keys `changesetKey|changedFileKey`
+              // for the same latched-card hazard across changesets.
+              key={`${bucketOf(selected)}|${selected.path}`}
               loadFileDiff={loadFileDiff}
             />
           ) : (

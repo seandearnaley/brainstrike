@@ -510,6 +510,174 @@ describe('GitPanel', () => {
     );
   });
 
+  // ── Selection reconciliation on status refresh (W6 review finding 3) ───────
+
+  it('follows the selected row into its new section after staging it, and reloads the diff in the new scope', async () => {
+    // Staging moves the file from Unstaged to Staged. Before this fix the
+    // stored selection kept its old `{ staged: false }`, so NO row rendered as
+    // highlighted while the diff pane still showed a selection — and the card,
+    // keyed on the unchanged path alone, latched its pre-stage
+    // index-vs-worktree diff, which is no longer true of the staged row.
+    const user = userEvent.setup();
+    const unstagedRow = {
+      path: 'moving.ts',
+      staged: false,
+      status: 'M',
+      unstaged: true,
+      untracked: false,
+    };
+    const stagedRow = {
+      path: 'moving.ts',
+      staged: true,
+      status: 'M',
+      unstaged: false,
+      untracked: false,
+    };
+    let hasStaged = false;
+    installBridge({
+      stage: vi.fn(async () => {
+        hasStaged = true;
+        return ok(null);
+      }),
+      status: vi.fn(async () => ok(makeStatus({ files: [hasStaged ? stagedRow : unstagedRow] }))),
+    });
+    const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff({ path: 'moving.ts' })));
+    installChangesBridge({ fileDiff });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.click(screen.getByRole('button', { name: 'moving.ts' }));
+    await waitFor(() =>
+      expect(fileDiff).toHaveBeenCalledWith(
+        'root-1',
+        expect.objectContaining({ scope: { kind: 'unstaged' } }),
+        'moving.ts'
+      )
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Stage moving.ts' }));
+
+    await waitFor(() => expect(screen.getByText('Staged (1)')).toBeInTheDocument());
+    // The selection FOLLOWED the file: its new row is the highlighted one.
+    expect(screen.getByRole('button', { name: 'moving.ts' })).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
+    await waitFor(() =>
+      expect(fileDiff).toHaveBeenCalledWith(
+        'root-1',
+        expect.objectContaining({ scope: { kind: 'staged' } }),
+        'moving.ts'
+      )
+    );
+  });
+
+  it('keeps a partially-staged selection in the section the user actually clicked', async () => {
+    // A file with both staged and unstaged hunks occupies BOTH sections. A
+    // refresh that leaves the clicked row in place must not relocate the
+    // selection to the other one.
+    const user = userEvent.setup();
+    installBridge({
+      status: vi.fn(async () =>
+        ok(
+          makeStatus({
+            files: [
+              { path: 'both.ts', staged: true, status: 'M', unstaged: true, untracked: false },
+            ],
+          })
+        )
+      ),
+    });
+    const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff({ path: 'both.ts' })));
+    installChangesBridge({ fileDiff });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    // Staged section renders first, so index 1 is the Unstaged row.
+    await user.click(screen.getAllByRole('button', { name: 'both.ts' })[1] as HTMLElement);
+    await waitFor(() =>
+      expect(fileDiff).toHaveBeenCalledWith(
+        'root-1',
+        expect.objectContaining({ scope: { kind: 'unstaged' } }),
+        'both.ts'
+      )
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Refresh Git status' }));
+
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'both.ts' })[1]).toHaveAttribute(
+        'aria-current',
+        'true'
+      )
+    );
+    expect(screen.getAllByRole('button', { name: 'both.ts' })[0]).not.toHaveAttribute(
+      'aria-current'
+    );
+    expect(fileDiff).not.toHaveBeenCalledWith(
+      'root-1',
+      expect.objectContaining({ scope: { kind: 'staged' } }),
+      'both.ts'
+    );
+  });
+
+  it('clears the selection when the selected file leaves the working tree entirely', async () => {
+    // Following the file is the rule; there is nothing to follow once the file
+    // is gone, so the pane returns to its empty state rather than describing a
+    // file that no longer has changes.
+    const user = userEvent.setup();
+    let isGone = false;
+    installBridge({
+      status: vi.fn(async () =>
+        ok(
+          makeStatus({
+            files: isGone
+              ? []
+              : [
+                  {
+                    path: 'gone.ts',
+                    staged: false,
+                    status: 'M',
+                    unstaged: true,
+                    untracked: false,
+                  },
+                ],
+          })
+        )
+      ),
+    });
+    installChangesBridge({});
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.click(screen.getByRole('button', { name: 'gone.ts' }));
+    await screen.findByTestId('diff-view-stub');
+
+    isGone = true;
+    await user.click(screen.getByRole('button', { name: 'Refresh Git status' }));
+
+    expect(await screen.findByTestId('git-panel-clean')).toBeInTheDocument();
+    expect(screen.queryByTestId('diff-view-stub')).not.toBeInTheDocument();
+    expect(screen.getByText('Select a changed file to inspect its diff.')).toBeInTheDocument();
+  });
+
+  // ── Deferred inventory load (W6 review finding 4) ──────────────────────────
+
+  it('never scans the repository inventory until the worktree dropdown is opened', async () => {
+    const user = userEvent.setup();
+    installBridge({});
+    const changes = installChangesBridge({});
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    // Mount effects have run by now — an eager load would already have fired.
+    expect(changes.inventory).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Current worktree repo' }));
+
+    await waitFor(() => expect(changes.inventory).toHaveBeenCalled());
+  });
+
   it('does not refetch an unchanged diff when the file filter changes', async () => {
     const user = userEvent.setup();
     installBridge({});
