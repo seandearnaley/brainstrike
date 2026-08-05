@@ -760,6 +760,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onComposerDraftCommandApplied,
     onComposerTextChange,
     attachmentsAvailability,
+    historyGeneration,
   }: {
     composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
@@ -787,6 +788,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     ) => Promise<void> | void;
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
+    // Conversation Rewind's re-hydration counter (BST-1115). Surfaced on the
+    // mock's root so the wrapper's wiring is assertable: the real panel folds
+    // it into the runtime `key`, which a mock cannot demonstrate.
+    historyGeneration?: number;
     localChatTransport?: string;
     requestBodyLimitBytes?: number;
     requestData?: Record<string, unknown>;
@@ -820,7 +825,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     const modelName = extractModelName(selectedModel);
 
     return (
-      <div data-testid="assistant-ui-panel">
+      <div data-history-generation={historyGeneration} data-testid="assistant-ui-panel">
         <div data-testid="composer-draft-command">{composerDraftCommand?.id ?? ''}</div>
         <button
           data-testid="apply-composer-draft-command"

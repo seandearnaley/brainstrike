@@ -62,3 +62,34 @@ describe('useRewindStore', () => {
     expect(useRewindStore.getState().request).toBeNull();
   });
 });
+
+describe('useRewindStore — the re-hydration generation', () => {
+  it('starts at 0 and only moves forward', () => {
+    expect(useRewindStore.getState().generation).toBe(0);
+
+    useRewindStore.getState().markRewindApplied();
+    useRewindStore.getState().markRewindApplied();
+
+    expect(useRewindStore.getState().generation).toBe(2);
+  });
+
+  // Consumers key a React remount on this number. Raising and closing the modal
+  // must not remount the assistant runtime — only a rewind that actually
+  // changed durable state may.
+  it('is untouched by opening or closing the modal', () => {
+    useRewindStore.getState().markRewindApplied();
+
+    useRewindStore.getState().openRewind(REQUEST);
+    useRewindStore.getState().closeRewind();
+
+    expect(useRewindStore.getState().generation).toBe(1);
+  });
+
+  it('reset() returns to 0 (factory reset wipes what the counter re-reads)', () => {
+    useRewindStore.getState().markRewindApplied();
+
+    useRewindStore.getState().reset();
+
+    expect(useRewindStore.getState().generation).toBe(0);
+  });
+});

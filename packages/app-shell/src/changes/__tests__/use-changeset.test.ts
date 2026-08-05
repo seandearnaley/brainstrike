@@ -2,6 +2,7 @@ import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@b
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
+import { useRewindStore } from '../rewind-store';
 import { useChangeset } from '../use-changeset';
 
 const CHANGESET: Changeset = { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' };
@@ -33,6 +34,7 @@ function stubBridge(bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'reso
 
 afterEach(() => {
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  useRewindStore.getState().reset();
 });
 
 describe('useChangeset', () => {
@@ -259,5 +261,50 @@ describe('useChangeset', () => {
       runId: 'run-2',
       threadId: 'thread-1',
     });
+  });
+});
+
+/**
+ * A rewind reverts the very files an open changeset describes, so after one the
+ * SAME `Changeset` value names a different resolved view (BST-1115). Before
+ * this, the Changes surface behind the confirm modal kept listing files the
+ * rewind had already put back — symptom 3 of the live smoke.
+ */
+describe('useChangeset — rewind invalidation', () => {
+  it('re-resolves the view when a rewind applies or is undone', async () => {
+    const resolveView = vi.fn(
+      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+    );
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
+    renderHook(() => useChangeset('root-1', CHANGESET));
+
+    await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
+
+    act(() => useRewindStore.getState().markRewindApplied());
+    await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(2));
+
+    // The redo is another durable change, not a special case.
+    act(() => useRewindStore.getState().markRewindApplied());
+    await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(3));
+  });
+
+  it('does not re-resolve while the rewind modal is merely opened and closed', async () => {
+    const resolveView = vi.fn(
+      async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+    );
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
+    renderHook(() => useChangeset('root-1', CHANGESET));
+
+    await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useRewindStore
+        .getState()
+        .openRewind({ composerText: null, target: { messageId: 'msg-1', threadId: 'thread-1' } });
+      useRewindStore.getState().closeRewind();
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolveView).toHaveBeenCalledTimes(1);
   });
 });

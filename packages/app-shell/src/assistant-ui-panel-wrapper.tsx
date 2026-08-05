@@ -123,6 +123,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useRewindStore } from './changes/rewind-store';
 import { useChangeset } from './changes/use-changeset';
 import { useRewindFinalization } from './changes/use-rewind-finalization';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
@@ -1417,6 +1418,8 @@ export function AssistantUiPanelWrapper({
   // surfacing) and hands back `prepareRequestData` with it composed in.
   const { markUserAuthoredSend, prepareRequestData: prepareRequestDataWithFinalization } =
     useRewindFinalization({ prepareRequestData, threadId: selectedMemoryThreadId });
+  // Re-hydration after a rewind (BST-1115) — rationale in the store's own doc.
+  const rewindGeneration = useRewindStore((state) => state.generation);
   const resolveModelPricing = useCallback<ModelPricingResolver>(
     (provider: string, model: string) => {
       if (!isSupportedProvider(provider)) {
@@ -1777,6 +1780,7 @@ export function AssistantUiPanelWrapper({
                   : {})}
                 toolMenu={toolMenu}
                 {...(historyAdapter ? { historyAdapter } : {})}
+                historyGeneration={rewindGeneration}
                 {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                 localChatTransport={localChatTransport}
                 {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}

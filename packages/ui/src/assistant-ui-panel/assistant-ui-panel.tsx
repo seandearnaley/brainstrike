@@ -319,6 +319,20 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    */
   fileMentions?: readonly FileMention[];
   historyAdapter?: ThreadHistoryAdapter;
+  /**
+   * Re-hydration counter. `historyAdapter.load()` runs ONCE per runtime mount,
+   * so a durable change made OUTSIDE the panel — Conversation Rewind hiding a
+   * suffix of the thread, or its redo putting one back — is invisible to a
+   * mounted runtime. Bumping this remounts the data-stream runtime, which
+   * re-runs hydration against the (now tombstone-filtered) history query.
+   *
+   * SEPARATE FROM `threadKey` ON PURPOSE. `threadKey` identifies the CONVERSATION
+   * and keys per-thread state that must survive a rewind (the follow-up queue,
+   * `ActiveThreadKeyContext`, the viewport store's pinnedness). This keys only
+   * the runtime whose history it invalidates. Defaults to 0; a caller with no
+   * out-of-band mutations never touches it.
+   */
+  historyGeneration?: number;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   /**
    * Transport for the built-in local provider. 'data-stream' routes local
@@ -1398,6 +1412,7 @@ export const AssistantUiPanel = ({
   disabled = false,
   disabledReason,
   historyAdapter,
+  historyGeneration = 0,
   loadLocalLlmBackend,
   localChatTransport = 'local-runtime',
   threadKey,
@@ -1499,7 +1514,10 @@ export const AssistantUiPanel = ({
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
             historyAdapter={historyAdapter}
-            key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
+            // `historyGeneration` is in the key because hydration runs once per
+            // MOUNT: an out-of-band change to this thread's durable history
+            // (Conversation Rewind) has no other way to reach a mounted runtime.
+            key={threadKey ? `data-stream:${threadKey}:${historyGeneration}` : 'data-stream'}
             localLoadingState={localLoadingState}
             modelName={modelName}
             omSegment={omSegment}

@@ -608,6 +608,92 @@ describe('RewindConfirmDialog', () => {
     });
   });
 
+  /**
+   * The re-hydration bump (BST-1115). Without it the apply succeeded, the
+   * tombstones landed, and the user watched an unchanged conversation — the
+   * defect the live smoke reported. The COUNTER is the whole contract here: the
+   * panel and the Changes surface key their re-read on it.
+   *
+   * It must be raised BEFORE the composer repopulation, which is why this
+   * asserts both in one test: `RewindComposerBridge` lives inside the runtime
+   * the bump remounts, so text handed over first would be dropped by the
+   * remount that follows it.
+   */
+  it('bumps the re-hydration generation on a successful apply, before repopulating', async () => {
+    const user = userEvent.setup();
+    installBridge();
+    openRewind('my original prompt');
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    expect(useRewindStore.getState().generation).toBe(0);
+
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    await waitFor(() => expect(useRewindStore.getState().generation).toBe(1));
+    // The text is still PENDING: the bump did not consume it, so the remounted
+    // composer bridge is the one that drains it.
+    expect(useRewindComposerStore.getState().pendingText).toBe('my original prompt');
+  });
+
+  it('does NOT bump the generation when the apply is refused', async () => {
+    const user = userEvent.setup();
+    installBridge({
+      applyRewind: vi.fn(
+        async (): Promise<GitResult<AssistantRewindResult>> => ({
+          ok: true,
+          value: {
+            conflicts: [],
+            message: 'thread "thread-1" has a run in flight and nothing was applied.',
+            ok: false,
+            reason: 'run-in-flight',
+          },
+        })
+      ),
+    });
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    // Nothing durable changed, so nothing may be re-read — a bump here would
+    // discard the live thread's in-memory state for a rewind that never ran.
+    await screen.findByTestId('rewind-apply-error');
+    expect(useRewindStore.getState().generation).toBe(0);
+  });
+
+  it('bumps the generation again when the rewind is undone', async () => {
+    const user = userEvent.setup();
+    installBridge();
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+    await screen.findByTestId('rewind-outcome-summary');
+    await user.click(screen.getByTestId('rewind-done'));
+
+    const [undo] = await screen.findAllByTestId('rewind-undo-toast-action');
+    if (!undo) {
+      throw new Error('expected the toast to carry a redo affordance');
+    }
+    fireEvent.click(undo);
+
+    // A redo restores both the messages and the files, so every surface must
+    // re-read exactly as it did for the apply.
+    await waitFor(() => expect(useRewindStore.getState().generation).toBe(2));
+  });
+
   it('does NOT repopulate when the target carries no prompt', async () => {
     const user = userEvent.setup();
     installBridge();

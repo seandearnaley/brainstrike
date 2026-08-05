@@ -889,6 +889,24 @@ finalizes the rewind.
   maps a MID-TURN run to the next turn's message and the rewind covers less than
   that run. Under-revert is the safe direction and the modal shows the resolved
   range; closing it needs a stored run<->turn link, not another timestamp rule.
+- **A REWIND IS INVISIBLE WITHOUT A RE-HYDRATION BUMP.** Every read path below
+  excludes tombstoned messages, but the live assistant thread is not a read
+  path — it is assistant-ui in-memory state, hydrated ONCE by
+  `ThreadHistoryAdapter.load()` when the runtime mounts. The 2026-08-05 live
+  smoke applied a rewind, wrote its tombstones, reverted its files, and the user
+  watched an unchanged conversation over a Changes surface still listing the
+  reverted files. `useRewindStore.generation` (app-shell) is the fix: bumped on
+  a successful apply AND a successful redo, forwarded as the panel's
+  `historyGeneration` prop into the data-stream runtime's `key`, and read by
+  `useChangeset` as a load input. A bump remounts the runtime, which re-runs
+  hydration against the filtered query, and re-resolves the changeset view.
+  **Discarding the live thread's in-memory state is the point**, not collateral:
+  post-rewind the durable state IS the truth. It is deliberately NOT folded into
+  `threadKey` — per-thread state (follow-up queue, `ActiveThreadKeyContext`,
+  viewport pinnedness) is keyed by that and must survive a rewind, including the
+  composer text the rewind just repopulated. The modal bumps BEFORE handing text
+  to `useRewindComposerStore`, because `RewindComposerBridge` lives inside the
+  remounted runtime and it is the new instance that must drain it.
 - **Mastra stays the writer of message content.** Nothing here alters a
   `mastra_*` table; hiding is an anti-join in Brainstrike-owned reads, and the
   finalizing hard delete goes through Mastra's own `deleteMessages` storage

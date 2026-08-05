@@ -10,10 +10,11 @@
  */
 import './assistant-ui-panel-wrapper-test-support';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ChangesBridge } from '../changes/changes-bridge';
+import { useRewindStore } from '../changes/rewind-store';
 import {
   preparedRequestDataLog,
   renderAssistantPanel,
@@ -41,6 +42,7 @@ const NOTHING_OUTSTANDING = {
 } as const;
 
 beforeEach(() => {
+  useRewindStore.getState().reset();
   preparedRequestDataLog.length = 0;
   useAssistantPreferencesStore.setState((state) => ({
     ...state,
@@ -133,5 +135,30 @@ describe('AssistantUiPanelWrapper — rewind finalization', () => {
     await waitFor(() => expect(preparedRequestDataLog).toHaveLength(1));
     expect(preparedRequestDataLog[0]).not.toMatchObject({ error: expect.any(String) });
     expect(finalizeRewinds).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The wrapper half of the re-hydration seam (BST-1115). `rewind-store.test.ts`
+   * pins the counter and `rewind-history-generation.behavior.test.tsx` pins what
+   * the panel does with it; this pins the WIRE between them, which is the link
+   * that was missing entirely — a rewind wrote its tombstones and the live
+   * thread went on rendering the messages it had just hidden.
+   */
+  test('forwards the rewind re-hydration counter to the panel', async () => {
+    installChangesBridge(async () => NOTHING_OUTSTANDING);
+
+    await renderAssistantPanel(['openai'], async () => {
+      const panel = await waitFor(() => screen.getByTestId('assistant-ui-panel'));
+      expect(panel).toHaveAttribute('data-history-generation', '0');
+
+      act(() => useRewindStore.getState().markRewindApplied());
+
+      await waitFor(() =>
+        expect(screen.getByTestId('assistant-ui-panel')).toHaveAttribute(
+          'data-history-generation',
+          '1'
+        )
+      );
+    });
   });
 });

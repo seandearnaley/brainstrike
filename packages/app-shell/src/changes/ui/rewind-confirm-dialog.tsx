@@ -189,6 +189,10 @@ function RewindConfirmBody({
       });
       return;
     }
+    // Durable state changed again (messages un-hidden, files put back), so the
+    // live thread and the Changes surface must re-read exactly as they do after
+    // an apply — see `useRewindStore.generation`.
+    useRewindStore.getState().markRewindApplied();
     toast({
       description: `${redone.value.restoredMessageIds.length} message(s) are back.`,
       title: 'Rewind undone',
@@ -245,6 +249,12 @@ function RewindConfirmBody({
         return;
       }
       setResult({ applied: outcome.value, mode });
+      // BEFORE the composer repopulation below, and before the toast: the
+      // rewind is now durable, and every live surface still shows the
+      // conversation and the files it just changed. See
+      // `useRewindStore.generation` for why this is a counter and not a
+      // `threadKey` bump.
+      useRewindStore.getState().markRewindApplied();
       announceApplied(outcome.value);
       if (request.composerText !== null) {
         // Amendment 2: the target prompt goes back in the composer so the user

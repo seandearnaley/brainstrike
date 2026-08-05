@@ -37,6 +37,35 @@ export interface RewindRequest {
 export interface RewindNavigationState {
   /** Close the modal, discarding the request. Never applies anything. */
   readonly closeRewind: () => void;
+  /**
+   * THE RE-HYDRATION COUNTER. A rewind's whole effect is in the DATABASE and on
+   * DISK: the tombstone rows, the file reverts. Every read path already excludes
+   * tombstoned messages, but the live assistant thread is not a read path — it
+   * is assistant-ui's in-memory state, hydrated ONCE by
+   * `ThreadHistoryAdapter.load()` when the runtime mounts. Nothing re-ran that,
+   * so before this counter a rewind was invisible until the user switched
+   * threads or restarted the app: the messages it hid stayed on screen and the
+   * Changes surface kept listing files it had just reverted.
+   *
+   * Consumers append this to the assistant runtime's `key` and to
+   * `useChangeset`'s load, so a bump remounts the runtime (re-running
+   * hydration against the now-filtered query) and re-resolves the changeset
+   * view. DISCARDING THE LIVE THREAD'S IN-MEMORY STATE IS THE POINT, not
+   * collateral: after a rewind the durable state IS the truth, and anything the
+   * runtime still held describes a conversation that no longer exists.
+   *
+   * It is deliberately NOT folded into `threadKey`. Per-thread state across the
+   * panel — the follow-up queue, `ActiveThreadKeyContext`, the viewport store's
+   * pinnedness — is keyed by `threadKey` and must SURVIVE a rewind; bumping it
+   * would reset all of it, including the composer text the rewind just
+   * repopulated (Amendment 2's whole point).
+   */
+  readonly generation: number;
+  /**
+   * Bumped once per rewind that CHANGED durable state — a successful apply and
+   * a successful redo alike. See {@link RewindNavigationState.generation}.
+   */
+  readonly markRewindApplied: () => void;
   /** Raise the confirm modal for `request`. */
   readonly openRewind: (request: RewindRequest) => void;
   /** The rewind awaiting confirmation, or `null` when the modal is closed. */
@@ -64,10 +93,16 @@ export const useRewindStore = create<RewindNavigationState>((set) => ({
     clearSharedFileSelection();
     set({ request: null });
   },
+  generation: 0,
+  // Monotonic, never reset to a value it has already held while the app runs:
+  // consumers key a React remount on it, and a repeated value is not a remount.
+  markRewindApplied: () => set((state) => ({ generation: state.generation + 1 })),
   openRewind: (request) => {
     clearSharedFileSelection();
     set({ request });
   },
   request: null,
-  reset: () => set({ request: null }),
+  // Factory reset wipes the durable state the counter exists to re-read, so
+  // starting over from 0 is correct here and only here.
+  reset: () => set({ generation: 0, request: null }),
 }));

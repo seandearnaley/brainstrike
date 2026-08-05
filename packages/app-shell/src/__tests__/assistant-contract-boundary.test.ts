@@ -118,6 +118,11 @@ describe('app-shell assistant contract boundary', () => {
     // arming flag, the `prepareRequestData` composition and all failure
     // surfacing live in changes/use-rewind-finalization.ts — the wrapper only
     // supplies the seam and the thread id, and forwards `onThreadRunStart`.
+    // NOT bumped for the BST-1115 re-hydration counter: the wrapper reads one
+    // number from `changes/rewind-store.ts` and forwards it as one prop, which
+    // is what a composition module is allowed to grow by. The counter's
+    // rationale, the panel's `key` mechanics and the Changes-surface
+    // invalidation all live outside this file.
     expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1810);
   });
 

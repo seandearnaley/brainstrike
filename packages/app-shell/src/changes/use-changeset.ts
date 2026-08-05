@@ -39,6 +39,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveChangesBridge } from './changes-bridge';
+import { useRewindStore } from './rewind-store';
 
 const logger = createLogger('UseChangeset');
 
@@ -90,6 +91,17 @@ export function useChangeset(
   const changesetKey = changeset === null ? null : JSON.stringify(changeset);
   const stableChangeset = useMemo(() => changeset, [changesetKey]);
 
+  // REWIND INVALIDATION (BST-1115). A rewind reverts the very files an open
+  // changeset describes, so afterwards the SAME `Changeset` value resolves to a
+  // DIFFERENT view. Nothing about the changeset itself changes, which is why
+  // this is its own input: before it, the Changes surface behind the confirm
+  // modal kept listing files the rewind had already put back.
+  //
+  // It is a DEPENDENCY of `loadView` rather than a second effect: the load
+  // belongs to a (changeset, generation) pair, and a bump makes the previous
+  // load stale in exactly the way a changeset change does.
+  const rewindGeneration = useRewindStore((state) => state.generation);
+
   const loadView = useCallback(async (): Promise<GitResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
@@ -121,7 +133,7 @@ export function useChangeset(
       }
       return { error: message, ok: false };
     }
-  }, [bridge, rootId, stableChangeset]);
+  }, [bridge, rewindGeneration, rootId, stableChangeset]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();
