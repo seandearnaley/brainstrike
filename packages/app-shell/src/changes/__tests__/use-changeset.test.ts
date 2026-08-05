@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
 import { useRewindStore } from '../rewind-store';
-import { useChangeset } from '../use-changeset';
+import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
 
 const CHANGESET: Changeset = { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' };
 
@@ -33,25 +33,67 @@ function stubBridge(bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'reso
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   useRewindStore.getState().reset();
 });
 
 describe('useChangeset', () => {
-  it('is inert with the bridge absent: unavailable, no view, a typed fileDiff failure', async () => {
+  it('reports a typed error (never silent loading) with the bridge absent and a changeset selected', async () => {
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
       expect(result.current.available).toBe(false);
     });
     expect(result.current.view).toBeNull();
-    expect(result.current.error).toBeNull();
+    // NO ETERNAL LOADING: `ChangesSurface` reads "no view and no error" as
+    // "still loading", so an inert hook WITH a selection must say why.
+    await waitFor(() => {
+      expect(result.current.error).toBe(
+        'changeset-unavailable: the changes service is not available in this build.'
+      );
+    });
 
     const diff = await result.current.fileDiff('src/file.ts');
     expect(diff).toEqual({
       error: 'changeset-unavailable: no active bridge, root, or changeset',
       ok: false,
     });
+  });
+
+  it('reports a typed error when no root can resolve the selected changeset', async () => {
+    const resolveView = vi.fn();
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
+    const { result } = renderHook(() => useChangeset(null, CHANGESET));
+
+    await waitFor(() => {
+      expect(result.current.error).toBe(
+        'changeset-unresolvable: no workspace root can resolve this changeset. For a Git scope, the worktree is outside every mounted root.'
+      );
+    });
+    expect(result.current.view).toBeNull();
+    expect(resolveView).not.toHaveBeenCalled();
+  });
+
+  it('times out a resolveView that never answers, into an error the surface can retry', async () => {
+    vi.useFakeTimers();
+    const resolveView = vi.fn(() => new Promise<GitResult<ChangesetView>>(() => undefined));
+    stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
+
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(resolveView).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeNull();
+    expect(result.current.view).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESOLVE_VIEW_TIMEOUT_MS);
+    });
+
+    expect(result.current.view).toBeNull();
+    expect(result.current.error).toContain('changeset-resolve-timeout:');
   });
 
   it('is inert with a null changeset even when the bridge is present', async () => {
