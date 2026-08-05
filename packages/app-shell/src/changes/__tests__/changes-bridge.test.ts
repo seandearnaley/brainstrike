@@ -38,23 +38,6 @@ describe('resolveChangesBridge', () => {
     expect(isChangesBridgeAvailable()).toBe(true);
   });
 
-  it('rejects and logs a bridge missing a required method', () => {
-    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
-    (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
-      inventory: vi.fn(),
-      resolveView: vi.fn(),
-    };
-
-    expect(resolveChangesBridge()).toBeNull();
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
-      missing: ['fileDiff'],
-    });
-
-    expect(isChangesBridgeAvailable()).toBe(false);
-    expect(errorSpy).toHaveBeenCalledTimes(2);
-  });
-
   // BST-1114 T0: `inventory` joined `REQUIRED_METHODS` in the same commit that
   // added it to the interface. A preload that shipped the old two-method
   // bridge must read as MALFORMED (surface disabled + logged), never as a
@@ -70,6 +53,26 @@ describe('resolveChangesBridge', () => {
     expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
       missing: ['inventory'],
     });
+  });
+
+  // Shape-parity pin: `REQUIRED_METHODS` must cover EVERY `ChangesBridge`
+  // method. `fullBridge()` is typed `ChangesBridge`, so a method added to the
+  // interface (e.g. the BST-1115 rewind methods) appears in this loop
+  // automatically — and if it was forgotten in `REQUIRED_METHODS`, dropping it
+  // still resolves a "full" bridge and the case fails.
+  it.each(
+    Object.keys(fullBridge()) as (keyof ChangesBridge)[]
+  )('rejects a bridge missing %s (REQUIRED_METHODS covers the full interface)', (method) => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const bridge: Partial<ChangesBridge> = fullBridge();
+    delete bridge[method];
+    (window as unknown as { changes?: Partial<ChangesBridge> }).changes = bridge;
+
+    expect(resolveChangesBridge()).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
+      missing: [method],
+    });
+    expect(isChangesBridgeAvailable()).toBe(false);
   });
 
   it('rejects and logs a bridge with a required method that is not a function', () => {

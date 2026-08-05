@@ -4,12 +4,8 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 /**
- * Register the desktop `changes` IPC domain.
- *
- * BST-1113 Task 1 wires typed stub handlers (visible `not-implemented`
- * `GitResult` failures); Task 3 lands `ChangesetDiffService` and Task 4
- * replaces the stub with the real `resolveView`/`fileDiff` implementations,
- * in the same PR. See {@link createChangesIpcHandlers}.
+ * Register the desktop `changes` IPC domain (BST-1113), wiring the real
+ * `ChangesetDiffService`-backed handlers. See {@link createChangesIpcHandlers}.
  */
 export function registerChangesIpcHandlers(
   handlers: ChangesIpcHandlers = createChangesIpcHandlers()

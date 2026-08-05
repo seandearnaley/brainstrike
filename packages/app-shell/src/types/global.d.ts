@@ -8,11 +8,8 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
-  Changeset,
-  ChangesetView,
-  GitResult,
-  StructuredFileDiff,
 } from '@brainstrike/types';
+import type { ChangesBridge } from '../changes/changes-bridge';
 
 declare global {
   interface Window {
@@ -34,20 +31,14 @@ declare global {
       ) => Promise<AssistantCheckpointRevertRunResult>;
     };
     /**
-     * Desktop-only changeset diff bridge (BST-1113). Absent on web (no
-     * preload) — capability-check via `resolveChangesBridge()`
-     * (`changes-bridge.ts`) rather than `isElectron()`. Task 1 wires typed
-     * stub handlers that always return a `not-implemented` `GitResult`
-     * failure; Task 3/4 land the real `ChangesetDiffService` implementation.
+     * Desktop-only changeset diff bridge (BST-1113/BST-1114). Absent on web
+     * (no preload) — capability-check via `resolveChangesBridge()`
+     * (`changes-bridge.ts`) rather than `isElectron()`. Derived from
+     * `ChangesBridge` so this declaration cannot drift from the interface;
+     * `Partial` because a present-but-incomplete bridge is possible until the
+     * resolver validates it.
      */
-    changes?: {
-      fileDiff?: (
-        rootId: string,
-        changeset: Changeset,
-        path: string
-      ) => Promise<GitResult<StructuredFileDiff>>;
-      resolveView?: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
-    };
+    changes?: Partial<ChangesBridge>;
     mcp?: {
       getConfig?: () => Promise<
         | {
