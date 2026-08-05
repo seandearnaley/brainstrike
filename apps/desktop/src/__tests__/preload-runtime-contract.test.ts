@@ -7,6 +7,7 @@ import {
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
@@ -33,83 +34,59 @@ function removePreloadStringConstantDefinitions(source: string): string {
   );
 }
 
-function skipStringLiteral(source: string, startIndex: number): number {
-  const quote = source[startIndex];
-  let index = startIndex + 1;
-  while (index < source.length) {
-    if (source[index] === '\\') {
-      index += 2;
-      continue;
-    }
-    if (source[index] === quote) {
-      return index + 1;
-    }
-    index += 1;
-  }
-  throw new Error('Unterminated string literal while scanning preload source.');
-}
-
 /**
  * Extract the top-level property names of the object literal passed to
- * `contextBridge.exposeInMainWorld('<bridgeName>', {...})`, via a small
- * depth-tracking scan: a name counts only at object depth 1 outside any
- * parentheses, so nested callback bodies, typed params, and comments never
- * contribute keys.
+ * `contextBridge.exposeInMainWorld('<bridgeName>', {...})` from the real
+ * TypeScript AST. Any property form other than a plain `identifier: value`
+ * assignment (spread, computed/quoted key, shorthand, method) throws, so the
+ * exposed surface can never silently diverge from what this parity check sees.
  */
 function extractExposedBridgeMethodNames(source: string, bridgeName: string): string[] {
-  const callStart = source.indexOf(`contextBridge.exposeInMainWorld('${bridgeName}',`);
-  if (callStart === -1) {
+  const sourceFile = ts.createSourceFile(
+    'preload.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  let bridgeObject: ts.ObjectLiteralExpression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'contextBridge' &&
+      node.expression.name.text === 'exposeInMainWorld'
+    ) {
+      const [nameArgument, apiArgument] = node.arguments;
+      if (nameArgument && ts.isStringLiteral(nameArgument) && nameArgument.text === bridgeName) {
+        if (bridgeObject) {
+          throw new Error(`Multiple exposeInMainWorld('${bridgeName}', ...) calls in preload.`);
+        }
+        if (!(apiArgument && ts.isObjectLiteralExpression(apiArgument))) {
+          throw new Error(
+            `exposeInMainWorld('${bridgeName}', ...) is not passed an inline object literal.`
+          );
+        }
+        bridgeObject = apiArgument;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!bridgeObject) {
     throw new Error(`Missing contextBridge.exposeInMainWorld('${bridgeName}', ...) in preload.`);
   }
-  const objectStart = source.indexOf('{', callStart);
-  if (objectStart === -1) {
-    throw new Error(`Missing object literal for exposeInMainWorld('${bridgeName}', ...).`);
-  }
-  const methodNames: string[] = [];
-  let braceDepth = 0;
-  let parenDepth = 0;
-  let index = objectStart;
-  while (index < source.length) {
-    const char = source[index];
-    if (char === "'" || char === '"' || char === '`') {
-      index = skipStringLiteral(source, index);
-      continue;
+  return bridgeObject.properties.map((property) => {
+    if (!(ts.isPropertyAssignment(property) && ts.isIdentifier(property.name))) {
+      throw new Error(
+        `Unsupported property form in exposeInMainWorld('${bridgeName}', ...) object ` +
+          '(only plain identifier-keyed property assignments are modeled — extend ' +
+          'extractExposedBridgeMethodNames).'
+      );
     }
-    if (char === '/' && source[index + 1] === '/') {
-      index = source.indexOf('\n', index);
-      continue;
-    }
-    if (char === '/' && source[index + 1] === '*') {
-      index = source.indexOf('*/', index) + 2;
-      continue;
-    }
-    if (char === '{') {
-      braceDepth += 1;
-    } else if (char === '}') {
-      braceDepth -= 1;
-      if (braceDepth === 0) {
-        return methodNames;
-      }
-    } else if (char === '(') {
-      parenDepth += 1;
-    } else if (char === ')') {
-      parenDepth -= 1;
-    } else if (char && /[A-Za-z_$]/.test(char)) {
-      const identifierMatch = source.slice(index).match(/^[A-Za-z_$][\w$]*/);
-      const identifier = identifierMatch?.[0] ?? char;
-      if (
-        braceDepth === 1 &&
-        parenDepth === 0 &&
-        /^\s*:/.test(source.slice(index + identifier.length))
-      ) {
-        methodNames.push(identifier);
-      }
-      index += identifier.length;
-      continue;
-    }
-    index += 1;
-  }
-  throw new Error(`Unterminated exposeInMainWorld('${bridgeName}', ...) object literal.`);
+    return property.name.text;
+  });
 }
 
 function findRawIpcRendererChannels(source: string): string[] {
@@ -361,10 +338,12 @@ describe('preload runtime contract', () => {
     };
 
     for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {
-      expect({
-        bridge: bridgeName,
-        methods: [...extractExposedBridgeMethodNames(preloadSource, bridgeName)].sort(),
-      }).toEqual({ bridge: bridgeName, methods: [...requiredMethods].sort() });
+      expect
+        .soft({
+          bridge: bridgeName,
+          methods: [...extractExposedBridgeMethodNames(preloadSource, bridgeName)].sort(),
+        })
+        .toEqual({ bridge: bridgeName, methods: [...requiredMethods].sort() });
     }
   });
 
