@@ -127,6 +127,11 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./skills-bridge": {
+      "types": "./dist/skills-bridge.d.ts",
+      "import": "./dist/skills-bridge.js",
+      "require": "./dist/skills-bridge.js"
+    },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
       "import": "./dist/runtime-data.js",

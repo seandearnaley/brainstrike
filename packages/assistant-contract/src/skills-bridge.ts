@@ -8,13 +8,16 @@
  * returns a fully-formed bridge. Web never sees it — there is no
  * `isElectron()` check anywhere.
  *
- * Deliberately dependency-light (logging + contract types only) so the desktop
- * preload contract test can import the required-method pin without pulling UI
- * graphs.
+ * Lives in assistant-contract (not app-shell) because BOTH app-shell (composer
+ * "/" menu) and settings-ui (Settings → Skills) consume it, and settings-ui
+ * cannot import app-shell (app-shell depends on settings-ui — a package
+ * cycle). Deliberately dependency-light (logging + the sibling skills wire
+ * shapes only) so the desktop preload contract test can import the
+ * required-method pin without pulling UI graphs.
  */
 
-import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import type { SkillsScanResultSummary } from './skills.js';
 
 const logger = createLogger('SkillsBridge');
 
@@ -62,7 +65,7 @@ export function resolveSkillsBridge(): SkillsBridge | null {
     (method) => typeof bridge[method] !== 'function'
   );
   if (missing.length > 0) {
-    logger.error('window.skills bridge is malformed; skill slash commands disabled', { missing });
+    logger.error('window.skills bridge is malformed; skills surfaces disabled', { missing });
     return null;
   }
   return bridge as SkillsBridge;

@@ -2,6 +2,7 @@ import type {
   AssistantCheckpointRevertResult,
   AssistantCheckpointRevertRunResult,
 } from '@brainstrike/assistant-contract';
+import type { SkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -9,7 +10,6 @@ import type {
 } from '@brainstrike/types';
 import type { ChangesBridge } from '../changes/changes-bridge';
 import type { PlatformBridge } from '../platform-bridge';
-import type { SkillsBridge } from '../skills-bridge';
 import type { UserCommandsBridge } from '../user-commands-bridge';
 
 declare global {
@@ -108,8 +108,10 @@ declare global {
     platform?: Partial<PlatformBridge>;
     /**
      * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
-     * capability-check via `resolveSkillsBridge()` (`skills-bridge.ts`) rather
-     * than `isElectron()`. Derived from `SkillsBridge` so this declaration
+     * capability-check via `resolveSkillsBridge()`
+     * (`@brainstrike/assistant-contract/skills-bridge` — shared with
+     * settings-ui, which cannot import app-shell) rather than `isElectron()`.
+     * Derived from `SkillsBridge` so this declaration
      * cannot drift from the interface; `Partial` because a
      * present-but-incomplete bridge is possible until the resolver validates
      * it.

@@ -86,6 +86,12 @@ describe('SkillsSettingsSection', () => {
     expect(screen.getByText(/desktop/i)).toBeInTheDocument();
   });
 
+  it('treats a present-but-malformed bridge as absent (shared resolver fails closed)', () => {
+    setBridge({ scan: 'not-a-function' } as unknown as SkillsBridge);
+    render(<SkillsSettingsSection />);
+    expect(screen.getByText(/desktop/i)).toBeInTheDocument();
+  });
+
   it('lists scanned skills with enable switches and toggling writes the durable key', async () => {
     setBridge({ scan: () => Promise.resolve(SCAN) });
     const user = userEvent.setup();

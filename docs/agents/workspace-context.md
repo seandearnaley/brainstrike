@@ -455,7 +455,14 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   entries with winners, spec warnings, Refresh; a rejected scan renders a
   DISTINCT error state with Retry — never the empty state. Data via
   `window.skills.scan()` (`ipc-skills{,-handlers}.ts`, channel `skills:scan`,
-  preload capability-gated) which runs the SAME scan as the engine.
+  preload capability-gated) which runs the SAME scan as the engine. The
+  `SkillsBridge` interface + `SKILLS_BRIDGE_REQUIRED_METHODS` pin +
+  `resolveSkillsBridge()` live in
+  `@brainstrike/assistant-contract/skills-bridge` — NOT app-shell — because
+  both app-shell (composer "/" menu) and settings-ui consume them and
+  settings-ui cannot import app-shell (package cycle). The desktop
+  preload-runtime contract test pins `window.skills` to that constant (exact
+  set equality).
 
 - **Preference store** (`packages/app-state/src/stores/skills-preferences-store.ts`):
   `{masterEnabled: true, disabledSkillKeys}` (only `true` entries persist),
@@ -472,7 +479,7 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   route); fs-watch refresh; `SkillSearchProcessor`; a create-skill scaffold
   action; rendering skill activations as composer chips.
 
-Paired tests: packages/assistant-contract/src/__tests__/skills.test.ts;
+Paired tests: packages/assistant-contract/src/__tests__/{skills,skills-bridge}.test.ts;
 packages/agent/src/__tests__/{skill-scan,scanned-workspace-skills,skill-tools}.spec.ts
 + mastra-skills.integration.spec.ts + tool-output-limits.spec.ts;
 apps/desktop/src/__tests__/assistant-server/{request-skills,skills-activation-context}.test.ts
