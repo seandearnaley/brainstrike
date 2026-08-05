@@ -44,7 +44,13 @@
  * finalize — capability gating, not a fallback.
  */
 import { createLogger } from '@brainstrike/logging';
-import { useToast } from '@brainstrike/ui';
+// The module-scope `toast` rather than `useToast()`: this hook is called from
+// `AssistantUiPanelWrapper`, and `useToast` SUBSCRIBES its caller to the global
+// toast store, which would re-render the whole assistant panel every time any
+// toast anywhere is raised, dismissed or reaped. Nothing here reads toast
+// state — it only raises one — so the subscription would be pure cost on the
+// send path.
+import { toast } from '@brainstrike/ui';
 import { useCallback, useMemo, useRef } from 'react';
 import { resolveChangesBridge } from './changes-bridge';
 
@@ -76,7 +82,6 @@ export function useRewindFinalization({
   // Resolved ONCE per hook instance, like `use-rewind.ts`: re-resolving would
   // re-log on every send for a malformed bridge.
   const bridge = useMemo(() => resolveChangesBridge(), []);
-  const { toast } = useToast();
   const userAuthoredSendPendingRef = useRef(false);
 
   const markUserAuthoredSend = useCallback((): void => {
@@ -119,7 +124,7 @@ export function useRewindFinalization({
         });
       }
     })();
-  }, [bridge, threadId, toast]);
+  }, [bridge, threadId]);
 
   const prepareRequestDataAndFinalize = useCallback<PrepareRequestData>(
     async (abortSignal) => {

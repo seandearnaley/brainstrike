@@ -15,7 +15,7 @@ import type { ChangesBridge } from '../changes-bridge';
 import { useRewindFinalization } from '../use-rewind-finalization';
 
 const toastMock = vi.hoisted(() => vi.fn());
-vi.mock('@brainstrike/ui', () => ({ useToast: () => ({ toast: toastMock }) }));
+vi.mock('@brainstrike/ui', () => ({ toast: toastMock }));
 
 const THREAD_ID = 'thread-1';
 const PREPARED = { memory: { runId: 'run-1' } } as const;
