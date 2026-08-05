@@ -456,6 +456,17 @@ declare global {
       unwatch: (watchId: string) => Promise<NotesVaultResult<null>>;
       onChanged: (callback: (event: NotesVaultChangedEvent) => void) => () => void;
     };
+    /**
+     * OS shell integration bridge. Absent on web (no preload) — consumers MUST
+     * capability-check `window.platform`.
+     *
+     * ⚠️ MUST stay in sync with `PlatformBridge` in
+     * `packages/app-shell/src/platform-bridge.ts` (the ambient module shims in
+     * `app-shell-shims.d.ts` keep this file from importing the type directly).
+     * `resolvePlatformBridge()` rejects a bridge missing any method, so a
+     * method declared here but absent from the preload — or vice versa —
+     * disables shell actions AND markdown preview at runtime.
+     */
     platform?: {
       openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
       openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
@@ -494,6 +505,10 @@ declare global {
      * consumers MUST capability-check `window.skills`. The Settings → Skills
      * panel and the composer's "/" menu call `scan` to list every skill
      * discovered across `.brainstrike/skills` + `.claude/skills`.
+     *
+     * ⚠️ MUST stay in sync with `SkillsBridge` in
+     * `packages/app-shell/src/skills-bridge.ts`; `resolveSkillsBridge()`
+     * rejects a bridge missing any method.
      */
     skills?: {
       scan: () => Promise<SkillsScanResultSummary>;
@@ -557,6 +572,10 @@ declare global {
      * (no preload) — consumers MUST capability-check `window.userCommands`. The
      * composer's "/" menu calls `list` to load prompt-template commands scanned
      * from `.brainstrike/commands` + `.claude/commands`.
+     *
+     * ⚠️ MUST stay in sync with `UserCommandsBridge` in
+     * `packages/app-shell/src/user-commands-bridge.ts`;
+     * `resolveUserCommandsBridge()` rejects a bridge missing any method.
      */
     userCommands?: {
       list: () => Promise<UserSlashCommandsListResult>;

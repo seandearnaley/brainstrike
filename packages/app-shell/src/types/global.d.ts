@@ -1,8 +1,6 @@
 import type {
   AssistantCheckpointRevertResult,
   AssistantCheckpointRevertRunResult,
-  SkillsScanResultSummary,
-  UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantSelectionUpdatePayload,
@@ -10,6 +8,9 @@ import type {
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import type { ChangesBridge } from '../changes/changes-bridge';
+import type { PlatformBridge } from '../platform-bridge';
+import type { SkillsBridge } from '../skills-bridge';
+import type { UserCommandsBridge } from '../user-commands-bridge';
 
 declare global {
   interface Window {
@@ -97,12 +98,23 @@ declare global {
       ) => (() => void) | undefined;
     };
     /**
-     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
-     * capability-check `window.skills` rather than `isElectron()`.
+     * Desktop-only OS shell integration bridge. Absent on web (no preload) —
+     * capability-check via `resolvePlatformBridge()` (`platform-bridge.ts`)
+     * rather than `isElectron()`. Derived from `PlatformBridge` so this
+     * declaration cannot drift from the interface; `Partial` because a
+     * present-but-incomplete bridge is possible until the resolver validates
+     * it.
      */
-    skills?: {
-      scan?: () => Promise<SkillsScanResultSummary>;
-    };
+    platform?: Partial<PlatformBridge>;
+    /**
+     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
+     * capability-check via `resolveSkillsBridge()` (`skills-bridge.ts`) rather
+     * than `isElectron()`. Derived from `SkillsBridge` so this declaration
+     * cannot drift from the interface; `Partial` because a
+     * present-but-incomplete bridge is possible until the resolver validates
+     * it.
+     */
+    skills?: Partial<SkillsBridge>;
     tools?: {
       execute?: (
         toolId: string,
@@ -129,11 +141,12 @@ declare global {
     };
     /**
      * Desktop-only user-defined slash command discovery bridge. Absent on web
-     * (no preload) — capability-check `window.userCommands` rather than
-     * `isElectron()`.
+     * (no preload) — capability-check via `resolveUserCommandsBridge()`
+     * (`user-commands-bridge.ts`) rather than `isElectron()`. Derived from
+     * `UserCommandsBridge` so this declaration cannot drift from the
+     * interface; `Partial` because a present-but-incomplete bridge is possible
+     * until the resolver validates it.
      */
-    userCommands?: {
-      list?: () => Promise<UserSlashCommandsListResult>;
-    };
+    userCommands?: Partial<UserCommandsBridge>;
   }
 }
