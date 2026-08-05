@@ -72,6 +72,25 @@ describe('resolveChangesBridge', () => {
     });
   });
 
+  // Shape-parity pin: `REQUIRED_METHODS` must cover EVERY `ChangesBridge`
+  // method. `fullBridge()` is typed `ChangesBridge`, so a method added to the
+  // interface (e.g. the BST-1115 rewind methods) appears in this loop
+  // automatically — and if it was forgotten in `REQUIRED_METHODS`, dropping it
+  // still resolves a "full" bridge and the case fails.
+  it.each(
+    Object.keys(fullBridge()) as (keyof ChangesBridge)[]
+  )('rejects a bridge missing %s (REQUIRED_METHODS covers the full interface)', (method) => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const bridge: Partial<ChangesBridge> = fullBridge();
+    delete bridge[method];
+    (window as unknown as { changes?: Partial<ChangesBridge> }).changes = bridge;
+
+    expect(resolveChangesBridge()).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
+      missing: [method],
+    });
+  });
+
   it('rejects and logs a bridge with a required method that is not a function', () => {
     const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     (window as unknown as { changes?: Record<string, unknown> }).changes = {

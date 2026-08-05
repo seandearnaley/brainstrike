@@ -26,6 +26,7 @@ import type {
   GitDiff,
   GitDiffParams,
   GitHistoryPage,
+  GitInventory,
   GitPushPullResult,
   GitRepository,
   GitResult,
@@ -33,6 +34,7 @@ import type {
   GitSwitchBranchResult,
   IFileNode,
   StructuredFileDiff,
+  StructuredFileDiffParams,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -109,13 +111,18 @@ declare global {
       list: () => Promise<AssistantPersonasListResult>;
     };
     /**
-     * Desktop-only changeset diff bridge (BST-1113). Resolves any
+     * Desktop-only changeset diff bridge (BST-1113/BST-1114). Resolves any
      * `Changeset` (agent-run / run-range / git-scope) to an eager
      * `ChangesetView` and loads per-file `StructuredFileDiff`s lazily.
      * Absent on web (no preload) — consumers MUST capability-check
-     * `window.changes` rather than `isElectron()`. Task 1 wires typed stub
-     * handlers that always return a `not-implemented` `GitResult` failure;
-     * Task 3/4 land the real `ChangesetDiffService` implementation.
+     * `window.changes` rather than `isElectron()`.
+     *
+     * ⚠️ MUST stay in sync with `ChangesBridge` in
+     * `packages/app-shell/src/changes/changes-bridge.ts` (the ambient module
+     * shims in `app-shell-shims.d.ts` keep this file from importing the type
+     * directly). `resolveChangesBridge()` rejects a bridge missing any
+     * method, so a method declared here but absent from the preload — or vice
+     * versa — disables the Changes surface at runtime.
      */
     changes?: {
       fileDiff: (
@@ -123,6 +130,7 @@ declare global {
         changeset: Changeset,
         path: string
       ) => Promise<GitResult<StructuredFileDiff>>;
+      inventory: () => Promise<GitResult<GitInventory>>;
       resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
     };
     chunkingHost: {
@@ -276,6 +284,10 @@ declare global {
      * the durable workspace `rootId`; main resolves + containment-checks it to an
      * absolute cwd and runs git via execFile (no shell). Each method resolves to
      * a structured `GitResult` (never throws across IPC).
+     *
+     * ⚠️ MUST stay in sync with `GitBridge` in
+     * `packages/app-shell/src/git-panel/git-bridge.ts`; `resolveGitBridge()`
+     * rejects a bridge missing any method.
      */
     git?: {
       status: (rootId: string) => Promise<GitResult<GitStatus>>;
@@ -303,6 +315,10 @@ declare global {
       push: (rootId: string, params?: { remote?: string }) => Promise<GitResult<GitPushPullResult>>;
       pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
       repository: (rootId: string) => Promise<GitResult<GitRepository>>;
+      structuredFileDiff: (
+        rootId: string,
+        params: StructuredFileDiffParams
+      ) => Promise<GitResult<StructuredFileDiff>>;
       switchBranch: (
         rootId: string,
         params: { branch: string }
