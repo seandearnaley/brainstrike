@@ -111,17 +111,27 @@ export async function insertMessage(
   );
 }
 
+/**
+ * `status` defaults to `'completed'` — a finished turn is what almost every
+ * rewind test needs. Pass `'running'` to seed the in-flight run that the
+ * `run-in-flight` gate refuses on.
+ */
 export async function insertRun(
   db: PGlite,
-  args: { id: string; startedAt: string; threadId?: string }
+  args: {
+    id: string;
+    startedAt: string;
+    status?: 'cancelled' | 'completed' | 'failed' | 'running';
+    threadId?: string;
+  }
 ): Promise<void> {
   await db.query(
     `INSERT INTO brainstrike_assistant_thread_runs
        (id, resource_id, thread_id, provider, model, runtime_kind, status,
         started_at, created_at, updated_at)
-     VALUES ($1, $2, $3, 'anthropic', 'test-model', 'hosted', 'completed',
+     VALUES ($1, $2, $3, 'anthropic', 'test-model', 'hosted', $5,
              $4::timestamptz, $4::timestamptz, $4::timestamptz)`,
-    [args.id, RESOURCE_ID, args.threadId ?? THREAD_ID, args.startedAt]
+    [args.id, RESOURCE_ID, args.threadId ?? THREAD_ID, args.startedAt, args.status ?? 'completed']
   );
 }
 

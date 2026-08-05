@@ -1,5 +1,6 @@
 import type {
   AssistantPersonasListResult,
+  AssistantRewindFinalization,
   AssistantRewindMode,
   AssistantRewindPreviewResult,
   AssistantRewindRedoResult,
@@ -141,6 +142,15 @@ declare global {
         changeset: Changeset,
         path: string
       ) => Promise<GitResult<StructuredFileDiff>>;
+      /**
+       * Conversation Rewind: end the redo window for a thread (W5 T4b). Fired
+       * when a USER-authored message starts a new run. `value.finalized ===
+       * false` means the thread had no outstanding rewind — the ordinary case,
+       * not a failure.
+       */
+      finalizeRewinds: (payload: {
+        threadId: string;
+      }) => Promise<GitResult<AssistantRewindFinalization>>;
       inventory: () => Promise<GitResult<GitInventory>>;
       /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
       redoRewind: (payload: {

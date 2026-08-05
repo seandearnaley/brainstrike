@@ -17,6 +17,11 @@
  *    deliberately no per-file override and no "apply the clean ones" path —
  *    a partially-applied rewind is a workspace no one, user or program, can
  *    reason about.
+ *    The gate binds the SCAN, which is the only thing it can bind: a file
+ *    that changes between the scan and the apply still refuses individually
+ *    and is named in `fileOutcomes`. That is inherent TOCTOU, not a
+ *    relaxation of this rule — the rule is that no conflict the user was
+ *    SHOWN is ever applied over.
  * 2. THE PAIRING RULE. A file revert and its journal after-capture are one
  *    operation. Every successful revert writes exactly one capture row under
  *    the rewind's `revertId`, inside the same file lock, before the write.
@@ -71,6 +76,7 @@ import { type RewindRevertPlan, scanRewindRange } from './rewind-conflict-scan';
 import {
   deleteThreadTombstones,
   deleteTombstoneBatch,
+  hasInFlightThreadRun,
   insertTombstoneBatch,
   isLatestRewindBatch,
   listThreadTombstones,
@@ -336,6 +342,15 @@ export async function rewindToMessage(
   };
 }
 
+function refuseInFlightRun(threadId: string): AssistantRewindRefused {
+  return {
+    conflicts: [],
+    message: `thread "${threadId}" has a run in flight and nothing was applied; wait for it to finish or stop it, then restore.`,
+    ok: false,
+    reason: 'run-in-flight',
+  };
+}
+
 function refuseConflicts(conflicts: readonly AssistantRewindConflict[]): AssistantRewindRefused {
   const paths = conflicts.map((conflict) => conflict.path).join(', ');
   return {
@@ -353,6 +368,11 @@ function refuseConflicts(conflicts: readonly AssistantRewindConflict[]): Assista
  * silently reverts files. `conversation-only` writes the tombstone batch with
  * `revert_id = NULL`, touches no file, writes no journal row, and the
  * acknowledgment gate does not apply to it because nothing reaches disk.
+ *
+ * REFUSES OUTRIGHT WHILE A RUN IS IN FLIGHT (`run-in-flight`), in both modes
+ * and before anything is scanned or written — see `applyRewindLocked`. Both
+ * entry points reach this; only one of them has any renderer-side run state to
+ * gate on, which is why the binding check lives here.
  *
  * Holds the thread lock for the same reason redo and finalization do: this is
  * the THIRD writer of the tombstone table, and a finalization landing between
@@ -382,6 +402,18 @@ async function applyRewindLocked(
   },
   deps: RewindServiceDeps
 ): Promise<AssistantRewindResult> {
+  // THE IN-FLIGHT GATE, and it is FIRST: a live run is a property of the
+  // thread, not of the arguments, so it refuses before anything else is even
+  // resolved and in BOTH modes — `conversation-only` writes no file but would
+  // still tombstone messages the run is mid-way through appending.
+  // This is the authoritative half of the guard. `MessageRewindAction` hides
+  // itself while `thread.isRunning`, but that state exists only inside the
+  // assistant panel's React tree; the Changes-surface header action is a
+  // sibling page that cannot read it. Refusing here covers both entry points
+  // and is not spoofable by a stale renderer.
+  if (await hasInFlightThreadRun(db, args.threadId)) {
+    return refuseInFlightRun(args.threadId);
+  }
   const target = await resolveRewindTarget(db, args.threadId, args.messageId);
   if (!target) {
     return {

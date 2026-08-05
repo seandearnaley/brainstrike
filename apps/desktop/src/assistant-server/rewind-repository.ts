@@ -32,6 +32,54 @@ async function relationExists(db: EditCheckpointDatabase, relation: string): Pro
   return probe.rows[0]?.present === true;
 }
 
+/**
+ * The TERMINAL `status` values of `brainstrike_assistant_thread_runs`.
+ *
+ * Mirrors `AssistantThreadRunStatus` in
+ * `packages/app-shell/src/assistant-memory-repository.ts`, which is the sole
+ * writer of that column: `createThreadRun` stamps `'running'`, and
+ * `completeThreadRun` takes `Exclude<AssistantThreadRunStatus, 'running'>` —
+ * exactly these three. Main-process code cannot import that renderer package,
+ * so the list is restated here rather than shared; keep the two in step.
+ */
+const TERMINAL_RUN_STATUSES = ['cancelled', 'completed', 'failed'] as const;
+
+/**
+ * True when this thread has a run that has NOT reached a terminal status.
+ *
+ * The guard on the destructive seam: a rewind that lands mid-run reverts files
+ * the run is still writing and tombstones messages it is still appending. The
+ * message-level affordance hides itself while `thread.isRunning`, but the
+ * Changes-surface entry point is a sibling top-level page with no
+ * assistant-runtime state to read, so this — inside the thread lock, in the
+ * main process — is the refusal that actually binds BOTH entry points and
+ * cannot be spoofed by a stale renderer.
+ *
+ * The predicate EXCLUDES the terminal values rather than matching `'running'`
+ * on purpose: a status this list does not recognize counts as in flight. On a
+ * destructive seam the fail-safe direction is refusing a rewind that might have
+ * been allowed, never reverting files under a run that is still going.
+ *
+ * An absent runs table is `false`, not a fallback: a profile with no runs table
+ * has recorded no runs at all, so none of them can be in flight.
+ */
+export async function hasInFlightThreadRun(
+  db: EditCheckpointDatabase,
+  threadId: string
+): Promise<boolean> {
+  if (!(await relationExists(db, RUNS_TABLE))) {
+    return false;
+  }
+  const result = await db.query<{ present: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM ${RUNS_TABLE}
+       WHERE thread_id = $1 AND status <> ALL($2::text[])
+     ) AS present`,
+    [threadId, [...TERMINAL_RUN_STATUSES]]
+  );
+  return result.rows[0]?.present === true;
+}
+
 export interface RewindTarget {
   /** Full-precision `::text` timestamp — never routed through a JS `Date`. */
   readonly createdAt: string;

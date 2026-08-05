@@ -256,6 +256,74 @@ describe('applyRewind — the acknowledgment gate', () => {
   });
 });
 
+/**
+ * The IN-FLIGHT GATE. `MessageRewindAction` hides itself while
+ * `thread.isRunning`, but that state lives inside the assistant panel's React
+ * tree and the Changes-surface header action is a sibling page that cannot read
+ * it. The binding refusal is therefore the main-process one exercised here —
+ * it covers BOTH entry points and no renderer can talk past it.
+ *
+ * Every other test in this file is the negative control: they seed only
+ * `'completed'` runs and apply successfully, so a guard that refused
+ * unconditionally would turn the file red.
+ */
+describe('applyRewind — the in-flight run gate', () => {
+  it('refuses while a non-terminal run exists and writes nothing, in either mode', async () => {
+    await seedTwoTurnThread();
+    await seedWrite(fixture, {
+      after: 'v1',
+      before: 'v0',
+      occurredAt: '2026-01-01T00:00:25Z',
+      path: '/a.txt',
+      rootId: ROOT_ID,
+      runId: 'run-1',
+    });
+    const journalBefore = await countJournalRows('run-1');
+    // The turn the user is CURRENTLY waiting on: row written on send, no
+    // terminal status yet.
+    await insertRun(fixture.db, {
+      id: 'run-3',
+      startedAt: '2026-01-01T00:01:00Z',
+      status: 'running',
+    });
+
+    const refused = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      probe
+    );
+
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.reason).toBe('run-in-flight');
+      expect(refused.conflicts).toEqual([]);
+      expect(refused.message).toContain(THREAD_ID);
+    }
+    // `conversation-only` reaches the same gate: it writes no file, but it
+    // would tombstone messages the live run is still appending.
+    const refusedConversationOnly = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
+      probe
+    );
+    expect(refusedConversationOnly.ok === false && refusedConversationOnly.reason).toBe(
+      'run-in-flight'
+    );
+
+    // NOTHING was applied by either attempt: no tombstone, no file write, no
+    // revert stamp, no journal row.
+    expect(await tombstoneRows()).toEqual([]);
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v1');
+    expect(probe.calls).toEqual([]);
+    expect(await countJournalRows('run-1')).toBe(journalBefore);
+    const strays = await fixture.db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM brainstrike_assistant_edit_checkpoints
+       WHERE run_id NOT IN ('run-1', 'run-2')`
+    );
+    expect(Number(strays.rows[0]?.count ?? 0)).toBe(0);
+  });
+});
+
 describe('applyRewind — after-capture pairing', () => {
   it('journals every revert under the rewind revertId, and redo replays it', async () => {
     await seedTwoTurnThread();

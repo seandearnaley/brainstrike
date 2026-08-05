@@ -147,6 +147,15 @@ export interface AssistantRewindApplied {
  * was applied — no file written, no tombstone row inserted — and the caller
  * must re-issue with `acknowledgeConflicts: true` after showing the user every
  * named path.
+ *
+ * `run-in-flight` is the other unconditional refusal: a rewind may not run
+ * while the thread still has a run that has not reached a terminal status,
+ * because reverting files the run is still writing would destroy work in
+ * progress and tombstoning messages it is still appending would hide half a
+ * turn. The message-level affordance also hides itself while a run is live,
+ * but that is the CHEAP half — the entry point on the Changes surface has no
+ * assistant-runtime state to read, so the authoritative refusal is the
+ * main-process one that produces this reason.
  */
 export interface AssistantRewindRefused {
   readonly conflicts: readonly AssistantRewindConflict[];
@@ -157,6 +166,7 @@ export interface AssistantRewindRefused {
     | 'message-not-found'
     | 'range-unresolvable'
     | 'rewind-not-found'
+    | 'run-in-flight'
     | 'not-latest-rewind';
 }
 
