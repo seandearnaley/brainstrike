@@ -1,12 +1,11 @@
 /**
  * Structural typing + capability resolution for the desktop `window.changes`
- * bridge (BST-1113).
+ * bridge (BST-1113/BST-1114).
  *
  * Shared changeset-diff contracts come from `@brainstrike/types`; this
  * interface only describes the capability methods exposed by the desktop
- * preload. Task 1 wires typed stub handlers on the main-process side (every
- * call returns a `not-implemented` `GitResult` failure); Task 3/4 land the
- * real `ChangesetDiffService`.
+ * preload (backed by `ChangesetDiffService` via the `changes` IPC domain in
+ * `apps/desktop/src/changes-ipc-handlers.ts`).
  *
  * Capability gating (CLAUDE.md CONTEXT ACTION SYSTEM): a consumer is
  * desktop-only because it is constructed only when `resolveChangesBridge()`

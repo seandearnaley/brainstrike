@@ -1241,9 +1241,8 @@ if (shouldExposeBridge('git')) {
 // per-file `StructuredFileDiff`s lazily. Web never constructs this bridge
 // (there is no preload), so `window.changes` is simply absent there;
 // consumers must capability-check `window.changes` rather than
-// `isElectron()`. Task 1 wires typed stub handlers that always return a
-// `not-implemented` GitResult failure; Task 3/4 land the real
-// ChangesetDiffService implementation.
+// `isElectron()`. Backed by ChangesetDiffService via the `changes` IPC
+// domain (changes-ipc-handlers.ts).
 if (shouldExposeBridge('changes')) {
   contextBridge.exposeInMainWorld('changes', {
     fileDiff: (rootId: string, changeset: Changeset, path: string) =>

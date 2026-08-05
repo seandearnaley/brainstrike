@@ -38,23 +38,6 @@ describe('resolveChangesBridge', () => {
     expect(isChangesBridgeAvailable()).toBe(true);
   });
 
-  it('rejects and logs a bridge missing a required method', () => {
-    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
-    (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
-      inventory: vi.fn(),
-      resolveView: vi.fn(),
-    };
-
-    expect(resolveChangesBridge()).toBeNull();
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
-      missing: ['fileDiff'],
-    });
-
-    expect(isChangesBridgeAvailable()).toBe(false);
-    expect(errorSpy).toHaveBeenCalledTimes(2);
-  });
-
   // BST-1114 T0: `inventory` joined `REQUIRED_METHODS` in the same commit that
   // added it to the interface. A preload that shipped the old two-method
   // bridge must read as MALFORMED (surface disabled + logged), never as a
@@ -89,6 +72,7 @@ describe('resolveChangesBridge', () => {
     expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
       missing: [method],
     });
+    expect(isChangesBridgeAvailable()).toBe(false);
   });
 
   it('rejects and logs a bridge with a required method that is not a function', () => {
