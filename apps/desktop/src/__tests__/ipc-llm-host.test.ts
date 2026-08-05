@@ -3,8 +3,8 @@ import path from 'node:path';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ipcMainHandle = vi.fn();
-const ipcMainOn = vi.fn();
+const ipcMainHandle = vi.fn<(channel: string, handler: (...args: unknown[]) => unknown) => void>();
+const ipcMainOn = vi.fn<(channel: string, handler: (...args: unknown[]) => unknown) => void>();
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -40,7 +40,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -73,7 +73,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -106,7 +106,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -166,7 +166,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -202,7 +202,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -248,7 +248,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -283,7 +283,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -316,7 +316,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -349,7 +349,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const generateCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+      ([channel]) => channel === 'llm-host:generate'
     );
     if (!generateCall) {
       throw new Error('llm-host:generate handler not registered');
@@ -398,9 +398,7 @@ describe('ipc-llm-host', () => {
     const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
     registerLlmHostIpcHandlers(manager as never);
 
-    const warmupCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:warmup'
-    );
+    const warmupCall = ipcMainHandle.mock.calls.find(([channel]) => channel === 'llm-host:warmup');
     if (!warmupCall) {
       throw new Error('llm-host:warmup handler not registered');
     }
@@ -429,9 +427,7 @@ describe('ipc-llm-host', () => {
     const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
     registerLlmHostIpcHandlers(manager as never);
 
-    const warmupCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:warmup'
-    );
+    const warmupCall = ipcMainHandle.mock.calls.find(([channel]) => channel === 'llm-host:warmup');
     if (!warmupCall) {
       throw new Error('llm-host:warmup handler not registered');
     }
@@ -459,9 +455,7 @@ describe('ipc-llm-host', () => {
     const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
     registerLlmHostIpcHandlers(manager as never);
 
-    const warmupCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:warmup'
-    );
+    const warmupCall = ipcMainHandle.mock.calls.find(([channel]) => channel === 'llm-host:warmup');
     if (!warmupCall) {
       throw new Error('llm-host:warmup handler not registered');
     }
@@ -496,7 +490,7 @@ describe('ipc-llm-host', () => {
     registerLlmHostIpcHandlers(manager as never);
 
     const responseCall = ipcMainOn.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:report-response'
+      ([channel]) => channel === 'llm-host:report-response'
     );
     if (!responseCall) {
       throw new Error('llm-host:report-response listener not registered');
@@ -533,9 +527,7 @@ describe('ipc-llm-host', () => {
     const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
     registerLlmHostIpcHandlers(manager as never);
 
-    const cancelCall = ipcMainHandle.mock.calls.find(
-      ([channel]: readonly [string]) => channel === 'llm-host:cancel'
-    );
+    const cancelCall = ipcMainHandle.mock.calls.find(([channel]) => channel === 'llm-host:cancel');
     if (!cancelCall) {
       throw new Error('llm-host:cancel handler not registered');
     }

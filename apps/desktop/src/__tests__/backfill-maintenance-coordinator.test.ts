@@ -28,7 +28,12 @@ function createCoordinator(
   };
 
   return {
-    coordinator: new BackfillMaintenanceCoordinator(config, 'set-123', hostManager, overrides?.now),
+    coordinator: new BackfillMaintenanceCoordinator(
+      config,
+      'set-123',
+      hostManager as unknown as ConstructorParameters<typeof BackfillMaintenanceCoordinator>[2],
+      overrides?.now
+    ),
     hostManager,
   };
 }
@@ -93,7 +98,11 @@ describe('BackfillMaintenanceCoordinator', () => {
       })
     ).not.toThrow();
 
-    resolveReset?.();
+    const finishReset = resolveReset as (() => void) | null;
+    if (!finishReset) {
+      throw new Error('Expected embedding host reset to be pending.');
+    }
+    finishReset();
     await maintenancePromise;
   });
 

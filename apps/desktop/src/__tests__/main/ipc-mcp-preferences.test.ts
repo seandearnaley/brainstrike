@@ -107,6 +107,7 @@ const {
     if (serverName === 'mock-server') {
       return discoveryClient;
     }
+    return;
   });
   const disposeClients = vi.fn();
 
@@ -247,7 +248,7 @@ describe('ipc-mcp tool preference loading', () => {
       },
       exists: true,
       path: '/mock/config.json',
-    });
+    } as unknown as Awaited<ReturnType<typeof loadMcpConfigMock>>);
     getClientMock.mockReturnValueOnce({
       callTool: vi.fn(),
       dispose: vi.fn(),
@@ -268,7 +269,7 @@ describe('ipc-mcp tool preference loading', () => {
       name: 'filesystem',
       supportsTool: vi.fn(() => false),
       transport: 'stdio',
-    });
+    } as unknown as ReturnType<typeof getClientMock>);
 
     registerMcpIpcHandlers();
 
@@ -307,7 +308,7 @@ describe('ipc-mcp tool preference loading', () => {
         { enabled: true, id: 'filesystem.read_file' },
         { enabled: true, id: 'filesystem.list_directory' },
       ],
-    });
+    } as unknown as ReturnType<typeof getAllToolsMock>);
 
     registerMcpIpcHandlers();
 

@@ -978,8 +978,8 @@ describe('git service — repository browser', () => {
     );
     const graftFile = path.join(repo, 'external-grafts');
     await fsPromises.writeFile(graftFile, `${head}\n`, 'utf8');
-    const previous = process.env.GIT_GRAFT_FILE;
-    process.env.GIT_GRAFT_FILE = graftFile;
+    const previous = process.env['GIT_GRAFT_FILE'];
+    process.env['GIT_GRAFT_FILE'] = graftFile;
     try {
       const result = await serviceFor(repo).history({ limit: 10, offset: 0 });
 
@@ -991,7 +991,7 @@ describe('git service — repository browser', () => {
       if (previous === undefined) {
         Reflect.deleteProperty(process.env, 'GIT_GRAFT_FILE');
       } else {
-        process.env.GIT_GRAFT_FILE = previous;
+        process.env['GIT_GRAFT_FILE'] = previous;
       }
     }
   });

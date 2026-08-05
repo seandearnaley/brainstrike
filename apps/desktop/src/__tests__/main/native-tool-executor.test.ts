@@ -22,6 +22,9 @@ describe('native-tool-executor', () => {
       });
 
       expect(result.success).toBe(false);
+      if (result.success) {
+        throw new Error('expected unsupported native tool result');
+      }
       expect(result.error).toContain('not supported');
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });

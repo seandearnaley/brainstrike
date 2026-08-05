@@ -49,7 +49,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...mod,
     ...fsMocks,
-    default: { ...mod.default, ...fsMocks },
+    default: { ...mod, ...fsMocks },
   };
 });
 

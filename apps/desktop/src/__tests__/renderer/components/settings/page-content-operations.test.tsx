@@ -233,7 +233,7 @@ vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
   DesktopLoggingSettings: () => <div data-testid="logging-settings" />,
 }));
 
-interface DesktopTestWindow extends Window {
+interface DesktopTestWindow {
   assistant?: {
     url: string;
   };
@@ -401,7 +401,11 @@ describe('desktop SettingsPageContent tool operations', () => {
       success: false,
     });
 
-    vi.mocked(getDesktopWindow().mcp?.setPath).mockResolvedValueOnce({
+    const setPath = getDesktopWindow().mcp?.setPath;
+    if (!setPath) {
+      throw new Error('Expected MCP setPath bridge to be available.');
+    }
+    vi.mocked(setPath).mockResolvedValueOnce({
       path: '/tmp/mcp.json',
       success: false,
     });

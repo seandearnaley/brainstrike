@@ -244,12 +244,15 @@ const mockProviderDefaultEnabledModels = Object.fromEntries(
   ])
 ) as Record<MockProviderId, string[]>;
 
+type MockModelDefinition = (typeof mockProviderDefinitions)[number]['models'][number];
+type MockEmbeddingModelDefinition = Extract<MockModelDefinition, { type: 'embedding' }>;
+
 const mockEmbeddingModels = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [
     definition.id,
     definition.models.filter((model) => model.type === 'embedding'),
   ])
-) as Record<MockProviderId, (typeof mockProviderDefinitions)[number]['models']>;
+) as Record<MockProviderId, MockEmbeddingModelDefinition[]>;
 
 const mockProviderDisplayNames = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [definition.id, definition.displayName])
@@ -268,10 +271,7 @@ function ensureDefinition(provider: string): (typeof mockProviderDefinitions)[nu
 }
 
 function cloneDefinition(definition: (typeof mockProviderDefinitions)[number]) {
-  return {
-    ...definition,
-    models: definition.models.map((model) => ({ ...model })),
-  } as (typeof mockProviderDefinitions)[number];
+  return structuredClone(definition);
 }
 
 const mockMcpToolRegistry = {

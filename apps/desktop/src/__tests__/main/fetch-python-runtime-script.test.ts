@@ -66,7 +66,11 @@ describe('fetch-python-runtime script', () => {
   it('downloads, verifies, and installs every supported target', async () => {
     const resourcesDir = await createResourcesDir();
     const fetchImpl = vi.fn(fakeFetchByTarget());
-    await fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir });
+    await fetchPythonRuntime({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      log: () => undefined,
+      resourcesDir,
+    });
     await expect(fsPromises.readFile(archivePath(resourcesDir, TARGET_A), 'utf8')).resolves.toBe(
       PAYLOAD_A
     );
@@ -81,7 +85,11 @@ describe('fetch-python-runtime script', () => {
     writeFileSync(archivePath(resourcesDir, TARGET_A), PAYLOAD_A);
     writeFileSync(archivePath(resourcesDir, TARGET_B), PAYLOAD_B);
     const fetchImpl = vi.fn(fakeFetchByTarget());
-    await fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir });
+    await fetchPythonRuntime({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      log: () => undefined,
+      resourcesDir,
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -90,7 +98,11 @@ describe('fetch-python-runtime script', () => {
     writeFileSync(archivePath(resourcesDir, TARGET_A), 'corrupted-bytes');
     writeFileSync(archivePath(resourcesDir, TARGET_B), PAYLOAD_B);
     const fetchImpl = vi.fn(fakeFetchByTarget());
-    await fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir });
+    await fetchPythonRuntime({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      log: () => undefined,
+      resourcesDir,
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     await expect(fsPromises.readFile(archivePath(resourcesDir, TARGET_A), 'utf8')).resolves.toBe(
       PAYLOAD_A
@@ -101,7 +113,11 @@ describe('fetch-python-runtime script', () => {
     const resourcesDir = await createResourcesDir({ sha256A: 'a'.repeat(64) });
     const fetchImpl = vi.fn(fakeFetchByTarget());
     await expect(
-      fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir })
+      fetchPythonRuntime({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        log: () => undefined,
+        resourcesDir,
+      })
     ).rejects.toThrow(/sha256/i);
     await expect(fsPromises.access(archivePath(resourcesDir, TARGET_A))).rejects.toThrow();
   });
@@ -110,7 +126,7 @@ describe('fetch-python-runtime script', () => {
     const resourcesDir = await createResourcesDir({ bytesA: PAYLOAD_A.length + 1 });
     await expect(
       fetchPythonRuntime({
-        fetchImpl: vi.fn(fakeFetchByTarget()),
+        fetchImpl: vi.fn(fakeFetchByTarget()) as unknown as typeof fetch,
         log: () => undefined,
         resourcesDir,
       })
@@ -143,7 +159,7 @@ describe('fetch-python-runtime script', () => {
     );
     await expect(
       fetchPythonRuntime({
-        fetchImpl,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
         fetchTimeoutMs: 20,
         log: () => undefined,
         resourcesDir,

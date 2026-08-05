@@ -45,6 +45,15 @@ const { projectQuerySelfModelOutput } = await import(
 );
 const { wasmLoader } = await import('@brainstrike/db');
 
+interface PGliteTransactionShape {
+  exec: (sql: string) => Promise<unknown>;
+  query: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+}
+
+interface TransactionCapablePGlite extends PGlite {
+  transaction: <T>(fn: (tx: PGliteTransactionShape) => Promise<T>) => Promise<T>;
+}
+
 /**
  * Wraps real PGlite in the desktop remote client's EXACT surface.
  *
@@ -55,10 +64,7 @@ const { wasmLoader } = await import('@brainstrike/db');
  * the service works against PGlite and fails against the real client.
  */
 function asRemoteClientShape(db: PGlite) {
-  const wrapTx = (tx: {
-    exec: (sql: string) => Promise<unknown>;
-    query: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
-  }) => ({
+  const wrapTx = (tx: PGliteTransactionShape) => ({
     exec: async (sql: string, params?: readonly unknown[]) =>
       params === undefined ? await tx.exec(sql) : await tx.query(sql, [...params]),
     query: async <T>(
@@ -83,7 +89,7 @@ function asRemoteClientShape(db: PGlite) {
 
   return {
     transaction: async <T>(fn: (tx: ReturnType<typeof wrapTx>) => Promise<T>): Promise<T> =>
-      await db.transaction(async (tx) => await fn(wrapTx(tx as never))),
+      await (db as unknown as TransactionCapablePGlite).transaction(async (tx) => fn(wrapTx(tx))),
   };
 }
 
@@ -205,9 +211,13 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
 
       // The app's own connection still works — a wedged transaction or a leaked
       // role would take the whole single-connection database down with it.
-      const after = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM roots');
+      const after = (await db.query('SELECT count(*)::int AS n FROM roots')) as {
+        rows: Array<{ n: number }>;
+      };
       expect(after.rows[0]?.n).toBe(2);
-      const who = await db.query<{ current_user: string }>('SELECT current_user');
+      const who = (await db.query('SELECT current_user')) as {
+        rows: Array<{ current_user: string }>;
+      };
       expect(who.rows[0]?.current_user).toBe('postgres');
     });
 
@@ -276,7 +286,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
     // mangled columns — a wrong answer the model would have believed.
     const droppingClient = {
       transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
-        await db.transaction(
+        await (db as unknown as TransactionCapablePGlite).transaction(
           async (tx) =>
             await fn({
               exec: async (sql: string) =>
@@ -350,9 +360,9 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
         )
       ).rejects.toThrow();
 
-      const after = await db.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM roots WHERE id = 'sneak'`
-      );
+      const after = (await db.query(`SELECT count(*)::int AS n FROM roots WHERE id = 'sneak'`)) as {
+        rows: Array<{ n: number }>;
+      };
       expect(after.rows[0]?.n).toBe(0);
     });
   });

@@ -22,6 +22,17 @@ import {
   resetLocalDatabaseMock,
 } from './ipc-handlers-db-test-fixture';
 
+function setBrowserWindows(...senders: unknown[]): void {
+  const windows = senders.map((sender) =>
+    createWindowWithWebContents(
+      sender as unknown as Parameters<typeof createWindowWithWebContents>[0]
+    )
+  );
+  browserWindowMock.getAllWindows.mockReturnValue(
+    windows as unknown as ReturnType<typeof browserWindowMock.getAllWindows>
+  );
+}
+
 describe('database IPC handlers', () => {
   beforeEach(async () => {
     await resetDatabaseIpcHandlerMocks();
@@ -56,7 +67,11 @@ describe('database IPC handlers', () => {
     if (!releaseWork) {
       throw new Error('Scheduled database work did not expose a release callback.');
     }
-    releaseWork();
+    const release: unknown = releaseWork;
+    if (typeof release !== 'function') {
+      throw new Error('Expected scheduled database work release callback.');
+    }
+    release();
     await idlePromise;
     expect(idleResolved).toBe(true);
   });
@@ -102,7 +117,11 @@ describe('database IPC handlers', () => {
     if (!releaseReset) {
       throw new Error('Reset barrier did not expose a release callback.');
     }
-    releaseReset();
+    const finishReset: unknown = releaseReset;
+    if (typeof finishReset !== 'function') {
+      throw new Error('Expected reset barrier release callback.');
+    }
+    finishReset();
     await resetBarrierPromise;
     await expect(pendingWork).resolves.toBe('ran-after-reset');
     expect(workStarted).toBe(true);
@@ -154,7 +173,11 @@ describe('database IPC handlers', () => {
     if (!rejectCorruptingQuery) {
       throw new Error('Corrupting query did not expose its rejection callback.');
     }
-    rejectCorruptingQuery(corruption);
+    const rejectQuery: unknown = rejectCorruptingQuery;
+    if (typeof rejectQuery !== 'function') {
+      throw new Error('Expected corrupting query rejection callback.');
+    }
+    rejectQuery(corruption);
 
     await expect(corruptingQuery).rejects.toThrow(
       'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
@@ -598,11 +621,14 @@ describe('database IPC handlers', () => {
     });
     expect(result.initialResults).toEqual({ rows: [{ id: 1 }] });
 
-    listener?.({ rows: [{ id: 2 }] });
+    const subscribedListener: unknown = listener;
+    if (typeof subscribedListener !== 'function') {
+      throw new Error('expected live-query listener');
+    }
+    subscribedListener({ rows: [{ id: 2 }] });
     // Live query updates are dedup+batched; flush to deliver pending sends.
     const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
-    const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
-    getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+    setBrowserWindows(sender);
     flushPendingLiveUpdates();
     expect(sender.send).toHaveBeenCalledWith('db:live-query:update', {
       id: result.id,
@@ -822,9 +848,10 @@ describe('database IPC handlers', () => {
         userDataPath: expect.any(String),
       })
     );
-    const resetOptions = resetDesktopApplicationDataMock.mock.calls[0]?.[0] as
-      | { resetDatabaseProfile?: () => Promise<void> }
-      | undefined;
+    const typedResetMock = resetDesktopApplicationDataMock as unknown as Mock<
+      (options: { resetDatabaseProfile?: () => Promise<void> }) => Promise<unknown>
+    >;
+    const resetOptions = typedResetMock.mock.calls[0]?.[0];
     if (typeof resetOptions?.resetDatabaseProfile !== 'function') {
       throw new Error('resetDatabaseProfile callback was not passed to desktop reset');
     }
@@ -849,7 +876,11 @@ describe('database IPC handlers', () => {
     if (!releaseWork) {
       throw new Error('Scheduled database work did not expose a release callback.');
     }
-    releaseWork();
+    const release: unknown = releaseWork;
+    if (typeof release !== 'function') {
+      throw new Error('Expected scheduled database work release callback.');
+    }
+    release();
     await resetProfilePromise;
     expect(resetLocalDatabaseMock).toHaveBeenCalledTimes(1);
     expect(closeDatabaseMock).not.toHaveBeenCalled();
@@ -1029,7 +1060,9 @@ describe('database IPC handlers', () => {
           .mockResolvedValueOnce({ rows: [{ count: '3' }] }) // files count
           .mockResolvedValue(undefined);
         const mockTx = {
-          query: withPresentRelationProbe(queryMock),
+          query: withPresentRelationProbe(
+            queryMock as unknown as (sql: string) => Promise<unknown>
+          ),
         };
         return await callback(mockTx);
       });
@@ -1092,7 +1125,11 @@ describe('database IPC handlers', () => {
           .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
           .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
           .mockResolvedValue(undefined);
-        return await callback({ query: withPresentRelationProbe(queryMock) });
+        return await callback({
+          query: withPresentRelationProbe(
+            queryMock as unknown as (sql: string) => Promise<unknown>
+          ),
+        });
       });
 
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
@@ -1349,7 +1386,11 @@ describe('database IPC handlers', () => {
       const result = (await handler({ sender } as unknown, {
         query: 'SELECT 1',
       })) as { id: number };
-      return { listener: listener!, liveHandle, result, sender };
+      const subscribedListener: unknown = listener;
+      if (typeof subscribedListener !== 'function') {
+        throw new Error('expected live-query listener');
+      }
+      return { listener: subscribedListener, liveHandle, result, sender };
     }
 
     it('keeps live-query subscriptions attached across background and foreground transitions', async () => {
@@ -1450,12 +1491,10 @@ describe('database IPC handlers', () => {
     it('cleans up subscriptions when foreground sends fail because the render frame was disposed', async () => {
       const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const { listener, liveHandle, sender } = await setupLiveQuery();
-      const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
-
       sender.send.mockImplementation(() => {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
       });
-      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+      setBrowserWindows(sender);
 
       listener({ rows: [{ id: 123 }] });
       // Flush the batched update to trigger the disposed-frame error path
@@ -1468,8 +1507,6 @@ describe('database IPC handlers', () => {
     it('does not retry disposed-frame sends while owner cleanup is still in flight', async () => {
       const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const { listener, liveHandle, sender } = await setupLiveQuery();
-      const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
-
       let resolveCleanup: (() => void) | null = null;
       const cleanupInFlight = new Promise<void>((resolve) => {
         resolveCleanup = resolve;
@@ -1478,7 +1515,7 @@ describe('database IPC handlers', () => {
       sender.send.mockImplementation(() => {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
       });
-      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+      setBrowserWindows(sender);
 
       listener({ rows: [{ id: 1 }] });
       flushPendingLiveUpdates();
@@ -1488,7 +1525,11 @@ describe('database IPC handlers', () => {
 
       expect(sender.send).toHaveBeenCalledTimes(1);
 
-      resolveCleanup?.();
+      const finishCleanup: unknown = resolveCleanup;
+      if (typeof finishCleanup !== 'function') {
+        throw new Error('expected cleanup completion callback');
+      }
+      finishCleanup();
       await cleanupInFlight;
       await Promise.resolve();
     });
@@ -1499,15 +1540,10 @@ describe('database IPC handlers', () => {
       const healthySender = createLiveQuerySender(61);
       const failingSubscription = await setupLiveQuery(failingSender);
       const healthySubscription = await setupLiveQuery(healthySender);
-      const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
-
       failingSender.send.mockImplementation(() => {
         throw new Error('boom');
       });
-      getAllWindowsMock.mockReturnValue([
-        createWindowWithWebContents(failingSender),
-        createWindowWithWebContents(healthySender),
-      ]);
+      setBrowserWindows(failingSender, healthySender);
 
       failingSubscription.listener({ rows: [{ id: 456 }] });
       healthySubscription.listener({ rows: [{ id: 789 }] });
@@ -1568,8 +1604,7 @@ describe('database IPC handlers', () => {
           })
           .mockImplementation(() => undefined),
       };
-      const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
-      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+      setBrowserWindows(sender);
 
       const firstResult = (await handler({ sender } as unknown, {
         query: 'SELECT 1',
@@ -1614,8 +1649,7 @@ describe('database IPC handlers', () => {
       expect(second.result.id).toBe(1);
       second.listener({ rows: [{ id: 2 }] });
 
-      const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
-      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(second.sender)]);
+      setBrowserWindows(second.sender);
       const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       flushPendingLiveUpdates();
 

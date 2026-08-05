@@ -86,10 +86,9 @@ describe('workspace roots disconnect lifecycle', () => {
 
     roots = await loadWorkspaceRootsFromDatabase(rootsDb);
     expect(roots.map((root) => root.rootId)).toEqual(['adapter-1']);
-    const restored = await db.query<{ last_verified_at: unknown; status: string }>(
-      'SELECT status, last_verified_at FROM roots WHERE id = $1',
-      ['adapter-1']
-    );
+    const restored = (await db.query('SELECT status, last_verified_at FROM roots WHERE id = $1', [
+      'adapter-1',
+    ])) as { rows: Array<{ last_verified_at: unknown; status: string }> };
     expect(restored.rows[0]?.status).toBe('live');
     expect(restored.rows[0]?.last_verified_at).not.toBeNull();
   });

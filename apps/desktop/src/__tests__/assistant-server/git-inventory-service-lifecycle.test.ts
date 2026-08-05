@@ -201,9 +201,16 @@ function createFakeWatchDirectory(): FakeWatchDirectory {
   };
 }
 
+function requireRelease(callback: (() => void) | null, description: string): () => void {
+  if (!callback) {
+    throw new Error(`expected ${description}`);
+  }
+  return callback;
+}
+
 function makeService(
   overrides: Partial<GitInventoryServiceDeps> & {
-    readonly loadRootsSpy?: ReturnType<typeof vi.fn>;
+    readonly loadRootsSpy?: GitInventoryServiceDeps['loadRoots'];
     readonly watchDirectory: WatchGitCommonDir;
   }
 ): GitInventoryService {
@@ -491,7 +498,7 @@ describe('createGitInventoryService', () => {
       }
       expect(stopResolved).toBe(false);
 
-      releaseLoadRoots?.();
+      requireRelease(releaseLoadRoots, 'load-roots release')();
       await stopPromise;
       expect(stopResolved).toBe(true);
     });
@@ -521,7 +528,7 @@ describe('createGitInventoryService', () => {
 
       service.start();
       const stopPromise = service.stop();
-      releaseFirstLoadRoots?.();
+      requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
       await stopPromise;
 
       // stop() no longer lets a post-stop getSnapshot() rebuild at all — it
@@ -564,7 +571,7 @@ describe('createGitInventoryService', () => {
       // stale (but not-yet-nulled) in-flight promise from build A.
       const stopPromise = service.stop();
       service.start();
-      releaseFirstLoadRoots?.();
+      requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
 
       await service.getSnapshot();
       // A build ran for the new lifecycle (a second, distinct loadRoots()
@@ -613,7 +620,7 @@ describe('createGitInventoryService', () => {
       // build A would call `watchers.sync([commonDir])` on the CURRENT
       // (generation-1, non-null) watchers instance and subscribe a repo the
       // new lifecycle's own build said does not exist.
-      releaseFirstLoadRoots?.();
+      requireRelease(releaseFirstLoadRoots, 'first load-roots release')();
       await stopPromise;
 
       expect(fake.watchDirectorySpy).toHaveBeenCalledTimes(0);
@@ -752,7 +759,7 @@ describe('createGitInventoryService', () => {
       sub?.fireInterestingChange();
       await vi.advanceTimersByTimeAsync(GIT_INVENTORY_WATCH_BATCH_MS);
 
-      releaseSecondLoadRoots?.();
+      requireRelease(releaseSecondLoadRoots, 'second load-roots release')();
       await secondSnapshotPromise;
       expect(loadRootsCallCount).toBe(2);
 
@@ -927,7 +934,7 @@ describe('createGitInventoryService', () => {
       await expect(service.getSnapshot()).rejects.toMatchObject({ code: 'inventory-stopped' });
       expect(loadRootsSpy).toHaveBeenCalledTimes(1);
 
-      releaseLoadRoots?.();
+      requireRelease(releaseLoadRoots, 'load-roots release')();
       await stopPromise;
     });
   });

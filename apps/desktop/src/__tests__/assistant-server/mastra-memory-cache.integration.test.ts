@@ -1,3 +1,4 @@
+import type { RuntimeAssistantMemorySettings } from '@brainstrike/agent';
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
@@ -152,7 +153,7 @@ describe('desktop Mastra memory cache', () => {
         scope: 'resource',
         topK: 3,
       },
-    };
+    } satisfies RuntimeAssistantMemorySettings;
     const memorySettingsB = {
       ...memorySettingsA,
       observationalMemory: {
@@ -192,7 +193,7 @@ describe('desktop Mastra memory cache', () => {
         scope: 'resource',
         topK: 3,
       },
-    };
+    } satisfies RuntimeAssistantMemorySettings;
     const memorySettingsB = {
       observationalMemory: {
         enabled: true,
@@ -209,7 +210,7 @@ describe('desktop Mastra memory cache', () => {
         scope: 'resource',
         topK: 3,
       },
-    };
+    } satisfies RuntimeAssistantMemorySettings;
 
     const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
     const firstMemory = await getDesktopMastraMemoryForTests(memorySettingsA);

@@ -102,7 +102,7 @@ describe('command session manager', () => {
         { displayName: 'A', path: rootA, rootId: 'root-a' },
         { displayName: 'B', path: rootB, rootId: 'root-b' },
       ]),
-      spawn: ((_file, _args, _options) => {
+      spawn: ((_file: unknown, _args: unknown, _options: unknown) => {
         const process = new FakePty(nextPid++);
         spawned.push(process);
         return process as unknown as IPty;
@@ -318,7 +318,7 @@ describe('command session manager', () => {
         decodedByteLengths.push(end - start);
       }
       return originalToString.call(this, encoding, start, end);
-    });
+    } as unknown as never);
 
     let page: ReturnType<typeof manager.read>;
     try {
@@ -453,9 +453,10 @@ describe('command session manager', () => {
 
     try {
       process?.emitData(oversizedChunk);
-      copiedRetainedSuffix = bufferFromSpy.mock.calls.some(
-        (call) => call[0] === retainedSuffix && call[1] === 'utf16le'
-      );
+      copiedRetainedSuffix = bufferFromSpy.mock.calls.some((call) => {
+        const [value, encoding] = call as unknown as [unknown, unknown];
+        return value === retainedSuffix && encoding === 'utf16le';
+      });
     } finally {
       bufferFromSpy.mockRestore();
     }
@@ -569,7 +570,7 @@ describe('command session manager', () => {
     const manager = createCommandSessionManager({
       idFactory: () => 'raced-session',
       resolver: resolverFor([{ displayName: 'A', path: rootA, rootId: 'root-a' }]),
-      spawn: ((_file, _args, _options) => {
+      spawn: ((_file: unknown, _args: unknown, _options: unknown) => {
         const process = new FakePty(nextPid++);
         spawned.push(process);
         abortController.abort();

@@ -592,7 +592,9 @@ describe('database IPC embedding backfill handlers', () => {
           onDrainTick?: (completedSinceLastTick: number) => Promise<void>;
         }
       ) => {
-        if (!(options.assertCanContinue && options.onDrainTick)) {
+        const assertCanContinue = options.assertCanContinue;
+        const onDrainTick = options.onDrainTick;
+        if (!(assertCanContinue && onDrainTick)) {
           throw new Error('Missing maintenance callbacks');
         }
         embeddingHostGetStatusMock.mockReturnValue({
@@ -600,10 +602,10 @@ describe('database IPC embedding backfill handlers', () => {
           lastError: null,
           runtimeId: 'embedding-host-runtime',
           state: 'stopped',
-        });
-        const maintenancePromise = options.onDrainTick(2);
+        } as unknown as ReturnType<typeof embeddingHostGetStatusMock>);
+        const maintenancePromise = onDrainTick(2);
         expect(() => {
-          void options.assertCanContinue();
+          void assertCanContinue();
         }).not.toThrow();
         resolveReset?.();
         await maintenancePromise;
@@ -654,7 +656,7 @@ describe('database IPC embedding backfill handlers', () => {
           lastError: null,
           runtimeId: 'embedding-host-runtime',
           state: 'stopped',
-        });
+        } as unknown as ReturnType<typeof embeddingHostGetStatusMock>);
         await options.assertCanContinue?.();
         return {
           failed: 0,
@@ -725,7 +727,7 @@ describe('database IPC embedding backfill handlers', () => {
       active: false,
       lastError: 'host failed to start',
       state: 'error',
-    });
+    } as unknown as Awaited<ReturnType<typeof embeddingHostEnsureStartedMock>>);
 
     const sender = {
       id: 44,
@@ -763,7 +765,11 @@ describe('database IPC embedding backfill handlers', () => {
     await expect(handler({ sender } as unknown, 'set-a')).rejects.toThrow(
       'Embedding backfill is already running for set set-a.'
     );
-    resolveBackfill?.();
+    const finishBackfill: unknown = resolveBackfill;
+    if (typeof finishBackfill !== 'function') {
+      throw new Error('expected backfill completion callback');
+    }
+    finishBackfill();
     await first;
   });
 
@@ -794,7 +800,11 @@ describe('database IPC embedding backfill handlers', () => {
 
     expect(second).toEqual({ requestId: expect.stringMatching(/^background-indexing-backfill:/) });
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
-    resolveBackfill?.();
+    const finishBackfill: unknown = resolveBackfill;
+    if (typeof finishBackfill !== 'function') {
+      throw new Error('expected backfill completion callback');
+    }
+    finishBackfill();
     await first;
   });
 
@@ -843,7 +853,11 @@ describe('database IPC embedding backfill handlers', () => {
     await expect(second).resolves.toEqual({
       requestId: expect.stringMatching(/^embedding-backfill:/),
     });
-    resolveFirstBackfill?.();
+    const finishFirstBackfill: unknown = resolveFirstBackfill;
+    if (typeof finishFirstBackfill !== 'function') {
+      throw new Error('expected first backfill completion callback');
+    }
+    finishFirstBackfill();
     await expect(first).resolves.toEqual({
       requestId: expect.stringMatching(/^embedding-backfill:/),
     });

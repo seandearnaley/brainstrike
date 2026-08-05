@@ -61,7 +61,7 @@ describe('ChunkingHostRuntime', () => {
     });
 
     (
-      window as Window & {
+      window as unknown as {
         electronAPI?: {
           db?: {
             query?: typeof dbQueryMock;
@@ -400,7 +400,11 @@ describe('ChunkingHostRuntime', () => {
     });
 
     view.unmount();
-    releaseChunking?.();
+    const finishChunking = releaseChunking as (() => void) | null;
+    if (!finishChunking) {
+      throw new Error('Expected chunking to be pending.');
+    }
+    finishChunking();
 
     await waitFor(() => {
       expect(reportStatusMock).toHaveBeenCalledWith(

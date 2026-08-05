@@ -119,6 +119,7 @@ const {
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
     active: false,
     lastError: null,
+    runtimeId: 'embedding-host-runtime',
     state: 'running' as const,
   }));
   const embeddingHostGetStatusMock = vi.fn(() => ({

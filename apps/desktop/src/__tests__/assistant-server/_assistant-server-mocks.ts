@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import { type Mock, vi } from 'vitest';
 
 /**
  * Shared mock factory bodies + fixtures for the four big assistant-server
@@ -23,19 +23,33 @@ import { vi } from 'vitest';
  * suite's beforeEach still owns resetting them.
  */
 
-export const mockSecretsService = {
-  deleteKey: vi.fn(),
-  getKey: vi.fn((_provider: string) => Promise.resolve('test-api-key')),
-  listProviders: vi.fn(() => Promise.resolve(['openai'])),
-  saveKey: vi.fn(),
+interface MockSecretsService {
+  deleteKey: Mock<(provider: string) => Promise<boolean>>;
+  getKey: Mock<(provider: string) => Promise<string | null>>;
+  listProviders: Mock<() => Promise<string[]>>;
+  saveKey: Mock<(provider: string, value: string) => Promise<boolean>>;
+}
+
+export const mockSecretsService: MockSecretsService = {
+  deleteKey: vi.fn<(provider: string) => Promise<boolean>>(),
+  getKey: vi.fn<(provider: string) => Promise<string | null>>((_provider: string) =>
+    Promise.resolve('test-api-key')
+  ),
+  listProviders: vi.fn<() => Promise<string[]>>(() => Promise.resolve(['openai'])),
+  saveKey: vi.fn<(provider: string, value: string) => Promise<boolean>>(),
 };
 
 export const mockPgliteMastraMemory = { id: 'desktop-memory' };
 export const mockPgliteMastraStorage = { id: 'desktop-storage' };
 
-export const mockDesktopDatabase = {
-  exec: vi.fn(),
-  query: vi.fn(),
+interface MockDesktopDatabase {
+  exec: Mock<(...args: unknown[]) => Promise<unknown>>;
+  query: Mock<(...args: unknown[]) => Promise<{ rows: unknown[] }>>;
+}
+
+export const mockDesktopDatabase: MockDesktopDatabase = {
+  exec: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  query: vi.fn<(...args: unknown[]) => Promise<{ rows: unknown[] }>>(),
 };
 
 /**
@@ -49,7 +63,7 @@ export const convertAssistantUiMessages = vi.fn(
   (messages: readonly unknown[]): unknown[] => messages as unknown[]
 );
 
-export async function makeAssistantServerHttpMock() {
+export async function makeAssistantServerHttpMock(): Promise<Record<string, unknown>> {
   const actual = await vi.importActual<typeof import('../../assistant-server/http')>(
     '../../assistant-server/http'
   );
@@ -76,7 +90,7 @@ export async function makeAgentClientLoaderMock() {
   };
 }
 
-export async function makeSecretsMock() {
+export async function makeSecretsMock(): Promise<Record<string, unknown>> {
   const actual = await vi.importActual<typeof import('../../secrets')>('../../secrets');
   return {
     ...actual,
@@ -192,7 +206,9 @@ export function makeWorkspaceTextFileReaderMock() {
   };
 }
 
-export function makeDbMainMock() {
+export function makeDbMainMock(): {
+  getDatabase: Mock<() => Promise<MockDesktopDatabase>>;
+} {
   return {
     getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
   };

@@ -3,6 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMainPlatformIpcHandlers } from '../../main-platform-ipc';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
+type NoteNextWindowReload = NonNullable<
+  Parameters<typeof registerMainPlatformIpcHandlers>[0]['noteNextWindowReload']
+>;
+type MainPlatformIpcDependencies = Parameters<typeof registerMainPlatformIpcHandlers>[0];
+
+function registerPartialMainPlatformIpcHandlers(
+  dependencies: Partial<MainPlatformIpcDependencies>
+): () => void {
+  return registerMainPlatformIpcHandlers(dependencies as unknown as MainPlatformIpcDependencies);
+}
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -18,12 +28,12 @@ vi.mock('electron', () => ({
 
 describe('main platform IPC', () => {
   let handlers: Map<string, RegisteredHandler>;
-  let noteNextWindowReload: ReturnType<typeof vi.fn>;
+  let noteNextWindowReload: ReturnType<typeof vi.fn<NoteNextWindowReload>>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     handlers = new Map();
-    noteNextWindowReload = vi.fn();
+    noteNextWindowReload = vi.fn<NoteNextWindowReload>();
 
     vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
       handlers.set(channel, handler as RegisteredHandler);
@@ -31,7 +41,7 @@ describe('main platform IPC', () => {
   });
 
   it('registers assistant URL and reload intent channels through the typed registry', () => {
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantUrl: () => 'http://127.0.0.1:4999',
       noteNextWindowReload,
     });
@@ -44,7 +54,7 @@ describe('main platform IPC', () => {
   });
 
   it('returns the current assistant URL from the injected getter', async () => {
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantUrl: () => 'http://127.0.0.1:4999',
       noteNextWindowReload,
     });
@@ -53,7 +63,7 @@ describe('main platform IPC', () => {
   });
 
   it('registers the assistant auth channel and returns url+token from the injected getter', () => {
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantAuth: () => ({ token: 'a'.repeat(64), url: 'http://127.0.0.1:4999' }),
       getAssistantUrl: () => 'http://127.0.0.1:4999',
       noteNextWindowReload,
@@ -67,7 +77,7 @@ describe('main platform IPC', () => {
   });
 
   it('passes the startupError variant through when the server failed to start', () => {
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantAuth: () => ({ startupError: 'Assistant server failed to start: EADDRINUSE' }),
       getAssistantUrl: () => '',
       noteNextWindowReload,
@@ -79,7 +89,7 @@ describe('main platform IPC', () => {
   });
 
   it('returns null assistant auth when the server is unavailable', () => {
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantAuth: () => null,
       getAssistantUrl: () => '',
       noteNextWindowReload,
@@ -93,7 +103,7 @@ describe('main platform IPC', () => {
     const sender = {};
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as BrowserWindow);
 
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantUrl: () => '',
       noteNextWindowReload,
     });
@@ -107,7 +117,7 @@ describe('main platform IPC', () => {
   });
 
   it('rejects empty reload intent reasons', async () => {
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantUrl: () => '',
       noteNextWindowReload,
     });
@@ -121,7 +131,7 @@ describe('main platform IPC', () => {
     const window = { isDestroyed: () => true };
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as BrowserWindow);
 
-    registerMainPlatformIpcHandlers({
+    registerPartialMainPlatformIpcHandlers({
       getAssistantUrl: () => '',
       noteNextWindowReload,
     });
@@ -132,7 +142,7 @@ describe('main platform IPC', () => {
   });
 
   it('unregisters both channels', () => {
-    const unregister = registerMainPlatformIpcHandlers({
+    const unregister = registerPartialMainPlatformIpcHandlers({
       getAssistantUrl: () => '',
       noteNextWindowReload,
     });

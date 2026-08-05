@@ -24,6 +24,7 @@ vi.mock('../../db-main', () => ({
 }));
 
 import {
+  type EditCheckpointDatabase,
   type EditCheckpointInput,
   recordEditCheckpoint,
   sha256Hex,
@@ -34,7 +35,7 @@ import {
   revertCheckpointRun,
 } from '../../assistant-server/edit-checkpoint-revert';
 
-let db: PGlite;
+let db: PGlite & EditCheckpointDatabase;
 let rootPath: string;
 const ROOT_ID = 'root-1';
 const THREAD = 'thread-1';
@@ -83,7 +84,8 @@ async function seed(input: Partial<EditCheckpointInput> & { op: EditCheckpointIn
 beforeEach(async () => {
   reindex.mockClear();
   rootPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-ckpt-revert-'));
-  db = await wasmLoader.createPGlite('memory://edit-checkpoint-revert');
+  db = (await wasmLoader.createPGlite('memory://edit-checkpoint-revert')) as unknown as PGlite &
+    EditCheckpointDatabase;
   await migrate(db);
   await db.query(
     `INSERT INTO roots (id, kind, display_name, path, status, created_at)

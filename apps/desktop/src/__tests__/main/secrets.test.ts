@@ -42,7 +42,7 @@ describe('secrets', () => {
     await service.saveKey('openai', 'secret');
 
     const secrets = store.data['secrets'] as Record<string, string>;
-    expect(secrets.openai).toBe(Buffer.from('cipher').toString('base64'));
+    expect(secrets['openai']).toBe(Buffer.from('cipher').toString('base64'));
 
     const value = await service.getKey('openai');
     expect(value).toBe('decoded');

@@ -87,10 +87,9 @@ async function countRows(table: string): Promise<number> {
   if (!db) {
     throw new Error('Test database was not created.');
   }
-  const result = await db.query<{ count: string | number }>(
-    `SELECT COUNT(*) AS count FROM ${table}`
-  );
-  return Number(result.rows[0]?.count ?? -1);
+  const result = await db.query(`SELECT COUNT(*) AS count FROM ${table}`);
+  const rows = result.rows as Array<{ count: string | number }>;
+  return Number(rows[0]?.count ?? -1);
 }
 
 describe('db:clearAll (real PGlite transaction semantics)', () => {

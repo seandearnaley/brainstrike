@@ -190,27 +190,21 @@ import { QueryEmbeddingSpaceInputSchema } from '@brainstrike/agent';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 import { SecretReadError } from '../../secrets';
 
-/**
- * BST-1020: the suite previously drove ~30 cases through the deleted
- * test-only tool factories. This adapter routes the SAME execute shape
- * through `runQueryEmbeddingSpace` — the entry the live registry actually
- * calls — so every assertion below stays byte-identical while exercising
- * the production path (including its error normalization, which moved from
- * the factories into the live entry in the same change).
- */
+/** Routes the former test-tool execute shape through the live registry entry. */
 function liveRetrievalTool(
   runtimeData: Parameters<typeof runQueryEmbeddingSpace>[1],
   dependencies?: Parameters<typeof runQueryEmbeddingSpace>[2]
 ) {
   return {
     execute: async ({ context }: { context: Parameters<typeof runQueryEmbeddingSpace>[0] }) =>
-      // Mirror the registry (resolveQueryEmbeddingSpaceInput in
-      // assistant-tools.ts): strict schema parse BEFORE the live entry.
+      // Mirror the registry's strict schema parse before the live entry.
       runQueryEmbeddingSpace(
         QueryEmbeddingSpaceInputSchema.parse(context) as typeof context,
         runtimeData,
         dependencies
-      ),
+      ) as Promise<
+        Exclude<Awaited<ReturnType<typeof runQueryEmbeddingSpace>>, { status: 'unavailable' }>
+      >,
   };
 }
 
@@ -302,10 +296,8 @@ describe('retrieval-tool', () => {
     expect(result.chunks[0]?.lineRange).toEqual({ end: 12, start: 10 });
     expect(result.chunks[0]?.offsets).toEqual({ end: 155, start: 120 });
     expect(result.selectionSnapshotId).toBeUndefined();
-    // The runtime's selectionFilePaths/tokenBudget above are INERT on the live
-    // path (omitImplicitContextRuntimeData strips them): the default budget —
-    // not the runtime's 10 — proves the strip is exercised, its first direct
-    // assertion anywhere in the suite.
+    // The default budget proves the live path strips the runtime's inert
+    // selectionFilePaths/tokenBudget values.
     expect(result.budget).toBe(4000);
 
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
@@ -331,11 +323,7 @@ describe('retrieval-tool', () => {
   });
 
   it('uses the environment embedding key without consulting the secret store', async () => {
-    // BST-979 env-authoritative order: when an environment key exists the
-    // keychain is never read, so an unreadable stored key cannot even matter.
-    // (The old keychain-first version of this test primed a RejectedValueOnce
-    // on getKey that the env-first order leaves unconsumed — a leak that
-    // poisoned later tests.)
+    // BST-979: an environment key is authoritative, so the keychain is never read.
     getKeyMock.mockClear();
     resolveHostedProviderApiKeyMock.mockResolvedValueOnce('environment-key');
 
@@ -437,6 +425,9 @@ describe('retrieval-tool', () => {
         workspaceIndexStatusState: 'idle',
       }
     );
+    if ('status' in result) {
+      throw new Error('expected an available retrieval result');
+    }
 
     expect(result.embeddingSetId).toBe('explicit-set');
     expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
@@ -854,8 +845,8 @@ describe('retrieval-tool', () => {
   });
 
   it('does not expose raw unexpected retrieval errors in development mode', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
+    const originalNodeEnv = process.env['NODE_ENV'];
+    process.env['NODE_ENV'] = 'development';
     searchSimilarMock.mockRejectedValue(new Error('db failed for /private/workspace'));
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
@@ -871,7 +862,11 @@ describe('retrieval-tool', () => {
         })
       ).rejects.not.toThrow('/private/workspace');
     } finally {
-      process.env.NODE_ENV = originalNodeEnv;
+      if (originalNodeEnv === undefined) {
+        Reflect.deleteProperty(process.env, 'NODE_ENV');
+      } else {
+        process.env['NODE_ENV'] = originalNodeEnv;
+      }
     }
   });
 
@@ -962,7 +957,6 @@ describe('retrieval-tool multi-root', () => {
           ],
         };
       }
-      // Root-label lookup (aliased columns mirror the real query).
       if (sql.includes('FROM file_records')) {
         return { rows: [{ id: 'file-1', rootId: 'root-a', rootName: 'ProjectA' }] };
       }
@@ -980,8 +974,8 @@ describe('retrieval-tool multi-root', () => {
       throw new Error('expected a retrieval result');
     }
     expect(result.context).toContain('ProjectA');
-    expect(result.chunks[0]?.metadata?.rootName).toBe('ProjectA');
-    expect(result.chunks[0]?.metadata?.rootId).toBe('root-a');
+    expect(result.chunks[0]?.metadata?.['rootName']).toBe('ProjectA');
+    expect(result.chunks[0]?.metadata?.['rootId']).toBe('root-a');
   });
 
   it('scopes retrieval to the resolved root when `root` is provided', async () => {

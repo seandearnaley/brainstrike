@@ -188,13 +188,22 @@ function snapshotProviderToolSurface(
   tools: NonNullable<RuntimeData['mastraTools']>
 ): Readonly<Record<string, MastraProviderTool>> {
   return Object.fromEntries(
-    Object.entries(tools).map(([toolId, tool]) => [
-      toolId,
-      {
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      },
-    ])
+    Object.entries(tools).map(([toolId, tool]) => {
+      const providerTool = tool as unknown as {
+        description?: unknown;
+        inputSchema?: unknown;
+      };
+      if (typeof providerTool.description !== 'string' || !('inputSchema' in providerTool)) {
+        throw new Error(`Desktop tool ${toolId} is missing provider metadata`);
+      }
+      return [
+        toolId,
+        {
+          description: providerTool.description,
+          inputSchema: providerTool.inputSchema,
+        },
+      ];
+    })
   );
 }
 
@@ -212,12 +221,18 @@ function omitNonProviderSuspendMetadata(
     if (!tool) {
       throw new Error(`Desktop hosted registry is missing ${toolId}`);
     }
-    promptTools[toolId] = {
-      description: tool.description,
-      execute: tool.execute,
-      id: tool.id,
-      inputSchema: tool.inputSchema,
+    const providerTool = tool as unknown as {
+      description?: unknown;
+      execute?: unknown;
+      id?: unknown;
+      inputSchema?: unknown;
     };
+    promptTools[toolId] = {
+      description: providerTool.description,
+      execute: providerTool.execute,
+      id: providerTool.id,
+      inputSchema: providerTool.inputSchema,
+    } as unknown as typeof tool;
   }
   return promptTools;
 }
@@ -308,12 +323,13 @@ function buildProviderFunctionTools(
 }
 
 function buildAuthoredProviderFunctionTools(
-  tools: Readonly<Record<string, MastraProviderTool>>
+  tools: NonNullable<RuntimeData['mastraTools']>
 ): ProviderFunctionTool[] {
+  const providerTools = snapshotProviderToolSurface(tools);
   const nameMap = new Map(
-    Object.keys(tools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/g, '_'), toolId])
+    Object.keys(providerTools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/g, '_'), toolId])
   );
-  return buildProviderFunctionTools(tools, nameMap);
+  return buildProviderFunctionTools(providerTools, nameMap);
 }
 
 function countO200kTokens(text: string): number {

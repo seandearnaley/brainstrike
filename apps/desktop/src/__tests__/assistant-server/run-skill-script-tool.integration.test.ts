@@ -8,6 +8,7 @@ import type {
 } from '@brainstrike/agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { requireToolExecute } from './_tool-test-helpers';
 
 const cleanupPaths: string[] = [];
 
@@ -91,10 +92,11 @@ describe('brainstrike.runSkillScript', () => {
 
   it('runs a resolved script with literal argv in the explicitly mounted cwd', async () => {
     const fixture = await createFixture();
-    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
       skillScriptResolver: fixture.resolver,
-    })['brainstrike.runSkillScript'];
-    const result = await tool.execute({
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
+    const result = await executeTool({
       args: ['--title', 'A site; touch should-not-run'],
       cwd: 'site',
       root: 'root-a',
@@ -129,11 +131,12 @@ describe('brainstrike.runSkillScript', () => {
         sourceTier: 'root-brainstrike',
       }),
     };
-    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
       skillScriptResolver: localResolver,
-    })['brainstrike.runSkillScript'];
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     await expect(
-      tool.execute({
+      executeTool({
         cwd: '.',
         root: 'root-b',
         runtime: 'node',
@@ -149,11 +152,12 @@ describe('brainstrike.runSkillScript', () => {
     // handed, which proves the spawned executable came from the resolver
     // rather than a PATH `python3`.
     const resolvePythonExecutable = async () => '/bin/echo';
-    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
       resolvePythonExecutable,
       skillScriptResolver: fixture.resolver,
-    })['brainstrike.runSkillScript'];
-    const result = await tool.execute({
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
+    const result = await executeTool({
       cwd: '.',
       root: 'root-a',
       runtime: 'python3',
@@ -172,12 +176,13 @@ describe('brainstrike.runSkillScript', () => {
         code: 'python_unsupported_platform',
       }
     );
-    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
       resolvePythonExecutable: () => Promise.reject(failure),
       skillScriptResolver: fixture.resolver,
-    })['brainstrike.runSkillScript'];
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     await expect(
-      tool.execute({
+      executeTool({
         cwd: '.',
         root: 'root-a',
         runtime: 'python3',
@@ -197,13 +202,14 @@ describe('brainstrike.runSkillScript', () => {
       new Promise<string>((_resolve, reject) => {
         signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
       });
-    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
       resolvePythonExecutable,
       skillScriptResolver: fixture.resolver,
-    })['brainstrike.runSkillScript'];
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     const startedAt = Date.now();
     await expect(
-      tool.execute({
+      executeTool({
         cwd: '.',
         root: 'root-a',
         runtime: 'python3',
@@ -219,12 +225,13 @@ describe('brainstrike.runSkillScript', () => {
 
   it('rejects absolute and traversal working directories in the strict schema', async () => {
     const fixture = await createFixture();
-    const tool = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
       skillScriptResolver: fixture.resolver,
-    })['brainstrike.runSkillScript'];
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     for (const cwd of ['/tmp', '../root-b']) {
       await expect(
-        tool.execute({
+        executeTool({
           cwd,
           root: 'root-a',
           runtime: 'node',

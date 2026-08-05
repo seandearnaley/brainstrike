@@ -8,6 +8,7 @@ import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  type EditCheckpointDatabase,
   type EditCheckpointInput,
   listRunCheckpoints,
   listRunRangeCheckpoints,
@@ -16,7 +17,7 @@ import {
   sha256Hex,
 } from '../../assistant-server/edit-checkpoint-journal';
 
-let db: PGlite;
+let db: PGlite & EditCheckpointDatabase;
 
 const THREAD = 'thread-1';
 const RESOURCE = 'workspace-a';
@@ -90,15 +91,16 @@ async function runsTableIsPresent(): Promise<boolean> {
 }
 
 beforeEach(async () => {
-  db = await wasmLoader.createPGlite('memory://edit-checkpoint-journal');
+  db = (await wasmLoader.createPGlite('memory://edit-checkpoint-journal')) as unknown as PGlite &
+    EditCheckpointDatabase;
   await migrate(db);
-  delete process.env.BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES;
-  delete process.env.BRAINSTRIKE_CHECKPOINT_MAX_ROWS;
+  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES');
+  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_MAX_ROWS');
 });
 
 afterEach(async () => {
-  delete process.env.BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES;
-  delete process.env.BRAINSTRIKE_CHECKPOINT_MAX_ROWS;
+  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES');
+  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_MAX_ROWS');
   await db.close();
 });
 
@@ -477,7 +479,7 @@ describe('retention', () => {
   it('NULLs the oldest non-reverted before_content to "expired" when over the byte budget', async () => {
     // Budget below two entries' combined content but above one.
     const content = 'x'.repeat(1000);
-    process.env.BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES = '1500';
+    process.env['BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES'] = '1500';
     const base = Date.now();
     const oldest = await recordEditCheckpoint(
       db,
@@ -514,7 +516,7 @@ describe('retention', () => {
   });
 
   it('hard-deletes the oldest rows beyond the row cap', async () => {
-    process.env.BRAINSTRIKE_CHECKPOINT_MAX_ROWS = '2';
+    process.env['BRAINSTRIKE_CHECKPOINT_MAX_ROWS'] = '2';
     const base = Date.now();
     for (let index = 0; index < 4; index += 1) {
       await recordEditCheckpoint(
@@ -528,7 +530,7 @@ describe('retention', () => {
   });
 
   it('throws on a malformed retention override (no silent fallback)', async () => {
-    process.env.BRAINSTRIKE_CHECKPOINT_MAX_ROWS = 'not-a-number';
+    process.env['BRAINSTRIKE_CHECKPOINT_MAX_ROWS'] = 'not-a-number';
     await expect(recordEditCheckpoint(db, writeInput())).rejects.toThrow(
       /BRAINSTRIKE_CHECKPOINT_MAX_ROWS/
     );

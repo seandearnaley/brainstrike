@@ -1,6 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
     "types": [
       "node",
       "electron",
@@ -8,11 +10,17 @@
       "vitest/globals",
       "@testing-library/jest-dom"
     ],
+    "paths": {},
     "strictNullChecks": true
   },
   "include": [
+    "src/**/*.d.ts",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/__tests__/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
   ]
 }

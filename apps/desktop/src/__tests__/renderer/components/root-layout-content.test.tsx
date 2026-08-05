@@ -465,12 +465,16 @@ describe('RootLayoutContent', () => {
     const { unmount } = render(<RootLayoutContent />);
 
     expect(requestAnimationFrameSpy).toHaveBeenCalled();
+    const invokeFrame = rafCallback as FrameRequestCallback | null;
+    if (!invokeFrame) {
+      throw new Error('Expected requestAnimationFrame callback to be registered.');
+    }
 
     // First window: clean 16ms frames spanning the 15s diagnostic
     // interval — arms the diagnostic for subsequent windows but does
     // NOT warn (startup grace, added 2026-05-17).
     for (let t = 0; t <= 15_000; t += 16) {
-      rafCallback?.(t);
+      invokeFrame(t);
     }
     vi.advanceTimersByTime(15_000);
     expect(loggerWarnMock).not.toHaveBeenCalledWith(
@@ -480,8 +484,8 @@ describe('RootLayoutContent', () => {
 
     // Second window: clean frames followed by a real stall after the
     // app has settled — warn fires.
-    rafCallback?.(15_020);
-    rafCallback?.(15_670); // 650ms gap
+    invokeFrame(15_020);
+    invokeFrame(15_670); // 650ms gap
     vi.advanceTimersByTime(15_000);
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
@@ -508,9 +512,13 @@ describe('RootLayoutContent', () => {
     );
 
     render(<RootLayoutContent />);
+    const invokeFrame = rafCallback as FrameRequestCallback | null;
+    if (!invokeFrame) {
+      throw new Error('Expected requestAnimationFrame callback to be registered.');
+    }
 
-    rafCallback?.(0);
-    rafCallback?.(300);
+    invokeFrame(0);
+    invokeFrame(300);
     vi.advanceTimersByTime(15_000);
 
     expect(loggerInfoMock).not.toHaveBeenCalledWith(
@@ -538,9 +546,10 @@ describe('RootLayoutContent', () => {
     );
 
     render(<RootLayoutContent />);
+    const invokeFrame = rafCallback as FrameRequestCallback | null;
 
-    rafCallback?.(0);
-    rafCallback?.(2000);
+    invokeFrame?.(0);
+    invokeFrame?.(2000);
     vi.advanceTimersByTime(15_000);
 
     expect(loggerWarnMock).not.toHaveBeenCalledWith(
@@ -565,7 +574,7 @@ describe('RootLayoutContent', () => {
       configurable: true,
       value: 'visible',
     });
-    rafCallback?.(0);
+    (rafCallback as FrameRequestCallback | null)?.(0);
 
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -578,7 +587,7 @@ describe('RootLayoutContent', () => {
       value: 'visible',
     });
     document.dispatchEvent(new Event('visibilitychange'));
-    rafCallback?.(2000);
+    (rafCallback as FrameRequestCallback | null)?.(2000);
     vi.advanceTimersByTime(15_000);
 
     expect(loggerWarnMock).not.toHaveBeenCalledWith(

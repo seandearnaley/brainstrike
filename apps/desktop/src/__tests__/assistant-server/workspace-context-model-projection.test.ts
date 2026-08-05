@@ -127,8 +127,12 @@ describe('workspace context model projection', () => {
       { length: 80 },
       (_, index) => `/packages/domain-${index}/${'nested/'.repeat(25)}file-${index}.ts`
     );
+    const primaryRoot = baseResult().workspaceRoots[0];
+    if (!primaryRoot) {
+      throw new Error('expected a primary workspace root');
+    }
     const workspaceRoots = [
-      baseResult().workspaceRoots[0],
+      primaryRoot,
       ...Array.from({ length: 4 }, (_, index) => ({
         displayName: `support-${index}`,
         path: `/work/${'qualified/'.repeat(18)}support-${index}`,

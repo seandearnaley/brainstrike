@@ -78,6 +78,14 @@ describe('createDesktopFactoryResetHandler', () => {
     const waitOrder = waitForDatabaseWorkSchedulerIdle.mock.invocationCallOrder[0];
     const secondCleanupOrder = cleanupLiveSubscriptionsForShutdown.mock.invocationCallOrder[1];
     const resetOrder = resetLocalDatabase.mock.invocationCallOrder[0];
+    if (
+      firstCleanupOrder === undefined ||
+      waitOrder === undefined ||
+      secondCleanupOrder === undefined ||
+      resetOrder === undefined
+    ) {
+      throw new Error('Expected reset callbacks to record their invocation order.');
+    }
     expect(firstCleanupOrder).toBeLessThan(waitOrder);
     expect(waitOrder).toBeLessThan(secondCleanupOrder);
     expect(secondCleanupOrder).toBeLessThan(resetOrder);

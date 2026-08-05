@@ -129,7 +129,7 @@ describe('db:getUserDataPath IPC handler', () => {
     await Promise.resolve();
     const willQuitHandler = vi
       .mocked(app.on)
-      .mock.calls.find(([event]) => event === 'will-quit')?.[1];
+      .mock.calls.find(([event]) => String(event) === 'will-quit')?.[1];
     if (typeof willQuitHandler !== 'function') {
       throw new Error('will-quit handler not registered');
     }

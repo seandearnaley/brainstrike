@@ -13,6 +13,7 @@
  */
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import type { AssistantEditCheckpointRecord } from '@brainstrike/agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   foldJournalRecords,
@@ -800,7 +801,7 @@ describe('resolveJournalFileDiff', () => {
       captureStatus: 'ok',
       id: 'del-1',
       op: 'delete',
-    });
+    } as unknown as Partial<AssistantEditCheckpointRecord>);
     const db = fakeDbWithBeforeContent([rec], {
       'del-1': { beforeContent: 'gone content\n', beforeExisted: true },
     });

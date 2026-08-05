@@ -6,6 +6,7 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { createCommandSessionManager } from '../../assistant-server/command-session-manager';
+import { requireToolExecute } from './_tool-test-helpers';
 
 async function reservePort(): Promise<number> {
   const server = net.createServer();
@@ -57,8 +58,8 @@ describe('persistent command-session native tools', () => {
     });
     const runtime = { workspaceRoots: [root] } as RuntimeData;
     const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
-    const inspect = tools['brainstrike.inspectCommandSessions'];
-    const manage = tools['brainstrike.manageCommandSession'];
+    const inspect = requireToolExecute(tools, 'brainstrike.inspectCommandSessions');
+    const manage = requireToolExecute(tools, 'brainstrike.manageCommandSession');
     const port = await reservePort();
     const script = [
       "const http = require('node:http')",
@@ -68,7 +69,7 @@ describe('persistent command-session native tools', () => {
     ].join(';');
 
     try {
-      const started = await manage.execute({
+      const started = await manage({
         operation: {
           action: 'start',
           command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`,
@@ -77,13 +78,13 @@ describe('persistent command-session native tools', () => {
       });
       expect(started).toMatchObject({ rootId: 'db-root-api', status: 'running' });
 
-      expect(inspect.execute({ operation: { action: 'list' }, root: 'api' })).toMatchObject({
+      expect(await inspect({ operation: { action: 'list' }, root: 'api' })).toMatchObject({
         rootId: 'db-root-api',
         sessions: [expect.objectContaining({ id: started.id, status: 'running' })],
       });
 
       const ready = await waitFor(async () => {
-        const page = inspect.execute({
+        const page = await inspect({
           operation: { action: 'read', cursor: 0, sessionId: started.id },
           root: 'api',
         });
@@ -91,13 +92,13 @@ describe('persistent command-session native tools', () => {
       });
       expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe('session-ok');
 
-      const writeResult = await manage.execute({
+      const writeResult = await manage({
         operation: { action: 'write', data: 'ping😀\n', sessionId: started.id },
         root: 'api',
       });
       expect(writeResult).toMatchObject({ writtenUtf16CodeUnits: 7 });
       await waitFor(async () => {
-        const page = inspect.execute({
+        const page = await inspect({
           operation: { action: 'read', cursor: ready.nextCursor, sessionId: started.id },
           root: 'api',
         });
@@ -105,7 +106,7 @@ describe('persistent command-session native tools', () => {
       });
 
       await expect(
-        manage.execute({ operation: { action: 'stop', sessionId: started.id }, root: 'api' })
+        manage({ operation: { action: 'stop', sessionId: started.id }, root: 'api' })
       ).resolves.toMatchObject({ status: 'exited' });
       await waitFor(async () => {
         try {
