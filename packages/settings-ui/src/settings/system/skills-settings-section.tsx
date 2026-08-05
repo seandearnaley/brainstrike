@@ -127,7 +127,11 @@ export function SkillsSettingsSection(): React.JSX.Element {
   const setMasterEnabled = useSkillsPreferencesStore((state) => state.setMasterEnabled);
   const setSkillDisabled = useSkillsPreferencesStore((state) => state.setSkillDisabled);
 
-  const hasBridge = resolveSkillsBridge() !== null;
+  // Resolved once per mount (the preload defines the bridge before any
+  // renderer code runs) — the resolver LOGS on a malformed bridge, so calling
+  // it unmemoized in the render body would log per render.
+  const bridge = useMemo(resolveSkillsBridge, []);
+  const hasBridge = bridge !== null;
   const [scanState, setScanState] = useState<ScanState>(
     hasBridge ? { kind: 'loading' } : { kind: 'ready', result: { entries: [] } }
   );
@@ -138,7 +142,6 @@ export function SkillsSettingsSection(): React.JSX.Element {
   // initializer and retry() sets it from the event handler — no synchronous
   // setState inside the effect body (React Compiler / react-doctor rule).
   useEffect(() => {
-    const bridge = resolveSkillsBridge();
     if (!bridge) {
       return;
     }
@@ -163,7 +166,7 @@ export function SkillsSettingsSection(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [scanGeneration]);
+  }, [bridge, scanGeneration]);
 
   const retry = useCallback(() => {
     setScanState({ kind: 'loading' });

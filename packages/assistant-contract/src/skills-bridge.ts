@@ -65,7 +65,7 @@ export function resolveSkillsBridge(): SkillsBridge | null {
     (method) => typeof bridge[method] !== 'function'
   );
   if (missing.length > 0) {
-    logger.error('window.skills bridge is malformed; skill slash commands disabled', { missing });
+    logger.error('window.skills bridge is malformed; skills surfaces disabled', { missing });
     return null;
   }
   return bridge as SkillsBridge;
