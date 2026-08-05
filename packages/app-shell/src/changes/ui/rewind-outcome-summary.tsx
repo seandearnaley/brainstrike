@@ -17,6 +17,7 @@ import type {
   AssistantRewindRootOutcome,
 } from '@brainstrike/assistant-contract';
 import type { ReactElement } from 'react';
+import { REWIND_SHELL_CAPTURE_QUALIFIER } from './rewind-copy';
 
 export function RewindOutcomeSummary({
   fileOutcomes,
@@ -28,12 +29,26 @@ export function RewindOutcomeSummary({
   readonly tombstonedCount: number;
 }): ReactElement {
   const unreverted = fileOutcomes.filter((outcome) => outcome.code !== 'reverted');
+  // Gated on a NON-EMPTY reverted set: after a rewind that restored files, "we
+  // put your files back" is the claim the qualifier has to bound. A rewind that
+  // restored nothing makes no such claim, and repeating the caveat there would
+  // be noise. Once, never per-file — see REWIND_SHELL_CAPTURE_QUALIFIER.
+  const revertedAnything = fileOutcomes.some((outcome) => outcome.code === 'reverted');
 
   return (
     <div className="flex flex-col gap-3" data-testid="rewind-outcome-summary">
       <p className="text-sm" data-testid="rewind-outcome-messages">
         {tombstonedCount} message{tombstonedCount === 1 ? '' : 's'} hidden.
       </p>
+
+      {revertedAnything ? (
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="rewind-outcome-shell-capture-notice"
+        >
+          {REWIND_SHELL_CAPTURE_QUALIFIER}
+        </p>
+      ) : null}
 
       {rootOutcomes.length > 0 ? (
         <div className="flex flex-col gap-1" data-testid="rewind-outcome-roots">

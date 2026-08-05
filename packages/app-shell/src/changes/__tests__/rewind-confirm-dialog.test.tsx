@@ -18,7 +18,18 @@ import type {
   AssistantRewindResult,
 } from '@brainstrike/assistant-contract';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
-import type { ChangedFileEntry, ChangesetView, GitResult } from '@brainstrike/types';
+import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import {
+  FILE_EXPLORER_REFRESH_EVENT,
+  type FileExplorerRefreshEvent,
+} from '@brainstrike/file-explorer-ui/shell';
+import type {
+  ChangedFileEntry,
+  ChangesetView,
+  FileSystemAdapter,
+  GitResult,
+  WatcherRootHealthEvent,
+} from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { useRewindComposerStore } from '@brainstrike/ui/assistant-ui-panel/rewind-composer-store';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -190,16 +201,49 @@ function openRewind(composerText: string | null = 'my original prompt'): void {
 // `root-layout-content.tsx`.
 const testActionRegistry = createTestActionRegistry().registry;
 
+/**
+ * The modal also reaches the file-system adapter after a successful apply, to
+ * re-enumerate the reverted roots and re-watch a watcher the bulk unlink killed
+ * (`use-rewind-explorer-recovery.ts`). `AdaptersProvider` wraps the whole app in
+ * BOTH shells (`apps/desktop/src/renderer/main.tsx`, `apps/web/src/main.tsx`),
+ * so mirroring it here is the production tree, not a test convenience.
+ */
+let pushWatcherHealth: ((event: WatcherRootHealthEvent) => void) | null = null;
+const retryWatcher = vi.fn(async () => ({ retried: true as const }));
+
+function testFileSystemAdapter(): FileSystemAdapter {
+  return {
+    onWatcherHealth: (callback: (event: WatcherRootHealthEvent) => void) => {
+      pushWatcherHealth = callback;
+      return () => undefined;
+    },
+    platform: 'electron',
+    retryWatcher,
+  } as unknown as FileSystemAdapter;
+}
+
 function renderDialog() {
   return render(
-    <ActionRegistryProvider registry={testActionRegistry}>
-      <RewindConfirmDialog />
-      <Toaster />
-    </ActionRegistryProvider>
+    <AdaptersProvider fileSystemAdapter={testFileSystemAdapter()} storageAdapter={{} as never}>
+      <ActionRegistryProvider registry={testActionRegistry}>
+        <RewindConfirmDialog />
+        <Toaster />
+      </ActionRegistryProvider>
+    </AdaptersProvider>
   );
 }
 
+let refreshEvents: FileExplorerRefreshEvent['detail'][] = [];
+
+function captureRefreshEvent(event: Event): void {
+  refreshEvents.push((event as FileExplorerRefreshEvent).detail);
+}
+
 beforeEach(() => {
+  refreshEvents = [];
+  pushWatcherHealth = null;
+  retryWatcher.mockClear();
+  window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, captureRefreshEvent);
   useRewindStore.getState().reset();
   useChangesStore.getState().reset();
   useRewindComposerStore.getState().consume();
@@ -218,6 +262,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, captureRefreshEvent);
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   vi.restoreAllMocks();
 });
@@ -297,6 +342,156 @@ describe('RewindConfirmDialog', () => {
     await user.click(screen.getByTestId('rewind-mode-conversation-only'));
 
     expect(screen.queryByTestId('rewind-open-files-notice')).not.toBeInTheDocument();
+  });
+
+  // ===== Capture-scope honesty (smoke round 2, defect 3) =====
+
+  it('states, permanently, that shell-created files are not restored', async () => {
+    installBridge();
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    // EXACT copy, both here and in the outcome summary below. The user who hit
+    // this had `package-lock.json` — written by a shell command, never seen by
+    // the edit journal — silently not come back.
+    expect(screen.getByTestId('rewind-shell-capture-notice')).toHaveTextContent(
+      "Restores files edited by the assistant's tools. Files created by shell commands (installs, builds) aren't tracked and won't be restored."
+    );
+  });
+
+  it('repeats the same qualifier once in the outcome summary, after files came back', async () => {
+    const user = userEvent.setup();
+    installBridge();
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    const notice = await screen.findByTestId('rewind-outcome-shell-capture-notice');
+    expect(notice).toHaveTextContent(
+      "Restores files edited by the assistant's tools. Files created by shell commands (installs, builds) aren't tracked and won't be restored."
+    );
+  });
+
+  it('omits the qualifier when the rewind restored no file at all', async () => {
+    const user = userEvent.setup();
+    // `conversation-only` restores nothing, so there is no "we put your files
+    // back" claim for the qualifier to bound.
+    installBridge({
+      applyRewind: vi.fn(
+        async (): Promise<GitResult<AssistantRewindResult>> => ({
+          ok: true,
+          value: {
+            fileOutcomes: [],
+            mode: 'conversation-only',
+            ok: true,
+            range: { fromRunId: 'run-1', kind: 'runs', runIds: ['run-1'] },
+            revertId: null,
+            rewindId: 'rewind-1',
+            rootOutcomes: [],
+            tombstonedMessageIds: ['msg-2', 'msg-3'],
+          },
+        })
+      ),
+    });
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await user.click(screen.getByTestId('rewind-mode-conversation-only'));
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    await screen.findByTestId('rewind-outcome-summary');
+    expect(screen.queryByTestId('rewind-outcome-shell-capture-notice')).not.toBeInTheDocument();
+  });
+
+  // ===== Explorer/watcher recovery (smoke round 2, defect 2) =====
+
+  it('re-enumerates every reverted root through the overflow refresh pipeline', async () => {
+    const user = userEvent.setup();
+    installBridge();
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    await waitFor(() => {
+      expect(refreshEvents).toHaveLength(1);
+    });
+    expect(refreshEvents[0]?.scope).toBe('full');
+    expect(refreshEvents[0]?.source).toBe('watcher');
+    expect(refreshEvents[0]?.roots.map((root) => root.rootId)).toEqual([
+      ROOT_A,
+      ROOT_B,
+      ROOT_PLAIN,
+    ]);
+  });
+
+  it('re-watches a root whose watcher the bulk revert killed', async () => {
+    const user = userEvent.setup();
+    installBridge();
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    // The documented `errored` contract: the adapter already tore the watch
+    // down and NOTHING restarts it, so without this the root would stay
+    // unwatched behind a freshly-refreshed tree.
+    pushWatcherHealth?.({
+      backend: 'fs-events',
+      rootPath: '/repo-a',
+      state: 'failed',
+      timestamp: 1,
+      watchId: 'watch-repo-a',
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    await waitFor(() => {
+      expect(retryWatcher).toHaveBeenCalledExactlyOnceWith('/repo-a');
+    });
+  });
+
+  it('refreshes nothing when the apply is refused', async () => {
+    const user = userEvent.setup();
+    installBridge({
+      applyRewind: vi.fn(
+        async (): Promise<GitResult<AssistantRewindResult>> => ({
+          ok: true,
+          value: {
+            conflicts: [],
+            message: 'a run is still in flight',
+            ok: false,
+            reason: 'run-in-flight',
+          },
+        })
+      ),
+    });
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    await screen.findByTestId('rewind-apply-error');
+    expect(refreshEvents).toHaveLength(0);
   });
 
   // ===== The acknowledgment gate =====

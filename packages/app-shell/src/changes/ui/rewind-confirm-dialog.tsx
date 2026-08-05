@@ -45,9 +45,11 @@ import { type ReactElement, useState } from 'react';
 import { type RewindRequest, useRewindStore } from '../rewind-store';
 import { useGitInventory } from '../use-git-inventory';
 import { type UseRewindResult, useRewind } from '../use-rewind';
+import { useRewindExplorerRecovery } from '../use-rewind-explorer-recovery';
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { RewindConflictList } from './rewind-conflict-list';
+import { REWIND_SHELL_CAPTURE_QUALIFIER } from './rewind-copy';
 import { RewindOutcomeSummary } from './rewind-outcome-summary';
 import { DEFAULT_REWIND_MODE, RewindScopeChoice } from './rewind-scope-choice';
 
@@ -129,6 +131,10 @@ function RewindConfirmBody({
 }): ReactElement {
   const { toast } = useToast();
   const rewind = useRewind(request.target);
+  // The Explorer cannot learn about a bulk revert from the watcher alone — see
+  // `use-rewind-explorer-recovery.ts`. Fired after BOTH a files-mode apply and
+  // a redo, since both are the same kind of burst against the same roots.
+  const recoverExplorer = useRewindExplorerRecovery();
   const [mode, setMode] = useState<AssistantRewindMode>(DEFAULT_REWIND_MODE);
   const [acknowledged, setAcknowledged] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -193,6 +199,9 @@ function RewindConfirmBody({
     // live thread and the Changes surface must re-read exactly as they do after
     // an apply — see `useRewindStore.generation`.
     useRewindStore.getState().markRewindApplied();
+    // Same reasoning as the apply path: dispatch now, re-watch in the
+    // background. A redo rewrites exactly the files the apply reverted.
+    void recoverExplorer(redone.value.rootOutcomes);
     toast({
       description: `${redone.value.restoredMessageIds.length} message(s) are back.`,
       title: 'Rewind undone',
@@ -255,6 +264,12 @@ function RewindConfirmBody({
       // `useRewindStore.generation` for why this is a counter and not a
       // `threadKey` bump.
       useRewindStore.getState().markRewindApplied();
+      // NOT awaited: the refresh dispatch is synchronous (it happens before the
+      // hook's first await), while the watcher retry behind it is main-process
+      // throttled and can take seconds. Holding "Restoring…" open for a
+      // background re-watch would report the rewind as still running when it is
+      // already done. Every failure inside is logged there, never swallowed.
+      void recoverExplorer(outcome.value.rootOutcomes);
       announceApplied(outcome.value);
       if (request.composerText !== null) {
         // Amendment 2: the target prompt goes back in the composer so the user
@@ -336,9 +351,17 @@ function RewindConfirmBody({
       <RewindScopeChoice disabled={applying} mode={mode} onModeChange={setMode} />
 
       {filesMode ? (
-        <p className="text-muted-foreground text-xs" data-testid="rewind-open-files-notice">
-          {OPEN_FILES_NOTICE}
-        </p>
+        <>
+          <p className="text-muted-foreground text-xs" data-testid="rewind-open-files-notice">
+            {OPEN_FILES_NOTICE}
+          </p>
+          {/* Permanent, not conditional on this rewind's contents: the user
+              must know what "restore" excludes BEFORE deciding, and the journal
+              cannot report an untracked file it never saw. */}
+          <p className="text-muted-foreground text-xs" data-testid="rewind-shell-capture-notice">
+            {REWIND_SHELL_CAPTURE_QUALIFIER}
+          </p>
+        </>
       ) : null}
 
       {filesMode ? (

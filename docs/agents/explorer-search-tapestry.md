@@ -353,6 +353,22 @@ fallback.
     root stays connected but UNWATCHED, with NO auto-restart (a silent retry
     loop would hide the failure) — manual Refresh is the recovery path.
 
+  **A BULK MAIN-PROCESS MUTATION MUST DRIVE ITS OWN RECOVERY.** The `errored`
+  contract above means the watcher cannot be relied on to report a burst that
+  killed it. Conversation Rewind's files-mode apply/redo therefore calls
+  `packages/app-shell/src/changes/use-rewind-explorer-recovery.ts` on success:
+  it dispatches the SAME `scope:'full'` / `source:'watcher'` event as the
+  overflow path (one event, naming every connected root from the result's
+  `rootOutcomes`) and then calls `retryWatcher` (`fs:watch-retry`) for any of
+  those roots whose health is `failed`. Two rules bind here: reuse the existing
+  refresh pipeline — never invent a second channel — and retry ONLY `failed`,
+  never `degraded` (that subscription is alive and self-recovers; retrying it
+  tears down a working watch). Refresh is dispatched BEFORE the retries and is
+  not awaited by the caller: the mutation is already complete on disk, so
+  nothing can be missed by re-enumerating first, while a hanging `subscribe`
+  would otherwise hold the visible fix. Any future main-process bulk mutation
+  outside the assistant's write tools needs the same treatment.
+
   **NO SILENT FALLBACKS:** both conditions are always warn-logged in the
   adapter even when no signal handler is attached; never revert to dropping
   these records.
@@ -403,6 +419,9 @@ fallback.
   (per-root lifecycle + signal threading),
   `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`
   (per-root full resync scoping),
+  `packages/app-shell/src/changes/__tests__/use-rewind-explorer-recovery.test.tsx`
+  (post-rewind refresh + `failed`-only retry) and its wiring in
+  `packages/app-shell/src/changes/__tests__/rewind-confirm-dialog.test.tsx`,
   `packages/file-system/src/__tests__/electron-watchers.test.ts`.
 
 When changing this flow, update this section and the paired tests.
