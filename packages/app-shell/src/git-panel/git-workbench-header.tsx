@@ -1,3 +1,5 @@
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import type { GitInventory } from '@brainstrike/types';
 import {
   Button,
   DropdownMenu,
@@ -9,7 +11,9 @@ import {
 } from '@brainstrike/ui';
 import { Check, ChevronDown, FolderGit2, FolderTree, GitBranch, RefreshCw } from 'lucide-react';
 import type { ComponentPropsWithRef, ReactElement } from 'react';
-import type { GitRepository, GitStatus } from './git-bridge';
+import { useChangesNavigationStore } from '../changes/changes-navigation-store';
+import { useGitInventory } from '../changes/use-git-inventory';
+import type { GitRepository, GitStatus, GitWorktreeSummary } from './git-bridge';
 
 interface GitWorkbenchHeaderProps {
   readonly fetchRemote: (remote: string) => Promise<void>;
@@ -19,6 +23,87 @@ interface GitWorkbenchHeaderProps {
   readonly repository: GitRepository;
   readonly status: GitStatus;
   readonly switchBranch: (branch: string) => Promise<void>;
+}
+
+interface WorktreeNavigation {
+  /** Non-null exactly when `navigable` is false — states WHY, never a silent disable. */
+  readonly disabledReason: string | null;
+  readonly navigable: boolean;
+}
+
+/**
+ * Cross-bridge identity match: `GitRepository.repositoryRoot` (the desktop
+ * `window.git` bridge) against `RepositoryIdentity.repositoryRoot` (the
+ * `window.changes` inventory bridge) — the same stable-key convention
+ * `changeset-header.tsx` and `changeset-source-picker.tsx` already rely on to
+ * cross-reference the two bridges.
+ */
+function findWorktreeDescriptor(
+  inventory: GitInventory,
+  repositoryRoot: string,
+  worktreePath: string
+): GitInventory['repositories'][number]['worktrees'][number] | null {
+  for (const repository of inventory.repositories) {
+    if (repository.identity.repositoryRoot !== repositoryRoot) {
+      continue;
+    }
+    for (const worktree of repository.worktrees) {
+      if (worktree.path === worktreePath) {
+        return worktree;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Trust-gates a worktree dropdown entry (BST-1116 Task C). NO SILENT
+ * FALLBACKS: an out-of-root, unvalidated, locked, or not-yet-indexed worktree
+ * is disabled with a stated reason, never quietly enabled or hidden. Mirrors
+ * `changeset-source-picker.tsx`'s worktree gating (same `outside-roots`
+ * copy) plus the additional lock/trust/inventory-honesty checks this task
+ * brief requires.
+ */
+function resolveWorktreeNavigation(
+  worktree: GitWorktreeSummary,
+  repositoryRoot: string,
+  inventory: GitInventory | null,
+  inventoryError: string | null
+): WorktreeNavigation {
+  if (inventoryError) {
+    return {
+      disabledReason: `Repository inventory unavailable: ${inventoryError}`,
+      navigable: false,
+    };
+  }
+  if (!inventory) {
+    return { disabledReason: 'Loading repository inventory…', navigable: false };
+  }
+  const descriptor = findWorktreeDescriptor(inventory, repositoryRoot, worktree.path);
+  if (!descriptor) {
+    return { disabledReason: 'Not found in the workspace inventory yet.', navigable: false };
+  }
+  // `trust: 'unvalidated'` only ever occurs for an `outside-roots` worktree
+  // (see `WorktreeDescriptor.trust`'s doc comment), so this branch is
+  // strictly narrower than the containment check below — checked first for
+  // its more specific, bidirectional-check-derived reason.
+  if (descriptor.trust === 'unvalidated') {
+    return {
+      disabledReason:
+        descriptor.trustReason ?? 'This worktree could not be verified against its own .git.',
+      navigable: false,
+    };
+  }
+  if (descriptor.containment === 'outside-roots') {
+    return {
+      disabledReason: "This worktree isn't inside any workspace root and can't be opened here.",
+      navigable: false,
+    };
+  }
+  if (worktree.lockedReason !== null) {
+    return { disabledReason: `Locked: ${worktree.lockedReason}`, navigable: false };
+  }
+  return { disabledReason: null, navigable: true };
 }
 
 type HeaderControlProps = Omit<ComponentPropsWithRef<typeof Button>, 'children'> & {
@@ -69,6 +154,30 @@ export function GitWorkbenchHeader({
 }: GitWorkbenchHeaderProps): ReactElement {
   const currentRemote = repository.defaultRemote;
   const branchName = status.branch ?? 'Detached HEAD';
+  const { error: inventoryError, inventory } = useGitInventory();
+  const openChangeset = useChangesNavigationStore((state) => state.openChangeset);
+  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+
+  // Two-step handoff (same shape as `useChangesReviewValue` in
+  // `root-layout-content.tsx`): the Changes surface is a tab inside the
+  // workspace panel on the `explorer` route, not a route of its own, so
+  // reaching it from the `git` route needs both the changeset write AND the
+  // route switch. `git-workbench-header.tsx` already lives in
+  // `packages/app-shell` alongside both stores, so it calls them directly
+  // rather than through the `ChangesReviewContext` capability-injection seam
+  // — that seam exists only because `packages/ui`'s `ChangesReviewLink`
+  // cannot import app-shell; it would be a needless indirection here. This
+  // mirrors the existing `changes-context-actions.ts`'s
+  // `addWorktreeAsRoot` action, which reaches the same store the same way.
+  const navigateToWorktreeChanges = (worktreePath: string): void => {
+    openChangeset({
+      kind: 'git-scope',
+      repositoryRoot: repository.repositoryRoot,
+      scope: { kind: 'uncommitted' },
+      worktreePath,
+    });
+    setActiveTab('explorer');
+  };
 
   return (
     <div className="flex h-14 shrink-0 border-border border-b bg-card/35">
@@ -110,25 +219,59 @@ export function GitWorkbenchHeader({
           {[
             repository.currentWorktree,
             ...repository.worktrees.filter((item) => !item.current),
-          ].map((worktree) => (
-            <div className="flex items-start gap-2 px-2 py-2" key={worktree.path}>
-              {worktree.current ? (
-                <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-              ) : (
-                <span aria-hidden="true" className="size-4 shrink-0" />
-              )}
-              <div className="min-w-0">
-                <div className="truncate font-medium text-sm">{worktree.name}</div>
-                <div className="truncate text-muted-foreground text-xs">{worktree.path}</div>
-                <div className="mt-0.5 text-muted-foreground text-xs">
-                  {worktree.branch ?? 'Detached HEAD'}
-                </div>
-              </div>
-            </div>
-          ))}
+          ].map((worktree) => {
+            const { disabledReason, navigable } = resolveWorktreeNavigation(
+              worktree,
+              repository.repositoryRoot,
+              inventory,
+              inventoryError
+            );
+            const accessibleName = disabledReason
+              ? `Review changes in ${worktree.name} — ${disabledReason}`
+              : `Review changes in ${worktree.name}`;
+            return (
+              <span key={worktree.path} title={disabledReason ?? undefined}>
+                <DropdownMenuItem
+                  aria-label={accessibleName}
+                  data-testid="git-workbench-worktree-item"
+                  disabled={!navigable}
+                  onSelect={() => {
+                    if (navigable) {
+                      navigateToWorktreeChanges(worktree.path);
+                    }
+                  }}
+                >
+                  <span className="flex w-full items-start gap-2">
+                    {worktree.current ? (
+                      <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+                    ) : (
+                      <span aria-hidden="true" className="size-4 shrink-0" />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-sm">{worktree.name}</span>
+                      <span className="block truncate text-muted-foreground text-xs">
+                        {worktree.path}
+                      </span>
+                      <span className="mt-0.5 block text-muted-foreground text-xs">
+                        {worktree.branch ?? 'Detached HEAD'}
+                      </span>
+                      {disabledReason ? (
+                        <span
+                          className="mt-0.5 block text-[10px] text-amber-700 dark:text-amber-300"
+                          data-testid="git-workbench-worktree-disabled-reason"
+                        >
+                          {disabledReason}
+                        </span>
+                      ) : null}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+              </span>
+            );
+          })}
           <DropdownMenuSeparator />
           <div className="px-2 py-1.5 text-muted-foreground text-xs leading-relaxed">
-            Open the worktree as a workspace to activate it.
+            Select a worktree to review its uncommitted changes.
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
