@@ -8,7 +8,7 @@ import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assi
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import {
   ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
@@ -18,6 +18,7 @@ import {
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
   changesetRefreshMock,
@@ -88,6 +89,144 @@ describe('AssistantUiPanelWrapper', () => {
     for (const call of useChangesetMock.mock.calls) {
       expect(call[1]).toBeNull();
     }
+  });
+
+  // BST-1115 smoke feedback: "Last Turn" as a live standing scope. The
+  // wrapper is the ONLY thing that can learn "the active thread" — this
+  // suite asserts what it publishes into `useChangesNavigationStore`.
+  describe('publishes the standing active-thread identity (BST-1115)', () => {
+    beforeEach(() => {
+      useChangesNavigationStore.getState().reset();
+    });
+
+    test('publishes the thread with a null latestRunId on selection — no fabricated run history', async () => {
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity).toEqual({
+          latestRunId: null,
+          threadId: 'thread-existing',
+        });
+      });
+    });
+
+    // "No thread selected" is unreachable through this harness's full render
+    // path — `ensureResourceThreads` auto-creates a fresh thread the moment
+    // the memory resource has zero rows (real app behavior: a workspace
+    // always operates on SOME active thread once the panel mounts). The
+    // `selectedMemoryThreadId ? {...} : null` guard this relies on is
+    // covered directly by the picker's own unit tests (disabled when
+    // `threadId` is `null`) and the store's `selectLastTurn` no-op test.
+
+    test('advances latestRunId to the finished run, keeping the same thread', async () => {
+      const user = userEvent.setup();
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity).toEqual({
+          latestRunId: null,
+          threadId: 'thread-existing',
+        });
+      });
+
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-run-finished'));
+      });
+
+      expect(useChangesNavigationStore.getState().activeThreadIdentity).toEqual({
+        latestRunId: 'run-live',
+        threadId: 'thread-existing',
+      });
+    });
+
+    test('advances latestRunId on a failed run too', async () => {
+      const user = userEvent.setup();
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity?.threadId).toBe(
+          'thread-existing'
+        );
+      });
+
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-run-failed'));
+      });
+
+      expect(useChangesNavigationStore.getState().activeThreadIdentity).toEqual({
+        latestRunId: 'run-live',
+        threadId: 'thread-existing',
+      });
+    });
+
+    test('retargets the active changeset when a run finishes while the surface is on Last Turn', async () => {
+      const user = userEvent.setup();
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity?.threadId).toBe(
+          'thread-existing'
+        );
+      });
+
+      // Simulate an EARLIER run already completing, then the user picking
+      // "Last Turn" for it — mirrors the picker's own `selectLastTurn` call.
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-run-finished'));
+      });
+      act(() => {
+        useChangesNavigationStore.getState().selectLastTurn();
+      });
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual({
+        kind: 'agent-run',
+        runId: 'run-live',
+        threadId: 'thread-existing',
+      });
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(true);
+
+      // The wrapper's mock always reports the SAME runId ('run-live'), so
+      // simulate a genuinely NEW run finishing directly through the store
+      // action the wrapper itself calls, verifying the retarget applies.
+      act(() => {
+        useChangesNavigationStore
+          .getState()
+          .setActiveThreadIdentity({ latestRunId: 'run-live-2', threadId: 'thread-existing' });
+      });
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual({
+        kind: 'agent-run',
+        runId: 'run-live-2',
+        threadId: 'thread-existing',
+      });
+    });
+
+    test('does NOT retarget a pinned git-scope changeset when a run finishes', async () => {
+      const user = userEvent.setup();
+      await renderAssistantThreadPanel(['openai'], 'thread-existing');
+      await screen.findByTestId('assistant-ui-panel');
+      await waitFor(() => {
+        expect(useChangesNavigationStore.getState().activeThreadIdentity?.threadId).toBe(
+          'thread-existing'
+        );
+      });
+
+      const gitScope = {
+        kind: 'git-scope' as const,
+        repositoryRoot: '/repo',
+        scope: { kind: 'uncommitted' as const },
+        worktreePath: '/repo',
+      };
+      act(() => {
+        useChangesNavigationStore.getState().requestChangeset(gitScope);
+      });
+
+      await act(async () => {
+        await user.click(screen.getByTestId('trigger-run-finished'));
+      });
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(gitScope);
+    });
   });
 
   test('bridges only the active thread command into the composer and acknowledges it', async () => {

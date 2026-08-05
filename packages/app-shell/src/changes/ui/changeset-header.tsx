@@ -8,11 +8,15 @@
  * card shape, same small ghost/outline buttons.
  *
  * PROPS: the base shape is a fixed contract (other Changes-surface pieces
- * assume it). `latestRunId`, `threadId`, and `onRetry` are ADDITIVE
- * extensions — `onRetry` is explicitly sanctioned by the task brief, and
- * `latestRunId`/`threadId` are required by `ChangesetSourcePicker`'s "Last
- * Turn" control, which this header renders; there is no back-channel for the
- * picker to get thread/run identity except through here.
+ * assume it). `latestRunId`, `threadId`, `onSelectLastTurn`, and `onRetry`
+ * are ADDITIVE extensions — `onRetry` is explicitly sanctioned by the task
+ * brief, and `latestRunId`/`threadId`/`onSelectLastTurn` are required by
+ * `ChangesetSourcePicker`'s "Last Turn" control, which this header renders;
+ * there is no back-channel for the picker to get thread/run identity except
+ * through here. As of BST-1115 smoke feedback, the caller (`ChangesSurface`)
+ * sources `latestRunId`/`threadId` from the navigation store's STANDING
+ * `activeThreadIdentity`, not the "→ Review" handoff — see that store's own
+ * doc comment.
  */
 import type { Changeset, ChangesetView, GitInventory } from '@brainstrike/types';
 import { Button, Input } from '@brainstrike/ui';
@@ -43,6 +47,8 @@ export interface ChangesetHeaderProps {
    */
   readonly onRetryInventory?: () => void;
   readonly onSelectChangeset: (next: Changeset) => void;
+  /** See module doc comment — additive, required by the source picker. */
+  readonly onSelectLastTurn: () => void;
   readonly rootId: string | null;
   /** See module doc comment — additive, required by the source picker. */
   readonly threadId: string | null;
@@ -447,6 +453,7 @@ export function ChangesetHeader({
   onRetry,
   onRetryInventory,
   onSelectChangeset,
+  onSelectLastTurn,
   rootId,
   threadId,
   view,
@@ -466,6 +473,7 @@ export function ChangesetHeader({
           inventory={inventory}
           latestRunId={latestRunId}
           onSelectChangeset={onSelectChangeset}
+          onSelectLastTurn={onSelectLastTurn}
           threadId={threadId}
         />
         <StatsReadout view={view} />

@@ -10,13 +10,14 @@
  *
  * THREAD/RUN IDENTITY: the assistant panel's thread store is resourceId-keyed
  * and this surface is a SIBLING top-level page, so it cannot read the "active
- * thread" directly. It does not fabricate one either. Instead the identity
- * arrives with the navigation handoff: the assistant turn footer's "→ Review"
- * link publishes a real `agent-run` changeset through
- * `useChangesNavigationStore`, and both ids are taken FROM that changeset.
- * Until a handoff has happened the picker renders "Last Turn" and the
- * run-range control disabled-with-reason, which is the honest state — see the
- * PR's tracked follow-up for sourcing the active thread without a handoff.
+ * thread" directly. It does not fabricate one either. As of BST-1115 smoke
+ * feedback, `AssistantUiPanelWrapper` publishes the active thread's STANDING
+ * identity (`activeThreadIdentity`) into `useChangesNavigationStore` directly
+ * — on thread selection and on every `run.finished`/`run.failed` — so "Last
+ * Turn" works without ever requiring a "→ Review" handoff, and retargets
+ * itself live while the user is on it (`selectLastTurn`/`isOnLastTurn`, see
+ * the store's own doc comment). The run-range control still has no source
+ * (unimplemented — see below) and stays disabled-with-reason.
  *
  * ACTIVE CHANGESET OWNERSHIP: the selection lives in
  * `useChangesNavigationStore`, not in this component. The surface stays
@@ -99,11 +100,12 @@ export function ChangesSurface(): ReactElement {
 
   const changeset = useChangesNavigationStore((state) => state.activeChangeset);
   const requestChangeset = useChangesNavigationStore((state) => state.requestChangeset);
-  const handoffThreadIdentity = useChangesNavigationStore((state) => state.handoffThreadIdentity);
+  const selectLastTurn = useChangesNavigationStore((state) => state.selectLastTurn);
+  const activeThreadIdentity = useChangesNavigationStore((state) => state.activeThreadIdentity);
   const clearSelection = useChangesStore((state) => state.clearSelection);
 
-  const threadId = handoffThreadIdentity?.threadId ?? null;
-  const latestRunId = handoffThreadIdentity?.latestRunId ?? null;
+  const threadId = activeThreadIdentity?.threadId ?? null;
+  const latestRunId = activeThreadIdentity?.latestRunId ?? null;
 
   const { error: inventoryError, inventory, refresh: refreshInventory } = useGitInventory();
 
@@ -172,6 +174,7 @@ export function ChangesSurface(): ReactElement {
         onRetry={handleRetry}
         onRetryInventory={handleRetryInventory}
         onSelectChangeset={requestChangeset}
+        onSelectLastTurn={selectLastTurn}
         rootId={rootId}
         threadId={threadId}
         view={view}

@@ -20,10 +20,34 @@ import { create } from 'zustand';
  *
  * `handoffThreadIdentity` records the thread/run a handoff carried. It
  * deliberately OUTLIVES the changeset that produced it, so the surface can
- * keep offering "Last Turn" and run-range selection after the user moves on
- * to a git scope. It is only ever populated from a real `agent-run`
- * changeset, never synthesised — the surface has no other way to learn a
- * thread id, and inventing one would violate NO SILENT FALLBACKS.
+ * keep offering run-range selection after the user moves on to a git scope
+ * (BST-1114). It is only ever populated from a real `agent-run` changeset,
+ * never synthesised — the surface has no other way to learn a thread id, and
+ * inventing one would violate NO SILENT FALLBACKS. It is written on every
+ * `agent-run` `requestChangeset` call (both the "→ Review" handoff AND the
+ * picker's own "Last Turn"/run selections go through it) but nothing reads it
+ * for "Last Turn" enablement anymore — see `activeThreadIdentity` below.
+ *
+ * `activeThreadIdentity` (BST-1115 smoke feedback) is the STANDING scope
+ * "Last Turn" needs: Codex parity means the control must work without a
+ * Review-link handoff ever happening, and must track the active thread's
+ * most recent run live. `AssistantUiPanelWrapper` publishes it directly — on
+ * thread selection (`latestRunId: null`, an honest "no completed turns yet"
+ * since there is no run-history IPC to hydrate a thread's PAST runs without
+ * inventing one — see `ChangesetSourcePicker`'s own doc comment) and on every
+ * `run.finished`/`run.failed` event for the active thread. It is a SEPARATE
+ * field from `handoffThreadIdentity` on purpose: the handoff's write-once,
+ * outlives-the-changeset semantics stay exactly as they were for whatever
+ * still reads it, and this field's own reset-on-thread-switch behavior would
+ * be wrong for that one.
+ *
+ * `isOnLastTurn` tracks whether the user's CURRENT selection is "Last Turn"
+ * — set by `selectLastTurn`, cleared by `requestChangeset` (any other pick,
+ * including a re-pick of the very same run by id). It exists so a live
+ * `run.finished` can tell "retarget this" from "leave this alone" WITHOUT
+ * comparing run ids: an explicitly pinned run that happens to equal the
+ * latest one must never start following new runs just because the ids
+ * matched at pin time.
  *
  * `activeWorkspacePanelTab`/`changesTabMounted` own WHICH tab of the
  * workspace panel (`workspace-panel-tabs.tsx`) is showing. React Doctor
@@ -43,12 +67,24 @@ export interface ChangesHandoffThreadIdentity {
   readonly threadId: string;
 }
 
+/**
+ * The active thread's standing identity — see `activeThreadIdentity`'s doc
+ * comment above. `latestRunId` is `null` until a run has been OBSERVED to
+ * finish/fail for this thread in this session.
+ */
+export interface ChangesActiveThreadIdentity {
+  readonly latestRunId: string | null;
+  readonly threadId: string;
+}
+
 /** Which tab of the workspace panel is active — see this file's doc comment. */
 export type WorkspacePanelTab = 'changes' | 'context-explorer';
 
 export interface ChangesNavigationState {
   /** The changeset the surface is showing, or `null` before anything is picked. */
   readonly activeChangeset: Changeset | null;
+  /** The active thread's standing identity — see this file's doc comment. */
+  readonly activeThreadIdentity: ChangesActiveThreadIdentity | null;
   /**
    * Which workspace-panel tab is currently shown. Defaults to
    * `'context-explorer'`. Written directly by `setActiveWorkspacePanelTab`
@@ -66,6 +102,8 @@ export interface ChangesNavigationState {
   readonly changesTabMounted: boolean;
   /** Thread/run identity from the most recent `agent-run` handoff, if any. */
   readonly handoffThreadIdentity: ChangesHandoffThreadIdentity | null;
+  /** Whether the current selection is "Last Turn" — see this file's doc comment. */
+  readonly isOnLastTurn: boolean;
   /**
    * Show `changeset` on the Changes surface AND switch the workspace panel
    * to the Changes tab. Used ONLY by external entry points — today the
@@ -87,7 +125,9 @@ export interface ChangesNavigationState {
    * Show `changeset` on the Changes surface, WITHOUT switching the workspace
    * panel tab. Used by the surface's own internal source picker — it only
    * fires while the surface is already visible, so there is nothing to
-   * switch to.
+   * switch to. Always clears `isOnLastTurn` — a pick through here (a git
+   * scope, or the "→ Review" handoff's specific run) is never "Last Turn"
+   * unless it comes through `selectLastTurn` below.
    */
   readonly requestChangeset: (changeset: Changeset) => void;
   /**
@@ -97,15 +137,37 @@ export interface ChangesNavigationState {
    * at a runId/threadId or an absolute repository path the reset just wiped.
    */
   readonly reset: () => void;
+  /**
+   * The picker's "Last Turn" action (BST-1115 smoke feedback). Resolves
+   * `activeThreadIdentity` into an `agent-run` Changeset at CALL time (never a
+   * stale prop) and sets `isOnLastTurn: true`. A no-op — never fabricates a
+   * changeset — when no thread is active or the thread has no completed runs
+   * yet (NO SILENT FALLBACKS); the picker itself disables the control for
+   * exactly that state, so this is defense-in-depth, not the primary guard.
+   */
+  readonly selectLastTurn: () => void;
+  /**
+   * Publishes the active thread's standing identity — see
+   * `activeThreadIdentity`'s doc comment. When the caller is currently "Last
+   * Turn" (`isOnLastTurn`) AND the incoming identity is for the SAME thread
+   * as the active `agent-run` changeset AND its `latestRunId` actually moved,
+   * the active changeset is retargeted to the new run in the SAME set — this
+   * is the live-tracking behavior, not a separate effect. A git-scope
+   * changeset, or an agent-run changeset the user explicitly pinned
+   * (`isOnLastTurn: false`), is never touched.
+   */
+  readonly setActiveThreadIdentity: (identity: ChangesActiveThreadIdentity | null) => void;
   /** Switch the workspace panel to `tab`. The user's own tab-click event. */
   readonly setActiveWorkspacePanelTab: (tab: WorkspacePanelTab) => void;
 }
 
 export const useChangesNavigationStore = create<ChangesNavigationState>((set, get) => ({
   activeChangeset: null,
+  activeThreadIdentity: null,
   activeWorkspacePanelTab: 'context-explorer',
   changesTabMounted: false,
   handoffThreadIdentity: null,
+  isOnLastTurn: false,
   openChangeset: (changeset) => {
     get().requestChangeset(changeset);
     set({ activeWorkspacePanelTab: 'changes', changesTabMounted: true });
@@ -119,15 +181,50 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
               latestRunId: changeset.runId,
               threadId: changeset.threadId,
             },
+            isOnLastTurn: false,
           }
-        : { activeChangeset: changeset }
+        : { activeChangeset: changeset, isOnLastTurn: false }
     ),
   reset: () =>
     set({
       activeChangeset: null,
+      activeThreadIdentity: null,
       activeWorkspacePanelTab: 'context-explorer',
       changesTabMounted: false,
       handoffThreadIdentity: null,
+      isOnLastTurn: false,
+    }),
+  selectLastTurn: () => {
+    const identity = get().activeThreadIdentity;
+    if (!identity?.latestRunId) {
+      return;
+    }
+    get().requestChangeset({
+      kind: 'agent-run',
+      runId: identity.latestRunId,
+      threadId: identity.threadId,
+    });
+    set({ isOnLastTurn: true });
+  },
+  setActiveThreadIdentity: (identity) =>
+    set((state) => {
+      if (
+        state.isOnLastTurn &&
+        identity?.latestRunId &&
+        state.activeChangeset?.kind === 'agent-run' &&
+        state.activeChangeset.threadId === identity.threadId &&
+        state.activeChangeset.runId !== identity.latestRunId
+      ) {
+        return {
+          activeChangeset: {
+            kind: 'agent-run',
+            runId: identity.latestRunId,
+            threadId: identity.threadId,
+          },
+          activeThreadIdentity: identity,
+        };
+      }
+      return { activeThreadIdentity: identity };
     }),
   setActiveWorkspacePanelTab: (tab) =>
     set((state) => ({

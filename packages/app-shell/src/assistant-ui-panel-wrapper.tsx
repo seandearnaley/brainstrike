@@ -123,6 +123,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useRewindStore } from './changes/rewind-store';
 import { useChangeset } from './changes/use-changeset';
 import { useRewindFinalization } from './changes/use-rewind-finalization';
@@ -1695,6 +1696,24 @@ export function AssistantUiPanelWrapper({
   // own rootId-scoped cwd concept.
   const { refresh: refreshChangeset } = useChangeset(mainRootId ?? null, null);
 
+  // Standing "Last Turn" identity (BST-1115 smoke feedback): publish the
+  // active thread continuously so the Changes surface's "Last Turn" scope
+  // works without ever needing a "→ Review" handoff — see
+  // `changes-navigation-store.ts`'s own doc comment for the full contract.
+  // Resets `latestRunId` to `null` on every thread switch: this wrapper only
+  // knows about runs it has itself OBSERVED finish/fail (no run-history IPC
+  // exists to hydrate a thread's PAST runs — inventing one would violate NO
+  // SILENT FALLBACKS), so a freshly-selected thread is honestly "no
+  // completed turns yet" until one completes in this session.
+  const setActiveThreadIdentity = useChangesNavigationStore(
+    (state) => state.setActiveThreadIdentity
+  );
+  useEffect(() => {
+    setActiveThreadIdentity(
+      selectedMemoryThreadId ? { latestRunId: null, threadId: selectedMemoryThreadId } : null
+    );
+  }, [selectedMemoryThreadId, setActiveThreadIdentity]);
+
   // Re-read the checkpoint journal when a run reaches a terminal state — the
   // journal rows are written in main during tool execution, after the last
   // thread-open read, so the turn-level "Revert all edits" footer would
@@ -1704,16 +1723,34 @@ export function AssistantUiPanelWrapper({
       onRunFinished(event);
       void refetchCheckpoints();
       void refreshChangeset();
+      if (selectedMemoryThreadId && event.runId) {
+        setActiveThreadIdentity({ latestRunId: event.runId, threadId: selectedMemoryThreadId });
+      }
     },
-    [onRunFinished, refetchCheckpoints, refreshChangeset]
+    [
+      onRunFinished,
+      refetchCheckpoints,
+      refreshChangeset,
+      selectedMemoryThreadId,
+      setActiveThreadIdentity,
+    ]
   );
   const handleRunFailed = useCallback(
     (event: AssistantRunEvent) => {
       onRunFailed(event);
       void refetchCheckpoints();
       void refreshChangeset();
+      if (selectedMemoryThreadId && event.runId) {
+        setActiveThreadIdentity({ latestRunId: event.runId, threadId: selectedMemoryThreadId });
+      }
     },
-    [onRunFailed, refetchCheckpoints, refreshChangeset]
+    [
+      onRunFailed,
+      refetchCheckpoints,
+      refreshChangeset,
+      selectedMemoryThreadId,
+      setActiveThreadIdentity,
+    ]
   );
 
   // Grant actions for the tool-approval notice ("Always allow" / "Allow

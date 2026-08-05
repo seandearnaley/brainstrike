@@ -123,7 +123,15 @@ describe('app-shell assistant contract boundary', () => {
     // is what a composition module is allowed to grow by. The counter's
     // rationale, the panel's `key` mechanics and the Changes-surface
     // invalidation all live outside this file.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1810);
+    // Bumped 1810 → 1850 for BST-1115 smoke feedback ("Last Turn" as a live
+    // standing scope): the wrapper adds ONE `setActiveThreadIdentity` selector,
+    // ONE effect publishing it on thread selection, and two `if` branches
+    // inside the existing handleRunFinished/handleRunFailed callbacks that
+    // publish the finished run's id. The retarget policy (is-on-Last-Turn
+    // tracking, the actual changeset swap) lives entirely in
+    // `changes/changes-navigation-store.ts` — the wrapper only reports facts
+    // it uniquely knows (the active thread, a run's completion) into the store.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1850);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
@@ -140,7 +148,14 @@ describe('app-shell assistant contract boundary', () => {
     // composition test (mocked `useChangeset`, proving both
     // handleRunFinished/handleRunFailed call `refresh` and that every call is
     // wired with a null changeset until W4 lands a selection).
-    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2100);
+    // Bumped 2100 → 2240 for BST-1115 smoke feedback ("Last Turn" as a live
+    // standing scope): a new describe block asserting what the wrapper
+    // publishes into the REAL `useChangesNavigationStore` — the
+    // thread-selection publish, the run-finished/run-failed advance, the live
+    // retarget while on Last Turn, and the "never retargets a pinned git
+    // scope" guard. The store's own full retarget-policy matrix is unit-tested
+    // separately in `changes/__tests__/changes-navigation-store.test.ts`.
+    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2240);
   });
 
   it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {

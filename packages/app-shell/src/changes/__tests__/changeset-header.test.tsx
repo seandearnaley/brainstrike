@@ -122,6 +122,7 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof ChangesetHeade
     latestRunId: null,
     loading: false,
     onSelectChangeset: vi.fn(),
+    onSelectLastTurn: vi.fn(),
     rootId: 'root-1',
     threadId: null,
     view: null,
