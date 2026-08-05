@@ -11,6 +11,7 @@ import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { resolveUserCommandsBridge } from './user-commands-bridge';
 
 const logger = createLogger('UserSlashCommands');
 
@@ -22,30 +23,6 @@ type UserCommandToast = (input: {
 }) => void;
 
 const EMPTY_RESULT: UserSlashCommandsListResult = { commands: [], roots: [] };
-
-type UserCommandsBridge = () => Promise<UserSlashCommandsListResult>;
-
-/**
- * Resolve the desktop discovery bridge, or `null` on web (no preload). Capability
- * gating by bridge presence — never `isElectron()`. A present-but-malformed
- * bridge is a wiring bug: log loudly rather than silently degrade.
- */
-function resolveUserCommandsBridge(): UserCommandsBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = window.userCommands;
-  if (!bridge) {
-    return null;
-  }
-  if (typeof bridge.list !== 'function') {
-    logger.error('window.userCommands bridge is malformed; slash commands disabled', {
-      hasList: typeof bridge.list,
-    });
-    return null;
-  }
-  return bridge.list;
-}
 
 /**
  * Resolve which root a command's `@path` template tokens bind to:
@@ -145,7 +122,8 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
     }
     generationRef.current += 1;
     const generation = generationRef.current;
-    bridge()
+    bridge
+      .list()
       .then((result) => {
         if (generation === generationRef.current) {
           setList(result);

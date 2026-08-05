@@ -19,6 +19,7 @@ describe('createAppActionRegistry', () => {
 
   it('grants fs capabilities when window.platform is fully formed', () => {
     (window as MutableWindow).platform = {
+      openExternal: vi.fn(),
       openPath: vi.fn(),
       showItemInFolder: vi.fn(),
     };
@@ -52,13 +53,12 @@ describe('createAppActionRegistry', () => {
 
     const malformedRecord = records.find(
       (record) =>
-        record.scope === 'ContextActionRegistry' &&
+        record.scope === 'PlatformBridge' &&
         record.message?.includes('window.platform bridge is malformed')
     );
     expect(malformedRecord).toBeDefined();
     expect(malformedRecord?.args).toContainEqual({
-      hasOpenPath: true,
-      hasShowItemInFolder: false,
+      missing: ['openExternal', 'showItemInFolder'],
     });
   });
 
@@ -73,7 +73,7 @@ describe('createAppActionRegistry', () => {
       .mockResolvedValueOnce({ ok: false })
       .mockResolvedValueOnce({ error: 'x', ok: false })
       .mockResolvedValueOnce({ ok: true });
-    (window as MutableWindow).platform = { openPath, showItemInFolder };
+    (window as MutableWindow).platform = { openExternal: vi.fn(), openPath, showItemInFolder };
 
     const registry = createAppActionRegistry();
     const platformFs = registry.services.platformFs;

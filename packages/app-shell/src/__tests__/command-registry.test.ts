@@ -27,6 +27,7 @@ function webParts() {
 
 function desktopParts() {
   (window as MutableWindow).platform = {
+    openExternal: vi.fn(),
     openPath: vi.fn(),
     showItemInFolder: vi.fn(),
   };

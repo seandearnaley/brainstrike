@@ -10,36 +10,9 @@ import {
 // of this always-mounted module so their lazy-loaded graphs stay code-split.
 import { collectionActions } from '@brainstrike/db-explorer/context-actions';
 import { fileEntryActions } from '@brainstrike/file-explorer-ui/context-actions';
-import { createLogger } from '@brainstrike/logging';
 import { assistantThreadActions } from './assistant-thread-context-actions';
 import { changesActions } from './changes/changes-context-actions';
-
-const logger = createLogger('ContextActionRegistry');
-
-interface PlatformBridge {
-  openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
-  showItemInFolder: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
-}
-
-function resolvePlatformBridge(): PlatformBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = (window as Window & { platform?: Partial<PlatformBridge> }).platform;
-  if (!bridge) {
-    return null;
-  }
-  if (typeof bridge.showItemInFolder !== 'function' || typeof bridge.openPath !== 'function') {
-    // A partially-formed bridge is a wiring bug, not a missing capability —
-    // log loudly instead of silently downgrading to web behavior.
-    logger.error('window.platform bridge is malformed; shell actions disabled', {
-      hasOpenPath: typeof bridge.openPath === 'function',
-      hasShowItemInFolder: typeof bridge.showItemInFolder === 'function',
-    });
-    return null;
-  }
-  return bridge as PlatformBridge;
-}
+import { resolvePlatformBridge } from './platform-bridge';
 
 /**
  * The shared building blocks for every action-driven surface in the app: the
