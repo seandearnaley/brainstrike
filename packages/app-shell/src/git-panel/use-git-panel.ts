@@ -38,11 +38,6 @@ export interface UseGitPanelResult {
     originalPath?: string
   ) => Promise<LoadedDiff | null>;
   readonly loadCommitFiles: (commit: string) => Promise<readonly GitCommitFile[] | null>;
-  /** Loads a diff for a file, or null on error (error already toasted). */
-  readonly loadDiff: (
-    path: string,
-    options: { staged: boolean; untracked: boolean }
-  ) => Promise<LoadedDiff | null>;
   readonly loadHistory: (options?: LoadHistoryOptions) => Promise<GitHistoryPage | null>;
   readonly pull: () => Promise<void>;
   readonly push: (remote?: string) => Promise<void>;
@@ -465,35 +460,6 @@ export function useGitPanel(): UseGitPanelResult {
     }
   }, [bridge, activeRootId, runMutation, toast]);
 
-  const loadDiff = useCallback(
-    async (
-      path: string,
-      options: { staged: boolean; untracked: boolean }
-    ): Promise<LoadedDiff | null> => {
-      if (!(bridge && activeRootId)) {
-        return null;
-      }
-      try {
-        const result = await bridge.diff(activeRootId, {
-          mode: options.untracked ? 'untracked' : options.staged ? 'staged' : 'working',
-          path,
-        });
-        if (!result.ok) {
-          logger.error('git diff failed', { error: result.error, path });
-          toast({ description: result.error, title: 'Diff failed', variant: 'destructive' });
-          return null;
-        }
-        return { truncated: result.value.truncated, unifiedDiff: result.value.unifiedDiff };
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.error('git diff threw', { error: message, path });
-        toast({ description: message, title: 'Diff failed', variant: 'destructive' });
-        return null;
-      }
-    },
-    [bridge, activeRootId, toast]
-  );
-
   const loadHistory = useCallback(
     async (options: LoadHistoryOptions = {}): Promise<GitHistoryPage | null> => {
       if (!(bridge && activeRootId)) {
@@ -581,7 +547,6 @@ export function useGitPanel(): UseGitPanelResult {
     isSyncing,
     loadCommitDiff,
     loadCommitFiles,
-    loadDiff,
     loadHistory,
     pull,
     push,

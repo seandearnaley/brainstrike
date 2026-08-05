@@ -43,6 +43,17 @@ import { Button, DiffView } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 
 export interface ChangesetFileDiffCardProps {
+  /**
+   * Height/sizing class for the mounted `DiffView` body (the `full`/
+   * `hunks-only` branch of {@link LoadedBody}) — additive prop (BST-1116 W6
+   * Task A). Defaults to the original fixed `h-[420px]` sizing tuned for
+   * this card's native habitat, a vertically-stacked multi-file pane
+   * (`ChangesetDiffPane`). The git panel's Changes tab hosts exactly ONE
+   * card filling its whole diff pane, where a fixed 420px box wastes most of
+   * the available height — it passes `h-full` instead. Purely a
+   * presentational sizing hook; does not affect load/error/binary state.
+   */
+  readonly bodyClassName?: string;
   readonly changesetKind: Changeset['kind'];
   readonly entry: ChangedFileEntry;
   /**
@@ -57,6 +68,8 @@ export interface ChangesetFileDiffCardProps {
     rootId: string | null
   ) => Promise<GitResult<StructuredFileDiff>>;
 }
+
+const DEFAULT_BODY_CLASS_NAME = 'h-[420px] min-h-0';
 
 type LoadState =
   | { readonly diff: StructuredFileDiff; readonly kind: 'loaded' }
@@ -183,9 +196,11 @@ function ErrorBody({
  * Journal-backed changesets (`agent-run`/`run-range`) flow through here
  * exactly like git-scope changesets; see this module's doc comment. */
 function LoadedBody({
+  bodyClassName,
   diff,
   entry,
 }: {
+  readonly bodyClassName: string;
   readonly diff: StructuredFileDiff;
   readonly entry: ChangedFileEntry;
 }): ReactElement {
@@ -193,7 +208,7 @@ function LoadedBody({
     return <BinaryBody />;
   }
   return (
-    <div className="h-[420px] min-h-0" data-testid="changeset-file-diff-card-diff-view">
+    <div className={bodyClassName} data-testid="changeset-file-diff-card-diff-view">
       <DiffView
         ariaLabel={`Diff for ${entry.path}`}
         filename={entry.path}
@@ -204,6 +219,7 @@ function LoadedBody({
 }
 
 export function ChangesetFileDiffCard({
+  bodyClassName = DEFAULT_BODY_CLASS_NAME,
   // Part of the fixed cross-task prop contract (BST-1114 W4) but not read
   // here: journal-backed changesets are deliberately NOT special-cased (see
   // this module's doc comment) — the only journal-specific handling is the
@@ -286,7 +302,9 @@ export function ChangesetFileDiffCard({
           <ErrorBody message={state.message} onRetry={retry} />
         )
       ) : null}
-      {state.kind === 'loaded' ? <LoadedBody diff={state.diff} entry={entry} /> : null}
+      {state.kind === 'loaded' ? (
+        <LoadedBody bodyClassName={bodyClassName} diff={state.diff} entry={entry} />
+      ) : null}
     </div>
   );
 }

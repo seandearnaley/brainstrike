@@ -1,9 +1,11 @@
+import type { Changeset, ChangesetView } from '@brainstrike/types';
+import type { DiffViewSource } from '@brainstrike/ui';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChangesBridge } from '../changes/changes-bridge';
 import type {
   GitBridge,
-  GitDiffParams,
   GitHistoryCommit,
   GitRepository,
   GitResult,
@@ -37,22 +39,95 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   }),
 }));
 
+/**
+ * `ChangesetFileDiffCard` (mounted by the Changes tab, BST-1116 W6 Task A)
+ * lazy-loads its diff only once its element is observed intersecting —
+ * synchronously reporting every observed target as intersecting lets these
+ * tests exercise the load without simulating real scrolling. Mirrors the
+ * fixture already established in
+ * `../changes/__tests__/changeset-file-diff-card.test.tsx`. This environment
+ * DOES define a global `IntersectionObserver` (unlike plain jsdom), so the
+ * card's `typeof IntersectionObserver === 'undefined'` immediate-fallback
+ * path never engages here — this stub is load-bearing, not a redundant
+ * safety net.
+ */
+class ImmediateIntersectionObserver implements IntersectionObserver {
+  readonly root = null;
+  readonly rootMargin = '';
+  readonly scrollMargin = '';
+  readonly thresholds: readonly number[] = [];
+  private readonly callback: IntersectionObserverCallback;
+
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+  }
+
+  observe(target: Element): void {
+    this.callback(
+      [{ isIntersecting: true, target } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver
+    );
+  }
+
+  unobserve(): void {
+    // no-op
+  }
+
+  disconnect(): void {
+    // no-op
+  }
+
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+}
+
 const toastSpy = vi.fn();
+// `parseUnifiedDiff` is still spied on here (not removed) because the History
+// tab's `git-diff-surface.tsx` still reconstructs its diff that way — this
+// spy stays load-bearing for the History-tab tests below. Task B (BST-1116
+// W6) retires it once every consumer has moved off `parseUnifiedDiff`.
 const uiSpies = vi.hoisted(() => ({ parseUnifiedDiff: vi.fn() }));
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    // Stub the heavy CodeMirror DiffView (covered by its own suite) — surface the
-    // props so the panel→DiffView wiring is asserted without mounting CM6.
-    DiffView: (props: { filename?: string; original: string; modified: string }) => (
-      <div
-        data-filename={props.filename}
-        data-modified={props.modified}
-        data-original={props.original}
-        data-testid="diff-view-stub"
-      />
-    ),
+    // Stub the heavy CodeMirror DiffView (covered by its own suite) — surface
+    // the props so the panel→DiffView wiring is asserted without mounting
+    // CM6. Handles BOTH `DiffViewSource` shapes: the legacy `strings` source
+    // (still used by the History tab via `git-diff-surface.tsx`) and the
+    // `structured` source (used by the Changes tab's `ChangesetFileDiffCard`,
+    // BST-1116 W6 Task A) — normalizing both onto the same
+    // `data-original`/`data-modified` attributes keeps every existing
+    // assertion in this file working unchanged regardless of which path
+    // produced the diff.
+    DiffView: (props: {
+      filename?: string;
+      modified?: string;
+      original?: string;
+      source?: DiffViewSource;
+    }) => {
+      const resolved = (() => {
+        if (props.source?.kind === 'strings') {
+          return { modified: props.source.modified, original: props.source.original };
+        }
+        if (props.source?.kind === 'structured') {
+          const { content } = props.source.diff;
+          return content.kind === 'full'
+            ? { modified: content.newContent ?? '', original: content.oldContent ?? '' }
+            : { modified: '', original: '' };
+        }
+        return { modified: props.modified ?? '', original: props.original ?? '' };
+      })();
+      return (
+        <div
+          data-filename={props.filename}
+          data-modified={resolved.modified}
+          data-original={resolved.original}
+          data-testid="diff-view-stub"
+        />
+      );
+    },
     parseUnifiedDiff: (unifiedDiff: string) => {
       uiSpies.parseUnifiedDiff(unifiedDiff);
       return original.parseUnifiedDiff(unifiedDiff);
@@ -161,6 +236,31 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
   return full;
 }
 
+/**
+ * Fixture for the `window.changes` bridge (BST-1116 W6 Task A): the Changes
+ * tab's diff pane resolves through `useChangeset` over this bridge instead of
+ * `window.git.diff`/`parseUnifiedDiff`. Mirrors `installBridge`'s shape —
+ * defaults every method, `bridge` overrides win. `resolveView`'s return value
+ * is not asserted on by any test (the panel keeps its own file list from
+ * `window.git` status — see `git-changes-view.tsx`'s doc comment); the
+ * default just echoes back an empty view for whatever changeset it was
+ * called with, since `useChangeset` always resolves it once a changeset is
+ * pinned.
+ */
+function installChangesBridge(bridge: Partial<ChangesBridge>): ChangesBridge {
+  const full: ChangesBridge = {
+    fileDiff: vi.fn(async () => ok(makeStructuredFileDiff())),
+    inventory: vi.fn(async () => ok({ errors: [], repositories: [] })),
+    resolveView: vi.fn(
+      async (_rootId: string, changeset: Changeset): Promise<GitResult<ChangesetView>> =>
+        ok({ changeset, files: [], totalAdditions: null, totalDeletions: null })
+    ),
+    ...bridge,
+  };
+  (window as unknown as { changes?: ChangesBridge }).changes = full;
+  return full;
+}
+
 const SAMPLE_DIFF = [
   'diff --git a/staged.ts b/staged.ts',
   '--- a/staged.ts',
@@ -196,11 +296,14 @@ describe('GitPanel', () => {
       rootId: 'root-1',
     };
     toastSpy.mockReset();
+    vi.stubGlobal('IntersectionObserver', ImmediateIntersectionObserver);
   });
 
   afterEach(() => {
     // `delete` (not `= undefined`) to satisfy exactOptionalPropertyTypes.
     Reflect.deleteProperty(window as unknown as { git?: GitBridge }, 'git');
+    Reflect.deleteProperty(window as unknown as { changes?: ChangesBridge }, 'changes');
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
@@ -323,9 +426,14 @@ describe('GitPanel', () => {
 
   it('shows the diff in the DiffView when a file is clicked', async () => {
     const user = userEvent.setup();
-    installBridge({
-      diff: vi.fn(async () =>
-        ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: SAMPLE_DIFF })
+    installBridge({});
+    installChangesBridge({
+      fileDiff: vi.fn(async () =>
+        ok(
+          makeStructuredFileDiff({
+            content: { kind: 'full', newContent: 'const a = 2;', oldContent: 'const a = 1;' },
+          })
+        )
       ),
     });
     render(<GitPanel />);
@@ -342,22 +450,57 @@ describe('GitPanel', () => {
     expect(diff).toHaveAttribute('data-modified', 'const a = 2;');
   });
 
-  it('does not reparse an unchanged diff when the file filter changes', async () => {
+  it('pins the diff to a staged git-scope changeset for a staged row, and an unstaged one for an unstaged row', async () => {
     const user = userEvent.setup();
-    installBridge({
-      diff: vi.fn(async () =>
-        ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: SAMPLE_DIFF })
-      ),
-    });
+    installBridge({});
+    const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff()));
+    installChangesBridge({ fileDiff });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.click(screen.getByRole('button', { name: 'staged.ts' }));
+    await waitFor(() =>
+      expect(fileDiff).toHaveBeenCalledWith(
+        'root-1',
+        {
+          kind: 'git-scope',
+          repositoryRoot: '/abs/repo',
+          scope: { kind: 'staged' },
+          worktreePath: '/abs/repo',
+        },
+        'staged.ts'
+      )
+    );
+
+    await user.click(screen.getByRole('button', { name: 'unstaged.ts' }));
+    await waitFor(() =>
+      expect(fileDiff).toHaveBeenCalledWith(
+        'root-1',
+        {
+          kind: 'git-scope',
+          repositoryRoot: '/abs/repo',
+          scope: { kind: 'unstaged' },
+          worktreePath: '/abs/repo',
+        },
+        'unstaged.ts'
+      )
+    );
+  });
+
+  it('does not refetch an unchanged diff when the file filter changes', async () => {
+    const user = userEvent.setup();
+    installBridge({});
+    const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff()));
+    installChangesBridge({ fileDiff });
     render(<GitPanel />);
 
     await user.click(await screen.findByRole('button', { name: 'staged.ts' }));
     await screen.findByTestId('diff-view-stub');
-    const parseCount = uiSpies.parseUnifiedDiff.mock.calls.length;
+    const callCount = fileDiff.mock.calls.length;
 
     await user.type(screen.getByRole('textbox', { name: 'Filter changed files' }), 'stag');
 
-    expect(uiSpies.parseUnifiedDiff).toHaveBeenCalledTimes(parseCount);
+    expect(fileDiff).toHaveBeenCalledTimes(callCount);
   });
 
   it('clears the previous-root diff before loading a selection for the focused root', async () => {
@@ -368,29 +511,19 @@ describe('GitPanel', () => {
     const root2Gate = new Promise<void>((resolve) => {
       releaseRoot2 = resolve;
     });
-    const diffFor = (rootId: string): string =>
-      [
-        'diff --git a/staged.ts b/staged.ts',
-        '--- a/staged.ts',
-        '+++ b/staged.ts',
-        '@@ -1 +1 @@',
-        '-old',
-        `+${rootId}-CONTENT`,
-        '',
-      ].join('\n');
-    installBridge({
-      diff: vi.fn(async (rootId: string, params: GitDiffParams) => {
+    const diffFor = (rootId: string) =>
+      makeStructuredFileDiff({
+        content: { kind: 'full', newContent: `${rootId}-CONTENT`, oldContent: 'old' },
+      });
+    installBridge({});
+    installChangesBridge({
+      fileDiff: vi.fn(async (rootId: string) => {
         // Hold root-2's diff so we can observe the window after the switch but
         // before the new root's diff resolves — exactly where a stale diff leaks.
         if (rootId === 'root-2') {
           await root2Gate;
         }
-        return ok({
-          path: params?.path ?? 'staged.ts',
-          staged: params.mode === 'staged',
-          truncated: false,
-          unifiedDiff: diffFor(rootId),
-        });
+        return ok(diffFor(rootId));
       }),
     });
 
@@ -508,48 +641,52 @@ describe('GitPanel', () => {
     expect(screen.getByPlaceholderText('Summary (required)')).toHaveValue('');
   });
 
-  it('requests an untracked file diff in untracked mode (whole-file additions)', async () => {
+  it('requests an untracked file diff through the uncommitted git-scope (whole-file additions)', async () => {
     const user = userEvent.setup();
-    const NEW_FILE_DIFF = [
-      'diff --git a/new.ts b/new.ts',
-      'new file mode 100644',
-      '--- /dev/null',
-      '+++ b/new.ts',
-      '@@ -0,0 +1,1 @@',
-      '+brand new line',
-      '',
-    ].join('\n');
-    const bridge = installBridge({
-      diff: vi.fn(async () =>
-        ok({ path: 'new.ts', staged: false, truncated: false, unifiedDiff: NEW_FILE_DIFF })
-      ),
-    });
+    installBridge({});
+    const fileDiff = vi.fn(async () =>
+      ok(
+        makeStructuredFileDiff({
+          content: { kind: 'full', newContent: 'brand new line', oldContent: null },
+          path: 'new.ts',
+          status: 'untracked',
+        })
+      )
+    );
+    installChangesBridge({ fileDiff });
     render(<GitPanel />);
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'new.ts' }));
 
-    expect(bridge.diff).toHaveBeenCalledWith('root-1', {
-      mode: 'untracked',
-      path: 'new.ts',
-    });
+    expect(fileDiff).toHaveBeenCalledWith(
+      'root-1',
+      {
+        kind: 'git-scope',
+        repositoryRoot: '/abs/repo',
+        scope: { kind: 'uncommitted' },
+        worktreePath: '/abs/repo',
+      },
+      'new.ts'
+    );
     const diff = await screen.findByTestId('diff-view-stub');
     expect(diff).toHaveAttribute('data-modified', 'brand new line');
     expect(diff).toHaveAttribute('data-original', '');
   });
 
-  it('shows a distinct error state (not "no textual changes") when the diff fails to load', async () => {
+  it('shows a distinct error state (not a loaded diff) when the diff fails to load', async () => {
     const user = userEvent.setup();
-    installBridge({
-      diff: vi.fn(async (): Promise<GitResult<never>> => ({ error: 'diff boom', ok: false })),
+    installBridge({});
+    installChangesBridge({
+      fileDiff: vi.fn(async (): Promise<GitResult<never>> => ({ error: 'diff boom', ok: false })),
     });
     render(<GitPanel />);
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'staged.ts' }));
 
-    expect(await screen.findByTestId('git-panel-diff-error')).toBeInTheDocument();
-    expect(screen.queryByTestId('git-panel-no-textual-diff')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('changeset-file-diff-card-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('changeset-file-diff-card-diff-view')).not.toBeInTheDocument();
     expect(toastSpy).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Diff failed', variant: 'destructive' })
     );
@@ -835,10 +972,9 @@ describe('GitPanel', () => {
   it('clears the selected changes diff after switching branches in the same root', async () => {
     const user = userEvent.setup();
     let branch = 'main';
-    const bridge = installBridge({
-      diff: vi.fn(async () =>
-        ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: SAMPLE_DIFF })
-      ),
+    const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff()));
+    installChangesBridge({ fileDiff });
+    installBridge({
       repository: vi.fn(async () =>
         ok(
           makeRepository({
@@ -901,7 +1037,7 @@ describe('GitPanel', () => {
 
     expect(await screen.findByTestId('git-panel-clean')).toBeInTheDocument();
     expect(screen.queryByTestId('diff-view-stub')).not.toBeInTheDocument();
-    expect(bridge.diff).toHaveBeenCalledTimes(1);
+    expect(fileDiff).toHaveBeenCalledTimes(1);
   });
 
   it('implements keyboard-operated tabs with persistent labelled panels', async () => {
@@ -991,9 +1127,10 @@ describe('GitPanel', () => {
 
     expect(screen.getByText('search-worktree')).toBeInTheDocument();
     expect(screen.getByText('/abs/search-worktree')).toBeInTheDocument();
-    expect(
-      screen.getByText('Open the worktree as a workspace to activate it.')
-    ).toBeInTheDocument();
+    // The "Open the worktree as a workspace to activate it." dead-end copy
+    // assertion is removed here (explicitly authorized, BST-1116 W6 Task C):
+    // that copy is being replaced by real navigation into the Changes
+    // surface, covered by Task C's own new test file.
   });
 
   it('uses the repository, worktree, and branch buttons as the actual accessible menu triggers', async () => {

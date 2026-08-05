@@ -1,3 +1,64 @@
+/**
+ * DIFF-SOURCING DESIGN (BST-1116 W6 Task A): the Changes tab's file diff no
+ * longer reconstructs a unified-diff string via `parseUnifiedDiff` — it
+ * resolves through the shared changeset engine (`useChangeset` over the
+ * `window.changes` bridge, spec §3/§7) and renders with the shared
+ * `ChangesetFileDiffCard` (`../changes/ui/changeset-file-diff-card`).
+ *
+ * What stayed panel-owned, and why:
+ *
+ * - The LEFT file list (grouped Staged / Unstaged / Untracked, per-row
+ *   stage/unstage buttons, the tri-state stage-all checkbox) is untouched,
+ *   still driven straight off `window.git` `GitStatus.files`. The shared
+ *   `ChangedFilesTree` (`../changes/ui/changed-files-tree.tsx`) groups by
+ *   root → repo → worktree → directory and its checkboxes mean "which
+ *   files' diffs to render" — a DIFFERENT semantic from this panel's
+ *   staged-vs-unstaged tri-state, which means "which INDEX a stage/unstage
+ *   action targets." Composing the panel onto that tree would either lose
+ *   the staged/unstaged/untracked grouping this panel has always had, or
+ *   require bolting a second, panel-local meaning onto a control whose
+ *   existing meaning is load-bearing for the Changes SURFACE. Keeping two
+ *   independent lists is the simpler, correct choice here.
+ * - `useChangesStore` (`../changes/changes-store.ts`) is a MODULE-LEVEL
+ *   zustand singleton shared with the Changes surface tab, which can be
+ *   mounted at the same time as this panel. Writing this panel's selection
+ *   into `selectedFileKeys` would silently clobber the Changes surface's own
+ *   selection (and vice versa) — a real cross-surface interference hazard,
+ *   not a hypothetical one. This file therefore never imports
+ *   `changes-store.ts`, and — for the same reason — never mounts
+ *   `ChangesetDiffPane` (which reads `selectedFileKeys` internally to decide
+ *   which files to render). It mounts `ChangesetFileDiffCard` directly
+ *   instead: a fully prop-driven leaf with no store coupling, exactly the
+ *   composition seam that avoids the clobbering hazard while still reusing
+ *   the shared rendering/loading machinery (lazy load, generation guard,
+ *   binary/journal-expired/error branches, `DiffView`'s `structured`
+ *   source).
+ * - PER-ROW SCOPE PINNING: a `git-scope` changeset carries exactly one
+ *   `GitScope` (`packages/types/src/changeset.ts`), and the main-process
+ *   resolver picks the `StructuredFileDiffParams` mode straight from that
+ *   scope — `'staged'` scope always resolves `mode: 'staged'`, `'unstaged'`
+ *   scope always resolves `mode: 'unstaged'` (index vs worktree; NOT
+ *   `'working'` — that conflation is the exact bug the `unstaged` mode's own
+ *   doc comment in `packages/types/src/changeset.ts` records as settled and
+ *   not to be reintroduced). Untracked files never appear in a `'staged'`or
+ *   `'unstaged'` scope's listing at all (git has nothing indexed to diff),
+ *   so `'untracked'` mode is reachable ONLY through the `'uncommitted'`
+ *   scope, whose resolver re-probes each path's tracked state and picks
+ *   `'untracked'` vs `'working'` per file. This panel therefore re-pins the
+ *   changeset's `GitScope` to match the SELECTED ROW's own bucket — staged →
+ *   `{ kind: 'staged' }`, unstaged → `{ kind: 'unstaged' }`, untracked →
+ *   `{ kind: 'uncommitted' }` — every time the selection changes, so the
+ *   rendered diff always matches the row the user actually clicked instead
+ *   of silently drifting to a different comparison.
+ */
+import type {
+  ChangedFileEntry,
+  ChangedFileStatus,
+  Changeset,
+  GitResult,
+  GitScope,
+  StructuredFileDiff,
+} from '@brainstrike/types';
 import {
   Badge,
   Button,
@@ -8,6 +69,7 @@ import {
   DropdownMenuTrigger,
   Input,
   ScrollArea,
+  useToast,
 } from '@brainstrike/ui';
 import {
   ArrowDown,
@@ -19,44 +81,46 @@ import {
   Filter,
   Upload,
 } from 'lucide-react';
-import {
-  type ReactElement,
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { type ReactElement, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { ChangesetFileDiffCard } from '../changes/ui/changeset-file-diff-card';
+import { useChangeset } from '../changes/use-changeset';
 import type { GitRepository, GitStatus, GitStatusFile } from './git-bridge';
-import { GitDiffSurface, type GitDiffSurfaceState } from './git-diff-surface';
-import type { LoadedDiff, UseGitPanelResult } from './use-git-panel';
+import type { UseGitPanelResult } from './use-git-panel';
 
 interface SelectedFile {
+  readonly originalPath?: string;
   readonly path: string;
   readonly staged: boolean;
+  readonly status: string;
   readonly untracked: boolean;
 }
 
-interface ResolvedDiff {
-  readonly key: string;
-  readonly result: LoadedDiff | null;
+/** The scope a selected row's diff must be pinned to — see this module's
+ * doc comment (PER-ROW SCOPE PINNING). */
+function scopeForSelection(selected: SelectedFile): GitScope {
+  if (selected.untracked) {
+    return { kind: 'uncommitted' };
+  }
+  return selected.staged ? { kind: 'staged' } : { kind: 'unstaged' };
 }
 
-function resolveDiffState(
-  selected: SelectedFile | null,
-  diffKey: string | null,
-  resolvedDiff: ResolvedDiff | null
-): GitDiffSurfaceState {
-  if (!(selected && diffKey)) {
-    return { kind: 'empty', message: 'Select a changed file to inspect its diff.' };
+/** `GitStatusFile.status` is git's raw porcelain-v2 letter (untyped —
+ * `packages/types/src/git.ts`); this is a display-only best-effort mapping
+ * onto the shared engine's closed `ChangedFileStatus` union for
+ * `ChangesetFileDiffCard`'s header label. It never gates behavior. */
+function statusLetterToChangedFileStatus(status: string): ChangedFileStatus {
+  switch (status) {
+    case '?':
+      return 'untracked';
+    case 'A':
+      return 'added';
+    case 'D':
+      return 'deleted';
+    case 'R':
+      return 'renamed';
+    default:
+      return 'modified';
   }
-  if (resolvedDiff?.key !== diffKey) {
-    return { kind: 'loading', message: `Loading ${selected.path}…` };
-  }
-  if (!resolvedDiff.result) {
-    return { kind: 'error', message: `Could not load the diff for ${selected.path}.` };
-  }
-  return { diff: resolvedDiff.result, kind: 'loaded', path: selected.path };
 }
 
 function partitionFiles(files: readonly GitStatusFile[]): {
@@ -272,10 +336,10 @@ export function GitChangesView({
   readonly repository: GitRepository;
   readonly status: GitStatus;
 }): ReactElement {
+  const { toast } = useToast();
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter.trim().toLocaleLowerCase());
   const [selected, setSelected] = useState<SelectedFile | null>(null);
-  const [resolvedDiff, setResolvedDiff] = useState<ResolvedDiff | null>(null);
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
 
@@ -307,32 +371,15 @@ export function GitChangesView({
   const someStaged = status.files.some((file) => file.staged);
   const filterActive = deferredFilter.length > 0;
   const visibleFileLabel = `${filteredFiles.length} visible ${filteredFiles.length === 1 ? 'file' : 'files'}`;
-  const selectedPath = selected?.path ?? null;
-  const selectedStaged = selected?.staged ?? false;
-  const selectedUntracked = selected?.untracked ?? false;
-  const diffKey = selectedPath
-    ? `${panel.activeRootId ?? ''}:${selectedPath}:${selectedStaged}:${selectedUntracked}`
-    : null;
-
-  useEffect(() => {
-    if (!(selectedPath && diffKey)) {
-      return;
-    }
-    let cancelled = false;
-    void panel
-      .loadDiff(selectedPath, { staged: selectedStaged, untracked: selectedUntracked })
-      .then((result) => {
-        if (!cancelled) {
-          setResolvedDiff({ key: diffKey, result });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [diffKey, panel.loadDiff, selectedPath, selectedStaged, selectedUntracked]);
 
   const selectFile = useCallback((file: GitStatusFile, staged: boolean) => {
-    setSelected({ path: file.path, staged, untracked: file.untracked });
+    setSelected({
+      ...(file.originalPath ? { originalPath: file.originalPath } : {}),
+      path: file.path,
+      staged,
+      status: file.status,
+      untracked: file.untracked,
+    });
   }, []);
 
   const commitChanges = useCallback(async () => {
@@ -343,7 +390,59 @@ export function GitChangesView({
     }
   }, [description, panel.commit, summary]);
 
-  const diffState = resolveDiffState(selected, diffKey, resolvedDiff);
+  // The changeset is re-pinned to the SELECTED ROW's own bucket every time
+  // the selection changes — see this module's doc comment (PER-ROW SCOPE
+  // PINNING). `null` while nothing is selected: `useChangeset` is inert for
+  // a `null` changeset (no fetch, no state churn).
+  const pinnedChangeset = useMemo<Changeset | null>(() => {
+    if (!selected) {
+      return null;
+    }
+    return {
+      kind: 'git-scope',
+      repositoryRoot: repository.repositoryRoot,
+      scope: scopeForSelection(selected),
+      worktreePath: repository.currentWorktree.path,
+    };
+  }, [selected, repository.repositoryRoot, repository.currentWorktree.path]);
+
+  const changeset = useChangeset(panel.activeRootId, pinnedChangeset);
+
+  // A single-entry list: this panel selects one row at a time, so there is
+  // exactly one file for `ChangesetFileDiffCard` to render.
+  const selectedEntry = useMemo<ChangedFileEntry | null>(() => {
+    if (!selected) {
+      return null;
+    }
+    return {
+      additions: null,
+      deletions: null,
+      ...(selected.originalPath ? { oldPath: selected.originalPath } : {}),
+      path: selected.path,
+      repositoryRoot: repository.repositoryRoot,
+      revertible: false,
+      rootId: panel.activeRootId,
+      status: statusLetterToChangedFileStatus(selected.status),
+      worktreePath: repository.currentWorktree.path,
+    };
+  }, [selected, repository.repositoryRoot, repository.currentWorktree.path, panel.activeRootId]);
+
+  // Thin toast-on-failure wrapper around `changeset.fileDiff`: the shared
+  // `ChangesetFileDiffCard` already renders a visible inline error for a
+  // failed load (never a silent fallback on its own), but this panel's
+  // established UX also toasts every diff-load failure — matching the prior
+  // `use-git-panel.ts` `loadDiff` behavior this replaces. The card still
+  // receives the exact same result to render from, unchanged.
+  const loadFileDiff = useCallback(
+    async (path: string, rootId: string | null): Promise<GitResult<StructuredFileDiff>> => {
+      const result = await changeset.fileDiff(path, rootId);
+      if (!result.ok) {
+        toast({ description: result.error, title: 'Diff failed', variant: 'destructive' });
+      }
+      return result;
+    },
+    [changeset.fileDiff, toast]
+  );
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -474,8 +573,22 @@ export function GitChangesView({
             {selected?.path ?? 'Working tree changes'}
           </span>
         </div>
-        <div className="min-h-0 flex-1">
-          <GitDiffSurface state={diffState} />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {selected && selectedEntry ? (
+            <ChangesetFileDiffCard
+              bodyClassName="h-full min-h-0"
+              changesetKind="git-scope"
+              entry={selectedEntry}
+              key={`${selected.path}:${selected.staged}:${selected.untracked}`}
+              loadFileDiff={loadFileDiff}
+            />
+          ) : (
+            <div className="grid h-full min-h-0 place-items-center px-8 text-center text-muted-foreground text-sm">
+              <div className="max-w-sm leading-relaxed">
+                Select a changed file to inspect its diff.
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </div>
