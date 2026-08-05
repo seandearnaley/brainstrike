@@ -11,6 +11,7 @@ import type {
   GitResult,
   GitStatus,
   StructuredFileDiff,
+  StructuredFileDiffParams,
 } from '../git-panel/git-bridge';
 
 // ── Controllable active-root + toast spies ────────────────────────────────────
@@ -83,11 +84,6 @@ class ImmediateIntersectionObserver implements IntersectionObserver {
 }
 
 const toastSpy = vi.fn();
-// `parseUnifiedDiff` is still spied on here (not removed) because the History
-// tab's `git-diff-surface.tsx` still reconstructs its diff that way — this
-// spy stays load-bearing for the History-tab tests below. Task B (BST-1116
-// W6) retires it once every consumer has moved off `parseUnifiedDiff`.
-const uiSpies = vi.hoisted(() => ({ parseUnifiedDiff: vi.fn() }));
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
@@ -95,9 +91,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     // Stub the heavy CodeMirror DiffView (covered by its own suite) — surface
     // the props so the panel→DiffView wiring is asserted without mounting
     // CM6. Handles BOTH `DiffViewSource` shapes: the legacy `strings` source
-    // (still used by the History tab via `git-diff-surface.tsx`) and the
-    // `structured` source (used by the Changes tab's `ChangesetFileDiffCard`,
-    // BST-1116 W6 Task A) — normalizing both onto the same
+    // (used only by `assistant-tool-approval-notice.tsx` now — neither git
+    // panel tab uses it after BST-1116 W6) and the `structured` source (used
+    // by both the Changes tab's and, as of Task B, the History tab's
+    // `ChangesetFileDiffCard`) — normalizing both onto the same
     // `data-original`/`data-modified` attributes keeps every existing
     // assertion in this file working unchanged regardless of which path
     // produced the diff.
@@ -127,10 +124,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
           data-testid="diff-view-stub"
         />
       );
-    },
-    parseUnifiedDiff: (unifiedDiff: string) => {
-      uiSpies.parseUnifiedDiff(unifiedDiff);
-      return original.parseUnifiedDiff(unifiedDiff);
     },
     useToast: () => ({ dismiss: vi.fn(), toast: toastSpy, toasts: [] }),
   };
@@ -260,16 +253,6 @@ function installChangesBridge(bridge: Partial<ChangesBridge>): ChangesBridge {
   (window as unknown as { changes?: ChangesBridge }).changes = full;
   return full;
 }
-
-const SAMPLE_DIFF = [
-  'diff --git a/staged.ts b/staged.ts',
-  '--- a/staged.ts',
-  '+++ b/staged.ts',
-  '@@ -1 +1 @@',
-  '-const a = 1;',
-  '+const a = 2;',
-  '',
-].join('\n');
 
 function makeHistoryCommit(id: string, summary: string): GitHistoryCommit {
   return {
@@ -1150,9 +1133,6 @@ describe('GitPanel', () => {
     const user = userEvent.setup();
     const commitId = 'abcdef0123456789abcdef0123456789abcdef01';
     const bridge = installBridge({
-      commitDiff: vi.fn(async () =>
-        ok({ path: 'src/app.ts', staged: false, truncated: false, unifiedDiff: SAMPLE_DIFF })
-      ),
       commitFiles: vi.fn(async () => ok([{ path: 'src/app.ts', status: 'M' }])),
       history: vi.fn(async () =>
         ok({
@@ -1175,6 +1155,14 @@ describe('GitPanel', () => {
           offset: 0,
         })
       ),
+      structuredFileDiff: vi.fn(async () =>
+        ok(
+          makeStructuredFileDiff({
+            content: { kind: 'full', newContent: 'new\n', oldContent: 'old\n' },
+            path: 'src/app.ts',
+          })
+        )
+      ),
     });
     render(<GitPanel />);
 
@@ -1186,8 +1174,9 @@ describe('GitPanel', () => {
 
     expect(bridge.history).toHaveBeenCalledWith('root-1', { limit: 100, offset: 0 });
     expect(bridge.commitFiles).toHaveBeenCalledWith('root-1', { commit: commitId });
-    expect(bridge.commitDiff).toHaveBeenCalledWith('root-1', {
-      commit: commitId,
+    expect(bridge.structuredFileDiff).toHaveBeenCalledWith('root-1', {
+      commitId,
+      mode: 'commit',
       path: 'src/app.ts',
     });
     expect(await screen.findByTestId('diff-view-stub')).toHaveAttribute(
@@ -1339,39 +1328,7 @@ describe('GitPanel', () => {
     const firstGate = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
-    const diffFor = (pathName: string, value: string): string =>
-      [
-        `diff --git a/${pathName} b/${pathName}`,
-        `--- a/${pathName}`,
-        `+++ b/${pathName}`,
-        '@@ -1 +1 @@',
-        '-old',
-        `+${value}`,
-        '',
-      ].join('\n');
     const bridge = installBridge({
-      commitDiff: vi.fn(
-        async (
-          _rootId: string,
-          params: { commit: string; originalPath?: string; path: string }
-        ) => {
-          if (params.commit === firstId) {
-            await firstGate;
-            return ok({
-              path: params.path,
-              staged: false,
-              truncated: false,
-              unifiedDiff: diffFor(params.path, 'STALE'),
-            });
-          }
-          return ok({
-            path: params.path,
-            staged: false,
-            truncated: false,
-            unifiedDiff: diffFor(params.path, 'CURRENT'),
-          });
-        }
-      ),
       commitFiles: vi.fn(async (_rootId: string, params: { commit: string }) =>
         ok([
           {
@@ -1391,6 +1348,26 @@ describe('GitPanel', () => {
           offset: 0,
         })
       ),
+      structuredFileDiff: vi.fn(async (_rootId: string, params: StructuredFileDiffParams) => {
+        if (params.mode !== 'commit') {
+          throw new Error(`unexpected structuredFileDiff mode in test: ${params.mode}`);
+        }
+        if (params.commitId === firstId) {
+          await firstGate;
+          return ok(
+            makeStructuredFileDiff({
+              content: { kind: 'full', newContent: 'STALE', oldContent: 'old' },
+              path: params.path,
+            })
+          );
+        }
+        return ok(
+          makeStructuredFileDiff({
+            content: { kind: 'full', newContent: 'CURRENT', oldContent: 'old' },
+            path: params.path,
+          })
+        );
+      }),
     });
     render(<GitPanel />);
 
@@ -1398,8 +1375,9 @@ describe('GitPanel', () => {
     await user.click(await screen.findByRole('button', { name: /first diff commit/ }));
     await user.click(await screen.findByRole('button', { name: 'old.ts' }));
     await waitFor(() =>
-      expect(bridge.commitDiff).toHaveBeenCalledWith('root-1', {
-        commit: firstId,
+      expect(bridge.structuredFileDiff).toHaveBeenCalledWith('root-1', {
+        commitId: firstId,
+        mode: 'commit',
         path: 'old.ts',
       })
     );

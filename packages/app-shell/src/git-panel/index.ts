@@ -11,4 +11,4 @@ export {
   resolveGitBridge,
 } from './git-bridge';
 export { GitPanel } from './git-panel';
-export { type LoadedDiff, type UseGitPanelResult, useGitPanel } from './use-git-panel';
+export { type UseGitPanelResult, useGitPanel } from './use-git-panel';

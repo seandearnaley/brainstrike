@@ -12,8 +12,10 @@ import {
   type GitCommitFile,
   type GitHistoryPage,
   type GitRepository,
+  type GitResult,
   type GitStatus,
   resolveGitBridge,
+  type StructuredFileDiff,
 } from './git-bridge';
 
 const logger = createLogger('GitPanel');
@@ -32,11 +34,19 @@ export interface UseGitPanelResult {
   readonly isLoading: boolean;
   /** True while a push or pull network op is running. */
   readonly isSyncing: boolean;
-  readonly loadCommitDiff: (
+  /**
+   * Structured per-file diff for one commit (BST-1116 W6 Task B). Returns
+   * the raw `GitResult` — never toasts, never collapses a failure into
+   * `null` — so a caller rendering through `ChangesetFileDiffCard` (which
+   * needs the actual error text, not a generic message) gets it verbatim;
+   * `git-history-view.tsx` layers its own toast on top, matching the
+   * toast-and-return pattern `git-changes-view.tsx`'s `loadFileDiff`
+   * established for the Changes tab.
+   */
+  readonly loadCommitFileDiff: (
     commit: string,
-    path: string,
-    originalPath?: string
-  ) => Promise<LoadedDiff | null>;
+    path: string
+  ) => Promise<GitResult<StructuredFileDiff>>;
   readonly loadCommitFiles: (commit: string) => Promise<readonly GitCommitFile[] | null>;
   readonly loadHistory: (options?: LoadHistoryOptions) => Promise<GitHistoryPage | null>;
   readonly pull: () => Promise<void>;
@@ -61,11 +71,6 @@ export interface UseGitPanelResult {
 interface LoadHistoryOptions {
   readonly offset?: number;
   readonly ref?: string;
-}
-
-export interface LoadedDiff {
-  readonly truncated: boolean;
-  readonly unifiedDiff: string;
 }
 
 /**
@@ -513,30 +518,32 @@ export function useGitPanel(): UseGitPanelResult {
     [bridge, activeRootId, toast]
   );
 
-  const loadCommitDiff = useCallback(
-    async (commitId: string, path: string, originalPath?: string): Promise<LoadedDiff | null> => {
+  // No toast/log-on-`!ok` here by design — see this method's doc comment on
+  // `UseGitPanelResult`. Only a thrown/rejected call (never expected from
+  // the bridge's own contract, but not impossible from a broken preload) is
+  // logged, mirroring `use-changeset.ts`'s `fileDiff`.
+  const loadCommitFileDiff = useCallback(
+    async (commitId: string, path: string): Promise<GitResult<StructuredFileDiff>> => {
       if (!(bridge && activeRootId)) {
-        return null;
+        return { error: 'git-bridge-unavailable: no active workspace root', ok: false };
       }
       try {
-        const result = await bridge.commitDiff(activeRootId, {
-          commit: commitId,
-          ...(originalPath ? { originalPath } : {}),
+        return await bridge.structuredFileDiff(activeRootId, {
+          commitId,
+          mode: 'commit',
           path,
         });
-        if (result.ok) {
-          return { truncated: result.value.truncated, unifiedDiff: result.value.unifiedDiff };
-        }
-        logger.error('git commit diff failed', { commit: commitId, error: result.error, path });
-        toast({ description: result.error, title: 'Commit diff failed', variant: 'destructive' });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        logger.error('git commit diff threw', { commit: commitId, error: message, path });
-        toast({ description: message, title: 'Commit diff failed', variant: 'destructive' });
+        logger.error('git commit structured diff threw', {
+          commit: commitId,
+          error: message,
+          path,
+        });
+        return { error: message, ok: false };
       }
-      return null;
     },
-    [bridge, activeRootId, toast]
+    [bridge, activeRootId]
   );
 
   return {
@@ -545,7 +552,7 @@ export function useGitPanel(): UseGitPanelResult {
     fetchRemote,
     isLoading,
     isSyncing,
-    loadCommitDiff,
+    loadCommitFileDiff,
     loadCommitFiles,
     loadHistory,
     pull,

@@ -6,9 +6,12 @@ import type {
 
 /**
  * How a {@link DiffView} gets its content. `strings` is the legacy shape
- * (kept so `git-diff-surface.tsx` / `assistant-tool-approval-notice.tsx`
- * compile and render unchanged); `structured` carries a full
- * {@link StructuredFileDiff} from the changeset diff engine (BST-1111).
+ * (kept so `assistant-tool-approval-notice.tsx`, which has direct old/new
+ * text and no `StructuredFileDiff` to build, compiles and renders
+ * unchanged — the git panel's Changes and History tabs both moved onto
+ * `structured` in BST-1116 W6, retiring their own `strings` call sites);
+ * `structured` carries a full {@link StructuredFileDiff} from the changeset
+ * diff engine (BST-1111).
  */
 export type DiffViewSource =
   | {

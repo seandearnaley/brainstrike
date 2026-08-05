@@ -1,9 +1,13 @@
 /**
  * `ChangesetDiffPane` (BST-1114, W4 Task C): the multi-file diff stack for
  * the Changes surface — the first consumer of `DiffView`'s
- * `{ kind: 'structured', diff }` source (`packages/ui/src/diff-view`); the
- * two prior call sites (`git-diff-surface.tsx`,
- * `assistant-tool-approval-notice.tsx`) both use the legacy `strings` mode.
+ * `{ kind: 'structured', diff }` source (`packages/ui/src/diff-view`). At
+ * the time this was written the git panel's own diff surfaces
+ * (`git-diff-surface.tsx`) still used the legacy `strings` mode via
+ * `parseUnifiedDiff`; BST-1116 W6 converged both the Changes and History
+ * tabs onto `structured` and deleted that reconstruction path entirely —
+ * `assistant-tool-approval-notice.tsx` is now the only remaining `strings`
+ * call site (it has direct old/new text, never a unified diff to parse).
  *
  * Reads `selectedFileKeys` from `changes-store.ts` itself (not modified by
  * this task) and applies `selectRenderedFiles` — an EMPTY selection renders
