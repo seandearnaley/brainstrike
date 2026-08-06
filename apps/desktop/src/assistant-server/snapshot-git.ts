@@ -33,6 +33,16 @@
  * boundary), this module THROWS typed {@link SnapshotGitError}s: its callers
  * are in-process services that must fail operations visibly (plan global
  * constraint 4 — no silent fallbacks).
+ *
+ * CWD IS LOAD-BEARING (empirically confirmed against git 2.x, W7 T0): with an
+ * explicit `--git-dir`, git still PREFIX-SCOPES worktree-relative commands to
+ * the spawn cwd — `add -A` from a SUBDIRECTORY of the work-tree stages only
+ * that subtree, and `ls-tree -r` silently filters its listing to the cwd's
+ * prefix whenever the cwd sits below the repo's effective work-tree
+ * (`core.worktree` is written by `git init --work-tree=…`, so this bites any
+ * ad-hoc spawn, not just staging). That is why {@link createShadowGitPlumbing}
+ * pins EVERY spawn's cwd to the root — never run shadow-git commands through
+ * any other channel with a different cwd.
  */
 import { type ExecFileException, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
