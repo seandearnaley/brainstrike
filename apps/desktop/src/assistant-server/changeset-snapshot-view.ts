@@ -54,6 +54,7 @@ import type {
   StructuredFileDiff,
 } from '@brainstrike/types';
 import { type EditCheckpointDatabase, listRunRangeCheckpoints } from './edit-checkpoint-journal';
+import { snapshotRelativePath } from './snapshot-paths';
 import { isFailedSnapshotCaptureOid, type SnapshotRepository } from './snapshot-repository';
 import type { SnapshotDiffTarget, SnapshotService } from './snapshot-service';
 import {
@@ -693,7 +694,15 @@ export function createSnapshotChangesetResolver(
       if (!attributionResult.ok) {
         return attributionResult;
       }
-      attributionRecords = attributionResult.value;
+      // PATH SHAPE (shared `snapshot-paths.ts` rule): journal rows carry
+      // NORMALIZED workspace paths with a leading slash (`/src/a.ts`) while
+      // snapshot diffs are root-relative (`src/a.ts`) — joined raw, NOTHING
+      // ever matched and every tool edit rendered unattributed in production.
+      attributionRecords = attributionResult.value.map((record) => ({
+        fromPath: record.fromPath === null ? null : snapshotRelativePath(record.fromPath),
+        path: snapshotRelativePath(record.path),
+        rootId: record.rootId,
+      }));
     }
     const records = attributionRecords;
 

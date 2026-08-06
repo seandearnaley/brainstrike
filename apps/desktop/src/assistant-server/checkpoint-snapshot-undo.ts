@@ -51,8 +51,10 @@
  * slash (`/src/a.ts` — `resolveWorkspaceWritePath.workspacePath`), while the
  * shadow-git tree and the restore seam use root-relative paths (`src/a.ts`).
  * Every internal path in this module is the root-relative form via
- * {@link snapshotRelativePath}; without it the seam's absolute-path guard
- * throws and the coverage gate would read every production row as uncovered.
+ * {@link snapshotRelativePath} (shared from `snapshot-paths.ts` — the view's
+ * attribution join needs the same translation); without it the seam's
+ * absolute-path guard throws and the coverage gate would read every
+ * production row as uncovered.
  *
  * UNAVAILABILITY IS DATA, NOT A CLICK-TIME SURPRISE: pre-engine entries
  * (turns with no snapshot rows) and failed-capture turns resolve to a typed
@@ -84,6 +86,7 @@ import {
   stampCheckpointReverted,
 } from './edit-checkpoint-journal';
 import { reindexOutcome } from './rewind-snapshot-engine';
+import { snapshotRelativePath } from './snapshot-paths';
 import { isFailedSnapshotCaptureOid, type SnapshotRepository } from './snapshot-repository';
 import type { ShadowRepoHandle, SnapshotService } from './snapshot-service';
 import {
@@ -125,16 +128,6 @@ function captureFailedReason(rootId: string): string {
 
 function rootUncoveredReason(rootId: string): string {
   return `No turn-start workspace snapshot covers folder "${rootId}" for this turn, so this edit cannot be restored.`;
-}
-
-/**
- * Journal workspace path (`/src/a.ts`, normalized with a leading slash) →
- * root-relative snapshot/tree path (`src/a.ts`). Mirrors
- * `resolveWorkspaceWritePath`'s own relative-path derivation; see the module
- * doc comment's PATH SHAPE note.
- */
-function snapshotRelativePath(workspacePath: string): string {
-  return workspacePath.replace(/^\/+/, '');
 }
 
 /** The COVERAGE GATE's reason (see the module doc comment). */
@@ -381,8 +374,12 @@ async function readDiskState(
 }
 
 /** Expected on-disk state of one path, per the newest journal record of that
- * path in the undo scope. `hash: null` with `existed: true` = existence-only
- * check (a rename destination records no content hash). */
+ * path in the undo scope. `hash: null` with `existed: true` means the record
+ * carries NO verifiable content identity (legacy rename rows from before the
+ * capture site hashed destinations; a dangling-symlink destination) — the
+ * conflict gate treats that as a conflict, never as existence-only
+ * acceptance, because accepting an unverifiable content-bearing path would
+ * let an unforced undo clobber post-edit user changes (W7 review P1). */
 interface ExpectedDiskState {
   readonly existed: boolean;
   readonly hash: string | null;
@@ -423,8 +420,15 @@ function diskMatches(
   if (current.existed !== expected.existed) {
     return false;
   }
-  if (expected.hash === null) {
+  if (!expected.existed) {
+    // Both absent: nothing content-bearing to verify.
     return true;
+  }
+  if (expected.hash === null) {
+    // A present path with no recorded content identity is NOT verifiable —
+    // fail safe as a conflict (see {@link ExpectedDiskState}); `force`
+    // remains the explicit override.
+    return false;
   }
   return current.hash === expected.hash;
 }
@@ -437,9 +441,19 @@ function failure(
   return { code, id, message, ok: false };
 }
 
+/** `handledPaths` key — (rootId, root-relative path). Keying by path ALONE
+ * collapsed the same relative path across two mounted roots: the second
+ * root's record found no pending paths and was stamped reverted WITHOUT
+ * restoring its file — a silent cross-root skip the multi-root bar forbids
+ * (W7 review P1). */
+function handledPathKey(rootId: string, relativePath: string): string {
+  return `${rootId}\0${relativePath}`;
+}
+
 interface UndoExecutionScope {
   readonly force: boolean;
-  /** Paths already restored to turn-start earlier in this undo batch. */
+  /** {@link handledPathKey} keys already restored to turn-start earlier in
+   * this undo batch — per (rootId, path), never per bare path. */
   readonly handledPaths: Set<string>;
   readonly rootPathsById: ReadonlyMap<string, string>;
   /** Turn-start tree path→oid maps, memoized per `rootId\0oid` (the COVERAGE
@@ -503,7 +517,7 @@ async function undoRecordAgainstTurnStart(
     );
   }
   const pendingPaths = [...expected.states.keys()].filter(
-    (candidate) => !scope.handledPaths.has(candidate)
+    (candidate) => !scope.handledPaths.has(handledPathKey(record.rootId, candidate))
   );
   if (pendingPaths.length > 0) {
     const handle = await deps.snapshotService.ensureShadowRepo({
@@ -597,7 +611,7 @@ async function restorePendingPaths(
       continue;
     }
     await reindexOutcome(deps.reindex, handle.rootPath, record.rootId, outcome);
-    scope.handledPaths.add(outcome.path);
+    scope.handledPaths.add(handledPathKey(record.rootId, outcome.path));
   }
   return failedMessage;
 }

@@ -222,11 +222,14 @@ function outcomeSummary(outcome: AssistantRewindFileOutcome): string {
 }
 
 /**
- * PAIRING RULE ENFORCEMENT (rule 2). Every restored root must have recorded
- * exactly one `pre-revert` snapshot row under `revertId` — the redo source. A
- * mismatch means a root was mutated without a snapshot to undo it, which
- * makes redo silently lossy — so it throws rather than returning a result
- * that looks fine.
+ * PAIRING RULE ENFORCEMENT (rule 2). Every root whose restore reached the
+ * byte-moving step must have recorded exactly one `pre-revert` snapshot row
+ * under `revertId` — the redo source (`preRevertRecorded` flips true at the
+ * ledger insert, strictly BEFORE any byte of that root moves; a root whose
+ * restore FAILED while still false was never mutated and rightly has no
+ * row). A mismatch means a root was mutated without a snapshot to undo it,
+ * which makes redo silently lossy — so it throws rather than returning a
+ * result that looks fine.
  *
  * `rewindId` is carried in the thrown message (never dropped) even though the
  * tombstone batch and the files are already committed by the time this fires:
@@ -239,13 +242,14 @@ async function assertPreRevertPairing(
   threadId: string,
   rewindId: string,
   revertId: string,
-  restoredRootCount: number
+  results: readonly SnapshotRestoreRootResult[]
 ): Promise<void> {
+  const expected = results.filter((result) => result.preRevertRecorded).length;
   const rows = await deps.snapshotRepository.snapshotsForThread(threadId);
   const recorded = rows.filter((row) => row.kind === 'pre-revert' && row.runId === revertId).length;
-  if (recorded !== restoredRootCount) {
+  if (recorded !== expected) {
     throw new Error(
-      `rewind-pairing-violation: rewind "${rewindId}" revert batch "${revertId}" restored ${restoredRootCount} root(s) but recorded ${recorded} pre-revert snapshot(s); redo would be lossy.`
+      `rewind-pairing-violation: rewind "${rewindId}" revert batch "${revertId}" restored ${expected} root(s) but recorded ${recorded} pre-revert snapshot(s); redo would be lossy.`
     );
   }
 }
@@ -477,7 +481,7 @@ async function applyFilesRestore(
     roots: args.connected,
     threadId: args.threadId,
   });
-  await assertPreRevertPairing(deps, args.threadId, args.rewindId, revertId, args.connected.length);
+  await assertPreRevertPairing(deps, args.threadId, args.rewindId, revertId, results);
   clearPreviewFingerprint(args.threadId, args.messageId);
   return {
     fileOutcomes: results.flatMap((result) => result.fileOutcomes),

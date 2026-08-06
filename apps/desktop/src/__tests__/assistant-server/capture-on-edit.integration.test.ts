@@ -8,6 +8,7 @@
  * DB-unavailable capture is a non-fatal no-op.
  */
 
+import { createHash } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -51,6 +52,7 @@ function runtime(): RuntimeData {
 const runContext = (toolCallId: string) => ({ agent: { toolCallId } });
 
 interface CheckpointRow {
+  after_hash: string | null;
   before_existed: boolean;
   capture_status: string;
   from_path: string | null;
@@ -63,7 +65,7 @@ interface CheckpointRow {
 
 async function listCheckpoints(): Promise<CheckpointRow[]> {
   const result = (await db.query(
-    `SELECT op, path, from_path, before_existed, capture_status, tool_call_id, run_id, thread_id
+    `SELECT op, path, from_path, after_hash, before_existed, capture_status, tool_call_id, run_id, thread_id
      FROM brainstrike_assistant_edit_checkpoints ORDER BY occurred_at ASC, id ASC`
   )) as { rows: CheckpointRow[] };
   return result.rows;
@@ -184,7 +186,7 @@ describe('edit checkpoint capture on string_replace / delete / rename', () => {
     expect(rows[0]).toMatchObject({ capture_status: 'ok', op: 'delete', path: '/c.ts' });
   });
 
-  it('records a rename checkpoint carrying from_path', async () => {
+  it('records a rename checkpoint carrying from_path AND the destination content hash', async () => {
     await writeDisk('old.ts', 'x\n');
     const tools = buildDesktopAssistantTools(runtime());
     await tools['brainstrike.renameWorkspaceFile']?.execute?.(
@@ -198,6 +200,10 @@ describe('edit checkpoint capture on string_replace / delete / rename', () => {
       op: 'rename',
       path: '/new.ts',
     });
+    // The destination hash is the undo conflict gate's verifiability anchor:
+    // a null here would make every rename undo unverifiable ⇒ conflict-only
+    // (W7 review P1 — existence-only acceptance clobbered post-rename edits).
+    expect(rows[0]?.after_hash).toBe(createHash('sha256').update('x\n').digest('hex'));
   });
 });
 

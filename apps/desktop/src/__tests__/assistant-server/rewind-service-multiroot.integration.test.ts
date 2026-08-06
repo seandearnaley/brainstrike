@@ -299,4 +299,59 @@ describe('applyRewind — multi-root range', () => {
     // And its disk is untouched.
     expect(await readDiskFile(rootPath(PLAIN_C), '/notes/scratch.md')).toBe('c-v1');
   });
+
+  it('a mid-loop restore throw becomes an honest per-root failed outcome — the batch and recorded pre-reverts survive and redo works', async () => {
+    await seedThreeRootHistory();
+    await previewFor('msg-2');
+
+    // Shadow-git dies for REPO_B's pre-revert capture only — the other roots
+    // must restore, the tombstone batch must survive, and the result must be
+    // the structured per-root roll-up, never an unstructured throw that
+    // strands the batch with no redo handle.
+    const failingDeps: RewindServiceDeps = {
+      ...deps,
+      snapshotService: {
+        ...deps.snapshotService,
+        snapshot: (handle, meta) => {
+          if (handle.rootId === REPO_B && meta.kind === 'pre-revert') {
+            return Promise.reject(new Error('shadow git unavailable for repo B'));
+          }
+          return deps.snapshotService.snapshot(handle, meta);
+        },
+      },
+    };
+
+    const result = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-2', mode: 'conversation-and-files', threadId: THREAD_ID },
+      failingDeps
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    // The healthy roots restored; the failing root's disk is UNTOUCHED (its
+    // throw came before any byte of it moved).
+    expect(await readDiskFile(rootPath(REPO_A), '/src/index.ts')).toBe('a-v0');
+    expect(await readDiskFile(rootPath(PLAIN_C), '/notes/scratch.md')).toBe('c-v0');
+    expect(await readDiskFile(rootPath(REPO_B), '/src/index.ts')).toBe('b-v1');
+    // The batch exists and the failure is a NAMED per-root outcome.
+    expect(result.tombstonedMessageIds.length).toBeGreaterThan(0);
+    const byRoot = new Map(result.rootOutcomes.map((outcome) => [outcome.rootId, outcome]));
+    expect(byRoot.get(REPO_B)).toEqual(
+      expect.objectContaining({ failed: 1, reverted: 0, rootId: REPO_B })
+    );
+    const failedOutcome = result.fileOutcomes.find(
+      (outcome) => outcome.rootId === REPO_B && outcome.code !== 'reverted'
+    );
+    expect(failedOutcome?.message).toContain('shadow git unavailable for repo B');
+
+    // Redo remains possible over the roots whose pre-revert snapshots WERE
+    // recorded; the failed root (never mutated) stays as the user left it.
+    const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, deps);
+    expect(redone.ok).toBe(true);
+    expect(await readDiskFile(rootPath(REPO_A), '/src/index.ts')).toBe('a-v2');
+    expect(await readDiskFile(rootPath(PLAIN_C), '/notes/scratch.md')).toBe('c-v1');
+    expect(await readDiskFile(rootPath(REPO_B), '/src/index.ts')).toBe('b-v1');
+  });
 });

@@ -518,7 +518,89 @@ export async function reindexOutcome(
 export interface SnapshotRestoreRootResult {
   readonly fileOutcomes: readonly AssistantRewindFileOutcome[];
   readonly planActionCount: number;
+  /** True once this root's `pre-revert` ledger row was recorded — the redo
+   * source. The pairing rule's scope: bytes only ever move AFTER this flips
+   * true, so a root that failed while still false was never mutated and
+   * rightly has no pre-revert row. `rewind-service` asserts the recorded row
+   * count against the flagged count. */
+  readonly preRevertRecorded: boolean;
   readonly root: CoveredRewindRoot;
+}
+
+interface SnapshotRestoreArgs {
+  readonly reindex: (action: CheckpointReindexAction) => Promise<void>;
+  readonly revertId: string;
+  readonly roots: readonly CoveredRewindRoot[];
+  readonly threadId: string;
+}
+
+/** The honest per-root outcome for a restore that THREW (W7 review P1):
+ * named, `not_revertible`, and explicit about whether redo has a source. It
+ * must reach the aggregated result — an escaping throw after the tombstone
+ * batch committed left the messages hidden with no applied result and no
+ * `rewindId` for the renderer's redo affordance. */
+function rootRestoreFailureOutcome(
+  root: CoveredRewindRoot,
+  error: unknown,
+  preRevertRecorded: boolean
+): AssistantRewindFileOutcome {
+  const reason = error instanceof Error ? error.message : String(error);
+  const recovery = preRevertRecorded
+    ? 'Its pre-revert snapshot was recorded, so redo can still undo any partial restore.'
+    : 'No file in this folder was changed.';
+  return {
+    checkpointId: snapshotConflictId(root.rootId, root.rootPath),
+    code: 'not_revertible',
+    message: `the snapshot restore for workspace folder "${root.rootPath}" failed before completion: ${reason}. ${recovery}`,
+    path: root.rootPath,
+    rootId: root.rootId,
+  };
+}
+
+/** One root's restore (steps 1–4 of {@link executeSnapshotRestore}); throws
+ * are the CALLER's per-root containment. */
+async function restoreOneRoot(
+  deps: RewindSnapshotDeps,
+  args: SnapshotRestoreArgs,
+  root: CoveredRewindRoot,
+  onPreRevertRecorded: () => void
+): Promise<SnapshotRestoreRootResult> {
+  const handle = await deps.snapshotService.ensureShadowRepo({
+    path: root.rootPath,
+    rootId: root.rootId,
+  });
+  const { commitOid: preRevertOid } = await deps.snapshotService.snapshot(handle, {
+    kind: 'pre-revert',
+    runId: args.revertId,
+    threadId: args.threadId,
+  });
+  await deps.snapshotRepository.insertSnapshot({
+    commitOid: preRevertOid,
+    kind: 'pre-revert',
+    rootId: root.rootId,
+    rootPath: handle.rootPath,
+    runId: args.revertId,
+    threadId: args.threadId,
+  });
+  onPreRevertRecorded();
+  const plan = await deps.snapshotService.computeRestorePlan(
+    handle,
+    root.turnStartOid,
+    preRevertOid
+  );
+  const expected = await deps.snapshotService.snapshotFileHashes(handle, preRevertOid);
+  const outcomes = await deps.snapshotService.applyRestorePlan(handle, plan, {
+    expectedPreRevertHashes: expected,
+  });
+  for (const outcome of outcomes) {
+    await reindexOutcome(args.reindex, handle.rootPath, root.rootId, outcome);
+  }
+  return {
+    fileOutcomes: outcomes.map((outcome) => fileOutcomeFromPerFile(root.rootId, outcome)),
+    planActionCount: plan.actions.length,
+    preRevertRecorded: true,
+    root,
+  };
 }
 
 /**
@@ -536,52 +618,43 @@ export interface SnapshotRestoreRootResult {
  *     in after step 1, which surfaces as a per-path `conflict` outcome (and
  *     is captured by the step-1 snapshot, so redo can restore it).
  *  4. Reindex side effects per outcome, same seam as before the swap.
+ *
+ * PER-ROOT CONTAINMENT (W7 review P1): a throw from any step — shadow-git
+ * error, a root becoming unavailable mid-loop — is caught HERE and becomes
+ * that root's honest `not_revertible` outcome; the remaining roots still
+ * restore. It must never escape: the caller has already committed the
+ * tombstone batch, so an escaping throw strands hidden messages with no
+ * structured result, no `rewindId` for redo, and earlier roots already
+ * restored behind an error message.
  */
 export async function executeSnapshotRestore(
   deps: RewindSnapshotDeps,
-  args: {
-    readonly reindex: (action: CheckpointReindexAction) => Promise<void>;
-    readonly revertId: string;
-    readonly roots: readonly CoveredRewindRoot[];
-    readonly threadId: string;
-  }
+  args: SnapshotRestoreArgs
 ): Promise<readonly SnapshotRestoreRootResult[]> {
   const results: SnapshotRestoreRootResult[] = [];
   for (const root of args.roots) {
-    const handle = await deps.snapshotService.ensureShadowRepo({
-      path: root.rootPath,
-      rootId: root.rootId,
-    });
-    const { commitOid: preRevertOid } = await deps.snapshotService.snapshot(handle, {
-      kind: 'pre-revert',
-      runId: args.revertId,
-      threadId: args.threadId,
-    });
-    await deps.snapshotRepository.insertSnapshot({
-      commitOid: preRevertOid,
-      kind: 'pre-revert',
-      rootId: root.rootId,
-      rootPath: handle.rootPath,
-      runId: args.revertId,
-      threadId: args.threadId,
-    });
-    const plan = await deps.snapshotService.computeRestorePlan(
-      handle,
-      root.turnStartOid,
-      preRevertOid
-    );
-    const expected = await deps.snapshotService.snapshotFileHashes(handle, preRevertOid);
-    const outcomes = await deps.snapshotService.applyRestorePlan(handle, plan, {
-      expectedPreRevertHashes: expected,
-    });
-    for (const outcome of outcomes) {
-      await reindexOutcome(args.reindex, handle.rootPath, root.rootId, outcome);
+    let preRevertRecorded = false;
+    try {
+      results.push(
+        await restoreOneRoot(deps, args, root, () => {
+          preRevertRecorded = true;
+        })
+      );
+    } catch (error) {
+      logger.error('Rewind snapshot restore failed for a root; recorded as a per-root outcome', {
+        error: error instanceof Error ? error.message : String(error),
+        preRevertRecorded,
+        revertId: args.revertId,
+        rootId: root.rootId,
+        threadId: args.threadId,
+      });
+      results.push({
+        fileOutcomes: [rootRestoreFailureOutcome(root, error, preRevertRecorded)],
+        planActionCount: 0,
+        preRevertRecorded,
+        root,
+      });
     }
-    results.push({
-      fileOutcomes: outcomes.map((outcome) => fileOutcomeFromPerFile(root.rootId, outcome)),
-      planActionCount: plan.actions.length,
-      root,
-    });
   }
   return results;
 }
@@ -797,6 +870,10 @@ export async function applySnapshotRedoPlans(
         fileOutcomeFromPerFile(rootPlan.root.rootId, outcome)
       ),
       planActionCount: rootPlan.plan.actions.length,
+      // Redo RESTORES FROM the recorded pre-revert snapshot — the row's
+      // existence is this plan's precondition (`resolveRedoRoots`), not
+      // something redo records.
+      preRevertRecorded: true,
       root: {
         label: rootPlan.root.label,
         rootId: rootPlan.root.rootId,

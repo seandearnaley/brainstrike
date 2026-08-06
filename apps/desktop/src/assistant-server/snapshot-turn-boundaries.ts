@@ -195,7 +195,14 @@ export function createTurnBoundaryController(
     return outcomes;
   }
 
-  /** Close a turn: turn-end capture over the turn's own roots, then registry close. */
+  /**
+   * Close a turn: turn-end capture over the turn's own roots, then registry
+   * close. `runId` MUST belong to the turn being closed (its terminal leg, or
+   * its newest observed leg for an abandoned close) — turn-end rows carry it
+   * as the bracket's `endRunId`, and stamping a run id from a DIFFERENT turn
+   * makes that id ambiguous across brackets (the wrong-bracket resolution
+   * class: undo restoring against the previous turn's baseline).
+   */
   async function closeOpenTurn(threadId: string, runId: string): Promise<void> {
     const open = registry.openTurn(threadId);
     if (!open) {
@@ -207,6 +214,19 @@ export function createTurnBoundaryController(
     }));
     const endOutcomes = await captureBoundary('turn-end', threadId, runId, roots);
     registry.closeTurn(threadId, endOutcomes, runId);
+  }
+
+  /** The turn's newest observed leg id (`runIds` preserves insertion order;
+   * the set always contains at least the first leg). */
+  function newestRunIdOf(turn: {
+    readonly firstRunId: string;
+    readonly runIds: ReadonlySet<string>;
+  }): string {
+    let newest = turn.firstRunId;
+    for (const runId of turn.runIds) {
+      newest = runId;
+    }
+    return newest;
   }
 
   /**
@@ -304,8 +324,13 @@ export function createTurnBoundaryController(
           return;
         }
         // The previous turn paused and was abandoned (its resume never came).
-        // Close it honestly at this boundary before the new turn starts.
-        await closeOpenTurn(params.threadId, params.runId);
+        // Close it honestly at this boundary before the new turn starts —
+        // under ITS OWN newest leg id, never the incoming leg's: stamping
+        // `params.runId` here made one run id both turn N's `endRunId` and
+        // turn N+1's `startRunId`, and bracket resolution then resolved the
+        // NEW turn's runs backwards into the abandoned bracket (wrong
+        // baseline for undo/changesets/GC floors).
+        await closeOpenTurn(params.threadId, newestRunIdOf(open));
       }
       const startOutcomes = await captureBoundary(
         'turn-start',

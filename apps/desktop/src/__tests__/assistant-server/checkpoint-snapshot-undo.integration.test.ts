@@ -285,6 +285,10 @@ describe('undoCheckpointEntry', () => {
     const record = await recordEditCheckpoint(
       db,
       journalInput({
+        // The capture site hashes the rename DESTINATION (same bytes the
+        // rename moved) so the conflict gate can verify it — see the
+        // destination-edited fixture below for why null is not acceptable.
+        afterHash: await hashOf('contents\n'),
         beforeHash: null,
         captureStatus: 'rename',
         fromPath: 'old-name.txt',
@@ -297,6 +301,80 @@ describe('undoCheckpointEntry', () => {
     expect(result.ok).toBe(true);
     expect(await readOrNull('old-name.txt')).toBe('contents\n');
     expect(await readOrNull('new-name.txt')).toBeNull();
+  });
+
+  it('refuses (conflict) a rename undo when the destination was EDITED after the rename — hashed row', {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    await write('old-name.txt', 'contents\n');
+    await recordTurnStart();
+    await fsPromises.rename(
+      path.join(rootPath, 'old-name.txt'),
+      path.join(rootPath, 'new-name.txt')
+    );
+    const record = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: await hashOf('contents\n'),
+        beforeHash: null,
+        captureStatus: 'rename',
+        fromPath: 'old-name.txt',
+        op: 'rename',
+        path: 'new-name.txt',
+      })
+    );
+    // The user keeps working in the renamed file — an unforced undo must not
+    // delete those edits while restoring the source.
+    await write('new-name.txt', 'contents\nplus user edits\n');
+
+    const refused = await undoCheckpointEntry(db, { id: record.id }, undoDeps());
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.code).toBe('conflict');
+    }
+    expect(await readOrNull('new-name.txt')).toBe('contents\nplus user edits\n');
+    expect(await readOrNull('old-name.txt')).toBeNull();
+
+    const forced = await undoCheckpointEntry(db, { force: true, id: record.id }, undoDeps());
+    expect(forced.ok).toBe(true);
+    expect(await readOrNull('old-name.txt')).toBe('contents\n');
+    expect(await readOrNull('new-name.txt')).toBeNull();
+  });
+
+  it('treats a NULL afterHash on a present rename destination as unverifiable ⇒ conflict (never existence-only)', {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    // Legacy rows (recorded before the capture site hashed rename
+    // destinations) carry `afterHash: null`. Existence-only acceptance would
+    // clobber post-rename user edits — the W7 review's P1. Fail-safe:
+    // unverifiable ⇒ conflict, force still available.
+    await write('old-name.txt', 'contents\n');
+    await recordTurnStart();
+    await fsPromises.rename(
+      path.join(rootPath, 'old-name.txt'),
+      path.join(rootPath, 'new-name.txt')
+    );
+    const record = await recordEditCheckpoint(
+      db,
+      journalInput({
+        afterHash: null,
+        beforeHash: null,
+        captureStatus: 'rename',
+        fromPath: 'old-name.txt',
+        op: 'rename',
+        path: 'new-name.txt',
+      })
+    );
+    await write('new-name.txt', 'contents\nplus user edits\n');
+
+    const refused = await undoCheckpointEntry(db, { id: record.id }, undoDeps());
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.code).toBe('conflict');
+    }
+    // The un-forced refusal left the user's edits alone.
+    expect(await readOrNull('new-name.txt')).toBe('contents\nplus user edits\n');
+    expect(await readOrNull('old-name.txt')).toBeNull();
   });
 
   it('refuses with a conflict when the file changed after the edit, and force overrides', {
@@ -542,6 +620,83 @@ describe('undoCheckpointRun', () => {
 
     const remaining = await undoCheckpointRun(db, { runId: RUN }, undoDeps());
     expect(remaining.outcomes).toHaveLength(0);
+  });
+
+  it('restores the SAME relative path in TWO roots independently (multi-root bar; no cross-root handled-path collapse)', {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    // Second mounted root sharing the relative path `src/config.ts` with the
+    // first. Keying handled paths by path ALONE collapses the two: the second
+    // root's record finds "nothing pending", stamps reverted, and leaves its
+    // file modified — a silent skip the multi-root bar forbids.
+    const rootIdB = 'root-undo-b';
+    const rootPathB = await fsPromises.realpath(
+      await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-undo-root-b-'))
+    );
+    try {
+      await db.query(
+        `INSERT INTO roots (id, kind, display_name, path, status, created_at)
+         VALUES ($1, 'path', 'Undo Project B', $2, 'live', $3)`,
+        [rootIdB, rootPathB, new Date().toISOString()]
+      );
+      const handleB = await service.ensureShadowRepo({ path: rootPathB, rootId: rootIdB });
+
+      await write('src/config.ts', 'a-turn-start\n');
+      await fsPromises.mkdir(path.join(rootPathB, 'src'), { recursive: true });
+      await fsPromises.writeFile(path.join(rootPathB, 'src/config.ts'), 'b-turn-start\n', 'utf8');
+      await recordTurnStart();
+      const { commitOid: startB } = await service.snapshot(handleB, {
+        kind: 'turn-start',
+        runId: RUN,
+        threadId: THREAD,
+      });
+      await repository.insertSnapshot({
+        commitOid: startB,
+        kind: 'turn-start',
+        rootId: rootIdB,
+        rootPath: handleB.rootPath,
+        runId: RUN,
+        threadId: THREAD,
+      });
+
+      const base = Date.now();
+      await write('src/config.ts', 'a-edited\n');
+      await recordEditCheckpoint(
+        db,
+        journalInput({
+          afterHash: await hashOf('a-edited\n'),
+          occurredAt: new Date(base + 1000),
+          path: 'src/config.ts',
+          toolCallId: 'call-a',
+        })
+      );
+      await fsPromises.writeFile(path.join(rootPathB, 'src/config.ts'), 'b-edited\n', 'utf8');
+      await recordEditCheckpoint(
+        db,
+        journalInput({
+          afterHash: await hashOf('b-edited\n'),
+          occurredAt: new Date(base + 2000),
+          path: 'src/config.ts',
+          rootId: rootIdB,
+          toolCallId: 'call-b',
+        })
+      );
+
+      const result = await undoCheckpointRun(db, { runId: RUN }, undoDeps());
+      expect(result.outcomes).toHaveLength(2);
+      expect(result.outcomes.every((outcome) => outcome.ok)).toBe(true);
+      // BOTH roots' files are back at turn start — per-root outcomes, never a
+      // cross-root skip.
+      expect(await readOrNull('src/config.ts')).toBe('a-turn-start\n');
+      expect(await fsPromises.readFile(path.join(rootPathB, 'src/config.ts'), 'utf8')).toBe(
+        'b-turn-start\n'
+      );
+      // One restore reindex per root.
+      const restores = reindexActions.filter((action) => action.kind === 'restore');
+      expect(restores.map((action) => action.rootId).sort()).toEqual([ROOT_ID, rootIdB].sort());
+    } finally {
+      await fsPromises.rm(rootPathB, { force: true, recursive: true });
+    }
   });
 });
 

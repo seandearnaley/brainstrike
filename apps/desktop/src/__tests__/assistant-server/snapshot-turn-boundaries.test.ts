@@ -292,9 +292,72 @@ describe('turn-boundary triggers — turn lifecycle', () => {
       'turn-start',
       'turn-start',
     ]);
+    // The abandoned turn closes under ITS OWN identity: its turn-end rows
+    // carry the abandoned turn's last leg id (run-1), NEVER the incoming
+    // leg's (run-9) — otherwise run-9 would be both turn 1's `endRunId` and
+    // turn 2's `startRunId`, and bracket resolution would resolve run-9
+    // BACKWARDS into the abandoned turn (a wrong-baseline restore for undo).
+    expect(rows.map((row) => row.runId)).toEqual([
+      'run-1',
+      'run-1',
+      'run-1',
+      'run-1',
+      'run-9',
+      'run-9',
+    ]);
     const state = registry.openTurn(THREAD);
     expect(state?.anchorMessageId).toBe('msg-2');
     expect(state?.firstRunId).toBe('run-9');
+  });
+
+  it('an abandoned turn that had a RESUME leg closes under its NEWEST own leg id', async () => {
+    const { controller, rows } = makeController();
+    await controller.beginLeg({
+      anchorMessageId: 'msg-1',
+      isResume: false,
+      roots: [...ROOTS],
+      runId: 'run-1',
+      threadId: THREAD,
+    });
+    await controller.completeLeg({
+      paused: true,
+      runId: 'run-1',
+      status: 'completed',
+      threadId: THREAD,
+    });
+    // A resume leg arrives (run-2), pauses again, and is then abandoned.
+    await controller.beginLeg({
+      anchorMessageId: 'msg-1',
+      isResume: true,
+      roots: [...ROOTS],
+      runId: 'run-2',
+      threadId: THREAD,
+    });
+    await controller.completeLeg({
+      paused: true,
+      runId: 'run-2',
+      status: 'completed',
+      threadId: THREAD,
+    });
+
+    await controller.beginLeg({
+      anchorMessageId: 'msg-2',
+      isResume: false,
+      roots: [...ROOTS],
+      runId: 'run-9',
+      threadId: THREAD,
+    });
+
+    // The close is stamped with run-2 — the abandoned turn's newest leg —
+    // keeping the ledger's run ids disjoint across brackets.
+    expect(rows.map((row) => `${row.kind}:${row.runId}`)).toEqual([
+      'turn-start:run-1',
+      'turn-start:run-1',
+      'turn-end:run-2',
+      'turn-end:run-2',
+      'turn-start:run-9',
+      'turn-start:run-9',
+    ]);
   });
 });
 

@@ -232,7 +232,11 @@ describe('changeset-snapshot-view — multi-root settled turn (the headline bar)
         attributionRecords: [
           // The assistant tool journaled ONLY the gitA edit; the gitB file
           // was a direct fs write (shell side effect) and gets no record.
-          { fromPath: null, path: 'src/index.ts', rootId: 'root-a' },
+          // PRODUCTION PATH SHAPE: journal rows record NORMALIZED workspace
+          // paths with a LEADING SLASH (`resolveWorkspaceWritePath`), while
+          // snapshot diffs are root-relative — the join must normalize, or
+          // `toolAttributed` is false for every tool edit in production.
+          { fromPath: null, path: '/src/index.ts', rootId: 'root-a' },
         ],
       });
 

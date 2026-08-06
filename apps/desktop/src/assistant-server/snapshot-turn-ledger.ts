@@ -113,13 +113,25 @@ export function resolveSnapshotTurnBrackets(
   return brackets.map(freeze);
 }
 
-/** The bracket whose start OR end run id equals `runId`, or null. */
+/**
+ * The bracket whose start run id equals `runId`, else the one whose end run
+ * id does, or null. The START match is checked across ALL brackets first —
+ * never with equal priority in one oldest-first scan: ledgers written before
+ * the abandoned-turn close fix stamped the INCOMING leg's id on the old
+ * turn's `turn-end` rows, making one id both turn N's `endRunId` and turn
+ * N+1's `startRunId`. An equal-priority scan resolved that id BACKWARDS into
+ * the abandoned turn — and checkpoint undo derives its restore baseline from
+ * this lookup, so the backwards match was a wrong-baseline destructive
+ * restore, not a display bug.
+ */
 export function findBracketByRunId(
   brackets: readonly SnapshotTurnBracket[],
   runId: string
 ): SnapshotTurnBracket | null {
   return (
-    brackets.find((bracket) => bracket.startRunId === runId || bracket.endRunId === runId) ?? null
+    brackets.find((bracket) => bracket.startRunId === runId) ??
+    brackets.find((bracket) => bracket.endRunId === runId) ??
+    null
   );
 }
 

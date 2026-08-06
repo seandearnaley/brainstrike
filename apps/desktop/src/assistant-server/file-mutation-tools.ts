@@ -542,10 +542,17 @@ export async function runRenameWorkspaceFile(
 
     // Journal the attribution row: a rename has no content change; the undo
     // restores the source and deletes the destination from the turn-start
-    // snapshot. fromPath = original source.
+    // snapshot. fromPath = original source. The DESTINATION's content hash IS
+    // recorded (same bytes the rename moved): the undo's conflict gate needs
+    // it to detect post-rename user edits before deleting the destination —
+    // a null hash on a present path reads as unverifiable ⇒ conflict there.
+    // For a symlink source, `captureBeforeState` stats THROUGH the link, the
+    // same way the gate's own disk read follows it (consistent identity); a
+    // dangling link hashes as absent ⇒ null ⇒ the gate stays fail-safe.
+    const afterState = await captureBeforeState(toResolved.absolutePath);
     await recordEditCheckpointForTool({
       afterExisted: true,
-      afterHash: null,
+      afterHash: afterState.kind === 'present' ? afterState.hash : null,
       before: {
         beforeExisted: true,
         beforeHash: null,
