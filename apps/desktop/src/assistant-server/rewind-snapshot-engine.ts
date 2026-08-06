@@ -74,7 +74,11 @@ import { resolveWorkspaceWritePath } from '../secure-file-write';
 import type { CheckpointReindexAction } from './checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import { resolveEarliestBatchTarget, resolveRewindRunRange } from './rewind-repository';
-import type { SnapshotRepository, WorkspaceSnapshotRow } from './snapshot-repository';
+import {
+  isFailedSnapshotCaptureOid,
+  type SnapshotRepository,
+  type WorkspaceSnapshotRow,
+} from './snapshot-repository';
 import type { PerFileOutcome, ShadowRepoHandle, SnapshotService } from './snapshot-service';
 import { loadWorkspaceRootsFromDatabase } from './workspace-roots';
 
@@ -126,6 +130,32 @@ const REWIND_TURN_PREDATES_SNAPSHOTS_MESSAGE =
 
 function snapshotMissingMessage(detail: string): string {
   return `No workspace snapshot covers this turn (${detail}), so its files cannot be restored for this range. Only the conversation can be restored.`;
+}
+
+/**
+ * SENTINEL GUARD (BST-1164 review): a failed turn-start capture is recorded as
+ * a ledger row whose oid is the all-zero {@link isFailedSnapshotCaptureOid}
+ * sentinel — a valid oid SHAPE naming no object. Every reader of the ledger
+ * must map it to the typed capture-failed refusal (the carried ruling;
+ * `changeset-snapshot-view.ts` does the same in `oidOfRow`) — handing it to
+ * git instead surfaces as a raw "bad object" error where the contract promises
+ * a `snapshot-missing` refusal with conversation-only still available.
+ */
+function failedCaptureMessage(rootIds: readonly string[]): string {
+  const names = [...rootIds]
+    .sort()
+    .map((rootId) => `"${rootId}"`)
+    .join(', ');
+  return snapshotMissingMessage(
+    `the turn-start snapshot capture failed for workspace folder(s) ${names} when it was attempted`
+  );
+}
+
+/** Root ids whose turn-start row is the failed-capture sentinel. */
+function failedCaptureRootIds(byRoot: ReadonlyMap<string, WorkspaceSnapshotRow>): string[] {
+  return [...byRoot.entries()]
+    .filter(([, row]) => isFailedSnapshotCaptureOid(row.commitOid))
+    .map(([rootId]) => rootId);
 }
 
 /**
@@ -183,6 +213,13 @@ export async function resolveFilesCoverage(
         `no turn-start snapshot was recorded for run "${fromRunId}" — its capture failed or the turn predates snapshot capture`
       ),
     };
+  }
+  // A recorded-but-FAILED capture (sentinel oid) is a refusal, never a
+  // baseline: the sentinel names no git object, so "covered" with it would
+  // throw a raw git error out of the preview instead of the typed refusal.
+  const failedRoots = failedCaptureRootIds(byRoot);
+  if (failedRoots.length > 0) {
+    return { kind: 'snapshot-missing', message: failedCaptureMessage(failedRoots) };
   }
   const connectedRoots = await loadWorkspaceRootsFromDatabase(db);
   const uncovered = connectedRoots.filter((root) => !byRoot.has(root.rootId));
@@ -632,6 +669,14 @@ export async function resolveRedoRoots(
       return {
         kind: 'snapshot-missing',
         message: `no turn-start snapshot for root "${rootId}" backs this rewind, so what it restored cannot be re-derived; its files cannot be restored. The batch was left in place.`,
+      };
+    }
+    // Same sentinel guard as `resolveFilesCoverage`: a failed-capture row is a
+    // typed refusal, never an oid the redo plan may hand to git.
+    if (isFailedSnapshotCaptureOid(turnStart.commitOid)) {
+      return {
+        kind: 'snapshot-missing',
+        message: `the turn-start snapshot capture for root "${rootId}" failed when it was attempted, so what this rewind restored cannot be re-derived; its files cannot be restored. The batch was left in place.`,
       };
     }
     const live = connectedRoots.get(rootId);

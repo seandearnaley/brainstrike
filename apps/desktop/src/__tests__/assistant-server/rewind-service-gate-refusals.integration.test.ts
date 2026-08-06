@@ -36,6 +36,7 @@ vi.mock('../../db-main', () => ({
 
 import type { RewindServiceDeps } from '../../assistant-server/rewind-service';
 import { applyRewind, redoRewind, rewindToMessage } from '../../assistant-server/rewind-service';
+import { FAILED_SNAPSHOT_CAPTURE_OID } from '../../assistant-server/snapshot-repository';
 import {
   cleanupTempDirs,
   createReindexProbe,
@@ -336,6 +337,104 @@ describe('redoRewind — partial-failure honesty', () => {
     expect(retried.ok).toBe(true);
     expect(await readDiskFile(root(ROOT_B), '/b.txt')).toBe('b1');
     expect(await tombstoneRows()).toEqual([]);
+  });
+});
+
+describe('failed-capture sentinel rows (BST-1164 review — never hand the sentinel to git)', () => {
+  /** Turn 1's capture FAILED for root A (the trigger recorded the all-zero
+   * sentinel row); root B captured fine. */
+  async function seedSentinelTurnOne(): Promise<void> {
+    await harness.repository.insertSnapshot({
+      commitOid: FAILED_SNAPSHOT_CAPTURE_OID,
+      kind: 'turn-start',
+      rootId: ROOT_A,
+      rootPath: root(ROOT_A),
+      runId: 'run-1',
+      threadId: THREAD_ID,
+    });
+    await seedTurnStartSnapshots(harness, fixture, { rootIds: [ROOT_B], runId: 'run-1' });
+  }
+
+  it('preview refuses the files scope typed (snapshot-missing, capture-failed wording); conversation-only stays offered', async () => {
+    await seedTwoTurnThread();
+    await seedSentinelTurnOne();
+
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'msg-3', threadId: THREAD_ID },
+      deps
+    );
+
+    // The PREVIEW itself succeeds — conversation-only rewind stays available;
+    // only the files scope is refused, with the typed reason (never a raw
+    // git "bad object" thrown out of the diff).
+    expect(preview.ok).toBe(true);
+    if (preview.ok) {
+      expect(preview.filesScope.available).toBe(false);
+      if (preview.filesScope.available === false) {
+        expect(preview.filesScope.reason).toBe('snapshot-missing');
+        expect(preview.filesScope.message).toContain('capture failed');
+      }
+      expect(preview.view).toBeNull();
+    }
+  });
+
+  it('files-mode apply refuses typed with the capture-failed reason; conversation-only still applies', async () => {
+    await seedTwoTurnThread();
+    await seedSentinelTurnOne();
+
+    const filesApply = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      deps
+    );
+    expect(filesApply.ok).toBe(false);
+    if (!filesApply.ok) {
+      expect(filesApply.reason).toBe('snapshot-missing');
+      expect(filesApply.message).toContain('capture failed');
+    }
+    // Nothing was tombstoned or restored by the refused files apply.
+    expect(await tombstoneRows()).toHaveLength(0);
+    expect(probe.calls).toEqual([]);
+
+    const convOnly = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
+      deps
+    );
+    expect(convOnly.ok).toBe(true);
+  });
+
+  it('redo refuses typed when the backing turn-start row is the failed-capture sentinel', async () => {
+    await seedTwoTurnThread();
+    await seedTwoRootHistory();
+    await previewFor('msg-3');
+    const applied = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      deps
+    );
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) {
+      return;
+    }
+    // The damaged ledger shape the review named: the rewind's backing
+    // turn-start rows carry the sentinel oid (their capture failed).
+    await fixture.db.query(
+      `UPDATE brainstrike_workspace_snapshots SET commit_oid = $1
+       WHERE kind = 'turn-start' AND run_id = 'run-1'`,
+      [FAILED_SNAPSHOT_CAPTURE_OID]
+    );
+
+    const redone = await redoRewind(fixture.db, { rewindId: applied.rewindId }, deps);
+
+    expect(redone.ok).toBe(false);
+    if (!redone.ok) {
+      expect(redone.reason).toBe('snapshot-missing');
+      expect(redone.message).toContain('failed when it was attempted');
+    }
+    // The batch stays and the messages stay hidden.
+    expect(await tombstoneRows()).toHaveLength(4);
   });
 });
 
