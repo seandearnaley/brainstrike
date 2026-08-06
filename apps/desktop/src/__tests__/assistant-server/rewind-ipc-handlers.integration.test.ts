@@ -390,7 +390,7 @@ describe('changes:redoRewind', () => {
     const redone = value(await handlers.redoRewind({ rewindId: outcome.rewindId }));
 
     expect(redone.ok).toBe(true);
-    expect(redone.ok === true && redone.restoredMessageIds.sort()).toEqual(['msg-2', 'msg-3']);
+    expect(redone.ok === true && [...redone.restoredMessageIds].sort()).toEqual(['msg-2', 'msg-3']);
     expect(await readDiskFile(rootPath(REPO_A), '/src/index.ts')).toBe('a-v1');
     expect(await readDiskFile(rootPath(REPO_B), '/src/index.ts')).toBe('b-v1');
     expect(await readDiskFile(rootPath(PLAIN_C), '/notes/scratch.md')).toBe('c-v1');

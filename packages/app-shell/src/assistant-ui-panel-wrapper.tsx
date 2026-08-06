@@ -123,10 +123,8 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
-import { useChangesNavigationStore } from './changes/changes-navigation-store';
-import { useRewindStore } from './changes/rewind-store';
 import { useChangeset } from './changes/use-changeset';
-import { useRewindFinalization } from './changes/use-rewind-finalization';
+import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
@@ -162,13 +160,6 @@ export interface AssistantUiPanelWrapperProps {
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
-
-/**
- * Leading+trailing throttle window for the live "Last Turn" re-resolve
- * (BST-1115 smoke feedback). Long enough that a burst of tool completions
- * costs one round-trip, short enough to read as real time.
- */
-const LIVE_CHANGES_REFRESH_THROTTLE_MS = 500;
 
 declare global {
   interface Window {
@@ -1421,13 +1412,17 @@ export function AssistantUiPanelWrapper({
     },
     [clearThreadLiveRunUsage, completePreparedRequest]
   );
-  // Conversation Rewind finalization (BST-1115 W5 T4b): the hook owns the
-  // whole trigger (composer submit AND run creation, plus the failure
-  // surfacing) and hands back `prepareRequestData` with it composed in.
-  const { markUserAuthoredSend, prepareRequestData: prepareRequestDataWithFinalization } =
-    useRewindFinalization({ prepareRequestData, threadId: selectedMemoryThreadId });
-  // Re-hydration after a rewind (BST-1115) — rationale in the store's own doc.
-  const rewindGeneration = useRewindStore((state) => state.generation);
+  // Conversation Rewind wiring (BST-1115), extracted whole into
+  // `changes/use-wrapper-rewind-wiring.ts`: finalization composed around the
+  // run-creation seam, the re-hydration generation, the standing "Last Turn"
+  // identity, and the live mid-run refresh. The wrapper only forwards seams.
+  const {
+    handleRunEditActivity,
+    markUserAuthoredSend,
+    prepareRequestData: prepareRequestDataWithFinalization,
+    publishTerminalRunIdentity,
+    rewindGeneration,
+  } = useWrapperRewindWiring({ prepareRequestData, threadId: selectedMemoryThreadId });
   const resolveModelPricing = useCallback<ModelPricingResolver>(
     (provider: string, model: string) => {
       if (!isSupportedProvider(provider)) {
@@ -1703,128 +1698,29 @@ export function AssistantUiPanelWrapper({
   // own rootId-scoped cwd concept.
   const { refresh: refreshChangeset } = useChangeset(mainRootId ?? null, null);
 
-  // Standing "Last Turn" identity (BST-1115 smoke feedback): publish the
-  // active thread continuously so the Changes surface's "Last Turn" scope
-  // works without ever needing a "→ Review" handoff — see
-  // `changes-navigation-store.ts`'s own doc comment for the full contract.
-  // Resets `latestRunId` to `null` on every thread switch: this wrapper only
-  // knows about runs it has itself OBSERVED finish/fail (no run-history IPC
-  // exists to hydrate a thread's PAST runs — inventing one would violate NO
-  // SILENT FALLBACKS), so a freshly-selected thread is honestly "no
-  // completed turns yet" until one completes in this session.
-  const setActiveThreadIdentity = useChangesNavigationStore(
-    (state) => state.setActiveThreadIdentity
-  );
-  useEffect(() => {
-    setActiveThreadIdentity(
-      selectedMemoryThreadId ? { latestRunId: null, threadId: selectedMemoryThreadId } : null
-    );
-  }, [selectedMemoryThreadId, setActiveThreadIdentity]);
-
   // Re-read the checkpoint journal when a run reaches a terminal state — the
   // journal rows are written in main during tool execution, after the last
   // thread-open read, so the turn-level "Revert all edits" footer would
   // otherwise stay empty for the turn that JUST ran until a thread switch.
+  // `publishTerminalRunIdentity` advances the standing "Last Turn" identity
+  // (BST-1115) — policy in `changes/use-wrapper-rewind-wiring.ts`.
   const handleRunFinished = useCallback(
     (event: AssistantRunEvent) => {
       onRunFinished(event);
       void refetchCheckpoints();
       void refreshChangeset();
-      if (selectedMemoryThreadId && event.runId) {
-        setActiveThreadIdentity({ latestRunId: event.runId, threadId: selectedMemoryThreadId });
-      }
+      publishTerminalRunIdentity(event);
     },
-    [
-      onRunFinished,
-      refetchCheckpoints,
-      refreshChangeset,
-      selectedMemoryThreadId,
-      setActiveThreadIdentity,
-    ]
+    [onRunFinished, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
   );
   const handleRunFailed = useCallback(
     (event: AssistantRunEvent) => {
       onRunFailed(event);
       void refetchCheckpoints();
       void refreshChangeset();
-      if (selectedMemoryThreadId && event.runId) {
-        setActiveThreadIdentity({ latestRunId: event.runId, threadId: selectedMemoryThreadId });
-      }
+      publishTerminalRunIdentity(event);
     },
-    [
-      onRunFailed,
-      refetchCheckpoints,
-      refreshChangeset,
-      selectedMemoryThreadId,
-      setActiveThreadIdentity,
-    ]
-  );
-
-  // LIVE Changes while the agent works (BST-1115 smoke feedback: "the ux needs
-  // to show changes in real time — we need to review what the agent is
-  // doing"). Two distinct jobs, both driven off the renderer's OWN run stream
-  // (`onRunEditActivity`) rather than any polling or new transport:
-  //
-  // - `run.started` publishes the new run as the standing identity
-  //   IMMEDIATELY, not at `run.finished`. A viewer already on "Last Turn"
-  //   retargets to the run that is starting and then watches it fill in,
-  //   instead of staring at the previous turn until this one ends. Resolving
-  //   an in-flight run is honest: the VIEW path reads the journal and returns
-  //   the rows written so far (the running-run refusal lives in the REWIND
-  //   path, and stays there).
-  // - a completed file-mutation tool asks the surface to re-resolve. The
-  //   journal is written per edit in main, so each re-resolve picks up the
-  //   file that tool just wrote.
-  //
-  // THROTTLED leading+trailing: a tool burst must not fire an IPC round-trip
-  // per call, and the LAST completion in a burst must still be reflected —
-  // dropping it would leave the list one file short until the run ended.
-  const requestLiveLastTurnRefresh = useChangesNavigationStore(
-    (state) => state.requestLiveLastTurnRefresh
-  );
-  const liveRefreshThrottleRef = useRef<{
-    timer: ReturnType<typeof setTimeout> | null;
-    lastFiredAt: number;
-  }>({ lastFiredAt: 0, timer: null });
-  useEffect(() => {
-    const throttle = liveRefreshThrottleRef.current;
-    return () => {
-      if (throttle.timer !== null) {
-        clearTimeout(throttle.timer);
-        throttle.timer = null;
-      }
-    };
-  }, []);
-  const handleRunEditActivity = useCallback(
-    (event: AssistantRunEvent) => {
-      if (!selectedMemoryThreadId) {
-        return;
-      }
-      if (event.kind === 'run.started') {
-        if (event.runId) {
-          setActiveThreadIdentity({ latestRunId: event.runId, threadId: selectedMemoryThreadId });
-        }
-        return;
-      }
-      const threadId = selectedMemoryThreadId;
-      const throttle = liveRefreshThrottleRef.current;
-      const now = Date.now();
-      const elapsed = now - throttle.lastFiredAt;
-      if (elapsed >= LIVE_CHANGES_REFRESH_THROTTLE_MS) {
-        throttle.lastFiredAt = now;
-        requestLiveLastTurnRefresh(threadId);
-        return;
-      }
-      if (throttle.timer !== null) {
-        return;
-      }
-      throttle.timer = setTimeout(() => {
-        throttle.timer = null;
-        throttle.lastFiredAt = Date.now();
-        requestLiveLastTurnRefresh(threadId);
-      }, LIVE_CHANGES_REFRESH_THROTTLE_MS - elapsed);
-    },
-    [requestLiveLastTurnRefresh, selectedMemoryThreadId, setActiveThreadIdentity]
+    [onRunFailed, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
   );
 
   // Grant actions for the tool-approval notice ("Always allow" / "Allow

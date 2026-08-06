@@ -131,6 +131,10 @@ describe('app-shell assistant contract boundary', () => {
     // tracking, the actual changeset swap) lives entirely in
     // `changes/changes-navigation-store.ts` — the wrapper only reports facts
     // it uniquely knows (the active thread, a run's completion) into the store.
+    // NOT bumped for the live-run retarget + mid-run refresh: the whole rewind
+    // wiring (finalization seam, historyGeneration, standing identity, the
+    // throttled live refresh) moved into changes/use-wrapper-rewind-wiring.ts;
+    // the wrapper is back to one hook call plus seam forwarding.
     expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1850);
   });
 
@@ -155,6 +159,9 @@ describe('app-shell assistant contract boundary', () => {
     // retarget while on Last Turn, and the "never retargets a pinned git
     // scope" guard. The store's own full retarget-policy matrix is unit-tested
     // separately in `changes/__tests__/changes-navigation-store.test.ts`.
+    // The BST-1115 standing-identity suite has since moved WHOLE (assertions
+    // intact) into assistant-ui-panel-wrapper-rewind.test.tsx, mirroring the
+    // assistant-ui-panel-wrapper-rewind-finalization.test.tsx split.
     expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2240);
   });
 
