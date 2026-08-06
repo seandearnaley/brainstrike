@@ -770,6 +770,10 @@ export function registerDatabaseIpcHandlers(
             // bookkeeping over conversation content this clear destroys. No FK,
             // so clear explicitly per the FACTORY RESET CONTRACT.
             await clearOptionalRelation(tx, 'brainstrike_assistant_message_tombstones');
+            // Shadow-git snapshot ledger (migration 081, BST-1164): turn↔oid
+            // bookkeeping for threads this clear destroys. No FK, so clear
+            // explicitly per the FACTORY RESET CONTRACT.
+            await clearOptionalRelation(tx, 'brainstrike_workspace_snapshots');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

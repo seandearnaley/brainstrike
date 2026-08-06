@@ -57,6 +57,7 @@ const PRESENT_RELATIONS = [
   'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
+  'brainstrike_workspace_snapshots',
 ] as const;
 
 /**

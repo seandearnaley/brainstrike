@@ -70,6 +70,7 @@ import { migration077RunUsageKind } from '../migrations/077-run-usage-kind.js';
 import { migration078JobQueueDedupeActiveIndex } from '../migrations/078-job-queue-dedupe-active-index.js';
 import { migration079MindOpsLog } from '../migrations/079-mind-ops-log.js';
 import { migration080AssistantMessageTombstones } from '../migrations/080-assistant-message-tombstones.js';
+import { migration081WorkspaceSnapshots } from '../migrations/081-workspace-snapshots.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -257,6 +258,7 @@ const customMigrations: Migration[] = [
     'custom-080-assistant-message-tombstones',
     migration080AssistantMessageTombstones
   ),
+  customMigration('custom-081-workspace-snapshots', migration081WorkspaceSnapshots),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
