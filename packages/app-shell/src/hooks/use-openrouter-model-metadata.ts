@@ -119,9 +119,10 @@ export function useOpenRouterModelMetadata({
             modelSettings,
             budgetModelDef,
             lookup?.state === 'resolved' ? lookup.snapshot.metadata : undefined,
-            modelId
+            modelId,
+            settings?.reasoningEffort || undefined
           ),
-    [budgetModelDef, disabledReason, lookup, modelId, modelSettings, providerId]
+    [budgetModelDef, disabledReason, lookup, modelId, modelSettings, providerId, settings]
   );
   const agentLoopSettings = useMemo(
     () =>
