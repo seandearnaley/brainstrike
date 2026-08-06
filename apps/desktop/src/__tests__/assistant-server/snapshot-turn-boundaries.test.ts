@@ -32,6 +32,9 @@ function fakeRepository() {
   const rows: WorkspaceSnapshotRow[] = [];
   let counter = 0;
   const repository: SnapshotRepository = {
+    deleteByIds: () => {
+      throw new Error('deleteByIds is not under test');
+    },
     deleteForThread: () => {
       throw new Error('deleteForThread is not under test');
     },
@@ -319,6 +322,7 @@ describe('turn-boundary triggers — failure posture (never block the run)', () 
 
   it('a throwing ledger INSERT never rejects beginLeg (logged, run proceeds)', async () => {
     const throwingRepository: SnapshotRepository = {
+      deleteByIds: () => Promise.reject(new Error('nope')),
       deleteForThread: () => Promise.reject(new Error('nope')),
       insertSnapshot: () => Promise.reject(new Error('ledger write exploded')),
       latestSnapshotFor: () => Promise.reject(new Error('nope')),

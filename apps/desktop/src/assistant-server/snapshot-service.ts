@@ -21,6 +21,12 @@
  * is the rewind preview fingerprint the preview→apply staleness gate in
  * `rewind-snapshot-engine.ts` compares against.
  *
+ * T4 additions (BST-1164, same documented-addition posture): the
+ * checkpoint-undo seam `restorePathsFromSnapshot` (single-path restores for
+ * the per-file/turn undo engine in `checkpoint-snapshot-undo.ts`) and the
+ * startup-GC primitives `listSnapshotThreadIds` + `pruneHistory` (shallow-cut
+ * + `git gc` retention, consumed by `snapshot-startup-gc.ts`).
+ *
  * Invariants (plan global constraints):
  * - The user's own `.git` is never read or written (see `snapshot-git.ts`).
  * - One async mutex per root serializes snapshot/restore ops; every op uses
@@ -103,6 +109,20 @@ export interface SweepOrphansResult {
   readonly removed: readonly string[];
 }
 
+/**
+ * Outcome of restoring ONE named path to its state in a snapshot commit
+ * (`restorePathsFromSnapshot` — the checkpoint-undo engine's seam, BST-1164
+ * T4). `restored` = the snapshot's content/mode was checked out; `deleted` =
+ * the path was absent in the snapshot, so the live file was removed (with
+ * empty-ancestor pruning bounded at the root); `failed` carries the reason and
+ * leaves the path untouched. Conflict gating is the CALLER's job (the undo
+ * engine compares journal hashes before asking) — this seam only moves bytes.
+ */
+export type SnapshotPathRestoreOutcome =
+  | { readonly outcome: 'deleted'; readonly path: string }
+  | { readonly outcome: 'failed'; readonly message: string; readonly path: string }
+  | { readonly outcome: 'restored'; readonly path: string };
+
 export interface SnapshotServiceOptions {
   readonly runner: SnapshotGitCommandRunner;
   /** Base dir owning every shadow repo (`<base>/<rootId>/git`). */
@@ -147,6 +167,27 @@ function statusForRawEntry(entry: RawDiffEntry): 'added' | 'deleted' | 'modified
     'inconsistent-diff',
     `snapshot diff returned unsupported status "${entry.status}" for "${entry.path}"`
   );
+}
+
+/**
+ * Reject any restore path that is not a plain workspace-relative POSIX path:
+ * absolute, drive-lettered, backslashed, NUL-bearing, or containing empty /
+ * `.` / `..` segments. Journal rows only ever record safe relative paths, but
+ * this seam deletes files — defense in depth, thrown, never coerced.
+ */
+function assertSafeSnapshotRelativePath(value: string): void {
+  const structurallyUnsafe =
+    value.length === 0 || value.includes('\\') || value.includes('\0') || path.isAbsolute(value);
+  const segments = value.split('/');
+  if (
+    structurallyUnsafe ||
+    segments.some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    throw new SnapshotGitError(
+      'invalid-argument',
+      `restore path "${value}" is not a safe workspace-relative path`
+    );
+  }
 }
 
 /** Render a gitlink side the way git's own unified diff does. */
@@ -684,6 +725,189 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     });
   }
 
+  /**
+   * Restore each named path to its exact state in snapshot `oid` — the
+   * checkpoint-undo engine's seam (BST-1164 T4). A path present in the
+   * snapshot is checked out (content, mode, symlinks natively — same
+   * `checkout-index` path as `applyRestorePlan`, no blob through a bounded
+   * stdout); a path ABSENT from the snapshot is deleted from the work-tree
+   * (already-absent is still `deleted` — the desired state holds), with
+   * empty-ancestor pruning bounded at the root. Gitlink paths fail visibly:
+   * snapshots record nested repos as pointers and never restore them.
+   *
+   * Exactly one outcome per input path, in input order — a caller-supplied
+   * duplicate yields two (idempotent) outcomes rather than a silent dedupe.
+   * Conflict gating is deliberately NOT here: the undo engine owns the
+   * "changed since the edit" comparison (journal sha256 hashes), this seam
+   * only moves bytes under the root mutex.
+   */
+  async function restorePathsFromSnapshot(
+    handle: ShadowRepoHandle,
+    oid: string,
+    paths: readonly string[]
+  ): Promise<SnapshotPathRestoreOutcome[]> {
+    const entry = requireEntry(handle);
+    assertValidOid(oid, 'restorePathsFromSnapshot "oid"');
+    for (const relativePath of paths) {
+      assertSafeSnapshotRelativePath(relativePath);
+    }
+    if (paths.length === 0) {
+      return [];
+    }
+    return await entry.mutex(() =>
+      entry.plumbing.withTempIndex(async (env) => {
+        await entry.plumbing.runOrThrow(['read-tree', oid], { env });
+        // BARE paths on purpose: the pinned runner environment sets
+        // GIT_LITERAL_PATHSPECS=1 (see `createPinnedGitEnvironment`), so a
+        // journal path containing glob characters already matches itself and
+        // never expands — and under that flag a `:(literal)` prefix would
+        // itself be read as a literal filename (verified empirically).
+        const lsRun = await entry.plumbing.runOrThrow(['ls-tree', '-r', '-z', oid, '--', ...paths]);
+        const treeEntries = new Map(
+          parseLsTreeZ(lsRun.stdout).map((treeEntry) => [treeEntry.path, treeEntry])
+        );
+        const outcomes: SnapshotPathRestoreOutcome[] = [];
+        for (const relativePath of paths) {
+          outcomes.push(
+            await restoreOneSnapshotPath(entry, env, relativePath, treeEntries.get(relativePath))
+          );
+        }
+        if (outcomes.length !== paths.length) {
+          throw new SnapshotGitError(
+            'inconsistent-diff',
+            'restorePathsFromSnapshot produced fewer outcomes than input paths'
+          );
+        }
+        return outcomes;
+      })
+    );
+  }
+
+  /** Snapshot-absent path: delete the live file (already-absent still counts —
+   * the desired state holds) and prune now-empty ancestors, root-bounded. */
+  async function deleteSnapshotAbsentPath(
+    entry: RootEntry,
+    relativePath: string
+  ): Promise<SnapshotPathRestoreOutcome> {
+    const absolutePath = path.join(entry.handle.rootPath, relativePath);
+    try {
+      await fsPromises.unlink(absolutePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        return {
+          message: `delete failed: ${error instanceof Error ? error.message : String(error)}`,
+          outcome: 'failed',
+          path: relativePath,
+        };
+      }
+    }
+    await pruneEmptyAncestorDirectories(entry.handle.rootPath, path.dirname(absolutePath));
+    return { outcome: 'deleted', path: relativePath };
+  }
+
+  async function restoreOneSnapshotPath(
+    entry: RootEntry,
+    env: Readonly<Record<string, string>>,
+    relativePath: string,
+    treeEntry: { readonly mode: string } | undefined
+  ): Promise<SnapshotPathRestoreOutcome> {
+    const symlinkedAncestor = await findSymlinkedAncestor(entry.handle.rootPath, relativePath);
+    if (symlinkedAncestor !== null) {
+      return {
+        message: `ancestor directory "${symlinkedAncestor}" is a symlink — refusing to write through it`,
+        outcome: 'failed',
+        path: relativePath,
+      };
+    }
+    if (treeEntry === undefined) {
+      return await deleteSnapshotAbsentPath(entry, relativePath);
+    }
+    if (treeEntry.mode === GITLINK_MODE) {
+      return {
+        message: `"${relativePath}" is a nested git repository; snapshots record it as a pointer and never restore it.`,
+        outcome: 'failed',
+        path: relativePath,
+      };
+    }
+    try {
+      await entry.plumbing.runOrThrow(['checkout-index', '-f', '--', relativePath], { env });
+    } catch (error) {
+      return {
+        message: error instanceof Error ? error.message : String(error),
+        outcome: 'failed',
+        path: relativePath,
+      };
+    }
+    return { outcome: 'restored', path: relativePath };
+  }
+
+  /**
+   * Thread ids owning a `refs/snapshots/<threadId>` lineage ref in this
+   * shadow repo — the startup GC's ref-side inventory (BST-1164 T4). A
+   * refname outside the expected shape is a thrown error, never skipped: a
+   * quietly dropped ref would be invisible to GC forever.
+   */
+  async function listSnapshotThreadIds(handle: ShadowRepoHandle): Promise<readonly string[]> {
+    const entry = requireEntry(handle);
+    const run = await entry.plumbing.runOrThrow([
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/snapshots/',
+    ]);
+    const prefix = 'refs/snapshots/';
+    return run.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((refname) => {
+        if (!refname.startsWith(prefix)) {
+          throw new SnapshotGitError(
+            'git-command-failed',
+            `for-each-ref returned an unexpected refname "${refname}" under "${prefix}"`
+          );
+        }
+        return refname.slice(prefix.length);
+      });
+  }
+
+  /**
+   * Reclaim shadow-repo history beyond the retention ring (BST-1164 T4).
+   *
+   * Snapshot commits chain per thread (`commit-tree -p`), so deleting ledger
+   * rows alone never frees objects — the per-thread ref keeps every ancestor
+   * alive. The cut is git's own shallow mechanism: `keepBoundaries` (the
+   * OLDEST ledger-referenced commit per surviving thread chain in this repo)
+   * is written to `<gitDir>/shallow`, which makes those commits parentless to
+   * every reachability walk, and `git gc --prune=now --quiet` then collects
+   * everything behind them (and everything orphaned by deleted refs).
+   * Verified empirically against git 2.x: pruned-turn blobs are reclaimed,
+   * kept-range `diff`/`ls-tree`/restores still work, and new snapshots stack
+   * on the shallow chain; successive trims stay `fsck`-clean. An EMPTY
+   * boundary set removes the shallow file (no cut) and still runs gc.
+   *
+   * Runs under the root mutex — never concurrently with a snapshot/restore.
+   * Callers keep it off the run hot path (startup sweep only).
+   */
+  async function pruneHistory(
+    handle: ShadowRepoHandle,
+    keepBoundaries: readonly string[]
+  ): Promise<void> {
+    const entry = requireEntry(handle);
+    for (const oid of keepBoundaries) {
+      assertValidOid(oid, 'pruneHistory boundary');
+    }
+    await entry.mutex(async () => {
+      const shallowPath = path.join(entry.handle.gitDir, 'shallow');
+      const unique = [...new Set(keepBoundaries)].sort();
+      if (unique.length === 0) {
+        await fsPromises.rm(shallowPath, { force: true });
+      } else {
+        await fsPromises.writeFile(shallowPath, `${unique.join('\n')}\n`, 'utf8');
+      }
+      await entry.plumbing.runOrThrow(['gc', '--prune=now', '--quiet']);
+    });
+  }
+
   /** Delete the thread's snapshot lineage ref. `{ deleted: false }` = no ref existed. */
   async function pruneThread(
     handle: ShadowRepoHandle,
@@ -741,7 +965,10 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     computeRestorePlan,
     diffRefs,
     ensureShadowRepo,
+    listSnapshotThreadIds,
+    pruneHistory,
     pruneThread,
+    restorePathsFromSnapshot,
     snapshot,
     snapshotFileHashes,
     sweepOrphans,

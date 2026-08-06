@@ -184,6 +184,10 @@ const ROW_SELECT = `
 `;
 
 export interface SnapshotRepository {
+  /** Startup-GC ring trim (BST-1164 T4): hard-delete specific ledger rows.
+   * Returns the actually-deleted count (RETURNING-based — PGlite never sets
+   * `affectedRows`). */
+  deleteByIds(ids: readonly string[]): Promise<number>;
   deleteForThread(threadId: string): Promise<readonly DeletedThreadSnapshots[]>;
   insertSnapshot(input: InsertWorkspaceSnapshotInput): Promise<WorkspaceSnapshotRow>;
   latestSnapshotFor(
@@ -294,7 +298,21 @@ export function createSnapshotRepository(db: EditCheckpointDatabase): SnapshotRe
       .sort((a, b) => a.rootId.localeCompare(b.rootId));
   }
 
+  async function deleteByIds(ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) {
+      return 0;
+    }
+    const result = await db.query<{ id: string }>(
+      `DELETE FROM ${WORKSPACE_SNAPSHOTS_TABLE}
+        WHERE id = ANY($1)
+        RETURNING id AS "id"`,
+      [ids]
+    );
+    return result.rows.length;
+  }
+
   return {
+    deleteByIds,
     deleteForThread,
     insertSnapshot,
     latestSnapshotFor,

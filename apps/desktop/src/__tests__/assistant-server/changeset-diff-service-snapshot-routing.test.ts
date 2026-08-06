@@ -70,6 +70,7 @@ function fakeSnapshotService(): SnapshotService {
 function fakeRepository(): SnapshotRepository {
   const rows: WorkspaceSnapshotRow[] = [];
   return {
+    deleteByIds: () => Promise.resolve(0),
     deleteForThread: () => Promise.resolve([]),
     insertSnapshot: (input: InsertWorkspaceSnapshotInput) => {
       const row: WorkspaceSnapshotRow = {

@@ -96,6 +96,9 @@ function makeLedger() {
   let counter = 0;
   let reads = 0;
   const repository: SnapshotRepository = {
+    deleteByIds: () => {
+      throw new Error('deleteByIds is not under test');
+    },
     deleteForThread: () => {
       throw new Error('deleteForThread is not under test');
     },
