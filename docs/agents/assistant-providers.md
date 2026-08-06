@@ -376,10 +376,11 @@
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
 - OpenRouter `Auto` is a zero-configuration coding profile, not an implicit
-  provider-wide 4,096-token cap. The shared contract resolves its output limit
-  as `min(model max completion, 32,000)` when live/static model metadata
-  publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
-  ceiling. When reasoning metadata says reasoning is enabled by default, the
+  provider-wide 4,096-token cap. For a request whose reasoning is OFF the
+  shared contract resolves the output limit as `min(model max completion,
+  32,000)` when live/static model metadata publishes a maximum, and 32,000
+  otherwise, matching OpenCode's coding ceiling. When reasoning metadata says
+  reasoning is enabled by default, the
   Auto effort is DECLARED, never inferred (BST-833): `reasoning.autoEffort`
   from our catalog if recorded, else the vendor's `defaultEffort`. With neither
   declared, Auto sends NO effort and the provider applies its own default —
@@ -394,8 +395,28 @@
   (`'none'` switches it off deliberately and greppably) — `moonshotai/kimi-k3`
   does exactly this, because its `max` vendor default spends the whole output
   budget reasoning. Recording a fact we cannot get from OpenRouter is preferred
-  over deriving it. The answer budget is protected by the output ceiling above,
-  which is independent of effort. OpenRouter effort is a provider
+  over deriving it.
+  The output window is NOT independent of effort (BST-1170, retiring the
+  BST-833 assumption): OpenRouter documents that reasoning tokens ARE output
+  tokens and that a requested effort allocates a share OF `max_tokens` for
+  reasoning (high ≈ 80%, max/xhigh ≈ 95%, low ≈ 20%), so a fixed 32K ceiling
+  on a reasoning run shrinks the whole thinking+answer window — Kimi K3 at
+  explicit `high` thought for minutes and died at `finishReason: length`. A
+  model whose vendor documents a completion window sized for always-on
+  thinking records it as catalog-only `reasoning.vendorDefaultOutputTokens`
+  (Kimi K3: 131,072 per the official K3 quickstart, verified 2026-08-05;
+  OpenRouter publishes no max completion for that route). Whenever the request
+  actually reasons — explicit effort, or the model's declared Auto/default
+  resolution — `resolveOpenRouterOutputWindow` sends that window (capped by a
+  declared model max completion); reasoning-off requests and models without
+  the recorded fact keep the coding ceiling. The window is a truncation cap,
+  not a spend target. The fact is recorded from vendor docs only — GLM-5.2
+  documents no default window, so it deliberately has none. All three
+  resolution sites share the rule: `buildEffectiveModelSettings` (app-shell),
+  `resolveOpenRouterMetadataDisabledReason`'s input-budget reservation, and
+  the agent-side `modelSettings` backstop in
+  `packages/agent/src/mastra/agent-streaming.ts`.
+  OpenRouter effort is a provider
   hint, not a deterministic reservation. The resolved output value drives both
   Mastra `modelSettings` and the input-context reservation. Explicit reasoning
   choices remain authoritative, and output values above a known model maximum
