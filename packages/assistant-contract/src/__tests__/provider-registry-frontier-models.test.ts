@@ -175,6 +175,9 @@ describe('frontier model refresh (2026-07)', () => {
         defaultEnabled: true,
         mandatory: false,
         supportedEfforts: ['max', 'high', 'low'],
+        // Official Moonshot completion window for always-on thinking
+        // (BST-1170); OpenRouter publishes no max completion for this route.
+        vendorDefaultOutputTokens: 131_072,
       });
     });
 

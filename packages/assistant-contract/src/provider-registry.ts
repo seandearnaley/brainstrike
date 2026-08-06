@@ -126,6 +126,16 @@ export interface LlmModelDefinition extends BaseModelDefinition {
     defaultEnabled?: boolean;
     mandatory: boolean;
     supportedEfforts: readonly OpenAiReasoningEffort[];
+    /**
+     * Vendor-documented completion window sized for thinking + answer, for
+     * models whose reasoning tokens stream into the output budget. Recorded
+     * from the vendor's official docs (cite them at the model entry) — never
+     * derived, and catalog-only: OpenRouter does not publish it, so it must
+     * survive live-metadata merges (`mergeOpenRouterAutoProfileModel`). Used
+     * in place of the coding output ceiling whenever reasoning is active —
+     * see `resolveOpenRouterOutputWindow` (BST-1170).
+     */
+    vendorDefaultOutputTokens?: number;
   };
   /**
    * Some providers restrict streaming; surface this so the UI can badge support.
@@ -771,6 +781,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           defaultEnabled: true,
           mandatory: false,
           supportedEfforts: ['max', 'high', 'low'],
+          // Official K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,
+          // verified 2026-08-05): max_completion_tokens defaults to 131,072
+          // (max 1,048,576) and thinking cannot be disabled — the vendor's
+          // operating point for thinking + answer. OpenRouter publishes no
+          // max completion for this route, so the fact lives here (BST-1170).
+          vendorDefaultOutputTokens: 131_072,
         },
         supportsStreaming: true,
         type: 'llm',
