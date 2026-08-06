@@ -209,17 +209,16 @@ export interface StructuredFileDiff {
   readonly deletions: number | null;
   /**
    * Absolute-line hunk ranges — populated ONLY when a git unified diff was
-   * actually computed for this file; empty otherwise. That covers three
-   * cases, all legitimate, none dishonest: binary content (no line-level
-   * diff is meaningful), an `untracked` whole-file addition (git-scope
+   * actually computed for this file; empty otherwise. That covers two
+   * cases, both legitimate, neither dishonest: binary content (no line-level
+   * diff is meaningful) and an `untracked` whole-file addition (git-scope
    * `structuredFileDiff`'s `untracked` mode never runs a two-sided `git
-   * diff`, so there is no unified diff to parse hunks from), and every
-   * journal-sourced diff (`agent-run`/`run-range` — the old side is a raw
-   * DB-stored string, not a git ref, so there is no git invocation to
-   * produce hunk ranges from at all; see `changeset-journal-view.ts`'s
-   * `assembleJournalDiff`). A `full` `content` payload with empty `hunks` is
-   * NOT a contradiction — `full` only promises both sides' complete text,
-   * never that hunk ranges were computed.
+   * diff`, so there is no unified diff to parse hunks from). The former
+   * third case — journal-sourced diffs with a DB-stored old side — died with
+   * the journal diff engine (BST-1164 T4): `agent-run`/`run-range` diffs are
+   * snapshot-backed git diffs now and carry real hunks. A `full` `content`
+   * payload with empty `hunks` is NOT a contradiction — `full` only promises
+   * both sides' complete text, never that hunk ranges were computed.
    */
   readonly hunks: readonly StructuredDiffHunk[];
   readonly oldPath?: string;

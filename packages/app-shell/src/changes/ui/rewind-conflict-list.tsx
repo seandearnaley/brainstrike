@@ -45,14 +45,14 @@ export function dedupeConflictsForDisplay(
 }
 
 /**
- * `disk-changed`/`path-occupied` are the only codes `force` actually overrides
- * — `revertCheckpointEntry` (`edit-checkpoint-revert.ts`) checks `force` inside
- * `assertNoConflict`, which those two dispatch branches call. `root-unavailable`
- * and `capture-unavailable` never reach that check at all: the executor throws
- * `CheckpointNotRevertibleError` (root resolution / capture-status guard)
- * BEFORE `force` is ever consulted, so ticking the box cannot make those files
- * restore — it only lets the apply proceed with them reported under "Not
- * restored" afterward. The checkbox copy says which is true for THIS set.
+ * `disk-changed`/`path-occupied` are the only codes acknowledgment actually
+ * overrides — under the snapshot engine (BST-1164 T3/T4) an acknowledged
+ * drift conflict is forced PER PATH by overriding its expected hash in the
+ * restore plan's gate. `root-unavailable` and `capture-unavailable` never
+ * reach that gate: a disconnected or uncovered root cannot restore no matter
+ * what is ticked — acknowledging only lets the apply proceed with those files
+ * reported under "Not restored" afterward. The checkbox copy says which is
+ * true for THIS set.
  */
 const FORCEABLE_CONFLICT_CODES: ReadonlySet<AssistantRewindConflict['code']> = new Set([
   'disk-changed',

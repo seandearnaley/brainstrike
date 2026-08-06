@@ -49,7 +49,6 @@ import { useRewindExplorerRecovery } from '../use-rewind-explorer-recovery';
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { RewindConflictList } from './rewind-conflict-list';
-import { REWIND_SHELL_CAPTURE_QUALIFIER } from './rewind-copy';
 import { RewindOutcomeSummary } from './rewind-outcome-summary';
 import { DEFAULT_REWIND_MODE, RewindScopeChoice } from './rewind-scope-choice';
 
@@ -365,17 +364,9 @@ function RewindConfirmBody({
       />
 
       {filesMode ? (
-        <>
-          <p className="text-muted-foreground text-xs" data-testid="rewind-open-files-notice">
-            {OPEN_FILES_NOTICE}
-          </p>
-          {/* Permanent, not conditional on this rewind's contents: the user
-              must know what "restore" excludes BEFORE deciding, and the journal
-              cannot report an untracked file it never saw. */}
-          <p className="text-muted-foreground text-xs" data-testid="rewind-shell-capture-notice">
-            {REWIND_SHELL_CAPTURE_QUALIFIER}
-          </p>
-        </>
+        <p className="text-muted-foreground text-xs" data-testid="rewind-open-files-notice">
+          {OPEN_FILES_NOTICE}
+        </p>
       ) : null}
 
       {filesMode ? (

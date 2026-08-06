@@ -170,7 +170,7 @@ describe('useChangeset', () => {
   it('surfaces a failed load with its stable error prefix, and clears the view', async () => {
     const resolveView = vi.fn(
       async (): Promise<GitResult<ChangesetView>> => ({
-        error: 'journal-content-expired: before content is gone',
+        error: 'changeset-snapshot-missing: no snapshot covers this turn',
         ok: false,
       })
     );
@@ -178,7 +178,7 @@ describe('useChangeset', () => {
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
 
     await waitFor(() => {
-      expect(result.current.error).toBe('journal-content-expired: before content is gone');
+      expect(result.current.error).toBe('changeset-snapshot-missing: no snapshot covers this turn');
     });
     expect(result.current.view).toBeNull();
   });

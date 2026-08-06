@@ -1,7 +1,7 @@
 # Changeset Diff: Engine, Trust, IPC, and Renderer Surfaces
 
 > Created for BST-1116/BST-1111-1114 (Changeset Diff Viewer + W6 git-panel
-> convergence). Read before touching git-scope/journal diff resolution, the
+> convergence). Read before touching git-scope/snapshot diff resolution, the
 > `changes` IPC domain, the git inventory (trust/containment), or the Changes
 > surface / git panel Changes+History tabs. Keep this doc and its paired
 > tests updated with the code. Design doc (pre-implementation; verify
@@ -14,7 +14,7 @@ The domain contract. Its own doc comments are unusually rich and are the
 first source of truth — read them before this section.
 
 - **`Changeset`** — discriminated union: `agent-run` (`runId`/`threadId`,
-  edit-checkpoint journal), `run-range` (`fromRunId`/`toRunId?`/`threadId`,
+  shadow-git snapshot engine), `run-range` (`fromRunId`/`toRunId?`/`threadId`,
   aggregate across runs), `git-scope` (`repositoryRoot`/`worktreePath`/
   `scope: GitScope`).
 - **`GitScope`** — `branch-vs-base` (`baseRef?`), `commit` (`commitId`),
@@ -22,7 +22,7 @@ first source of truth — read them before this section.
   needs.
 - **`ChangedFileEntry`** — `additions`/`deletions: number | null` (null =
   binary, never coerced to `0`), `revertible: boolean`, `rootId: string |
-  null`, `worktreePath: string | null` (null for every journal-sourced
+  null`, `worktreePath: string | null` (null for every snapshot-sourced
   entry — see Selection semantics under RENDERER SURFACES below).
 - **`ChangesetView.totalAdditions`/`totalDeletions: number | null`** — `null`
   means the source cannot report totals at all. Since the W7 snapshot engine
@@ -32,10 +32,10 @@ first source of truth — read them before this section.
   diffs' numstat. Binary files' `null` per-file counts are excluded from
   the sum (`?? 0`), not coerced — "every file binary" is a real computed
   `0`. `null` remains in the type for sources that genuinely cannot report
-  totals; the retiring journal fold (`changeset-journal-view.ts`, now only
-  reachable from the rewind preview until T4) is the last producer of
-  `null`. `null` (unknown) and `0` (computed exactly zero) are deliberately
-  different facts (make-invalid-states-unrepresentable).
+  totals; since T4 deleted the journal fold (`changeset-journal-view.ts`)
+  no shipping producer emits `null` totals. `null` (unknown) and `0`
+  (computed exactly zero) are deliberately different facts
+  (make-invalid-states-unrepresentable).
 - **`ChangedFileEntry.toolAttributed?: boolean`** (W7 T2, ADDITIVE) —
   view-level attribution metadata: `true` when the edit-checkpoint
   attribution ledger records an assistant-tool edit touching the path within
@@ -50,8 +50,9 @@ first source of truth — read them before this section.
   'diff-overflow' | 'over-cap-both' | 'over-cap-new' | 'over-cap-old'`).
   A `full` payload with empty `hunks` is not a contradiction — `full` only
   promises both sides' complete text, never that hunk ranges were computed
-  (binary, `untracked` whole-file adds, and every journal-sourced diff all
-  have empty `hunks` for that reason).
+  (binary and `untracked` whole-file adds have empty `hunks` for that
+  reason; the journal-sourced no-hunks case died with the journal fold in
+  T4 — snapshot diffs are real git diffs and carry hunks).
 - **`WorktreeDescriptor`** — `containment: readonly string[] | 'outside-roots'`,
   `provenance: 'agent-reported' | 'both' | 'scanned'`, `trust:
   'unvalidated' | 'validated'`, `trustReason: string | null`. See TRUST RULE
@@ -161,9 +162,9 @@ precedent).
 `ChangesetDiffService` (`{ fileDiff, resolveView }`) dispatches purely on
 `changeset.kind`: `git-scope` → `changeset-git-scope.ts`; `agent-run` /
 `run-range` → `changeset-snapshot-view.ts` (the W7 shadow-git snapshot
-engine, BST-1164 T2 — the journal fold in `changeset-journal-view.ts` is NO
-LONGER REACHABLE from this dispatch; it remains only behind the rewind
-preview until T4 deletes it). Every failure carries a stable
+engine, BST-1164 T2; the old journal fold `changeset-journal-view.ts` was
+DELETED in T4 along with its `journal-content-expired:` /
+`journal-path-collision:` prefixes). Every failure carries a stable
 machine-readable prefix (`snapshot-engine-unavailable:`,
 `changeset-snapshot-missing:`, `changeset-snapshot-capture-failed:`,
 `outside-roots-unsupported:`, `base-ref-unresolved:`, `head-unborn:`,
@@ -230,38 +231,37 @@ error, never surfaced as `'deleted'`.
 is excluded via `?? 0`, never coerced on the entry itself, which is what
 produces a real `0` total when every file is binary.
 
-**`changeset-journal-view.ts`** (RETIRING — since W7 T2 reachable ONLY from
-`rewind-service.ts`'s preview, never from `ChangesetDiffService` dispatch;
-T4 deletes it) resolves a journal-fold view from the edit-checkpoint
-journal (READ-ONLY — the journal has one producer, per
-`docs/agents/assistant-persistence.md`'s runId-provenance invariant).
-`foldJournalRecords` folds records per `(rootId, path)` into
-`JournalFoldEntry[]`, carrying `chainRecords` across renames.
-`journalFoldEntryToChangedFileEntry` computes `revertible`:
+**The journal fold is GONE (BST-1164 T4).** `changeset-journal-view.ts`
+and the whole journal-content diff path were deleted with the engine swap:
+the edit-checkpoint table (`brainstrike_assistant_edit_checkpoints`) is an
+ATTRIBUTION-ONLY ledger now — op, paths, before/after sha256 hashes, sizes,
+timestamps, `reverted_at` — and its `before_content` column is never
+populated (schema column kept; no destructive migration in v1). Everything
+that used to read journal content restores from snapshots instead:
 
-```ts
-function isEntryRevertible(entry: JournalFoldEntry): boolean {
-  return entry.chainRecords.every(
-    (record) => isRevertibleCaptureStatus(record.captureStatus) && record.revertedAt === null
-  );
-}
-```
+- Changesets: `changeset-snapshot-view.ts` (above).
+- Conversation Rewind: `rewind-snapshot-engine.ts` (T3).
+- Per-file / per-turn checkpoint undo (`assistant-checkpoint:*` IPC, the
+  tool-card Revert button + turn footer): `checkpoint-snapshot-undo.ts`
+  (T4) — restores each journaled path to its state at the TURN-START
+  snapshot (a DELIBERATE semantic change from "just before this edit";
+  the UI copy says "restore to turn start"). Conflict gate: current disk
+  sha256 vs the newest journal record's after-state, `force` overrides.
+  `assistant-checkpoint:availability` serves per-entry snapshot
+  availability so pre-engine / failed-capture entries render visibly
+  disabled with a reason — never a click-time surprise, never silent
+  removal.
 
-Revertible iff **every** record in the entry's whole chain has a
-revertible `captureStatus` AND is unreverted — an entry with any
-`expired`/`skipped_*` or already-reverted record in its chain is honestly
-non-revertible but still appears (never dropped). Guarded by
-`changeset-journal-view.test.ts`'s `describe('foldJournalRecords —
-revertible')` (three cases: all-revertible, one expired record, one
-reverted record). `assembleJournalDiff` hardcodes `hunks: []` on every
-return branch (binary / over-cap / full) — the journal's old side is a raw
-DB-stored string, not a git ref, so there is no `git diff` invocation to
-compute hunk ranges from. `resolveJournalChangesetView` always returns
-`totalAdditions: null, totalDeletions: null` (journal carries no line
-counts at all). **A path created AND deleted entirely within the range is
-omitted** from the listing (`isPhantomEntry`) — distinct from an
-`expired` capture, which stays visible and non-revertible because
-something really did change.
+**Snapshot retention / GC** (`snapshot-startup-gc.ts`, run from main.ts's
+startup fire-and-forget block after `sweepOrphans`): dead-thread rows +
+refs purge (`mastra_threads` is the liveness source; a missing threads
+table with surviving rows REFUSES to classify, visibly), ref-only-residue
+pruning per shadow repo (`listSnapshotThreadIds`), and the retention ring —
+keep the newest 50 turn brackets per thread (`DEFAULT_SNAPSHOT_TURN_RING`),
+delete older ledger rows, then reclaim objects via a git shallow cut at the
+oldest surviving per-thread chain boundary + `git gc --prune=now`
+(`SnapshotService.pruneHistory`). Ring trigger is the STARTUP SWEEP, not
+turn-end — gc work stays off the run hot path by ruling.
 
 **No `ConversationRevertService` exists on this branch.** The design spec
 scopes a soft-rewind/tombstone revert service (W5) and mentions "rewind" as
@@ -462,7 +462,7 @@ export function changedFileKey(entry: ChangedFileEntry): string {
 ```
 
 `path` alone collapses across two worktrees of the same repo;
-`worktreePath` is `null` for every journal-sourced entry, so `rootId`
+`worktreePath` is `null` for every snapshot-sourced entry, so `rootId`
 distinguishes those (two roots can share a relative path). Guarded by
 `changes-store.test.ts`'s `'renders every file when nothing is explicitly
 selected'` (asserts `selectRenderedFiles` returns the SAME array
@@ -473,12 +473,12 @@ cases.
 prop-driven diff-rendering leaf (own lazy `IntersectionObserver`-gated
 load, own generation-guarded staleness protection). Its content branches:
 `binary` → a dedicated explanatory card; `full`/`hunks-only` → the shared
-`DiffView` via the `{ kind: 'structured', diff }` source (journal-backed
-changesets flow through the identical path — the only journal-specific
-handling is rendering `null` additions/deletions as `"—"`, never `"0"`);
-an error whose message starts with `journal-content-expired:` (the real
-prefix from `changeset-journal-view.ts`) → a dedicated explanatory card
-naming the file; any other error → the real message plus a per-card Retry.
+`DiffView` via the `{ kind: 'structured', diff }` source (`null`
+additions/deletions render as `"—"`, never `"0"`); any error → the real
+message plus a per-card Retry. The former `journal-content-expired:`
+explanatory card was REMOVED in T4 (snapshot-backed changesets never evict
+content, so the state is unreachable) — its absence is pinned by
+`changeset-file-diff-card.test.tsx`.
 It has two additive optional props: `bodyClassName` (default `'h-[420px]
 min-h-0'`, the sizing tuned for the surface's vertically-stacked multi-file
 pane) and `className` on the card ROOT (default `undefined`, i.e. the

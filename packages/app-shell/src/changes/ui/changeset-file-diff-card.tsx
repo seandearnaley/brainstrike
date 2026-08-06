@@ -15,22 +15,17 @@
  * Every render branch is honest — never blank:
  * - `loading` / not-yet-visible: a real per-card loading affordance.
  * - `binary` content: an explanatory card, never an empty `DiffView`.
- * - a `journal-content-expired:` failure (the real prefix emitted by
- *   `apps/desktop/src/assistant-server/changeset-journal-view.ts`'s
- *   `resolveOldContent` — verified by reading that module, not guessed):
- *   a distinct explanatory card naming the file and stating the checkpoint
- *   content evicted from the edit-checkpoint journal, never a generic red
- *   error and never a blank pane.
- * - any other failure: the actual error message plus a Retry that re-runs
+ * - any failure: the actual error message plus a Retry that re-runs
  *   `loadFileDiff` for THIS file only — one file's failure never blanks the
- *   pane, because each card owns its own load state independently.
- * - `full` / `hunks-only` content (including journal-backed changesets,
- *   which carry full old/new content but no hunks and no line counts):
- *   rendered through the shared `DiffView` via the `structured` source —
- *   never special-cased into a degraded view. The only journal-specific
- *   discipline is upstream, in `ChangedFileEntry.additions`/`.deletions`
- *   being `null` for those changesets — this card already renders `null` as
- *   "—", never `0` (see `formatStatCount`).
+ *   pane, because each card owns its own load state independently. (The
+ *   content-era `journal-content-expired:` branch died with the journal
+ *   diff engine in BST-1164 T4 — snapshot-backed changesets never evict
+ *   content, so the state is unreachable and its card was removed, not left
+ *   as a dead fallback.)
+ * - `full` / `hunks-only` content: rendered through the shared `DiffView`
+ *   via the `structured` source — never special-cased into a degraded view.
+ *   `additions`/`deletions` of `null` (binary) still render as "—", never
+ *   `0` (see `formatStatCount`).
  */
 
 import type {
@@ -90,12 +85,6 @@ type LoadState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading' }
   | { readonly message: string; readonly kind: 'error' };
-
-/** `journal-content-expired:` is the real error prefix `resolveOldContent`
- * emits (see this module's doc comment) — matched via `startsWith` since the
- * remainder of the message varies per cause (already-reverted chain,
- * retention-expired row, skipped binary/oversized capture, rename record). */
-const JOURNAL_CONTENT_EXPIRED_PREFIX = 'journal-content-expired:';
 
 /** `null` renders as "—", never "0" — those are different facts (not
  * computable vs. computed to exactly zero; see `ChangedFileEntry`'s doc
@@ -162,25 +151,6 @@ function BinaryBody(): ReactElement {
       data-testid="changeset-file-diff-card-binary"
     >
       <span>Binary file — no textual diff available.</span>
-    </div>
-  );
-}
-
-function JournalContentExpiredBody({ path }: { readonly path: string }): ReactElement {
-  return (
-    <div
-      className="flex flex-col gap-1.5 border-amber-500/30 border-b bg-amber-500/8 px-4 py-3 text-sm"
-      data-testid="changeset-file-diff-card-journal-expired"
-      role="status"
-    >
-      <p className="font-medium text-amber-700 dark:text-amber-400">
-        Diff unavailable — checkpoint content expired
-      </p>
-      <p className="text-muted-foreground text-xs leading-relaxed">
-        The agent's recorded before/after content for <code>{path}</code> has been evicted from the
-        edit-checkpoint journal, so this diff can no longer be reconstructed. The file itself is
-        unaffected.
-      </p>
     </div>
   );
 }
@@ -310,13 +280,7 @@ export function ChangesetFileDiffCard({
     <div className={className} data-testid="changeset-file-diff-card" ref={containerRef}>
       <CardHeader entry={entry} />
       {state.kind === 'idle' || state.kind === 'loading' ? <LoadingBody /> : null}
-      {state.kind === 'error' ? (
-        state.message.startsWith(JOURNAL_CONTENT_EXPIRED_PREFIX) ? (
-          <JournalContentExpiredBody path={entry.path} />
-        ) : (
-          <ErrorBody message={state.message} onRetry={retry} />
-        )
-      ) : null}
+      {state.kind === 'error' ? <ErrorBody message={state.message} onRetry={retry} /> : null}
       {state.kind === 'loaded' ? (
         <LoadedBody bodyClassName={bodyClassName} diff={state.diff} entry={entry} />
       ) : null}

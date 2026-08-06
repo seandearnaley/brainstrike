@@ -417,66 +417,27 @@ describe('RewindConfirmDialog', () => {
     );
   });
 
-  // ===== Capture-scope honesty (smoke round 2, defect 3) =====
+  // ===== Capture-scope qualifier: REMOVED (BST-1164 T4) =====
+  // The snapshot engine captures shell side effects, so the old
+  // "shell-created files aren't restored" qualifier became UNTRUE and was
+  // deleted with its copy module. These pins keep it from quietly returning.
 
-  it('states, permanently, that shell-created files are not restored', async () => {
+  it('renders NO shell-capture qualifier anywhere in the files-mode dialog', async () => {
     installBridge();
     openRewind();
     renderDialog();
 
     await screen.findByTestId('rewind-confirm-dialog');
-    // EXACT copy, both here and in the outcome summary below. The user who hit
-    // this had `package-lock.json` — written by a shell command, never seen by
-    // the edit journal — silently not come back.
-    expect(screen.getByTestId('rewind-shell-capture-notice')).toHaveTextContent(
-      "Restores files edited by the assistant's tools. Files created by shell commands (installs, builds) aren't tracked and won't be restored."
-    );
+    expect(screen.queryByTestId('rewind-shell-capture-notice')).not.toBeInTheDocument();
   });
 
-  it('repeats the same qualifier once in the outcome summary, after files came back', async () => {
+  it('renders NO shell-capture qualifier in the outcome summary after files came back', async () => {
     const user = userEvent.setup();
     installBridge();
     openRewind();
     renderDialog();
 
     await screen.findByTestId('rewind-confirm-dialog');
-    await waitFor(() => {
-      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
-    });
-    await user.click(screen.getByTestId('rewind-confirm'));
-
-    const notice = await screen.findByTestId('rewind-outcome-shell-capture-notice');
-    expect(notice).toHaveTextContent(
-      "Restores files edited by the assistant's tools. Files created by shell commands (installs, builds) aren't tracked and won't be restored."
-    );
-  });
-
-  it('omits the qualifier when the rewind restored no file at all', async () => {
-    const user = userEvent.setup();
-    // `conversation-only` restores nothing, so there is no "we put your files
-    // back" claim for the qualifier to bound.
-    installBridge({
-      applyRewind: vi.fn(
-        async (): Promise<GitResult<AssistantRewindResult>> => ({
-          ok: true,
-          value: {
-            fileOutcomes: [],
-            mode: 'conversation-only',
-            ok: true,
-            range: { fromRunId: 'run-1', kind: 'runs', runIds: ['run-1'] },
-            revertId: null,
-            rewindId: 'rewind-1',
-            rootOutcomes: [],
-            tombstonedMessageIds: ['msg-2', 'msg-3'],
-          },
-        })
-      ),
-    });
-    openRewind();
-    renderDialog();
-
-    await screen.findByTestId('rewind-confirm-dialog');
-    await user.click(screen.getByTestId('rewind-mode-conversation-only'));
     await waitFor(() => {
       expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
     });
