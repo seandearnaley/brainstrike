@@ -6,10 +6,13 @@ import {
   ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME,
   ASSISTANT_ACTION_BAR_CLASSNAME,
 } from '../assistant-action-bar';
-import { USER_ACTION_BAR_CLASSNAME } from '../assistant-ui-panel';
+import { USER_ACTION_BAR_CLASSNAME } from '../user-message';
 
-const panelSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '../assistant-ui-panel.tsx'),
+// UserMessage/UserActionBar were extracted from the panel root to
+// user-message.tsx (panel-root source-file budget) — the source scans below
+// read the module that actually holds them.
+const userMessageSourceFile = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '../user-message.tsx'),
   'utf8'
 );
 
@@ -43,20 +46,18 @@ describe('UserActionBar styling (BST-898: no hover layout shift)', () => {
     // Row 2 here only ever holds the bar + the message bubble, so mounting
     // the bar in-flow risks growing row 2 regardless of branch count --
     // "single-branch" would still shift multi-branch user messages.
-    const userActionBarStart = panelSource.indexOf('export const UserActionBar =');
-    const editComposerStart = panelSource.indexOf('const EditComposer =');
+    const userActionBarStart = userMessageSourceFile.indexOf('export const UserActionBar =');
     expect(userActionBarStart).toBeGreaterThan(-1);
-    expect(editComposerStart).toBeGreaterThan(userActionBarStart);
-    const userActionBarSource = panelSource.slice(userActionBarStart, editComposerStart);
+    const userActionBarSource = userMessageSourceFile.slice(userActionBarStart);
     expect(userActionBarSource).toContain('autohideFloat="always"');
   });
 
   it('anchors the floating bar to a relative message root', () => {
-    const userMessageStart = panelSource.indexOf('const UserMessage = ()');
-    const userActionBarStart = panelSource.indexOf('export const UserActionBar =');
+    const userMessageStart = userMessageSourceFile.indexOf('const UserMessage = ()');
+    const userActionBarStart = userMessageSourceFile.indexOf('export const UserActionBar =');
     expect(userMessageStart).toBeGreaterThan(-1);
     expect(userActionBarStart).toBeGreaterThan(userMessageStart);
-    const userMessageSource = panelSource.slice(userMessageStart, userActionBarStart);
+    const userMessageSource = userMessageSourceFile.slice(userMessageStart, userActionBarStart);
     // The primary (non-approval-chip) MessagePrimitive.Root that mounts
     // UserActionBar must be `relative` so the absolutely-positioned bar's
     // containing block is its own grid area, not some ancestor further up

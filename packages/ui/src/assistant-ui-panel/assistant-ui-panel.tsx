@@ -1,8 +1,6 @@
 import {
-  ActionBarPrimitive,
   type AssistantDataUIProps,
   AssistantRuntimeProvider,
-  BranchPickerPrimitive,
   ChainOfThoughtPrimitive,
   ComposerPrimitive,
   type DataMessagePartComponent,
@@ -32,37 +30,14 @@ import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ChevronUpIcon,
-  CopyIcon,
-  PencilIcon,
-} from 'lucide-react';
-import {
-  createContext,
-  type ReactNode,
-  use,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
+import { type ReactNode, use, useEffect, useId, useMemo, useRef, useState } from 'react';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Button } from '../button';
-import { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 import { cn } from '../lib/utils';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
-import {
-  ApprovalActionChip,
-  fromApprovalActionChipKey,
-  readApprovalActionChipProps,
-  toApprovalActionChipKey,
-} from './approval-action-chip';
+import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
@@ -72,11 +47,7 @@ import {
   resolveAssistantEndpoint,
 } from './assistant-endpoint';
 import { AssistantMessageError } from './assistant-message-error';
-import {
-  AssistantMessageText,
-  preloadMarkdownText,
-  UserMessageText,
-} from './assistant-message-text';
+import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { AssistantReasoningPart } from './assistant-reasoning-part';
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
@@ -93,18 +64,26 @@ import {
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
+import { BranchPicker } from './branch-picker';
 import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
 import { ChangesReviewLink } from './changes-review-link';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
-import { ComposerAttachmentsBar, UserMessageAttachments } from './composer-attachments';
+import { ComposerAttachmentsBar } from './composer-attachments';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelMenu, modelIdFromCompositeKey } from './composer-model-menu';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
-import { MessageRewindAction, RewindComposerBridge } from './message-rewind-action';
+import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
+import { UserMessage } from './user-message';
+
+// Re-exported for the suites that mount these against a real runtime
+// (user-action-bar-copy, assistant-chat-polish.browser) — extraction moved the
+// source module, not the public import path.
+export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
+
 import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
 
 export type { ComposerAttachmentsAvailability } from './composer-input';
@@ -117,7 +96,6 @@ import {
   ThreadContextMeter,
 } from './context-usage-meter';
 import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
-import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
@@ -132,7 +110,6 @@ import {
 } from './slash-commands';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
-import { TooltipIconButton } from './tooltip-icon-button';
 import { useAssistantServerRunSession } from './use-assistant-server-run-session';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
@@ -1122,7 +1099,6 @@ const DataStreamRuntimeChat = ({
  * props of its own) — currently only `ChangesReviewLink`'s
  * `openChangesForRun(runId, threadId)` call needs it.
  */
-const ActiveThreadKeyContext = createContext<string | undefined>(undefined);
 
 /**
  * Shared UI component for the chat thread.
@@ -1585,135 +1561,6 @@ export const AssistantUiPanel = ({
 
 // ===== Message Components =====
 
-// Exported (rather than kept module-private) so tests can mount it directly
-// against a real assistant-ui local runtime -- see
-// __tests__/assistant-chat-polish.browser.test.tsx (BST-898 hover-float
-// geometry) alongside __tests__/user-action-bar-copy.test.tsx.
-export const UserMessage = () => {
-  const threadKey = use(ActiveThreadKeyContext);
-  // Approval action messages ("Approved <tool>.") are transport bookkeeping —
-  // kept in thread state (outcome locking + resume runConfig ride on them,
-  // and they are excluded from every outbound payload at the transport seam)
-  // but rendered as a compact outcome chip, never a prompt bubble. The
-  // selector returns a stable string key (same pattern as the approval
-  // notice's outcome key) so the store snapshot stays referentially stable.
-  const approvalChipKey = useAuiState((state) =>
-    toApprovalActionChipKey(readApprovalActionChipProps(state.message))
-  );
-  if (approvalChipKey) {
-    const chipProps = fromApprovalActionChipKey(approvalChipKey);
-    return (
-      <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
-        <ApprovalActionChip {...chipProps} />
-      </MessagePrimitive.Root>
-    );
-  }
-  return (
-    <MessagePrimitive.Root className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
-      <UserActionBar />
-
-      <ExpandableMessageContent
-        className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2"
-        testId="assistant-user-message-content"
-      >
-        <UserMessageAttachments />
-        <MessagePrimitive.Parts
-          components={{
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-            Text: UserMessageText,
-          }}
-        />
-      </ExpandableMessageContent>
-
-      <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
-
-      {/* "Restore to before this message" — null without a RewindProvider
-          binding (web / no changes bridge) or while a run is in flight. */}
-      <MessageRewindAction threadId={threadKey} />
-    </MessagePrimitive.Root>
-  );
-};
-
-// BST-898: floats on hover instead of mounting in flow (BranchPicker is a
-// SEPARATE row -- row-start-3 -- so unlike AssistantActionBar there's no
-// branch count where in-flow mounting is "free"; `autohideFloat="always"`,
-// not "single-branch"). `relative` on the UserMessage root makes it the
-// containing block once floating.
-//
-// Geometry, empirically verified in assistant-chat-polish.browser.test.tsx
-// (measured rects, not spec-assumed): col-end-2/row-end-3 are required --
-// for an abspos item an `auto` END line resolves to the grid CONTAINER's
-// padding edge, not "span 1" (CSS Grid SS10.1), so without them the
-// containing block balloons past col 1/row 2. `justify-self-end`/`-stretch`
-// were tried and rejected (abspos `justify-self: normal` computes to
-// `start`, and explicit `stretch` still measured shrink-to-fit in
-// Chromium); `inset-x-0` is what reproduces the in-flow box's width. No
-// vertical override needed: block-axis `start` matches the in-flow `mt-2`.
-export const USER_ACTION_BAR_CLASSNAME =
-  'col-start-1 col-end-2 row-start-2 row-end-3 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute data-[floating]:inset-x-0';
-
-// Exported so tests can mount it directly against a real assistant-ui local
-// runtime -- see __tests__/user-action-bar-copy.test.tsx. AssistantActionBar is
-// exported from its own module for the same reason.
-export const UserActionBar = () => {
-  const aui = useAui();
-  const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
-
-  // Routed through the shared clipboard service (useCopyToClipboard), NOT
-  // ActionBarPrimitive.Copy's built-in navigator.clipboard.writeText --
-  // that call swallows write rejections, so a broken Electron bridge would
-  // silently do nothing (no-silent-fallbacks rule). aui.message().getCopyText()
-  // is the same message-text extraction assistant-ui's own copy hook uses
-  // internally (join of the message's text parts).
-  const onCopy = () => {
-    if (isCopied) {
-      return;
-    }
-    copyToClipboard(aui.message().getCopyText());
-  };
-
-  let tooltip = 'Copy';
-  if (isCopied) {
-    tooltip = 'Copied!';
-  } else if (isFailed) {
-    tooltip = 'Copy failed';
-  }
-
-  let copyIcon: ReactNode;
-  if (isCopied) {
-    copyIcon = <CheckIcon className="size-4" />;
-  } else if (isFailed) {
-    copyIcon = <CopyIcon className="size-4 text-destructive" />;
-  } else {
-    copyIcon = <CopyIcon className="size-4" />;
-  }
-
-  return (
-    <ActionBarPrimitive.Root
-      autohide="not-last"
-      autohideFloat="always"
-      className={USER_ACTION_BAR_CLASSNAME}
-      data-testid="user-action-bar"
-      hideWhenRunning
-    >
-      <TooltipIconButton aria-label="Copy message" onClick={onCopy} tooltip={tooltip}>
-        {copyIcon}
-      </TooltipIconButton>
-      {/* Proactively announce a broken clipboard to screen readers -- the
-          tooltip alone is not announced (no-silent-fallbacks). Mirrors
-          CodeBlockHeader / CopyTextButton. */}
-      <span aria-live="polite" className="sr-only" role="status">
-        {isFailed ? 'Copy failed' : null}
-      </span>
-      <ActionBarPrimitive.Edit asChild>
-        <TooltipIconButton aria-label="Edit message" tooltip="Edit">
-          <PencilIcon className="size-4" />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Edit>
-    </ActionBarPrimitive.Root>
-  );
-};
-
 const EditComposer = () => {
   // Editing a past user message RE-SENDS it, so the last-24h budget gate must
   // cover this path too — otherwise edit-resend silently bypasses the cap. The
@@ -1785,27 +1632,6 @@ const AssistantMessage = () => {
     </MessagePrimitive.Root>
   );
 };
-
-const BranchPicker = ({ className }: { className?: string }) => (
-  <BranchPickerPrimitive.Root
-    className={`inline-flex items-center text-muted-foreground text-xs ${className ?? ''}`}
-    hideWhenSingleBranch
-  >
-    <BranchPickerPrimitive.Previous asChild>
-      <TooltipIconButton aria-label="Previous branch" tooltip="Previous">
-        <ChevronLeftIcon className="size-4" />
-      </TooltipIconButton>
-    </BranchPickerPrimitive.Previous>
-    <span className="font-medium">
-      <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
-    </span>
-    <BranchPickerPrimitive.Next asChild>
-      <TooltipIconButton aria-label="Next branch" tooltip="Next">
-        <ChevronRightIcon className="size-4" />
-      </TooltipIconButton>
-    </BranchPickerPrimitive.Next>
-  </BranchPickerPrimitive.Root>
-);
 
 interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
