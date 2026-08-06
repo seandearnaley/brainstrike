@@ -19,9 +19,9 @@ import type { SnapshotService } from './snapshot-service';
  * `service` is the ONE app-lifetime SnapshotService main.ts constructs at
  * app-ready; `createRepository` binds the snapshot ledger rows to whatever DB
  * handle the consumer already resolves. Threaded through
- * {@link AssistantServerOptions} and NOT read anywhere yet — T2's
- * turn-boundary triggers consume it so T2 never edits main.ts. Consumers must
- * never construct a second SnapshotService.
+ * {@link AssistantServerOptions}; consumed by T2's turn-boundary triggers in
+ * `assistant-server.ts` (`snapshot-turn-boundaries.ts`) — main.ts never
+ * needed editing. Consumers must never construct a second SnapshotService.
  */
 export interface DesktopWorkspaceSnapshotDependencies {
   readonly createRepository: (db: EditCheckpointDatabase) => SnapshotRepository;
