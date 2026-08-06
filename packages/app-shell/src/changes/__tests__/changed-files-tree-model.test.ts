@@ -291,6 +291,61 @@ describe('buildChangedFilesTree grouping and honesty', () => {
     expect(journalLeaf.parentId).toBe('root:root-journal');
   });
 
+  it('labels the root group from rootLabelById and carries null (never the UUID) when unmapped', () => {
+    const labeled = makeEntry({
+      path: 'src/a.ts',
+      repositoryRoot: '/repo-l',
+      rootId: 'root-labeled',
+      worktreePath: '/repo-l',
+    });
+    const unlabeled = makeEntry({
+      path: 'src/b.ts',
+      repositoryRoot: '/repo-u',
+      rootId: 'root-unlabeled',
+      worktreePath: '/repo-u',
+    });
+
+    const nodes = buildChangedFilesTree(
+      [labeled, unlabeled],
+      null,
+      new Map([['root-labeled', 'My Project']])
+    );
+
+    const labeledRoot = findNode(nodes, 'root:root-labeled');
+    expect(labeledRoot.data.kind).toBe('root');
+    if (labeledRoot.data.kind === 'root') {
+      expect(labeledRoot.data.label).toBe('My Project');
+    }
+    // An unmapped root carries a null label — the renderer shows a generic
+    // label from it; the model never falls back to the bare rootId UUID.
+    const unlabeledRoot = findNode(nodes, 'root:root-unlabeled');
+    if (unlabeledRoot.data.kind === 'root') {
+      expect(unlabeledRoot.data.label).toBeNull();
+      expect(unlabeledRoot.data.label).not.toBe('root-unlabeled');
+    }
+  });
+
+  it('a changed root label produces a fresh root node; an unchanged one reuses by reference', () => {
+    const entry = makeEntry({
+      path: 'src/a.ts',
+      repositoryRoot: '/repo-rl',
+      rootId: 'root-relabel',
+      worktreePath: '/repo-rl',
+    });
+    const first = buildChangedFilesTree([entry], null, new Map([['root-relabel', 'Before']]));
+    const firstRoot = findNode(first, 'root:root-relabel');
+
+    const same = buildChangedFilesTree([entry], null, new Map([['root-relabel', 'Before']]));
+    expect(findNode(same, 'root:root-relabel')).toBe(firstRoot);
+
+    const relabeled = buildChangedFilesTree([entry], null, new Map([['root-relabel', 'After']]));
+    const relabeledRoot = findNode(relabeled, 'root:root-relabel');
+    expect(relabeledRoot).not.toBe(firstRoot);
+    if (relabeledRoot.data.kind === 'root') {
+      expect(relabeledRoot.data.label).toBe('After');
+    }
+  });
+
   it('builds a tree from files alone when inventory is null, without blocking or fabricating names', () => {
     const entry = makeEntry({
       path: 'src/x.ts',

@@ -76,11 +76,18 @@ export interface ChangedFilesTreeProps {
   readonly files: readonly ChangedFileEntry[];
   readonly inventory: GitInventory | null;
   readonly loading?: boolean;
+  /**
+   * Root group display labels keyed by rootId (workspace display name /
+   * path-basename fallback — build with `useRootLabelById`). Defaults to
+   * empty; an unlabeled root renders a generic label, never the raw UUID.
+   */
+  readonly rootLabelById?: ReadonlyMap<string, string>;
   /** See module doc comment. Defaults to empty — every root resolves to `null`. */
   readonly rootPathById?: ReadonlyMap<string, string>;
 }
 
 const EMPTY_ROOT_PATHS: ReadonlyMap<string, string> = new Map();
+const EMPTY_ROOT_LABELS: ReadonlyMap<string, string> = new Map();
 
 function EmptyChangedFiles(): ReactElement {
   return (
@@ -137,7 +144,7 @@ function buildTreeIndexes(nodes: readonly ChangedFilesTreeNode[]): ChangedFilesT
 function describeGroupNode(data: ChangedFilesTreeNodeData): string {
   switch (data.kind) {
     case 'root':
-      return `root ${data.rootId}`;
+      return `root ${data.label ?? data.rootId}`;
     case 'repository':
       return lastPathSegment(data.repositoryRoot);
     case 'worktree':
@@ -196,6 +203,7 @@ export function ChangedFilesTree({
   files,
   inventory,
   loading = false,
+  rootLabelById = EMPTY_ROOT_LABELS,
   rootPathById = EMPTY_ROOT_PATHS,
 }: ChangedFilesTreeProps): ReactElement {
   const selectedFileKeys = useChangesStore((state) => state.selectedFileKeys);
@@ -204,7 +212,10 @@ export function ChangedFilesTree({
   const setExpandedIds = useChangesStore((state) => state.setExpandedIds);
   const toggleExpanded = useChangesStore((state) => state.toggleExpanded);
 
-  const nodes = useMemo(() => buildChangedFilesTree(files, inventory), [files, inventory]);
+  const nodes = useMemo(
+    () => buildChangedFilesTree(files, inventory, rootLabelById),
+    [files, inventory, rootLabelById]
+  );
   const { descendantFileKeysById } = useMemo(() => buildTreeIndexes(nodes), [nodes]);
 
   const groupNodeIds = useMemo(() => {

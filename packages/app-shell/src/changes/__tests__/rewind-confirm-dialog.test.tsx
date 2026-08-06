@@ -40,6 +40,20 @@ import { useChangesStore } from '../changes-store';
 import { useRewindStore } from '../rewind-store';
 import { RewindConfirmDialog } from '../ui/rewind-confirm-dialog';
 
+// `useRootLabelById` reads the shared FileSystemProvider instance, which this
+// suite deliberately does not mount (the dialog tests exercise the rewind
+// flow, not root-handle plumbing). Production always mounts the provider
+// above the dialog (`AppLayout`). Fixed labels keep the tree deterministic.
+// (vi.mock is hoisted above the imports by vitest.)
+vi.mock('../use-root-labels', () => ({
+  useRootLabelById: () =>
+    new Map([
+      ['root-repo-a', 'Repo A'],
+      ['root-repo-b', 'Repo B'],
+      ['root-plain-c', 'Scratch'],
+    ]),
+}));
+
 const ROOT_A = 'root-repo-a';
 const ROOT_B = 'root-repo-b';
 const ROOT_PLAIN = 'root-plain-c';

@@ -63,6 +63,14 @@ import { changedFileKey } from '../changes-store';
 
 export interface ChangedFilesRootNodeData {
   readonly kind: 'root';
+  /**
+   * Human-readable name for the root group row (BST-1164 review): the
+   * workspace root's display name, or the caller's path-basename fallback —
+   * resolved from `rootLabelById` at build time. `null` when the caller has
+   * no label for this root (e.g. it is no longer connected); the renderer
+   * must then show a generic label, NEVER the bare `rootId` UUID.
+   */
+  readonly label: string | null;
   readonly rootId: string;
 }
 
@@ -353,7 +361,8 @@ function appendOutsideRootsNodes(
 
 function buildRawNodes(
   files: readonly ChangedFileEntry[],
-  inventory: GitInventory | null
+  inventory: GitInventory | null,
+  rootLabelById: ReadonlyMap<string, string>
 ): ChangedFilesTreeNode[] {
   const descriptorIndex = buildWorktreeDescriptorIndex(inventory);
   const { roots, rootOrder, outsideFiles } = bucketFiles(files);
@@ -368,7 +377,7 @@ function buildRawNodes(
     const childCount = root.repoOrder.length + root.looseFiles.length;
     nodes.push({
       childCount,
-      data: { kind: 'root', rootId },
+      data: { kind: 'root', label: rootLabelById.get(rootId) ?? null, rootId },
       depth: 0,
       hasChildren: childCount > 0,
       id: rootGroupId,
@@ -432,7 +441,7 @@ function nodeDataEqual(a: ChangedFilesTreeNodeData, b: ChangedFilesTreeNodeData)
   switch (a.kind) {
     case 'root': {
       const other = b as typeof a;
-      return a.rootId === other.rootId;
+      return a.rootId === other.rootId && a.label === other.label;
     }
     case 'outside-roots':
       return true;
@@ -481,16 +490,23 @@ function reuseEqualChangedFilesTreeNodes(
   });
 }
 
+const EMPTY_ROOT_LABELS: ReadonlyMap<string, string> = new Map();
+
 /**
  * Projects changed files into TreeTable nodes: root workspace → repository →
  * worktree → file (flat under the worktree — see module doc comment for the
- * grouping decision and the identity-stability mechanism).
+ * grouping decision and the identity-stability mechanism). `rootLabelById`
+ * supplies each root group's display label (workspace display name, or the
+ * caller's path-basename fallback — see `use-root-labels.ts`); an unmapped
+ * root carries `label: null` and the renderer shows a generic label, never
+ * the raw root UUID.
  */
 export function buildChangedFilesTree(
   files: readonly ChangedFileEntry[],
-  inventory: GitInventory | null
+  inventory: GitInventory | null,
+  rootLabelById: ReadonlyMap<string, string> = EMPTY_ROOT_LABELS
 ): readonly ChangedFilesTreeNode[] {
-  const rawNodes = buildRawNodes(files, inventory);
+  const rawNodes = buildRawNodes(files, inventory, rootLabelById);
   const stabilized = reuseEqualChangedFilesTreeNodes(rawNodes);
   previousNodesById = new Map(stabilized.map((node) => [node.id, node]));
   return stabilized;

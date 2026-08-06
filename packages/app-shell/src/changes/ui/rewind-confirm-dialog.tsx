@@ -46,6 +46,7 @@ import { type RewindRequest, useRewindStore } from '../rewind-store';
 import { useGitInventory } from '../use-git-inventory';
 import { type UseRewindResult, useRewind } from '../use-rewind';
 import { useRewindExplorerRecovery } from '../use-rewind-explorer-recovery';
+import { useRootLabelById } from '../use-root-labels';
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { RewindConflictList } from './rewind-conflict-list';
@@ -83,6 +84,7 @@ function RewindPreviewPanes({
   readonly rewind: UseRewindResult;
 }): ReactElement | null {
   const { inventory } = useGitInventory();
+  const rootLabelById = useRootLabelById();
   const preview = rewind.preview;
   if (preview?.ok !== true || !preview.changeset) {
     return null;
@@ -96,6 +98,7 @@ function RewindPreviewPanes({
           files={files}
           inventory={inventory}
           loading={rewind.loading}
+          rootLabelById={rootLabelById}
         />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
