@@ -16,6 +16,10 @@
  * `sweepOrphans`. `snapshotFileHashes` is a documented ADDITION for T3's
  * conflict scan (the pre-revert hash map `applyRestorePlan` consumes has to
  * come from somewhere) — it changes nothing about the frozen methods.
+ * `worktreeFileHashes` is the second documented T3 addition, same posture:
+ * the per-path blob-oid map of the LIVE work-tree (no commit created), which
+ * is the rewind preview fingerprint the preview→apply staleness gate in
+ * `rewind-snapshot-engine.ts` compares against.
  *
  * Invariants (plan global constraints):
  * - The user's own `.git` is never read or written (see `snapshot-git.ts`).
@@ -502,6 +506,43 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     return new Map(parseLsTreeZ(run.stdout).map((treeEntry) => [treeEntry.path, treeEntry.oid]));
   }
 
+  /**
+   * Stage the LIVE work-tree into a private index and return its per-path
+   * blob-oid map — the ONE definition of "what does the work-tree hash to
+   * right now", shared by `applyRestorePlan`'s conflict gate and
+   * `worktreeFileHashes`. Callers must already hold (or not need) the root
+   * mutex; this helper never takes it, because `createMutex` is a FIFO
+   * promise chain and a nested acquisition would deadlock.
+   */
+  async function readWorktreeHashes(entry: RootEntry): Promise<ReadonlyMap<string, string>> {
+    return await entry.plumbing.withTempIndex(async (env) => {
+      await stageWorktree(entry.plumbing, env);
+      const treeRun = await entry.plumbing.runOrThrow(['write-tree'], { env });
+      const treeOid = treeRun.stdout.trim();
+      assertValidOid(treeOid, 'worktree-scan write-tree result');
+      const lsRun = await entry.plumbing.runOrThrow(['ls-tree', '-r', '-z', treeOid], { env });
+      return new Map(
+        parseLsTreeZ(lsRun.stdout).map((treeEntry) => [treeEntry.path, treeEntry.oid])
+      );
+    });
+  }
+
+  /**
+   * Per-path blob oids of the LIVE work-tree, staged with the same `add -A`
+   * ignore semantics as `snapshot()` but WITHOUT creating a commit or moving
+   * any ref. T3 ADDITION (see the module doc comment): the rewind engine
+   * fingerprints the work-tree at preview time and compares at apply time —
+   * any path whose oid changed in between is content the user was never
+   * shown, which is exactly what the preview→apply staleness gate refuses
+   * over.
+   */
+  async function worktreeFileHashes(
+    handle: ShadowRepoHandle
+  ): Promise<ReadonlyMap<string, string>> {
+    const entry = requireEntry(handle);
+    return await entry.mutex(() => readWorktreeHashes(entry));
+  }
+
   /** Reject restore/delete targets whose EXISTING ancestor dirs include a
    * symlink — writing or unlinking through one would escape the root. A
    * missing ancestor is fine (checkout-index creates real directories). */
@@ -617,16 +658,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     const entry = requireEntry(handle);
     assertValidOid(plan.targetOid, 'applyRestorePlan targetOid');
     return await entry.mutex(async () => {
-      const currentHashes = await entry.plumbing.withTempIndex(async (env) => {
-        await stageWorktree(entry.plumbing, env);
-        const treeRun = await entry.plumbing.runOrThrow(['write-tree'], { env });
-        const treeOid = treeRun.stdout.trim();
-        assertValidOid(treeOid, 'conflict-scan write-tree result');
-        const lsRun = await entry.plumbing.runOrThrow(['ls-tree', '-r', '-z', treeOid], { env });
-        return new Map(
-          parseLsTreeZ(lsRun.stdout).map((treeEntry) => [treeEntry.path, treeEntry.oid])
-        );
-      });
+      const currentHashes = await readWorktreeHashes(entry);
       return await entry.plumbing.withTempIndex(async (targetIndexEnv) => {
         await entry.plumbing.runOrThrow(['read-tree', plan.targetOid], { env: targetIndexEnv });
         const outcomes: PerFileOutcome[] = [];
@@ -713,6 +745,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     snapshot,
     snapshotFileHashes,
     sweepOrphans,
+    worktreeFileHashes,
   };
 }
 

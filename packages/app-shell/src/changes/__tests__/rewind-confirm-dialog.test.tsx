@@ -74,6 +74,7 @@ function preview(
   return {
     changeset: { fromRunId: 'run-1', kind: 'run-range', threadId: 'thread-1' },
     conflicts: [],
+    filesScope: { available: true },
     messageId: 'msg-2',
     ok: true,
     range: { fromRunId: 'run-1', kind: 'runs', runIds: ['run-1', 'run-2'] },
@@ -342,6 +343,78 @@ describe('RewindConfirmDialog', () => {
     await user.click(screen.getByTestId('rewind-mode-conversation-only'));
 
     expect(screen.queryByTestId('rewind-open-files-notice')).not.toBeInTheDocument();
+  });
+
+  // ===== Files-scope availability (BST-1164 W7 T3, carried rulings) =====
+
+  it('disables the files scope with the engine reason for a pre-snapshot turn, and applies conversation-only', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge({
+      rewindPreview: vi.fn(async () => ({
+        ok: true,
+        value: preview({
+          filesScope: {
+            available: false,
+            message:
+              'This turn predates workspace snapshots, so its files cannot be restored. Only the conversation can be restored.',
+            reason: 'turn-predates-snapshots',
+          },
+          view: null,
+        }),
+      })),
+    });
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    // The files option is VISIBLE but disabled, with the honest reason under
+    // it — never silently removed, never silently selected.
+    expect(screen.getByTestId('rewind-mode-conversation-and-files')).toBeDisabled();
+    expect(screen.getByTestId('rewind-mode-conversation-only')).toBeChecked();
+    expect(screen.getByTestId('rewind-files-scope-refusal')).toHaveTextContent(
+      'This turn predates workspace snapshots'
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
+    });
+    await user.click(screen.getByTestId('rewind-confirm'));
+
+    // The pre-selected files default must NEVER leak into the wire call when
+    // the scope is refused: the effective mode is conversation-only.
+    await waitFor(() => {
+      expect(bridge.applyRewind).toHaveBeenCalledWith({
+        acknowledgeConflicts: false,
+        messageId: 'msg-2',
+        mode: 'conversation-only',
+        threadId: 'thread-1',
+      });
+    });
+  });
+
+  it('renders the snapshot-missing reason the same way for a failed capture', async () => {
+    installBridge({
+      rewindPreview: vi.fn(async () => ({
+        ok: true,
+        value: preview({
+          filesScope: {
+            available: false,
+            message:
+              'No workspace snapshot covers this turn (its capture failed), so its files cannot be restored for this range. Only the conversation can be restored.',
+            reason: 'snapshot-missing',
+          },
+          view: null,
+        }),
+      })),
+    });
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    expect(screen.getByTestId('rewind-mode-conversation-and-files')).toBeDisabled();
+    expect(screen.getByTestId('rewind-files-scope-refusal')).toHaveTextContent(
+      'No workspace snapshot covers this turn'
+    );
   });
 
   // ===== Capture-scope honesty (smoke round 2, defect 3) =====

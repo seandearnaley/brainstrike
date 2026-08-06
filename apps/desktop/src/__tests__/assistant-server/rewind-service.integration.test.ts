@@ -1,12 +1,33 @@
 /**
- * Conversation Rewind core invariants (BST-1115, W5 T3).
+ * Conversation Rewind core invariants (BST-1115 W5 T3; snapshot engine
+ * BST-1164 W7 T3).
  *
- * MUTATION-VERIFIED: each `it` below was confirmed to FAIL against a
- * deliberately broken implementation before being accepted (see the task
- * report for the mutation list). A test that passes against a broken
- * implementation is not evidence, and this is the destructive seam.
+ * REAL PGlite + REAL filesystem + REAL shadow git; only the reindex seam is a
+ * probe. Turn boundaries are seeded exactly the way production records them
+ * (`seedTurnStartSnapshots`), and every "turn edit" is a DIRECT `fs` write —
+ * under the snapshot engine there is no journal row to distinguish a tool
+ * edit from a shell side effect, which is the point of the swap.
  *
- * REAL PGlite + REAL filesystem; only the reindex seam is a probe.
+ * MUTATION-VERIFIED (destructive seam; each mutation was applied to the
+ * implementation, the named test observed to FAIL, and the mutation
+ * reverted — see the task report):
+ * - Swapping `computeRestorePlan(turnStartOid, preRevertOid)`'s argument
+ *   order in `executeSnapshotRestore` fails "restores the target turn-start
+ *   snapshot" (the apply "restores" the current state instead).
+ * - Inverting the drift comparison in `scanPreviewDrift`
+ *   (`!==` → `===`) fails "one drifted path blocks the WHOLE apply" (the
+ *   hand edit sails through unnamed) and floods the clean-apply tests with
+ *   phantom conflicts.
+ * - Treating a missing fingerprint as "no conflicts" instead of refusing in
+ *   `applyRewindLocked` fails "refuses a files-mode apply that has no
+ *   recorded preview".
+ * - Dropping the `insertSnapshot` call in `executeSnapshotRestore` fails
+ *   "records exactly one pre-revert snapshot row per restored root" (the
+ *   pairing assertion throws) — and dropping the assertion TOO fails the
+ *   same test's explicit ledger count.
+ * - Making `resolveFilesCoverage` return `covered` with zero roots for a
+ *   thread with no snapshot rows fails "offers conversation-only with a
+ *   visible refusal for a pre-snapshot turn".
  */
 
 import fsPromises from 'node:fs/promises';
@@ -21,7 +42,7 @@ vi.mock('../../db-main', () => ({
   }),
 }));
 
-import { recordEditCheckpoint, sha256Hex } from '../../assistant-server/edit-checkpoint-journal';
+import type { RewindServiceDeps } from '../../assistant-server/rewind-service';
 import {
   applyRewind,
   finalizeThreadRewinds,
@@ -33,15 +54,16 @@ import {
   cleanupTempDirs,
   createReindexProbe,
   createRewindFixture,
+  createSnapshotHarness,
   insertMessage,
   insertRun,
   makeTempDir,
-  RESOURCE_ID,
   type ReindexProbe,
   type RewindFixture,
   readDiskFile,
-  restoredContents,
-  seedWrite,
+  rewindDeps,
+  type SnapshotHarness,
+  seedTurnStartSnapshots,
   THREAD_ID,
   writeDiskFile,
 } from './rewind-service-test-support';
@@ -50,6 +72,8 @@ const ROOT_ID = 'root-main';
 
 let fixture: RewindFixture;
 let probe: ReindexProbe;
+let harness: SnapshotHarness;
+let deps: RewindServiceDeps;
 
 function root(): string {
   const rootPath = fixture.rootPaths[ROOT_ID];
@@ -63,8 +87,8 @@ function root(): string {
  * Two turns, two runs. The run a message triggers starts BEFORE that message is
  * persisted (the renderer creates the run row on send; Mastra saves the message
  * during the request) and finishes AFTER that turn's assistant message — which
- * is why the range anchors the TARGET message against `completed_at` rather
- * than either message against `started_at`. See `resolveRewindRunRange`.
+ * is why the range anchors the TARGET message against `completed_at`. See
+ * `resolveRewindRunRange`.
  */
 async function seedTwoTurnThread(): Promise<void> {
   await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:00Z', id: 'msg-1' });
@@ -97,12 +121,19 @@ async function seedTwoTurnThread(): Promise<void> {
   });
 }
 
-async function countJournalRows(runId: string): Promise<number> {
-  const result = await fixture.db.query<{ count: number }>(
-    'SELECT COUNT(*)::int AS count FROM brainstrike_assistant_edit_checkpoints WHERE run_id = $1',
-    [runId]
-  );
-  return Number(result.rows[0]?.count ?? 0);
+/**
+ * The standard file history most tests build on: turn 1 (run-1) edits a.txt
+ * v0→v1 and b.txt b0→b1; turn 2 (run-2) edits a.txt v1→v2. Both boundaries
+ * are snapshotted the way production would.
+ */
+async function seedTwoTurnFileHistory(): Promise<void> {
+  await writeDiskFile(root(), '/a.txt', 'v0');
+  await writeDiskFile(root(), '/b.txt', 'b0');
+  await seedTurnStartSnapshots(harness, fixture, { runId: 'run-1' });
+  await writeDiskFile(root(), '/a.txt', 'v1');
+  await writeDiskFile(root(), '/b.txt', 'b1');
+  await seedTurnStartSnapshots(harness, fixture, { runId: 'run-2' });
+  await writeDiskFile(root(), '/a.txt', 'v2');
 }
 
 async function tombstoneRows(): Promise<
@@ -116,6 +147,19 @@ async function tombstoneRows(): Promise<
     `SELECT message_id AS "messageId", rewind_id AS "rewindId", revert_id AS "revertId"
      FROM brainstrike_assistant_message_tombstones
      ORDER BY message_id ASC`
+  );
+  return result.rows;
+}
+
+async function snapshotRowsByKind(
+  kind: string
+): Promise<{ commitOid: string; runId: string | null }[]> {
+  const result = await fixture.db.query<{ commitOid: string; runId: string | null }>(
+    `SELECT commit_oid AS "commitOid", run_id AS "runId"
+     FROM brainstrike_workspace_snapshots
+     WHERE kind = $1
+     ORDER BY id ASC`,
+    [kind]
   );
   return result.rows;
 }
@@ -148,9 +192,19 @@ async function visibleMessageIds(): Promise<string[]> {
   return result.rows.map((row) => row.id);
 }
 
+/** Generate the preview whose fingerprint the files-mode gate binds. */
+async function previewFor(messageId: string): Promise<void> {
+  const preview = await rewindToMessage(fixture.db, { messageId, threadId: THREAD_ID }, deps);
+  if (!preview.ok) {
+    throw new Error(`fixture preview refused: ${preview.message}`);
+  }
+}
+
 beforeEach(async () => {
   probe = createReindexProbe();
   fixture = await createRewindFixture({ [ROOT_ID]: await makeTempDir() }, 'rewind-service');
+  harness = await createSnapshotHarness(fixture.db);
+  deps = rewindDeps(harness, probe);
 });
 
 afterEach(async () => {
@@ -158,90 +212,107 @@ afterEach(async () => {
   await cleanupTempDirs();
 });
 
-describe('applyRewind — sequential newest-first ordering', () => {
-  it('reverts a file edited in TWO runs newest-first, one revert at a time', async () => {
+describe('applyRewind — restores the target turn-start snapshot', () => {
+  it('restores a multi-run range to the FIRST turn boundary, and redo round-trips', async () => {
     await seedTwoTurnThread();
-    await seedWrite(fixture, {
-      after: 'v1',
-      before: 'v0',
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    await seedWrite(fixture, {
-      after: 'b1',
-      before: 'b0',
-      occurredAt: '2026-01-01T00:00:26Z',
-      path: '/b.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    await seedWrite(fixture, {
-      after: 'v2',
-      before: 'v1',
-      occurredAt: '2026-01-01T00:00:45Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-2',
-    });
+    await seedTwoTurnFileHistory();
+    await previewFor('msg-3');
 
     const result = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
+      deps
     );
 
     expect(result.ok).toBe(true);
-    // Newest-first: a@45 (v2->v1), then b@26 (b1->b0), then a@25 (v1->v0).
-    // Oldest-first would make a@25's conflict check fail against on-disk v2.
-    expect(restoredContents(probe)).toEqual(['v1', 'b0', 'v0']);
+    if (!result.ok) {
+      return;
+    }
+    // Restored to the run-1 turn-start boundary — BOTH turns' edits undone in
+    // one restore, no per-record ordering to get wrong.
     expect(await readDiskFile(root(), '/a.txt')).toBe('v0');
     expect(await readDiskFile(root(), '/b.txt')).toBe('b0');
-    // Sequential, not Promise.all: two reverts must never be in flight at once.
-    expect(probe.overlaps).toEqual([]);
+    const outcomes = new Map(result.fileOutcomes.map((outcome) => [outcome.path, outcome.code]));
+    expect(outcomes.get('a.txt')).toBe('reverted');
+    expect(outcomes.get('b.txt')).toBe('reverted');
+    expect(result.rootOutcomes).toEqual([
+      expect.objectContaining({
+        attempted: 2,
+        conflicts: 0,
+        failed: 0,
+        reverted: 2,
+        rootId: ROOT_ID,
+      }),
+    ]);
+    // The reindex seam saw the restored contents — same seam as before the
+    // swap, now fed from restore-plan outcomes.
+    const restored = probe.calls.filter((call) => call.kind === 'restore');
+    expect(restored.map((call) => (call.kind === 'restore' ? call.content : '')).sort()).toEqual([
+      'b0',
+      'v0',
+    ]);
+
+    const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, deps);
+    expect(redone.ok).toBe(true);
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v2');
+    expect(await readDiskFile(root(), '/b.txt')).toBe('b1');
+    if (redone.ok) {
+      expect([...redone.restoredMessageIds].sort()).toEqual(['msg-3', 'msg-4', 'msg-5', 'msg-6']);
+    }
+    expect(await tombstoneRows()).toEqual([]);
+  });
+
+  it('records exactly one pre-revert snapshot row per restored root, before the restore', async () => {
+    await seedTwoTurnThread();
+    await seedTwoTurnFileHistory();
+    await previewFor('msg-3');
+
+    const result = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      deps
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.revertId).not.toBeNull();
+    // THE PAIRING RULE, checked in the ledger itself: one pre-revert row,
+    // grouped under the rewind's revertId — the redo source.
+    const preReverts = await snapshotRowsByKind('pre-revert');
+    expect(preReverts).toHaveLength(1);
+    expect(preReverts[0]?.runId).toBe(result.revertId);
   });
 });
 
-describe('applyRewind — the acknowledgment gate', () => {
-  it('one conflicting file blocks the WHOLE apply: no file, no tombstone, no revert stamp', async () => {
+describe('applyRewind — the acknowledgment gate binds the preview', () => {
+  it('one path drifted after the preview blocks the WHOLE apply until acknowledged', async () => {
     await seedTwoTurnThread();
-    await seedWrite(fixture, {
-      after: 'v1',
-      before: 'v0',
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    await seedWrite(fixture, {
-      after: 'b1',
-      before: 'b0',
-      occurredAt: '2026-01-01T00:00:26Z',
-      path: '/b.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    // The user hand-edits ONE of the two files after the run.
+    await seedTwoTurnFileHistory();
+    await previewFor('msg-3');
+    // The user hand-edits ONE file AFTER the preview was generated: content
+    // the acknowledged preview never showed.
     await writeDiskFile(root(), '/a.txt', 'HAND-EDITED');
 
     const refused = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
+      deps
     );
 
     expect(refused.ok).toBe(false);
     if (!refused.ok) {
       expect(refused.reason).toBe('conflicts-unacknowledged');
-      expect(refused.conflicts.map((conflict) => conflict.path)).toEqual(['/a.txt']);
-      expect(refused.message).toContain('/a.txt');
+      expect(refused.conflicts.map((conflict) => conflict.path)).toEqual(['a.txt']);
+      expect(refused.conflicts[0]?.code).toBe('disk-changed');
+      expect(refused.message).toContain('a.txt');
     }
-    // NOTHING applied — not even the clean file, not even the conversation.
+    // NOTHING applied — not the clean file, not the conversation, no snapshot.
     expect(await readDiskFile(root(), '/a.txt')).toBe('HAND-EDITED');
     expect(await readDiskFile(root(), '/b.txt')).toBe('b1');
     expect(await tombstoneRows()).toEqual([]);
     expect(probe.calls).toEqual([]);
+    expect(await snapshotRowsByKind('pre-revert')).toEqual([]);
 
     const applied = await applyRewind(
       fixture.db,
@@ -251,7 +322,7 @@ describe('applyRewind — the acknowledgment gate', () => {
         mode: 'conversation-and-files',
         threadId: THREAD_ID,
       },
-      probe
+      deps
     );
     expect(applied.ok).toBe(true);
     expect(await readDiskFile(root(), '/a.txt')).toBe('v0');
@@ -262,6 +333,58 @@ describe('applyRewind — the acknowledgment gate', () => {
       'msg-5',
       'msg-6',
     ]);
+    // The acknowledged drift is in the pre-revert snapshot: redo restores it.
+    if (!applied.ok) {
+      return;
+    }
+    const redone = await redoRewind(fixture.db, { rewindId: applied.rewindId }, deps);
+    expect(redone.ok).toBe(true);
+    expect(await readDiskFile(root(), '/a.txt')).toBe('HAND-EDITED');
+  });
+
+  it('a fresh preview clears the drift: re-preview then apply needs no acknowledgment', async () => {
+    await seedTwoTurnThread();
+    await seedTwoTurnFileHistory();
+    await previewFor('msg-3');
+    await writeDiskFile(root(), '/a.txt', 'HAND-EDITED');
+
+    const refused = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      deps
+    );
+    expect(refused.ok).toBe(false);
+
+    // Re-preview: the user is SHOWN the current state (including the hand
+    // edit), so applying over it is now informed.
+    await previewFor('msg-3');
+    const applied = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      deps
+    );
+    expect(applied.ok).toBe(true);
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v0');
+  });
+
+  it('refuses a files-mode apply that has no recorded preview', async () => {
+    await seedTwoTurnThread();
+    await seedTwoTurnFileHistory();
+
+    const refused = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
+      deps
+    );
+
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.reason).toBe('preview-required');
+      expect(refused.message).toContain('msg-3');
+    }
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v2');
+    expect(await tombstoneRows()).toEqual([]);
+    expect(probe.calls).toEqual([]);
   });
 });
 
@@ -279,15 +402,8 @@ describe('applyRewind — the acknowledgment gate', () => {
 describe('applyRewind — the in-flight run gate', () => {
   it('refuses while a non-terminal run exists and writes nothing, in either mode', async () => {
     await seedTwoTurnThread();
-    await seedWrite(fixture, {
-      after: 'v1',
-      before: 'v0',
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    const journalBefore = await countJournalRows('run-1');
+    await seedTwoTurnFileHistory();
+    await previewFor('msg-3');
     // The turn the user is CURRENTLY waiting on: row written on send, no
     // terminal status yet.
     await insertRun(fixture.db, {
@@ -299,7 +415,7 @@ describe('applyRewind — the in-flight run gate', () => {
     const refused = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
+      deps
     );
 
     expect(refused.ok).toBe(false);
@@ -313,148 +429,111 @@ describe('applyRewind — the in-flight run gate', () => {
     const refusedConversationOnly = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     expect(refusedConversationOnly.ok === false && refusedConversationOnly.reason).toBe(
       'run-in-flight'
     );
 
     // NOTHING was applied by either attempt: no tombstone, no file write, no
-    // revert stamp, no journal row.
+    // pre-revert snapshot.
     expect(await tombstoneRows()).toEqual([]);
-    expect(await readDiskFile(root(), '/a.txt')).toBe('v1');
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v2');
     expect(probe.calls).toEqual([]);
-    expect(await countJournalRows('run-1')).toBe(journalBefore);
-    const strays = await fixture.db.query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM brainstrike_assistant_edit_checkpoints
-       WHERE run_id NOT IN ('run-1', 'run-2')`
-    );
-    expect(Number(strays.rows[0]?.count ?? 0)).toBe(0);
+    expect(await snapshotRowsByKind('pre-revert')).toEqual([]);
   });
 });
 
-describe('applyRewind — after-capture pairing', () => {
-  it('journals every revert under the rewind revertId, and redo replays it', async () => {
+describe('applyRewind — files scope availability (carried rulings)', () => {
+  it('offers conversation-only with a visible refusal for a pre-snapshot turn', async () => {
     await seedTwoTurnThread();
-    await seedWrite(fixture, {
-      after: 'v1',
-      before: 'v0',
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
+    // Runs exist, but the thread has NO snapshot rows at all: it predates the
+    // engine.
+    await writeDiskFile(root(), '/a.txt', 'v1');
 
-    const result = await applyRewind(
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'msg-3', threadId: THREAD_ID },
+      deps
+    );
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) {
+      return;
+    }
+    expect(preview.filesScope).toEqual({
+      available: false,
+      message: expect.stringContaining('predates workspace snapshots'),
+      reason: 'turn-predates-snapshots',
+    });
+    expect(preview.view).toBeNull();
+
+    // Files scope refuses with the SAME reason; the journal engine is not a
+    // fallback and disk is untouched.
+    const refused = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
+      deps
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.reason).toBe('turn-predates-snapshots');
+      expect(refused.message).toContain('predates workspace snapshots');
     }
-    const revertId = result.revertId;
-    expect(revertId).not.toBeNull();
-    if (revertId === null) {
-      return;
-    }
-
-    const captures = await fixture.db.query<{
-      beforeContent: string | null;
-      captureStatus: string;
-      path: string;
-      toolName: string;
-    }>(
-      `SELECT path AS "path", before_content AS "beforeContent",
-              capture_status AS "captureStatus", tool_name AS "toolName"
-       FROM brainstrike_assistant_edit_checkpoints WHERE run_id = $1`,
-      [revertId]
-    );
-    // The bytes the revert destroyed are captured, or redo has nothing to
-    // restore from.
-    expect(captures.rows).toHaveLength(1);
-    expect(captures.rows[0]?.path).toBe('/a.txt');
-    expect(captures.rows[0]?.beforeContent).toBe('v1');
-    expect(captures.rows[0]?.captureStatus).toBe('ok');
-    expect(captures.rows[0]?.toolName).toBe('brainstrike.rewindRevert');
-    expect(await readDiskFile(root(), '/a.txt')).toBe('v0');
-
-    const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, probe);
-    expect(redone.ok).toBe(true);
     expect(await readDiskFile(root(), '/a.txt')).toBe('v1');
-    if (redone.ok) {
-      expect([...redone.restoredMessageIds].sort()).toEqual(['msg-3', 'msg-4', 'msg-5', 'msg-6']);
-    }
-    expect(await tombstoneRows()).toEqual([]);
-  });
-});
 
-describe('applyRewind — partial-failure honesty', () => {
-  it('names every unrestorable file by path instead of swallowing it', async () => {
+    // Conversation-only remains available.
+    const conversationOnly = await applyRewind(
+      fixture.db,
+      { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
+      deps
+    );
+    expect(conversationOnly.ok).toBe(true);
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v1');
+  });
+
+  it('refuses the files scope when the target turn has no turn-start snapshot (capture failed)', async () => {
     await seedTwoTurnThread();
-    await seedWrite(fixture, {
-      after: 'v1',
-      before: 'v0',
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    // A retention-expired capture: acknowledging cannot rescue it, so it must
-    // still be reported, by path, in the outcomes.
-    await writeDiskFile(root(), '/c.txt', 'c1');
-    await recordEditCheckpoint(fixture.db, {
-      afterExisted: true,
-      afterHash: sha256Hex('c1'),
-      beforeContent: null,
-      beforeExisted: true,
-      beforeHash: sha256Hex('c0'),
-      beforeSize: 2,
-      captureStatus: 'expired',
-      occurredAt: new Date('2026-01-01T00:00:26Z'),
-      op: 'write',
-      path: '/c.txt',
-      resourceId: RESOURCE_ID,
-      rootId: ROOT_ID,
-      runId: 'run-1',
-      threadId: THREAD_ID,
-      toolName: 'brainstrike.writeWorkspaceFile',
-    });
+    // The thread HAS snapshot rows — but only for run-2. run-1's capture
+    // failed (or predates capture), so the msg-3 range has no baseline.
+    await writeDiskFile(root(), '/a.txt', 'v1');
+    await seedTurnStartSnapshots(harness, fixture, { runId: 'run-2' });
+    await writeDiskFile(root(), '/a.txt', 'v2');
+
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'msg-3', threadId: THREAD_ID },
+      deps
+    );
+    expect(preview.ok).toBe(true);
+    if (preview.ok) {
+      expect(preview.filesScope).toEqual({
+        available: false,
+        message: expect.stringContaining('run "run-1"'),
+        reason: 'snapshot-missing',
+      });
+    }
 
     const refused = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
+      deps
     );
     expect(refused.ok).toBe(false);
     if (!refused.ok) {
-      expect(refused.conflicts.map((conflict) => conflict.path)).toEqual(['/c.txt']);
-      expect(refused.conflicts[0]?.code).toBe('capture-unavailable');
+      expect(refused.reason).toBe('snapshot-missing');
     }
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v2');
+    expect(await tombstoneRows()).toEqual([]);
 
+    // Rewinding to the COVERED turn still works.
+    await previewFor('msg-5');
     const applied = await applyRewind(
       fixture.db,
-      {
-        acknowledgeConflicts: true,
-        messageId: 'msg-3',
-        mode: 'conversation-and-files',
-        threadId: THREAD_ID,
-      },
-      probe
+      { messageId: 'msg-5', mode: 'conversation-and-files', threadId: THREAD_ID },
+      deps
     );
     expect(applied.ok).toBe(true);
-    if (!applied.ok) {
-      return;
-    }
-    const byPath = new Map(applied.fileOutcomes.map((outcome) => [outcome.path, outcome]));
-    expect(byPath.get('/a.txt')?.code).toBe('reverted');
-    expect(byPath.get('/c.txt')?.code).toBe('not_revertible');
-    expect(byPath.get('/c.txt')?.message).toBeTruthy();
-    expect(applied.rootOutcomes).toEqual([
-      expect.objectContaining({ attempted: 2, failed: 1, reverted: 1, rootId: ROOT_ID }),
-    ]);
-    expect(await readDiskFile(root(), '/c.txt')).toBe('c1');
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v1');
   });
 });
 
@@ -465,7 +544,7 @@ describe('applyRewind — tombstone batch identity', () => {
     const first = await applyRewind(
       fixture.db,
       { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     expect(first.ok).toBe(true);
     if (!first.ok) {
@@ -476,7 +555,7 @@ describe('applyRewind — tombstone batch identity', () => {
     const second = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     expect(second.ok).toBe(true);
     if (!second.ok) {
@@ -493,7 +572,7 @@ describe('applyRewind — tombstone batch identity', () => {
     expect(byMessage.get('msg-4')).toBe(second.rewindId);
 
     // Redoing the newer rewind restores only what IT hid.
-    const redone = await redoRewind(fixture.db, { rewindId: second.rewindId }, probe);
+    const redone = await redoRewind(fixture.db, { rewindId: second.rewindId }, deps);
     expect(redone.ok).toBe(true);
     expect((await tombstoneRows()).map((row) => row.messageId)).toEqual(['msg-5', 'msg-6']);
   });
@@ -503,19 +582,19 @@ describe('applyRewind — tombstone batch identity', () => {
     const first = await applyRewind(
       fixture.db,
       { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     const second = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok) {
       return;
     }
 
-    const refused = await redoRewind(fixture.db, { rewindId: first.rewindId }, probe);
+    const refused = await redoRewind(fixture.db, { rewindId: first.rewindId }, deps);
     expect(refused.ok).toBe(false);
     if (!refused.ok) {
       expect(refused.reason).toBe('not-latest-rewind');
@@ -525,22 +604,14 @@ describe('applyRewind — tombstone batch identity', () => {
 });
 
 describe('applyRewind — mode split', () => {
-  it('conversation-only writes revert_id NULL, touches no file and journals nothing', async () => {
+  it('conversation-only writes revert_id NULL, touches no file and takes no snapshot', async () => {
     await seedTwoTurnThread();
-    const originalId = await seedWrite(fixture, {
-      after: 'v1',
-      before: 'v0',
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    const journalBefore = await countJournalRows('run-1');
+    await seedTwoTurnFileHistory();
 
     const result = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
 
     expect(result.ok).toBe(true);
@@ -553,48 +624,23 @@ describe('applyRewind — mode split', () => {
     for (const row of await tombstoneRows()) {
       expect(row.revertId).toBeNull();
     }
-    // The file is untouched and its journal entry is still un-reverted.
-    expect(await readDiskFile(root(), '/a.txt')).toBe('v1');
+    // Disk untouched, no reindex, and no pre-revert snapshot was taken.
+    expect(await readDiskFile(root(), '/a.txt')).toBe('v2');
     expect(probe.calls).toEqual([]);
-    expect(await countJournalRows('run-1')).toBe(journalBefore);
-    const stamp = await fixture.db.query<{ revertedAt: string | null }>(
-      `SELECT reverted_at AS "revertedAt" FROM brainstrike_assistant_edit_checkpoints WHERE id = $1`,
-      [originalId]
-    );
-    expect(stamp.rows[0]?.revertedAt).toBeNull();
-    // No journal rows exist outside the seeded runs at all.
-    const strays = await fixture.db.query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM brainstrike_assistant_edit_checkpoints
-       WHERE run_id NOT IN ('run-1', 'run-2')`
-    );
-    expect(Number(strays.rows[0]?.count ?? 0)).toBe(0);
+    expect(await snapshotRowsByKind('pre-revert')).toEqual([]);
   });
 });
 
 describe('rewindToMessage — preview', () => {
-  it('reuses the run-range ChangesetView and lists the messages that would be hidden', async () => {
+  it('resolves the snapshot diff view, the fingerprint, and the tombstone set', async () => {
     await seedTwoTurnThread();
-    await seedWrite(fixture, {
-      after: 'v1',
-      before: 'v0',
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-    await seedWrite(fixture, {
-      after: 'v2',
-      before: 'v1',
-      occurredAt: '2026-01-01T00:00:45Z',
-      path: '/a.txt',
-      rootId: ROOT_ID,
-      runId: 'run-2',
-    });
+    await seedTwoTurnFileHistory();
 
-    const preview = await rewindToMessage(fixture.db, {
-      messageId: 'msg-3',
-      threadId: THREAD_ID,
-    });
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'msg-3', threadId: THREAD_ID },
+      deps
+    );
     expect(preview.ok).toBe(true);
     if (!preview.ok) {
       return;
@@ -611,18 +657,43 @@ describe('rewindToMessage — preview', () => {
     });
     expect(preview.tombstoneMessageIds).toEqual(['msg-3', 'msg-4', 'msg-5', 'msg-6']);
     expect(preview.conflicts).toEqual([]);
-    // ONE folded entry for the file both runs touched — the existing view, not
-    // a second computation.
-    expect(preview.view?.files.map((file) => file.path)).toEqual(['/a.txt']);
-    expect(preview.view?.totalAdditions).toBeNull();
+    expect(preview.filesScope).toEqual({ available: true });
+    // The view is the turn-start-vs-worktree snapshot diff: BOTH files, with
+    // real per-file line counts (a git-backed source reports totals).
+    const files = new Map(preview.view?.files.map((file) => [file.path, file]) ?? []);
+    expect([...files.keys()].sort()).toEqual(['a.txt', 'b.txt']);
+    expect(files.get('a.txt')?.status).toBe('modified');
+    expect(files.get('a.txt')?.rootId).toBe(ROOT_ID);
+    expect(preview.view?.totalAdditions).not.toBeNull();
+  });
+
+  it('lists a shell-created file as added — the fixture class the journal engine could not see', async () => {
+    await seedTwoTurnThread();
+    await seedTurnStartSnapshots(harness, fixture, { runId: 'run-1' });
+    // Direct fs write mid-turn — an `npm install` lockfile, a build artifact.
+    await writeDiskFile(root(), '/package-lock.json', '{ "lock": true }');
+
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'msg-3', threadId: THREAD_ID },
+      deps
+    );
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) {
+      return;
+    }
+    expect(preview.view?.files).toEqual([
+      expect.objectContaining({ path: 'package-lock.json', rootId: ROOT_ID, status: 'added' }),
+    ]);
   });
 
   it('rejects an unknown message instead of previewing an empty rewind', async () => {
     await seedTwoTurnThread();
-    const preview = await rewindToMessage(fixture.db, {
-      messageId: 'msg-nope',
-      threadId: THREAD_ID,
-    });
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'msg-nope', threadId: THREAD_ID },
+      deps
+    );
     expect(preview.ok).toBe(false);
     if (!preview.ok) {
       expect(preview.reason).toBe('message-not-found');
@@ -631,15 +702,17 @@ describe('rewindToMessage — preview', () => {
 
   it('reports a thread with no runs after the message as an honest empty range', async () => {
     await insertMessage(fixture.db, { createdAt: '2026-01-01T00:00:00Z', id: 'solo-1' });
-    const preview = await rewindToMessage(fixture.db, {
-      messageId: 'solo-1',
-      threadId: THREAD_ID,
-    });
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'solo-1', threadId: THREAD_ID },
+      deps
+    );
     expect(preview.ok).toBe(true);
     if (preview.ok) {
       expect(preview.range).toEqual({ kind: 'none', reason: 'no-runs-after-message' });
       expect(preview.changeset).toBeNull();
       expect(preview.view).toBeNull();
+      expect(preview.filesScope).toEqual({ available: true });
     }
   });
 });
@@ -650,7 +723,7 @@ describe('finalizeThreadRewinds', () => {
     await applyRewind(
       fixture.db,
       { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
 
     const deleted: string[][] = [];
@@ -671,7 +744,7 @@ describe('finalizeThreadRewinds', () => {
     await applyRewind(
       fixture.db,
       { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
 
     await expect(
@@ -703,18 +776,18 @@ describe('finalizeThreadRewinds', () => {
     await applyRewind(
       fixture.db,
       { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     const deleted: string[][] = [];
-    const deps = {
+    const finalizationDeps = {
       deleteMessages: async (ids: readonly string[]): Promise<void> => {
         deleted.push([...ids]);
         await deleteMessagesFrom(ids);
       },
     };
 
-    const first = await finalizeThreadRewinds(fixture.db, THREAD_ID, deps);
-    const second = await finalizeThreadRewinds(fixture.db, THREAD_ID, deps);
+    const first = await finalizeThreadRewinds(fixture.db, THREAD_ID, finalizationDeps);
+    const second = await finalizeThreadRewinds(fixture.db, THREAD_ID, finalizationDeps);
 
     expect(first.finalized).toBe(true);
     expect(second).toEqual({ deletedMessageIds: [], finalized: false, rewindIds: [] });
@@ -726,10 +799,10 @@ describe('finalizeThreadRewinds', () => {
     await applyRewind(
       fixture.db,
       { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     const deleted: string[][] = [];
-    const deps = {
+    const finalizationDeps = {
       deleteMessages: async (ids: readonly string[]): Promise<void> => {
         deleted.push([...ids]);
         await deleteMessagesFrom(ids);
@@ -737,8 +810,8 @@ describe('finalizeThreadRewinds', () => {
     };
 
     const [first, second] = await Promise.all([
-      finalizeThreadRewinds(fixture.db, THREAD_ID, deps),
-      finalizeThreadRewinds(fixture.db, THREAD_ID, deps),
+      finalizeThreadRewinds(fixture.db, THREAD_ID, finalizationDeps),
+      finalizeThreadRewinds(fixture.db, THREAD_ID, finalizationDeps),
     ]);
 
     // Serialized, so exactly one sees the tombstones. Without the per-thread
@@ -762,7 +835,7 @@ describe('redoRewind vs finalizeThreadRewinds', () => {
     const result = await applyRewind(
       fixture.db,
       { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
-      probe
+      deps
     );
     if (!result.ok) {
       throw new Error('fixture rewind was refused');
@@ -774,7 +847,7 @@ describe('redoRewind vs finalizeThreadRewinds', () => {
     const rewindId = await applyConversationOnlyRewind();
     await finalizeThreadRewinds(fixture.db, THREAD_ID, { deleteMessages: deleteMessagesFrom });
 
-    const redone = await redoRewind(fixture.db, { rewindId }, probe);
+    const redone = await redoRewind(fixture.db, { rewindId }, deps);
 
     expect(redone.ok).toBe(false);
     if (!redone.ok) {
@@ -789,7 +862,7 @@ describe('redoRewind vs finalizeThreadRewinds', () => {
     // Both raised in the same tick. The lock, not the scheduler, decides.
     const [finalization, redone] = await Promise.all([
       finalizeThreadRewinds(fixture.db, THREAD_ID, { deleteMessages: deleteMessagesFrom }),
-      redoRewind(fixture.db, { rewindId }, probe),
+      redoRewind(fixture.db, { rewindId }, deps),
     ]);
 
     // Exactly one wins, and the loser says so. The forbidden outcome is BOTH
@@ -817,63 +890,29 @@ describe('redoRewind vs finalizeThreadRewinds', () => {
   });
 });
 
-describe('applyRewind — created files', () => {
-  it('deletes a file the reverted run created, and redo puts it back', async () => {
-    await seedTwoTurnThread();
-    await seedWrite(fixture, {
-      after: 'brand new',
-      before: null,
-      occurredAt: '2026-01-01T00:00:25Z',
-      path: '/new.txt',
-      rootId: ROOT_ID,
-      runId: 'run-1',
-    });
-
-    const result = await applyRewind(
-      fixture.db,
-      { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
-    );
-    expect(result.ok).toBe(true);
-    expect(await readDiskFile(root(), '/new.txt')).toBeNull();
-    await expect(fsPromises.stat(absolutePathFor(root(), '/new.txt'))).rejects.toThrow();
-
-    if (!result.ok) {
-      return;
-    }
-    const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, probe);
-    expect(redone.ok).toBe(true);
-    expect(await readDiskFile(root(), '/new.txt')).toBe('brand new');
-  });
-
+describe('applyRewind — files created during the turn', () => {
   /**
-   * REGRESSION — 2026-08-05 smoke round 2, defect 1. A turn that scaffolded a
-   * modular app left its whole `app/` directory tree standing after the rewind,
-   * because the journal records FILE ops only. The apply path now prunes the
-   * emptied ancestors; REDO must not (it restores the pre-rewind state, in
-   * which those directories existed) — recreating them is `writeFile`'s job.
+   * A scaffolding turn writes a directory tree with DIRECT fs writes — the
+   * shell-side-effect fixture class the journal engine structurally could
+   * not pass. The apply must remove every created file AND prune the emptied
+   * directories; redo must rebuild all of it.
    */
-  it('prunes the directory tree a scaffolding turn created, and redo rebuilds it', async () => {
+  it('removes shell-created files and their scaffolded directories, and redo rebuilds them', async () => {
     await seedTwoTurnThread();
+    await seedTurnStartSnapshots(harness, fixture, { runId: 'run-1' });
     for (const [index, filePath] of [
       '/app/src/main.tsx',
       '/app/src/components/Button.tsx',
       '/app/package.json',
     ].entries()) {
-      await seedWrite(fixture, {
-        after: `scaffold ${index}`,
-        before: null,
-        occurredAt: `2026-01-01T00:00:2${5 + index}Z`,
-        path: filePath,
-        rootId: ROOT_ID,
-        runId: 'run-1',
-      });
+      await writeDiskFile(root(), filePath, `scaffold ${index}`);
     }
+    await previewFor('msg-3');
 
     const result = await applyRewind(
       fixture.db,
       { messageId: 'msg-3', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
+      deps
     );
     expect(result.ok).toBe(true);
     await expect(fsPromises.stat(absolutePathFor(root(), '/app'))).rejects.toThrow();
@@ -883,7 +922,7 @@ describe('applyRewind — created files', () => {
     if (!result.ok) {
       return;
     }
-    const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, probe);
+    const redone = await redoRewind(fixture.db, { rewindId: result.rewindId }, deps);
     expect(redone.ok).toBe(true);
     expect(await readDiskFile(root(), '/app/src/components/Button.tsx')).toBe('scaffold 1');
     expect((await fsPromises.stat(absolutePathFor(root(), '/app/src'))).isDirectory()).toBe(true);
@@ -891,28 +930,16 @@ describe('applyRewind — created files', () => {
 });
 
 /**
- * REGRESSION — the destructive defect from the 2026-08-05 live smoke, recovered
- * verbatim from the production journal (thread-f73c888a): rewinding one turn
- * DELETED a file an EARLIER turn had created, instead of restoring it.
- *
- * A user turn is not one run. Every tool-approval / askUser resume mints a new
- * run row through the same `prepareRequestData` -> `createThreadRun` seam, and
- * the turn's assistant message row is persisted at the START of the turn (it is
- * upserted in place as the turn streams on). So a turn's LATER runs — the ones
- * that usually do the file work — start well AFTER that turn's own assistant
- * message. Anchoring the range on the message PRECEDING the target therefore
- * swept the previous turn's tail into the revert, and reverting its `created`
- * capture is an `unlink`.
- *
- * Production numbers this mirrors: target message at 04:58:19.849; the swept
- * run started at 04:56:58.397 — 81 SECONDS BEFORE the message the user rewound
- * to — and had already completed at 04:57:51.341.
+ * REGRESSION — the destructive defect from the 2026-08-05 live smoke: a turn
+ * is not one run (approval resumes mint new run rows), and the OLD anchor rule
+ * swept the previous turn's tail runs into the revert, deleting a file an
+ * earlier turn created. Under the snapshot engine the restore target is the
+ * TARGET TURN's turn-start snapshot, which by definition contains everything
+ * earlier turns produced — so the earlier turn's file is restored to its
+ * pre-target-turn content, never deleted.
  */
 describe('applyRewind — the range never reaches back past the target message', () => {
   async function seedResumedTurnThread(): Promise<void> {
-    // Turn A: prompt, first run, assistant row, then a RESUME run that creates
-    // the file. Run rows are minted on send, ~milliseconds before Mastra
-    // persists the user message — the ordering the old anchor was built around.
     await insertRun(fixture.db, {
       completedAt: '2026-03-01T00:01:20Z',
       id: 'run-a1',
@@ -945,70 +972,38 @@ describe('applyRewind — the range never reaches back past the target message',
 
   it('restores a file the PREVIOUS turn created instead of deleting it', async () => {
     await seedResumedTurnThread();
-    await seedWrite(fixture, {
-      after: 'the page turn A built',
-      before: null,
-      occurredAt: '2026-03-01T00:01:40Z',
-      path: '/page.html',
-      rootId: ROOT_ID,
-      runId: 'run-a2',
-    });
-    await seedWrite(fixture, {
-      after: 'the page turn B edited',
-      before: 'the page turn A built',
-      occurredAt: '2026-03-01T00:03:20Z',
-      path: '/page.html',
-      rootId: ROOT_ID,
-      runId: 'run-b1',
-    });
+    // Turn A (runs a1+a2) creates the page.
+    await seedTurnStartSnapshots(harness, fixture, { runId: 'run-a1' });
+    await writeDiskFile(root(), '/page.html', 'the page turn A built');
+    // Turn B's boundary CONTAINS turn A's output; turn B then edits it.
+    await seedTurnStartSnapshots(harness, fixture, { runId: 'run-b1' });
+    await writeDiskFile(root(), '/page.html', 'the page turn B edited');
+
+    const preview = await rewindToMessage(
+      fixture.db,
+      { messageId: 'msg-c', threadId: THREAD_ID },
+      deps
+    );
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) {
+      return;
+    }
+    expect(preview.range.kind === 'runs' ? preview.range.runIds : []).toEqual(['run-b1']);
 
     const result = await applyRewind(
       fixture.db,
       { messageId: 'msg-c', mode: 'conversation-and-files', threadId: THREAD_ID },
-      probe
+      deps
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    // Turn A's create is NOT in range: exactly one file operation is reverted.
-    expect(result.fileOutcomes.map((outcome) => outcome.code)).toEqual(['reverted']);
-    expect(result.range.kind === 'runs' ? result.range.runIds : []).toEqual(['run-b1']);
     // The file the user asked to keep still exists, with turn A's content.
+    expect(result.fileOutcomes.map((outcome) => outcome.code)).toEqual(['reverted']);
     expect(await readDiskFile(root(), '/page.html')).toBe('the page turn A built');
     // Only turn B's messages are hidden — the conversation side was never wrong.
     expect(result.tombstonedMessageIds).toEqual(['msg-c', 'msg-d']);
-  });
-
-  it('previews the same narrowed range it would apply', async () => {
-    await seedResumedTurnThread();
-    await seedWrite(fixture, {
-      after: 'the page turn A built',
-      before: null,
-      occurredAt: '2026-03-01T00:01:40Z',
-      path: '/page.html',
-      rootId: ROOT_ID,
-      runId: 'run-a2',
-    });
-    await seedWrite(fixture, {
-      after: 'the page turn B edited',
-      before: 'the page turn A built',
-      occurredAt: '2026-03-01T00:03:20Z',
-      path: '/page.html',
-      rootId: ROOT_ID,
-      runId: 'run-b1',
-    });
-
-    const preview = await rewindToMessage(fixture.db, {
-      messageId: 'msg-c',
-      threadId: THREAD_ID,
-    });
-
-    expect(preview.ok).toBe(true);
-    if (!preview.ok) {
-      return;
-    }
-    expect(preview.range.kind === 'runs' ? preview.range.runIds : []).toEqual(['run-b1']);
   });
 });
