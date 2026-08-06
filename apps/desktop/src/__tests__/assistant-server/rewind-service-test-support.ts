@@ -26,8 +26,8 @@ import { promisify } from 'node:util';
 import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
+import type { CheckpointReindexAction } from '../../assistant-server/checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
-import type { CheckpointReindexAction } from '../../assistant-server/edit-checkpoint-revert';
 import type { RewindServiceDeps } from '../../assistant-server/rewind-service';
 import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
 import {
@@ -275,7 +275,7 @@ export function createReindexProbe(): ReindexProbe {
       calls.push(action);
       inFlight += 1;
       if (inFlight > 1) {
-        overlaps.push(action.kind === 'rename' ? action.toWorkspacePath : action.workspacePath);
+        overlaps.push(action.workspacePath);
       }
       await new Promise((resolve) => setTimeout(resolve, 5));
       inFlight -= 1;

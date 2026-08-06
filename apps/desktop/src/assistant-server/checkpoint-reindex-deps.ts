@@ -9,14 +9,33 @@
  */
 import type { RuntimeData } from '@brainstrike/agent';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
-import type { CheckpointReindexAction, CheckpointRevertDeps } from './edit-checkpoint-revert';
-import {
-  triggerEditedFileReindex,
-  triggerFileDeletionInvalidation,
-  triggerRenamedDestinationReindex,
-} from './reindex-side-effects';
+import { triggerEditedFileReindex, triggerFileDeletionInvalidation } from './reindex-side-effects';
 
 const WORKSPACE_INDEX_SYSTEM_ROLE = 'workspace-index';
+
+/**
+ * Reindex actions the snapshot restore engines emit after mutating the
+ * filesystem (rewind in `rewind-snapshot-engine.ts`, checkpoint undo in
+ * `checkpoint-snapshot-undo.ts`). Originally defined by the retired journal
+ * revert executor (`edit-checkpoint-revert.ts`, deleted in BST-1164 T4); the
+ * types moved HERE with the seam. The former `rename` action died with that
+ * executor: snapshot restores express a rename undo as restore + delete of
+ * the two paths, so only those two actions remain.
+ */
+export type CheckpointReindexAction =
+  | {
+      readonly kind: 'restore';
+      readonly rootId: string;
+      readonly workspacePath: string;
+      readonly absolutePath: string;
+      readonly content: string;
+      readonly size: number;
+    }
+  | { readonly kind: 'delete'; readonly rootId: string; readonly workspacePath: string };
+
+export interface CheckpointRevertDeps {
+  readonly reindex: (action: CheckpointReindexAction) => Promise<void>;
+}
 
 /**
  * Build the revert reindex seam from the SAME non-fatal helpers the write tools
@@ -52,27 +71,10 @@ export async function createCheckpointReindexDeps(
         });
         return;
       }
-      if (action.kind === 'delete') {
-        await triggerFileDeletionInvalidation({
-          rootId: action.rootId,
-          runtimeData,
-          workspacePath: action.workspacePath,
-        });
-        return;
-      }
-      // rename-back: the pre-revert location is now empty (invalidate it) and the
-      // restored original path is re-indexed.
       await triggerFileDeletionInvalidation({
         rootId: action.rootId,
         runtimeData,
-        workspacePath: action.toWorkspacePath,
-      });
-      await triggerRenamedDestinationReindex({
-        absolutePath: action.toAbsolutePath,
-        rootId: action.rootId,
-        rootPath: action.rootPath,
-        runtimeData,
-        workspacePath: action.fromWorkspacePath,
+        workspacePath: action.workspacePath,
       });
     },
   };

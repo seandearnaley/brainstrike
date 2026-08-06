@@ -1,7 +1,9 @@
 /**
- * Journal repository/executor — record + list + retention against REAL PGlite.
- * The capture status is supplied by the CALLER (Task 4 detects binary/oversize);
- * this module only persists what it is given and enforces retention.
+ * Attribution-ledger repository — record + list + retention against REAL
+ * PGlite. Since BST-1164 T4 the ledger stores identity only (op, paths,
+ * hashes, timestamps): `before_content` is NEVER populated (pinned below),
+ * the byte-budget/`expired` retention died with content capture, and the
+ * row cap is the whole retention policy.
  */
 
 import { migrate, wasmLoader } from '@brainstrike/db';
@@ -10,11 +12,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type EditCheckpointDatabase,
   type EditCheckpointInput,
-  listRunCheckpoints,
   listRunRangeCheckpoints,
+  listRunUndoRecords,
   listThreadCheckpoints,
+  readCheckpointRecord,
   recordEditCheckpoint,
   sha256Hex,
+  stampCheckpointReverted,
 } from '../../assistant-server/edit-checkpoint-journal';
 
 let db: PGlite & EditCheckpointDatabase;
@@ -30,7 +34,6 @@ function writeInput(overrides: Partial<EditCheckpointInput> = {}): EditCheckpoin
   return {
     afterExisted: true,
     afterHash: sha256Hex('after-bytes\n'),
-    beforeContent: before,
     beforeExisted: true,
     beforeHash: sha256Hex(before),
     beforeSize: Buffer.byteLength(before),
@@ -93,12 +96,10 @@ async function runsTableIsPresent(): Promise<boolean> {
 beforeEach(async () => {
   db = await wasmLoader.createPGlite('memory://edit-checkpoint-journal');
   await migrate(db);
-  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES');
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_MAX_ROWS');
 });
 
 afterEach(async () => {
-  Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES');
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_CHECKPOINT_MAX_ROWS');
   await db.close();
 });
@@ -124,7 +125,6 @@ describe('recordEditCheckpoint + listThreadCheckpoints', () => {
       writeInput({
         afterExisted: false,
         afterHash: null,
-        beforeContent: 'gone\n',
         beforeExisted: true,
         op: 'delete',
         path: '/d.txt',
@@ -133,7 +133,6 @@ describe('recordEditCheckpoint + listThreadCheckpoints', () => {
     await recordEditCheckpoint(
       db,
       writeInput({
-        beforeContent: null,
         beforeHash: null,
         beforeSize: null,
         captureStatus: 'rename',
@@ -151,25 +150,32 @@ describe('recordEditCheckpoint + listThreadCheckpoints', () => {
     expect(byOp.get('delete')?.afterExisted).toBe(false);
   });
 
-  it('persists a skipped_binary before-state: null content but non-null hash/size', async () => {
-    const record = await recordEditCheckpoint(
+  it('NEVER stores before_content — the schema column stays NULL for every op (BST-1164 T4 demotion pin)', async () => {
+    await recordEditCheckpoint(db, writeInput({ op: 'write', path: '/w.txt' }));
+    await recordEditCheckpoint(db, writeInput({ path: '/sr.txt' }));
+    await recordEditCheckpoint(
+      db,
+      writeInput({ afterExisted: false, afterHash: null, op: 'delete', path: '/d.txt' })
+    );
+    await recordEditCheckpoint(
       db,
       writeInput({
-        beforeContent: null,
-        beforeHash: sha256Hex('binary'),
-        beforeSize: 4096,
-        captureStatus: 'skipped_binary',
+        beforeHash: null,
+        beforeSize: null,
+        captureStatus: 'rename',
+        fromPath: '/from.txt',
+        op: 'rename',
+        path: '/to.txt',
       })
     );
-    expect(record.captureStatus).toBe('skipped_binary');
-    expect(record.beforeHash).not.toBeNull();
-    expect(record.beforeSize).toBe(4096);
 
-    const stored = await db.query<{ before_content: string | null }>(
-      'SELECT before_content FROM brainstrike_assistant_edit_checkpoints WHERE id = $1',
-      [record.id]
+    const stored = await db.query<{ count: number | string }>(
+      'SELECT COUNT(*)::int AS count FROM brainstrike_assistant_edit_checkpoints WHERE before_content IS NOT NULL'
     );
-    expect(stored.rows[0]?.before_content).toBeNull();
+    expect(Number(stored.rows[0]?.count)).toBe(0);
+    // Attribution stays: hashes and sizes are still recorded.
+    const listed = await listThreadCheckpoints(db, THREAD);
+    expect(listed.find((entry) => entry.path === '/sr.txt')?.beforeHash).not.toBeNull();
   });
 
   it('lists rows ordered by occurred_at ASC, id ASC', async () => {
@@ -187,45 +193,42 @@ describe('recordEditCheckpoint + listThreadCheckpoints', () => {
   });
 });
 
-describe('listRunCheckpoints', () => {
-  it('returns only that run’s records, oldest-first', async () => {
+describe('undo worklist + reverted stamping', () => {
+  it('listRunUndoRecords returns only that run’s NON-reverted records, newest-first', async () => {
     const base = Date.now();
+    const oldest = await recordEditCheckpoint(
+      db,
+      writeInput({ occurredAt: new Date(base + 1000), path: '/b-first.txt', runId: RUN })
+    );
     await recordEditCheckpoint(
       db,
       writeInput({ occurredAt: new Date(base + 2000), path: '/b-second.txt', runId: RUN })
     );
     await recordEditCheckpoint(
       db,
-      writeInput({ occurredAt: new Date(base + 1000), path: '/b-first.txt', runId: RUN })
-    );
-    await recordEditCheckpoint(
-      db,
       writeInput({ occurredAt: new Date(base + 1500), path: '/other-run.txt', runId: 'run-other' })
     );
 
-    const listed = await listRunCheckpoints(db, RUN, THREAD);
-    expect(listed.map((entry) => entry.path)).toEqual(['/b-first.txt', '/b-second.txt']);
-    expect(listed.every((entry) => entry.runId === RUN)).toBe(true);
+    const listed = await listRunUndoRecords(db, RUN);
+    expect(listed.map((entry) => entry.path)).toEqual(['/b-second.txt', '/b-first.txt']);
+
+    // Stamping removes a record from the worklist (idempotent undo).
+    const stamped = await stampCheckpointReverted(db, oldest.id);
+    expect(stamped?.revertedAt).not.toBeNull();
+    const after = await listRunUndoRecords(db, RUN);
+    expect(after.map((entry) => entry.path)).toEqual(['/b-second.txt']);
   });
 
-  it('a real run supplied with the WRONG thread is a typed miss — the other thread’s records never leak (review finding, BST-1113)', async () => {
-    // `RUN` genuinely has journal entries, but they belong to `THREAD` — a
-    // caller supplying `RUN` alongside a DIFFERENT thread id must see
-    // NOTHING for it, never that other thread's real records (the exploit:
-    // `changes:fileDiff` would otherwise serve stored `before_content` for a
-    // run the caller's own thread never owns).
-    const base = Date.now();
-    await recordEditCheckpoint(
-      db,
-      writeInput({ occurredAt: new Date(base), path: '/owned-by-thread-1.txt', runId: RUN })
-    );
+  it('readCheckpointRecord returns the attribution DTO by id, and null for an unknown id', async () => {
+    const record = await recordEditCheckpoint(db, writeInput());
+    const read = await readCheckpointRecord(db, record.id);
+    expect(read?.id).toBe(record.id);
+    expect(read).not.toHaveProperty('beforeContent');
+    expect(await readCheckpointRecord(db, 'no-such-id')).toBeNull();
+  });
 
-    const crossThreadResult = await listRunCheckpoints(db, RUN, 'thread-2');
-    expect(crossThreadResult).toEqual([]);
-
-    // Sanity: the SAME run, with its OWN thread, still returns the real record.
-    const ownThreadResult = await listRunCheckpoints(db, RUN, THREAD);
-    expect(ownThreadResult.map((entry) => entry.path)).toEqual(['/owned-by-thread-1.txt']);
+  it('stampCheckpointReverted returns null for a vanished id (retention raced the undo)', async () => {
+    expect(await stampCheckpointReverted(db, 'no-such-id')).toBeNull();
   });
 });
 
@@ -475,45 +478,6 @@ describe('listRunRangeCheckpoints', () => {
 });
 
 describe('retention', () => {
-  it('NULLs the oldest non-reverted before_content to "expired" when over the byte budget', async () => {
-    // Budget below two entries' combined content but above one.
-    const content = 'x'.repeat(1000);
-    process.env['BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES'] = '1500';
-    const base = Date.now();
-    const oldest = await recordEditCheckpoint(
-      db,
-      writeInput({
-        beforeContent: content,
-        beforeSize: content.length,
-        occurredAt: new Date(base + 1000),
-        path: '/old.txt',
-      })
-    );
-    await recordEditCheckpoint(
-      db,
-      writeInput({
-        beforeContent: content,
-        beforeSize: content.length,
-        occurredAt: new Date(base + 2000),
-        path: '/new.txt',
-      })
-    );
-
-    const listed = await listThreadCheckpoints(db, THREAD);
-    const oldestEntry = listed.find((entry) => entry.id === oldest.id);
-    expect(oldestEntry?.captureStatus).toBe('expired');
-
-    const stored = await db.query<{ before_content: string | null }>(
-      'SELECT before_content FROM brainstrike_assistant_edit_checkpoints WHERE id = $1',
-      [oldest.id]
-    );
-    expect(stored.rows[0]?.before_content).toBeNull();
-
-    // The newest entry keeps its content.
-    const newest = listed.find((entry) => entry.path === '/new.txt');
-    expect(newest?.captureStatus).toBe('ok');
-  });
-
   it('hard-deletes the oldest rows beyond the row cap', async () => {
     process.env['BRAINSTRIKE_CHECKPOINT_MAX_ROWS'] = '2';
     const base = Date.now();

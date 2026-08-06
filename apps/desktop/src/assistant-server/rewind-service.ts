@@ -72,8 +72,8 @@ import type {
   AssistantRewindRootOutcome,
 } from '@brainstrike/assistant-contract';
 import type { Changeset } from '@brainstrike/types';
+import type { CheckpointRevertDeps } from './checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
-import type { CheckpointRevertDeps } from './edit-checkpoint-revert';
 import {
   deleteThreadTombstones,
   deleteTombstoneBatch,

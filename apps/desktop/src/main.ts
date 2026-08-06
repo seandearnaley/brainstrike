@@ -24,6 +24,7 @@ import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
+import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import {
   createGitInventoryService,
@@ -34,6 +35,7 @@ import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-wo
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
+import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
@@ -1245,7 +1247,13 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterFileExportsIpcHandlers = registerFileExportsIpcHandlers();
-unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
+// Lazy resolver for the same reason as `resolveSnapshotService` below: this
+// registration runs at module load, the ONE snapshot service is constructed
+// at app-ready. The checkpoint-undo engine restores from turn-start
+// snapshots (BST-1164 T4), so the handlers need the same seams as changes.
+unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers({
+  resolveSnapshotService: () => snapshotService,
+});
 unregisterGitIpcHandlers = registerGitIpcHandlers();
 // `resolveInventoryService` is a LAZY getter on purpose: this registration
 // runs at module load, while `gitInventoryService` is only constructed once
@@ -1443,7 +1451,9 @@ if (singleInstanceLockAcquired) {
       void (async () => {
         try {
           const database = await getDatabase();
-          const rootRows = await database.query<{ id: string }>('SELECT id FROM roots');
+          const rootRows = await database.query<{ id: string; path: string }>(
+            'SELECT id, path FROM roots'
+          );
           const result = await constructedSnapshotService.sweepOrphans(
             snapshotsBaseDir,
             rootRows.rows.map((row) => row.id)
@@ -1452,6 +1462,29 @@ if (singleInstanceLockAcquired) {
             kept: result.kept.length,
             removed: result.removed,
             snapshotsBaseDir,
+          });
+          // T4 startup GC (after the orphan sweep so vanished-root repos are
+          // already gone): dead-thread rows + refs, ref-only residue, the
+          // 50-turn retention ring, and shallow-cut history reclamation.
+          // Same fire-and-forget block — logged, non-blocking, failures
+          // visible per item.
+          const gcDatabase = database as unknown as EditCheckpointDatabase;
+          const gcReport = await runSnapshotStartupGc({
+            db: gcDatabase,
+            liveRoots: rootRows.rows.map((row) => ({ path: row.path, rootId: row.id })),
+            snapshotRepository: createSnapshotRepository(gcDatabase),
+            snapshotService: constructedSnapshotService,
+          });
+          for (const failure of gcReport.failures) {
+            logger.error('Workspace snapshot GC item failed', { failure });
+          }
+          logger.info('Workspace snapshot startup GC completed', {
+            deadThreadsPruned: gcReport.deadThreadsPruned.length,
+            failures: gcReport.failures.length,
+            historyPrunedRoots: gcReport.historyPrunedRoots,
+            refOnlyPruned: gcReport.refOnlyPruned.length,
+            ringTrimmed: gcReport.ringTrimmed,
+            threadsTableMissing: gcReport.threadsTableMissing,
           });
         } catch (error) {
           logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });

@@ -34,9 +34,9 @@ import {
   type ChangesetDiffService,
   createChangesetDiffService,
 } from './assistant-server/changeset-diff-service';
+import type { CheckpointRevertDeps } from './assistant-server/checkpoint-reindex-deps';
 import { createCheckpointReindexDeps } from './assistant-server/checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
-import type { CheckpointRevertDeps } from './assistant-server/edit-checkpoint-revert';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import type { GitCommandRunner } from './assistant-server/git-service';
 import { createRewindFinalizationDeps } from './assistant-server/rewind-finalization-deps';

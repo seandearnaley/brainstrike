@@ -1,6 +1,7 @@
 import type {
   AssistantCheckpointRevertResult,
   AssistantCheckpointRevertRunResult,
+  AssistantCheckpointUndoAvailabilityMap,
 } from '@brainstrike/assistant-contract';
 import type { SkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import type {
@@ -22,6 +23,7 @@ declare global {
      * web never defines it (no assistant server / main process). Invoke-only.
      */
     assistantCheckpoints?: {
+      availability?: (threadId: string) => Promise<AssistantCheckpointUndoAvailabilityMap>;
       revertEntry?: (
         id: string,
         options?: { force?: boolean }

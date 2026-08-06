@@ -14,7 +14,7 @@
  * excluded from a restore.
  *
  * The pruner is PORTED from the BST-1115 journal-revert pruner
- * (`edit-checkpoint-revert.ts`'s `pruneEmptyAncestorDirectories` on the W5
+ * (the retired journal revert executor's `pruneEmptyAncestorDirectories` on the W5
  * branch) — deliberately re-implemented rather than imported, because T4
  * retires that module. Semantics preserved exactly: walk UP from the deleted
  * file's parent, `rmdir` each now-empty directory, stop at the first refusal

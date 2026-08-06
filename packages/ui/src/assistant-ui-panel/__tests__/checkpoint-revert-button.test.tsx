@@ -70,9 +70,13 @@ function renderWithProvider(
 
 function contextValue(
   entry: AssistantEditCheckpointRecord,
-  revertEntry: EditCheckpointContextValue['revertEntry']
+  revertEntry: EditCheckpointContextValue['revertEntry'],
+  availability: EditCheckpointContextValue['availabilityById'] = new Map([
+    [entry.id, { restorable: true }],
+  ])
 ): EditCheckpointContextValue {
   return {
+    availabilityById: availability,
     entries: [entry],
     entriesByToolCallId: new Map([[TOOL_CALL_ID, entry]]),
     revertEntry,
@@ -132,6 +136,33 @@ describe('CheckpointRevertButton', () => {
 
   it('shows a non-revertible label for a skipped_binary capture', () => {
     renderWithProvider(contextValue(makeEntry({ captureStatus: 'skipped_binary' }), vi.fn()));
+    expect(screen.getByTestId('checkpoint-unrevertible')).toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-revert')).toBeNull();
+  });
+
+  it('shows a visibly disabled label when the snapshot engine cannot restore the entry (BST-1164 T4)', () => {
+    const entry = makeEntry();
+    renderWithProvider(
+      contextValue(
+        entry,
+        vi.fn(),
+        new Map([
+          [
+            entry.id,
+            {
+              reason: 'This edit predates workspace snapshots, so it cannot be restored.',
+              restorable: false,
+            },
+          ],
+        ])
+      )
+    );
+    expect(screen.getByTestId('checkpoint-unrevertible')).toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-revert')).toBeNull();
+  });
+
+  it('treats an entry MISSING from the availability map as unavailable (fail-safe)', () => {
+    renderWithProvider(contextValue(makeEntry(), vi.fn(), new Map()));
     expect(screen.getByTestId('checkpoint-unrevertible')).toBeInTheDocument();
     expect(screen.queryByTestId('checkpoint-revert')).toBeNull();
   });

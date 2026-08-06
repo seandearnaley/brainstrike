@@ -1,4 +1,5 @@
 import {
+  type AssistantCheckpointUndoAvailability,
   type AssistantEditCheckpointRecord,
   isRevertibleCaptureStatus,
 } from '@brainstrike/assistant-contract';
@@ -78,7 +79,11 @@ export function useEditCheckpoints(
   threadId: string | null | undefined
 ): EditCheckpointsBinding {
   const [entries, setEntries] = useState<readonly AssistantEditCheckpointRecord[]>([]);
+  const [availabilityById, setAvailabilityById] = useState<
+    ReadonlyMap<string, AssistantCheckpointUndoAvailability>
+  >(new Map());
   const bridge = typeof window === 'undefined' ? undefined : window.assistantCheckpoints;
+  const availabilityBridge = bridge?.availability;
   const revertEntryBridge = bridge?.revertEntry;
   const revertRunBridge = bridge?.revertRun;
   // Monotonic generation so a slow refetch resolving after a newer one (e.g. a
@@ -91,23 +96,40 @@ export function useEditCheckpoints(
     if (!(repository && threadId)) {
       if (generation === generationRef.current) {
         setEntries([]);
+        setAvailabilityById(new Map());
       }
       return [];
     }
     try {
       const next = await repository.listThreadCheckpoints(threadId);
+      // Snapshot availability rides every entries load (BST-1164 T4): the
+      // undo controls render disabled-with-reason from this map. A fetch
+      // failure clears the map — `availabilityForEntry`'s fail-safe then
+      // renders every control disabled with a visible generic reason, which
+      // matches what a click would do; it never silently enables.
+      let nextAvailability: ReadonlyMap<string, AssistantCheckpointUndoAvailability> = new Map();
+      if (availabilityBridge && next.length > 0) {
+        try {
+          const result = await availabilityBridge(threadId);
+          nextAvailability = new Map(Object.entries(result.byCheckpointId));
+        } catch (error) {
+          logger.error('Failed to load checkpoint undo availability', { error });
+        }
+      }
       if (generation === generationRef.current) {
         setEntries(next);
+        setAvailabilityById(nextAvailability);
       }
       return next;
     } catch (error) {
       logger.error('Failed to load edit checkpoints for the active thread', { error });
       if (generation === generationRef.current) {
         setEntries([]);
+        setAvailabilityById(new Map());
       }
       return [];
     }
-  }, [repository, threadId]);
+  }, [availabilityBridge, repository, threadId]);
 
   const refetch = useCallback(async (): Promise<void> => {
     await loadEntries();
@@ -128,6 +150,7 @@ export function useEditCheckpoints(
       }
     }
     return {
+      availabilityById,
       entries,
       entriesByToolCallId,
       revertEntry: async (id, options) => {
@@ -158,7 +181,16 @@ export function useEditCheckpoints(
         }
       },
     };
-  }, [entries, loadEntries, refetch, repository, revertEntryBridge, revertRunBridge, threadId]);
+  }, [
+    availabilityById,
+    entries,
+    loadEntries,
+    refetch,
+    repository,
+    revertEntryBridge,
+    revertRunBridge,
+    threadId,
+  ]);
 
   return { checkpoints, refetch };
 }

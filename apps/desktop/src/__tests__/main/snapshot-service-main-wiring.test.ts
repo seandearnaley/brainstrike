@@ -43,6 +43,30 @@ describe('snapshot service lifecycle wiring', () => {
     );
   });
 
+  it('runs the T4 startup GC after the orphan sweep, inside the same fire-and-forget block, with per-item failure logging', () => {
+    // GC runs AFTER sweepOrphans (vanished-root repos must already be gone)
+    // and inside the same non-blocking block.
+    const sweepIndex = source.indexOf('constructedSnapshotService.sweepOrphans');
+    const gcIndex = source.indexOf('runSnapshotStartupGc({');
+    expect(sweepIndex).toBeGreaterThan(-1);
+    expect(gcIndex).toBeGreaterThan(sweepIndex);
+    // The GC consumes the ONE service + the repository factory over the same
+    // database handle, and the full roots rows (id + path).
+    expect(source).toMatch(
+      /runSnapshotStartupGc\(\{\s*db: gcDatabase,\s*liveRoots: rootRows\.rows\.map\(\(row\) => \(\{ path: row\.path, rootId: row\.id \}\)\),\s*snapshotRepository: createSnapshotRepository\(gcDatabase\),\s*snapshotService: constructedSnapshotService,\s*\}\)/
+    );
+    expect(source).toContain('SELECT id, path FROM roots');
+    // Failures are logged VISIBLY, one line per item, plus the summary line.
+    expect(source).toContain("logger.error('Workspace snapshot GC item failed', { failure })");
+    expect(source).toContain("logger.info('Workspace snapshot startup GC completed'");
+  });
+
+  it('threads the snapshot service into the assistant-checkpoint IPC handlers lazily (T4 undo engine)', () => {
+    expect(source).toMatch(
+      /registerAssistantCheckpointIpcHandlers\(\{\s*resolveSnapshotService: \(\) => snapshotService,\s*\}\)/
+    );
+  });
+
   it('runs the startup orphan sweep without blocking startup, with visible logging both ways', () => {
     expect(source).toMatch(
       /constructedSnapshotService\.sweepOrphans\(\s*snapshotsBaseDir,\s*rootRows\.rows\.map\(\(row\) => row\.id\)\s*\)/

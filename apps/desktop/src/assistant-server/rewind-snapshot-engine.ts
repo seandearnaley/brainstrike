@@ -71,8 +71,8 @@ import type {
 import { createLogger } from '@brainstrike/logging';
 import type { ChangedFileEntry } from '@brainstrike/types';
 import { resolveWorkspaceWritePath } from '../secure-file-write';
+import type { CheckpointReindexAction } from './checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
-import type { CheckpointReindexAction } from './edit-checkpoint-revert';
 import { resolveEarliestBatchTarget, resolveRewindRunRange } from './rewind-repository';
 import type { SnapshotRepository, WorkspaceSnapshotRow } from './snapshot-repository';
 import type { PerFileOutcome, ShadowRepoHandle, SnapshotService } from './snapshot-service';
@@ -433,7 +433,7 @@ function fileOutcomeFromPerFile(
  * index is self-healing while a failed rewind report over a succeeded
  * restore is not.
  */
-async function reindexOutcome(
+export async function reindexOutcome(
   reindex: (action: CheckpointReindexAction) => Promise<void>,
   rootPath: string,
   rootId: string,
