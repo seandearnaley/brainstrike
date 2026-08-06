@@ -34,9 +34,9 @@ import {
   type ChangesetDiffService,
   createChangesetDiffService,
 } from './assistant-server/changeset-diff-service';
+import type { CheckpointRevertDeps } from './assistant-server/checkpoint-reindex-deps';
 import { createCheckpointReindexDeps } from './assistant-server/checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
-import type { CheckpointRevertDeps } from './assistant-server/edit-checkpoint-revert';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import type { GitCommandRunner } from './assistant-server/git-service';
 import { createRewindFinalizationDeps } from './assistant-server/rewind-finalization-deps';
@@ -45,9 +45,14 @@ import {
   applyRewind as applyRewindService,
   finalizeThreadRewinds as finalizeThreadRewindsService,
   type RewindFinalizationDeps,
+  type RewindServiceDeps,
   redoRewind as redoRewindService,
   rewindToMessage as rewindToMessageService,
 } from './assistant-server/rewind-service';
+import type { RewindSnapshotDeps } from './assistant-server/rewind-snapshot-engine';
+import type { SnapshotRepository } from './assistant-server/snapshot-repository';
+import { createSnapshotRepository as createSnapshotRepositoryDefault } from './assistant-server/snapshot-repository';
+import type { SnapshotService } from './assistant-server/snapshot-service';
 import { getDatabase } from './db-main';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
@@ -490,7 +495,12 @@ export interface ChangesIpcHandlers {
   readonly rewindPreview: (payload: unknown) => Promise<GitResult<AssistantRewindPreviewResult>>;
 }
 
-/** Seams the rewind handlers call. Mirrors `AssistantCheckpointHandlerDependencies`. */
+/** Seams the rewind handlers call. Mirrors `AssistantCheckpointHandlerDependencies`.
+ * Since the W7 T3 engine swap the service functions take the snapshot seams
+ * too: `applyRewind`/`redoRewind` need the full {@link RewindServiceDeps}
+ * (reindex + snapshot service + snapshot repository) and the preview needs
+ * the snapshot half ({@link RewindSnapshotDeps}); the handlers compose them
+ * from `createRevertDeps` plus the injected snapshot options. */
 export interface RewindHandlerDependencies {
   readonly applyRewind: (
     db: EditCheckpointDatabase,
@@ -500,7 +510,7 @@ export interface RewindHandlerDependencies {
       readonly mode: AssistantRewindMode;
       readonly threadId: string;
     },
-    deps: CheckpointRevertDeps
+    deps: RewindServiceDeps
   ) => Promise<AssistantRewindResult>;
   /**
    * Resolves the hard-delete seam finalization runs through. Takes no database
@@ -519,7 +529,7 @@ export interface RewindHandlerDependencies {
   readonly redoRewind: (
     db: EditCheckpointDatabase,
     args: { readonly acknowledgeConflicts?: boolean; readonly rewindId: string },
-    deps: CheckpointRevertDeps
+    deps: RewindServiceDeps
   ) => Promise<AssistantRewindRedoResult>;
   readonly resolveMessageForRun: (
     db: EditCheckpointDatabase,
@@ -528,7 +538,8 @@ export interface RewindHandlerDependencies {
   ) => Promise<string | null>;
   readonly rewindToMessage: (
     db: EditCheckpointDatabase,
-    args: { readonly messageId: string; readonly threadId: string }
+    args: { readonly messageId: string; readonly threadId: string },
+    deps: RewindSnapshotDeps
   ) => Promise<AssistantRewindPreviewResult>;
 }
 
@@ -543,6 +554,14 @@ const DEFAULT_REWIND_DEPENDENCIES: RewindHandlerDependencies = {
 };
 
 export interface ChangesIpcHandlersOptions {
+  /**
+   * Snapshot-row repository factory (BST-1164 W7 T1). Threaded by main.ts;
+   * consumed by T2's snapshot changeset resolution below (paired with
+   * `resolveSnapshotService`) and by the rewind handlers (T3 engine swap) —
+   * both through this seam so neither edits main.ts. Defaults to the real
+   * factory.
+   */
+  readonly createSnapshotRepository?: (db: EditCheckpointDatabase) => SnapshotRepository;
   /** Injectable for tests; defaults to a `getDatabase`-backed resolver. */
   readonly resolveDatabase?: () => Promise<EditCheckpointDatabase>;
   /**
@@ -555,6 +574,15 @@ export interface ChangesIpcHandlersOptions {
   readonly resolveInventoryService?: () => GitInventoryService | null;
   /** Injectable for tests; defaults to the DB-backed workspace root resolver. */
   readonly resolver?: WorkspaceRootResolver;
+  /**
+   * Lazily resolves the ONE app-lifetime {@link SnapshotService}
+   * (BST-1164 W7 T1). Lazy for the same registration-before-construction
+   * reason as `resolveInventoryService`. Threaded by main.ts; consumed by
+   * T2's snapshot changeset resolution below and by the rewind handlers (T3
+   * engine swap) — a second service must never be constructed. Absence at
+   * call time is a VISIBLE typed failure (a wiring bug, not a fallback).
+   */
+  readonly resolveSnapshotService?: () => SnapshotService | null;
   /**
    * Injectable rewind seam (BST-1115 W5 T4) so the handlers can be unit-tested
    * without a live PGlite or a real filesystem. Production wires the real
@@ -588,6 +616,26 @@ export function createChangesIpcHandlers(
   const run = options.run ?? execFileGitRunner;
   const resolveInventoryService = options.resolveInventoryService ?? (() => null);
   const rewind = options.rewind ?? DEFAULT_REWIND_DEPENDENCIES;
+  const resolveSnapshotService = options.resolveSnapshotService ?? (() => null);
+  const createSnapshotRepository =
+    options.createSnapshotRepository ?? createSnapshotRepositoryDefault;
+
+  /**
+   * The snapshot half of the rewind engine's deps (BST-1164 W7 T3). Resolved
+   * per call because the ONE app-lifetime service is constructed after this
+   * module registers; its absence at call time is a wiring bug and THROWS —
+   * each handler's try/catch turns that into a visible typed failure, never
+   * a silent conversation-only degradation of a files-mode rewind.
+   */
+  const resolveSnapshotEngine = (db: EditCheckpointDatabase): RewindSnapshotDeps => {
+    const snapshotService = resolveSnapshotService();
+    if (!snapshotService) {
+      throw new Error(
+        'Conversation Rewind is unavailable: the workspace snapshot service is not running. Restart the app; if this persists it is a wiring bug.'
+      );
+    }
+    return { snapshotRepository: createSnapshotRepository(db), snapshotService };
+  };
 
   const failed = (channel: string, error: unknown): GitResult<never> => {
     logger.error(`Unexpected ${channel} handler failure`, { error });
@@ -600,6 +648,19 @@ export function createChangesIpcHandlers(
       resolveDatabase,
       resolveRootCwd: (rootId: unknown) => resolveRootCwd(resolver, rootId, 'changes', logger),
       run,
+      // W7 T2 (BST-1164): the snapshot engine consumes the T1 injection
+      // points. BOTH must be present to wire the engine; a partial pair is a
+      // wiring bug and is surfaced as the typed unavailability error the
+      // service returns for snapshot-less construction (never a silent
+      // journal fallback).
+      ...(options.createSnapshotRepository && options.resolveSnapshotService
+        ? {
+            snapshots: {
+              createRepository: options.createSnapshotRepository,
+              resolveService: options.resolveSnapshotService,
+            },
+          }
+        : {}),
     });
 
   return {
@@ -617,7 +678,7 @@ export function createChangesIpcHandlers(
           value: await rewind.applyRewind(
             db,
             { acknowledgeConflicts, messageId, mode, threadId },
-            revertDeps
+            { ...revertDeps, ...resolveSnapshotEngine(db) }
           ),
         };
       } catch (error) {
@@ -691,7 +752,11 @@ export function createChangesIpcHandlers(
         const revertDeps = await rewind.createRevertDeps(db);
         return {
           ok: true,
-          value: await rewind.redoRewind(db, { acknowledgeConflicts, rewindId }, revertDeps),
+          value: await rewind.redoRewind(
+            db,
+            { acknowledgeConflicts, rewindId },
+            { ...revertDeps, ...resolveSnapshotEngine(db) }
+          ),
         };
       } catch (error) {
         return failed('changes:redoRewind', error);
@@ -740,7 +805,11 @@ export function createChangesIpcHandlers(
         }
         return {
           ok: true,
-          value: await rewind.rewindToMessage(db, { messageId, threadId: target.threadId }),
+          value: await rewind.rewindToMessage(
+            db,
+            { messageId, threadId: target.threadId },
+            resolveSnapshotEngine(db)
+          ),
         };
       } catch (error) {
         return failed('changes:rewindPreview', error);

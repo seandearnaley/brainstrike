@@ -894,6 +894,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Soft-rewind tombstones (migration 080, BST-1115): bookkeeping over
       // conversation content this clear destroys, so it goes with it.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
+      // Shadow-git snapshot ledger (migration 081, BST-1164): turn↔commit-oid
+      // bookkeeping for threads this clear destroys, so it goes with them.
+      await clearRelationIfPresent(tx, 'brainstrike_workspace_snapshots');
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
@@ -977,6 +980,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
     // Soft-rewind tombstones (migration 080, BST-1115).
     await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
+    // Shadow-git snapshot ledger (migration 081, BST-1164).
+    await clearRelationIfPresent(tx, 'brainstrike_workspace_snapshots');
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
     await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
     await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');

@@ -1,11 +1,21 @@
 /**
- * Shared fixtures for the Conversation Rewind suites (BST-1115, W5 T3).
+ * Shared fixtures for the Conversation Rewind suites (BST-1115 W5 T3; snapshot
+ * engine BST-1164 W7 T3).
  *
- * REAL PGlite + REAL filesystem. `mastra_messages` and
+ * REAL PGlite + REAL filesystem + REAL shadow git (the production
+ * `execFileSnapshotGitRunner`). `mastra_messages` and
  * `brainstrike_assistant_thread_runs` are renderer-lazy bootstrap-only DDL
  * (never numbered migrations), so they are created here to the same shape the
  * app-shell repository bootstraps — the migration runner alone would leave a
  * rewind with no messages and no runs to anchor on.
+ *
+ * Turn boundaries are seeded the way T2's run lifecycle records them: a
+ * `turn-start` snapshot of every root's CURRENT disk state, committed to the
+ * shadow repo and inserted into the `brainstrike_workspace_snapshots` ledger
+ * under the turn's anchor run id (`seedTurnStartSnapshots`). Tests then write
+ * the turn's edits DIRECTLY to disk — there is no journal row anywhere in
+ * these fixtures, which is the point of the engine swap: a direct `fs` write
+ * is indistinguishable from a tool edit.
  */
 
 import { execFile } from 'node:child_process';
@@ -16,12 +26,18 @@ import { promisify } from 'node:util';
 import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
+import type { CheckpointReindexAction } from '../../assistant-server/checkpoint-reindex-deps';
+import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { RewindServiceDeps } from '../../assistant-server/rewind-service';
+import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
 import {
-  type EditCheckpointInput,
-  recordEditCheckpoint,
-  sha256Hex,
-} from '../../assistant-server/edit-checkpoint-journal';
-import type { CheckpointReindexAction } from '../../assistant-server/edit-checkpoint-revert';
+  createSnapshotRepository,
+  type SnapshotRepository,
+} from '../../assistant-server/snapshot-repository';
+import {
+  createSnapshotService,
+  type SnapshotService,
+} from '../../assistant-server/snapshot-service';
 
 const execFileAsync = promisify(execFile);
 
@@ -175,56 +191,66 @@ export async function readDiskFile(
   }
 }
 
+export interface SnapshotHarness {
+  readonly repository: SnapshotRepository;
+  readonly service: SnapshotService;
+}
+
+/** Real shadow-git snapshot service + ledger repository over the fixture DB.
+ * The snapshots base dir is a temp dir cleaned by `cleanupTempDirs`. */
+export async function createSnapshotHarness(db: PGlite): Promise<SnapshotHarness> {
+  const snapshotsBaseDir = await makeTempDir('bs-rewind-snapbase-');
+  return {
+    repository: createSnapshotRepository(db as unknown as EditCheckpointDatabase),
+    service: createSnapshotService({
+      runner: execFileSnapshotGitRunner,
+      snapshotsBaseDir,
+    }),
+  };
+}
+
+/** The full `RewindServiceDeps` a files-mode apply/redo takes. */
+export function rewindDeps(harness: SnapshotHarness, probe: ReindexProbe): RewindServiceDeps {
+  return {
+    reindex: probe.reindex,
+    snapshotRepository: harness.repository,
+    snapshotService: harness.service,
+  };
+}
+
 /**
- * Journal ONE agent write and land its result on disk — the shape every rewind
- * test builds its history from. `before: null` records a file the run CREATED.
+ * Record the turn boundary the way T2's run lifecycle does: one `turn-start`
+ * snapshot per root of the root's CURRENT on-disk state, committed to the
+ * shadow repo and inserted into the ledger under `runId` (the turn's anchor
+ * run). Call BEFORE writing the turn's own edits to disk.
  */
-export async function seedWrite(
+export async function seedTurnStartSnapshots(
+  harness: SnapshotHarness,
   fixture: RewindFixture,
-  args: {
-    after: string;
-    before: string | null;
-    occurredAt: string;
-    path: string;
-    rootId: string;
-    runId: string;
+  args: { readonly rootIds?: readonly string[]; readonly runId: string; readonly threadId?: string }
+): Promise<void> {
+  const threadId = args.threadId ?? THREAD_ID;
+  const rootIds = args.rootIds ?? Object.keys(fixture.rootPaths).sort();
+  for (const rootId of rootIds) {
+    const rootPath = fixture.rootPaths[rootId];
+    if (!rootPath) {
+      throw new Error(`test fixture has no root "${rootId}"`);
+    }
+    const handle = await harness.service.ensureShadowRepo({ path: rootPath, rootId });
+    const { commitOid } = await harness.service.snapshot(handle, {
+      kind: 'turn-start',
+      runId: args.runId,
+      threadId,
+    });
+    await harness.repository.insertSnapshot({
+      commitOid,
+      kind: 'turn-start',
+      rootId,
+      rootPath: handle.rootPath,
+      runId: args.runId,
+      threadId,
+    });
   }
-): Promise<string> {
-  const rootPath = fixture.rootPaths[args.rootId];
-  if (!rootPath) {
-    throw new Error(`test fixture has no root "${args.rootId}"`);
-  }
-  await writeDiskFile(rootPath, args.path, args.after);
-  const before =
-    args.before === null
-      ? {
-          beforeContent: null,
-          beforeExisted: false,
-          beforeHash: null,
-          beforeSize: null,
-          captureStatus: 'created' as const,
-        }
-      : {
-          beforeContent: args.before,
-          beforeExisted: true,
-          beforeHash: sha256Hex(args.before),
-          beforeSize: Buffer.byteLength(args.before, 'utf8'),
-          captureStatus: 'ok' as const,
-        };
-  const record = await recordEditCheckpoint(fixture.db, {
-    ...before,
-    afterExisted: true,
-    afterHash: sha256Hex(args.after),
-    occurredAt: new Date(args.occurredAt),
-    op: 'write',
-    path: args.path,
-    resourceId: RESOURCE_ID,
-    rootId: args.rootId,
-    runId: args.runId,
-    threadId: THREAD_ID,
-    toolName: 'brainstrike.writeWorkspaceFile',
-  } satisfies EditCheckpointInput);
-  return record.id;
 }
 
 export interface ReindexProbe {
@@ -249,7 +275,7 @@ export function createReindexProbe(): ReindexProbe {
       calls.push(action);
       inFlight += 1;
       if (inFlight > 1) {
-        overlaps.push(action.kind === 'rename' ? action.toWorkspacePath : action.workspacePath);
+        overlaps.push(action.workspacePath);
       }
       await new Promise((resolve) => setTimeout(resolve, 5));
       inFlight -= 1;

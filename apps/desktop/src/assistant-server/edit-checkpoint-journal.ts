@@ -7,11 +7,13 @@ import type {
 import type { GitResult } from '@brainstrike/types';
 
 /**
- * Per-turn edit checkpoint journal (undo of agent file edits): record, list, and
+ * Per-turn edit checkpoint ATTRIBUTION ledger (BST-1164 T4): record, list, and
  * retention over the `brainstrike_assistant_edit_checkpoints` table. Module
  * functions over a minimal `{ query }` handle (mirrors `task-list-repository.ts`)
- * so it never depends on the concrete main-process DB client. Revert logic lives
- * in the sibling `edit-checkpoint-revert.ts`.
+ * so it never depends on the concrete main-process DB client. Undo logic lives
+ * in the sibling `checkpoint-snapshot-undo.ts` and restores from shadow-git
+ * snapshots — this ledger stores WHO touched WHAT (op, paths, hashes,
+ * timestamps), never file content.
  */
 
 const TABLE = 'brainstrike_assistant_edit_checkpoints';
@@ -31,7 +33,6 @@ export interface EditCheckpointDatabase {
   ): Promise<{ rows: T[] }>;
 }
 
-export const DEFAULT_CHECKPOINT_THREAD_CONTENT_BUDGET_BYTES = 32 * 1024 * 1024;
 export const DEFAULT_CHECKPOINT_THREAD_MAX_ROWS = 500;
 
 function readEnv(name: string): string | undefined {
@@ -58,13 +59,6 @@ function resolvePositiveInt(envName: string, defaultValue: number): number {
   return parsed;
 }
 
-export function resolveCheckpointContentBudgetBytes(): number {
-  return resolvePositiveInt(
-    'BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES',
-    DEFAULT_CHECKPOINT_THREAD_CONTENT_BUDGET_BYTES
-  );
-}
-
 export function resolveCheckpointMaxRows(): number {
   return resolvePositiveInt('BRAINSTRIKE_CHECKPOINT_MAX_ROWS', DEFAULT_CHECKPOINT_THREAD_MAX_ROWS);
 }
@@ -86,8 +80,6 @@ export interface EditCheckpointIdentity {
 export interface EditCheckpointCapture {
   readonly afterExisted: boolean;
   readonly afterHash: string | null;
-  /** Full before-bytes (capped); null for a create / binary / oversized / rename. */
-  readonly beforeContent: string | null;
   readonly beforeExisted: boolean;
   readonly beforeHash: string | null;
   readonly beforeSize: number | null;
@@ -188,8 +180,8 @@ export function mapCheckpointRecordRow(row: CheckpointRecordRow): AssistantEditC
 }
 
 /**
- * Insert one journal entry, then enforce per-thread retention. Returns the
- * persisted record (before-content omitted).
+ * Insert one attribution row, then enforce per-thread row retention. The DTO
+ * never carries content — the ledger stores none.
  */
 export async function recordEditCheckpoint(
   db: EditCheckpointDatabase,
@@ -198,14 +190,18 @@ export async function recordEditCheckpoint(
   const id = crypto.randomUUID();
   const occurredAt = input.occurredAt ?? new Date();
   const fromPath = input.op === 'rename' ? input.fromPath : null;
+  // `before_content` is deliberately NOT in the column list (BST-1164 T4):
+  // the schema column remains (no destructive migration in v1) but the
+  // attribution ledger never populates it — restores come from workspace
+  // snapshots, not stored bytes.
   const result = await db.query<CheckpointRecordRow>(
     `INSERT INTO ${TABLE} (
        id, run_id, resource_id, thread_id, tool_call_id, tool_name, op, root_id,
-       path, from_path, before_existed, before_hash, before_content, before_size,
+       path, from_path, before_existed, before_hash, before_size,
        after_hash, after_existed, capture_status, occurred_at, created_at, updated_at
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-       $18, NOW(), NOW()
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+       $17, NOW(), NOW()
      )
      RETURNING ${SELECT_RECORD_COLUMNS}`,
     [
@@ -221,7 +217,6 @@ export async function recordEditCheckpoint(
       fromPath,
       input.beforeExisted,
       input.beforeHash,
-      input.beforeContent,
       input.beforeSize,
       input.afterHash,
       input.afterExisted,
@@ -250,32 +245,6 @@ export async function listThreadCheckpoints(
      WHERE thread_id = $1
      ORDER BY occurred_at ASC, id ASC`,
     [threadId]
-  );
-  return result.rows.map(mapCheckpointRecordRow);
-}
-
-/**
- * All journal entries for a single run, oldest-first — scoped to `threadId`
- * (review finding, BST-1113): `changeset.threadId` is structurally required
- * and validated by `validateAgentRunChangeset`, but a wrong or stale
- * `threadId` paired with a real `runId` belonging to ANOTHER thread used to
- * be silently ignored here, resolving that OTHER thread's journal entries
- * (and, downstream, serving its stored `before_content` over
- * `changes:fileDiff`). `run_id`/`thread_id` are filtered TOGETHER in one
- * predicate, mirroring `listRunRangeCheckpoints`'s posture: a run id that
- * belongs to a different thread must never leak that thread's records.
- * Used by W3's changeset resolution for the `agent-run` changeset kind.
- */
-export async function listRunCheckpoints(
-  db: EditCheckpointDatabase,
-  runId: string,
-  threadId: string
-): Promise<AssistantEditCheckpointRecord[]> {
-  const result = await db.query<CheckpointRecordRow>(
-    `SELECT ${SELECT_RECORD_COLUMNS} FROM ${TABLE}
-     WHERE run_id = $1 AND thread_id = $2
-     ORDER BY occurred_at ASC, id ASC`,
-    [runId, threadId]
   );
   return result.rows.map(mapCheckpointRecordRow);
 }
@@ -428,102 +397,73 @@ export async function listRunRangeCheckpoints(
   return { ok: true, value: journalResult.rows.map(mapCheckpointRecordRow) };
 }
 
-export interface CheckpointBeforeContent {
-  readonly beforeContent: string | null;
-  readonly beforeExisted: boolean;
-}
-
 /**
- * MAIN-ONLY, READ-ONLY full-row read of exactly ONE journal record's raw
- * `before_content` (+`before_existed`, needed to distinguish "legitimately no
- * before-state" from "before-state existed but was never captured/has
- * expired"). This is NOT the same claim as "these bytes never leave the main
- * process" — they DO, verbatim, as `StructuredFileDiff.content.oldContent`
- * over the `changes:fileDiff` IPC call once `changeset-journal-view.ts`
- * assembles the diff. What actually never crosses IPC is the LIST DTO: the
- * renderer-facing `AssistantEditCheckpointRecord` (returned by
- * `listRunCheckpoints`/`listRunRangeCheckpoints`, which back `changes:resolveView`)
- * deliberately OMITS `before_content` so a `ChangesetView` listing never rides
- * raw file bytes — only a per-file `fileDiff` call does, and only for the one
- * path requested. This helper is that per-file seam's ONLY caller.
- * `before_content` is also returned UNBOUNDED here, unlike the journal
- * `fileDiff`'s new (disk) side, which IS capped at
- * `STRUCTURED_DIFF_CONTENT_CAP_BYTES` — safe because capture-time already
- * refuses to store anything over `MAX_WRITE_WORKSPACE_FILE_BYTES`
- * (`captureBeforeState` in `edit-checkpoint-capture.ts` marks an oversized
- * before-state `skipped_too_large` and stores no content at all), so a
- * stored `before_content` is already guaranteed small; the `over-cap-old`/
- * `over-cap-both` `StructuredFileDiffContent` reasons are consequently
- * unreachable for a journal-sourced diff. SELECT only — no DDL, no writes,
- * ever.
+ * One journal record by id — the attribution DTO (never `before_content`;
+ * that column is legacy-only since the T4 demotion). The snapshot undo
+ * engine's row loader.
  */
-export async function readCheckpointBeforeContent(
+export async function readCheckpointRecord(
   db: EditCheckpointDatabase,
   id: string
-): Promise<GitResult<CheckpointBeforeContent>> {
-  const result = await db.query<{ beforeContent: string | null; beforeExisted: boolean }>(
-    `SELECT before_content AS "beforeContent", before_existed AS "beforeExisted"
-     FROM ${TABLE} WHERE id = $1`,
+): Promise<AssistantEditCheckpointRecord | null> {
+  const result = await db.query<CheckpointRecordRow>(
+    `SELECT ${SELECT_RECORD_COLUMNS} FROM ${TABLE} WHERE id = $1`,
     [id]
   );
   const row = result.rows[0];
-  if (!row) {
-    return {
-      error: `edit checkpoint "${id}" was not found while reading its before-content.`,
-      ok: false,
-    };
-  }
-  return {
-    ok: true,
-    value: { beforeContent: row.beforeContent, beforeExisted: row.beforeExisted },
-  };
+  return row ? mapCheckpointRecordRow(row) : null;
 }
 
 /**
- * Bound per-thread disk use. First the byte budget: while stored before-content
- * exceeds the budget, NULL the OLDEST non-reverted entries' before_content and
- * mark them `expired` (visible but non-revertible). Then the row cap: hard-delete
- * the oldest rows beyond the cap. Runs inside the capture path after every insert.
+ * Every non-reverted journal record of one run, NEWEST-first (`occurred_at
+ * DESC, id DESC`) — the turn-level undo's worklist. Newest-first is
+ * load-bearing for the undo engine's per-path dedupe: the first record to
+ * mention a path is the newest edit of that path in the run.
+ */
+export async function listRunUndoRecords(
+  db: EditCheckpointDatabase,
+  runId: string
+): Promise<AssistantEditCheckpointRecord[]> {
+  const result = await db.query<CheckpointRecordRow>(
+    `SELECT ${SELECT_RECORD_COLUMNS} FROM ${TABLE}
+     WHERE run_id = $1 AND reverted_at IS NULL
+     ORDER BY occurred_at DESC, id DESC`,
+    [runId]
+  );
+  return result.rows.map(mapCheckpointRecordRow);
+}
+
+/**
+ * Stamp one record reverted (idempotent at the caller: an already-stamped row
+ * just re-stamps). Returns the updated attribution record, or null when the
+ * id vanished (row-cap retention raced the undo).
+ */
+export async function stampCheckpointReverted(
+  db: EditCheckpointDatabase,
+  id: string
+): Promise<AssistantEditCheckpointRecord | null> {
+  const result = await db.query<CheckpointRecordRow>(
+    `UPDATE ${TABLE} SET reverted_at = NOW(), updated_at = NOW()
+     WHERE id = $1
+     RETURNING ${SELECT_RECORD_COLUMNS}`,
+    [id]
+  );
+  const row = result.rows[0];
+  return row ? mapCheckpointRecordRow(row) : null;
+}
+
+/**
+ * Bound per-thread ledger size: hard-delete the oldest rows beyond the row
+ * cap. Runs inside the capture path after every insert. The content-era byte
+ * budget (and its `expired` status transition) died with content capture
+ * (BST-1164 T4) — attribution rows are small and uniform, so the row cap is
+ * the whole policy.
  */
 export async function pruneThreadCheckpoints(
   db: EditCheckpointDatabase,
   threadId: string
 ): Promise<void> {
-  const budgetBytes = resolveCheckpointContentBudgetBytes();
   const maxRows = resolveCheckpointMaxRows();
-
-  const totalResult = await db.query<{ total: number | string }>(
-    `SELECT COALESCE(SUM(COALESCE(before_size, 0)), 0)::bigint AS total
-     FROM ${TABLE}
-     WHERE thread_id = $1 AND before_content IS NOT NULL`,
-    [threadId]
-  );
-  let total = Number(totalResult.rows[0]?.total ?? 0);
-  if (total > budgetBytes) {
-    const candidates = await db.query<{ id: string; size: number | string }>(
-      `SELECT id, COALESCE(before_size, 0)::int AS size
-       FROM ${TABLE}
-       WHERE thread_id = $1 AND before_content IS NOT NULL AND reverted_at IS NULL
-       ORDER BY occurred_at ASC, id ASC`,
-      [threadId]
-    );
-    const toExpire: string[] = [];
-    for (const candidate of candidates.rows) {
-      if (total <= budgetBytes) {
-        break;
-      }
-      toExpire.push(candidate.id);
-      total -= Number(candidate.size);
-    }
-    if (toExpire.length > 0) {
-      await db.query(
-        `UPDATE ${TABLE}
-         SET before_content = NULL, capture_status = 'expired', updated_at = NOW()
-         WHERE id = ANY($1)`,
-        [toExpire]
-      );
-    }
-  }
 
   const countResult = await db.query<{ count: number | string }>(
     `SELECT COUNT(*)::int AS count FROM ${TABLE} WHERE thread_id = $1`,

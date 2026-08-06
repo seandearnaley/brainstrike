@@ -273,6 +273,42 @@ export async function resolveRewindMessageForRun(
   return messageResult.rows[0]?.id ?? null;
 }
 
+/**
+ * Resolve the ORIGINAL target of a tombstone batch: its oldest message (by
+ * `createdAt, id`, the same total order `resolveRewindTarget` tombstones in)
+ * IS the message the rewind was applied to. The snapshot redo path
+ * (BST-1164 W7 T3) needs this to re-derive the turn boundary — the batch
+ * carries no message-id ordering of its own, and storing one would duplicate
+ * what Mastra's table already knows. `null` when the messages are gone,
+ * which under the thread rewind lock can only mean the batch raced a
+ * finalization and no longer exists either — callers re-check the batch.
+ */
+export async function resolveEarliestBatchTarget(
+  db: EditCheckpointDatabase,
+  threadId: string,
+  messageIds: readonly string[]
+): Promise<RewindTarget | null> {
+  if (messageIds.length === 0) {
+    return null;
+  }
+  if (!(await relationExists(db, MASTRA_MEMORY_TABLES.messages))) {
+    return null;
+  }
+  const result = await db.query<{ id: string }>(
+    `SELECT id AS "id"
+     FROM ${MASTRA_MEMORY_TABLES.messages}
+     WHERE thread_id = $1 AND id = ANY($2::text[])
+     ORDER BY "createdAt" ASC, id ASC
+     LIMIT 1`,
+    [threadId, [...messageIds]]
+  );
+  const earliest = result.rows[0]?.id;
+  if (earliest === undefined) {
+    return null;
+  }
+  return await resolveRewindTarget(db, threadId, earliest);
+}
+
 export interface TombstoneRow {
   readonly messageId: string;
   readonly revertId: string | null;

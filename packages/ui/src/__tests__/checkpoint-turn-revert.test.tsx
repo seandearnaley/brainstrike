@@ -1,5 +1,6 @@
 import type {
   AssistantCheckpointRevertRunResult,
+  AssistantCheckpointUndoAvailability,
   AssistantEditCheckpointCaptureStatus,
   AssistantEditCheckpointRecord,
 } from '@brainstrike/assistant-contract';
@@ -43,6 +44,13 @@ function makeEntry(
   };
 }
 
+/** Snapshot availability marking every entry restorable (the common case). */
+function allRestorable(
+  entries: readonly AssistantEditCheckpointRecord[]
+): ReadonlyMap<string, AssistantCheckpointUndoAvailability> {
+  return new Map(entries.map((entry) => [entry.id, { restorable: true } as const]));
+}
+
 function contextValue(
   entries: readonly AssistantEditCheckpointRecord[],
   overrides: Partial<EditCheckpointContextValue> = {}
@@ -54,6 +62,7 @@ function contextValue(
     }
   }
   return {
+    availabilityById: allRestorable(entries),
     entries,
     entriesByToolCallId,
     revertEntry: vi.fn(),
@@ -109,16 +118,14 @@ describe('selectTurnRevertScope with rewind revert-capture rows', () => {
   ];
 
   it('produces no turn footer of their own', () => {
-    expect(selectTurnRevertScope(['call-a'], revertRows)).toBeNull();
+    expect(selectTurnRevertScope(['call-a'], revertRows, allRestorable(revertRows))).toBeNull();
   });
 
   it('does not inflate a real turn’s revertible count', () => {
-    const scope = selectTurnRevertScope(
-      ['call-a'],
-      [makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' }), ...revertRows]
-    );
+    const rows = [makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' }), ...revertRows];
+    const scope = selectTurnRevertScope(['call-a'], rows, allRestorable(rows));
 
-    expect(scope).toEqual({ revertibleCount: 1, runIds: ['run-1'] });
+    expect(scope).toEqual({ revertibleCount: 1, runIds: ['run-1'], unavailableReason: null });
   });
 });
 
@@ -141,8 +148,8 @@ describe('selectTurnRevertScope', () => {
 
     // The message that renders the run's LAST edit owns the footer and its count
     // is the whole run's revert scope (2), not just this message's one edit.
-    const scope = selectTurnRevertScope(['call-b'], entries);
-    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-1'] });
+    const scope = selectTurnRevertScope(['call-b'], entries, allRestorable(entries));
+    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-1'], unavailableReason: null });
   });
 
   it("renders no footer on a message that is not the run's last leg", () => {
@@ -163,7 +170,7 @@ describe('selectTurnRevertScope', () => {
 
     // The earlier leg (call-a) must NOT show a footer — otherwise a split run
     // would render duplicate footers, each with a dishonest count.
-    expect(selectTurnRevertScope(['call-a'], entries)).toBeNull();
+    expect(selectTurnRevertScope(['call-a'], entries, allRestorable(entries))).toBeNull();
   });
 
   it('excludes reverted and unrevertible-capture entries from the count', () => {
@@ -183,8 +190,12 @@ describe('selectTurnRevertScope', () => {
       }),
     ];
 
-    const scope = selectTurnRevertScope(['call-a', 'call-b', 'call-c'], entries);
-    expect(scope).toEqual({ revertibleCount: 1, runIds: ['run-1'] });
+    const scope = selectTurnRevertScope(
+      ['call-a', 'call-b', 'call-c'],
+      entries,
+      allRestorable(entries)
+    );
+    expect(scope).toEqual({ revertibleCount: 1, runIds: ['run-1'], unavailableReason: null });
   });
 
   it("counts a run's toolCallId:null entries even though they never render a footer", () => {
@@ -205,8 +216,8 @@ describe('selectTurnRevertScope', () => {
 
     // revertRun(run-1) reverts BOTH entries; the count must reflect that, so the
     // user never consents to fewer files than actually change.
-    const scope = selectTurnRevertScope(['call-a'], entries);
-    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-1'] });
+    const scope = selectTurnRevertScope(['call-a'], entries, allRestorable(entries));
+    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-1'], unavailableReason: null });
   });
 
   it('orders multiple runs of a merged message newest-applied first', () => {
@@ -225,8 +236,59 @@ describe('selectTurnRevertScope', () => {
       }),
     ];
 
-    const scope = selectTurnRevertScope(['call-a', 'call-b'], entries);
-    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-2', 'run-1'] });
+    const scope = selectTurnRevertScope(['call-a', 'call-b'], entries, allRestorable(entries));
+    expect(scope).toEqual({
+      revertibleCount: 2,
+      runIds: ['run-2', 'run-1'],
+      unavailableReason: null,
+    });
+  });
+});
+
+describe('selectTurnRevertScope with snapshot availability (BST-1164 T4)', () => {
+  it('excludes unavailable entries from the count but keeps the run owned', () => {
+    const entries = [
+      makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' }),
+      makeEntry({ id: 'e2', path: 'src/pre.ts', runId: 'run-1', toolCallId: 'call-b' }),
+    ];
+    const availability = new Map<string, AssistantCheckpointUndoAvailability>([
+      ['e1', { restorable: true }],
+      [
+        'e2',
+        {
+          reason: 'This edit predates workspace snapshots, so it cannot be restored.',
+          restorable: false,
+        },
+      ],
+    ]);
+    const scope = selectTurnRevertScope(['call-a', 'call-b'], entries, availability);
+    expect(scope).toEqual({ revertibleCount: 1, runIds: ['run-1'], unavailableReason: null });
+  });
+
+  it('reports the unavailable reason (and no run ids) when NOTHING is restorable', () => {
+    const entries = [makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' })];
+    const availability = new Map<string, AssistantCheckpointUndoAvailability>([
+      [
+        'e1',
+        {
+          reason: 'This edit predates workspace snapshots, so it cannot be restored.',
+          restorable: false,
+        },
+      ],
+    ]);
+    const scope = selectTurnRevertScope(['call-a'], entries, availability);
+    expect(scope).toEqual({
+      revertibleCount: 0,
+      runIds: [],
+      unavailableReason: 'This edit predates workspace snapshots, so it cannot be restored.',
+    });
+  });
+
+  it('treats an entry MISSING from the availability map as unavailable (fail-safe, never enabled)', () => {
+    const entries = [makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' })];
+    const scope = selectTurnRevertScope(['call-a'], entries, new Map());
+    expect(scope?.revertibleCount).toBe(0);
+    expect(scope?.unavailableReason).toContain('could not be determined');
   });
 });
 

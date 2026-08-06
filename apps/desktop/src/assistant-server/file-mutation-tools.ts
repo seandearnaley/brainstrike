@@ -132,12 +132,10 @@ export async function runWriteWorkspaceFile(
       requestedPath: input.path,
       scope,
     });
-    // Snapshot the before-state for the undo journal INSIDE the lock so no
-    // concurrent same-file edit can slip newer bytes between capture and write.
-    const beforeState = await captureBeforeState(
-      resolved.absolutePath,
-      MAX_WRITE_WORKSPACE_FILE_BYTES
-    );
+    // Capture the before-identity (existence + hash) for the attribution
+    // ledger INSIDE the lock so no concurrent same-file edit can slip newer
+    // bytes between capture and write.
+    const beforeState = await captureBeforeState(resolved.absolutePath);
     const writeResult = await writeContainedFileBytes({
       buffer,
       requestedPath: input.path,
@@ -256,15 +254,14 @@ export async function runStringReplaceWorkspaceFile(
     // the same thread must never trip the guard on it.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
 
-    // Journal the undo: the before-content was just read as `file.content` (the
-    // checked reader guarantees text — binary/oversized already threw), so this
-    // is always a revertible `ok` capture.
+    // Journal the attribution row: the file existed (the checked reader just
+    // read it), so this is an `ok` identity capture — hash + size, no content
+    // (restores come from the turn-start snapshot).
     const beforeBuffer = Buffer.from(file.content, 'utf8');
     await recordEditCheckpointForTool({
       afterExisted: true,
       afterHash: sha256Hex(buffer),
       before: {
-        beforeContent: file.content,
         beforeExisted: true,
         beforeHash: sha256Hex(beforeBuffer),
         beforeSize: beforeBuffer.byteLength,
@@ -384,9 +381,9 @@ export async function runDeleteWorkspaceFile(
       );
     }
 
-    // Snapshot the before-state for the undo journal BEFORE unlinking, so a
-    // delete can be reverted by recreating the file with its prior content.
-    const beforeState = await captureBeforeState(mutationPath, MAX_WRITE_WORKSPACE_FILE_BYTES);
+    // Capture the before-identity for the attribution ledger BEFORE
+    // unlinking; the undo recreates the file from the turn-start snapshot.
+    const beforeState = await captureBeforeState(mutationPath);
     await fsPromises.unlink(mutationPath);
     // Drop the staleness observation with the file so a later re-creation at
     // this path is treated as new, not compared against a ghost.
@@ -399,9 +396,6 @@ export async function runDeleteWorkspaceFile(
     await recordEditCheckpointForTool({
       afterExisted: false,
       afterHash: null,
-      // A text before-state is revertible (recreate with content); a
-      // binary/oversized/absent (dangling-symlink) leaf records honestly and
-      // is refused on revert.
       before: beforeStateToCapture(beforeState),
       op: 'delete',
       path: resolved.workspacePath,
@@ -546,13 +540,20 @@ export async function runRenameWorkspaceFile(
       workspacePath: toResolved.workspacePath,
     });
 
-    // Journal the undo: a rename has no content change, so the revert is a
-    // rename-back (to_path → from_path). fromPath = original source.
+    // Journal the attribution row: a rename has no content change; the undo
+    // restores the source and deletes the destination from the turn-start
+    // snapshot. fromPath = original source. The DESTINATION's content hash IS
+    // recorded (same bytes the rename moved): the undo's conflict gate needs
+    // it to detect post-rename user edits before deleting the destination —
+    // a null hash on a present path reads as unverifiable ⇒ conflict there.
+    // For a symlink source, `captureBeforeState` stats THROUGH the link, the
+    // same way the gate's own disk read follows it (consistent identity); a
+    // dangling link hashes as absent ⇒ null ⇒ the gate stays fail-safe.
+    const afterState = await captureBeforeState(toResolved.absolutePath);
     await recordEditCheckpointForTool({
       afterExisted: true,
-      afterHash: null,
+      afterHash: afterState.kind === 'present' ? afterState.hash : null,
       before: {
-        beforeContent: null,
         beforeExisted: true,
         beforeHash: null,
         beforeSize: null,

@@ -84,6 +84,7 @@ const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
 const FILE_EXPORTS_SAVE_TO_DOWNLOADS_CHANNEL = 'file-exports:save-to-downloads' as const;
+const ASSISTANT_CHECKPOINT_AVAILABILITY_CHANNEL = 'assistant-checkpoint:availability' as const;
 const ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL = 'assistant-checkpoint:revert-entry' as const;
 const ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL = 'assistant-checkpoint:revert-run' as const;
 const GIT_STATUS_CHANNEL = 'git:status' as const;
@@ -1182,6 +1183,8 @@ if (shouldExposeBridge('fileExports')) {
 // Edit checkpoint (undo of agent file edits) — invoke-only revert bridge. Desktop
 // only: web never defines this (no assistant server / main process).
 contextBridge.exposeInMainWorld('assistantCheckpoints', {
+  availability: (threadId: string) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_AVAILABILITY_CHANNEL, { threadId }),
   revertEntry: (id: string, options?: { force?: boolean }) =>
     ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL, {
       force: options?.force ?? false,

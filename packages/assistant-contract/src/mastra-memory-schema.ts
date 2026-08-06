@@ -175,6 +175,20 @@ export type MindOp = (typeof MIND_OPS)[number];
 export const ASSISTANT_MESSAGE_TOMBSTONES_TABLE = 'brainstrike_assistant_message_tombstones';
 
 /**
+ * Shadow-git snapshot ledger (BST-1164 W7, migration 081 in BOTH runners plus
+ * the app-shell bootstrap mirror — keep every shape byte-identical to 081).
+ *
+ * One row per snapshot commit in a workspace root's shadow git repo
+ * (`userData/snapshots/<rootId>/git`); the row is the source of truth for the
+ * turn↔commit-oid mapping while shadow refs only keep objects alive for GC.
+ * Thread-keyed sidecar: rows cascade on thread delete via
+ * {@link THREAD_DELETE_SIDECAR_TABLES}. `run_id` is nullable provenance (a
+ * turn is not a run); `kind` is CHECK-constrained to
+ * 'turn-start' | 'turn-end' | 'pre-revert'.
+ */
+export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
+
+/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
@@ -189,4 +203,8 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_message_tombstones', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_thread_placements', threadColumn: 'thread_id' },
+  // Shadow-git snapshot rows (BST-1164): deleting a thread deletes its
+  // turn↔oid ledger. The shadow refs/objects those rows point at live on the
+  // main-process filesystem and are pruned by SnapshotService GC, not by SQL.
+  { table: 'brainstrike_workspace_snapshots', threadColumn: 'thread_id' },
 ] as const;

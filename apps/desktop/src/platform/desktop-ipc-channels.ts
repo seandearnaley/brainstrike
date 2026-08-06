@@ -9,6 +9,7 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
   assistantCheckpoint: {
+    availability: 'assistant-checkpoint:availability',
     revertEntry: 'assistant-checkpoint:revert-entry',
     revertRun: 'assistant-checkpoint:revert-run',
   },

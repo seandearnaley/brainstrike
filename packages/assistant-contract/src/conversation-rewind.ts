@@ -111,16 +111,48 @@ export type AssistantRewindRange =
     };
 
 /**
- * Pre-apply preview. `view` is the EXISTING run-range `ChangesetView` — the
- * same resolution the Changes surface already renders, not a second
- * computation — so the modal and the Review panel can never disagree.
+ * Whether the `conversation-and-files` scope is available for a rewind target
+ * (BST-1164 W7 T3, snapshot engine). The files side of a rewind restores from
+ * the target turn's `turn-start` workspace snapshot, so a turn with no usable
+ * snapshot cannot offer it — but `conversation-only` never depends on capture
+ * and stays available. The two unavailable reasons are the carried rulings:
+ *
+ * - `turn-predates-snapshots`: the thread has NO workspace snapshot rows at
+ *   all — it predates the snapshot engine. Conversation-only rewind is
+ *   offered with this visible refusal of the files scope; the retired journal
+ *   restore engine is never used as a fallback.
+ * - `snapshot-missing`: the thread HAS snapshot rows, but the target turn's
+ *   `turn-start` coverage is absent or incomplete (its capture failed, or a
+ *   root joined the workspace after that turn). The files scope is refused
+ *   for the whole range with the reason — never "restore what we can".
+ */
+export type AssistantRewindFilesScope =
+  | { readonly available: true }
+  | {
+      readonly available: false;
+      readonly message: string;
+      readonly reason: 'snapshot-missing' | 'turn-predates-snapshots';
+    };
+
+/**
+ * Pre-apply preview. `view` lists what the files scope WOULD change — the
+ * per-root snapshot diff (turn-start snapshot vs live work-tree), the same
+ * resolution engine the Changes surface renders — so the modal and the Review
+ * panel can never disagree.
  *
  * `conflicts` is advisory here (disk can change between preview and apply);
  * `applyRewind` re-scans and is the authority for the gate.
+ *
+ * Generating a preview also records a per-root work-tree fingerprint in the
+ * main process. `applyRewind` in files mode REQUIRES that fingerprint (see the
+ * `preview-required` refusal): the acknowledgment gate binds what this preview
+ * SHOWED, so an apply with no recorded preview has nothing to bind to.
  */
 export interface AssistantRewindPreview {
   readonly changeset: Changeset | null;
   readonly conflicts: readonly AssistantRewindConflict[];
+  /** Availability of the `conversation-and-files` scope for this target. */
+  readonly filesScope: AssistantRewindFilesScope;
   readonly messageId: string;
   readonly range: AssistantRewindRange;
   readonly threadId: string;
@@ -164,20 +196,24 @@ export interface AssistantRewindApplied {
  * tombstone row, which makes that revert permanently un-redoable the moment it
  * lands — refused before a single file is touched instead.
  *
- * `range-already-reverted` refuses an apply whose range resolved journal
- * entries but every one of them already carries `reverted_at` (the pre-flight
- * scan excludes them, so nothing would apply) while genuinely nothing needed
- * reverting is reported as a `runs`/`none` range with zero records, never this
- * reason. Reachable only when an earlier rewind over the SAME range was
- * reverted and then redone without clearing the original entries' stamps — the
- * fail-safe response is a named refusal, not a silent `ok: true` with empty
- * `fileOutcomes`.
- *
  * `redo-incomplete` refuses to complete a redo when the pre-scan passed clean
  * but one or more files still failed during the actual revert (a TOCTOU change
  * between scan and write). The tombstone batch is left in place — NOT deleted
  * — so the messages stay hidden and the batch remains redoable once the
  * conflicting files are resolved.
+ *
+ * `preview-required` (BST-1164 W7 T3) refuses a files-mode apply for which no
+ * preview fingerprint is recorded in the main process (no preview was
+ * generated for this target, or the process restarted since). The
+ * acknowledgment gate binds what the preview SHOWED; without a recorded
+ * preview there is nothing for it to bind, so the fail-safe answer is "open
+ * the preview again", never a blind apply.
+ *
+ * `turn-predates-snapshots` / `snapshot-missing` refuse the files scope when
+ * the target turn has no usable `turn-start` snapshot — see
+ * {@link AssistantRewindFilesScope} for the two cases. A redo can also refuse
+ * `snapshot-missing` when its batch's `pre-revert` snapshots are absent
+ * (a batch that predates the snapshot engine); the batch stays in place.
  */
 export interface AssistantRewindRefused {
   readonly conflicts: readonly AssistantRewindConflict[];
@@ -187,11 +223,13 @@ export interface AssistantRewindRefused {
     | 'already-tombstoned'
     | 'conflicts-unacknowledged'
     | 'message-not-found'
-    | 'range-already-reverted'
+    | 'preview-required'
     | 'range-unresolvable'
     | 'redo-incomplete'
     | 'rewind-not-found'
     | 'run-in-flight'
+    | 'snapshot-missing'
+    | 'turn-predates-snapshots'
     | 'not-latest-rewind';
 }
 

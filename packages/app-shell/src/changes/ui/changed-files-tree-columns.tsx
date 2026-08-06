@@ -137,9 +137,13 @@ function NameCell({ node }: TreeTableCellProps<ChangedFilesTreeNodeData>): React
   const { data } = node;
   switch (data.kind) {
     case 'root':
+      // The label is the root's display name (or the caller's path-basename
+      // fallback) — NEVER the bare rootId UUID (BST-1164 review). A root the
+      // caller could not label (e.g. no longer connected) gets a generic
+      // label; the UUID survives only in the hover title for debugging.
       return (
-        <span className="truncate font-medium text-xs" title={data.rootId}>
-          {data.rootId}
+        <span className="truncate font-medium text-xs" title={data.label ?? data.rootId}>
+          {data.label ?? 'Workspace root'}
         </span>
       );
     case 'outside-roots':

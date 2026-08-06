@@ -131,11 +131,13 @@ describe('ChangesetFileDiffCard', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders a journal-content-expired failure as explanatory copy, not a DiffView', async () => {
+  it('renders an agent-run load failure through the ordinary error body (the journal-expired card is gone)', async () => {
+    // BST-1164 T4: snapshot-backed changesets never evict content, so the
+    // dedicated journal-content-expired card was removed. Any failure —
+    // including a legacy-looking prefix — renders the honest error + Retry.
     const loadFileDiff = vi.fn(
       async (): Promise<GitResult<StructuredFileDiff>> => ({
-        error:
-          'journal-content-expired: before-content for checkpoint "abc" (path "src/foo.ts") is unavailable (expired retention, skipped binary/oversized capture, or a content-free rename record).',
+        error: 'changeset-snapshot-missing: no snapshot turn covers run "run-1".',
         ok: false,
       })
     );
@@ -148,13 +150,13 @@ describe('ChangesetFileDiffCard', () => {
       />
     );
 
-    expect(await screen.findByTestId('changeset-file-diff-card-journal-expired')).toHaveTextContent(
-      'checkpoint content expired'
+    expect(await screen.findByTestId('changeset-file-diff-card-error')).toHaveTextContent(
+      'changeset-snapshot-missing'
     );
-    expect(screen.getByText(/evicted from/i)).toBeInTheDocument();
-    expect(screen.getAllByText('src/foo.ts').length).toBeGreaterThan(0);
+    expect(
+      screen.queryByTestId('changeset-file-diff-card-journal-expired')
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId('diff-view-stub')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('changeset-file-diff-card-error')).not.toBeInTheDocument();
   });
 
   it('renders the binary explanation for binary content, not an empty diff', async () => {

@@ -35,6 +35,7 @@ import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useChangesStore } from '../changes-store';
 import { useChangeset } from '../use-changeset';
 import { useGitInventory } from '../use-git-inventory';
+import { useRootLabelById } from '../use-root-labels';
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { ChangesetHeader } from './changeset-header';
@@ -97,6 +98,8 @@ export function ChangesSurface(): ReactElement {
     }
     return map;
   }, [rootDirectoryHandles, rootIdByPath]);
+
+  const rootLabelById = useRootLabelById();
 
   const changeset = useChangesNavigationStore((state) => state.activeChangeset);
   const requestChangeset = useChangesNavigationStore((state) => state.requestChangeset);
@@ -187,6 +190,7 @@ export function ChangesSurface(): ReactElement {
               files={renderedFiles}
               inventory={inventory}
               loading={loading}
+              rootLabelById={rootLabelById}
               rootPathById={rootPathById}
             />
           </div>

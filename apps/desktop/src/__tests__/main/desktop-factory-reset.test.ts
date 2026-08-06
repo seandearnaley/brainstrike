@@ -141,6 +141,33 @@ describe('resetDesktopApplicationData', () => {
     expect(result.preservedPaths).toEqual([path.join('/mock/userData', 'logs')]);
   });
 
+  it('wipes the userData/snapshots shadow-git dir in the wholesale userData reset (BST-1164)', async () => {
+    // The shadow-git snapshot store (SnapshotService's `snapshotsBaseDir`,
+    // wired in main.ts as `path.join(app.getPath('userData'), 'snapshots')`)
+    // deliberately has NO dedicated reset wiring: it lives under userData, so
+    // the wholesale wipe must cover it — the FACTORY RESET CONTRACT's dir
+    // half, paired with the `brainstrike_workspace_snapshots` table wipe in
+    // the reset-table registry. This test pins that — if the dir ever moves
+    // out of userData, or `snapshots` is added to the preserved-entry list,
+    // captured workspace content would survive a factory reset.
+    fsMocks.readdirSync.mockReturnValue(['logs', 'snapshots']);
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      resetDatabaseProfile: vi.fn(async () => undefined),
+      stopBackgroundRuntimes: vi.fn(async () => undefined),
+      userDataPath: '/mock/userData',
+    });
+
+    const trashPath = path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1');
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      path.join('/mock/userData', 'snapshots'),
+      path.join(trashPath, 'snapshots')
+    );
+    expect(result.deletedPaths).toContain(path.join('/mock/userData', 'snapshots'));
+    expect(result.preservedPaths).toEqual([path.join('/mock/userData', 'logs')]);
+  });
+
   it('does not delete app data when runtime shutdown fails', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => {
       throw new Error('embedding host refused to stop');

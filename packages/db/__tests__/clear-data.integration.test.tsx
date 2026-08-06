@@ -99,6 +99,12 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_message_tombstones
      (message_id, thread_id, rewind_id)
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-rewind')`,
+  // BST-1164: shadow-git snapshot ledger rows map threads the clear just
+  // destroyed onto shadow commits.
+  `INSERT INTO brainstrike_workspace_snapshots
+     (id, thread_id, root_id, root_path, commit_oid, kind)
+     VALUES ('sentinel-snapshot', 'sentinel-thread', 'sentinel-root', '/sentinel',
+      'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', 'turn-start')`,
   // BST-992 convergence: factory-reset-only sentinel (representative of the
   // six seed-free caches) — wiped by the purge, kept by Clear Database.
   `INSERT INTO job_queue_metrics (queue, succeeded_total)
@@ -156,6 +162,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
+    expect(await countRows('brainstrike_workspace_snapshots')).toBe(0);
   }
 
   async function assertMastraResetTablesAbsent(): Promise<void> {

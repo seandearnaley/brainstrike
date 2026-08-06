@@ -71,6 +71,13 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
+  // Shadow-git snapshot ledger (migration 081, BST-1164). Turn↔commit-oid
+  // bookkeeping for threads the clear just destroyed: keeping it would map
+  // conversations that no longer exist onto shadow commits. The shadow git
+  // dirs themselves live under desktop userData (wiped wholesale by desktop
+  // factory reset) and are unreachable from web, where these rows would
+  // otherwise dangle forever.
+  'brainstrike_workspace_snapshots',
 ] as const;
 
 /** Indexing/workspace data owned by the Drizzle schema. */

@@ -15,6 +15,7 @@ import {
   THREAD_DELETE_SIDECAR_TABLES,
   THREAD_TITLE_SOURCE_METADATA_KEY,
   THREAD_TITLE_SOURCE_OM,
+  WORKSPACE_SNAPSHOTS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -714,6 +715,30 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_rewind_idx
   ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (rewind_id);
+
+-- Shadow-git snapshot ledger (BST-1164 W7). Bootstrapped here AND created by
+-- migration 081 — keep the shape byte-identical to 081. Mirrored because the
+-- thread-delete cascade CTEs below reference every sidecar table
+-- unconditionally, so the relation must exist wherever this repository runs.
+-- id is an app-side uuidv7 (migration 080's caller-supplied-text-PK
+-- convention); run_id is nullable provenance (a turn is not a run); kind is
+-- CHECK-constrained (migration 079's closed-vocabulary convention).
+CREATE TABLE IF NOT EXISTS ${WORKSPACE_SNAPSHOTS_TABLE} (
+  id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  run_id text,
+  root_id text NOT NULL,
+  root_path text NOT NULL,
+  commit_oid text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('turn-start', 'turn-end', 'pre-revert')),
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_thread_idx
+  ON ${WORKSPACE_SNAPSHOTS_TABLE} (thread_id, created_at);
+
+CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_root_idx
+  ON ${WORKSPACE_SNAPSHOTS_TABLE} (root_id);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,

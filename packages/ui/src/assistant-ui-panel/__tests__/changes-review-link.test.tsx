@@ -72,6 +72,7 @@ function checkpointValue(
   entries: readonly AssistantEditCheckpointRecord[]
 ): EditCheckpointContextValue {
   return {
+    availabilityById: new Map(entries.map((entry) => [entry.id, { restorable: true } as const])),
     entries,
     entriesByToolCallId: new Map(
       entries

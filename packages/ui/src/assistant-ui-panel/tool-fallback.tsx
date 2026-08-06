@@ -468,7 +468,7 @@ function CheckpointRevertButton({
   if (!(checkpoint && REVERTIBLE_MUTATION_TOOL_NAMES.has(toolName))) {
     return null;
   }
-  const { entry, revert } = checkpoint;
+  const { availability, entry, revert } = checkpoint;
 
   if (entry.revertedAt) {
     return (
@@ -481,13 +481,16 @@ function CheckpointRevertButton({
     );
   }
 
-  if (!isRevertibleCaptureStatus(entry.captureStatus)) {
-    const reason =
-      entry.captureStatus === 'skipped_binary'
-        ? 'Binary file — cannot revert.'
-        : entry.captureStatus === 'skipped_too_large'
-          ? 'File too large — cannot revert.'
-          : 'Prior content is no longer stored — cannot revert.';
+  // Legacy content-era refusals first (pre-snapshot rows recorded with a
+  // non-restorable capture status), then snapshot availability (BST-1164 T4:
+  // no turn-start snapshot covers this edit — visibly disabled, never a
+  // click-time surprise).
+  const unavailableReason = isRevertibleCaptureStatus(entry.captureStatus)
+    ? availability.restorable
+      ? null
+      : availability.reason
+    : `capture status "${entry.captureStatus}" has no restorable state.`;
+  if (unavailableReason !== null) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
@@ -495,10 +498,10 @@ function CheckpointRevertButton({
             className="shrink-0 text-[11px] text-muted-foreground"
             data-testid="checkpoint-unrevertible"
           >
-            Can't revert
+            Can't restore
           </span>
         </TooltipTrigger>
-        <TooltipContent>{reason}</TooltipContent>
+        <TooltipContent>{unavailableReason}</TooltipContent>
       </Tooltip>
     );
   }
@@ -540,7 +543,7 @@ function CheckpointRevertButton({
           size="sm"
           variant="ghost"
         >
-          Confirm revert
+          Confirm restore
         </Button>
         <Button
           className="h-5 px-1.5 text-[11px] text-muted-foreground"
@@ -570,7 +573,9 @@ function CheckpointRevertButton({
           Revert
         </Button>
       </TooltipTrigger>
-      <TooltipContent>Undo this file edit</TooltipContent>
+      {/* Turn-start semantics (BST-1164 T4): the snapshot engine restores the
+          file to its state when the turn began, not to just-before-this-edit. */}
+      <TooltipContent>Restore this file to its state at turn start</TooltipContent>
     </Tooltip>
   );
 }

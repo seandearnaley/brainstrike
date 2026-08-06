@@ -24,6 +24,7 @@ import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
+import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import {
   createGitInventoryService,
@@ -31,6 +32,10 @@ import {
 } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
+import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
+import { createSnapshotRepository } from './assistant-server/snapshot-repository';
+import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
+import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
@@ -742,6 +747,14 @@ let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 // Stopped as a graceful-shutdown step, before the `database` step, since its
 // `loadRoots` dependency reads from the DB.
 let gitInventoryService: GitInventoryService | null = null;
+// BST-1164 (W7 T1): the ONE app-lifetime shadow-git SnapshotService.
+// Constructed inside `app.whenReady()` (never at module scope — the
+// gitInventoryService incident class: a module-scope construction would also
+// sit above the single-instance lock). Consumers resolve it LAZILY through
+// `() => snapshotService` because the changes IPC handlers register at module
+// load, before construction. There is exactly one instance; T2/T3 consume it
+// through the injected seams, never by constructing a second service.
+let snapshotService: SnapshotService | null = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -1234,14 +1247,28 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterFileExportsIpcHandlers = registerFileExportsIpcHandlers();
-unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
+// Lazy resolver for the same reason as `resolveSnapshotService` below: this
+// registration runs at module load, the ONE snapshot service is constructed
+// at app-ready. The checkpoint-undo engine restores from turn-start
+// snapshots (BST-1164 T4), so the handlers need the same seams as changes.
+unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers({
+  resolveSnapshotService: () => snapshotService,
+});
 unregisterGitIpcHandlers = registerGitIpcHandlers();
 // `resolveInventoryService` is a LAZY getter on purpose: this registration
 // runs at module load, while `gitInventoryService` is only constructed once
 // the app is ready (see `createGitInventoryService` below). Capturing the
 // value here would pin `null` forever.
 unregisterChangesIpcHandlers = registerChangesIpcHandlers(
-  createChangesIpcHandlers({ resolveInventoryService: () => gitInventoryService })
+  createChangesIpcHandlers({
+    // T1 injection points (BST-1164): the snapshot-repository factory and the
+    // lazy service resolver are THREADED but not yet consumed — T2/T3 consume
+    // them here so neither has to edit main.ts. Lazy for the same reason as
+    // `resolveInventoryService` below.
+    createSnapshotRepository,
+    resolveInventoryService: () => gitInventoryService,
+    resolveSnapshotService: () => snapshotService,
+  })
 );
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
@@ -1401,6 +1428,68 @@ if (singleInstanceLockAcquired) {
           ),
       });
       gitInventoryService.start();
+
+      // BST-1164 (W7 T1): shadow-git snapshot backbone. Constructed HERE,
+      // inside app.whenReady() — `app.getPath('userData')` is the storage
+      // contract (`userData/snapshots/<rootId>/git`), and the factory-reset
+      // wholesale userData wipe is what covers it (pinned by
+      // desktop-factory-reset.test.ts). Same wiring posture as
+      // GitInventoryService above: ONE instance, never at module scope.
+      const snapshotsBaseDir = path.join(app.getPath('userData'), 'snapshots');
+      const constructedSnapshotService = createSnapshotService({
+        runner: execFileSnapshotGitRunner,
+        snapshotsBaseDir,
+      });
+      snapshotService = constructedSnapshotService;
+      // Startup orphan sweep: remove shadow repos whose workspace root row no
+      // longer EXISTS at all. Deliberately keyed on every `roots` row (any
+      // status), NOT on `status = 'live'`: disconnect ≠ delete (the row is
+      // kept and the root can reconnect), and sweeping a disconnected root
+      // here would irreversibly destroy its snapshot history. Fire-and-forget
+      // so startup never blocks on it; failures are logged visibly, never
+      // swallowed.
+      void (async () => {
+        try {
+          const database = await getDatabase();
+          const rootRows = await database.query<{ id: string; path: string }>(
+            'SELECT id, path FROM roots'
+          );
+          const result = await constructedSnapshotService.sweepOrphans(
+            snapshotsBaseDir,
+            rootRows.rows.map((row) => row.id)
+          );
+          logger.info('Workspace snapshot orphan sweep completed', {
+            kept: result.kept.length,
+            removed: result.removed,
+            snapshotsBaseDir,
+          });
+          // T4 startup GC (after the orphan sweep so vanished-root repos are
+          // already gone): dead-thread rows + refs, ref-only residue, the
+          // 50-turn retention ring, and shallow-cut history reclamation.
+          // Same fire-and-forget block — logged, non-blocking, failures
+          // visible per item.
+          const gcDatabase = database as unknown as EditCheckpointDatabase;
+          const gcReport = await runSnapshotStartupGc({
+            db: gcDatabase,
+            liveRoots: rootRows.rows.map((row) => ({ path: row.path, rootId: row.id })),
+            snapshotRepository: createSnapshotRepository(gcDatabase),
+            snapshotService: constructedSnapshotService,
+          });
+          for (const failure of gcReport.failures) {
+            logger.error('Workspace snapshot GC item failed', { failure });
+          }
+          logger.info('Workspace snapshot startup GC completed', {
+            deadThreadsPruned: gcReport.deadThreadsPruned.length,
+            failures: gcReport.failures.length,
+            historyPrunedRoots: gcReport.historyPrunedRoots,
+            refOnlyPruned: gcReport.refOnlyPruned.length,
+            ringTrimmed: gcReport.ringTrimmed,
+            threadsTableMissing: gcReport.threadsTableMissing,
+          });
+        } catch (error) {
+          logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });
+        }
+      })();
 
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
@@ -1639,6 +1728,13 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          // T1 injection point (BST-1164): the run-persistence seam's snapshot
+          // deps — threaded, not yet consumed (T2's turn-boundary triggers
+          // consume them without editing main.ts).
+          snapshots: {
+            createRepository: createSnapshotRepository,
+            service: constructedSnapshotService,
+          },
         });
         assistantUrl = url;
         assistantAuthToken = authToken;

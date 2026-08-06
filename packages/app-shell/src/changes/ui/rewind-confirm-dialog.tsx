@@ -46,10 +46,10 @@ import { type RewindRequest, useRewindStore } from '../rewind-store';
 import { useGitInventory } from '../use-git-inventory';
 import { type UseRewindResult, useRewind } from '../use-rewind';
 import { useRewindExplorerRecovery } from '../use-rewind-explorer-recovery';
+import { useRootLabelById } from '../use-root-labels';
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { RewindConflictList } from './rewind-conflict-list';
-import { REWIND_SHELL_CAPTURE_QUALIFIER } from './rewind-copy';
 import { RewindOutcomeSummary } from './rewind-outcome-summary';
 import { DEFAULT_REWIND_MODE, RewindScopeChoice } from './rewind-scope-choice';
 
@@ -84,6 +84,7 @@ function RewindPreviewPanes({
   readonly rewind: UseRewindResult;
 }): ReactElement | null {
   const { inventory } = useGitInventory();
+  const rootLabelById = useRootLabelById();
   const preview = rewind.preview;
   if (preview?.ok !== true || !preview.changeset) {
     return null;
@@ -97,6 +98,7 @@ function RewindPreviewPanes({
           files={files}
           inventory={inventory}
           loading={rewind.loading}
+          rootLabelById={rootLabelById}
         />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -145,7 +147,16 @@ function RewindConfirmBody({
   const [result, setResult] = useState<AppliedState | null>(null);
 
   const preview = rewind.preview;
-  const filesMode = mode === 'conversation-and-files';
+  // BST-1164 W7 T3: a target whose turn has no usable workspace snapshot
+  // (pre-snapshot turn, or a failed/incomplete capture) cannot offer the
+  // files scope. The choice stays visible with the engine's reason under it
+  // (see RewindScopeChoice), and the EFFECTIVE mode is forced to
+  // conversation-only so the pre-selected files default can never send a
+  // files-mode apply the engine would refuse.
+  const filesScope = preview?.ok === true ? preview.filesScope : ({ available: true } as const);
+  const effectiveMode: AssistantRewindMode =
+    filesScope.available === false ? 'conversation-only' : mode;
+  const filesMode = effectiveMode === 'conversation-and-files';
   const conflicts = activeConflicts(preview, applyConflicts);
   // `conversation-only` touches no disk, so the gate genuinely does not apply
   // to it — this is not a bypass, it is the mode having nothing to conflict on.
@@ -172,6 +183,11 @@ function RewindConfirmBody({
       // the confirm modal's own gate — the force is scoped to exactly what
       // THIS refusal reported, never a blanket retry.
       if (redone.value.reason === 'conflicts-unacknowledged') {
+        // Persistent for the same reason as the redo toast it replaced:
+        // clicking "Undo rewind" consumed that toast, so THIS one is now the
+        // only affordance left for completing the redo — a 5s default would
+        // strand it exactly the same way (see use-toast.ts DURATION
+        // SEMANTICS).
         toast({
           action: (
             <ToastAction
@@ -183,6 +199,7 @@ function RewindConfirmBody({
             </ToastAction>
           ),
           description: redone.value.message,
+          persistent: true,
           title: 'Could not undo the rewind',
           variant: 'destructive',
         });
@@ -209,9 +226,12 @@ function RewindConfirmBody({
   };
 
   const announceApplied = (applied: AssistantRewindApplied): void => {
-    // No `duration`: the redo affordance stays until the user dismisses it,
-    // because the redo WINDOW stays open until the next user message finalizes
-    // the rewind. A timed toast would advertise a shorter window than exists.
+    // `persistent: true` (NOT merely omitting `duration` — Radix's provider
+    // default closes an undurationed toast after 5s, see use-toast.ts's
+    // DURATION SEMANTICS): this toast is the ONLY redo affordance, and the
+    // redo WINDOW stays open until the next user message finalizes the
+    // rewind. A timed toast would advertise a shorter window than exists and
+    // then strand redo entirely (BST-1164 CDT finding).
     toast({
       action: (
         <ToastAction
@@ -223,6 +243,7 @@ function RewindConfirmBody({
         </ToastAction>
       ),
       description: `${applied.tombstonedMessageIds.length} message(s) hidden. Undo is available until you send your next message.`,
+      persistent: true,
       title: 'Conversation restored',
     });
   };
@@ -239,7 +260,7 @@ function RewindConfirmBody({
         // mode where it means anything.
         acknowledgeConflicts: filesMode && acknowledged,
         messageId: preview.messageId,
-        mode,
+        mode: effectiveMode,
         threadId: preview.threadId,
       });
       if (!outcome.ok) {
@@ -257,7 +278,7 @@ function RewindConfirmBody({
         setApplyError(outcome.value.message);
         return;
       }
-      setResult({ applied: outcome.value, mode });
+      setResult({ applied: outcome.value, mode: effectiveMode });
       // BEFORE the composer repopulation below, and before the toast: the
       // rewind is now durable, and every live surface still shows the
       // conversation and the files it just changed. See
@@ -348,20 +369,17 @@ function RewindConfirmBody({
 
       <RewindPreviewPanes requestKey={requestKey} rewind={rewind} />
 
-      <RewindScopeChoice disabled={applying} mode={mode} onModeChange={setMode} />
+      <RewindScopeChoice
+        disabled={applying}
+        filesScope={filesScope}
+        mode={effectiveMode}
+        onModeChange={setMode}
+      />
 
       {filesMode ? (
-        <>
-          <p className="text-muted-foreground text-xs" data-testid="rewind-open-files-notice">
-            {OPEN_FILES_NOTICE}
-          </p>
-          {/* Permanent, not conditional on this rewind's contents: the user
-              must know what "restore" excludes BEFORE deciding, and the journal
-              cannot report an untracked file it never saw. */}
-          <p className="text-muted-foreground text-xs" data-testid="rewind-shell-capture-notice">
-            {REWIND_SHELL_CAPTURE_QUALIFIER}
-          </p>
-        </>
+        <p className="text-muted-foreground text-xs" data-testid="rewind-open-files-notice">
+          {OPEN_FILES_NOTICE}
+        </p>
       ) : null}
 
       {filesMode ? (

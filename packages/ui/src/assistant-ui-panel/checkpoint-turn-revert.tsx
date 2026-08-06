@@ -112,7 +112,9 @@ export function CheckpointTurnRevertControl({
     setPhase('confirm');
   };
 
-  const label = `Revert all ${revertibleCount} edit${revertibleCount === 1 ? '' : 's'} in this turn`;
+  // Turn-start semantics (BST-1164 T4): the snapshot engine restores files
+  // to their state when the turn began, not to just-before-each-edit.
+  const label = `Restore ${revertibleCount} file edit${revertibleCount === 1 ? '' : 's'} in this turn to their turn-start state`;
 
   if (phase === 'failed') {
     return (
@@ -218,6 +220,26 @@ export function CheckpointTurnRevert(): ReactElement | null {
   const turn = useCheckpointTurnRevert(toolCallIds);
   if (!turn) {
     return null;
+  }
+  if (turn.unavailableReason !== null) {
+    // Nothing in this turn is snapshot-restorable (pre-engine turn or failed
+    // capture) — a VISIBLE disabled state with the reason, never a silently
+    // absent control (BST-1164 T4 ruling).
+    return (
+      <div className="mt-1 flex" data-testid="checkpoint-turn-revert-footer">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="text-[11px] text-muted-foreground"
+              data-testid="checkpoint-turn-revert-unavailable"
+            >
+              Can't restore this turn's edits
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{turn.unavailableReason}</TooltipContent>
+        </Tooltip>
+      </div>
+    );
   }
   return (
     <div className="mt-1 flex" data-testid="checkpoint-turn-revert-footer">

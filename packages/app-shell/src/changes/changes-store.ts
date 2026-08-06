@@ -26,13 +26,12 @@ import { create } from 'zustand';
  * `ChangedFileEntry.path` is relative to its OWNING worktree, so two worktrees
  * of the same repository routinely contain the same `path` — keying on `path`
  * alone would silently collapse them into one row. `worktreePath` is null for
- * every journal-sourced (`agent-run`/`run-range`) entry (review finding,
+ * every snapshot-sourced (`agent-run`/`run-range`) entry (review finding,
  * BST-1114 — MULTI-ROOT IDENTITY), so `rootId` is included too: it is the
  * only location fact those entries carry, and two roots routinely share a
- * relative path. Mirrors `foldKey` in
- * `apps/desktop/src/assistant-server/changeset-journal-view.ts`, which keys
- * on `(rootId, path)` for the same reason. The NUL separator cannot occur in
- * any component, so the encoding is unambiguous.
+ * relative path (`changeset-snapshot-view.ts` keys per-root for the same
+ * reason). The NUL separator cannot occur in any component, so the encoding
+ * is unambiguous.
  */
 export function changedFileKey(entry: ChangedFileEntry): string {
   return `${entry.rootId ?? ''}\u0000${entry.worktreePath ?? ''}\u0000${entry.path}`;

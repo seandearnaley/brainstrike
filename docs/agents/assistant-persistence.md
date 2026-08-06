@@ -860,7 +860,8 @@ finalizes the rewind.
 - **Two batch ids, because rewind has a scope choice.** `applyRewind` takes
   `mode: 'conversation-only' | 'conversation-and-files'`. `rewind_id` is the
   tombstone batch identity and the redo key, present in BOTH modes;
-  `revert_id` links the paired edit-checkpoint journal file revert and is NULL
+  `revert_id` links the paired file restore (since W7 T3: the `pre-revert`
+  snapshot ledger rows recorded under `run_id = revert_id`) and is NULL
   for `conversation-only`, which performs no file revert at all. One shared
   column would force either a fabricated revert id or a nullable redo key —
   and a nullable redo key is how a batch gets lost.
@@ -907,35 +908,31 @@ finalizes the rewind.
   composer text the rewind just repopulated. The modal bumps BEFORE handing text
   to `useRewindComposerStore`, because `RewindComposerBridge` lives inside the
   remounted runtime and it is the new instance that must drain it.
-- **THE JOURNAL RECORDS FILE OPS, SO THE REVERT MUST PRUNE DIRECTORIES.** A
-  turn that scaffolds a project journals one row per FILE; the directories
-  `ensureContainedDirectory` created on the way have no row at all. The
-  2026-08-05 smoke round 2 rewound a scaffolded React app and got every file
-  unlinked over an intact folder tree. `revertCheckpointEntry` takes
-  `pruneEmptyDirectories` (default FALSE): after unlinking a `created` file it
-  walks UP from the file's parent removing each now-empty directory, stopping
-  at the first `rmdir` refusal (ENOTEMPTY = something the run did not create)
-  and unconditionally at the workspace root — that inequality is the boundary,
-  since `isWithinRoot` is true FOR the root. Failures are swallowed: the file
-  is already gone and a leftover directory must not report a successful revert
-  as failed. **Rewind's APPLY passes true; the per-turn checkpoint revert and
-  rewind's REDO both leave it false** — redo restores the PRE-rewind state, in
-  which those directories existed. KNOWN LIMITATION, accepted: an
+- **RESTORES DELETE FILES, SO THEY MUST PRUNE DIRECTORIES.** A turn that
+  scaffolds a project creates directories no ledger row (and no snapshot tree
+  entry) names. The 2026-08-05 smoke round 2 rewound a scaffolded React app
+  and got every file unlinked over an intact folder tree. The rule survived
+  the W7 engine swap in `pruneEmptyAncestorDirectories`
+  (`snapshot-restore-plan.ts`, shared by the rewind restore plan and the
+  checkpoint undo's `restorePathsFromSnapshot`): after deleting a
+  restore-plan-absent path, walk UP from its parent removing each now-empty
+  directory, stopping at the first `rmdir` refusal (ENOTEMPTY = something the
+  run did not create) and unconditionally at the workspace root. Failures are
+  swallowed: the file is already gone and a leftover directory must not
+  report a successful restore as failed. KNOWN LIMITATION, accepted: an
   intentionally-empty pre-existing directory on the created file's exact path
-  is indistinguishable from a scaffolded one and will be pruned; journaling
-  directory creation is the real fix.
-- **CAPTURE SCOPE IS STATED, NOT IMPLIED.** The journal only sees mutations
-  made through the assistant's own file tools. A `package-lock.json` an
-  `npm install` wrote, or a `dist/` a build emitted, has no row and is NOT
-  restored — the same smoke hit exactly that. Expanding capture to shell side
-  effects is separate work; until it exists the honest fix is copy.
-  `REWIND_SHELL_CAPTURE_QUALIFIER`
-  (`packages/app-shell/src/changes/ui/rewind-copy.ts`) is ONE constant rendered
-  in TWO places: permanently in the files-mode confirmation, beside the
-  open-files notice, and once in the outcome summary when the reverted set is
-  non-empty (a rewind that restored nothing makes no claim to bound). Both
-  renderers are pinned to the literal text by test — do not paraphrase either
-  copy independently, or the post-apply line reads as new news.
+  is indistinguishable from a scaffolded one and will be pruned.
+- **CAPTURE SCOPE: SHELL SIDE EFFECTS ARE COVERED NOW.** The W7 snapshot
+  engine captures everything between turn boundaries — assistant-tool edits
+  AND shell side effects (`npm install`'s `package-lock.json`, a build's
+  `dist/`) — so the old `REWIND_SHELL_CAPTURE_QUALIFIER` copy ("files created
+  by shell commands aren't restored") became UNTRUE and was DELETED in T4
+  with its `rewind-copy.ts` module; `rewind-confirm-dialog.test.tsx` pins its
+  ABSENCE. The honest states that remain are the ones that still occur:
+  "this turn predates workspace snapshots" (conversation-only rewind,
+  `REWIND_TURN_PREDATES_SNAPSHOTS_MESSAGE` in `rewind-snapshot-engine.ts`,
+  reused as the checkpoint-undo unavailability reason) and per-turn
+  capture-failed refusals.
 - **Mastra stays the writer of message content.** Nothing here alters a
   `mastra_*` table; hiding is an anti-join in Brainstrike-owned reads, and the
   finalizing hard delete goes through Mastra's own `deleteMessages` storage

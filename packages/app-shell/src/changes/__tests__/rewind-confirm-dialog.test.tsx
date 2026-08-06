@@ -40,6 +40,20 @@ import { useChangesStore } from '../changes-store';
 import { useRewindStore } from '../rewind-store';
 import { RewindConfirmDialog } from '../ui/rewind-confirm-dialog';
 
+// `useRootLabelById` reads the shared FileSystemProvider instance, which this
+// suite deliberately does not mount (the dialog tests exercise the rewind
+// flow, not root-handle plumbing). Production always mounts the provider
+// above the dialog (`AppLayout`). Fixed labels keep the tree deterministic.
+// (vi.mock is hoisted above the imports by vitest.)
+vi.mock('../use-root-labels', () => ({
+  useRootLabelById: () =>
+    new Map([
+      ['root-repo-a', 'Repo A'],
+      ['root-repo-b', 'Repo B'],
+      ['root-plain-c', 'Scratch'],
+    ]),
+}));
+
 const ROOT_A = 'root-repo-a';
 const ROOT_B = 'root-repo-b';
 const ROOT_PLAIN = 'root-plain-c';
@@ -74,6 +88,7 @@ function preview(
   return {
     changeset: { fromRunId: 'run-1', kind: 'run-range', threadId: 'thread-1' },
     conflicts: [],
+    filesScope: { available: true },
     messageId: 'msg-2',
     ok: true,
     range: { fromRunId: 'run-1', kind: 'runs', runIds: ['run-1', 'run-2'] },
@@ -344,66 +359,99 @@ describe('RewindConfirmDialog', () => {
     expect(screen.queryByTestId('rewind-open-files-notice')).not.toBeInTheDocument();
   });
 
-  // ===== Capture-scope honesty (smoke round 2, defect 3) =====
+  // ===== Files-scope availability (BST-1164 W7 T3, carried rulings) =====
 
-  it('states, permanently, that shell-created files are not restored', async () => {
-    installBridge();
-    openRewind();
-    renderDialog();
-
-    await screen.findByTestId('rewind-confirm-dialog');
-    // EXACT copy, both here and in the outcome summary below. The user who hit
-    // this had `package-lock.json` — written by a shell command, never seen by
-    // the edit journal — silently not come back.
-    expect(screen.getByTestId('rewind-shell-capture-notice')).toHaveTextContent(
-      "Restores files edited by the assistant's tools. Files created by shell commands (installs, builds) aren't tracked and won't be restored."
-    );
-  });
-
-  it('repeats the same qualifier once in the outcome summary, after files came back', async () => {
+  it('disables the files scope with the engine reason for a pre-snapshot turn, and applies conversation-only', async () => {
     const user = userEvent.setup();
-    installBridge();
+    const bridge = installBridge({
+      rewindPreview: vi.fn(async () => ({
+        ok: true,
+        value: preview({
+          filesScope: {
+            available: false,
+            message:
+              'This turn predates workspace snapshots, so its files cannot be restored. Only the conversation can be restored.',
+            reason: 'turn-predates-snapshots',
+          },
+          view: null,
+        }),
+      })),
+    });
     openRewind();
     renderDialog();
 
     await screen.findByTestId('rewind-confirm-dialog');
+    // The files option is VISIBLE but disabled, with the honest reason under
+    // it — never silently removed, never silently selected.
+    expect(screen.getByTestId('rewind-mode-conversation-and-files')).toBeDisabled();
+    expect(screen.getByTestId('rewind-mode-conversation-only')).toBeChecked();
+    expect(screen.getByTestId('rewind-files-scope-refusal')).toHaveTextContent(
+      'This turn predates workspace snapshots'
+    );
+
     await waitFor(() => {
       expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
     });
     await user.click(screen.getByTestId('rewind-confirm'));
 
-    const notice = await screen.findByTestId('rewind-outcome-shell-capture-notice');
-    expect(notice).toHaveTextContent(
-      "Restores files edited by the assistant's tools. Files created by shell commands (installs, builds) aren't tracked and won't be restored."
-    );
+    // The pre-selected files default must NEVER leak into the wire call when
+    // the scope is refused: the effective mode is conversation-only.
+    await waitFor(() => {
+      expect(bridge.applyRewind).toHaveBeenCalledWith({
+        acknowledgeConflicts: false,
+        messageId: 'msg-2',
+        mode: 'conversation-only',
+        threadId: 'thread-1',
+      });
+    });
   });
 
-  it('omits the qualifier when the rewind restored no file at all', async () => {
-    const user = userEvent.setup();
-    // `conversation-only` restores nothing, so there is no "we put your files
-    // back" claim for the qualifier to bound.
+  it('renders the snapshot-missing reason the same way for a failed capture', async () => {
     installBridge({
-      applyRewind: vi.fn(
-        async (): Promise<GitResult<AssistantRewindResult>> => ({
-          ok: true,
-          value: {
-            fileOutcomes: [],
-            mode: 'conversation-only',
-            ok: true,
-            range: { fromRunId: 'run-1', kind: 'runs', runIds: ['run-1'] },
-            revertId: null,
-            rewindId: 'rewind-1',
-            rootOutcomes: [],
-            tombstonedMessageIds: ['msg-2', 'msg-3'],
+      rewindPreview: vi.fn(async () => ({
+        ok: true,
+        value: preview({
+          filesScope: {
+            available: false,
+            message:
+              'No workspace snapshot covers this turn (its capture failed), so its files cannot be restored for this range. Only the conversation can be restored.',
+            reason: 'snapshot-missing',
           },
-        })
-      ),
+          view: null,
+        }),
+      })),
     });
     openRewind();
     renderDialog();
 
     await screen.findByTestId('rewind-confirm-dialog');
-    await user.click(screen.getByTestId('rewind-mode-conversation-only'));
+    expect(screen.getByTestId('rewind-mode-conversation-and-files')).toBeDisabled();
+    expect(screen.getByTestId('rewind-files-scope-refusal')).toHaveTextContent(
+      'No workspace snapshot covers this turn'
+    );
+  });
+
+  // ===== Capture-scope qualifier: REMOVED (BST-1164 T4) =====
+  // The snapshot engine captures shell side effects, so the old
+  // "shell-created files aren't restored" qualifier became UNTRUE and was
+  // deleted with its copy module. These pins keep it from quietly returning.
+
+  it('renders NO shell-capture qualifier anywhere in the files-mode dialog', async () => {
+    installBridge();
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
+    expect(screen.queryByTestId('rewind-shell-capture-notice')).not.toBeInTheDocument();
+  });
+
+  it('renders NO shell-capture qualifier in the outcome summary after files came back', async () => {
+    const user = userEvent.setup();
+    installBridge();
+    openRewind();
+    renderDialog();
+
+    await screen.findByTestId('rewind-confirm-dialog');
     await waitFor(() => {
       expect(screen.getByTestId('rewind-confirm')).toBeEnabled();
     });

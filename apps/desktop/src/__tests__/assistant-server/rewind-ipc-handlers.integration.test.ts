@@ -1,16 +1,21 @@
 /**
- * The Conversation Rewind IPC surface, end to end (BST-1115, W5 T4).
+ * The Conversation Rewind IPC surface, end to end (BST-1115 W5 T4; snapshot
+ * engine BST-1164 W7 T3).
  *
- * REAL PGlite + REAL filesystem + the REAL rewind service — only the reindex
- * side effects are a probe. What this suite exists to prove is the boundary
- * itself: that a renderer payload is narrowed before it reaches a destructive
- * operation, that the acknowledgment gate survives the trip through IPC, and
- * that a run-target resolves to its triggering message in the main process
- * rather than being guessed by the renderer.
+ * REAL PGlite + REAL filesystem + REAL shadow git + the REAL rewind service —
+ * only the reindex side effects are a probe. What this suite exists to prove
+ * is the boundary itself: that a renderer payload is narrowed before it
+ * reaches a destructive operation, that the acknowledgment gate (now bound to
+ * the preview fingerprint) survives the trip through IPC, that the snapshot
+ * seams are threaded through `createSnapshotRepository`/
+ * `resolveSnapshotService` rather than constructed twice, and that a
+ * run-target resolves to its triggering message in the main process rather
+ * than being guessed by the renderer.
  *
- * MULTI-ROOT BAR: the range spans TWO git repositories plus one file outside
- * any repository, and the per-root roll-up must name all three through the IPC
- * result — never a silently skipped root.
+ * MULTI-ROOT BAR: the range spans TWO git repositories plus one root outside
+ * any repository AND a shell-created file (direct fs write), and the per-root
+ * roll-up must name all three roots through the IPC result — never a silently
+ * skipped root.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -42,6 +47,7 @@ import {
   cleanupTempDirs,
   createReindexProbe,
   createRewindFixture,
+  createSnapshotHarness,
   insertMessage,
   insertRun,
   makeGitRepo,
@@ -49,7 +55,8 @@ import {
   type ReindexProbe,
   type RewindFixture,
   readDiskFile,
-  seedWrite,
+  type SnapshotHarness,
+  seedTurnStartSnapshots,
   THREAD_ID,
   writeDiskFile,
 } from './rewind-service-test-support';
@@ -61,6 +68,7 @@ const PLAIN_C = 'root-plain-c';
 
 let fixture: RewindFixture;
 let probe: ReindexProbe;
+let harness: SnapshotHarness;
 let handlers: ChangesIpcHandlers;
 /** Message ids each finalization asked the store seam to hard-delete. */
 let finalizedDeletes: string[][];
@@ -106,31 +114,27 @@ async function seedThread(): Promise<void> {
   await insertMessage(fixture.db, { createdAt: '2026-02-01T00:00:21Z', id: 'msg-3' });
 }
 
-async function seedThreeRootEdits(): Promise<void> {
-  await seedWrite(fixture, {
-    after: 'a-v1',
-    before: 'a-v0',
-    occurredAt: '2026-02-01T00:00:12Z',
-    path: '/src/index.ts',
-    rootId: REPO_A,
-    runId: 'run-1',
-  });
-  await seedWrite(fixture, {
-    after: 'b-v1',
-    before: 'b-v0',
-    occurredAt: '2026-02-01T00:00:13Z',
-    path: '/src/index.ts',
-    rootId: REPO_B,
-    runId: 'run-1',
-  });
-  await seedWrite(fixture, {
-    after: 'c-v1',
-    before: 'c-v0',
-    occurredAt: '2026-02-01T00:00:14Z',
-    path: '/notes/scratch.md',
-    rootId: PLAIN_C,
-    runId: 'run-1',
-  });
+/**
+ * v0 state in all three roots → turn-start snapshots for run-1 → the turn's
+ * edits, INCLUDING a shell-created lockfile (a direct fs write, no tool).
+ */
+async function seedThreeRootHistory(): Promise<void> {
+  await writeDiskFile(rootPath(REPO_A), '/src/index.ts', 'a-v0');
+  await writeDiskFile(rootPath(REPO_B), '/src/index.ts', 'b-v0');
+  await writeDiskFile(rootPath(PLAIN_C), '/notes/scratch.md', 'c-v0');
+  await seedTurnStartSnapshots(harness, fixture, { runId: 'run-1' });
+  await writeDiskFile(rootPath(REPO_A), '/src/index.ts', 'a-v1');
+  await writeDiskFile(rootPath(REPO_B), '/src/index.ts', 'b-v1');
+  await writeDiskFile(rootPath(PLAIN_C), '/notes/scratch.md', 'c-v1');
+  await writeDiskFile(rootPath(PLAIN_C), '/notes/generated.lock', 'shell wrote this');
+}
+
+/** Preview through the IPC surface — the fingerprint a files apply binds. */
+async function previewThroughIpc(messageId: string): Promise<void> {
+  const preview = value(await handlers.rewindPreview({ messageId, threadId: THREAD_ID }));
+  if (!preview.ok) {
+    throw new Error(`fixture preview refused: ${preview.message}`);
+  }
 }
 
 beforeEach(async () => {
@@ -143,9 +147,14 @@ beforeEach(async () => {
     },
     `rewind-ipc-${crypto.randomUUID()}`
   );
+  harness = await createSnapshotHarness(fixture.db);
   finalizedDeletes = [];
   handlers = createChangesIpcHandlers({
+    // The T1 injection seams, exactly as main.ts threads them: the handlers
+    // must compose the snapshot deps from THESE, never construct their own.
+    createSnapshotRepository: () => harness.repository,
     resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
+    resolveSnapshotService: () => harness.service,
     rewind: {
       applyRewind,
       // Stands in for `createRewindFinalizationDeps`, which builds a
@@ -191,7 +200,7 @@ describe('changes:rewindPreview payload narrowing', () => {
   });
 
   it('resolves a MESSAGE target to the range that message anchors', async () => {
-    await seedThreeRootEdits();
+    await seedThreeRootHistory();
 
     const preview = value(
       await handlers.rewindPreview({ messageId: 'msg-2', threadId: THREAD_ID })
@@ -207,16 +216,21 @@ describe('changes:rewindPreview payload narrowing', () => {
       kind: 'runs',
       runIds: ['run-1', 'run-2'],
     });
-    // The preview view is the EXISTING run-range resolution — three roots, three
-    // files, none of them dropped for lacking a git repository.
+    // The preview view is the snapshot engine's own resolution — three roots,
+    // four files (the shell-created lockfile INCLUDED), none dropped for
+    // lacking a git repository.
     expect(preview.view?.files.map((file) => file.rootId).sort()).toEqual(
-      [PLAIN_C, REPO_A, REPO_B].sort()
+      [PLAIN_C, PLAIN_C, REPO_A, REPO_B].sort()
     );
+    expect(preview.view?.files.find((file) => file.path === 'notes/generated.lock')?.status).toBe(
+      'added'
+    );
+    expect(preview.filesScope).toEqual({ available: true });
     expect(preview.tombstoneMessageIds).toEqual(['msg-2', 'msg-3']);
   });
 
   it('resolves a RUN target to that run’s triggering message, in main', async () => {
-    await seedThreeRootEdits();
+    await seedThreeRootHistory();
 
     const preview = value(await handlers.rewindPreview({ runId: 'run-1', threadId: THREAD_ID }));
 
@@ -276,7 +290,7 @@ describe('changes:applyRewind payload narrowing', () => {
 
 describe('changes:applyRewind across three roots', () => {
   it('conversation-only writes tombstones and touches NO file in ANY root', async () => {
-    await seedThreeRootEdits();
+    await seedThreeRootHistory();
 
     const outcome = applied(
       value(
@@ -293,14 +307,16 @@ describe('changes:applyRewind across three roots', () => {
     expect(outcome.tombstonedMessageIds).toEqual(['msg-2', 'msg-3']);
     expect(outcome.fileOutcomes).toEqual([]);
     expect(outcome.rootOutcomes).toEqual([]);
-    // Every root still holds the agent's version.
+    // Every root still holds the turn's version — shell file included.
     expect(await readDiskFile(rootPath(REPO_A), '/src/index.ts')).toBe('a-v1');
     expect(await readDiskFile(rootPath(REPO_B), '/src/index.ts')).toBe('b-v1');
     expect(await readDiskFile(rootPath(PLAIN_C), '/notes/scratch.md')).toBe('c-v1');
+    expect(await readDiskFile(rootPath(PLAIN_C), '/notes/generated.lock')).toBe('shell wrote this');
   });
 
-  it('conversation-and-files restores all three roots and rolls up per root', async () => {
-    await seedThreeRootEdits();
+  it('conversation-and-files restores all three roots, removes the shell-created file, and rolls up per root', async () => {
+    await seedThreeRootHistory();
+    await previewThroughIpc('msg-2');
 
     const outcome = applied(
       value(
@@ -315,19 +331,39 @@ describe('changes:applyRewind across three roots', () => {
     expect(await readDiskFile(rootPath(REPO_A), '/src/index.ts')).toBe('a-v0');
     expect(await readDiskFile(rootPath(REPO_B), '/src/index.ts')).toBe('b-v0');
     expect(await readDiskFile(rootPath(PLAIN_C), '/notes/scratch.md')).toBe('c-v0');
+    // The shell-created file is GONE — the fixture class the journal engine
+    // structurally could not restore. Strengthened, not weakened, by the swap.
+    expect(await readDiskFile(rootPath(PLAIN_C), '/notes/generated.lock')).toBeNull();
 
     // EVERY root appears, each with its own honest counts — the MULTI-ROOT BAR
     // forbids communicating a root's outcome by absence.
     const byRoot = new Map(outcome.rootOutcomes.map((root) => [root.rootId, root]));
     expect([...byRoot.keys()].sort()).toEqual([PLAIN_C, REPO_A, REPO_B].sort());
-    for (const rootId of [REPO_A, REPO_B, PLAIN_C]) {
-      expect(byRoot.get(rootId)).toMatchObject({ attempted: 1, conflicts: 0, reverted: 1 });
-    }
+    expect(byRoot.get(REPO_A)).toMatchObject({ attempted: 1, conflicts: 0, reverted: 1 });
+    expect(byRoot.get(REPO_B)).toMatchObject({ attempted: 1, conflicts: 0, reverted: 1 });
+    expect(byRoot.get(PLAIN_C)).toMatchObject({ attempted: 2, conflicts: 0, reverted: 2 });
   });
 
-  it('BLOCKS the whole apply when ONE root conflicts, until acknowledged', async () => {
-    await seedThreeRootEdits();
-    // The user edited repo B's file after the agent did.
+  it('refuses a files-mode apply with no recorded preview, through IPC', async () => {
+    await seedThreeRootHistory();
+
+    const refused = value(
+      await handlers.applyRewind({
+        messageId: 'msg-2',
+        mode: 'conversation-and-files',
+        threadId: THREAD_ID,
+      })
+    );
+
+    expect(refused.ok).toBe(false);
+    expect(refused.ok === false && refused.reason).toBe('preview-required');
+    expect(await readDiskFile(rootPath(REPO_A), '/src/index.ts')).toBe('a-v1');
+  });
+
+  it('BLOCKS the whole apply when ONE root drifts after the preview, until acknowledged', async () => {
+    await seedThreeRootHistory();
+    await previewThroughIpc('msg-2');
+    // The user edits repo B's file AFTER the preview was generated.
     await writeDiskFile(rootPath(REPO_B), '/src/index.ts', 'b-user-edit');
 
     const refused = value(
@@ -375,8 +411,9 @@ describe('changes:redoRewind', () => {
     expect(result.ok === false && result.error).toContain('requires a non-empty rewindId');
   });
 
-  it('undoes a files-mode rewind across every root', async () => {
-    await seedThreeRootEdits();
+  it('undoes a files-mode rewind across every root, shell file included', async () => {
+    await seedThreeRootHistory();
+    await previewThroughIpc('msg-2');
     const outcome = applied(
       value(
         await handlers.applyRewind({
@@ -386,6 +423,7 @@ describe('changes:redoRewind', () => {
         })
       )
     );
+    expect(await readDiskFile(rootPath(PLAIN_C), '/notes/generated.lock')).toBeNull();
 
     const redone = value(await handlers.redoRewind({ rewindId: outcome.rewindId }));
 
@@ -394,6 +432,7 @@ describe('changes:redoRewind', () => {
     expect(await readDiskFile(rootPath(REPO_A), '/src/index.ts')).toBe('a-v1');
     expect(await readDiskFile(rootPath(REPO_B), '/src/index.ts')).toBe('b-v1');
     expect(await readDiskFile(rootPath(PLAIN_C), '/notes/scratch.md')).toBe('c-v1');
+    expect(await readDiskFile(rootPath(PLAIN_C), '/notes/generated.lock')).toBe('shell wrote this');
   });
 
   it('refuses an unknown batch VISIBLY', async () => {
@@ -431,7 +470,8 @@ describe('changes:finalizeRewinds', () => {
   });
 
   it('hard-deletes the thread`s tombstoned messages through the store seam', async () => {
-    await seedThreeRootEdits();
+    await seedThreeRootHistory();
+    await previewThroughIpc('msg-2');
     value(
       await handlers.applyRewind({
         messageId: 'msg-2',
@@ -477,7 +517,9 @@ describe('changes:finalizeRewinds', () => {
 
   it('reports a store-seam failure as a VISIBLE transport failure, leaving the tombstones', async () => {
     const failing = createChangesIpcHandlers({
+      createSnapshotRepository: () => harness.repository,
       resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
+      resolveSnapshotService: () => harness.service,
       rewind: {
         applyRewind,
         createFinalizationDeps: async () => ({
@@ -507,5 +549,25 @@ describe('changes:finalizeRewinds', () => {
     // The messages could not be removed, so they must stay HIDDEN — dropping
     // the sidecar rows anyway would resurrect a rewound conversation.
     expect(await tombstoneCount()).toBe(2);
+  });
+
+  it('fails VISIBLY when the snapshot service is not wired, instead of degrading', async () => {
+    const unwired = createChangesIpcHandlers({
+      resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
+      rewind: {
+        applyRewind,
+        createFinalizationDeps: async () => ({ deleteMessages: async () => undefined }),
+        createRevertDeps: async () => ({ reindex: probe.reindex }),
+        finalizeThreadRewinds,
+        redoRewind,
+        resolveMessageForRun: resolveRewindMessageForRun,
+        rewindToMessage,
+      },
+    });
+
+    const result = await unwired.rewindPreview({ messageId: 'msg-2', threadId: THREAD_ID });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('snapshot service is not running');
   });
 });

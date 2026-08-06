@@ -84,6 +84,53 @@ describe('useEditCheckpoints', () => {
     expect(result.current.checkpoints?.entries.map((entry) => entry.id)).toEqual(['e1', 'e2']);
   });
 
+  it('loads snapshot availability alongside entries and exposes it on the context (BST-1164 T4)', async () => {
+    const availability = vi.fn(() =>
+      Promise.resolve({
+        byCheckpointId: {
+          e1: { restorable: true as const },
+          e2: {
+            reason: 'This edit predates workspace snapshots, so it cannot be restored.',
+            restorable: false as const,
+          },
+        },
+      })
+    );
+    stubBridge({ availability, revertEntry: vi.fn(), revertRun: vi.fn() });
+    const repo = repositoryReturning(() =>
+      Promise.resolve([
+        makeEntry({ id: 'e1', toolCallId: 'call-a' }),
+        makeEntry({ id: 'e2', toolCallId: 'call-b' }),
+      ])
+    );
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+
+    await waitFor(() => {
+      expect(result.current.checkpoints?.availabilityById.size).toBe(2);
+    });
+    expect(availability).toHaveBeenCalledWith('thread-1');
+    expect(result.current.checkpoints?.availabilityById.get('e1')).toEqual({ restorable: true });
+    expect(result.current.checkpoints?.availabilityById.get('e2')).toMatchObject({
+      restorable: false,
+    });
+  });
+
+  it('clears the availability map when the availability fetch fails (fail-safe disabled state, not a crash)', async () => {
+    const availability = vi.fn(() => Promise.reject(new Error('ipc broke')));
+    stubBridge({ availability, revertEntry: vi.fn(), revertRun: vi.fn() });
+    const repo = repositoryReturning(() =>
+      Promise.resolve([makeEntry({ id: 'e1', toolCallId: 'call-a' })])
+    );
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+
+    await waitFor(() => {
+      expect(result.current.checkpoints?.entries).toHaveLength(1);
+    });
+    // Entries still load; the empty map makes every control render
+    // disabled-with-reason via availabilityForEntry's fail-safe.
+    expect(result.current.checkpoints?.availabilityById.size).toBe(0);
+  });
+
   it('surfaces a checkpoint journaled during a live run when refetch fires (no thread switch)', async () => {
     stubBridge({ revertEntry: vi.fn(), revertRun: vi.fn() });
     let journaled: readonly AssistantEditCheckpointRecord[] = [];

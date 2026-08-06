@@ -1,6 +1,7 @@
 import type {
   AssistantCheckpointRevertResult,
   AssistantCheckpointRevertRunResult,
+  AssistantCheckpointUndoAvailability,
   AssistantEditCheckpointRecord,
 } from '@brainstrike/assistant-contract';
 import { isRevertibleCaptureStatus, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
@@ -19,6 +20,14 @@ export const REVERTIBLE_MUTATION_TOOL_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 export interface EditCheckpointContextValue {
+  /**
+   * Snapshot-availability per journal entry id (BST-1164 T4): whether the
+   * turn-start snapshot the undo engine restores from exists for that entry,
+   * with the user-facing reason when it does not. An entry MISSING from the
+   * map is treated as unavailable (fail-safe: the control renders disabled
+   * with a generic reason, never an enabled button that refuses on click).
+   */
+  readonly availabilityById: ReadonlyMap<string, AssistantCheckpointUndoAvailability>;
   /** Every journal entry for the active thread, in apply order (ascending). */
   readonly entries: readonly AssistantEditCheckpointRecord[];
   /** Journal entries for the active thread, keyed by the tool call that made them. */
@@ -52,12 +61,31 @@ export function EditCheckpointProvider({
 }
 
 /**
- * The journal entry for a given tool call plus a bound revert action, or `null`
- * when there is no provider (web / not desktop) or no journal entry yet for this
- * call. A `null` return means "render no Revert control" — capability gating, not
- * a disabled stub.
+ * Fail-safe read of an entry's snapshot availability: an id the map does not
+ * know is UNAVAILABLE with a generic reason, never silently enabled. The
+ * data layer populates the map for every listed entry, so the fallback only
+ * shows on a data-layer failure — which is exactly when a click would fail.
+ */
+export function availabilityForEntry(
+  availabilityById: ReadonlyMap<string, AssistantCheckpointUndoAvailability>,
+  entryId: string
+): AssistantCheckpointUndoAvailability {
+  return (
+    availabilityById.get(entryId) ?? {
+      reason: 'Snapshot availability could not be determined for this edit.',
+      restorable: false,
+    }
+  );
+}
+
+/**
+ * The journal entry for a given tool call plus a bound revert action and its
+ * snapshot availability, or `null` when there is no provider (web / not
+ * desktop) or no journal entry yet for this call. A `null` return means
+ * "render no Revert control" — capability gating, not a disabled stub.
  */
 export function useCheckpointForToolCall(toolCallId: string): {
+  availability: AssistantCheckpointUndoAvailability;
   entry: AssistantEditCheckpointRecord;
   revert: (options?: { force?: boolean }) => Promise<AssistantCheckpointRevertResult>;
 } | null {
@@ -70,6 +98,7 @@ export function useCheckpointForToolCall(toolCallId: string): {
     return null;
   }
   return {
+    availability: availabilityForEntry(context.availabilityById, entry.id),
     entry,
     revert: (options) => context.revertEntry(entry.id, options),
   };
@@ -95,6 +124,13 @@ export interface TurnRevertScope {
   readonly revertibleCount: number;
   /** Distinct runs this message owns, newest-applied first. */
   readonly runIds: readonly string[];
+  /**
+   * When every owned entry is snapshot-unavailable (`revertibleCount: 0`),
+   * the first unavailable reason — the disabled footer's visible copy
+   * (BST-1164 T4: pre-engine turns render a disabled state with the reason,
+   * never a silently absent control). Null while anything is revertible.
+   */
+  readonly unavailableReason: string | null;
 }
 
 /** Later apply order = larger occurredAt, id as tie-break (mirrors the DB order). */
@@ -133,9 +169,51 @@ function isLaterApply(a: AssistantEditCheckpointRecord, b: AssistantEditCheckpoi
  */
 export function selectTurnRevertScope(
   messageToolCallIds: readonly string[],
-  entries: readonly AssistantEditCheckpointRecord[]
+  entries: readonly AssistantEditCheckpointRecord[],
+  availabilityById: ReadonlyMap<string, AssistantCheckpointUndoAvailability>
 ): TurnRevertScope | null {
   const messageIds = new Set(messageToolCallIds);
+  const revertibleByRun = groupRevertibleEntriesByRun(entries);
+
+  const owned: OwnedRunScope[] = [];
+  for (const [runId, runEntries] of revertibleByRun) {
+    const anchor = findRunAnchor(runEntries);
+    if (!(anchor?.toolCallId && messageIds.has(anchor.toolCallId))) {
+      continue;
+    }
+    // Snapshot availability decides what `revertRun` can actually restore; a
+    // run whose entries are all unavailable stays OWNED (its footer renders a
+    // visible disabled state) but contributes nothing to the count.
+    owned.push({ anchor, runId, ...tallyRunAvailability(runEntries, availabilityById) });
+  }
+
+  if (owned.length === 0) {
+    return null;
+  }
+  owned.sort((a, b) => (isLaterApply(a.anchor, b.anchor) ? -1 : 1));
+  const revertibleCount = owned.reduce((total, run) => total + run.availableCount, 0);
+  return {
+    revertibleCount,
+    // Only runs with something restorable are worth invoking.
+    runIds: owned.filter((run) => run.availableCount > 0).map((run) => run.runId),
+    unavailableReason:
+      revertibleCount === 0
+        ? (owned.find((run) => run.firstUnavailableReason !== null)?.firstUnavailableReason ??
+          'These edits cannot be restored.')
+        : null,
+  };
+}
+
+interface OwnedRunScope {
+  readonly anchor: AssistantEditCheckpointRecord;
+  readonly availableCount: number;
+  readonly firstUnavailableReason: string | null;
+  readonly runId: string;
+}
+
+function groupRevertibleEntriesByRun(
+  entries: readonly AssistantEditCheckpointRecord[]
+): ReadonlyMap<string, readonly AssistantEditCheckpointRecord[]> {
   const revertibleByRun = new Map<string, AssistantEditCheckpointRecord[]>();
   for (const entry of entries) {
     if (entry.revertedAt || !isRevertibleCaptureStatus(entry.captureStatus)) {
@@ -148,30 +226,37 @@ export function selectTurnRevertScope(
       revertibleByRun.set(entry.runId, [entry]);
     }
   }
+  return revertibleByRun;
+}
 
-  const owned: { anchor: AssistantEditCheckpointRecord; count: number; runId: string }[] = [];
-  for (const [runId, runEntries] of revertibleByRun) {
-    let anchor: AssistantEditCheckpointRecord | null = null;
-    let anchorId: string | null = null;
-    for (const entry of runEntries) {
-      if (entry.toolCallId && (!anchor || isLaterApply(entry, anchor))) {
-        anchor = entry;
-        anchorId = entry.toolCallId;
-      }
-    }
-    if (anchor && anchorId && messageIds.has(anchorId)) {
-      owned.push({ anchor, count: runEntries.length, runId });
+/** The run's last-applied entry that rendered as a tool call, or null. */
+function findRunAnchor(
+  runEntries: readonly AssistantEditCheckpointRecord[]
+): AssistantEditCheckpointRecord | null {
+  let anchor: AssistantEditCheckpointRecord | null = null;
+  for (const entry of runEntries) {
+    if (entry.toolCallId && (!anchor || isLaterApply(entry, anchor))) {
+      anchor = entry;
     }
   }
+  return anchor;
+}
 
-  if (owned.length === 0) {
-    return null;
+function tallyRunAvailability(
+  runEntries: readonly AssistantEditCheckpointRecord[],
+  availabilityById: ReadonlyMap<string, AssistantCheckpointUndoAvailability>
+): { availableCount: number; firstUnavailableReason: string | null } {
+  let availableCount = 0;
+  let firstUnavailableReason: string | null = null;
+  for (const entry of runEntries) {
+    const availability = availabilityForEntry(availabilityById, entry.id);
+    if (availability.restorable) {
+      availableCount += 1;
+    } else {
+      firstUnavailableReason = firstUnavailableReason ?? availability.reason;
+    }
   }
-  owned.sort((a, b) => (isLaterApply(a.anchor, b.anchor) ? -1 : 1));
-  return {
-    revertibleCount: owned.reduce((total, run) => total + run.count, 0),
-    runIds: owned.map((run) => run.runId),
-  };
+  return { availableCount, firstUnavailableReason };
 }
 
 /**
@@ -184,6 +269,8 @@ export function selectTurnRevertScope(
 export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
   revertibleCount: number;
   revert: (options?: { force?: boolean }) => Promise<readonly AssistantCheckpointRevertRunResult[]>;
+  /** Non-null when nothing is restorable — render disabled with this reason. */
+  unavailableReason: string | null;
 } | null {
   const context = use(EditCheckpointContext);
   const idsKey = toolCallIds.join('\n');
@@ -192,7 +279,7 @@ export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
       return null;
     }
     const ids = idsKey === '' ? [] : idsKey.split('\n');
-    const scope = selectTurnRevertScope(ids, context.entries);
+    const scope = selectTurnRevertScope(ids, context.entries, context.availabilityById);
     if (!scope) {
       return null;
     }
@@ -206,6 +293,7 @@ export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
         return results;
       },
       revertibleCount: scope.revertibleCount,
+      unavailableReason: scope.unavailableReason,
     };
     // idsKey is a stable serialization of toolCallIds; depend on it, not the array identity.
   }, [context, idsKey]);
