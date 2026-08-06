@@ -119,6 +119,18 @@ export interface ChangedFileEntry {
   /** Owning workspace root id (durable RootId), or null when outside all roots. */
   readonly rootId: string | null;
   readonly status: ChangedFileStatus;
+  /**
+   * ADDITIVE view-level attribution metadata (W7 snapshot engine, BST-1164):
+   * `true` when the edit-checkpoint attribution ledger records an
+   * assistant-tool edit touching this path within the changeset's range;
+   * `false` when the snapshot engine captured the change with no tool record
+   * (e.g. a shell side effect of an executed command). ABSENT (undefined)
+   * when no attribution join ran at all: every `git-scope` changeset, and
+   * the LIVE mid-turn view (which deliberately performs no database reads —
+   * the BST-1169 starvation rule). Renderers must treat absent as "no badge",
+   * never as `false`.
+   */
+  readonly toolAttributed?: boolean;
   readonly worktreePath: string | null;
 }
 
