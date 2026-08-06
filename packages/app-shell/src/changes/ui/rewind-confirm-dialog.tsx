@@ -180,6 +180,11 @@ function RewindConfirmBody({
       // the confirm modal's own gate — the force is scoped to exactly what
       // THIS refusal reported, never a blanket retry.
       if (redone.value.reason === 'conflicts-unacknowledged') {
+        // Persistent for the same reason as the redo toast it replaced:
+        // clicking "Undo rewind" consumed that toast, so THIS one is now the
+        // only affordance left for completing the redo — a 5s default would
+        // strand it exactly the same way (see use-toast.ts DURATION
+        // SEMANTICS).
         toast({
           action: (
             <ToastAction
@@ -191,6 +196,7 @@ function RewindConfirmBody({
             </ToastAction>
           ),
           description: redone.value.message,
+          persistent: true,
           title: 'Could not undo the rewind',
           variant: 'destructive',
         });
@@ -217,9 +223,12 @@ function RewindConfirmBody({
   };
 
   const announceApplied = (applied: AssistantRewindApplied): void => {
-    // No `duration`: the redo affordance stays until the user dismisses it,
-    // because the redo WINDOW stays open until the next user message finalizes
-    // the rewind. A timed toast would advertise a shorter window than exists.
+    // `persistent: true` (NOT merely omitting `duration` — Radix's provider
+    // default closes an undurationed toast after 5s, see use-toast.ts's
+    // DURATION SEMANTICS): this toast is the ONLY redo affordance, and the
+    // redo WINDOW stays open until the next user message finalizes the
+    // rewind. A timed toast would advertise a shorter window than exists and
+    // then strand redo entirely (BST-1164 CDT finding).
     toast({
       action: (
         <ToastAction
@@ -231,6 +240,7 @@ function RewindConfirmBody({
         </ToastAction>
       ),
       description: `${applied.tombstonedMessageIds.length} message(s) hidden. Undo is available until you send your next message.`,
+      persistent: true,
       title: 'Conversation restored',
     });
   };

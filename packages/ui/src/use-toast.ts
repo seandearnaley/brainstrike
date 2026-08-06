@@ -3,11 +3,26 @@ import type { ToastActionElement, ToastProps } from './toast';
 
 const TOAST_LIMIT = 10;
 
+/**
+ * DURATION SEMANTICS (BST-1164 review — pinned, because two timers exist):
+ * - `duration: <positive ms>` — this store schedules the dismissal itself
+ *   (and the value is also forwarded to the Radix root).
+ * - `persistent: true` — the toast NEVER auto-dismisses: the `Toaster`
+ *   renders it with an infinite Radix `duration`, so neither the store nor
+ *   Radix ever closes it; only an explicit dismiss (close button, action
+ *   click, `dismiss()`) does. For affordances that must outlive a timer —
+ *   e.g. the rewind redo toast, whose WINDOW stays open until the next user
+ *   message finalizes the rewind.
+ * - NEITHER — the Radix provider default applies (5s auto-dismiss). Omitting
+ *   `duration` is NOT persistence; Radix's own default closes the toast.
+ * `persistent` alongside a numeric `duration` is a contradiction and throws.
+ */
 type ToasterToast = ToastProps & {
   id: string;
   title?: React.ReactNode;
   description?: React.ReactNode;
   action?: ToastActionElement;
+  persistent?: boolean;
 };
 
 const actionTypes = {
@@ -128,6 +143,10 @@ function scheduleToastAutoDismiss(toastId: string, duration: number): void {
 type Toast = Omit<ToasterToast, 'id'>;
 
 function toast({ ...props }: Toast) {
+  if (props.persistent === true && typeof props.duration === 'number') {
+    // Contradictory intent — refuse loudly rather than silently picking one.
+    throw new Error('toast(): `persistent: true` cannot be combined with a numeric `duration`.');
+  }
   const id = genId();
 
   const update = (props: ToasterToast) =>
