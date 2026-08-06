@@ -772,6 +772,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         contextWindow: 1_048_576,
         id: 'moonshotai/kimi-k3',
         label: 'Kimi K3 (OpenRouter)',
+        // Official maximum max_completion_tokens (platform.kimi.ai K3
+        // quickstart, verified 2026-08-05). OpenRouter publishes none.
+        maxOutputTokens: 1_048_576,
         pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         reasoning: {
           // Auto deliberately runs below the vendor default: Kimi's `max` spends

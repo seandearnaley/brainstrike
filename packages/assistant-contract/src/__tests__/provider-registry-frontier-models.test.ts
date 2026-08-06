@@ -167,7 +167,8 @@ describe('frontier model refresh (2026-07)', () => {
         supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
       });
       expect(kimi.contextWindow).toBe(1_048_576);
-      expect(kimi.maxOutputTokens).toBeUndefined();
+      // Official Moonshot maximum completion window (BST-1170).
+      expect(kimi.maxOutputTokens).toBe(1_048_576);
       expect(kimi.reasoning).toEqual({
         // Auto runs below the vendor default; recorded, not derived (BST-833).
         autoEffort: 'low',
@@ -251,7 +252,13 @@ describe('contextWindow metadata', () => {
         if (model.type === 'llm') {
           expect(model.contextWindow, `${provider.id}/${model.id}`).toBeGreaterThan(0);
           if (model.maxOutputTokens !== undefined) {
-            expect(model.maxOutputTokens).toBeLessThan(model.contextWindow);
+            // Equality is a real vendor contract: Kimi K3's official maximum
+            // max_completion_tokens equals its 1M context window (BST-1170).
+            // A configured reservation the context cannot fit is still
+            // visibly blocked by the input-budget validation.
+            expect(model.maxOutputTokens, `${provider.id}/${model.id}`).toBeLessThanOrEqual(
+              model.contextWindow
+            );
           }
         }
       }

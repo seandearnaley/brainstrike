@@ -1664,6 +1664,75 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('32000');
   });
 
+  it('reserves the vendor window for Kimi K3 whose reasoning is on by default (BST-1170)', () => {
+    // The displayed Auto reservation must match what the run actually sends:
+    // K3 reasons by default and reasoning tokens stream into the output
+    // window, so Auto reserves Moonshot's documented 131,072 — not the 32K
+    // coding ceiling that starved thinking+answer.
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/)).toBeInTheDocument();
+    const slider = screen.getByRole('slider', { name: 'Max output tokens' });
+    expect(slider).toHaveAttribute('max', '1048576');
+    expect(slider).toHaveValue('131072');
+  });
+
+  it('keeps the Kimi K3 vendor window when live metadata cannot carry the catalog facts', () => {
+    // Real K3 live metadata publishes reasoning but no max completion; the
+    // catalog-only vendor window must survive the live merge here exactly as
+    // it does in the request builder.
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        openRouterModelMetadataLookup={{
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_048_576,
+              id: 'moonshotai/kimi-k3',
+              reasoning: {
+                defaultEffort: 'max',
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['max', 'high', 'low'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning', 'max_tokens'],
+            },
+          },
+          state: 'resolved',
+        }}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/)).toBeInTheDocument();
+  });
+
+  it('drops Kimi K3 back to the coding ceiling when reasoning is switched off', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{ reasoningEffort: 'none' }}
+      />
+    );
+
+    expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
+  });
+
   it('uses the coding default when OpenRouter does not declare a model output maximum', () => {
     render(
       <ProviderSettingsPanel

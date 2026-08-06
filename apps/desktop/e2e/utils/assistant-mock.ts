@@ -13,6 +13,8 @@ const DEFAULT_MODELS: Record<string, string> = {
 
 export interface AssistantMockOptions {
   readonly apiKey?: string;
+  /** `provider::model` selected via the desktop test hooks after install. */
+  readonly compositeModelKey?: string;
   readonly errorMessage?: string;
   readonly message?: string;
   readonly models?: Record<string, string>;
@@ -34,6 +36,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
   const globals = globalThis as unknown as Window & {
     __assistantMockApplied?: boolean;
     __assistantMockConfig?: AssistantMockInstallPayload;
+    __assistantMockRequests?: unknown[];
     __assistantAvailabilityOverride?: { state: 'enabled' };
     fetch: typeof fetch;
     localStorage?: Storage;
@@ -51,7 +54,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       JSON.stringify({
         state: {
           modelsByProvider: payload.models,
-          selectedProvider: 'openai',
+          selectedProvider: payload.provider,
         },
         version: 1,
       })
@@ -148,6 +151,26 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
     });
   }
 
+  // Record the outgoing request body so specs can assert the effective run
+  // configuration the app actually sends (e.g. BST-1170's reasoning-aware
+  // output window). A malformed body fails the fetch — and therefore the
+  // spec — visibly.
+  async function recordAssistantRequestBody(
+    input: Parameters<typeof fetch>[0],
+    init: Parameters<typeof fetch>[1]
+  ): Promise<void> {
+    const rawBody =
+      typeof init?.body === 'string'
+        ? init.body
+        : input instanceof Request
+          ? await input.clone().text()
+          : undefined;
+    if (rawBody) {
+      globals.__assistantMockRequests = globals.__assistantMockRequests ?? [];
+      globals.__assistantMockRequests.push(JSON.parse(rawBody));
+    }
+  }
+
   globals.fetch = async (input, init) => {
     const url =
       typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
@@ -163,6 +186,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       (url.includes('/assistant') || url.includes('/api/assistant')) &&
       (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'POST'
     ) {
+      await recordAssistantRequestBody(input, init);
       return createMockResponse(init?.signal ?? undefined);
     }
 
@@ -172,6 +196,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
 
 const defaultOptions: Required<AssistantMockOptions> = {
   apiKey: 'test-api-key-for-e2e-tests',
+  compositeModelKey: 'openai::gpt-5.2',
   errorMessage: 'Assistant request failed.',
   message: 'Hello from desktop assistant!',
   models: DEFAULT_MODELS,
@@ -306,7 +331,7 @@ export async function setupAssistantMock(
 
   await page.evaluate(installAssistantMockInPage, installPayload);
 
-  await page.evaluate(() => {
+  await page.evaluate((compositeModelKey: string) => {
     const testWindow = window as Window & {
       __brainstrikeAssistantRuntimeTestHooks__?: {
         setCurrentThreadModel: (compositeKey: string) => void;
@@ -324,7 +349,18 @@ export async function setupAssistantMock(
     }
 
     hooks.notifySecretsChanged();
-    hooks.setAssistantModel('openai::gpt-5.2');
-    runtimeHooks?.setCurrentThreadModel('openai::gpt-5.2');
-  });
+    hooks.setAssistantModel(compositeModelKey);
+    runtimeHooks?.setCurrentThreadModel(compositeModelKey);
+  }, merged.compositeModelKey);
+}
+
+/**
+ * Request bodies the app POSTed to the mocked assistant endpoint, in order.
+ * Parsed JSON — specs assert on the effective run configuration
+ * (`data.modelSettings`, `data.providerOptions`, …).
+ */
+export async function readAssistantMockRequests(page: Page): Promise<unknown[]> {
+  return await page.evaluate(
+    () => (globalThis as { __assistantMockRequests?: unknown[] }).__assistantMockRequests ?? []
+  );
 }
