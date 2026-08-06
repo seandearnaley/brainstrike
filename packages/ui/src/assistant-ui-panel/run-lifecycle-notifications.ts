@@ -348,7 +348,13 @@ function useNewStreamValues<T>(args: {
 }): void {
   const { isHistoryLoading, serializedValues, threadKey } = args;
   const handlersRef = useRef(args);
-  handlersRef.current = args;
+  // Latest-ref sync happens in an (unconditional) effect, not during render —
+  // React Doctor `no-ref-current-in-render`. Declaration order guarantees this
+  // runs before the deps-gated effect below on every commit, so that effect
+  // always reads the freshest handlers.
+  useEffect(() => {
+    handlersRef.current = args;
+  });
 
   const seenKeysRef = useRef<Set<string>>(new Set());
   const seededRef = useRef(false);
