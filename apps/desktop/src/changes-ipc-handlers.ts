@@ -546,9 +546,9 @@ const DEFAULT_REWIND_DEPENDENCIES: RewindHandlerDependencies = {
 
 export interface ChangesIpcHandlersOptions {
   /**
-   * Snapshot-row repository factory (BST-1164 W7 T1). Threaded by main.ts and
-   * NOT yet consumed here: T2 (changeset resolution swap) and T3 (rewind
-   * engine swap) consume it through this seam so neither edits main.ts.
+   * Snapshot-row repository factory (BST-1164 W7 T1). Threaded by main.ts;
+   * consumed by T2's snapshot changeset resolution below (paired with
+   * `resolveSnapshotService`) and by T3's rewind engine swap.
    */
   readonly createSnapshotRepository?: (db: EditCheckpointDatabase) => SnapshotRepository;
   /** Injectable for tests; defaults to a `getDatabase`-backed resolver. */
@@ -566,9 +566,9 @@ export interface ChangesIpcHandlersOptions {
   /**
    * Lazily resolves the ONE app-lifetime {@link SnapshotService}
    * (BST-1164 W7 T1). Lazy for the same registration-before-construction
-   * reason as `resolveInventoryService`. Threaded by main.ts and NOT yet
-   * consumed here — T2/T3 consume it; they must never construct a second
-   * service.
+   * reason as `resolveInventoryService`. Threaded by main.ts; consumed by
+   * T2's snapshot changeset resolution below (and by T3's rewind swap) —
+   * consumers must never construct a second service.
    */
   readonly resolveSnapshotService?: () => SnapshotService | null;
   /**
@@ -616,6 +616,19 @@ export function createChangesIpcHandlers(
       resolveDatabase,
       resolveRootCwd: (rootId: unknown) => resolveRootCwd(resolver, rootId, 'changes', logger),
       run,
+      // W7 T2 (BST-1164): the snapshot engine consumes the T1 injection
+      // points. BOTH must be present to wire the engine; a partial pair is a
+      // wiring bug and is surfaced as the typed unavailability error the
+      // service returns for snapshot-less construction (never a silent
+      // journal fallback).
+      ...(options.createSnapshotRepository && options.resolveSnapshotService
+        ? {
+            snapshots: {
+              createRepository: options.createSnapshotRepository,
+              resolveService: options.resolveSnapshotService,
+            },
+          }
+        : {}),
     });
 
   return {

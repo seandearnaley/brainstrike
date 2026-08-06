@@ -25,12 +25,24 @@ first source of truth — read them before this section.
   null`, `worktreePath: string | null` (null for every journal-sourced
   entry — see Selection semantics under RENDERER SURFACES below).
 - **`ChangesetView.totalAdditions`/`totalDeletions: number | null`** — `null`
-  means the source cannot report totals at all (every journal-backed
-  changeset: the journal never records line counts). A `git-scope`
-  changeset is NEVER `null`, including when every file is binary (a real
-  computed `0`) — binary files' `null` per-file counts are excluded from
-  the sum, not coerced. `null` (unknown) and `0` (computed exactly zero)
-  are deliberately different facts (make-invalid-states-unrepresentable).
+  means the source cannot report totals at all. Since the W7 snapshot engine
+  swap (BST-1164 T2), EVERY changeset kind resolved through
+  `ChangesetDiffService` computes REAL totals: `git-scope` from `git diff
+  --numstat`, and `agent-run`/`run-range` from the shadow-git snapshot
+  diffs' numstat. Binary files' `null` per-file counts are excluded from
+  the sum (`?? 0`), not coerced — "every file binary" is a real computed
+  `0`. `null` remains in the type for sources that genuinely cannot report
+  totals; the retiring journal fold (`changeset-journal-view.ts`, now only
+  reachable from the rewind preview until T4) is the last producer of
+  `null`. `null` (unknown) and `0` (computed exactly zero) are deliberately
+  different facts (make-invalid-states-unrepresentable).
+- **`ChangedFileEntry.toolAttributed?: boolean`** (W7 T2, ADDITIVE) —
+  view-level attribution metadata: `true` when the edit-checkpoint
+  attribution ledger records an assistant-tool edit touching the path within
+  the changeset's range, `false` when the snapshot engine captured a change
+  with no tool record (e.g. a shell side effect), ABSENT when no attribution
+  join ran (every `git-scope` changeset; the LIVE mid-turn view, which does
+  no DB reads). Absent means "no badge", never `false`.
 - **`StructuredFileDiffContent`** — three variants, not four (the shipped
   shape; an early PR body described a 4-reason union — see CORRECTIONS
   below): `binary`, `full` (`oldContent`/`newContent: string | null`),
@@ -144,17 +156,55 @@ rev-list --parents`). For a MERGE commit, `commit` mode's `^` is the FIRST
 parent (first-parent diff, matching `git-history.ts`'s `commitDiff`
 precedent).
 
-### Changeset resolution — `changeset-git-scope.ts` / `changeset-journal-view.ts`, dispatched by `changeset-diff-service.ts`
+### Changeset resolution — `changeset-git-scope.ts` / `changeset-snapshot-view.ts`, dispatched by `changeset-diff-service.ts`
 
 `ChangesetDiffService` (`{ fileDiff, resolveView }`) dispatches purely on
 `changeset.kind`: `git-scope` → `changeset-git-scope.ts`; `agent-run` /
-`run-range` → `changeset-journal-view.ts`. Every failure carries a stable
-machine-readable prefix (`journal-content-expired:`,
-`journal-path-collision:`, `outside-roots-unsupported:`,
-`base-ref-unresolved:`, `head-unborn:`, `commit-id-unresolved:`,
-`unmerged-path:`, `runs-unavailable:`, `run-anchor-missing:`) so the UI can
-branch on it — see `changeset-diff-service.ts`'s top doc comment for the
-authoritative list.
+`run-range` → `changeset-snapshot-view.ts` (the W7 shadow-git snapshot
+engine, BST-1164 T2 — the journal fold in `changeset-journal-view.ts` is NO
+LONGER REACHABLE from this dispatch; it remains only behind the rewind
+preview until T4 deletes it). Every failure carries a stable
+machine-readable prefix (`snapshot-engine-unavailable:`,
+`changeset-snapshot-missing:`, `changeset-snapshot-capture-failed:`,
+`outside-roots-unsupported:`, `base-ref-unresolved:`, `head-unborn:`,
+`commit-id-unresolved:`, `unmerged-path:`, `runs-unavailable:`,
+`run-anchor-missing:`) so the UI can branch on it — see
+`changeset-diff-service.ts`'s top doc comment for the authoritative list.
+
+**`changeset-snapshot-view.ts`** resolves `agent-run`/`run-range` as REF-PAIR
+resolvers over the snapshot engine (see `docs/superpowers/plans/`
+`2026-08-05-w7-shadow-git-snapshots.md`):
+
+- A TURN IS NOT A RUN. Turn identity is anchored on the TRIGGERING USER
+  MESSAGE (`resolveTurnAnchorMessageId` in `snapshot-turn-boundaries.ts`);
+  approval/suspend resumes mint additional run rows that appear on no
+  snapshot row. `snapshot-turn-boundaries.ts` (consumed by
+  `assistant-server.ts` on the run-persistence seam) takes per-root
+  `turn-start` snapshots on a turn's FIRST leg and `turn-end` snapshots when
+  the turn's LAST leg reaches a terminal that is not a resumable pause —
+  BEFORE the terminal `thread_runs` status write (global constraint 5), so
+  a settled run always has its turn-end rows.
+- SETTLED turns resolve `turn-start oid ↔ turn-end oid` per root from the
+  ledger's turn brackets (`snapshot-turn-ledger.ts`); the LIVE Last Turn
+  resolves `turn-start oid ↔ the live work-tree`. The live hot path does
+  ZERO database reads: the in-memory `snapshot-turn-registry.ts` caches the
+  per-root turn-start oids keyed by thread + turn generation (the BST-1169
+  starvation rule). A historical mid-turn resume run id falls back to the
+  run row's own timestamps (cold path only).
+- FAILED captures are durable sentinel ledger rows
+  (`FAILED_SNAPSHOT_CAPTURE_OID`, git's all-zero null oid — see
+  `snapshot-repository.ts`); any sentinel in a resolved pair fails the WHOLE
+  view with `changeset-snapshot-capture-failed:` — never "diff what we can"
+  (global constraint 4). Pre-engine turns (no rows) are
+  `changeset-snapshot-missing:`.
+- The edit-checkpoint journal is joined for per-file ATTRIBUTION metadata
+  only (`toolAttributed`), spanning the whole turn via
+  `listRunRangeCheckpoints(firstLeg → lastLeg)`; journal CONTENT is never
+  read for diffs.
+- `revertible` is `true` for every snapshot-resolved entry (the engine can
+  restore any captured file; per-chain journal bookkeeping died with the
+  fold). Renames appear as `added` + `deleted` pairs (`diffRefs` runs
+  `--no-renames`).
 
 **`changeset-git-scope.ts`** maps each `GitScope` kind to a listing command
 and a `StructuredFileDiffParams.mode`:
@@ -180,8 +230,10 @@ error, never surfaced as `'deleted'`.
 is excluded via `?? 0`, never coerced on the entry itself, which is what
 produces a real `0` total when every file is binary.
 
-**`changeset-journal-view.ts`** resolves `agent-run`/`run-range` from the
-edit-checkpoint journal (READ-ONLY — the journal has one producer, per
+**`changeset-journal-view.ts`** (RETIRING — since W7 T2 reachable ONLY from
+`rewind-service.ts`'s preview, never from `ChangesetDiffService` dispatch;
+T4 deletes it) resolves a journal-fold view from the edit-checkpoint
+journal (READ-ONLY — the journal has one producer, per
 `docs/agents/assistant-persistence.md`'s runId-provenance invariant).
 `foldJournalRecords` folds records per `(rootId, path)` into
 `JournalFoldEntry[]`, carrying `chainRecords` across renames.
@@ -566,7 +618,10 @@ pipeline.
   display must preserve this.
 - **Journal-sourced diffs never have hunks and never have real totals.**
   Structural facts (the journal has no git ref and no line counts), not
-  incidental gaps to "improve" without a design change.
+  incidental gaps to "improve" without a design change. (Since W7 T2 this
+  applies only to the retiring rewind-preview path — snapshot-resolved
+  `agent-run`/`run-range` views have real totals, and their `full` diffs
+  carry real hunk ranges from `git diff`.)
 
 ## CORRECTIONS TO EARLIER PLANNING DOCS (verify before trusting)
 

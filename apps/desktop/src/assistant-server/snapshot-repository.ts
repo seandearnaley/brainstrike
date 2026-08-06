@@ -23,6 +23,17 @@
  * NO SILENT FALLBACKS: a stored `kind` outside the closed vocabulary throws
  * on read (a stale literal must never become a permanently skipped row), and
  * a malformed commit oid is refused on insert.
+ *
+ * FAILED-CAPTURE ROWS (T2): a snapshot capture that FAILED is still recorded,
+ * as a row whose `commit_oid` is {@link FAILED_SNAPSHOT_CAPTURE_OID} (git's
+ * all-zero null oid — a valid oid SHAPE naming no object, so it passes the
+ * insert validation while remaining structurally unresolvable). This is the
+ * durable failed-capture marker the plan's carried ruling requires: the run
+ * proceeds, but the turn's changeset must render an honest capture-failed
+ * error and rewind must refuse the range — so EVERY reader of this ledger
+ * (T2's view resolver, T3's rewind range resolution) MUST check
+ * {@link isFailedSnapshotCaptureOid} before treating a row's oid as a real
+ * commit. Never hand a sentinel oid to git.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -32,6 +43,17 @@ import { assertValidOid } from './snapshot-git';
 import type { SnapshotKind } from './snapshot-service';
 
 const SNAPSHOT_KINDS: readonly SnapshotKind[] = ['pre-revert', 'turn-end', 'turn-start'];
+
+/**
+ * Durable failed-capture marker (see the module doc comment): git's all-zero
+ * null oid, stored in `commit_oid` when a snapshot capture failed. It names
+ * no object by construction, so it can never be confused with a real commit.
+ */
+export const FAILED_SNAPSHOT_CAPTURE_OID = '0'.repeat(40);
+
+export function isFailedSnapshotCaptureOid(oid: string): boolean {
+  return oid === FAILED_SNAPSHOT_CAPTURE_OID;
+}
 
 export interface WorkspaceSnapshotRow {
   readonly commitOid: string;
