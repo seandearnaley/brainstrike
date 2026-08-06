@@ -262,11 +262,11 @@ function buildRevertCapture(
 }
 
 /**
- * The ONE definition of "what does disk currently look like here" used by both
- * the executor's per-entry conflict assertion and the rewind pre-flight scan
- * (`rewind-conflict-scan.ts`). Shared deliberately: a pre-flight that computed
- * disk state differently from the executor could clear a revert the executor
- * then refuses — or, far worse, the reverse.
+ * The ONE definition of "what does disk currently look like here" used by the
+ * executor's per-entry conflict assertion. (Its former second consumer, the
+ * rewind pre-flight scan, died with the journal rewind engine — BST-1164 W7
+ * T3 restores from shadow-git snapshots instead; this module's remaining
+ * consumers are T4's retirement scope.)
  */
 export async function readDiskState(
   absolutePath: string

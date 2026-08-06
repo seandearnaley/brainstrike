@@ -1,38 +1,46 @@
 /**
- * Conversation Rewind service (BST-1115, W5 T3) — main-process only.
+ * Conversation Rewind service (BST-1115 W5 T3; file engine swapped to shadow-git
+ * snapshots in BST-1164 W7 T3) — main-process only.
  *
  * Restores a thread to the state it had immediately BEFORE a chosen message.
  * The message and every later one are tombstoned (soft, one-level redo until
  * the next user message finalizes), and in `conversation-and-files` mode every
- * agent file edit journaled by the runs at or after that message is reverted,
- * newest-first, sequentially.
+ * workspace root is restored to the target turn's `turn-start` shadow-git
+ * snapshot — assistant-tool edits AND shell side effects alike. The edit
+ * checkpoint journal is no longer read or written by any rewind path.
  *
  * THREE RULES THIS MODULE EXISTS TO ENFORCE — none of them may be relaxed for
  * convenience or for a passing test:
  *
  * 1. THE ACKNOWLEDGMENT GATE. When the pre-flight scan finds ANY conflict,
- *    `applyRewind` applies NOTHING: not the clean files, not the conflicted
- *    ones, not the tombstone batch. One conflicting file blocks the WHOLE
+ *    `applyRewind` applies NOTHING: not the clean roots, not the conflicted
+ *    ones, not the tombstone batch. One conflicting path blocks the WHOLE
  *    apply until the caller passes `acknowledgeConflicts: true`. There is
- *    deliberately no per-file override and no "apply the clean ones" path —
- *    a partially-applied rewind is a workspace no one, user or program, can
- *    reason about.
- *    The gate binds the SCAN, which is the only thing it can bind: a file
- *    that changes between the scan and the apply still refuses individually
- *    and is named in `fileOutcomes`. That is inherent TOCTOU, not a
- *    relaxation of this rule — the rule is that no conflict the user was
- *    SHOWN is ever applied over.
- * 2. THE PAIRING RULE. A file revert and its journal after-capture are one
- *    operation. Every successful revert writes exactly one capture row under
- *    the rewind's `revertId`, inside the same file lock, before the write.
- *    The count is ASSERTED after the loop and a mismatch throws: redo over an
- *    unjournaled revert would be silent degradation of the destructive seam.
- * 3. SEQUENTIAL, NEWEST-FIRST. The plan is executed in one ordered pass. A
- *    file edited by two runs in the range has two entries whose reverts only
- *    compose in that order. `Promise.all` here is not an optimization, it is
- *    a corruption.
+ *    deliberately no per-file override and no "apply the clean ones" path.
+ *    Under the snapshot engine the gate binds THE PREVIEW: a conflict is a
+ *    path whose work-tree content changed after the acknowledged preview was
+ *    generated (the preview records a per-root work-tree fingerprint; see
+ *    `rewind-snapshot-engine.ts`'s module header for the full design), and a
+ *    files-mode apply with NO recorded preview refuses `preview-required`
+ *    rather than applying blind. The residual race between the drift scan and
+ *    the pre-revert snapshot is captured BY that snapshot and therefore
+ *    redo-recoverable — narrower and more recoverable than the journal
+ *    engine's scan→write TOCTOU, and documented, never skipped.
+ * 2. THE PAIRING RULE. A root's restore and its `pre-revert` snapshot are one
+ *    operation. `executeSnapshotRestore` records the pre-revert snapshot row
+ *    (ledger `run_id = revertId`) BEFORE any byte of that root moves — the
+ *    redo source exists before there is anything to redo — and the row count
+ *    is ASSERTED after the loop: a mismatch throws, because redo over an
+ *    unsnapshotted restore would be silent degradation of the destructive
+ *    seam.
+ * 3. SEQUENTIAL ROOTS, EXPLICIT PER-ROOT OUTCOMES. Roots restore one at a
+ *    time and EVERY root the operation covers appears in `rootOutcomes` —
+ *    including a root that is no longer connected (visible conflict + zero
+ *    counts + `rootPath: null`) and a nested-repo path (a named
+ *    `not_revertible` outcome). Absence is never how an outcome is
+ *    communicated.
  *
- * ORDERING WITHIN AN APPLY: tombstones are written BEFORE the file reverts.
+ * ORDERING WITHIN AN APPLY: tombstones are written BEFORE the file restores.
  * If the process dies between the two, the thread is hidden but the files are
  * untouched — a state redo fully undoes. The reverse order would leave files
  * reverted with a live conversation and no batch to redo.
@@ -51,7 +59,6 @@
  * lock precisely so it can lose.
  */
 
-import type { AssistantEditCheckpointRecord } from '@brainstrike/agent';
 import type {
   AssistantRewindConflict,
   AssistantRewindFileOutcome,
@@ -64,15 +71,9 @@ import type {
   AssistantRewindResult,
   AssistantRewindRootOutcome,
 } from '@brainstrike/assistant-contract';
-import type { Changeset, ChangesetView } from '@brainstrike/types';
-import { resolveJournalChangesetView } from './changeset-journal-view';
-import {
-  type EditCheckpointDatabase,
-  listRunCheckpoints,
-  listRunRangeCheckpoints,
-} from './edit-checkpoint-journal';
-import { type CheckpointRevertDeps, revertCheckpointEntry } from './edit-checkpoint-revert';
-import { type RewindRevertPlan, scanRewindRange } from './rewind-conflict-scan';
+import type { Changeset } from '@brainstrike/types';
+import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { CheckpointRevertDeps } from './edit-checkpoint-revert';
 import {
   deleteThreadTombstones,
   deleteTombstoneBatch,
@@ -84,14 +85,32 @@ import {
   resolveRewindRunRange,
   resolveRewindTarget,
 } from './rewind-repository';
+import {
+  applySnapshotRedoPlans,
+  buildSnapshotPreview,
+  type CoveredRewindRoot,
+  clearPreviewFingerprint,
+  type DisconnectedRewindRoot,
+  disconnectedRootConflicts,
+  executeSnapshotRestore,
+  planSnapshotRedo,
+  type RewindSnapshotDeps,
+  readPreviewFingerprint,
+  resolveFilesCoverage,
+  resolveRedoRoots,
+  type SnapshotRestoreRootResult,
+  savePreviewFingerprint,
+  scanPreviewDrift,
+} from './rewind-snapshot-engine';
 
-/** `tool_name` stamped on every revert-time after-capture row, so the journal
- * says plainly which rows describe a rewind rather than an agent edit. */
-export const REWIND_REVERT_TOOL_NAME = 'brainstrike.rewindRevert';
-
-const CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
-
-export type RewindServiceDeps = CheckpointRevertDeps;
+/**
+ * Everything a files-mode apply/redo needs: the reindex seam the journal
+ * engine already used (`CheckpointRevertDeps`, wired by
+ * `createCheckpointReindexDeps`) plus the snapshot seams threaded from
+ * main.ts. `finalizeThreadRewinds` needs neither — see
+ * {@link RewindFinalizationDeps}.
+ */
+export type RewindServiceDeps = CheckpointRevertDeps & RewindSnapshotDeps;
 
 /** Hard-delete seam for finalization. Production wires this to the memory
  * store's `deleteMessages` override (Mastra's own storage API — never a raw
@@ -151,88 +170,51 @@ function changesetForRange(
     return null;
   }
   // Open-ended on purpose: a rewind covers everything from its anchor run to
-  // the newest run in the thread. `listRunRangeCheckpoints` resolves that with
-  // the W3 `(started_at, id)` row-value predicate.
+  // the newest run in the thread — the same identity the Changes surface
+  // resolves for its run-range views.
   return { fromRunId: range.fromRunId, kind: 'run-range', threadId };
 }
 
-async function loadRangeRecords(
-  db: EditCheckpointDatabase,
-  threadId: string,
-  range: AssistantRewindRange
-): Promise<
-  | { readonly ok: true; readonly records: readonly AssistantEditCheckpointRecord[] }
-  | { readonly ok: false; readonly error: string }
-> {
-  if (range.kind !== 'runs') {
-    return { ok: true, records: [] };
-  }
-  const result = await listRunRangeCheckpoints(db, { fromRunId: range.fromRunId, threadId });
-  if (!result.ok) {
-    return { error: result.error, ok: false };
-  }
-  return { ok: true, records: result.value };
-}
-
-function fileOutcome(
-  record: AssistantEditCheckpointRecord,
-  outcome: Awaited<ReturnType<typeof revertCheckpointEntry>>
-): AssistantRewindFileOutcome {
-  if (outcome.ok) {
-    return {
-      checkpointId: record.id,
-      code: 'reverted',
-      message: null,
-      path: record.path,
-      rootId: record.rootId,
-    };
-  }
-  return {
-    checkpointId: record.id,
-    code: outcome.code === 'conflict' ? 'conflict' : outcome.code,
-    message: outcome.message,
-    path: record.path,
-    rootId: record.rootId,
-  };
-}
-
 /**
- * Per-root roll-up covering EVERY root the plan touches, including a root that
- * contributed only conflicts and a root that is no longer connected
- * (`rootPath: null`). The MULTI-ROOT BAR forbids a silently skipped root:
- * absence from this list is never how a root's outcome is communicated, so
- * this iterates the PLAN's roots rather than the successful outcomes.
+ * Per-root roll-up covering EVERY root the operation touched: each restored
+ * root with its honest counts, and each covered-but-disconnected root with
+ * zero counts, its gate conflict, and `rootPath: null`. The MULTI-ROOT BAR
+ * forbids a silently skipped root: absence from this list is never how a
+ * root's outcome is communicated.
  */
 function buildRootOutcomes(
-  plan: RewindRevertPlan,
-  outcomes: readonly AssistantRewindFileOutcome[]
+  results: readonly SnapshotRestoreRootResult[],
+  gateConflicts: readonly AssistantRewindConflict[],
+  disconnected: readonly DisconnectedRewindRoot[]
 ): readonly AssistantRewindRootOutcome[] {
   const conflictsByRoot = new Map<string, number>();
-  for (const conflict of plan.conflicts) {
+  for (const conflict of gateConflicts) {
     conflictsByRoot.set(conflict.rootId, (conflictsByRoot.get(conflict.rootId) ?? 0) + 1);
   }
-  return Array.from(plan.roots.entries()).map(([rootId, info]) => {
-    const rootOutcomes = outcomes.filter((outcome) => outcome.rootId === rootId);
-    const attempted = plan.records.filter((record) => record.rootId === rootId).length;
-    const reverted = rootOutcomes.filter((outcome) => outcome.code === 'reverted').length;
+  const outcomes: AssistantRewindRootOutcome[] = results.map((result) => {
+    const reverted = result.fileOutcomes.filter((outcome) => outcome.code === 'reverted').length;
     return {
-      attempted,
-      conflicts: conflictsByRoot.get(rootId) ?? 0,
-      failed: rootOutcomes.length - reverted,
+      attempted: result.planActionCount,
+      conflicts: conflictsByRoot.get(result.root.rootId) ?? 0,
+      failed: result.fileOutcomes.length - reverted,
       reverted,
-      rootId,
-      rootLabel: info.label,
-      rootPath: info.path,
+      rootId: result.root.rootId,
+      rootLabel: result.root.label,
+      rootPath: result.root.rootPath,
     };
   });
-}
-
-async function countCaptureRows(db: EditCheckpointDatabase, revertId: string): Promise<number> {
-  const result = await db.query<{ count: number | string }>(
-    `SELECT COUNT(*)::int AS count FROM ${CHECKPOINTS_TABLE} WHERE run_id = $1`,
-    [revertId]
-  );
-  return Number(result.rows[0]?.count ?? 0);
+  for (const root of disconnected) {
+    outcomes.push({
+      attempted: 0,
+      conflicts: conflictsByRoot.get(root.rootId) ?? 0,
+      failed: 0,
+      reverted: 0,
+      rootId: root.rootId,
+      rootLabel: null,
+      rootPath: null,
+    });
+  }
+  return outcomes.sort((a, b) => a.rootId.localeCompare(b.rootId));
 }
 
 function outcomeSummary(outcome: AssistantRewindFileOutcome): string {
@@ -240,50 +222,11 @@ function outcomeSummary(outcome: AssistantRewindFileOutcome): string {
 }
 
 /**
- * Execute a revert plan in ONE sequential newest-first pass.
- *
- * `force` is applied per-record and ONLY to records the scan actually flagged.
- * Blanket-forcing every record once the user acknowledges one conflict would
- * silently clobber an unrelated file changed between the scan and the apply —
- * the acknowledgment is for the paths the user was SHOWN, not a global
- * override.
- *
- * `pruneEmptyDirectories` is TRUE for an apply and FALSE for a redo. The
- * journal records file ops only, so un-creating a scaffolded file leaves its
- * directories behind unless the executor prunes them (see
- * `edit-checkpoint-revert.ts`). Redo must NOT prune: it restores the state that
- * existed before the rewind, and in that state those directories were present.
- */
-async function executePlan(
-  db: EditCheckpointDatabase,
-  plan: RewindRevertPlan,
-  deps: RewindServiceDeps,
-  afterCapture: { readonly revertId: string; readonly toolName: string } | null,
-  pruneEmptyDirectories: boolean
-): Promise<readonly AssistantRewindFileOutcome[]> {
-  const forced = new Set(plan.conflicts.map((conflict) => conflict.checkpointId));
-  const outcomes: AssistantRewindFileOutcome[] = [];
-  for (const record of plan.records) {
-    const outcome = await revertCheckpointEntry(
-      db,
-      {
-        force: forced.has(record.id),
-        id: record.id,
-        pruneEmptyDirectories,
-        ...(afterCapture ? { afterCapture } : {}),
-      },
-      deps
-    );
-    outcomes.push(fileOutcome(record, outcome));
-  }
-  return outcomes;
-}
-
-/**
- * PAIRING RULE ENFORCEMENT. Every successful revert must have written exactly
- * one after-capture row under `revertId`. A mismatch means a file was mutated
- * without a journal row to undo it, which makes redo silently lossy — so it
- * throws rather than returning a result that looks fine.
+ * PAIRING RULE ENFORCEMENT (rule 2). Every restored root must have recorded
+ * exactly one `pre-revert` snapshot row under `revertId` — the redo source. A
+ * mismatch means a root was mutated without a snapshot to undo it, which
+ * makes redo silently lossy — so it throws rather than returning a result
+ * that looks fine.
  *
  * `rewindId` is carried in the thrown message (never dropped) even though the
  * tombstone batch and the files are already committed by the time this fires:
@@ -291,32 +234,43 @@ async function executePlan(
  * the renderer's `outcome.error`, so this is the ONE channel that reaches the
  * user, and it is also the id needed to find the batch again for recovery.
  */
-async function assertAfterCapturePairing(
-  db: EditCheckpointDatabase,
+async function assertPreRevertPairing(
+  deps: RewindSnapshotDeps,
+  threadId: string,
   rewindId: string,
   revertId: string,
-  outcomes: readonly AssistantRewindFileOutcome[]
+  restoredRootCount: number
 ): Promise<void> {
-  const reverted = outcomes.filter((outcome) => outcome.code === 'reverted').length;
-  const captured = await countCaptureRows(db, revertId);
-  if (captured !== reverted) {
+  const rows = await deps.snapshotRepository.snapshotsForThread(threadId);
+  const recorded = rows.filter((row) => row.kind === 'pre-revert' && row.runId === revertId).length;
+  if (recorded !== restoredRootCount) {
     throw new Error(
-      `rewind-pairing-violation: rewind "${rewindId}" revert batch "${revertId}" reverted ${reverted} file(s) but journaled ${captured} after-capture row(s); redo would be lossy.`
+      `rewind-pairing-violation: rewind "${rewindId}" revert batch "${revertId}" restored ${restoredRootCount} root(s) but recorded ${recorded} pre-revert snapshot(s); redo would be lossy.`
     );
   }
 }
 
 /**
- * Preview a rewind. The `view` is the EXISTING run-range `ChangesetView` — the
- * same resolution the Changes surface renders, never a second computation, so
- * the confirm modal and the Review panel cannot disagree.
+ * Preview a rewind.
  *
- * `conflicts` here is advisory: disk can change between preview and apply, and
- * `applyRewind` re-scans. The scan is the authority for the gate, not this.
+ * The `view` is the snapshot engine's own resolution — per covered root, the
+ * turn-start snapshot diffed against the live work-tree, exactly what a
+ * files-mode apply would change, shell side effects included.
+ *
+ * `filesScope` reports whether `conversation-and-files` is available at all
+ * (the two carried rulings: a pre-snapshot turn and a failed/incomplete
+ * capture both refuse the files scope VISIBLY while conversation-only stays
+ * offered).
+ *
+ * Generating a preview RECORDS the per-root work-tree fingerprint that
+ * `applyRewind`'s staleness gate binds — see rule 1 in the module header.
+ * `conflicts` here is advisory (a disconnected covered root is named up
+ * front); the apply-time scan is the authority for the gate.
  */
 export async function rewindToMessage(
   db: EditCheckpointDatabase,
-  args: { readonly messageId: string; readonly threadId: string }
+  args: { readonly messageId: string; readonly threadId: string },
+  deps: RewindSnapshotDeps
 ): Promise<AssistantRewindPreviewResult> {
   const target = await resolveRewindTarget(db, args.threadId, args.messageId);
   if (!target) {
@@ -329,35 +283,45 @@ export async function rewindToMessage(
   }
   const range = await resolveRewindRunRange(db, target);
   const changeset = changesetForRange(args.threadId, range);
-  const recordsResult = await loadRangeRecords(db, args.threadId, range);
-  if (!recordsResult.ok) {
-    return {
-      conflicts: [],
-      message: recordsResult.error,
-      ok: false,
-      reason: 'range-unresolvable',
-    };
-  }
-  const plan = await scanRewindRange(db, recordsResult.records);
-
-  let view: ChangesetView | null = null;
-  if (changeset) {
-    const viewResult = await resolveJournalChangesetView(db, changeset);
-    if (!viewResult.ok) {
-      return { conflicts: [], message: viewResult.error, ok: false, reason: 'range-unresolvable' };
-    }
-    view = viewResult.value;
-  }
-
-  return {
-    changeset,
-    conflicts: plan.conflicts,
+  const base = {
     messageId: args.messageId,
-    ok: true,
+    ok: true as const,
     range,
     threadId: args.threadId,
     tombstoneMessageIds: target.tombstoneMessageIds,
-    view,
+  };
+  if (range.kind !== 'runs' || changeset === null) {
+    // No runs after the message ⇒ nothing for the files scope to restore.
+    // The scope stays "available" (choosing it applies an empty restore),
+    // which is the pre-swap behavior for an empty range.
+    return { ...base, changeset: null, conflicts: [], filesScope: { available: true }, view: null };
+  }
+  const coverage = await resolveFilesCoverage(db, deps, args.threadId, range.fromRunId);
+  if (coverage.kind !== 'covered') {
+    // A stale fingerprint from an earlier preview of this target must not
+    // outlive the coverage that produced it.
+    clearPreviewFingerprint(args.threadId, args.messageId);
+    return {
+      ...base,
+      changeset,
+      conflicts: [],
+      filesScope: { available: false, message: coverage.message, reason: coverage.kind },
+      view: null,
+    };
+  }
+  const build = await buildSnapshotPreview(deps, coverage.connected);
+  savePreviewFingerprint(args.threadId, args.messageId, build.fingerprint);
+  return {
+    ...base,
+    changeset,
+    conflicts: disconnectedRootConflicts(coverage.disconnected),
+    filesScope: { available: true },
+    view: {
+      changeset,
+      files: build.files,
+      totalAdditions: build.totalAdditions,
+      totalDeletions: build.totalDeletions,
+    },
   };
 }
 
@@ -381,12 +345,28 @@ function refuseConflicts(conflicts: readonly AssistantRewindConflict[]): Assista
 }
 
 /**
+ * A files-mode apply with no recorded preview fingerprint (no preview was
+ * generated for this exact target, or the process restarted / the bounded
+ * store evicted it). The acknowledgment gate binds what a preview SHOWED;
+ * with nothing shown there is nothing to bind, and the fail-safe answer on a
+ * destructive seam is a fresh preview — never a blind apply.
+ */
+function refusePreviewRequired(threadId: string, messageId: string): AssistantRewindRefused {
+  return {
+    conflicts: [],
+    message: `no rewind preview is recorded for message "${messageId}" in thread "${threadId}"; nothing was applied. Open the rewind preview and confirm from there.`,
+    ok: false,
+    reason: 'preview-required',
+  };
+}
+
+/**
  * `insertTombstoneBatch`'s `ON CONFLICT DO NOTHING` (rewind-repository.ts)
  * returned zero rows: every message this rewind would hide is already
- * tombstoned by an earlier, still-outstanding batch. Proceeding to revert
- * files under a fresh `revertId` here would leave that revert owned by a
+ * tombstoned by an earlier, still-outstanding batch. Proceeding to restore
+ * files under a fresh `revertId` here would leave that restore owned by a
  * `rewindId` with no sidecar tombstone row — `redoRewind`'s `listTombstoneBatch`
- * probe would find nothing and return `rewind-not-found`, so the revert would
+ * probe would find nothing and return `rewind-not-found`, so the restore would
  * be permanently un-redoable the moment it landed. Refused before a single
  * file is touched instead.
  */
@@ -400,46 +380,29 @@ function refuseAlreadyTombstoned(threadId: string): AssistantRewindRefused {
 }
 
 /**
- * The range resolved journal entries, but every one of them already carries
- * `reverted_at` — the pre-flight scan (`scanRewindRange`) excludes reverted
- * entries by design, so `plan.records` came back empty even though the range
- * is not genuinely empty. This is NEVER "nothing needed reverting" (that case
- * has no un-reverted entries to begin with and never reaches here) — it is
- * reachable ONLY when an earlier rewind over this same range was applied and
- * then redone WITHOUT clearing the original entries' `reverted_at` stamps
- * (tracked minor (f): "redo leaves records stamped"). Reporting `ok: true`
- * with empty `fileOutcomes` here would be a silent no-op dressed as success;
- * refusing by name is the fail-safe direction on this seam.
- */
-function refuseRangeAlreadyReverted(threadId: string): AssistantRewindRefused {
-  return {
-    conflicts: [],
-    message: `every file this rewind would revert in thread "${threadId}" was already reverted by an earlier rewind that was redone without clearing its journal stamps; nothing was applied. Re-open that rewind's Changes entry to inspect the files by hand.`,
-    ok: false,
-    reason: 'range-already-reverted',
-  };
-}
-
-/**
- * The redo's pre-scan passed clean, but one or more files still failed during
- * the actual revert — a TOCTOU change between the scan and the write (the
- * same inherent race `applyRewind`'s own header documents). Unlike apply,
- * redo's whole point is un-tombstoning messages IN STEP with restoring their
- * files, so a partial file failure here must not delete the tombstone batch:
+ * The redo could not restore every file (a path failed or conflicted during
+ * the actual restore, or a covered root is no longer connected). Unlike
+ * apply, redo's whole point is un-tombstoning messages IN STEP with restoring
+ * their files, so a partial file failure must not delete the tombstone batch:
  * doing so would un-hide the messages while leaving some files un-restored,
  * with no batch left to retry against. The batch stays; the caller can retry
- * once the named files stop conflicting (already-succeeded entries are
- * idempotent no-ops on retry via `revertCheckpointEntry`'s own `reverted_at`
- * check).
+ * once the named files stop conflicting (already-restored paths diff empty on
+ * the retry and are idempotent no-ops).
  */
 function refuseRedoIncomplete(
   rewindId: string,
-  failed: readonly AssistantRewindFileOutcome[]
+  failed: readonly AssistantRewindFileOutcome[],
+  disconnected: readonly DisconnectedRewindRoot[]
 ): AssistantRewindRefused {
-  const paths = failed.map((outcome) => outcomeSummary(outcome)).join('; ');
+  const parts = [
+    ...failed.map((outcome) => outcomeSummary(outcome)),
+    ...disconnected.map(
+      (root) => `workspace folder "${root.recordedRootPath}" is no longer connected`
+    ),
+  ];
   return {
     conflicts: [],
-    message: `redo "${rewindId}" could not restore ${failed.length} file(s) because they changed after the rewind was applied: ${paths}. The messages stay hidden and the batch was left in place; resolve the conflicts and retry redo.`,
+    message: `redo "${rewindId}" could not restore everything: ${parts.join('; ')}. The messages stay hidden and the batch was left in place; resolve the named paths and retry redo.`,
     ok: false,
     reason: 'redo-incomplete',
   };
@@ -450,7 +413,7 @@ function refuseRedoIncomplete(
  *
  * `mode` is REQUIRED and explicit (Amendment 1): there is no default that
  * silently reverts files. `conversation-only` writes the tombstone batch with
- * `revert_id = NULL`, touches no file, writes no journal row, and the
+ * `revert_id = NULL`, touches no file, takes no snapshot, and the
  * acknowledgment gate does not apply to it because nothing reaches disk.
  *
  * REFUSES OUTRIGHT WHILE A RUN IS IN FLIGHT (`run-in-flight`), in both modes
@@ -460,8 +423,8 @@ function refuseRedoIncomplete(
  *
  * Holds the thread lock for the same reason redo and finalization do: this is
  * the THIRD writer of the tombstone table, and a finalization landing between
- * this batch's insert and its file reverts would leave a rewind whose files are
- * reverted but whose batch no longer exists to redo.
+ * this batch's insert and its file restores would leave a rewind whose files
+ * are reverted but whose batch no longer exists to redo.
  */
 export async function applyRewind(
   db: EditCheckpointDatabase,
@@ -474,6 +437,58 @@ export async function applyRewind(
   deps: RewindServiceDeps
 ): Promise<AssistantRewindResult> {
   return await withThreadRewindLock(args.threadId, () => applyRewindLocked(db, args, deps));
+}
+
+/** The files-mode restore body — split from {@link applyRewindLocked} to keep
+ * each function under the lint complexity ceiling. Runs strictly AFTER the
+ * gate refusals; see rule 1 in the module header for the order. */
+async function applyFilesRestore(
+  db: EditCheckpointDatabase,
+  args: {
+    readonly conflicts: readonly AssistantRewindConflict[];
+    readonly connected: readonly CoveredRewindRoot[];
+    readonly disconnected: readonly DisconnectedRewindRoot[];
+    readonly messageId: string;
+    readonly mode: AssistantRewindMode;
+    readonly range: AssistantRewindRange;
+    readonly rewindId: string;
+    readonly threadId: string;
+    readonly tombstoneMessageIds: readonly string[];
+  },
+  deps: RewindServiceDeps
+): Promise<AssistantRewindResult> {
+  const revertId = crypto.randomUUID();
+  const tombstoned = await insertTombstoneBatch(db, {
+    messageIds: args.tombstoneMessageIds,
+    revertId,
+    rewindId: args.rewindId,
+    threadId: args.threadId,
+  });
+  // Every target message was already tombstoned by an earlier, still-open
+  // batch (`ON CONFLICT DO NOTHING` inserted nothing): refuse before touching
+  // a single file rather than restoring under a `rewindId` no sidecar row
+  // will ever back — see `refuseAlreadyTombstoned`.
+  if (tombstoned.length === 0) {
+    return refuseAlreadyTombstoned(args.threadId);
+  }
+  const results = await executeSnapshotRestore(deps, {
+    reindex: deps.reindex,
+    revertId,
+    roots: args.connected,
+    threadId: args.threadId,
+  });
+  await assertPreRevertPairing(deps, args.threadId, args.rewindId, revertId, args.connected.length);
+  clearPreviewFingerprint(args.threadId, args.messageId);
+  return {
+    fileOutcomes: results.flatMap((result) => result.fileOutcomes),
+    mode: args.mode,
+    ok: true,
+    range: args.range,
+    revertId,
+    rewindId: args.rewindId,
+    rootOutcomes: buildRootOutcomes(results, args.conflicts, args.disconnected),
+    tombstonedMessageIds: tombstoned,
+  };
 }
 
 async function applyRewindLocked(
@@ -529,65 +544,71 @@ async function applyRewindLocked(
     };
   }
 
-  const recordsResult = await loadRangeRecords(db, args.threadId, range);
-  if (!recordsResult.ok) {
-    return { conflicts: [], message: recordsResult.error, ok: false, reason: 'range-unresolvable' };
-  }
-  const plan = await scanRewindRange(db, recordsResult.records);
-  // Every entry in range already shows `reverted_at` (see
-  // `refuseRangeAlreadyReverted`): a prior rewind over this same range was
-  // applied and then redone without clearing the original stamps. Refuse by
-  // name rather than silently reporting `ok: true` with nothing done.
-  if (recordsResult.records.length > 0 && plan.records.length === 0) {
-    return refuseRangeAlreadyReverted(args.threadId);
-  }
-  // THE GATE. Nothing above this line has written anything; nothing below it
-  // runs until the caller has been shown every named path and acknowledged.
-  if (plan.conflicts.length > 0 && args.acknowledgeConflicts !== true) {
-    return refuseConflicts(plan.conflicts);
+  if (range.kind !== 'runs') {
+    // No runs after the message ⇒ an empty files restore. The batch still
+    // carries a revertId (pre-swap behavior): the mode the user chose is
+    // recorded, there is simply nothing to snapshot or restore.
+    return await applyFilesRestore(
+      db,
+      {
+        conflicts: [],
+        connected: [],
+        disconnected: [],
+        messageId: args.messageId,
+        mode: args.mode,
+        range,
+        rewindId,
+        threadId: args.threadId,
+        tombstoneMessageIds: target.tombstoneMessageIds,
+      },
+      deps
+    );
   }
 
-  const revertId = crypto.randomUUID();
-  const tombstoned = await insertTombstoneBatch(db, {
-    messageIds: target.tombstoneMessageIds,
-    revertId,
-    rewindId,
-    threadId: args.threadId,
-  });
-  // Every target message was already tombstoned by an earlier, still-open
-  // batch (`ON CONFLICT DO NOTHING` inserted nothing): refuse before touching
-  // a single file rather than reverting under a `rewindId` no sidecar row
-  // will ever back — see `refuseAlreadyTombstoned`.
-  if (tombstoned.length === 0) {
-    return refuseAlreadyTombstoned(args.threadId);
+  const coverage = await resolveFilesCoverage(db, deps, args.threadId, range.fromRunId);
+  if (coverage.kind !== 'covered') {
+    // The two carried rulings: a pre-snapshot turn and a missing/failed
+    // capture both refuse the FILES scope with the reason — the journal
+    // restore engine is deleted, not a fallback, and "restore what we can"
+    // is the forbidden shape.
+    return { conflicts: [], message: coverage.message, ok: false, reason: coverage.kind };
   }
-  const fileOutcomes = await executePlan(
+  const fingerprint = readPreviewFingerprint(args.threadId, args.messageId);
+  const fingerprintCoversRoots =
+    fingerprint !== null &&
+    fingerprint.size === coverage.connected.length &&
+    coverage.connected.every((root) => fingerprint.has(root.rootId));
+  if (!(fingerprint && fingerprintCoversRoots)) {
+    return refusePreviewRequired(args.threadId, args.messageId);
+  }
+  // THE GATE (rule 1). The drift scan runs BEFORE any snapshot is taken:
+  // nothing above this line has written anything, and nothing below it runs
+  // until every named path has been shown and acknowledged.
+  const drift = await scanPreviewDrift(deps, coverage.connected, fingerprint);
+  const conflicts = [...disconnectedRootConflicts(coverage.disconnected), ...drift];
+  if (conflicts.length > 0 && args.acknowledgeConflicts !== true) {
+    return refuseConflicts(conflicts);
+  }
+  return await applyFilesRestore(
     db,
-    plan,
-    deps,
     {
-      revertId,
-      toolName: REWIND_REVERT_TOOL_NAME,
+      conflicts,
+      connected: coverage.connected,
+      disconnected: coverage.disconnected,
+      messageId: args.messageId,
+      mode: args.mode,
+      range,
+      rewindId,
+      threadId: args.threadId,
+      tombstoneMessageIds: target.tombstoneMessageIds,
     },
-    true
+    deps
   );
-  await assertAfterCapturePairing(db, rewindId, revertId, fileOutcomes);
-
-  return {
-    fileOutcomes,
-    mode: args.mode,
-    ok: true,
-    range,
-    revertId,
-    rewindId,
-    rootOutcomes: buildRootOutcomes(plan, fileOutcomes),
-    tombstonedMessageIds: tombstoned,
-  };
 }
 
 /**
- * Undo the newest rewind: restore the files it reverted (coupled mode) and
- * un-tombstone its batch.
+ * Undo the newest rewind: restore the files it reverted (coupled mode) from
+ * its recorded `pre-revert` snapshots and un-tombstone its batch.
  *
  * Redo is ONE LEVEL and only until finalization. Redoing anything other than
  * the thread's newest batch is refused rather than silently reordered — an
@@ -595,12 +616,14 @@ async function applyRewindLocked(
  * them.
  *
  * The same acknowledgment gate applies: if restoring the files would conflict
- * (the user edited them after the rewind), the WHOLE redo refuses, including
- * the un-tombstone. A conversation that reappeared without its files would be
- * a lie about what was restored. That gate binds the PRE-SCAN; a file that
- * still fails during the actual revert (TOCTOU) refuses with `redo-incomplete`
- * and leaves the tombstone batch in place rather than deleting it out from
- * under a partial restore — see `refuseRedoIncomplete`.
+ * (the user edited them after the rewind — a redo-plan path whose current
+ * hash differs from the turn-start baseline the apply restored; see
+ * `planSnapshotRedo`), the WHOLE redo refuses, including the un-tombstone. A
+ * conversation that reappeared without its files would be a lie about what
+ * was restored. That gate binds the PRE-SCAN; a path that still fails during
+ * the actual restore (TOCTOU) refuses with `redo-incomplete` and leaves the
+ * tombstone batch in place rather than deleting it out from under a partial
+ * restore — see `refuseRedoIncomplete`.
  *
  * RACING FINALIZATION. The first read below only resolves which thread to
  * serialize on; the batch is read AGAIN inside the lock and that second read
@@ -640,24 +663,38 @@ export async function redoRewind(
     let fileOutcomes: readonly AssistantRewindFileOutcome[] = [];
     let rootOutcomes: readonly AssistantRewindRootOutcome[] = [];
     if (revertId !== null) {
-      const captures = await listRunCheckpoints(db, revertId, first.threadId);
-      const plan = await scanRewindRange(db, captures);
-      if (plan.conflicts.length > 0 && args.acknowledgeConflicts !== true) {
-        return refuseConflicts(plan.conflicts);
+      const resolution = await resolveRedoRoots(
+        db,
+        deps,
+        first.threadId,
+        revertId,
+        batch.map((row) => row.messageId)
+      );
+      if (resolution.kind !== 'ok') {
+        // A files batch whose redo sources are missing (e.g. it predates the
+        // snapshot engine). The batch STAYS — deleting it would un-hide the
+        // messages over files that were never put back.
+        return { conflicts: [], message: resolution.message, ok: false, reason: resolution.kind };
       }
-      // No after-capture on a redo: redo is one level deep, so there is no
-      // second-order undo to journal for. No directory prune either — redo
-      // restores the pre-rewind state, and those directories were part of it.
-      fileOutcomes = await executePlan(db, plan, deps, null, false);
-      rootOutcomes = buildRootOutcomes(plan, fileOutcomes);
-      // The pre-scan passed clean, but a file still failed during the actual
-      // revert (TOCTOU between scan and write). Deleting the tombstone batch
-      // below would un-hide the messages while leaving that file un-restored
-      // and no batch left to retry against — refuse instead and leave the
-      // batch in place. See `refuseRedoIncomplete`.
+      const plans = await planSnapshotRedo(deps, first.threadId, resolution.connected);
+      const conflicts = [
+        ...disconnectedRootConflicts(resolution.disconnected),
+        ...plans.flatMap((plan) => plan.conflicts),
+      ];
+      if (conflicts.length > 0 && args.acknowledgeConflicts !== true) {
+        return refuseConflicts(conflicts);
+      }
+      const results = await applySnapshotRedoPlans(deps, plans, deps.reindex);
+      fileOutcomes = results.flatMap((result) => result.fileOutcomes);
+      rootOutcomes = buildRootOutcomes(results, conflicts, resolution.disconnected);
+      // A path that still failed during the actual restore (TOCTOU between
+      // the phase-A scan and the write), or a disconnected root nothing could
+      // restore into: deleting the tombstone batch below would un-hide the
+      // messages while leaving that state un-restored and no batch left to
+      // retry against — refuse instead and leave the batch in place.
       const failed = fileOutcomes.filter((outcome) => outcome.code !== 'reverted');
-      if (failed.length > 0) {
-        return refuseRedoIncomplete(args.rewindId, failed);
+      if (failed.length > 0 || resolution.disconnected.length > 0) {
+        return refuseRedoIncomplete(args.rewindId, failed, resolution.disconnected);
       }
     }
 

@@ -145,7 +145,16 @@ function RewindConfirmBody({
   const [result, setResult] = useState<AppliedState | null>(null);
 
   const preview = rewind.preview;
-  const filesMode = mode === 'conversation-and-files';
+  // BST-1164 W7 T3: a target whose turn has no usable workspace snapshot
+  // (pre-snapshot turn, or a failed/incomplete capture) cannot offer the
+  // files scope. The choice stays visible with the engine's reason under it
+  // (see RewindScopeChoice), and the EFFECTIVE mode is forced to
+  // conversation-only so the pre-selected files default can never send a
+  // files-mode apply the engine would refuse.
+  const filesScope = preview?.ok === true ? preview.filesScope : ({ available: true } as const);
+  const effectiveMode: AssistantRewindMode =
+    filesScope.available === false ? 'conversation-only' : mode;
+  const filesMode = effectiveMode === 'conversation-and-files';
   const conflicts = activeConflicts(preview, applyConflicts);
   // `conversation-only` touches no disk, so the gate genuinely does not apply
   // to it — this is not a bypass, it is the mode having nothing to conflict on.
@@ -239,7 +248,7 @@ function RewindConfirmBody({
         // mode where it means anything.
         acknowledgeConflicts: filesMode && acknowledged,
         messageId: preview.messageId,
-        mode,
+        mode: effectiveMode,
         threadId: preview.threadId,
       });
       if (!outcome.ok) {
@@ -257,7 +266,7 @@ function RewindConfirmBody({
         setApplyError(outcome.value.message);
         return;
       }
-      setResult({ applied: outcome.value, mode });
+      setResult({ applied: outcome.value, mode: effectiveMode });
       // BEFORE the composer repopulation below, and before the toast: the
       // rewind is now durable, and every live surface still shows the
       // conversation and the files it just changed. See
@@ -348,7 +357,12 @@ function RewindConfirmBody({
 
       <RewindPreviewPanes requestKey={requestKey} rewind={rewind} />
 
-      <RewindScopeChoice disabled={applying} mode={mode} onModeChange={setMode} />
+      <RewindScopeChoice
+        disabled={applying}
+        filesScope={filesScope}
+        mode={effectiveMode}
+        onModeChange={setMode}
+      />
 
       {filesMode ? (
         <>
