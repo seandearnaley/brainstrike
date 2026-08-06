@@ -1608,6 +1608,88 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('sizes the default OpenRouter output window for the reasoning the request makes (BST-1170)', async () => {
+    // Kimi K3's reasoning tokens stream into the output window (OpenRouter:
+    // reasoning tokens ARE output tokens), so the 32,000 backstop starved
+    // thinking+answer and runs died at `finishReason: length`. With reasoning
+    // active the backstop must reserve Moonshot's documented 131,072 window.
+    const finishPart = {
+      providerMetadata: { openrouter: { usage: { cost: 0 } } },
+      type: 'finish',
+      usage: { completionTokens: 1, promptTokens: 1 },
+    } as const;
+
+    setMockStreamParts([finishPart]);
+    const explicitEffortIterator = await streamMastraAgent(
+      [{ id: 'u-kimi-high', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+          providerOptions: {
+            openrouter: {
+              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
+              provider: { require_parameters: true },
+              reasoning: { effort: 'high' },
+            },
+          },
+        },
+      }
+    );
+    for await (const _chunk of explicitEffortIterator) {
+      // drain
+    }
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 131_072 },
+    });
+
+    setMockStreamParts([finishPart]);
+    const reasoningOffIterator = await streamMastraAgent(
+      [{ id: 'u-kimi-off', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+          providerOptions: {
+            openrouter: {
+              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
+              provider: { require_parameters: true },
+              reasoning: { enabled: false },
+            },
+          },
+        },
+      }
+    );
+    for await (const _chunk of reasoningOffIterator) {
+      // drain
+    }
+    expect(agentInstances[1]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 32_000 },
+    });
+
+    setMockStreamParts([finishPart]);
+    // No reasoning options on the wire: the provider applies Kimi's own
+    // default (thinking on), so the window must still be the vendor window.
+    const bareIterator = await streamMastraAgent(
+      [{ id: 'u-kimi-bare', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of bareIterator) {
+      // drain
+    }
+    expect(agentInstances[2]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 131_072 },
+    });
+  });
+
   it('uses custom model when specified with provider', async () => {
     await createMastraAgentRuntime({
       model: 'claude-sonnet-4-6',
