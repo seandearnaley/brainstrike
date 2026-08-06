@@ -110,18 +110,40 @@ export interface SweepOrphansResult {
 }
 
 /**
+ * One path of a `restorePathsFromSnapshot` request, with the CALLER's intent
+ * for snapshot-absence made explicit (BST-1164 review). The seam cannot infer
+ * intent from tree-absence alone: a path can be absent from the snapshot
+ * either because the range being undone CREATED it (deletion restores the
+ * pre-range state) or because the turn-start capture never covered it at all
+ * (gitignored / `info/exclude` backstop, or a path-case mismatch on a
+ * case-insensitive filesystem) — and deleting in the second case destroys
+ * content that exists nowhere else.
+ */
+export interface SnapshotPathRestoreRequest {
+  /** True ⇒ the caller established the range CREATED this path, so
+   * snapshot-absence means "delete the live file". False ⇒ absence is a
+   * coverage hole and yields an `uncovered` refusal, path untouched. */
+  readonly expectAbsent: boolean;
+  readonly path: string;
+}
+
+/**
  * Outcome of restoring ONE named path to its state in a snapshot commit
  * (`restorePathsFromSnapshot` — the checkpoint-undo engine's seam, BST-1164
  * T4). `restored` = the snapshot's content/mode was checked out; `deleted` =
- * the path was absent in the snapshot, so the live file was removed (with
- * empty-ancestor pruning bounded at the root); `failed` carries the reason and
- * leaves the path untouched. Conflict gating is the CALLER's job (the undo
- * engine compares journal hashes before asking) — this seam only moves bytes.
+ * the path was absent in the snapshot AND the request expected that
+ * (`expectAbsent`), so the live file was removed (with empty-ancestor pruning
+ * bounded at the root); `uncovered` = the path was absent but the request
+ * expected it present — a coverage hole (gitignored or path-case mismatch),
+ * refused with the path untouched; `failed` carries the reason and leaves the
+ * path untouched. Conflict gating is the CALLER's job (the undo engine
+ * compares journal hashes before asking) — this seam only moves bytes.
  */
 export type SnapshotPathRestoreOutcome =
   | { readonly outcome: 'deleted'; readonly path: string }
   | { readonly outcome: 'failed'; readonly message: string; readonly path: string }
-  | { readonly outcome: 'restored'; readonly path: string };
+  | { readonly outcome: 'restored'; readonly path: string }
+  | { readonly outcome: 'uncovered'; readonly message: string; readonly path: string };
 
 export interface SnapshotServiceOptions {
   readonly runner: SnapshotGitCommandRunner;
@@ -730,12 +752,16 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
    * checkpoint-undo engine's seam (BST-1164 T4). A path present in the
    * snapshot is checked out (content, mode, symlinks natively — same
    * `checkout-index` path as `applyRestorePlan`, no blob through a bounded
-   * stdout); a path ABSENT from the snapshot is deleted from the work-tree
-   * (already-absent is still `deleted` — the desired state holds), with
-   * empty-ancestor pruning bounded at the root. Gitlink paths fail visibly:
+   * stdout); a path ABSENT from the snapshot follows the request's EXPLICIT
+   * intent (BST-1164 review — never inferred): `expectAbsent` deletes it from
+   * the work-tree (already-absent is still `deleted` — the desired state
+   * holds), with empty-ancestor pruning bounded at the root; otherwise the
+   * absence is a coverage hole (gitignored or path-case mismatch) and the
+   * path yields a typed `uncovered` refusal, UNTOUCHED — deleting there would
+   * destroy content the snapshot never captured. Gitlink paths fail visibly:
    * snapshots record nested repos as pointers and never restore them.
    *
-   * Exactly one outcome per input path, in input order — a caller-supplied
+   * Exactly one outcome per input request, in input order — a caller-supplied
    * duplicate yields two (idempotent) outcomes rather than a silent dedupe.
    * Conflict gating is deliberately NOT here: the undo engine owns the
    * "changed since the edit" comparison (journal sha256 hashes), this seam
@@ -744,16 +770,17 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
   async function restorePathsFromSnapshot(
     handle: ShadowRepoHandle,
     oid: string,
-    paths: readonly string[]
+    requests: readonly SnapshotPathRestoreRequest[]
   ): Promise<SnapshotPathRestoreOutcome[]> {
     const entry = requireEntry(handle);
     assertValidOid(oid, 'restorePathsFromSnapshot "oid"');
-    for (const relativePath of paths) {
-      assertSafeSnapshotRelativePath(relativePath);
+    for (const request of requests) {
+      assertSafeSnapshotRelativePath(request.path);
     }
-    if (paths.length === 0) {
+    if (requests.length === 0) {
       return [];
     }
+    const paths = requests.map((request) => request.path);
     return await entry.mutex(() =>
       entry.plumbing.withTempIndex(async (env) => {
         await entry.plumbing.runOrThrow(['read-tree', oid], { env });
@@ -767,12 +794,12 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
           parseLsTreeZ(lsRun.stdout).map((treeEntry) => [treeEntry.path, treeEntry])
         );
         const outcomes: SnapshotPathRestoreOutcome[] = [];
-        for (const relativePath of paths) {
+        for (const request of requests) {
           outcomes.push(
-            await restoreOneSnapshotPath(entry, env, relativePath, treeEntries.get(relativePath))
+            await restoreOneSnapshotPath(entry, env, request, treeEntries.get(request.path))
           );
         }
-        if (outcomes.length !== paths.length) {
+        if (outcomes.length !== requests.length) {
           throw new SnapshotGitError(
             'inconsistent-diff',
             'restorePathsFromSnapshot produced fewer outcomes than input paths'
@@ -808,9 +835,10 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
   async function restoreOneSnapshotPath(
     entry: RootEntry,
     env: Readonly<Record<string, string>>,
-    relativePath: string,
+    request: SnapshotPathRestoreRequest,
     treeEntry: { readonly mode: string } | undefined
   ): Promise<SnapshotPathRestoreOutcome> {
+    const relativePath = request.path;
     const symlinkedAncestor = await findSymlinkedAncestor(entry.handle.rootPath, relativePath);
     if (symlinkedAncestor !== null) {
       return {
@@ -820,6 +848,21 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
       };
     }
     if (treeEntry === undefined) {
+      // Snapshot-absence is only a delete instruction when the CALLER said the
+      // range created this path (BST-1164 review): with `expectAbsent: false`
+      // the absence is a coverage hole — likely gitignored (the `add -A`
+      // staging respects ignores) or a path-case mismatch on a
+      // case-insensitive filesystem — and deleting would destroy content the
+      // snapshot never captured. Refuse typed, path untouched.
+      if (!request.expectAbsent) {
+        return {
+          message:
+            `"${relativePath}" is not covered by the snapshot — likely gitignored or a ` +
+            'path-case mismatch — so its pre-edit state cannot be restored; left untouched',
+          outcome: 'uncovered',
+          path: relativePath,
+        };
+      }
       return await deleteSnapshotAbsentPath(entry, relativePath);
     }
     if (treeEntry.mode === GITLINK_MODE) {

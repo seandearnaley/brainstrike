@@ -28,6 +28,32 @@
  * snapshot-service root mutex serializes restores against snapshot captures,
  * but not against tool writes in flight.
  *
+ * COVERAGE GATE (BST-1164 review; sits BEFORE the conflict gate and is never
+ * bypassed by force): snapshot-absence is not evidence a path was
+ * turn-created. `add -A` respects ignores, so an edit to a GITIGNORED file
+ * (or one under the shadow `info/exclude` backstop) journals
+ * `beforeExisted: true` while the turn-start snapshot never contains the
+ * path; a wrong-case journal path on a case-insensitive filesystem
+ * (`resolveWorkspaceWritePath` keeps the requested spelling) misses the
+ * case-SENSITIVE git tree lookup the same way. Treating that absence as
+ * "turn-created ⇒ delete" unlinked the only copy of the pre-edit content.
+ * The rule now: deletion is permitted ONLY when the journal record says the
+ * turn created the path (`beforeExisted === false` / `captureStatus ===
+ * 'created'`; a rename's destination). Every path the record expects the
+ * snapshot to contain is checked against the turn-start tree BEFORE any byte
+ * moves (whole-record, so a rename can never delete its destination after
+ * its source refused), the per-path intent is passed explicitly to
+ * `restorePathsFromSnapshot` (whose `uncovered` refusal is the byte-moving
+ * backstop for the same rule), and `listCheckpointUndoAvailability` reports
+ * the same reason per entry — fail-safe unavailable.
+ *
+ * PATH SHAPE: journal rows record NORMALIZED workspace paths with a leading
+ * slash (`/src/a.ts` — `resolveWorkspaceWritePath.workspacePath`), while the
+ * shadow-git tree and the restore seam use root-relative paths (`src/a.ts`).
+ * Every internal path in this module is the root-relative form via
+ * {@link snapshotRelativePath}; without it the seam's absolute-path guard
+ * throws and the coverage gate would read every production row as uncovered.
+ *
  * UNAVAILABILITY IS DATA, NOT A CLICK-TIME SURPRISE: pre-engine entries
  * (turns with no snapshot rows) and failed-capture turns resolve to a typed
  * unavailable reason. `listCheckpointUndoAvailability` serves that per-entry
@@ -59,7 +85,7 @@ import {
 } from './edit-checkpoint-journal';
 import { reindexOutcome } from './rewind-snapshot-engine';
 import { isFailedSnapshotCaptureOid, type SnapshotRepository } from './snapshot-repository';
-import type { SnapshotService } from './snapshot-service';
+import type { ShadowRepoHandle, SnapshotService } from './snapshot-service';
 import {
   findBracketByRunAnchor,
   findBracketByRunId,
@@ -99,6 +125,43 @@ function captureFailedReason(rootId: string): string {
 
 function rootUncoveredReason(rootId: string): string {
   return `No turn-start workspace snapshot covers folder "${rootId}" for this turn, so this edit cannot be restored.`;
+}
+
+/**
+ * Journal workspace path (`/src/a.ts`, normalized with a leading slash) →
+ * root-relative snapshot/tree path (`src/a.ts`). Mirrors
+ * `resolveWorkspaceWritePath`'s own relative-path derivation; see the module
+ * doc comment's PATH SHAPE note.
+ */
+function snapshotRelativePath(workspacePath: string): string {
+  return workspacePath.replace(/^\/+/, '');
+}
+
+/** The COVERAGE GATE's reason (see the module doc comment). */
+function pathUncoveredReason(paths: readonly string[]): string {
+  const names = paths.map((candidate) => `"${candidate}"`).join(', ');
+  const verb = paths.length === 1 ? 'is' : 'are';
+  return `${names} ${verb} not covered by the turn-start snapshot — likely gitignored or a path-case mismatch — so this edit cannot be restored.`;
+}
+
+/**
+ * Whether undoing `record` needs the turn-start snapshot to CONTAIN
+ * `relativePath` (the COVERAGE GATE's per-path intent — the single source
+ * both the whole-record pre-check and the seam's `expectAbsent` derive from,
+ * so the two layers can never disagree). Snapshot-absence may only mean
+ * "delete the live file" for a path the record says the turn created:
+ * `beforeExisted === false` (⇔ `captureStatus === 'created'`), or a rename's
+ * DESTINATION (its content survives via the restored source; the source
+ * itself must be present or nothing may move).
+ */
+function requiresSnapshotPresence(
+  record: AssistantEditCheckpointRecord,
+  relativePath: string
+): boolean {
+  if (record.op === 'rename') {
+    return record.fromPath !== null && relativePath === snapshotRelativePath(record.fromPath);
+  }
+  return record.beforeExisted;
 }
 
 type TurnStartResolution =
@@ -206,12 +269,75 @@ function turnStartForRoot(
   return { kind: 'ok', oid: row.commitOid };
 }
 
+/** The snapshot-presence paths `record`'s undo depends on (root-relative). */
+function requiredSnapshotPathsOf(record: AssistantEditCheckpointRecord): readonly string[] {
+  const expected = expectedStatesOf(record);
+  if (expected.kind === 'invalid') {
+    return [];
+  }
+  return [...expected.states.keys()].filter((candidate) =>
+    requiresSnapshotPresence(record, candidate)
+  );
+}
+
+/**
+ * Per-record availability of the COVERAGE GATE's paths, fail-safe: a root
+ * that is not connected or a snapshot tree that cannot be read reports
+ * unavailable with the reason rather than guessing `restorable: true` for an
+ * undo the executor would refuse (or worse, one that would have deleted an
+ * uncovered file before the gate existed).
+ */
+async function coverageAvailability(
+  deps: CheckpointUndoDeps,
+  memo: {
+    readonly rootPathsById: ReadonlyMap<string, string>;
+    readonly turnStartTrees: Map<string, ReadonlyMap<string, string>>;
+  },
+  record: AssistantEditCheckpointRecord,
+  turnStartOid: string
+): Promise<AssistantCheckpointUndoAvailability> {
+  const requiredPaths = requiredSnapshotPathsOf(record);
+  if (requiredPaths.length === 0) {
+    return { restorable: true };
+  }
+  const rootPath = memo.rootPathsById.get(record.rootId);
+  if (rootPath === undefined) {
+    return {
+      reason: 'its workspace folder is no longer connected. Re-open the folder and try again.',
+      restorable: false,
+    };
+  }
+  let tree: ReadonlyMap<string, string>;
+  try {
+    const handle = await deps.snapshotService.ensureShadowRepo({
+      path: rootPath,
+      rootId: record.rootId,
+    });
+    tree = await turnStartTreeFor(deps, memo.turnStartTrees, handle, turnStartOid);
+  } catch (error) {
+    return {
+      reason: `the turn-start workspace snapshot could not be read (${
+        error instanceof Error ? error.message : String(error)
+      }), so this edit cannot be restored.`,
+      restorable: false,
+    };
+  }
+  const uncovered = requiredPaths.filter((candidate) => !tree.has(candidate));
+  if (uncovered.length > 0) {
+    return { reason: pathUncoveredReason(uncovered), restorable: false };
+  }
+  return { restorable: true };
+}
+
 /**
  * Per-entry snapshot availability for a whole thread — the renderer's data
  * for disabled-with-reason undo controls (`assistant-checkpoint:availability`
  * IPC). Already-reverted entries are classified like any other: the renderer
  * gates on `revertedAt` first, and availability answers only "could the
- * snapshot engine restore this?".
+ * snapshot engine restore this?". PER-PATH-AWARE for records whose undo
+ * needs the snapshot to contain their paths (the COVERAGE GATE): an
+ * uncovered path — gitignored or a path-case mismatch — reports the same
+ * typed reason the executor refuses with, fail-safe unavailable.
  */
 export async function listCheckpointUndoAvailability(
   db: EditCheckpointDatabase,
@@ -224,12 +350,16 @@ export async function listCheckpointUndoAvailability(
     return { byCheckpointId };
   }
   const context = await loadThreadSnapshotContext(deps, threadId);
+  const memo = {
+    rootPathsById: await resolveConnectedRootPaths(db),
+    turnStartTrees: new Map<string, ReadonlyMap<string, string>>(),
+  };
   for (const record of records) {
     const resolution = await resolveBracketForRun(db, deps, context, threadId, record.runId);
     const rootState = turnStartForRoot(resolution, record.rootId);
     byCheckpointId[record.id] =
       rootState.kind === 'ok'
-        ? { restorable: true }
+        ? await coverageAvailability(deps, memo, record, rootState.oid)
         : { reason: rootState.reason, restorable: false };
   }
   return { byCheckpointId };
@@ -262,7 +392,8 @@ type ExpectedStatesResolution =
   | { readonly kind: 'invalid'; readonly error: string }
   | { readonly kind: 'paths'; readonly states: ReadonlyMap<string, ExpectedDiskState> };
 
-/** The paths a record's undo touches, keyed to their expected current state. */
+/** The paths a record's undo touches (ROOT-RELATIVE — see the module doc
+ * comment's PATH SHAPE note), keyed to their expected current state. */
 function expectedStatesOf(record: AssistantEditCheckpointRecord): ExpectedStatesResolution {
   if (record.op === 'rename') {
     if (!record.fromPath) {
@@ -272,15 +403,15 @@ function expectedStatesOf(record: AssistantEditCheckpointRecord): ExpectedStates
       kind: 'paths',
       states: new Map<string, ExpectedDiskState>([
         // Destination exists after the rename; source is gone.
-        [record.path, { existed: true, hash: record.afterHash }],
-        [record.fromPath, { existed: false, hash: null }],
+        [snapshotRelativePath(record.path), { existed: true, hash: record.afterHash }],
+        [snapshotRelativePath(record.fromPath), { existed: false, hash: null }],
       ]),
     };
   }
   return {
     kind: 'paths',
     states: new Map<string, ExpectedDiskState>([
-      [record.path, { existed: record.afterExisted, hash: record.afterHash }],
+      [snapshotRelativePath(record.path), { existed: record.afterExisted, hash: record.afterHash }],
     ]),
   };
 }
@@ -311,6 +442,9 @@ interface UndoExecutionScope {
   /** Paths already restored to turn-start earlier in this undo batch. */
   readonly handledPaths: Set<string>;
   readonly rootPathsById: ReadonlyMap<string, string>;
+  /** Turn-start tree path→oid maps, memoized per `rootId\0oid` (the COVERAGE
+   * GATE's lookup — one `ls-tree` per snapshot, not per record). */
+  readonly turnStartTrees: Map<string, ReadonlyMap<string, string>>;
 }
 
 async function resolveConnectedRootPaths(
@@ -320,12 +454,34 @@ async function resolveConnectedRootPaths(
   return new Map(roots.map((root) => [root.rootId, root.path]));
 }
 
+/** Memoized turn-start tree (path → blob oid) for the coverage gate. */
+async function turnStartTreeFor(
+  deps: CheckpointUndoDeps,
+  memo: Map<string, ReadonlyMap<string, string>>,
+  handle: ShadowRepoHandle,
+  turnStartOid: string
+): Promise<ReadonlyMap<string, string>> {
+  const key = `${handle.rootId}\0${turnStartOid}`;
+  const cached = memo.get(key);
+  if (cached) {
+    return cached;
+  }
+  const tree = await deps.snapshotService.snapshotFileHashes(handle, turnStartOid);
+  memo.set(key, tree);
+  return tree;
+}
+
 /**
  * Undo one journal record against a resolved turn-start snapshot. Restores
  * every not-yet-handled path of the record to its turn-start state, reindexes
  * the side effects, and stamps `reverted_at`. Paths another (newer) record in
  * the same batch already restored are skipped as already at turn-start — the
  * record is then stamped without touching disk (its edit was subsumed).
+ *
+ * Gate order: COVERAGE GATE first (whole-record, never bypassed by `force` —
+ * an uncovered path can never restore, forced or not, and checking before
+ * any byte moves keeps a multi-path rename atomic), then the conflict gate,
+ * then the restore.
  */
 async function undoRecordAgainstTurnStart(
   db: EditCheckpointDatabase,
@@ -350,6 +506,20 @@ async function undoRecordAgainstTurnStart(
     (candidate) => !scope.handledPaths.has(candidate)
   );
   if (pendingPaths.length > 0) {
+    const handle = await deps.snapshotService.ensureShadowRepo({
+      path: rootPath,
+      rootId: record.rootId,
+    });
+    const requiredPaths = pendingPaths.filter((candidate) =>
+      requiresSnapshotPresence(record, candidate)
+    );
+    if (requiredPaths.length > 0) {
+      const tree = await turnStartTreeFor(deps, scope.turnStartTrees, handle, turnStartOid);
+      const uncovered = requiredPaths.filter((candidate) => !tree.has(candidate));
+      if (uncovered.length > 0) {
+        return failure(record.id, 'not_revertible', pathUncoveredReason(uncovered));
+      }
+    }
     if (!scope.force) {
       const conflicted = await findConflictedPath(rootPath, pendingPaths, expected.states);
       if (conflicted !== null) {
@@ -363,7 +533,7 @@ async function undoRecordAgainstTurnStart(
     const failedMessage = await restorePendingPaths(
       deps,
       record,
-      rootPath,
+      handle,
       turnStartOid,
       pendingPaths,
       scope
@@ -398,27 +568,29 @@ async function findConflictedPath(
   return null;
 }
 
-/** Restore + reindex the pending paths; returns the first failure message. */
+/** Restore + reindex the pending paths; returns the first failure message.
+ * Each path carries the record's explicit snapshot-absence intent (see
+ * {@link requiresSnapshotPresence} — the seam's `uncovered` refusal is the
+ * byte-moving backstop of the COVERAGE GATE the caller already ran). */
 async function restorePendingPaths(
   deps: CheckpointUndoDeps,
   record: AssistantEditCheckpointRecord,
-  rootPath: string,
+  handle: ShadowRepoHandle,
   turnStartOid: string,
   pendingPaths: readonly string[],
   scope: UndoExecutionScope
 ): Promise<string | null> {
-  const handle = await deps.snapshotService.ensureShadowRepo({
-    path: rootPath,
-    rootId: record.rootId,
-  });
   const outcomes = await deps.snapshotService.restorePathsFromSnapshot(
     handle,
     turnStartOid,
-    pendingPaths
+    pendingPaths.map((candidate) => ({
+      expectAbsent: !requiresSnapshotPresence(record, candidate),
+      path: candidate,
+    }))
   );
   let failedMessage: string | null = null;
   for (const outcome of outcomes) {
-    if (outcome.outcome === 'failed') {
+    if (outcome.outcome === 'failed' || outcome.outcome === 'uncovered') {
       // First failure wins the message; the successes below still reindex —
       // their bytes already moved, and hiding that would corrupt the index.
       failedMessage = failedMessage ?? `"${outcome.path}": ${outcome.message}`;
@@ -466,6 +638,7 @@ export async function undoCheckpointEntry(
     force: args.force ?? false,
     handledPaths: new Set(),
     rootPathsById: await resolveConnectedRootPaths(db),
+    turnStartTrees: new Map(),
   };
   return await undoRecordAgainstTurnStart(db, deps, record, rootState.oid, scope);
 }
@@ -496,6 +669,7 @@ export async function undoCheckpointRun(
     force: args.force ?? false,
     handledPaths: new Set(),
     rootPathsById: await resolveConnectedRootPaths(db),
+    turnStartTrees: new Map(),
   };
   for (const record of records) {
     if (!isRevertibleCaptureStatus(record.captureStatus)) {

@@ -91,8 +91,8 @@ describe('restorePathsFromSnapshot', () => {
     await write('scaffold/deep/new.txt', 'created later\n');
 
     const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
-      'kept/a.txt',
-      'scaffold/deep/new.txt',
+      { expectAbsent: false, path: 'kept/a.txt' },
+      { expectAbsent: true, path: 'scaffold/deep/new.txt' },
     ]);
     expect(outcomes).toEqual([
       { outcome: 'restored', path: 'kept/a.txt' },
@@ -105,20 +105,45 @@ describe('restorePathsFromSnapshot', () => {
     });
   });
 
+  it('refuses (uncovered, untouched) a snapshot-absent path the caller expected PRESENT', {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    // A gitignored file: staged `add -A` respects the ignore, so the snapshot
+    // never contains it — absence here is a coverage hole, not "turn-created".
+    await write('.gitignore', 'secret.env\n');
+    await write('secret.env', 'S3CR3T@start\n');
+    const oid = await snap();
+    await write('secret.env', 'S3CR3T@edited\n');
+
+    const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
+      { expectAbsent: false, path: 'secret.env' },
+    ]);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({ outcome: 'uncovered', path: 'secret.env' });
+    if (outcomes[0]?.outcome === 'uncovered') {
+      expect(outcomes[0].message).toContain('not covered by the snapshot');
+    }
+    // The live file is UNTOUCHED — deleting it would have destroyed the only
+    // copy (the pre-edit bytes exist nowhere).
+    expect(await readOrNull('secret.env')).toBe('S3CR3T@edited\n');
+  });
+
   it('treats an already-absent snapshot-absent path as deleted (idempotent), and rejects unsafe paths', {
     timeout: HEAVY_TIMEOUT_MS,
   }, async () => {
     await write('a.txt', 'x\n');
     const oid = await snap();
 
-    const outcomes = await service.restorePathsFromSnapshot(handle, oid, ['never-existed.txt']);
+    const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
+      { expectAbsent: true, path: 'never-existed.txt' },
+    ]);
     expect(outcomes).toEqual([{ outcome: 'deleted', path: 'never-existed.txt' }]);
 
     await expect(
-      service.restorePathsFromSnapshot(handle, oid, ['../escape.txt'])
+      service.restorePathsFromSnapshot(handle, oid, [{ expectAbsent: true, path: '../escape.txt' }])
     ).rejects.toBeInstanceOf(SnapshotGitError);
     await expect(
-      service.restorePathsFromSnapshot(handle, oid, ['/abs.txt'])
+      service.restorePathsFromSnapshot(handle, oid, [{ expectAbsent: true, path: '/abs.txt' }])
     ).rejects.toBeInstanceOf(SnapshotGitError);
   });
 
@@ -131,7 +156,9 @@ describe('restorePathsFromSnapshot', () => {
     await write('star*.txt', 'changed\n');
     await write('starABC.txt', 'changed too\n');
 
-    const outcomes = await service.restorePathsFromSnapshot(handle, oid, ['star*.txt']);
+    const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
+      { expectAbsent: false, path: 'star*.txt' },
+    ]);
     expect(outcomes).toEqual([{ outcome: 'restored', path: 'star*.txt' }]);
     expect(await readOrNull('star*.txt')).toBe('literal star\n');
     // The sibling the glob WOULD have matched stays untouched.

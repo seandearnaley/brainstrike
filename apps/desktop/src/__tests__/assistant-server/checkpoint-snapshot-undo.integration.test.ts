@@ -13,6 +13,18 @@
  * - Making `restoreOneSnapshotPath` (snapshot-service.ts) claim `restored`
  *   for an absent tree entry without unlinking (dropping the delete) fails
  *   "undoes a created file by deleting it …".
+ * - COVERAGE GATE (BST-1164 review): inverting `requiresSnapshotPresence`'s
+ *   `beforeExisted` gate (`checkpoint-snapshot-undo.ts` — the single source
+ *   both the whole-record pre-check and the seam's `expectAbsent` derive
+ *   from) fails "refuses (typed) a modify-undo of a GITIGNORED file …" (the
+ *   file is DELETED with a green outcome) and "undoes a created file by
+ *   deleting it …" (the created file survives as `uncovered`).
+ * - Dropping the seam's `uncovered` refusal in `restoreOneSnapshotPath`
+ *   (falling through to the delete for `expectAbsent: false`) fails the
+ *   seam-level pin "refuses (uncovered, untouched) a snapshot-absent path
+ *   the caller expected PRESENT" in
+ *   `snapshot-service-gc.integration.test.ts` — the engine's own pre-check
+ *   still refuses, which is exactly why the seam backstop needs its own pin.
  */
 
 import { execFile } from 'node:child_process';
@@ -135,6 +147,20 @@ function journalInput(overrides: Partial<EditCheckpointInput> = {}): EditCheckpo
 
 async function hashOf(content: string): Promise<string> {
   return sha256Hex(content);
+}
+
+/** Runtime case-insensitivity probe for the wrong-case-path fixture. */
+async function isCaseInsensitiveFs(dir: string): Promise<boolean> {
+  const probePath = path.join(dir, 'case-probe-lower.txt');
+  await fsPromises.writeFile(probePath, 'probe', 'utf8');
+  try {
+    await fsPromises.access(path.join(dir, 'CASE-PROBE-LOWER.TXT'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await fsPromises.rm(probePath, { force: true });
+  }
 }
 
 beforeEach(async () => {
@@ -364,6 +390,103 @@ describe('undoCheckpointEntry', () => {
   it('returns not_found for an unknown id', async () => {
     const result = await undoCheckpointEntry(db, { id: 'no-such-id' }, undoDeps());
     expect(result).toMatchObject({ code: 'not_found', ok: false });
+  });
+
+  it('refuses (typed) a modify-undo of a GITIGNORED file instead of deleting it; availability reports the reason', {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    // `add -A` respects .gitignore, so the turn-start snapshot NEVER contains
+    // secret.env — but the edit journals `beforeExisted: true`. Before the
+    // coverage gate this undo UNLINKED the file with a green 'deleted'
+    // outcome, destroying pre-edit content that existed nowhere else.
+    await write('.gitignore', 'secret.env\n');
+    await write('secret.env', 'turn-start-secret\n');
+    await recordTurnStart();
+    await write('secret.env', 'edited-secret\n');
+    const record = await recordEditCheckpoint(
+      db,
+      journalInput({ afterHash: await hashOf('edited-secret\n'), path: 'secret.env' })
+    );
+
+    const result = await undoCheckpointEntry(db, { id: record.id }, undoDeps());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe('not_revertible');
+      expect(result.message).toContain('not covered by the turn-start snapshot');
+    }
+    // The live file is untouched and nothing was reindexed or stamped.
+    expect(await readOrNull('secret.env')).toBe('edited-secret\n');
+    expect(reindexActions).toEqual([]);
+
+    // Force must NOT bypass the coverage gate — force is for the conflict
+    // gate only; an uncovered path can never restore.
+    const forced = await undoCheckpointEntry(db, { force: true, id: record.id }, undoDeps());
+    expect(forced.ok).toBe(false);
+    expect(await readOrNull('secret.env')).toBe('edited-secret\n');
+
+    // Availability serves the SAME typed reason, per entry (fail-safe).
+    const availability = await listCheckpointUndoAvailability(db, undoDeps(), THREAD);
+    expect(availability.byCheckpointId[record.id]).toMatchObject({ restorable: false });
+    const entry = availability.byCheckpointId[record.id];
+    if (entry && entry.restorable === false) {
+      expect(entry.reason).toContain('not covered by the turn-start snapshot');
+    }
+  });
+
+  it('refuses a wrong-case journal path on a case-insensitive filesystem instead of deleting the real file', {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async (ctx) => {
+    // Runtime probe: this fixture only means anything where the filesystem
+    // resolves differing case to the same file (macOS default APFS). On a
+    // case-SENSITIVE fs the wrong-case journal path names a nonexistent file
+    // and the scenario cannot occur — skip VISIBLY, never fake it.
+    if (!(await isCaseInsensitiveFs(rootPath))) {
+      ctx.skip();
+      return;
+    }
+    await write('Src/Utils.txt', 'turn-start\n');
+    await recordTurnStart();
+    await write('Src/Utils.txt', 'edited\n');
+    // `resolveWorkspaceWritePath` keeps the REQUESTED spelling, so a tool that
+    // asked for "src/utils.txt" journals that — the git tree lookup is
+    // case-sensitive and misses, which must refuse, not delete the real file.
+    const record = await recordEditCheckpoint(
+      db,
+      journalInput({ afterHash: await hashOf('edited\n'), path: 'src/utils.txt' })
+    );
+
+    const result = await undoCheckpointEntry(db, { id: record.id }, undoDeps());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe('not_revertible');
+      expect(result.message).toContain('path-case mismatch');
+    }
+    // The real file, under its on-disk spelling, is untouched.
+    expect(await readOrNull('Src/Utils.txt')).toBe('edited\n');
+  });
+
+  it('handles the production journal path shape (leading slash) end to end', {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    // Production rows record NORMALIZED workspace paths ("/lead.txt" —
+    // `resolveWorkspaceWritePath.workspacePath`); the shadow tree and the
+    // restore seam are root-relative. The engine owns the translation — an
+    // unstripped leading slash would throw out of the seam's path guard (and
+    // would read every production row as uncovered under the coverage gate).
+    await write('lead.txt', 'turn-start\n');
+    await recordTurnStart();
+    await write('lead.txt', 'edited\n');
+    const record = await recordEditCheckpoint(
+      db,
+      journalInput({ afterHash: await hashOf('edited\n'), path: '/lead.txt' })
+    );
+
+    const availability = await listCheckpointUndoAvailability(db, undoDeps(), THREAD);
+    expect(availability.byCheckpointId[record.id]).toEqual({ restorable: true });
+
+    const result = await undoCheckpointEntry(db, { id: record.id }, undoDeps());
+    expect(result.ok).toBe(true);
+    expect(await readOrNull('lead.txt')).toBe('turn-start\n');
   });
 });
 
