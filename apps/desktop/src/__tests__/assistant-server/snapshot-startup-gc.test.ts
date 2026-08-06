@@ -25,6 +25,9 @@ const OID_B = 'b'.repeat(40);
 const OID_C = 'c'.repeat(40);
 
 interface FixtureOptions {
+  /** True ⇒ the outstanding batch's target message resolves to NOTHING (the
+   * trim-floor derivation fails) — the fail-safe refusal fixture. */
+  readonly batchTargetMissing?: boolean;
   /** rootId → threadId → oldest surviving oid, served to the boundary query. */
   readonly boundaries?: readonly {
     readonly commitOid: string;
@@ -33,6 +36,14 @@ interface FixtureOptions {
   }[];
   /** thread ids present in the (fake) mastra_threads table. */
   readonly liveThreads?: readonly string[];
+  /** One outstanding (unfinalized) revert-bearing tombstone batch, served to
+   * the ring trim's floor queries: it targets `targetRunId`'s bracket. Cleared
+   * via the returned `finalizeBatch()` to simulate finalization. */
+  readonly outstandingBatch?: {
+    readonly messageId: string;
+    readonly rewindId: string;
+    readonly targetRunId: string;
+  };
   /** Per-repo refs (rootId → thread ids). */
   readonly refsByRoot?: Readonly<Record<string, readonly string[]>>;
   /** Rows per thread, ledger order. */
@@ -62,6 +73,8 @@ function makeFixture(options: FixtureOptions) {
   const prunedThreads: { rootId: string; threadId: string }[] = [];
   const prunedHistories: { boundaries: readonly string[]; rootId: string }[] = [];
 
+  const outstanding = { current: options.outstandingBatch ?? null };
+
   const db: EditCheckpointDatabase = {
     query: async <T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> => {
       if (sql.includes('to_regclass')) {
@@ -77,6 +90,29 @@ function makeFixture(options: FixtureOptions) {
       }
       if (sql.includes('SELECT DISTINCT ON (root_id, thread_id)')) {
         return { rows: (options.boundaries ?? []) as unknown as T[] };
+      }
+      // Trim-floor queries (outstanding tombstone batch → target bracket).
+      if (sql.includes('FROM brainstrike_assistant_message_tombstones')) {
+        const batch = outstanding.current;
+        return {
+          rows: batch ? [{ messageId: batch.messageId, rewindId: batch.rewindId } as T] : [],
+        };
+      }
+      if (sql.includes('FROM mastra_messages')) {
+        const batch = outstanding.current;
+        if (!batch || options.batchTargetMissing === true) {
+          return { rows: [] };
+        }
+        if (sql.includes('WHERE id = $1 AND thread_id = $2')) {
+          return {
+            rows: [{ createdAt: '2026-08-01 00:00:00.000000+00', id: batch.messageId } as T],
+          };
+        }
+        return { rows: [{ id: batch.messageId } as T] };
+      }
+      if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
+        const batch = outstanding.current;
+        return { rows: batch ? [{ id: batch.targetRunId } as T] : [] };
       }
       throw new Error(`unexpected GC query: ${sql}`);
     },
@@ -136,7 +172,17 @@ function makeFixture(options: FixtureOptions) {
     snapshotService: service,
     turnRing: 2,
   };
-  return { deletedByIds, deletedThreads, deps, prunedHistories, prunedThreads, service };
+  return {
+    deletedByIds,
+    deletedThreads,
+    deps,
+    finalizeBatch: () => {
+      outstanding.current = null;
+    },
+    prunedHistories,
+    prunedThreads,
+    service,
+  };
 }
 
 /** N alternating turn-start/turn-end bracket rows for one thread. */
@@ -235,6 +281,73 @@ describe('runSnapshotStartupGc', () => {
     expect(fixture.prunedHistories).toEqual([{ boundaries: [OID_C], rootId: 'root-1' }]);
     // The live, row-backed ref stays.
     expect(fixture.prunedThreads).toEqual([]);
+  });
+
+  it('floors the ring trim at an outstanding batch’s target bracket, then reclaims after finalization', async () => {
+    const rows = turnRows('thread-1', 4);
+    // The outstanding rewind's redo source: a pre-revert row at the tail.
+    rows.push(
+      row({
+        createdAt: '2026-08-01 00:04:00.000000+00',
+        id: 'thread-1-prerevert-live',
+        kind: 'pre-revert',
+        runId: 'revert-live',
+        threadId: 'thread-1',
+      })
+    );
+    const fixture = makeFixture({
+      boundaries: [{ commitOid: OID_A, rootId: 'root-1', threadId: 'thread-1' }],
+      liveThreads: ['thread-1'],
+      // The batch targets turn 0 — OLDER than the ring (ring = 2 keeps 2 & 3).
+      outstandingBatch: {
+        messageId: 'msg-old',
+        rewindId: 'rw-outstanding',
+        targetRunId: 'thread-1-run-0',
+      },
+      refsByRoot: { 'root-1': ['thread-1'] },
+      rowsByThread: { 'thread-1': rows },
+    });
+
+    const floored = await runSnapshotStartupGc(fixture.deps);
+    // The floor wins over the ring: turn 0 (and everything after it) survives,
+    // so redo's turn-start baseline and its pre-revert source both stay.
+    expect(fixture.deletedByIds).toEqual([]);
+    expect(floored.ringTrimmed).toEqual([]);
+    expect(floored.failures).toEqual([]);
+    // The live, row-backed lineage ref stays too.
+    expect(fixture.prunedThreads).toEqual([]);
+
+    // Finalization deletes the batch's tombstone rows → the floor disappears
+    // and the NEXT sweep reclaims the beyond-ring turns.
+    fixture.finalizeBatch();
+    const reclaimed = await runSnapshotStartupGc(fixture.deps);
+    expect(fixture.deletedByIds).toEqual([
+      ['thread-1-t0-start', 'thread-1-t0-end', 'thread-1-t1-start', 'thread-1-t1-end'],
+    ]);
+    expect(reclaimed.ringTrimmed).toEqual([{ deletedRows: 4, threadId: 'thread-1' }]);
+  });
+
+  it('refuses to trim (visible failure) when an outstanding batch’s target cannot be re-derived', async () => {
+    const fixture = makeFixture({
+      batchTargetMissing: true,
+      boundaries: [{ commitOid: OID_A, rootId: 'root-1', threadId: 'thread-1' }],
+      liveThreads: ['thread-1'],
+      outstandingBatch: {
+        messageId: 'msg-gone',
+        rewindId: 'rw-unresolvable',
+        targetRunId: 'thread-1-run-0',
+      },
+      refsByRoot: { 'root-1': ['thread-1'] },
+      rowsByThread: { 'thread-1': turnRows('thread-1', 4) },
+    });
+
+    const report = await runSnapshotStartupGc(fixture.deps);
+
+    // Fail-safe on a destructive seam: nothing trimmed, the refusal is named.
+    expect(fixture.deletedByIds).toEqual([]);
+    expect(report.ringTrimmed).toEqual([]);
+    expect(report.failures.join('\n')).toContain('rw-unresolvable');
+    expect(report.failures.join('\n')).toContain('refusing to trim under a pending redo');
   });
 
   it('leaves a thread within the ring untouched (and skips pruneHistory for untouched repos)', async () => {

@@ -23,6 +23,26 @@
  *     sits between the boundary snapshot and the changeset identity publish
  *     (the BST-1169 hot path), and a boot-time trim bounds growth just as
  *     tightly with zero run-path cost.
+ *
+ *     OUTSTANDING-REDO FLOOR (invariant, BST-1164 review): the ring trim
+ *     never deletes a turn bracket that an OUTSTANDING tombstone batch (a
+ *     rewind applied but not yet finalized — its rows still sit in
+ *     `brainstrike_assistant_message_tombstones` with a `revert_id`) still
+ *     needs for redo. Redo re-derives its turn-start baseline from the
+ *     batch's target turn (`resolveRedoRoots` via `resolveEarliestBatchTarget`
+ *     + `resolveRewindRunRange`), so trimming that turn's rows — e.g. a
+ *     rewind to a turn older than the ring followed by a restart before the
+ *     next user message finalizes it — would leave redo refusing
+ *     `snapshot-missing` forever while the batch's messages stay hidden. The
+ *     trim boundary is therefore FLOORED at the oldest bracket referenced by
+ *     any outstanding batch, derived with the SAME durable resolution redo
+ *     itself uses; a batch whose target cannot be re-derived skips the
+ *     thread's trim entirely (visible failure — refusing beats guessing on a
+ *     destructive seam). The shallow-cut boundary respects the same floor by
+ *     construction: `survivingChainBoundaries` runs AFTER the trims and cuts
+ *     at the oldest SURVIVING row per chain, which the floor just protected.
+ *     Once finalization deletes the batch's tombstone rows, the floor
+ *     disappears and the next sweep reclaims the bracket.
  *  4. HISTORY RECLAMATION — after any trim/prune in a repo, the surviving
  *     per-thread chain boundaries (oldest remaining non-sentinel oid per
  *     thread per root) are written as git shallow cut points and
@@ -38,11 +58,19 @@
  * dead and mass-delete), reports `threadsTableMissing`, and does nothing —
  * refusing loudly beats guessing on a destructive seam.
  */
-import { WORKSPACE_SNAPSHOTS_TABLE } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
+  WORKSPACE_SNAPSHOTS_TABLE,
+} from '@brainstrike/assistant-contract';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import { resolveEarliestBatchTarget, resolveRewindRunRange } from './rewind-repository';
 import { FAILED_SNAPSHOT_CAPTURE_OID, type SnapshotRepository } from './snapshot-repository';
 import type { ShadowRepoHandle, SnapshotService } from './snapshot-service';
-import { resolveSnapshotTurnBrackets } from './snapshot-turn-ledger';
+import {
+  findBracketByRunId,
+  resolveSnapshotTurnBrackets,
+  type SnapshotTurnBracket,
+} from './snapshot-turn-ledger';
 
 const THREADS_TABLE = 'mastra_threads';
 
@@ -149,11 +177,86 @@ async function purgeDeadThread(
   accumulator.deadThreadsPruned.push(threadId);
 }
 
+/** One outstanding (unfinalized) rewind batch with a files restore to redo. */
+interface OutstandingRevertBatch {
+  readonly messageIds: readonly string[];
+  readonly rewindId: string;
+}
+
+/**
+ * Unfinalized tombstone batches with a `revert_id` — the batches whose redo
+ * still depends on ledger rows. Finalization hard-deletes tombstone rows, so
+ * presence in this table IS the "outstanding" fact. The table is
+ * migration-backed (080), so no existence probe is needed.
+ */
+async function listOutstandingRevertBatches(
+  db: EditCheckpointDatabase,
+  threadId: string
+): Promise<readonly OutstandingRevertBatch[]> {
+  const result = await db.query<{ messageId: string; rewindId: string }>(
+    `SELECT rewind_id AS "rewindId", message_id AS "messageId"
+       FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+      WHERE thread_id = $1 AND revert_id IS NOT NULL
+      ORDER BY rewind_id ASC, message_id ASC`,
+    [threadId]
+  );
+  const byRewindId = new Map<string, string[]>();
+  for (const rowItem of result.rows) {
+    const ids = byRewindId.get(rowItem.rewindId);
+    if (ids) {
+      ids.push(rowItem.messageId);
+    } else {
+      byRewindId.set(rowItem.rewindId, [rowItem.messageId]);
+    }
+  }
+  return [...byRewindId.entries()].map(([rewindId, messageIds]) => ({ messageIds, rewindId }));
+}
+
+type OutstandingBatchFloor =
+  | { readonly index: number; readonly kind: 'bracket' }
+  | { readonly kind: 'none' }
+  | { readonly kind: 'unresolvable'; readonly reason: string };
+
+/**
+ * The bracket index an outstanding batch's redo needs to survive, derived with
+ * the SAME durable resolution `resolveRedoRoots` uses: target message →
+ * run range → the bracket anchored on `fromRunId`. `none` = the batch pins no
+ * surviving bracket (its target turn's rows are already gone — redo is
+ * already `snapshot-missing`, and keeping unrelated history cannot fix it).
+ * `unresolvable` = the derivation itself failed; the caller must NOT trim
+ * under it (see the module doc comment's OUTSTANDING-REDO FLOOR invariant).
+ */
+async function resolveOutstandingBatchFloor(
+  db: EditCheckpointDatabase,
+  threadId: string,
+  batch: OutstandingRevertBatch,
+  brackets: readonly SnapshotTurnBracket[]
+): Promise<OutstandingBatchFloor> {
+  const target = await resolveEarliestBatchTarget(db, threadId, batch.messageIds);
+  if (!target) {
+    return { kind: 'unresolvable', reason: 'its target message could not be resolved' };
+  }
+  const range = await resolveRewindRunRange(db, target);
+  if (range.kind !== 'runs') {
+    return {
+      kind: 'unresolvable',
+      reason: `its run range could not be re-derived (${range.reason})`,
+    };
+  }
+  const bracket = findBracketByRunId(brackets, range.fromRunId);
+  if (!bracket) {
+    return { kind: 'none' };
+  }
+  return { index: brackets.indexOf(bracket), kind: 'bracket' };
+}
+
 /**
  * Ring trim for one live thread: group its rows into turn brackets and delete
  * every row ordered before the oldest KEPT bracket's first `turn-start` row.
  * Interleaved `pre-revert` rows older than that boundary fall off with it —
- * their redo source predates the retained window by construction.
+ * their redo source predates the retained window by construction. The kept
+ * window is FLOORED at the oldest bracket an outstanding tombstone batch still
+ * needs for redo (the OUTSTANDING-REDO FLOOR invariant, module doc comment).
  */
 async function trimThreadRing(
   deps: SnapshotStartupGcDeps,
@@ -166,7 +269,23 @@ async function trimThreadRing(
   if (brackets.length <= ring) {
     return;
   }
-  const boundary = brackets.at(-ring);
+  let keepFromIndex = brackets.length - ring;
+  for (const batch of await listOutstandingRevertBatches(deps.db, threadId)) {
+    const floor = await resolveOutstandingBatchFloor(deps.db, threadId, batch, brackets);
+    if (floor.kind === 'unresolvable') {
+      accumulator.failures.push(
+        `ring trim skipped for thread "${threadId}": outstanding rewind batch "${batch.rewindId}" ${floor.reason} — refusing to trim under a pending redo`
+      );
+      return;
+    }
+    if (floor.kind === 'bracket') {
+      keepFromIndex = Math.min(keepFromIndex, floor.index);
+    }
+  }
+  if (keepFromIndex <= 0) {
+    return;
+  }
+  const boundary = brackets[keepFromIndex];
   if (!boundary) {
     return;
   }
