@@ -48,6 +48,8 @@ import {
   redoRewind as redoRewindService,
   rewindToMessage as rewindToMessageService,
 } from './assistant-server/rewind-service';
+import type { SnapshotRepository } from './assistant-server/snapshot-repository';
+import type { SnapshotService } from './assistant-server/snapshot-service';
 import { getDatabase } from './db-main';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
@@ -543,6 +545,12 @@ const DEFAULT_REWIND_DEPENDENCIES: RewindHandlerDependencies = {
 };
 
 export interface ChangesIpcHandlersOptions {
+  /**
+   * Snapshot-row repository factory (BST-1164 W7 T1). Threaded by main.ts and
+   * NOT yet consumed here: T2 (changeset resolution swap) and T3 (rewind
+   * engine swap) consume it through this seam so neither edits main.ts.
+   */
+  readonly createSnapshotRepository?: (db: EditCheckpointDatabase) => SnapshotRepository;
   /** Injectable for tests; defaults to a `getDatabase`-backed resolver. */
   readonly resolveDatabase?: () => Promise<EditCheckpointDatabase>;
   /**
@@ -555,6 +563,14 @@ export interface ChangesIpcHandlersOptions {
   readonly resolveInventoryService?: () => GitInventoryService | null;
   /** Injectable for tests; defaults to the DB-backed workspace root resolver. */
   readonly resolver?: WorkspaceRootResolver;
+  /**
+   * Lazily resolves the ONE app-lifetime {@link SnapshotService}
+   * (BST-1164 W7 T1). Lazy for the same registration-before-construction
+   * reason as `resolveInventoryService`. Threaded by main.ts and NOT yet
+   * consumed here — T2/T3 consume it; they must never construct a second
+   * service.
+   */
+  readonly resolveSnapshotService?: () => SnapshotService | null;
   /**
    * Injectable rewind seam (BST-1115 W5 T4) so the handlers can be unit-tested
    * without a live PGlite or a real filesystem. Production wires the real
