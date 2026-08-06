@@ -748,6 +748,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onThreadRunStart,
     onRunFinished,
     onRunFailed,
+    onRunEditActivity,
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
@@ -760,6 +761,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onComposerDraftCommandApplied,
     onComposerTextChange,
     attachmentsAvailability,
+    historyGeneration,
   }: {
     composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
@@ -780,6 +782,11 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onThreadRunStart?: () => void;
     onRunFinished?: (event: { runId: string; kind: string }) => void;
     onRunFailed?: (event: { runId: string; kind: string }) => void;
+    onRunEditActivity?: (event: {
+      runId?: string;
+      kind: string;
+      metadata?: Record<string, unknown>;
+    }) => void;
     completePreparedRequest?: (
       requestData: Record<string, unknown> | undefined,
       status: 'cancelled' | 'completed' | 'failed',
@@ -787,6 +794,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     ) => Promise<void> | void;
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
+    // Conversation Rewind's re-hydration counter (BST-1115). Surfaced on the
+    // mock's root so the wrapper's wiring is assertable: the real panel folds
+    // it into the runtime `key`, which a mock cannot demonstrate.
+    historyGeneration?: number;
     localChatTransport?: string;
     requestBodyLimitBytes?: number;
     requestData?: Record<string, unknown>;
@@ -820,7 +831,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     const modelName = extractModelName(selectedModel);
 
     return (
-      <div data-testid="assistant-ui-panel">
+      <div data-history-generation={historyGeneration} data-testid="assistant-ui-panel">
         <div data-testid="composer-draft-command">{composerDraftCommand?.id ?? ''}</div>
         <button
           data-testid="apply-composer-draft-command"
@@ -847,6 +858,26 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Trigger run finished
+        </button>
+        <button
+          data-testid="trigger-run-started"
+          onClick={() => onRunEditActivity?.({ kind: 'run.started', runId: 'run-live-next' })}
+          type="button"
+        >
+          Trigger run started
+        </button>
+        <button
+          data-testid="trigger-edit-tool-completed"
+          onClick={() =>
+            onRunEditActivity?.({
+              kind: 'tool.completed',
+              metadata: { toolName: 'brainstrike.writeWorkspaceFile' },
+              runId: 'run-live-next',
+            })
+          }
+          type="button"
+        >
+          Trigger edit tool completed
         </button>
         <button
           data-testid="trigger-run-failed"

@@ -9,8 +9,10 @@ import type {
   StructuredFileDiff,
 } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GitBridge } from '../../git-panel/git-bridge';
+import { useRewindStore } from '../rewind-store';
 import { ChangesetHeader } from '../ui/changeset-header';
 
 function ok<T>(value: T): Promise<GitResult<T>> {
@@ -120,6 +122,7 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof ChangesetHeade
     latestRunId: null,
     loading: false,
     onSelectChangeset: vi.fn(),
+    onSelectLastTurn: vi.fn(),
     rootId: 'root-1',
     threadId: null,
     view: null,
@@ -128,6 +131,10 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof ChangesetHeade
 }
 
 describe('ChangesetHeader', () => {
+  beforeEach(() => {
+    useRewindStore.getState().reset();
+  });
+
   it('renders null totals as an em dash, never as 0', () => {
     const view: ChangesetView = {
       changeset: AGENT_RUN_CHANGESET,
@@ -355,5 +362,56 @@ describe('ChangesetHeader', () => {
     );
 
     expect(screen.getByTestId('changeset-git-scope-actions')).toBeInTheDocument();
+  });
+
+  // ===== Conversation Rewind entry point (BST-1115 W5 T4, Amendment 1 A1.3) =====
+
+  it('offers "Restore to before this" for an agent-run changeset', async () => {
+    const user = userEvent.setup();
+    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />);
+
+    const action = screen.getByTestId('changeset-rewind-action');
+    expect(action).toHaveTextContent('Restore to before this');
+
+    await user.click(action);
+
+    // Both ids come from the CHANGESET, never from a synthesised identity.
+    expect(useRewindStore.getState().request).toEqual({
+      composerText: null,
+      target: { runId: 'run-1', threadId: 'thread-1' },
+    });
+  });
+
+  it('anchors a run-range changeset on its fromRunId', async () => {
+    const user = userEvent.setup();
+    const runRange: Changeset = {
+      fromRunId: 'run-7',
+      kind: 'run-range',
+      threadId: 'thread-9',
+    };
+    render(<ChangesetHeader {...baseProps({ changeset: runRange })} />);
+
+    await user.click(screen.getByTestId('changeset-rewind-action'));
+
+    expect(useRewindStore.getState().request?.target).toEqual({
+      runId: 'run-7',
+      threadId: 'thread-9',
+    });
+  });
+
+  // THE HARD RULE: a git-scope changeset carries no thread identity, so the
+  // action is ABSENT — not disabled-with-a-guess, and never made to appear by
+  // synthesising a thread id.
+  it('has NO rewind action for a git-scope changeset', () => {
+    installGitBridge();
+    render(<ChangesetHeader {...baseProps({ changeset: GIT_SCOPE_CHANGESET })} />);
+
+    expect(screen.queryByTestId('changeset-rewind-action')).not.toBeInTheDocument();
+  });
+
+  it('has NO rewind action before a changeset is picked', () => {
+    render(<ChangesetHeader {...baseProps({ changeset: null })} />);
+
+    expect(screen.queryByTestId('changeset-rewind-action')).not.toBeInTheDocument();
   });
 });

@@ -13,6 +13,14 @@
  * and unsupported/extra keys are rejected explicitly, mirroring
  * `git-structured-diff.ts`'s `validateStructuredFileDiffParams` posture.
  */
+import type {
+  AssistantRewindFinalization,
+  AssistantRewindMode,
+  AssistantRewindPreviewResult,
+  AssistantRewindRedoResult,
+  AssistantRewindResult,
+} from '@brainstrike/assistant-contract';
+import { ASSISTANT_REWIND_MODES } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type {
   Changeset,
@@ -26,9 +34,20 @@ import {
   type ChangesetDiffService,
   createChangesetDiffService,
 } from './assistant-server/changeset-diff-service';
+import { createCheckpointReindexDeps } from './assistant-server/checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
+import type { CheckpointRevertDeps } from './assistant-server/edit-checkpoint-revert';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import type { GitCommandRunner } from './assistant-server/git-service';
+import { createRewindFinalizationDeps } from './assistant-server/rewind-finalization-deps';
+import { resolveRewindMessageForRun } from './assistant-server/rewind-repository';
+import {
+  applyRewind as applyRewindService,
+  finalizeThreadRewinds as finalizeThreadRewindsService,
+  type RewindFinalizationDeps,
+  redoRewind as redoRewindService,
+  rewindToMessage as rewindToMessageService,
+} from './assistant-server/rewind-service';
 import { getDatabase } from './db-main';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
@@ -243,20 +262,285 @@ export function validatePath(value: unknown): GitResult<string> {
   return { ok: true, value };
 }
 
+// ===== Conversation Rewind (BST-1115 W5 T4) =====
+//
+// TWO LEVELS OF FAILURE, deliberately not collapsed into one:
+//   - `GitResult.ok === false` means THE CALL failed — a malformed renderer
+//     payload, or an unexpected throw. Same posture as `resolveView`/
+//     `fileDiff`: a typed failure, never a thrown bare `Error`.
+//   - `GitResult.value.ok === false` means the rewind was REFUSED for a domain
+//     reason the service names (`conflicts-unacknowledged`, `message-not-found`,
+//     …). That is a real answer, not an error, and the UI must show it.
+// Flattening the two would make "your payload was garbage" indistinguishable
+// from "one file conflicts and nothing was applied".
+
+function asRecord(value: unknown, subject: string): GitResult<Record<string, unknown>> {
+  if (!(value && typeof value === 'object') || Array.isArray(value)) {
+    return { error: `${subject} requires an object payload`, ok: false };
+  }
+  return { ok: true, value: value as Record<string, unknown> };
+}
+
+/** Optional boolean field: absent ⇒ `false`; present-but-not-boolean ⇒ rejected. */
+function validateOptionalBoolean(
+  record: Record<string, unknown>,
+  field: string,
+  subject: string
+): GitResult<boolean> {
+  const value = record[field];
+  if (value === undefined) {
+    return { ok: true, value: false };
+  }
+  if (typeof value !== 'boolean') {
+    return { error: `${subject} "${field}" must be a boolean when present`, ok: false };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * The target of a rewind preview: either the message directly (the assistant
+ * panel's "Restore to before this message"), or a run whose starting message
+ * the main process resolves (the Changes header's "Restore to before this" —
+ * Amendment 1 A1.3; the surface knows a runId and never a messageId).
+ *
+ * EXACTLY ONE is required. Accepting both and silently preferring one would
+ * let a caller believe it targeted the run when it targeted the message.
+ */
+export type RewindPreviewTarget =
+  | { readonly kind: 'message'; readonly messageId: string; readonly threadId: string }
+  | { readonly kind: 'run'; readonly runId: string; readonly threadId: string };
+
+export function validateRewindPreviewPayload(value: unknown): GitResult<RewindPreviewTarget> {
+  const subject = 'changes:rewindPreview';
+  const recordResult = asRecord(value, subject);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const keysResult = rejectUnsupportedKeys(record, ['messageId', 'runId', 'threadId'], subject);
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const threadId = record['threadId'];
+  if (!isNonEmptyString(threadId)) {
+    return { error: `${subject} requires a non-empty threadId`, ok: false };
+  }
+  const messageId = record['messageId'];
+  const runId = record['runId'];
+  const hasMessageId = messageId !== undefined;
+  const hasRunId = runId !== undefined;
+  if (hasMessageId === hasRunId) {
+    return {
+      error: `${subject} requires exactly one of messageId or runId (received ${hasMessageId ? 'both' : 'neither'})`,
+      ok: false,
+    };
+  }
+  if (hasMessageId) {
+    if (!isNonEmptyString(messageId)) {
+      return { error: `${subject} messageId must be a non-empty string`, ok: false };
+    }
+    return { ok: true, value: { kind: 'message', messageId, threadId } };
+  }
+  if (!isNonEmptyString(runId)) {
+    return { error: `${subject} runId must be a non-empty string`, ok: false };
+  }
+  return { ok: true, value: { kind: 'run', runId, threadId } };
+}
+
+export interface RewindApplyPayload {
+  readonly acknowledgeConflicts: boolean;
+  readonly messageId: string;
+  readonly mode: AssistantRewindMode;
+  readonly threadId: string;
+}
+
+function isRewindMode(value: unknown): value is AssistantRewindMode {
+  return ASSISTANT_REWIND_MODES.includes(value as AssistantRewindMode);
+}
+
+export function validateRewindApplyPayload(value: unknown): GitResult<RewindApplyPayload> {
+  const subject = 'changes:applyRewind';
+  const recordResult = asRecord(value, subject);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const keysResult = rejectUnsupportedKeys(
+    record,
+    ['acknowledgeConflicts', 'messageId', 'mode', 'threadId'],
+    subject
+  );
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const messageId = record['messageId'];
+  const threadId = record['threadId'];
+  if (!isNonEmptyString(threadId)) {
+    return { error: `${subject} requires a non-empty threadId`, ok: false };
+  }
+  if (!isNonEmptyString(messageId)) {
+    return { error: `${subject} requires a non-empty messageId`, ok: false };
+  }
+  // The scope choice is REQUIRED and explicit (Amendment 1): there is no
+  // default mode at this boundary either, so a payload that omits it is
+  // rejected rather than quietly reverting files.
+  const mode = record['mode'];
+  if (!isRewindMode(mode)) {
+    const allowed = ASSISTANT_REWIND_MODES.map((candidate) => `"${candidate}"`).join(', ');
+    return {
+      error: `${subject} requires an explicit mode, one of ${allowed} (received "${String(mode)}")`,
+      ok: false,
+    };
+  }
+  const acknowledgeResult = validateOptionalBoolean(record, 'acknowledgeConflicts', subject);
+  if (!acknowledgeResult.ok) {
+    return acknowledgeResult;
+  }
+  return {
+    ok: true,
+    value: { acknowledgeConflicts: acknowledgeResult.value, messageId, mode, threadId },
+  };
+}
+
+export interface RewindRedoPayload {
+  readonly acknowledgeConflicts: boolean;
+  readonly rewindId: string;
+}
+
+export function validateRewindRedoPayload(value: unknown): GitResult<RewindRedoPayload> {
+  const subject = 'changes:redoRewind';
+  const recordResult = asRecord(value, subject);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const keysResult = rejectUnsupportedKeys(record, ['acknowledgeConflicts', 'rewindId'], subject);
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const rewindId = record['rewindId'];
+  if (!isNonEmptyString(rewindId)) {
+    return { error: `${subject} requires a non-empty rewindId`, ok: false };
+  }
+  const acknowledgeResult = validateOptionalBoolean(record, 'acknowledgeConflicts', subject);
+  if (!acknowledgeResult.ok) {
+    return acknowledgeResult;
+  }
+  return { ok: true, value: { acknowledgeConflicts: acknowledgeResult.value, rewindId } };
+}
+
+export interface RewindFinalizePayload {
+  readonly threadId: string;
+}
+
+export function validateRewindFinalizePayload(value: unknown): GitResult<RewindFinalizePayload> {
+  const subject = 'changes:finalizeRewinds';
+  const recordResult = asRecord(value, subject);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const keysResult = rejectUnsupportedKeys(record, ['threadId'], subject);
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const threadId = record['threadId'];
+  if (!isNonEmptyString(threadId)) {
+    return { error: `${subject} requires a non-empty threadId`, ok: false };
+  }
+  return { ok: true, value: { threadId } };
+}
+
 export interface ChangesIpcHandlers {
+  /**
+   * Apply a Conversation Rewind (BST-1115). `mode` is required — see
+   * {@link validateRewindApplyPayload}. The acknowledgment gate lives in the
+   * service, not here: this boundary only carries the flag through.
+   */
+  readonly applyRewind: (payload: unknown) => Promise<GitResult<AssistantRewindResult>>;
   readonly fileDiff: (
     rootId: unknown,
     changeset: unknown,
     path: unknown
   ) => Promise<GitResult<StructuredFileDiff>>;
   /**
+   * End the redo window for a thread: hard-delete its tombstoned messages
+   * through the memory store's `deleteMessages` override and drop the sidecar
+   * rows. Fired by the renderer when a USER-authored message starts a new run
+   * (W5 T4b).
+   *
+   * `value.finalized === false` is a normal answer, not a failure — a thread
+   * with no outstanding rewind is the common case, and this call is expected to
+   * be cheap and idempotent.
+   */
+  readonly finalizeRewinds: (payload: unknown) => Promise<GitResult<AssistantRewindFinalization>>;
+  /**
    * Repository/worktree topology for the Changes surface's source picker and
    * tree grouping (BST-1114 T0). Takes no renderer-supplied arguments, so
    * there is nothing to validate at this boundary.
    */
   readonly inventory: () => Promise<GitResult<GitInventory>>;
+  /** Undo the newest rewind in a thread — one level, until finalization. */
+  readonly redoRewind: (payload: unknown) => Promise<GitResult<AssistantRewindRedoResult>>;
   readonly resolveView: (rootId: unknown, changeset: unknown) => Promise<GitResult<ChangesetView>>;
+  /**
+   * Pre-apply preview: the run range, the tombstone set, the advisory conflict
+   * list, and the EXISTING run-range `ChangesetView` the confirm modal renders.
+   */
+  readonly rewindPreview: (payload: unknown) => Promise<GitResult<AssistantRewindPreviewResult>>;
 }
+
+/** Seams the rewind handlers call. Mirrors `AssistantCheckpointHandlerDependencies`. */
+export interface RewindHandlerDependencies {
+  readonly applyRewind: (
+    db: EditCheckpointDatabase,
+    args: {
+      readonly acknowledgeConflicts?: boolean;
+      readonly messageId: string;
+      readonly mode: AssistantRewindMode;
+      readonly threadId: string;
+    },
+    deps: CheckpointRevertDeps
+  ) => Promise<AssistantRewindResult>;
+  /**
+   * Resolves the hard-delete seam finalization runs through. Takes no database
+   * argument because the store owns its own handle — the production factory
+   * builds a `PgliteMemoryStore` over the SAME main-process database, and the
+   * narrower `EditCheckpointDatabase` view cannot satisfy it without a cast
+   * that would lie about what a test double provides.
+   */
+  readonly createFinalizationDeps: () => Promise<RewindFinalizationDeps>;
+  readonly createRevertDeps: (db: EditCheckpointDatabase) => Promise<CheckpointRevertDeps>;
+  readonly finalizeThreadRewinds: (
+    db: EditCheckpointDatabase,
+    threadId: string,
+    deps: RewindFinalizationDeps
+  ) => Promise<AssistantRewindFinalization>;
+  readonly redoRewind: (
+    db: EditCheckpointDatabase,
+    args: { readonly acknowledgeConflicts?: boolean; readonly rewindId: string },
+    deps: CheckpointRevertDeps
+  ) => Promise<AssistantRewindRedoResult>;
+  readonly resolveMessageForRun: (
+    db: EditCheckpointDatabase,
+    threadId: string,
+    runId: string
+  ) => Promise<string | null>;
+  readonly rewindToMessage: (
+    db: EditCheckpointDatabase,
+    args: { readonly messageId: string; readonly threadId: string }
+  ) => Promise<AssistantRewindPreviewResult>;
+}
+
+const DEFAULT_REWIND_DEPENDENCIES: RewindHandlerDependencies = {
+  applyRewind: applyRewindService,
+  createFinalizationDeps: async () => createRewindFinalizationDeps(await getDatabase()),
+  createRevertDeps: createCheckpointReindexDeps,
+  finalizeThreadRewinds: finalizeThreadRewindsService,
+  redoRewind: redoRewindService,
+  resolveMessageForRun: resolveRewindMessageForRun,
+  rewindToMessage: rewindToMessageService,
+};
 
 export interface ChangesIpcHandlersOptions {
   /** Injectable for tests; defaults to a `getDatabase`-backed resolver. */
@@ -271,6 +555,12 @@ export interface ChangesIpcHandlersOptions {
   readonly resolveInventoryService?: () => GitInventoryService | null;
   /** Injectable for tests; defaults to the DB-backed workspace root resolver. */
   readonly resolver?: WorkspaceRootResolver;
+  /**
+   * Injectable rewind seam (BST-1115 W5 T4) so the handlers can be unit-tested
+   * without a live PGlite or a real filesystem. Production wires the real
+   * `rewind-service` functions plus the shared checkpoint reindex deps.
+   */
+  readonly rewind?: RewindHandlerDependencies;
   /** Injectable for tests; defaults to the real `execFile`-backed runner. */
   readonly run?: GitCommandRunner;
   /**
@@ -297,6 +587,12 @@ export function createChangesIpcHandlers(
       (await getDatabase()) as unknown as EditCheckpointDatabase);
   const run = options.run ?? execFileGitRunner;
   const resolveInventoryService = options.resolveInventoryService ?? (() => null);
+  const rewind = options.rewind ?? DEFAULT_REWIND_DEPENDENCIES;
+
+  const failed = (channel: string, error: unknown): GitResult<never> => {
+    logger.error(`Unexpected ${channel} handler failure`, { error });
+    return { error: error instanceof Error ? error.message : String(error), ok: false };
+  };
 
   const service: ChangesetDiffService =
     options.service ??
@@ -307,6 +603,27 @@ export function createChangesIpcHandlers(
     });
 
   return {
+    applyRewind: async (payload) => {
+      const payloadResult = validateRewindApplyPayload(payload);
+      if (!payloadResult.ok) {
+        return payloadResult;
+      }
+      const { acknowledgeConflicts, messageId, mode, threadId } = payloadResult.value;
+      try {
+        const db = await resolveDatabase();
+        const revertDeps = await rewind.createRevertDeps(db);
+        return {
+          ok: true,
+          value: await rewind.applyRewind(
+            db,
+            { acknowledgeConflicts, messageId, mode, threadId },
+            revertDeps
+          ),
+        };
+      } catch (error) {
+        return failed('changes:applyRewind', error);
+      }
+    },
     fileDiff: async (rootId, changeset, path) => {
       const changesetResult = validateChangeset(changeset);
       if (!changesetResult.ok) {
@@ -321,6 +638,23 @@ export function createChangesIpcHandlers(
       } catch (error) {
         logger.error('Unexpected changes:fileDiff handler failure', { error });
         return { error: error instanceof Error ? error.message : String(error), ok: false };
+      }
+    },
+    finalizeRewinds: async (payload) => {
+      const payloadResult = validateRewindFinalizePayload(payload);
+      if (!payloadResult.ok) {
+        return payloadResult;
+      }
+      const { threadId } = payloadResult.value;
+      try {
+        const db = await resolveDatabase();
+        const finalizationDeps = await rewind.createFinalizationDeps();
+        return {
+          ok: true,
+          value: await rewind.finalizeThreadRewinds(db, threadId, finalizationDeps),
+        };
+      } catch (error) {
+        return failed('changes:finalizeRewinds', error);
       }
     },
     inventory: async () => {
@@ -346,6 +680,23 @@ export function createChangesIpcHandlers(
         return { error: error instanceof Error ? error.message : String(error), ok: false };
       }
     },
+    redoRewind: async (payload) => {
+      const payloadResult = validateRewindRedoPayload(payload);
+      if (!payloadResult.ok) {
+        return payloadResult;
+      }
+      const { acknowledgeConflicts, rewindId } = payloadResult.value;
+      try {
+        const db = await resolveDatabase();
+        const revertDeps = await rewind.createRevertDeps(db);
+        return {
+          ok: true,
+          value: await rewind.redoRewind(db, { acknowledgeConflicts, rewindId }, revertDeps),
+        };
+      } catch (error) {
+        return failed('changes:redoRewind', error);
+      }
+    },
     resolveView: async (rootId, changeset) => {
       const changesetResult = validateChangeset(changeset);
       if (!changesetResult.ok) {
@@ -356,6 +707,43 @@ export function createChangesIpcHandlers(
       } catch (error) {
         logger.error('Unexpected changes:resolveView handler failure', { error });
         return { error: error instanceof Error ? error.message : String(error), ok: false };
+      }
+    },
+    rewindPreview: async (payload) => {
+      const payloadResult = validateRewindPreviewPayload(payload);
+      if (!payloadResult.ok) {
+        return payloadResult;
+      }
+      const target = payloadResult.value;
+      try {
+        const db = await resolveDatabase();
+        // A run target resolves to its triggering message here, in the main
+        // process, where the runs table lives. An unresolvable run is a VISIBLE
+        // domain refusal naming the run — never a fabricated message id.
+        let messageId: string;
+        if (target.kind === 'message') {
+          messageId = target.messageId;
+        } else {
+          const resolved = await rewind.resolveMessageForRun(db, target.threadId, target.runId);
+          if (resolved === null) {
+            return {
+              ok: true,
+              value: {
+                conflicts: [],
+                message: `no message in thread "${target.threadId}" follows run "${target.runId}"; there is nothing to restore to.`,
+                ok: false,
+                reason: 'message-not-found',
+              },
+            };
+          }
+          messageId = resolved;
+        }
+        return {
+          ok: true,
+          value: await rewind.rewindToMessage(db, { messageId, threadId: target.threadId }),
+        };
+      } catch (error) {
+        return failed('changes:rewindPreview', error);
       }
     },
   };

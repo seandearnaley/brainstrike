@@ -218,10 +218,13 @@ describe('assistant UI panel architecture', () => {
     // the same shared, bridge-aware service CodeBlockHeader/CopyTextButton
     // use -- so a broken Electron clipboard bridge surfaces visibly instead
     // of silently doing nothing (no-silent-fallbacks rule).
-    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    // UserActionBar lives in user-message.tsx (extracted from the panel root
+    // under the source-file budget); it is the last export, so the slice runs
+    // to end-of-file.
+    const source = readSource('assistant-ui-panel/user-message.tsx');
     const userActionBarStart = source.indexOf('export const UserActionBar =');
-    const editComposerStart = source.indexOf('const EditComposer =');
-    const userActionBarSource = source.slice(userActionBarStart, editComposerStart);
+    expect(userActionBarStart).toBeGreaterThan(-1);
+    const userActionBarSource = source.slice(userActionBarStart);
 
     expect(userActionBarSource).toContain('useCopyToClipboard()');
     expect(userActionBarSource).toContain('aui.message().getCopyText()');

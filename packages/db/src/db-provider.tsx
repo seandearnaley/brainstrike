@@ -891,6 +891,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
+      // Soft-rewind tombstones (migration 080, BST-1115): bookkeeping over
+      // conversation content this clear destroys, so it goes with it.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
@@ -972,6 +975,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
+    // Soft-rewind tombstones (migration 080, BST-1115).
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
     await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
     await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');

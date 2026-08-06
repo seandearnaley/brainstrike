@@ -48,6 +48,7 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_task_lists',
   'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
+  'brainstrike_assistant_message_tombstones',
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
   'prompt_items',
@@ -107,6 +108,9 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
       "INSERT INTO brainstrike_assistant_thread_placements (id) VALUES ('sentinel-placement')"
     );
     await db.exec("INSERT INTO brainstrike_assistant_run_errors (id) VALUES ('sentinel')");
+    await db.exec(
+      "INSERT INTO brainstrike_assistant_message_tombstones (id) VALUES ('sentinel-tombstone')"
+    );
     await db.exec("INSERT INTO brainstrike_diagnostic_events (id) VALUES ('sentinel')");
     // The mind op-log sits third-from-last in the delete order, so this
     // sentinel is the deepest "the whole tail committed" probe — and an op-log
@@ -136,6 +140,7 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
     expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_assistant_run_errors')).toBe(0);
+    expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
     expect(await countRows('brainstrike_mind_ops')).toBe(0);
   });

@@ -34,13 +34,115 @@
  * producing a new one. `loadView`/`fileDiff` depend on `stableChangeset`
  * directly (not a ref written during render, which React can replay or
  * discard mid-render — this stays a pure render-time computation).
+ *
+ * NO ETERNAL LOADING (BST-1115 smoke feedback — the reported "Last Turn sticks
+ * on 'Loading changed files…'"). `ChangesSurface` derives its loading state as
+ * "a changeset is selected, `view` is null, and `error` is null", so EVERY way
+ * this hook can leave both `view` and `error` null while a changeset IS
+ * selected paints an indefinite spinner with no explanation and no retry.
+ * There were two such ways, and both are now closed:
+ *
+ * 1. INERT WITH A SELECTION. A missing bridge, or no root able to resolve the
+ *    changeset, used to set `view: null, error: null` and return — the honest
+ *    "nothing to load" when `changeset === null`, but a silent dead end once
+ *    the user HAS picked something. Those cases now set a typed error naming
+ *    the missing input (`changeset-unavailable:` / `changeset-unresolvable:`).
+ *    Reachable today: a `git-scope` changeset for a worktree with no
+ *    containing workspace root resolves to a null `resolutionRootId` while the
+ *    surface's own `rootId` stays non-null, so the panes render and wait.
+ * 2. A CALL THAT NEVER ANSWERS. `bridge.resolveView` is a main-process
+ *    round-trip that reaches PGlite through the DB host. When that host is
+ *    wedged (observed in the field: a 30s `VACUUM (ANALYZE)` blowing its own
+ *    timeout, every later query queued behind it) the desktop side eventually
+ *    rejects with its own 30s per-request timeout — but nothing in the
+ *    RENDERER bounded the wait, so a main process that never answers at all
+ *    left the surface loading forever. Every resolve is now raced against
+ *    {@link RESOLVE_VIEW_TIMEOUT_MS} and a lapsed race is a typed error with
+ *    the same Retry affordance as any other failure. That bound deliberately
+ *    sits ABOVE the desktop's own 30s timeout: when main is merely slow it
+ *    still wins and reports the REAL reason; this only speaks when nothing
+ *    answers at all.
  */
 import { createLogger } from '@brainstrike/logging';
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { resolveChangesBridge } from './changes-bridge';
+import { type ChangesBridge, resolveChangesBridge } from './changes-bridge';
+import { useChangesNavigationStore } from './changes-navigation-store';
+import { useRewindStore } from './rewind-store';
 
 const logger = createLogger('UseChangeset');
+
+/**
+ * How long the renderer waits for a `changes:resolveView` round-trip before
+ * reporting an honest timeout. Above the desktop DB host's own 30s
+ * per-request timeout (`DbHostManager`) so a slow-but-answering main process
+ * still reports its real failure and this bound only fires when nothing
+ * answers — see this module's "NO ETERNAL LOADING" note.
+ */
+export const RESOLVE_VIEW_TIMEOUT_MS = 45_000;
+
+const RESOLVE_VIEW_TIMEOUT_ERROR = `changeset-resolve-timeout: the changes service did not answer within ${Math.round(
+  RESOLVE_VIEW_TIMEOUT_MS / 1000
+)}s. It may be busy with a long-running database operation.`;
+
+/**
+ * Race `pending` against a timer, resolving to a typed timeout failure rather
+ * than leaving the caller waiting forever. The timer is always cleared, so a
+ * settled call never leaves a pending handle behind.
+ */
+async function withResolveTimeout(
+  pending: Promise<GitResult<ChangesetView>>
+): Promise<GitResult<ChangesetView>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<GitResult<ChangesetView>>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({ error: RESOLVE_VIEW_TIMEOUT_ERROR, ok: false });
+        }, RESOLVE_VIEW_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * One resolve attempt, reduced to a typed result: bounded by
+ * {@link RESOLVE_VIEW_TIMEOUT_MS} and with a thrown bridge failure folded into
+ * the same `{ ok: false }` shape, so the caller only ever branches on `ok`.
+ */
+async function resolveViewSafely(
+  bridge: ChangesBridge,
+  rootId: string,
+  changeset: Changeset
+): Promise<GitResult<ChangesetView>> {
+  try {
+    return await withResolveTimeout(bridge.resolveView(rootId, changeset));
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    logger.error('Failed to resolve changeset view', { error: caught });
+    return { error: message, ok: false };
+  }
+}
+
+/**
+ * Why an inert hook cannot load the changeset the user HAS selected. Never
+ * called with `changeset === null` — that is the one honest "nothing to load"
+ * state, and it keeps `error` null.
+ */
+function describeInertReason(bridgePresent: boolean, rootId: string | null): string {
+  if (!bridgePresent) {
+    return 'changeset-unavailable: the changes service is not available in this build.';
+  }
+  if (!rootId) {
+    return 'changeset-unresolvable: no workspace root can resolve this changeset. For a Git scope, the worktree is outside every mounted root.';
+  }
+  return 'changeset-unresolvable: this changeset cannot be resolved right now.';
+}
 
 export interface UseChangesetResult {
   /** True when the desktop `window.changes` bridge is present and well-formed. */
@@ -90,38 +192,46 @@ export function useChangeset(
   const changesetKey = changeset === null ? null : JSON.stringify(changeset);
   const stableChangeset = useMemo(() => changeset, [changesetKey]);
 
+  // REWIND INVALIDATION (BST-1115). A rewind reverts the very files an open
+  // changeset describes, so afterwards the SAME `Changeset` value resolves to a
+  // DIFFERENT view. Nothing about the changeset itself changes, which is why
+  // this is its own input: before it, the Changes surface behind the confirm
+  // modal kept listing files the rewind had already put back.
+  //
+  // It is a DEPENDENCY of `loadView` rather than a second effect: the load
+  // belongs to a (changeset, generation) pair, and a bump makes the previous
+  // load stale in exactly the way a changeset change does.
+  const rewindGeneration = useRewindStore((state) => state.generation);
+
+  // LIVE LAST TURN (BST-1115 smoke feedback): a run writing files while the
+  // user watches the Changes surface must grow the list as it goes. The
+  // journal rows land in main per edit, so a re-resolve of the SAME changeset
+  // returns more files — nothing about the changeset itself changes, which is
+  // why (exactly like `rewindGeneration` above) this is its own `loadView`
+  // input rather than a second effect. The store only bumps it when the
+  // active changeset IS the running thread's Last Turn, so a git scope or a
+  // pinned run never refetches behind the user's back.
+  const liveRefreshNonce = useChangesNavigationStore((state) => state.liveRefreshNonce);
+
   const loadView = useCallback(async (): Promise<GitResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
     if (!(bridge && rootId && stableChangeset)) {
       if (generation === generationRef.current) {
         setView(null);
-        setError(null);
+        // A selection the hook cannot load is a VISIBLE dead end, never a
+        // silent one — see "NO ETERNAL LOADING" in this module's doc comment.
+        setError(stableChangeset ? describeInertReason(bridge !== null, rootId) : null);
       }
       return null;
     }
-    try {
-      const result = await bridge.resolveView(rootId, stableChangeset);
-      if (generation === generationRef.current) {
-        if (result.ok) {
-          setView(result.value);
-          setError(null);
-        } else {
-          setView(null);
-          setError(result.error);
-        }
-      }
-      return result;
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      logger.error('Failed to resolve changeset view', { error: caught });
-      if (generation === generationRef.current) {
-        setView(null);
-        setError(message);
-      }
-      return { error: message, ok: false };
+    const result = await resolveViewSafely(bridge, rootId, stableChangeset);
+    if (generation === generationRef.current) {
+      setView(result.ok ? result.value : null);
+      setError(result.ok ? null : result.error);
     }
-  }, [bridge, rootId, stableChangeset]);
+    return result;
+  }, [bridge, liveRefreshNonce, rewindGeneration, rootId, stableChangeset]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();

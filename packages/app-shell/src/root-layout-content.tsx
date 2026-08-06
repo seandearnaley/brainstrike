@@ -22,6 +22,8 @@ import {
 import {
   type ChangesReviewContextValue,
   ChangesReviewProvider,
+  type RewindContextValue,
+  RewindProvider,
 } from '@brainstrike/ui/assistant-ui-panel';
 import {
   EmbeddingRuntimeProvider,
@@ -48,6 +50,8 @@ import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
+import { useRewindStore } from './changes/rewind-store';
+import { RewindConfirmDialogLazy } from './changes/ui/rewind-confirm-dialog-lazy';
 import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
@@ -277,6 +281,29 @@ function useChangesReviewValue(
       },
     };
   }, [changesPageContent, openChangeset, setActiveTab]);
+}
+
+/**
+ * Binds the assistant panel's "Restore to before this message" affordance
+ * (BST-1115) to the Changes package's confirm modal. Same capability gate as
+ * `useChangesReviewValue`: no `changesPageContent` means no `window.changes`
+ * bridge, so the affordance renders nothing rather than raising a modal that
+ * could never load a preview.
+ *
+ * Raising is not applying — the scope choice, the file preview and the conflict
+ * acknowledgment all live in the modal.
+ */
+function useRewindValue(changesPageContent: ReactNode): RewindContextValue | null {
+  const openRewind = useRewindStore((state) => state.openRewind);
+  return useMemo(() => {
+    if (!changesPageContent) {
+      return null;
+    }
+    return {
+      requestRewind: ({ composerText, messageId, threadId }) =>
+        openRewind({ composerText, target: { messageId, threadId } }),
+    };
+  }, [changesPageContent, openRewind]);
 }
 
 function useDebouncedPanelLayoutChange(options: {
@@ -525,6 +552,7 @@ export function RootLayoutContent({
   // bridge exists, so its presence IS the capability check here — the "→ Review"
   // footer link (packages/ui, gated on this same context) renders null without it.
   const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
+  const rewindValue = useRewindValue(changesPageContent);
   const diagnosticSurface: RendererDiagnosticSurface =
     settingsOpen || activeTab === 'settings' ? 'settings' : shellTab;
   const longTaskContext = useMemo(
@@ -602,78 +630,95 @@ export function RootLayoutContent({
           changesPageContent) makes the link render nothing — same capability
           gating as the git/terminal/notes nav items below. */}
       <ChangesReviewProvider value={changesReviewValue}>
-        <ActionRegistryProvider registry={actionRegistry}>
-          {/* The ⌘K command palette mounts once at the visible-UI root. Only the
+        {/* Binds the assistant panel's "Restore to before this message"
+            affordance (BST-1115). The modal it raises is mounted below, as a
+            lexical SIBLING of the Settings dialog rather than inside any
+            surface, because both entry points (assistant panel, Changes
+            header) must land in the same one. */}
+        <RewindProvider value={rewindValue}>
+          <ActionRegistryProvider registry={actionRegistry}>
+            {/* The ⌘K command palette mounts once at the visible-UI root. Only the
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
-          <CommandPaletteHost />
-          <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-            <EmbeddingRuntimeProvider>
-              {/* One shared embedder cache for every semantic-search surface. The
+            <CommandPaletteHost />
+            <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
+              <EmbeddingRuntimeProvider>
+                {/* One shared embedder cache for every semantic-search surface. The
                 machinery is lazy (models load on first embed), so this
                 always-mounted provider is free until the first query. It
                 encloses BOTH the collection browser (sidebar DatabasePanel) and
                 the workspace-search panel (ExplorerSearchTabs) below. */}
-              <SearchEmbedderProvider>
-                <IndexingActivityCoordinator />
-                <div
-                  aria-hidden={shellTab !== 'explorer'}
-                  className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-                  data-testid="explorer-route"
-                >
-                  <PanelLayoutProvider
-                    controlledState={panelState}
-                    onChange={handlePanelLayoutChange}
+                <SearchEmbedderProvider>
+                  <IndexingActivityCoordinator />
+                  <div
+                    aria-hidden={shellTab !== 'explorer'}
+                    className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                    data-testid="explorer-route"
                   >
-                    <ExplorerAppSurface
-                      changesPageContent={changesPageContent}
-                      contextExplorerPageContent={contextExplorerPageContent}
-                      contextExplorerPanelContent={contextExplorerPanelContent}
-                      databaseTabChunkingMode={databaseTabChunkingMode}
-                      loadEmbeddingQueue={loadEmbeddingQueue}
-                      {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                      preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                      visible={shellTab === 'explorer'}
-                    />
-                  </PanelLayoutProvider>
-                </div>
-                <Dialog
-                  onOpenChange={handleSettingsOpenChange}
-                  open={settingsOpen || activeTab === 'settings'}
-                >
-                  <DialogContent
-                    aria-describedby={undefined}
-                    className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
-                    overlayClassName="bg-background/55 backdrop-blur-md"
+                    <PanelLayoutProvider
+                      controlledState={panelState}
+                      onChange={handlePanelLayoutChange}
+                    >
+                      <ExplorerAppSurface
+                        changesPageContent={changesPageContent}
+                        contextExplorerPageContent={contextExplorerPageContent}
+                        contextExplorerPanelContent={contextExplorerPanelContent}
+                        databaseTabChunkingMode={databaseTabChunkingMode}
+                        loadEmbeddingQueue={loadEmbeddingQueue}
+                        {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                        preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                        visible={shellTab === 'explorer'}
+                      />
+                    </PanelLayoutProvider>
+                  </div>
+                  <Dialog
+                    onOpenChange={handleSettingsOpenChange}
+                    open={settingsOpen || activeTab === 'settings'}
                   >
-                    <DialogTitle className="sr-only">Settings</DialogTitle>
-                    {settingsPageContent}
-                  </DialogContent>
-                </Dialog>
-                {/* Each keeps its content mounted-but-hidden once first opened — see
+                    <DialogContent
+                      aria-describedby={undefined}
+                      className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
+                      overlayClassName="bg-background/55 backdrop-blur-md"
+                    >
+                      <DialogTitle className="sr-only">Settings</DialogTitle>
+                      {settingsPageContent}
+                    </DialogContent>
+                  </Dialog>
+                  {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
-                <KeepMountedRoute
-                  content={gitPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="git"
-                />
-                <KeepMountedRoute
-                  content={terminalPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="terminal"
-                />
-                <KeepMountedRoute
-                  content={notesPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="notes"
-                />
-              </SearchEmbedderProvider>
-            </EmbeddingRuntimeProvider>
-          </ChunkingWorkerProvider>
-        </ActionRegistryProvider>
+                  <KeepMountedRoute
+                    content={gitPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="git"
+                  />
+                  <KeepMountedRoute
+                    content={terminalPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="terminal"
+                  />
+                  <KeepMountedRoute
+                    content={notesPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="notes"
+                  />
+                </SearchEmbedderProvider>
+              </EmbeddingRuntimeProvider>
+            </ChunkingWorkerProvider>
+            {/* Conversation Rewind confirm modal. Mounted only when the
+                changes capability is present (`rewindValue`), so web never
+                loads its chunk, and lazily so the Changes tree/diff panes stay
+                out of the shell's entry chunk. Renders nothing visible until
+                an entry point writes a request to `useRewindStore`. */}
+            {rewindValue ? (
+              <Suspense fallback={null}>
+                <RewindConfirmDialogLazy />
+              </Suspense>
+            ) : null}
+          </ActionRegistryProvider>
+        </RewindProvider>
       </ChangesReviewProvider>
     </AppLayout>
   );

@@ -52,6 +52,10 @@ export type MastraResetTable =
 const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
+  // Soft-rewind tombstones (migration 080, BST-1115). Hidden-message
+  // bookkeeping over conversation content the clear just destroyed: keeping it
+  // would hide messages that no longer exist on the fresh database.
+  'brainstrike_assistant_message_tombstones',
   'brainstrike_assistant_run_errors',
   'brainstrike_assistant_run_outcomes',
   'brainstrike_assistant_run_usage',
@@ -89,7 +93,7 @@ const CORE_RESET_TABLES = [
  * these previously survived a web factory reset while dying on desktop. All
  * six are seed-free caches/bookkeeping that rebuild on demand. Clear
  * Database keeps them on BOTH surfaces (desktop `db:clearAll` never cleared
- * them either — the 27-relation clear-set parity is untouched).
+ * them either — clear-set parity with {@link getResetTables} is untouched).
  *
  * `view_filter_presets` is deliberately NOT here despite being in the
  * original status-quo family: it is migration-SEEDED configuration
@@ -137,7 +141,7 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
   ];
 }
 
-/** The full 27-relation reset set (12 brainstrike + 9 core + the Mastra six). */
+/** The full 29-relation reset set (14 brainstrike + 9 core + the Mastra six). */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }

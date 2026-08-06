@@ -10,12 +10,22 @@
  * imports its own barrel creates the module-scope chunk-init cycle class that
  * has bitten this repo four times. Import the concrete module instead.
  */
-export type { ChangesBridge } from './changes-bridge';
+export type {
+  ChangesBridge,
+  RewindApplyPayload,
+  RewindPreviewPayload,
+  RewindRedoPayload,
+} from './changes-bridge';
 export { isChangesBridgeAvailable, resolveChangesBridge } from './changes-bridge';
 export type { ChangesStoreState } from './changes-store';
 export { changedFileKey, selectRenderedFiles, useChangesStore } from './changes-store';
+export type { RewindNavigationState, RewindRequest } from './rewind-store';
+export { useRewindStore } from './rewind-store';
 export { ChangesSurface } from './ui/changes-surface';
+export { RewindConfirmDialogLazy } from './ui/rewind-confirm-dialog-lazy';
 export type { UseChangesetResult } from './use-changeset';
 export { useChangeset } from './use-changeset';
 export type { UseGitInventoryResult } from './use-git-inventory';
 export { useGitInventory } from './use-git-inventory';
+export type { UseRewindResult } from './use-rewind';
+export { useRewind } from './use-rewind';

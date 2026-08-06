@@ -160,6 +160,21 @@ export const MIND_OPS = ['delete'] as const;
 export type MindOp = (typeof MIND_OPS)[number];
 
 /**
+ * Soft-rewind tombstone sidecar (BST-1115, migration 080 in BOTH runners plus
+ * the app-shell bootstrap mirror — same sidecar-not-ALTER precedent as
+ * migration 055's message parents).
+ *
+ * A tombstone row hides its message from every Brainstrike-owned read path
+ * while Mastra keeps owning the content row. `message_id` is the primary key
+ * (a message is tombstoned at most once) and `rewind_id` groups the rows one
+ * rewind wrote, which is what makes redo an exact inverse: delete the newest
+ * batch and the messages reappear untouched. `revert_id` is separate and
+ * NULLABLE — it links the paired journal file revert, which a
+ * `conversation-only` rewind never performs.
+ */
+export const ASSISTANT_MESSAGE_TOMBSTONES_TABLE = 'brainstrike_assistant_message_tombstones';
+
+/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
@@ -172,5 +187,6 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },
+  { table: 'brainstrike_assistant_message_tombstones', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_thread_placements', threadColumn: 'thread_id' },
 ] as const;

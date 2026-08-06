@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
 type Changeset = import('@brainstrike/types').Changeset;
+type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -103,6 +104,10 @@ const GIT_STRUCTURED_FILE_DIFF_CHANNEL = 'git:structuredFileDiff' as const;
 const CHANGES_RESOLVE_VIEW_CHANNEL = 'changes:resolveView' as const;
 const CHANGES_FILE_DIFF_CHANNEL = 'changes:fileDiff' as const;
 const CHANGES_INVENTORY_CHANNEL = 'changes:inventory' as const;
+const CHANGES_REWIND_PREVIEW_CHANNEL = 'changes:rewindPreview' as const;
+const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
+const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
+const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1245,12 +1250,29 @@ if (shouldExposeBridge('git')) {
 // domain (changes-ipc-handlers.ts).
 if (shouldExposeBridge('changes')) {
   contextBridge.exposeInMainWorld('changes', {
+    // Conversation Rewind (BST-1115 W5 T4). `mode` is required on apply —
+    // there is no default that silently reverts files (Amendment 1).
+    applyRewind: (payload: {
+      acknowledgeConflicts?: boolean;
+      messageId: string;
+      mode: AssistantRewindMode;
+      threadId: string;
+    }) => ipcRenderer.invoke(CHANGES_APPLY_REWIND_CHANNEL, payload),
     fileDiff: (rootId: string, changeset: Changeset, path: string) =>
       ipcRenderer.invoke(CHANGES_FILE_DIFF_CHANNEL, rootId, changeset, path),
+    // Ends the redo window (BST-1115 W5 T4b). Fired by the renderer when a
+    // USER-authored message starts a new run; a thread with no outstanding
+    // rewind answers `finalized: false` and writes nothing.
+    finalizeRewinds: (payload: { threadId: string }) =>
+      ipcRenderer.invoke(CHANGES_FINALIZE_REWINDS_CHANNEL, payload),
     // Repository/worktree topology for the Changes surface (BST-1114 T0).
     inventory: () => ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL),
+    redoRewind: (payload: { acknowledgeConflicts?: boolean; rewindId: string }) =>
+      ipcRenderer.invoke(CHANGES_REDO_REWIND_CHANNEL, payload),
     resolveView: (rootId: string, changeset: Changeset) =>
       ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
+    rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
+      ipcRenderer.invoke(CHANGES_REWIND_PREVIEW_CHANNEL, payload),
   });
 }
 

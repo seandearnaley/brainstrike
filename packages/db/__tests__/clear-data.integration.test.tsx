@@ -95,6 +95,10 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_message_parents
      (message_id, thread_id, resource_id)
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-resource')`,
+  // BST-1115: soft-rewind tombstones hide messages the clear just destroyed.
+  `INSERT INTO brainstrike_assistant_message_tombstones
+     (message_id, thread_id, rewind_id)
+     VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-rewind')`,
   // BST-992 convergence: factory-reset-only sentinel (representative of the
   // six seed-free caches) — wiped by the purge, kept by Clear Database.
   `INSERT INTO job_queue_metrics (queue, succeeded_total)
@@ -151,6 +155,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_task_lists')).toBe(0);
     expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
+    expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
   }
 
   async function assertMastraResetTablesAbsent(): Promise<void> {

@@ -3,7 +3,14 @@
  * changeset the Changes surface is looking at.
  *
  * Three source families, per the design:
- * - "Last Turn" — the most recent `agent-run` for the active thread.
+ * - "Last Turn" — the most recent `agent-run` for the active thread. A
+ *   STANDING scope (BST-1115 smoke feedback): it enables the moment a thread
+ *   is active (`threadId` present), independent of any "→ Review" handoff.
+ *   `latestRunId === null` (a thread with no completed turns observed yet)
+ *   still disables it, with an honest reason distinct from "no thread at
+ *   all" — see `describeActiveSource`'s caller,
+ *   `AssistantUiPanelWrapper.setActiveThreadIdentity`, for how the identity
+ *   is populated and kept live.
  * - "Run range" — thread-scoped, from-run/to-run. NOT implemented in this
  *   pass: there is no existing hook that sources a thread's run history
  *   without new IPC (`use-changeset.ts`/`use-git-inventory.ts` only resolve a
@@ -45,6 +52,14 @@ export interface ChangesetSourcePickerProps {
   /** Most recent `agent-run` id for {@link threadId}, or null if unknown/none. */
   readonly latestRunId: string | null;
   readonly onSelectChangeset: (next: Changeset) => void;
+  /**
+   * Fires the "Last Turn" selection specifically (BST-1115 smoke feedback) —
+   * distinct from `onSelectChangeset` so the caller can track "the user is on
+   * Last Turn" for live retargeting without inferring it from run-id
+   * equality. Takes no arguments: the caller resolves the CURRENT identity at
+   * call time, never a value closed over from this render.
+   */
+  readonly onSelectLastTurn: () => void;
   /** Active thread id, or null when no thread is in scope on this surface. */
   readonly threadId: string | null;
 }
@@ -108,16 +123,21 @@ export function ChangesetSourcePicker({
   inventory,
   latestRunId,
   onSelectChangeset,
+  onSelectLastTurn,
   threadId,
 }: ChangesetSourcePickerProps): ReactElement {
   const activeKey = changesetKey(changeset);
   const canSelectLastTurn = threadId !== null && latestRunId !== null;
+  // Two distinct honest-absence reasons (BST-1115 smoke feedback): no active
+  // thread at all, vs. a thread with nothing completed in it yet.
+  const lastTurnDisabledReason =
+    threadId === null ? 'No active thread on this surface yet' : 'No completed turns yet';
 
-  const selectLastTurn = (): void => {
-    if (!(threadId && latestRunId)) {
+  const handleSelectLastTurn = (): void => {
+    if (!canSelectLastTurn) {
       return;
     }
-    onSelectChangeset({ kind: 'agent-run', runId: latestRunId, threadId });
+    onSelectLastTurn();
   };
 
   return (
@@ -142,11 +162,11 @@ export function ChangesetSourcePicker({
         data-testid="changeset-source-picker-menu"
       >
         <DropdownMenuLabel>Agent turns</DropdownMenuLabel>
-        <span title={canSelectLastTurn ? undefined : 'No active thread on this surface yet'}>
+        <span title={canSelectLastTurn ? undefined : lastTurnDisabledReason}>
           <DropdownMenuItem
             data-testid="changeset-source-last-turn"
             disabled={!canSelectLastTurn}
-            onSelect={selectLastTurn}
+            onSelect={handleSelectLastTurn}
           >
             {activeKey ===
               changesetKey({

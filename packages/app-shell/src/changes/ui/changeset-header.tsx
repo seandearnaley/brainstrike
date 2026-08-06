@@ -8,17 +8,22 @@
  * card shape, same small ghost/outline buttons.
  *
  * PROPS: the base shape is a fixed contract (other Changes-surface pieces
- * assume it). `latestRunId`, `threadId`, and `onRetry` are ADDITIVE
- * extensions — `onRetry` is explicitly sanctioned by the task brief, and
- * `latestRunId`/`threadId` are required by `ChangesetSourcePicker`'s "Last
- * Turn" control, which this header renders; there is no back-channel for the
- * picker to get thread/run identity except through here.
+ * assume it). `latestRunId`, `threadId`, `onSelectLastTurn`, and `onRetry`
+ * are ADDITIVE extensions — `onRetry` is explicitly sanctioned by the task
+ * brief, and `latestRunId`/`threadId`/`onSelectLastTurn` are required by
+ * `ChangesetSourcePicker`'s "Last Turn" control, which this header renders;
+ * there is no back-channel for the picker to get thread/run identity except
+ * through here. As of BST-1115 smoke feedback, the caller (`ChangesSurface`)
+ * sources `latestRunId`/`threadId` from the navigation store's STANDING
+ * `activeThreadIdentity`, not the "→ Review" handoff — see that store's own
+ * doc comment.
  */
 import type { Changeset, ChangesetView, GitInventory } from '@brainstrike/types';
 import { Button, Input } from '@brainstrike/ui';
-import { GitCommitHorizontal, Loader2, RefreshCw, Upload } from 'lucide-react';
+import { GitCommitHorizontal, History, Loader2, RefreshCw, Upload } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { resolveGitBridge } from '../../git-panel/git-bridge';
+import { useRewindStore } from '../rewind-store';
 import { ChangesetSourcePicker } from './changeset-source-picker';
 import { describeGitScopeKind } from './git-scope-label';
 
@@ -42,6 +47,8 @@ export interface ChangesetHeaderProps {
    */
   readonly onRetryInventory?: () => void;
   readonly onSelectChangeset: (next: Changeset) => void;
+  /** See module doc comment — additive, required by the source picker. */
+  readonly onSelectLastTurn: () => void;
   readonly rootId: string | null;
   /** See module doc comment — additive, required by the source picker. */
   readonly threadId: string | null;
@@ -348,6 +355,48 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
   );
 }
 
+/**
+ * "Restore to before this" — the SECOND entry point into Conversation Rewind
+ * (Amendment 1 A1.3). The user's real smoke path is turn footer → Review →
+ * changeset, and that path dead-ended: there was no route from a reviewed
+ * agent-run changeset to undoing it.
+ *
+ * BOTH IDS COME FROM THE CHANGESET ITSELF. `agent-run` and `run-range` each
+ * carry their own `threadId`, so nothing here reads (or needs) the navigation
+ * store's `handoffThreadIdentity`. A `git-scope` changeset carries no thread at
+ * all, which is exactly why this component is not rendered for one: the action
+ * is ABSENT, not disabled-with-a-guess, and no thread id is ever synthesised to
+ * make the button appear (that store's own doc comment names inventing one a
+ * NO SILENT FALLBACKS violation).
+ *
+ * The header knows a RUN and never a message; the main process resolves the
+ * run's triggering message (`resolveRewindMessageForRun`) so the renderer
+ * never guesses one. `composerText: null` — a run has no prompt to restore, so
+ * this entry point performs no composer repopulation.
+ */
+function RewindFromRunAction({
+  runId,
+  threadId,
+}: {
+  readonly runId: string;
+  readonly threadId: string;
+}): ReactElement {
+  const openRewind = useRewindStore((state) => state.openRewind);
+  return (
+    <Button
+      className="h-7 gap-1 px-2 text-xs"
+      data-testid="changeset-rewind-action"
+      onClick={() => openRewind({ composerText: null, target: { runId, threadId } })}
+      size="sm"
+      type="button"
+      variant="outline"
+    >
+      <History aria-hidden="true" className="size-3.5" />
+      Restore to before this
+    </Button>
+  );
+}
+
 function ChangesetActions({
   changeset,
   inventory,
@@ -361,24 +410,21 @@ function ChangesetActions({
     return null;
   }
 
-  if (changeset.kind === 'agent-run' || changeset.kind === 'run-range') {
-    // "Undo turn" is intentionally ABSENT here (not disabled). It would call
-    // `EditCheckpointContext.revertRun(runId, options)` — see
-    // `packages/ui/src/assistant-ui-panel/edit-checkpoint-context.tsx` — but
-    // that context's ONLY provider (`EditCheckpointProvider`) is mounted in
-    // `assistant-ui-panel-wrapper.tsx`, nested under the assistant chat
-    // panel's own React tree. The Changes surface is a SIBLING top-level
-    // page (mirrors `git-page-content.tsx`), not nested under that wrapper,
-    // so the provider is never an ancestor here and the context resolves to
-    // `null`. Even if it were mounted, the exported hooks
-    // (`useCheckpointForToolCall`, `useCheckpointTurnRevert`) are keyed by a
-    // message's tool-call ids, not a bare `runId` — a runId-keyed accessor
-    // isn't exported today. Capability-gated absence, not a broken button;
-    // tracked as a follow-up (needs a runId-keyed revert accessor + this
-    // surface reachable from inside the checkpoint provider's tree).
-    return null;
+  if (changeset.kind === 'agent-run') {
+    return <RewindFromRunAction runId={changeset.runId} threadId={changeset.threadId} />;
   }
 
+  if (changeset.kind === 'run-range') {
+    // A run-range's ANCHOR is `fromRunId` — restoring to before the range means
+    // restoring to before the run it starts at.
+    return <RewindFromRunAction runId={changeset.fromRunId} threadId={changeset.threadId} />;
+  }
+
+  // A `git-scope` changeset carries NO thread identity, so rewind is absent for
+  // it — see `RewindFromRunAction`. (BST-1114 shipped this branch with no
+  // action at all, because a runId-keyed "Undo turn" had no provider reachable
+  // from this sibling page; W5's rewind replaces that dead end for the two
+  // journal changeset kinds without needing `EditCheckpointContext` here.)
   if (
     isViewingActiveWorktree(inventory, rootId, changeset.repositoryRoot, changeset.worktreePath)
   ) {
@@ -407,6 +453,7 @@ export function ChangesetHeader({
   onRetry,
   onRetryInventory,
   onSelectChangeset,
+  onSelectLastTurn,
   rootId,
   threadId,
   view,
@@ -426,6 +473,7 @@ export function ChangesetHeader({
           inventory={inventory}
           latestRunId={latestRunId}
           onSelectChangeset={onSelectChangeset}
+          onSelectLastTurn={onSelectLastTurn}
           threadId={threadId}
         />
         <StatsReadout view={view} />

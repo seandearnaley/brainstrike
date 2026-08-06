@@ -124,6 +124,7 @@ import {
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
+import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
@@ -1411,6 +1412,17 @@ export function AssistantUiPanelWrapper({
     },
     [clearThreadLiveRunUsage, completePreparedRequest]
   );
+  // Conversation Rewind wiring (BST-1115), extracted whole into
+  // `changes/use-wrapper-rewind-wiring.ts`: finalization composed around the
+  // run-creation seam, the re-hydration generation, the standing "Last Turn"
+  // identity, and the live mid-run refresh. The wrapper only forwards seams.
+  const {
+    handleRunEditActivity,
+    markUserAuthoredSend,
+    prepareRequestData: prepareRequestDataWithFinalization,
+    publishTerminalRunIdentity,
+    rewindGeneration,
+  } = useWrapperRewindWiring({ prepareRequestData, threadId: selectedMemoryThreadId });
   const resolveModelPricing = useCallback<ModelPricingResolver>(
     (provider: string, model: string) => {
       if (!isSupportedProvider(provider)) {
@@ -1690,21 +1702,25 @@ export function AssistantUiPanelWrapper({
   // journal rows are written in main during tool execution, after the last
   // thread-open read, so the turn-level "Revert all edits" footer would
   // otherwise stay empty for the turn that JUST ran until a thread switch.
+  // `publishTerminalRunIdentity` advances the standing "Last Turn" identity
+  // (BST-1115) — policy in `changes/use-wrapper-rewind-wiring.ts`.
   const handleRunFinished = useCallback(
     (event: AssistantRunEvent) => {
       onRunFinished(event);
       void refetchCheckpoints();
       void refreshChangeset();
+      publishTerminalRunIdentity(event);
     },
-    [onRunFinished, refetchCheckpoints, refreshChangeset]
+    [onRunFinished, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
   );
   const handleRunFailed = useCallback(
     (event: AssistantRunEvent) => {
       onRunFailed(event);
       void refetchCheckpoints();
       void refreshChangeset();
+      publishTerminalRunIdentity(event);
     },
-    [onRunFailed, refetchCheckpoints, refreshChangeset]
+    [onRunFailed, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
   );
 
   // Grant actions for the tool-approval notice ("Always allow" / "Allow
@@ -1749,16 +1765,18 @@ export function AssistantUiPanelWrapper({
                 onContextBreakdown={handleContextBreakdown}
                 onProviderSettingsChange={handleProviderSettingsChange}
                 onProviderSettingsValidationChange={providerDraft.report}
+                onRunEditActivity={handleRunEditActivity}
                 onRunFailed={handleRunFailed}
                 onRunFinished={handleRunFinished}
                 onStepUsage={handleStepUsage}
                 onStreamActivity={renewActiveAssistantForegroundActivity}
+                onThreadRunStart={markUserAuthoredSend}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}
                 {...(operatingRoot ? { operatingRoot } : {})}
                 pickerModels={pickerModels}
                 pickerProviders={pickerProviders}
-                prepareRequestData={prepareRequestData}
+                prepareRequestData={prepareRequestDataWithFinalization}
                 providerGroups={providerGroups}
                 providerSettings={effectiveProviderSettings}
                 recentModels={validRecentModels}
@@ -1770,6 +1788,7 @@ export function AssistantUiPanelWrapper({
                   : {})}
                 toolMenu={toolMenu}
                 {...(historyAdapter ? { historyAdapter } : {})}
+                historyGeneration={rewindGeneration}
                 {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                 localChatTransport={localChatTransport}
                 {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}

@@ -766,6 +766,10 @@ export function registerDatabaseIpcHandlers(
             // assistant-ui branch topology is client-owned durable state; clear
             // it explicitly so prompt carousels cannot survive factory reset.
             await clearOptionalRelation(tx, 'brainstrike_assistant_message_parents');
+            // Soft-rewind tombstones (migration 080, BST-1115): hidden-message
+            // bookkeeping over conversation content this clear destroys. No FK,
+            // so clear explicitly per the FACTORY RESET CONTRACT.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_message_tombstones');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

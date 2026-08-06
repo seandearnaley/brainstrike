@@ -1,5 +1,10 @@
 import type {
   AssistantPersonasListResult,
+  AssistantRewindFinalization,
+  AssistantRewindMode,
+  AssistantRewindPreviewResult,
+  AssistantRewindRedoResult,
+  AssistantRewindResult,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -125,13 +130,38 @@ declare global {
      * versa — disables the Changes surface at runtime.
      */
     changes?: {
+      /** Conversation Rewind: apply (BST-1115 W5 T4). */
+      applyRewind: (payload: {
+        acknowledgeConflicts?: boolean;
+        messageId: string;
+        mode: AssistantRewindMode;
+        threadId: string;
+      }) => Promise<GitResult<AssistantRewindResult>>;
       fileDiff: (
         rootId: string,
         changeset: Changeset,
         path: string
       ) => Promise<GitResult<StructuredFileDiff>>;
+      /**
+       * Conversation Rewind: end the redo window for a thread (W5 T4b). Fired
+       * when a USER-authored message starts a new run. `value.finalized ===
+       * false` means the thread had no outstanding rewind — the ordinary case,
+       * not a failure.
+       */
+      finalizeRewinds: (payload: {
+        threadId: string;
+      }) => Promise<GitResult<AssistantRewindFinalization>>;
       inventory: () => Promise<GitResult<GitInventory>>;
+      /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
+      redoRewind: (payload: {
+        acknowledgeConflicts?: boolean;
+        rewindId: string;
+      }) => Promise<GitResult<AssistantRewindRedoResult>>;
       resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
+      /** Conversation Rewind: pre-apply preview (range, tombstones, conflicts, view). */
+      rewindPreview: (
+        payload: { threadId: string } & ({ messageId: string } | { runId: string })
+      ) => Promise<GitResult<AssistantRewindPreviewResult>>;
     };
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;

@@ -26,6 +26,28 @@ export function registerChangesIpcHandlers(
   registry.registerInvoke('changes', DESKTOP_IPC_CHANNELS.changes.inventory, () =>
     handlers.inventory()
   );
+  // Conversation Rewind (BST-1115 W5 T4). Every payload arrives as `unknown`
+  // and is narrowed inside the handler, same as the two above.
+  registry.registerInvoke(
+    'changes',
+    DESKTOP_IPC_CHANNELS.changes.rewindPreview,
+    (_event, payload: unknown) => handlers.rewindPreview(payload)
+  );
+  registry.registerInvoke(
+    'changes',
+    DESKTOP_IPC_CHANNELS.changes.applyRewind,
+    (_event, payload: unknown) => handlers.applyRewind(payload)
+  );
+  registry.registerInvoke(
+    'changes',
+    DESKTOP_IPC_CHANNELS.changes.redoRewind,
+    (_event, payload: unknown) => handlers.redoRewind(payload)
+  );
+  registry.registerInvoke(
+    'changes',
+    DESKTOP_IPC_CHANNELS.changes.finalizeRewinds,
+    (_event, payload: unknown) => handlers.finalizeRewinds(payload)
+  );
 
   return () => {
     registry.unregisterAll();

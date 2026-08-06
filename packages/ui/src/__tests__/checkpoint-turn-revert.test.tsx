@@ -82,6 +82,46 @@ describe('collectMutationToolCallIds', () => {
   });
 });
 
+// BST-1115 W5 T4 — the inherited T3 follow-up, PINNED rather than asserted.
+//
+// A files-mode rewind journals an after-capture row per reverted file so redo
+// is possible. Those rows live in the same table `listThreadCheckpoints` reads,
+// so they reach this selector too. They must NOT produce a "Revert all edits"
+// footer: they carry `toolCallId: null` (nothing rendered them as a tool call)
+// and their `runId` is the REVERT batch id, which no message owns. That makes
+// the exclusion structural, so no `REWIND_REVERT_TOOL_NAME` filter is needed —
+// and this is the test that would fail if that ever stopped being true.
+describe('selectTurnRevertScope with rewind revert-capture rows', () => {
+  const revertRows = [
+    makeEntry({
+      id: 'revert-1',
+      runId: 'revert-batch-1',
+      toolCallId: null,
+      toolName: 'brainstrike.rewindRevert',
+    }),
+    makeEntry({
+      id: 'revert-2',
+      path: 'src/other.ts',
+      runId: 'revert-batch-1',
+      toolCallId: null,
+      toolName: 'brainstrike.rewindRevert',
+    }),
+  ];
+
+  it('produces no turn footer of their own', () => {
+    expect(selectTurnRevertScope(['call-a'], revertRows)).toBeNull();
+  });
+
+  it('does not inflate a real turn’s revertible count', () => {
+    const scope = selectTurnRevertScope(
+      ['call-a'],
+      [makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' }), ...revertRows]
+    );
+
+    expect(scope).toEqual({ revertibleCount: 1, runIds: ['run-1'] });
+  });
+});
+
 describe('selectTurnRevertScope', () => {
   it('counts the whole run even when this message shows only its last edit (split run)', () => {
     const entries = [

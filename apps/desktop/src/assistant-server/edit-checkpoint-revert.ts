@@ -14,6 +14,7 @@ import {
   resolveWorkspaceWritePath,
   writeContainedFileBytes,
 } from '../secure-file-write';
+import { beforeStateToCapture, captureBeforeState } from './edit-checkpoint-capture';
 import {
   CheckpointConflictError,
   CheckpointNotFoundError,
@@ -22,9 +23,11 @@ import {
 import {
   type EditCheckpointDatabase,
   mapCheckpointRecordRow,
+  recordEditCheckpoint,
   sha256Hex,
 } from './edit-checkpoint-journal';
-import { withTwoFileLocks } from './file-mutation-tools';
+import { MAX_WRITE_WORKSPACE_FILE_BYTES, withTwoFileLocks } from './file-mutation-tools';
+import { isWithinRoot } from './workspace-path';
 import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution';
 import { loadWorkspaceRootsFromDatabase } from './workspace-roots';
 
@@ -179,7 +182,93 @@ async function markReverted(
   return fullRowToRecord(row);
 }
 
-async function readDiskState(
+/**
+ * REVERT-TIME AFTER-CAPTURE (BST-1115 PAIRING RULE, binding).
+ *
+ * A revert is itself a filesystem mutation, so it must be journaled like any
+ * other or the state it destroyed becomes unrecoverable. When
+ * `afterCapture` is supplied, every inverse mutation records a NEW journal row
+ * — INSIDE the same file lock, BEFORE the write — whose before-state is the
+ * bytes about to be overwritten. Reverting those rows in turn (which is exactly
+ * what `revertCheckpointRun(revertId)` does, newest-first) restores the
+ * pre-revert state: that is the whole mechanism behind rewind's redo.
+ *
+ * Because the capture happens inside the lock and before the mutation, a
+ * capture failure ABORTS the write rather than leaving an unjournaled revert
+ * behind. Redo over an unjournaled revert would be silent degradation, so this
+ * ordering is load-bearing, not incidental.
+ *
+ * The per-turn checkpoint UI's own revert path passes no `afterCapture` and is
+ * unchanged by this seam.
+ */
+export interface RevertAfterCapture {
+  /** Journal `run_id` the capture rows are grouped under (rewind's revertId). */
+  readonly revertId: string;
+  readonly toolName: string;
+}
+
+interface RevertCaptureSpec {
+  /** File whose PRE-mutation state is snapshotted into the new row. */
+  readonly absolutePath: string;
+  readonly afterExisted: boolean;
+  readonly afterHash: string | null;
+  readonly fromPath?: string;
+  readonly op: AssistantEditCheckpointOp;
+  /** Workspace path the capture row is keyed at (the inverse's TARGET). */
+  readonly path: string;
+}
+
+type RevertCaptureFn = (spec: RevertCaptureSpec) => Promise<void>;
+
+const NO_CAPTURE: RevertCaptureFn = async () => {
+  // The per-turn revert path journals nothing; redo is a rewind-only feature.
+};
+
+function buildRevertCapture(
+  db: EditCheckpointDatabase,
+  row: CheckpointFullRow,
+  afterCapture: RevertAfterCapture | undefined
+): RevertCaptureFn {
+  if (!afterCapture) {
+    return NO_CAPTURE;
+  }
+  return async (spec: RevertCaptureSpec): Promise<void> => {
+    const before =
+      spec.op === 'rename'
+        ? {
+            beforeContent: null,
+            beforeExisted: true,
+            beforeHash: null,
+            beforeSize: null,
+            captureStatus: 'rename' as const,
+          }
+        : beforeStateToCapture(
+            await captureBeforeState(spec.absolutePath, MAX_WRITE_WORKSPACE_FILE_BYTES)
+          );
+    await recordEditCheckpoint(db, {
+      ...before,
+      afterExisted: spec.afterExisted,
+      afterHash: spec.afterHash,
+      resourceId: row.resourceId,
+      rootId: row.rootId,
+      runId: afterCapture.revertId,
+      threadId: row.threadId,
+      toolName: afterCapture.toolName,
+      ...(spec.op === 'rename'
+        ? { fromPath: spec.fromPath ?? '', op: 'rename' as const, path: spec.path }
+        : { op: spec.op, path: spec.path }),
+    });
+  };
+}
+
+/**
+ * The ONE definition of "what does disk currently look like here" used by both
+ * the executor's per-entry conflict assertion and the rewind pre-flight scan
+ * (`rewind-conflict-scan.ts`). Shared deliberately: a pre-flight that computed
+ * disk state differently from the executor could clear a revert the executor
+ * then refuses — or, far worse, the reverse.
+ */
+export async function readDiskState(
   absolutePath: string
 ): Promise<{ existed: boolean; hash: string | null }> {
   try {
@@ -203,7 +292,8 @@ async function applyRestoreWrite(
   row: CheckpointFullRow,
   rootPath: string,
   force: boolean,
-  deps: CheckpointRevertDeps
+  deps: CheckpointRevertDeps,
+  capture: RevertCaptureFn
 ): Promise<void> {
   if (row.beforeContent === null) {
     throw new CheckpointNotRevertibleError(row.id, 'its before-content is no longer stored.');
@@ -219,6 +309,13 @@ async function applyRestoreWrite(
       'the file changed since the checkpoint was recorded.'
     );
     const buffer = Buffer.from(content, 'utf8');
+    await capture({
+      absolutePath: resolved.absolutePath,
+      afterExisted: true,
+      afterHash: sha256Hex(buffer),
+      op: 'write',
+      path: row.path,
+    });
     await writeContainedFileBytes({ buffer, requestedPath: row.path, resolved });
     await deps.reindex({
       absolutePath: resolved.absolutePath,
@@ -231,11 +328,60 @@ async function applyRestoreWrite(
   });
 }
 
+/**
+ * DIRECTORY PRUNE (BST-1115, rewind apply only).
+ *
+ * The journal records FILE ops only. A scaffolding turn that writes
+ * `app/src/components/Button.tsx` journals ONE `created` file; the `app/`,
+ * `app/src/` and `app/src/components/` directories that
+ * `ensureContainedDirectory` made on the way are invisible to it. Unlinking the
+ * file therefore used to leave the entire scaffolded tree standing after a
+ * rewind — the folder structure of a project the user asked to un-create.
+ *
+ * So after unlinking a created file we walk UP from its parent, removing each
+ * directory that is now EMPTY, and stop at the first directory `rmdir` refuses:
+ * ENOTEMPTY (something the run did not create still lives there) or any other
+ * error. The walk also stops unconditionally at the workspace root — the root
+ * is the boundary, never a candidate, and nothing at or above it is ever
+ * removed.
+ *
+ * KNOWN LIMITATION, accepted for W5: an intentionally-empty directory that
+ * already existed on the created file's exact path is indistinguishable from
+ * one the run scaffolded, and will be pruned. Journaling directory creation is
+ * the real fix and is out of scope here.
+ *
+ * Failures are deliberately swallowed rather than raised: the file — the thing
+ * the journal actually promised to revert — is already gone, and a leftover
+ * directory must not turn a successful revert into a reported failure.
+ */
+async function pruneEmptyAncestorDirectories(
+  canonicalRootPath: string,
+  startDirectory: string
+): Promise<void> {
+  let current = startDirectory;
+  // The root itself terminates the walk. `isWithinRoot` is TRUE for the root,
+  // so this inequality — not the containment check — is the boundary stop.
+  while (current !== canonicalRootPath && isWithinRoot(canonicalRootPath, current)) {
+    try {
+      await fsPromises.rmdir(current);
+    } catch {
+      return;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return;
+    }
+    current = parent;
+  }
+}
+
 async function applyDeleteCreated(
   row: CheckpointFullRow,
   rootPath: string,
   force: boolean,
-  deps: CheckpointRevertDeps
+  deps: CheckpointRevertDeps,
+  capture: RevertCaptureFn,
+  pruneEmptyDirectories: boolean
 ): Promise<void> {
   const resolved = await resolveWorkspaceWritePath(rootPath, row.path);
   const mutationPath = await resolveWorkspaceLeafMutationPath(
@@ -251,11 +397,24 @@ async function applyDeleteCreated(
       current.existed && current.hash === row.afterHash,
       'the created file changed since the checkpoint was recorded.'
     );
+    await capture({
+      absolutePath: resolved.absolutePath,
+      afterExisted: false,
+      afterHash: null,
+      op: 'delete',
+      path: row.path,
+    });
     await fsPromises.unlink(mutationPath).catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
       }
     });
+    if (pruneEmptyDirectories) {
+      await pruneEmptyAncestorDirectories(
+        resolved.canonicalRootPath,
+        path.dirname(resolved.absolutePath)
+      );
+    }
     await deps.reindex({
       kind: 'delete',
       rootId: row.rootId,
@@ -268,7 +427,8 @@ async function applyRecreateDeleted(
   row: CheckpointFullRow,
   rootPath: string,
   force: boolean,
-  deps: CheckpointRevertDeps
+  deps: CheckpointRevertDeps,
+  capture: RevertCaptureFn
 ): Promise<void> {
   if (row.beforeContent === null) {
     throw new CheckpointNotRevertibleError(row.id, 'its before-content is no longer stored.');
@@ -279,6 +439,13 @@ async function applyRecreateDeleted(
     const current = await readDiskState(resolved.absolutePath);
     assertNoConflict(row.id, force, !current.existed, 'a file now exists at the deleted path.');
     const buffer = Buffer.from(content, 'utf8');
+    await capture({
+      absolutePath: resolved.absolutePath,
+      afterExisted: true,
+      afterHash: sha256Hex(buffer),
+      op: 'write',
+      path: row.path,
+    });
     await writeContainedFileBytes({ buffer, requestedPath: row.path, resolved });
     await deps.reindex({
       absolutePath: resolved.absolutePath,
@@ -295,12 +462,14 @@ async function applyRenameBack(
   row: CheckpointFullRow,
   rootPath: string,
   force: boolean,
-  deps: CheckpointRevertDeps
+  deps: CheckpointRevertDeps,
+  capture: RevertCaptureFn
 ): Promise<void> {
-  if (!row.fromPath) {
+  const fromPath = row.fromPath;
+  if (!fromPath) {
     throw new CheckpointNotRevertibleError(row.id, 'the rename source path was not recorded.');
   }
-  const fromResolved = await resolveWorkspaceWritePath(rootPath, row.fromPath);
+  const fromResolved = await resolveWorkspaceWritePath(rootPath, fromPath);
   const toResolved = await resolveWorkspaceWritePath(rootPath, row.path);
   const toMutationPath = await resolveWorkspaceLeafMutationPath(
     toResolved.canonicalRootPath,
@@ -322,6 +491,17 @@ async function applyRenameBack(
       fromResolved.canonicalRootPath,
       path.dirname(fromResolved.absolutePath)
     );
+    // The inverse of `fromPath -> path` is `path -> fromPath`, so the capture
+    // row's own identity is that inverse: keyed at `fromPath`, coming FROM
+    // `path`. Reverting it re-applies the original rename.
+    await capture({
+      absolutePath: fromResolved.absolutePath,
+      afterExisted: true,
+      afterHash: null,
+      fromPath: row.path,
+      op: 'rename',
+      path: fromPath,
+    });
     await fsPromises.rename(toMutationPath, fromResolved.absolutePath);
     await deps.reindex({
       fromWorkspacePath: fromResolved.workspacePath,
@@ -339,13 +519,24 @@ async function applyRenameBack(
  * reverted (idempotent) states, resolves the root, detects on-disk conflicts
  * (hash compare — `force` overrides), applies the per-op inverse under the file
  * lock, runs the matching reindex seam, and stamps `reverted_at`.
+ *
+ * `pruneEmptyDirectories` is OPT-IN and defaults to false — see
+ * {@link pruneEmptyAncestorDirectories}. Rewind's apply path passes true; the
+ * per-turn checkpoint revert and rewind's REDO both leave it off, redo because
+ * it restores the PRE-rewind state, in which those directories existed.
  */
 export async function revertCheckpointEntry(
   db: EditCheckpointDatabase,
-  args: { id: string; force?: boolean },
+  args: {
+    id: string;
+    force?: boolean;
+    afterCapture?: RevertAfterCapture;
+    pruneEmptyDirectories?: boolean;
+  },
   deps: CheckpointRevertDeps
 ): Promise<AssistantCheckpointRevertResult> {
   const force = args.force ?? false;
+  const pruneEmptyDirectories = args.pruneEmptyDirectories ?? false;
   const safeDeps = withNonFatalReindex(deps);
   try {
     const row = await loadCheckpointRow(db, args.id);
@@ -363,15 +554,16 @@ export async function revertCheckpointEntry(
       );
     }
     const rootPath = await resolveRootPathForRow(db, row);
+    const capture = buildRevertCapture(db, row, args.afterCapture);
 
     if (row.op === 'rename') {
-      await applyRenameBack(row, rootPath, force, safeDeps);
+      await applyRenameBack(row, rootPath, force, safeDeps, capture);
     } else if (row.op === 'write' && row.captureStatus === 'created') {
-      await applyDeleteCreated(row, rootPath, force, safeDeps);
+      await applyDeleteCreated(row, rootPath, force, safeDeps, capture, pruneEmptyDirectories);
     } else if (row.op === 'delete') {
-      await applyRecreateDeleted(row, rootPath, force, safeDeps);
+      await applyRecreateDeleted(row, rootPath, force, safeDeps, capture);
     } else {
-      await applyRestoreWrite(row, rootPath, force, safeDeps);
+      await applyRestoreWrite(row, rootPath, force, safeDeps, capture);
     }
 
     const entry = await markReverted(db, row.id);

@@ -7,6 +7,7 @@ import {
   isGuardedToolError,
 } from '@brainstrike/assistant-contract';
 import {
+  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
@@ -691,6 +692,28 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_PARENTS_TABLE} (
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_parents_thread_idx
   ON ${ASSISTANT_MESSAGE_PARENTS_TABLE} (thread_id, resource_id);
+
+-- Soft-rewind tombstones (BST-1115). Bootstrapped here AND created by
+-- migration 080 — keep the shape byte-identical to 080. A tombstoned message
+-- keeps its Mastra content row and is excluded by every Brainstrike-owned
+-- read; the row is hard-deleted when the next user message finalizes the
+-- rewind. message_id is the PK: a message is tombstoned at most once, which is
+-- what makes deleting a rewind_id batch an exact redo. rewind_id is the redo
+-- key and exists in both rewind modes; revert_id links the paired journal file
+-- revert and is NULL for a conversation-only rewind.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (
+  message_id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  rewind_id text NOT NULL,
+  revert_id text,
+  tombstoned_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_thread_idx
+  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_tombstones_rewind_idx
+  ON ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (rewind_id);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,
@@ -3037,6 +3060,11 @@ export function createPgliteAssistantThreadRepository(
                -- insertion-order ties need a future monotonic schema column.
                ORDER BY "createdAt" DESC, id DESC
                LIMIT $3`;
+      // Soft-rewind exclusion (BST-1115) sits INSIDE the windowing subquery, so
+      // it applies before `limitLatest` — the hydration window is the latest N
+      // VISIBLE messages, not N rows of which some are then dropped. Reload
+      // hydration is this query, which is why a tombstoned message stays gone
+      // across a restart without any renderer-side memory of the rewind.
       const sql = `SELECT
           recent_messages.id,
           recent_messages.role,
@@ -3048,6 +3076,10 @@ export function createPgliteAssistantThreadRepository(
           SELECT id, role, content, "createdAt"
           FROM ${MASTRA_MEMORY_TABLES.messages}
           WHERE thread_id = $1 AND "resourceId" = $2
+            AND NOT EXISTS (
+              SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
+              WHERE tombstones.message_id = ${MASTRA_MEMORY_TABLES.messages}.id
+            )
           ${limitClause}
         ) AS recent_messages
         LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents

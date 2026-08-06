@@ -57,6 +57,7 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof ChangesetSourc
     inventory: null,
     latestRunId: null,
     onSelectChangeset: vi.fn(),
+    onSelectLastTurn: vi.fn(),
     threadId: null,
     ...overrides,
   };
@@ -144,6 +145,49 @@ describe('ChangesetSourcePicker', () => {
     render(<ChangesetSourcePicker {...baseProps()} />);
     await openMenu();
 
-    expect(screen.getByTestId('changeset-source-last-turn')).toHaveAttribute('data-disabled');
+    const item = screen.getByTestId('changeset-source-last-turn');
+    expect(item).toHaveAttribute('data-disabled');
+    expect(item.closest('span')).toHaveAttribute('title', 'No active thread on this surface yet');
+  });
+
+  // BST-1115 smoke feedback: "Last Turn" is a STANDING scope — it must enable
+  // the moment a thread is active, with no "→ Review" handoff involved at all.
+  it('enables "Last Turn" from a thread identity alone, no handoff changeset required', async () => {
+    render(
+      <ChangesetSourcePicker {...baseProps({ latestRunId: 'run-9', threadId: 'thread-9' })} />
+    );
+    await openMenu();
+
+    expect(screen.getByTestId('changeset-source-last-turn')).not.toHaveAttribute('data-disabled');
+  });
+
+  it('disables "Last Turn" with an honest "no completed turns" reason when the thread has run nothing yet', async () => {
+    render(<ChangesetSourcePicker {...baseProps({ latestRunId: null, threadId: 'thread-9' })} />);
+    await openMenu();
+
+    const item = screen.getByTestId('changeset-source-last-turn');
+    expect(item).toHaveAttribute('data-disabled');
+    expect(item.closest('span')).toHaveAttribute('title', 'No completed turns yet');
+  });
+
+  it('calls onSelectLastTurn (not onSelectChangeset) when "Last Turn" is chosen', async () => {
+    const onSelectChangeset = vi.fn();
+    const onSelectLastTurn = vi.fn();
+    render(
+      <ChangesetSourcePicker
+        {...baseProps({
+          latestRunId: 'run-9',
+          onSelectChangeset,
+          onSelectLastTurn,
+          threadId: 'thread-9',
+        })}
+      />
+    );
+    await openMenu();
+
+    await userEvent.click(screen.getByTestId('changeset-source-last-turn'));
+
+    expect(onSelectLastTurn).toHaveBeenCalledOnce();
+    expect(onSelectChangeset).not.toHaveBeenCalled();
   });
 });
