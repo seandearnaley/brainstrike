@@ -786,8 +786,14 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           supportedEfforts: ['max', 'high', 'low'],
           // Official K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,
           // verified 2026-08-05): max_completion_tokens defaults to 131,072
-          // (max 1,048,576) and thinking cannot be disabled — the vendor's
-          // operating point for thinking + answer. OpenRouter publishes no
+          // (max 1,048,576) — the vendor's operating point for thinking +
+          // answer. Moonshot's FIRST-PARTY API cannot disable thinking, but
+          // the OpenRouter route declares reasoning optional (mandatory:
+          // false, multiple hosts serve this open-weight model); an explicit
+          // Off maps to `reasoning.enabled: false` under
+          // `provider.require_parameters`, which narrows routing to endpoints
+          // honouring it — so a reasoning-off request correctly keeps the
+          // coding ceiling instead of this window. OpenRouter publishes no
           // max completion for this route, so the fact lives here (BST-1170).
           vendorDefaultOutputTokens: 131_072,
         },
