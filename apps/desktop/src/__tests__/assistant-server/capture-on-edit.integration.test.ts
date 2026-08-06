@@ -124,6 +124,27 @@ describe('edit checkpoint capture on write', () => {
     });
   });
 
+  it('records a non-null tool_call_id from the PLAIN-tool context shape (top-level toolCallId)', async () => {
+    // The desktop registry passes plain tool OBJECTS, and Mastra hands those a
+    // TOP-LEVEL `toolCallId` (no `agent` wrapper). Reproduced live (BST-1164
+    // review): reading only `agent.toolCallId` journaled NULL `tool_call_id`,
+    // which broke the renderer's `entriesByToolCallId` binding and hid BOTH
+    // checkpoint-undo affordances.
+    const tools = buildDesktopAssistantTools(runtime());
+    await tools['brainstrike.writeWorkspaceFile']?.execute?.(
+      { content: 'hello\n', path: '/plain.txt' },
+      { toolCallId: 'call-plain-1' }
+    );
+
+    const rows = await listCheckpoints();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      path: '/plain.txt',
+      tool_call_id: 'call-plain-1',
+    });
+    expect(rows[0]?.tool_call_id).not.toBeNull();
+  });
+
   it('records an "ok" checkpoint when overwriting an existing text file', async () => {
     await writeDisk('a.ts', 'OLD');
     const tools = buildDesktopAssistantTools(runtime());
