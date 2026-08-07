@@ -140,6 +140,27 @@ export function BrowserPaneContent(): ReactElement {
     [bridge]
   );
 
+  // A tab action's IPC can reject: double-clicking Close, or any action that
+  // races manager disposal, names an unknown tab, and `unwrapBrowserResult`
+  // rejects that structured failure. Dropping the promise would surface a
+  // global unhandledrejection with no attribution; instead log it AND resync
+  // the tab mirror from main's authoritative list — the mirror going stale is
+  // exactly what produced the unknown-tab call, so re-seeding recovers it.
+  const runTabAction = useCallback(
+    (action: Promise<unknown>, label: string) => {
+      action.catch((error: unknown) => {
+        logger.error('Browser pane tab action failed; resyncing tabs', { error, label });
+        bridge
+          ?.listTabs()
+          .then(setTabs)
+          .catch((resyncError: unknown) =>
+            logger.error('Browser pane tab resync failed', { error: resyncError })
+          );
+      });
+    },
+    [bridge, setTabs]
+  );
+
   const handleNavigate = useCallback(
     (event: FormEvent) => {
       event.preventDefault();
@@ -149,12 +170,12 @@ export function BrowserPaneContent(): ReactElement {
         return;
       }
       if (activeTab) {
-        void bridge.navigate(activeTab.tabId, trimmed);
+        runTabAction(bridge.navigate(activeTab.tabId, trimmed), 'navigate');
       } else {
-        void bridge.createTab(trimmed);
+        runTabAction(bridge.createTab(trimmed), 'createTab');
       }
     },
-    [activeTab, bridge, displayedUrl]
+    [activeTab, bridge, displayedUrl, runTabAction]
   );
 
   if (!bridge) {
@@ -178,7 +199,7 @@ export function BrowserPaneContent(): ReactElement {
                 aria-selected={tab.active}
                 className="min-w-0 truncate"
                 data-testid={`browser-tab-${tab.tabId}`}
-                onClick={() => bridge.selectTab(tab.tabId)}
+                onClick={() => runTabAction(bridge.selectTab(tab.tabId), 'selectTab')}
                 role="tab"
                 type="button"
               >
@@ -187,7 +208,7 @@ export function BrowserPaneContent(): ReactElement {
               <button
                 aria-label="Close tab"
                 className="shrink-0 opacity-60 hover:opacity-100"
-                onClick={() => bridge.closeTab(tab.tabId)}
+                onClick={() => runTabAction(bridge.closeTab(tab.tabId), 'closeTab')}
                 type="button"
               >
                 <X className="size-3" />
@@ -198,7 +219,7 @@ export function BrowserPaneContent(): ReactElement {
         <Button
           aria-label="New tab"
           data-testid="browser-new-tab"
-          onClick={() => bridge.createTab()}
+          onClick={() => runTabAction(bridge.createTab(), 'createTab')}
           size="icon-sm"
           variant="ghost"
         >
@@ -209,7 +230,7 @@ export function BrowserPaneContent(): ReactElement {
         <Button
           aria-label="Back"
           disabled={!activeTab?.canGoBack}
-          onClick={() => activeTab && bridge.goBack(activeTab.tabId)}
+          onClick={() => activeTab && runTabAction(bridge.goBack(activeTab.tabId), 'goBack')}
           size="icon-sm"
           variant="ghost"
         >
@@ -218,7 +239,7 @@ export function BrowserPaneContent(): ReactElement {
         <Button
           aria-label="Forward"
           disabled={!activeTab?.canGoForward}
-          onClick={() => activeTab && bridge.goForward(activeTab.tabId)}
+          onClick={() => activeTab && runTabAction(bridge.goForward(activeTab.tabId), 'goForward')}
           size="icon-sm"
           variant="ghost"
         >
@@ -227,7 +248,7 @@ export function BrowserPaneContent(): ReactElement {
         <Button
           aria-label="Reload"
           disabled={!activeTab}
-          onClick={() => activeTab && bridge.reload(activeTab.tabId)}
+          onClick={() => activeTab && runTabAction(bridge.reload(activeTab.tabId), 'reload')}
           size="icon-sm"
           variant="ghost"
         >

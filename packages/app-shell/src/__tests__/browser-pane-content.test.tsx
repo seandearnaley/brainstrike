@@ -155,6 +155,21 @@ describe('BrowserPaneContent', () => {
     expect(useBrowserTabsStore.getState().tabs).toHaveLength(0);
   });
 
+  it('logs and resyncs the tab mirror when a tab action rejects (unknown-tab race)', async () => {
+    render(<BrowserPaneContent />);
+    act(() => {
+      tabsListener?.([tab({ active: true, tabId: 'a' })]);
+    });
+    bridge.closeTab.mockRejectedValueOnce(new Error('unknown tab'));
+    bridge.listTabs.mockClear();
+
+    fireEvent.click(await screen.findByLabelText('Close tab'));
+
+    // The rejected action must not become an unhandledrejection — it re-seeds
+    // the mirror from main's authoritative list instead.
+    await waitFor(() => expect(bridge.listTabs).toHaveBeenCalled());
+  });
+
   it('occludes the native view when the Settings modal opens (pane DOM still laid out)', async () => {
     // settingsOpen is the one occlusion source that can be true while the
     // browser route is active — the rect stays non-zero, so only the explicit
