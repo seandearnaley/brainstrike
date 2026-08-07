@@ -335,10 +335,6 @@ declare global {
         rootId: string,
         params: { description?: string; summary: string }
       ) => Promise<GitResult<GitCommitResult>>;
-      commitDiff: (
-        rootId: string,
-        params: { commit: string; originalPath?: string; path: string }
-      ) => Promise<GitResult<GitDiff>>;
       commitFiles: (
         rootId: string,
         params: { commit: string }

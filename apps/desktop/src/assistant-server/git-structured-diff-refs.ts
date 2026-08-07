@@ -161,8 +161,8 @@ export async function resolveEmptyTreeHash(invoke: InvokeFn): Promise<GitResult<
  * module's doc comment, ROOT-COMMIT FALLBACK.
  *
  * For a MERGE commit `^` names the FIRST parent, so `commit` mode is a
- * first-parent diff — the same semantics `git-history.ts`'s `commitDiff`
- * already ships. That is honest, not a defect: changes that arrived via the
+ * first-parent diff — the same semantics `git-history.ts` established. That
+ * is honest, not a defect: changes that arrived via the
  * merged branch appear as the merge's changes, while mainline changes
  * between the merge-base and the merge appear as no difference.
  */

@@ -1,13 +1,13 @@
 /**
- * History/commit-object read ops for the desktop `git` IPC domain — `history`,
- * `commitDiff`, and `commitFiles`, split out of `git-service.ts` (BST-1111,
- * BST-1118) to keep that file under the line-count ratchet.
+ * History/commit-object read ops for the desktop `git` IPC domain — `history`
+ * and `commitFiles`, split out of `git-service.ts` (BST-1111, BST-1118) to
+ * keep that file under the line-count ratchet.
  *
  * Like `git-service.ts`, this module has NO Electron imports so it is
- * hermetically testable: `createHistoryOps` takes the already-pinned `cwd`
- * plus the SAME injected `invoke` runner the caller (`createGitService`)
- * builds around its `execFile`-style `GitCommandRunner`. None of these three
- * ops mutate the repository, so unlike the rest of `git-service.ts` they
+ * hermetically testable: `createHistoryOps` takes the SAME injected `invoke`
+ * runner the caller (`createGitService`) builds around its `execFile`-style
+ * `GitCommandRunner`, already bound to the validated workspace `cwd`. Neither
+ * op mutates the repository, so unlike the rest of `git-service.ts` they
  * never need the hook-disabling `invokeHookFree` variant. There is no
  * `exec`/`spawn shell:true` anywhere in this file, and every git failure
  * resolves into a structured `{ ok: false, error }` result rather than
@@ -17,15 +17,9 @@
  * responsible for resolving + containment-checking `cwd` against a known
  * workspace root before any of this runs.
  */
-import type { GitCommitFile, GitDiff, GitHistoryPage, GitResult } from '@brainstrike/types';
+import type { GitCommitFile, GitHistoryPage, GitResult } from '@brainstrike/types';
 import { parseCommitFiles, parseHistoryPage } from './git-repository-parsers';
-import {
-  boundOutput,
-  describeFailure,
-  type GitCommandRun,
-  resolveContainedPathArg,
-  toErrorMessage,
-} from './git-service';
+import { describeFailure, type GitCommandRun, toErrorMessage } from './git-service';
 
 /**
  * Structural type for the git-command runner this module closes over —
@@ -47,17 +41,16 @@ function requireCommitId(commit: unknown): GitResult<string> {
 }
 
 export interface HistoryOpsOptions {
-  readonly cwd: string;
   readonly invoke: InvokeFn;
 }
 
 /**
- * Build the `history`/`commitDiff`/`commitFiles` ops bound to a single,
+ * Build the `history`/`commitFiles` ops bound to a single,
  * already-validated `cwd` and the caller's `invoke` runner. Mirrors
  * `createGitService`'s contract: every method returns a `GitResult`, a git
  * failure becomes `{ ok: false, error }`, never a throw.
  */
-export function createHistoryOps({ cwd, invoke }: HistoryOpsOptions) {
+export function createHistoryOps({ invoke }: HistoryOpsOptions) {
   async function resolveHistoryCommit(ref: string | undefined): Promise<GitResult<string>> {
     if (ref === undefined) {
       const head = await invoke(['rev-parse', '--verify', 'HEAD^{commit}']);
@@ -96,88 +89,7 @@ export function createHistoryOps({ cwd, invoke }: HistoryOpsOptions) {
     return { ok: true, value: firstParent };
   }
 
-  async function resolveCommitDiffArgs(
-    commit: string,
-    paths: readonly string[]
-  ): Promise<GitResult<readonly string[]>> {
-    const firstParent = await resolveFirstParent(commit);
-    if (!firstParent.ok) {
-      return firstParent;
-    }
-    const commonArgs = ['--no-ext-diff', '--no-textconv', '--find-renames'];
-    return firstParent.value
-      ? {
-          ok: true,
-          value: ['diff', ...commonArgs, firstParent.value, commit, '--', ...paths],
-        }
-      : {
-          ok: true,
-          value: ['show', '--format=', ...commonArgs, commit, '--', ...paths],
-        };
-  }
-
-  function resolveCommitDiffPaths(params: {
-    originalPath?: string | undefined;
-    path: string;
-  }): GitResult<readonly string[]> {
-    const pathResult = resolveContainedPathArg(cwd, params.path);
-    if (!(pathResult.ok && pathResult.value)) {
-      return pathResult.ok
-        ? { error: 'historical diff path must be a non-empty string', ok: false }
-        : pathResult;
-    }
-    const originalPathResult = resolveContainedPathArg(cwd, params.originalPath);
-    if (!originalPathResult.ok) {
-      return originalPathResult;
-    }
-    return {
-      ok: true,
-      value:
-        originalPathResult.value && originalPathResult.value !== pathResult.value
-          ? [pathResult.value, originalPathResult.value]
-          : [pathResult.value],
-    };
-  }
-
   return {
-    /** Historical unified diff for one contained path in a full commit object. */
-    commitDiff: async (params: {
-      commit: string;
-      originalPath?: string | undefined;
-      path: string;
-    }): Promise<GitResult<GitDiff>> => {
-      try {
-        const commit = requireCommitId(params.commit);
-        if (!commit.ok) {
-          return commit;
-        }
-        const paths = resolveCommitDiffPaths(params);
-        if (!paths.ok) {
-          return paths;
-        }
-        const args = await resolveCommitDiffArgs(commit.value, paths.value);
-        if (!args.ok) {
-          return args;
-        }
-        const run_ = await invoke(args.value);
-        if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer') {
-          return { error: describeFailure(run_), ok: false };
-        }
-        const bounded = boundOutput(run_.stdout);
-        return {
-          ok: true,
-          value: {
-            path: paths.value[0] ?? null,
-            staged: false,
-            truncated: bounded.truncated || run_.failureReason === 'maxBuffer',
-            unifiedDiff: bounded.text,
-          },
-        };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
-
     /** File list for a historical commit, scoped to the opened workspace root. */
     commitFiles: async (params: {
       commit: string;

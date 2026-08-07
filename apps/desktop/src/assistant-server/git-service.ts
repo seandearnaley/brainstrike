@@ -19,7 +19,7 @@
  * checking the `cwd` against a known workspace root before calling in here.
  *
  * The `StructuredFileDiff` engine (both-sides content + hunk ranges for one
- * path) lives in `git-structured-diff.ts`, and the `history`/`commitDiff`/
+ * path) lives in `git-structured-diff.ts`, and the `history`/
  * `commitFiles` ops live in `git-history.ts` (BST-1111, BST-1118) — this
  * module re-exports the former's public constant and wires both factories
  * into `createGitService`'s returned op set.
@@ -969,7 +969,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   }
 
   const structuredDiffOps = createStructuredDiffOps({ cwd, invoke, invokeHookFree });
-  const historyOps = createHistoryOps({ cwd, invoke });
+  const historyOps = createHistoryOps({ invoke });
 
   return {
     /** Ahead/behind counts vs the upstream tracking ref. */
@@ -1041,13 +1041,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     },
 
     /**
-     * Historical unified diff for one contained path in a full commit object,
-     * and the file list for a historical commit — both implemented in
-     * `git-history.ts`; see `createHistoryOps`.
+     * File list for a historical commit, scoped to the opened workspace root
+     * — implemented in `git-history.ts`; see `createHistoryOps`.
      */
-    commitDiff: historyOps.commitDiff,
-
-    /** File list for a historical commit, scoped to the opened workspace root. */
     commitFiles: historyOps.commitFiles,
 
     /**

@@ -357,6 +357,51 @@ describe('resolveGitScopeStructuredFileDiffParams — branch-vs-base receives th
   });
 });
 
+describe("resolveGitScopeStructuredFileDiffParams — uncommitted's per-path untracked probe (the missing W3 assertion, folded into BST-1161)", () => {
+  /** `git status --porcelain=v2 -z` + `rev-parse --show-prefix` (repo root). */
+  function statusProbeInvoke(statusStdout: string) {
+    return async (args: readonly string[]): Promise<GitCommandRun> => {
+      if (args[0] === 'status') {
+        expect(args).toContain('--untracked-files=all');
+        return ok({ stdout: statusStdout });
+      }
+      if (args[0] === 'rev-parse' && args.includes('--show-prefix')) {
+        return ok({ stdout: '\n' });
+      }
+      throw new Error(`unexpected call: ${JSON.stringify(args)}`);
+    };
+  }
+
+  it("an untracked file in the uncommitted scope resolves { mode: 'untracked' } — the scope's ONLY untracked route", async () => {
+    const invoke = statusProbeInvoke('? a.txt\0');
+    const result = await resolveGitScopeStructuredFileDiffParams(
+      invoke,
+      { kind: 'uncommitted' },
+      'a.txt'
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({ mode: 'untracked', path: 'a.txt' });
+  });
+
+  it("a tracked file in the uncommitted scope resolves { mode: 'working' } (HEAD vs worktree)", async () => {
+    // The path is absent from the untracked set (an ordinary tracked edit).
+    const invoke = statusProbeInvoke('');
+    const result = await resolveGitScopeStructuredFileDiffParams(
+      invoke,
+      { kind: 'uncommitted' },
+      'a.txt'
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({ mode: 'working', path: 'a.txt' });
+  });
+});
+
 describe('resolveGitScopeStructuredFileDiffParams — unborn HEAD (NTH-1)', () => {
   it('an unborn HEAD is "head-unborn:", NEVER "base-ref-unresolved:" (the base ref is never even looked up)', async () => {
     const invoke = async (args: readonly string[]): Promise<GitCommandRun> => {

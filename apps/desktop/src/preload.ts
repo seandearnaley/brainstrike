@@ -92,7 +92,6 @@ const GIT_DIFF_CHANNEL = 'git:diff' as const;
 const GIT_STAGE_CHANNEL = 'git:stage' as const;
 const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
 const GIT_COMMIT_CHANNEL = 'git:commit' as const;
-const GIT_COMMIT_DIFF_CHANNEL = 'git:commitDiff' as const;
 const GIT_COMMIT_FILES_CHANNEL = 'git:commitFiles' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
 const GIT_FETCH_CHANNEL = 'git:fetch' as const;
@@ -1219,8 +1218,6 @@ if (shouldExposeBridge('git')) {
     aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
     commit: (rootId: string, params: { description?: string; summary: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
-    commitDiff: (rootId: string, params: { commit: string; originalPath?: string; path: string }) =>
-      ipcRenderer.invoke(GIT_COMMIT_DIFF_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
     diff: (rootId: string, params: GitDiffParams) =>

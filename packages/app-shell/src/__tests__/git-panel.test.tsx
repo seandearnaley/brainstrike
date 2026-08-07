@@ -213,9 +213,6 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
       ok({ ahead: 2, behind: 1, hasUpstream: true, upstream: 'origin/main' })
     ),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
-    commitDiff: vi.fn(async () =>
-      ok({ path: 'staged.ts', staged: false, truncated: false, unifiedDiff: '' })
-    ),
     commitFiles: vi.fn(async () => ok([])),
     diff: vi.fn(async () =>
       ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: '' })

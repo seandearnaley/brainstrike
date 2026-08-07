@@ -258,8 +258,8 @@ export type StructuredFileDiffParams =
        * (no parent) falls back to git's empty-tree object id as the old
        * side, yielding an `added` file with `oldContent: null` rather than
        * an error. For a MERGE commit `^` is the FIRST parent, so this is a
-       * first-parent diff (matching the `commitDiff` IPC precedent in
-       * `git-history.ts`): changes that arrived via the merged branch show
+       * first-parent diff (the `git-history.ts` precedent): changes that
+       * arrived via the merged branch show
        * as the merge's own changes, and mainline changes between the
        * merge-base and the merge show as no difference. */
       readonly mode: 'commit';

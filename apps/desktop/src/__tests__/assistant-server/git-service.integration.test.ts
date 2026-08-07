@@ -1027,7 +1027,6 @@ describe('git service — repository browser', () => {
     const service = serviceFor(repo);
     const history = await service.history({ limit: 20, offset: 0 });
     const files = await service.commitFiles({ commit: mergeId });
-    const diff = await service.commitDiff({ commit: mergeId, path: 'feature.txt' });
 
     expect(history.ok).toBe(true);
     if (history.ok) {
@@ -1036,13 +1035,9 @@ describe('git service — repository browser', () => {
       );
     }
     expect(files).toEqual({ ok: true, value: [{ path: 'feature.txt', status: 'A' }] });
-    expect(diff.ok).toBe(true);
-    if (diff.ok) {
-      expect(diff.value.unifiedDiff).toContain('+feature');
-    }
   });
 
-  it('returns changed files and a bounded historical file diff for a commit', async () => {
+  it('returns changed files (with rename pairing) for a commit', async () => {
     const repo = await makeRepo('brainstrike-git-commit-detail-');
     await writeFile(repo, 'before.txt', 'shared line one\nshared line two\nbefore\n');
     await execFileAsync('git', ['add', '.'], { cwd: repo });
@@ -1060,38 +1055,6 @@ describe('git service — repository browser', () => {
     expect(files.value).toEqual([
       expect.objectContaining({ originalPath: 'before.txt', path: 'after.txt', status: 'R' }),
     ]);
-
-    const diff = await serviceFor(repo).commitDiff({
-      commit: oid,
-      originalPath: 'before.txt',
-      path: 'after.txt',
-    });
-    expect(diff.ok).toBe(true);
-    if (diff.ok) {
-      expect(diff.value.unifiedDiff).toContain('diff --git a/before.txt b/after.txt');
-      expect(diff.value.unifiedDiff).toContain('+after');
-    }
-  });
-
-  it('CONTAINMENT: treats pathspec magic as a literal historical path', async () => {
-    const repo = await makeRepo('brainstrike-git-literal-history-');
-    await fsPromises.mkdir(path.join(repo, 'opened'));
-    await fsPromises.mkdir(path.join(repo, 'sibling'));
-    await writeFile(repo, 'opened/inside.txt', 'inside\n');
-    await writeFile(repo, 'sibling/outside.txt', 'historical-secret\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    const oid = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
-
-    const result = await serviceFor(path.join(repo, 'opened')).commitDiff({
-      commit: oid,
-      path: ':(top)sibling/outside.txt',
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.unifiedDiff).toBe('');
-    }
   });
 
   it('scopes historical file paths to an opened repository subfolder', async () => {
@@ -1111,12 +1074,6 @@ describe('git service — repository browser', () => {
       ok: true,
       value: [{ path: 'inside.txt', status: 'A' }],
     });
-    const diff = await service.commitDiff({ commit: oid, path: 'inside.txt' });
-    expect(diff.ok).toBe(true);
-    if (diff.ok) {
-      expect(diff.value.unifiedDiff).toContain('+inside');
-      expect(diff.value.unifiedDiff).not.toContain('outside');
-    }
   });
 
   it('switches only to an existing local branch and reports the new branch', async () => {
