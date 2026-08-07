@@ -197,6 +197,12 @@ describe('buildNativeToolRiskMap', () => {
     expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageTaskList']?.requiresApproval).toBe(false);
     expect(buildNativeToolRiskMap()['brainstrike.manageTaskList']).toBe('read');
   });
+
+  it("classifies manageCanvas as 'read' so versioned DB updates avoid the live Changes stream", () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageCanvas']?.category).toBe('action');
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageCanvas']?.requiresApproval).toBe(false);
+    expect(buildNativeToolRiskMap()['brainstrike.manageCanvas']).toBe('read');
+  });
 });
 
 describe('denormalizeNativeToolName (D3)', () => {

@@ -93,8 +93,18 @@ vi.mock('../../db-main', () => ({
 // unrestricted reads, print() to return), landing at 8967. The new ceiling
 // keeps the same ~150 tokens of headroom above that measurement the BST-927
 // band was set with, and the floor moves with it so a silent DROP still fails.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9120;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8820;
+// BST-1173 RAISE (+310/+310, band width 300 preserved). `manageCanvas` is a NEW
+// persisted/versioned document capability: its six-field action surface costs
+// 210 authored definition tokens, plus conditional hosted guidance and normal
+// registry serialization, moving the measured full surface 8967 → 9278.
+// Trim-first was applied: the raw top-level discriminated union both violated
+// the provider root-object contract and measured 8727 eager-definition tokens;
+// a strict root object delegating conditional validation to that union cut the
+// eager aggregate to 8593 while retaining exact create/update/rewrite/list
+// validation. The description and field prose now contain only the verb,
+// required-field, exact-match, and versioning facts the model needs.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9430;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9130;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -451,6 +461,12 @@ describe('desktop native tool provider prompt budget', () => {
     if (!queryDiagnosticsProviderTool) {
       throw new Error('queryDiagnostics provider definition is missing');
     }
+    const manageCanvasProviderTool = eagerProviderTools.find((tool) =>
+      tool.function.name.includes('manageCanvas')
+    );
+    if (!manageCanvasProviderTool) {
+      throw new Error('manageCanvas provider definition is missing');
+    }
     for (const tool of sessionProviderTools) {
       const properties = asRecord(asRecord(tool.function.parameters)?.['properties']);
       expect(
@@ -470,9 +486,9 @@ describe('desktop native tool provider prompt budget', () => {
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8141);
+    ).toBeGreaterThanOrEqual(8443);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      8441
+      8743
     );
     expect(
       criticalDefinitionTokens,
@@ -485,6 +501,7 @@ describe('desktop native tool provider prompt budget', () => {
     expect({
       criticalToolCount: criticalProviderTools.length,
       eagerToolCount: eagerProviderTools.length,
+      manageCanvasDefinitionTokens: countO200kTokens(JSON.stringify(manageCanvasProviderTool)),
       queryDiagnosticsDefinitionTokens: countO200kTokens(
         JSON.stringify(queryDiagnosticsProviderTool)
       ),
@@ -517,10 +534,14 @@ describe('desktop native tool provider prompt budget', () => {
       // a clean zero-match. The wording is terse on purpose — the first draft
       // spent 38 tokens and overran the authored budget by 25 (BST-927 called
       // this: ~13 tokens of headroom left).
-      // Recorded aggregates when the bands were set: eager 8121, critical
+      // +210 / +1 for deferred `manageCanvas` (BST-1173); the strict root
+      // object preserves provider compatibility while a discriminated union
+      // enforces action-specific fields.
+      // Recorded aggregates after BST-1173: eager 8593, critical
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
-      eagerToolCount: 33,
+      eagerToolCount: 34,
+      manageCanvasDefinitionTokens: 210,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
@@ -529,7 +550,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 8,820-9,120 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 9,130-9,430 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
+  CANVAS_VERSIONS_TABLE,
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
@@ -739,6 +740,30 @@ CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_root_idx
   ON ${WORKSPACE_SNAPSHOTS_TABLE} (root_id);
+
+-- Persisted Canvas document versions (BST-1173). Bootstrapped here AND
+-- created by migration 082 — keep the shape byte-identical to 082. Mirrored
+-- because the thread-delete cascade references every sidecar unconditionally.
+-- ids are app-side uuidv7 values; creator is a closed vocabulary; the newest
+-- version for one canvas is its current content.
+CREATE TABLE IF NOT EXISTS ${CANVAS_VERSIONS_TABLE} (
+  id text PRIMARY KEY,
+  canvas_id text NOT NULL,
+  thread_id text NOT NULL,
+  resource_id text NOT NULL,
+  title text NOT NULL,
+  html text NOT NULL,
+  version integer NOT NULL CHECK (version >= 1),
+  created_by text NOT NULL CHECK (created_by IN ('assistant', 'user')),
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (canvas_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_thread_idx
+  ON ${CANVAS_VERSIONS_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_canvas_version_idx
+  ON ${CANVAS_VERSIONS_TABLE} (canvas_id, version DESC);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,

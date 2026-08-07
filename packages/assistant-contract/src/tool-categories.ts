@@ -246,6 +246,16 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     requiresApproval: false,
     riskCategory: 'read',
   },
+  // Like manageTaskList, this is DB-backed, versioned, and reversible rather
+  // than a workspace-file edit. Keep it in the explicit 'read' risk bucket so
+  // Canvas updates do not enter the live Changes refresh stream.
+  [NATIVE_TOOL_ID.manageCanvas]: {
+    category: 'action',
+    estimatedTokens: 220,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   [NATIVE_TOOL_ID.manageCommandSession]: {
     category: 'action',
     estimatedTokens: 482,

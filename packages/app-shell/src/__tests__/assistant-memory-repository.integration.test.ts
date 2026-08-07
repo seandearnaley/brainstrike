@@ -3283,6 +3283,13 @@ describe('createPgliteAssistantThreadRepository integration', () => {
        VALUES ('message-delete', $1, 'rewind-delete')`,
       [thread.id]
     );
+    await db.query(
+      `INSERT INTO brainstrike_canvas_versions
+        (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
+       VALUES ('canvas-version-delete', 'canvas-delete', $1, 'workspace-a',
+        'Delete me', '<p>Delete me</p>', 1, 'assistant')`,
+      [thread.id]
+    );
 
     await repository.deleteThread(thread.id);
 
@@ -3302,6 +3309,9 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_message_tombstones', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_canvas_versions', 'thread_id', thread.id)
     ).resolves.toBe(0);
   });
 
@@ -3353,6 +3363,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
          VALUES ($1, $2, 'workspace-a')`,
         [`message-${thread.id}`, thread.id]
       );
+      await db.query(
+        `INSERT INTO brainstrike_canvas_versions
+          (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
+         VALUES ($1, $2, $3, 'workspace-a', 'Bulk canvas', '<p>canvas</p>', 1, 'assistant')`,
+        [`canvas-version-${thread.id}`, `canvas-${thread.id}`, thread.id]
+      );
     }
 
     await repository.deleteThreads([first.id, second.id]);
@@ -3394,6 +3410,15 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_message_parents', 'thread_id', survivor.id)
+    ).resolves.toBe(1);
+    await expect(countRows(db, 'brainstrike_canvas_versions', 'thread_id', first.id)).resolves.toBe(
+      0
+    );
+    await expect(
+      countRows(db, 'brainstrike_canvas_versions', 'thread_id', second.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_canvas_versions', 'thread_id', survivor.id)
     ).resolves.toBe(1);
     // The op-log seam (BST-993): one tombstone per actually-deleted thread.
     await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', first.id)).resolves.toBe(1);
