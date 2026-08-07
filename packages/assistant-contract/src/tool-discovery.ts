@@ -84,9 +84,10 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
     toolIds: [NATIVE_TOOL_ID.webExtract, NATIVE_TOOL_ID.webSearch],
   },
   workspace: {
-    summary: 'Perform specialist workspace mutations and maintain the agent task list.',
+    summary: 'Perform specialist workspace mutations and maintain Canvas documents or tasks.',
     toolIds: [
       NATIVE_TOOL_ID.deleteWorkspaceFile,
+      NATIVE_TOOL_ID.manageCanvas,
       NATIVE_TOOL_ID.manageTaskList,
       NATIVE_TOOL_ID.renameWorkspaceFile,
     ],

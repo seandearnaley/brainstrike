@@ -10,7 +10,7 @@
  * web factory reset (the BST-862/BST-844 defect class).
  *
  * The union CANNOT be derived from the Drizzle schema: the 21 `pgTable`
- * exports cover only ~9 of the 27 clearable relations. Every `brainstrike_*`
+ * exports cover only ~9 of the 31 clearable relations. Every `brainstrike_*`
  * assistant table is migration-only raw DDL, the Mastra six live in
  * `@brainstrike/assistant-contract/mastra-memory-schema`, and configuration
  * tables that MUST survive reset (catalog, profile singletons) sit in the same
@@ -63,6 +63,10 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
   'brainstrike_assistant_tool_output_artifacts',
+  // Versioned Canvas documents (migration 082, BST-1173). Their thread-owned
+  // content must not survive the conversation and resource identities a reset
+  // just destroyed.
+  'brainstrike_canvas_versions',
   'brainstrike_diagnostic_events',
   // Sync-the-mind op-log seam (migration 079, BST-993). Clearing the mind
   // clears its op-log: pre-sync there is no peer the ops could replay to,
@@ -148,7 +152,7 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
   ];
 }
 
-/** The full 29-relation reset set (14 brainstrike + 9 core + the Mastra six). */
+/** The full 31-relation reset set (16 brainstrike + 9 core + the Mastra six). */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }

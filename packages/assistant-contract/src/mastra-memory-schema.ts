@@ -189,6 +189,14 @@ export const ASSISTANT_MESSAGE_TOMBSTONES_TABLE = 'brainstrike_assistant_message
 export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
 
 /**
+ * Persisted Canvas document version ledger (BST-1173, migration 082 in BOTH
+ * runners plus the app-shell bootstrap mirror). Rows sharing `canvas_id` form
+ * one document; the greatest version is current. Thread-keyed sidecar with an
+ * explicit delete stage and no Mastra foreign key.
+ */
+export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
+
+/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
@@ -198,6 +206,7 @@ export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
  * ("threadId" OR "lookupKey") and stays inline at each site.
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
+  { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },

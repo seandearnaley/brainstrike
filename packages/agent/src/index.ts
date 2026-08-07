@@ -562,6 +562,8 @@ export {
   ListWorkspaceContextInputSchema,
   type LspInspectInput,
   LspInspectInputSchema,
+  type ManageCanvasInput,
+  ManageCanvasInputSchema,
   type ManageCommandSessionInput,
   ManageCommandSessionInputSchema,
   type ManageTaskListInput,

@@ -38,6 +38,8 @@ export const TOOL_DESCRIPTIONS = {
     'Inspect open workspace roots, the Main operating-root path, Focused-root selected context, and workspace index hint without reading file contents; compact summary by default, detail: true for per-file Tapestry ranges',
   [NATIVE_TOOL_ID.lspInspect]:
     "LSP (Language Server Protocol) semantic code inspection for TypeScript/JavaScript: the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, 1-based line, and `match`: prefer the unique identifier itself (for example `computeTotal`); when it repeats on that line, pass a unique line fragment with exactly one `<<<` immediately before the intended occurrence. Wrong-line identifiers return bounded candidate lines for an explicit retry; ambiguous targets never guess. Read-only; returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available",
+  [NATIVE_TOOL_ID.manageCanvas]:
+    'Create, list, or version-update a persisted HTML Canvas document for the current thread. update replaces oldString only when it occurs exactly once; rewrite replaces the whole HTML. Every change creates a new reversible version',
   [NATIVE_TOOL_ID.manageCommandSession]:
     'Start, write to, stop, or remove a persistent PTY command session in one open workspace root. Pass exactly one typed operation. Use this for servers and interactive commands that must outlive one tool call; use executeCommand for normal bounded commands. Arbitrary execution with no sandbox; requires approval by default',
   [NATIVE_TOOL_ID.manageTaskList]:

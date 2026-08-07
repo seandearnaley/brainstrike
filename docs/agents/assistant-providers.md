@@ -1210,6 +1210,14 @@ the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;
 there is no fallback alias or partially registered tool.
 
+`brainstrike.manageCanvas` is desktop-only because its source of truth is the
+client-local `brainstrike_canvas_versions` ledger. It is a deferred workspace
+tool with an `action` discriminated union (`create`, `update`, `rewrite`,
+`list`) and explicit `read` risk: updates are DB-backed, versioned, and
+reversible, not workspace-file edits, so they must not enter the live Changes
+refresh stream. Web has no remote fallback. Conditional instructions advertise
+the verbs only when the tool is registered.
+
 `brainstrike.queryDiagnostics` is a desktop-only, explicit `read`-risk native
 tool over `brainstrike_diagnostic_events`. Its `mode` is required:
 `events` returns newest matching rows and `fingerprints` groups recurring

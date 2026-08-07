@@ -1064,6 +1064,35 @@ in either order), the `changes:finalizeRewinds` cases in
 `rewind-ipc-handlers.integration.test.ts`, and the two renderer-trigger suites
 named in `assistant-runtime.md`.
 
+## CANVAS DOCUMENT VERSIONS (BST-1173)
+
+Persisted Canvas HTML is application-owned, local-first state in
+`brainstrike_canvas_versions` (migration 082 in BOTH runners plus the
+byte-identical app-shell bootstrap mirror). Rows sharing `canvas_id` form one
+document and the greatest integer `version` is current. Row ids and canvas ids
+are app-side uuidv7 values; timestamps are read as `created_at::text`; and
+`created_by` is CHECK-constrained to `assistant | user` and validated again on
+repository reads. There are no foreign keys because the numbered runner uses a
+bare schema.
+
+`THREAD_DELETE_SIDECAR_TABLES` owns Canvas cleanup for all three thread-delete
+implementations, while the reset registry owns all three table-enumerating
+clear paths. The desktop repository creates version 1, reads/list latest rows,
+and writes a new version for every update or rewrite. Exact updates require
+`oldString` to occur once: zero and multiple matches return `no_match` and
+`ambiguous_match` structured failures, respectively; missing canvases return
+`not_found`. Stored-vocabulary drift throws visibly as corruption.
+
+`brainstrike.manageCanvas` exposes `create`, `update`, `rewrite`, and `list` to
+the assistant. Runtime thread/resource identity is mandatory and missing
+identity returns a structured failure. This slice intentionally adds no Canvas
+tab or other Canvas UI.
+
+Paired tests: `migration-082-canvas-documents.test.ts`,
+`canvas-repository.test.ts`, `manage-canvas-tool.test.ts`, the Canvas sidecar
+case in `assistant-memory-repository.integration.test.ts`, and the reset
+registry/clear sentinels.
+
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
 Per-run cost/outcome analytics over tables the assistant already writes.
