@@ -77,6 +77,31 @@ describe('BrowserPaneContent', () => {
     expect(await screen.findByText('Example')).toBeInTheDocument();
   });
 
+  it('honors an authoritative empty push over a late non-empty seed', async () => {
+    // The seed round-trip resolves AFTER a push already arrived. If the last
+    // tab was closed (empty push), the stale non-empty seed must NOT be
+    // reapplied — that would resurrect closed tabs whose actions fail.
+    let resolveSeed: (tabs: BrowserTab[]) => void = () => undefined;
+    bridge.listTabs.mockReturnValueOnce(
+      new Promise<BrowserTab[]>((resolve) => {
+        resolveSeed = resolve;
+      })
+    );
+    render(<BrowserPaneContent />);
+
+    act(() => {
+      tabsListener?.([tab({ active: true, tabId: 'a' })]);
+      tabsListener?.([]); // authoritative empty push (last tab closed)
+    });
+
+    await act(async () => {
+      resolveSeed([tab({ active: true, tabId: 'a' })]); // stale snapshot, resolves late
+      await Promise.resolve();
+    });
+
+    expect(useBrowserTabsStore.getState().tabs).toHaveLength(0);
+  });
+
   it('reports bounds to main when the pane is visible', async () => {
     render(<BrowserPaneContent />);
     await waitFor(() => {

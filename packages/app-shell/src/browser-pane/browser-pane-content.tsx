@@ -45,18 +45,24 @@ export function BrowserPaneContent(): ReactElement {
   const displayedUrl = draft ?? activeTab?.url ?? '';
 
   // Subscribe to main's tab-state pushes, then seed from the current list.
-  // Subscribe FIRST and skip the seed if a push already populated the store,
-  // so a push arriving during the seed round-trip is never clobbered by the
-  // stale snapshot.
+  // Subscribe FIRST and skip the seed if ANY push already arrived, so a push
+  // during the seed round-trip is never clobbered by the stale snapshot. Track
+  // whether a push occurred (not the store length): an authoritative EMPTY push
+  // — the last tab closed, or the manager disposed mid-round-trip — must also
+  // win, or the seed would resurrect closed tabs whose actions then fail.
   useEffect(() => {
     if (!bridge) {
       return;
     }
-    const unsubscribe = bridge.onTabsChanged(setTabs);
+    let pushed = false;
+    const unsubscribe = bridge.onTabsChanged((tabs) => {
+      pushed = true;
+      setTabs(tabs);
+    });
     bridge
       .listTabs()
       .then((seed) => {
-        if (useBrowserTabsStore.getState().tabs.length === 0) {
+        if (!pushed) {
           setTabs(seed);
         }
       })
