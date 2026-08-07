@@ -2718,6 +2718,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       startedAt: new Date('2026-04-22T10:30:00Z'),
       status: 'completed',
       threadId: 'thread-1',
+      turnMessageId: null,
       updatedAt: new Date('2026-04-22T10:31:00Z'),
     });
   });

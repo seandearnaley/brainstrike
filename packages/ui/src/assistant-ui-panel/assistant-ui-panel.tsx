@@ -95,7 +95,11 @@ import {
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
-import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import {
+  type AssistantUsage,
+  type PrepareRequestBodyContext,
+  useBrainstrikeDataStreamRuntime,
+} from './data-stream-runtime';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
@@ -399,7 +403,10 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   pickerProviders: ModelPickerProvider[];
   /** Current persisted plan-mode state; drives the composer toggle's pressed look. */
   planModeEnabled?: boolean;
-  prepareRequestData?: (abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>;
+  prepareRequestData?: (
+    abortSignal?: AbortSignal,
+    turnAnchorMessageId?: string | null
+  ) => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   providers?: ProviderConfig[];
@@ -741,7 +748,10 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   /** Composer plan-mode toggle; absent → no toggle rendered. */
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   prepareRequestData?:
-    | ((abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>)
+    | ((
+        abortSignal?: AbortSignal,
+        turnAnchorMessageId?: string | null
+      ) => Promise<Record<string, unknown> | undefined>)
     | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -963,7 +973,10 @@ const DataStreamRuntimeChat = ({
   historyAdapter: ThreadHistoryAdapter | undefined;
   requestData: Record<string, unknown> | undefined;
   prepareRequestData?:
-    | ((abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>)
+    | ((
+        abortSignal?: AbortSignal,
+        turnAnchorMessageId?: string | null
+      ) => Promise<Record<string, unknown> | undefined>)
     | undefined;
   /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
   prepareLocalModel?: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
@@ -1018,8 +1031,14 @@ const DataStreamRuntimeChat = ({
     ...(serverRunSession.prepareRequestWarmup
       ? { prepareRequestWarmup: serverRunSession.prepareRequestWarmup }
       : {}),
-    body: async (abortSignal: AbortSignal) => {
-      const preparedRequestData = await serverRunSession.prepareRequest(abortSignal);
+    body: async (abortSignal: AbortSignal, context?: PrepareRequestBodyContext) => {
+      const preparedRequestData = await serverRunSession.prepareRequest(
+        abortSignal,
+        // Absent context (a caller predating the BST-1163 signature, incl.
+        // direct test invocation) is an honest "no anchor known", never a
+        // fabricated id.
+        context?.turnAnchorMessageId ?? null
+      );
       return {
         data: {
           ...(requestData ?? {}),

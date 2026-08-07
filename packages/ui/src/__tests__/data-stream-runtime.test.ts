@@ -141,6 +141,65 @@ function runOptions(
   } as Parameters<BrainstrikeDataStreamRuntimeAdapter['run']>[0];
 }
 
+describe('turn anchor threading (BST-1163)', () => {
+  function scriptedFetch(): void {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-echo"}',
+            '0:"Done"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+  }
+
+  it('passes the last REAL user message id to the body provider — never an approval action echo', async () => {
+    scriptedFetch();
+    let receivedAnchor: unknown = 'unset';
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      body: async (_signal: AbortSignal, context?: { turnAnchorMessageId: string | null }) => {
+        receivedAnchor = context?.turnAnchorMessageId;
+        return { data: {} };
+      },
+    });
+    for await (const _message of adapter.run(
+      runOptions({
+        messages: [
+          message('msg-user-1', 'user'),
+          message('msg-assistant-1', 'assistant'),
+          approvalActionMessage('action-echo-1'),
+        ],
+      })
+    )) {
+      // Consume.
+    }
+    // The action echo is UI bookkeeping with no durable row — the turn's
+    // anchor is the triggering REAL user message, on resume legs too.
+    expect(receivedAnchor).toBe('msg-user-1');
+  });
+
+  it('passes null when the thread has no real user message', async () => {
+    scriptedFetch();
+    let receivedAnchor: unknown = 'unset';
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      body: async (_signal: AbortSignal, context?: { turnAnchorMessageId: string | null }) => {
+        receivedAnchor = context?.turnAnchorMessageId;
+        return { data: {} };
+      },
+    });
+    for await (const _message of adapter.run(
+      runOptions({ messages: [message('msg-assistant-1', 'assistant')] })
+    )) {
+      // Consume.
+    }
+    expect(receivedAnchor).toBeNull();
+  });
+});
+
 async function readAssistantStreamMessages(lines: readonly string[]): Promise<
   readonly {
     readonly content?: unknown;
