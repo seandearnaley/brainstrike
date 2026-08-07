@@ -5,6 +5,7 @@ import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';
 import { BrowserPaneContent } from '../browser-pane/browser-pane-content';
 import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
+import { useQuickOpenStore } from '../stores/quick-open-store';
 
 let tabsListener: ((tabs: readonly BrowserTab[]) => void) | null = null;
 const bridge = {
@@ -31,6 +32,7 @@ beforeEach(() => {
   tabsListener = null;
   useBrowserTabsStore.getState().reset();
   useCommandPaletteStore.setState({ isOpen: false });
+  useQuickOpenStore.setState({ isOpen: false });
   usePanelLayoutStore.getState().setActiveTab('browser');
   (window as Window & { browser?: BrowserBridge }).browser = bridge;
   // happy-dom gives a zero-size layout; force a non-zero rect so the visible
@@ -122,6 +124,35 @@ describe('BrowserPaneContent', () => {
 
     useCommandPaletteStore.setState({ isOpen: true });
     await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
+  });
+
+  it('occludes the native view when Quick Open opens (separate store from the palette)', async () => {
+    render(<BrowserPaneContent />);
+    await waitFor(() => expect(bridge.setBounds).toHaveBeenCalled());
+    bridge.setOccluded.mockClear();
+
+    act(() => useQuickOpenStore.setState({ isOpen: true }));
+    await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
+  });
+
+  it('does not apply a seed after the effect is torn down (StrictMode/unmount race)', async () => {
+    // The first effect's listTabs() promise outlives its own cleanup; a late
+    // resolve must NOT write the stale seed once the effect was cancelled.
+    let resolveSeed: (tabs: BrowserTab[]) => void = () => undefined;
+    bridge.listTabs.mockReturnValueOnce(
+      new Promise<BrowserTab[]>((resolve) => {
+        resolveSeed = resolve;
+      })
+    );
+    const { unmount } = render(<BrowserPaneContent />);
+    unmount(); // cleanup sets cancelled = true and unsubscribes
+
+    await act(async () => {
+      resolveSeed([tab({ active: true, tabId: 'a' })]);
+      await Promise.resolve();
+    });
+
+    expect(useBrowserTabsStore.getState().tabs).toHaveLength(0);
   });
 
   it('occludes the native view when the Settings modal opens (pane DOM still laid out)', async () => {

@@ -4,6 +4,7 @@ import { Button, Input } from '@brainstrike/ui';
 import { ArrowLeft, ArrowRight, Plus, RotateCw, X } from 'lucide-react';
 import { type FormEvent, type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { useCommandPaletteStore } from '../stores/command-palette-store';
+import { useQuickOpenStore } from '../stores/quick-open-store';
 import { resolveBrowserBridge } from './browser-bridge';
 import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-store';
 
@@ -14,12 +15,14 @@ import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-stor
  * exactly that box.
  *
  * OCCLUSION (novel — a native view paints above all DOM): the pane must hide
- * whenever it would be covered. Three sources, unified into a single
+ * whenever it would be covered. Four sources, unified into a single
  * `setOccluded`:
  * 1. this nav-rail route is not the active shell tab (its DOM is
  *    `display:none`, so the reserved region reports a zero rect);
  * 2. the Settings modal is open;
- * 3. the command palette is open.
+ * 3. the command palette is open;
+ * 4. Quick Open (Cmd/Ctrl+P) is open — a SEPARATE store from the command
+ *    palette, and `QuickOpenHost` portals a full-screen dialog on every route.
  * (Smaller transient overlays — toasts, popovers, page context menus — are a
  * documented follow-up; see the ui-conventions native-layer note.)
  */
@@ -35,8 +38,9 @@ export function BrowserPaneContent(): ReactElement {
   const activeShellTab = usePanelLayoutStore((state) => state.activeTab);
   const settingsOpen = usePanelLayoutStore((state) => state.settingsOpen);
   const paletteOpen = useCommandPaletteStore((state) => state.isOpen);
+  const quickOpenOpen = useQuickOpenStore((state) => state.isOpen);
   const routeActive = activeShellTab === 'browser';
-  const occluded = !routeActive || settingsOpen || paletteOpen;
+  const occluded = !routeActive || settingsOpen || paletteOpen || quickOpenOpen;
 
   // The URL input follows the active tab's url unless the user is editing.
   // `draft === null` means "follow the active tab" (derived, no sync effect);
@@ -50,11 +54,17 @@ export function BrowserPaneContent(): ReactElement {
   // whether a push occurred (not the store length): an authoritative EMPTY push
   // — the last tab closed, or the manager disposed mid-round-trip — must also
   // win, or the seed would resurrect closed tabs whose actions then fail.
+  //
+  // `cancelled` guards the StrictMode setup→cleanup→setup double-invoke: the
+  // first effect's `listTabs()` promise outlives its own unsubscribe, so
+  // without this flag a late-resolving first snapshot (whose `pushed` is still
+  // false) could overwrite a push the SECOND subscription already applied.
   useEffect(() => {
     if (!bridge) {
       return;
     }
     let pushed = false;
+    let cancelled = false;
     const unsubscribe = bridge.onTabsChanged((tabs) => {
       pushed = true;
       setTabs(tabs);
@@ -62,14 +72,17 @@ export function BrowserPaneContent(): ReactElement {
     bridge
       .listTabs()
       .then((seed) => {
-        if (!pushed) {
+        if (!(cancelled || pushed)) {
           setTabs(seed);
         }
       })
       // Best-effort seed, but a rejected round-trip must be attributable, not
       // an anonymous unhandled rejection.
       .catch((error: unknown) => logger.error('Browser pane tab seed failed', { error }));
-    return unsubscribe;
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [bridge, setTabs]);
 
   // Report bounds (or occlusion) whenever geometry or occlusion changes.
