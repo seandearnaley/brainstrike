@@ -16,9 +16,14 @@ export default defineConfig({
     environment: 'happy-dom',
     exclude: ['node_modules', 'dist'],
     globals: true,
+    // The PGlite integration suites ran with these ceilings in app-shell;
+    // vitest's 5s default times them out on CI's 2-vCPU runners (proven in
+    // #2308's Coverage lane, which runs test:coverage over ALL suites).
+    hookTimeout: 30_000,
     include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    testTimeout: 30_000,
   },
 });
