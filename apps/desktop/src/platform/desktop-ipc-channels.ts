@@ -17,6 +17,10 @@ export const DESKTOP_IPC_CHANNELS = {
     applyRewind: 'changes:applyRewind',
     fileDiff: 'changes:fileDiff',
     finalizeRewinds: 'changes:finalizeRewinds',
+    // One-way main→renderer push (BST-1161, spec §6): the git-metadata
+    // watcher observed external git activity on a repository. NOT an
+    // ipcMain.handle channel — never registered on the registry.
+    invalidated: 'changes:invalidated',
     inventory: 'changes:inventory',
     redoRewind: 'changes:redoRewind',
     resolveView: 'changes:resolveView',

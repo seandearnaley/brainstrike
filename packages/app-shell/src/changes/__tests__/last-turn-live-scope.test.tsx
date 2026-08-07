@@ -21,6 +21,7 @@ function stubBridge(resolveView: ChangesBridge['resolveView']): void {
     fileDiff: vi.fn(),
     finalizeRewinds: vi.fn(),
     inventory: vi.fn(),
+    onInvalidated: vi.fn(() => () => {}),
     redoRewind: vi.fn(),
     resolveView,
     rewindPreview: vi.fn(),

@@ -12,6 +12,7 @@ function fullBridge(): ChangesBridge {
     fileDiff: vi.fn(),
     finalizeRewinds: vi.fn(),
     inventory: vi.fn(),
+    onInvalidated: vi.fn(),
     redoRewind: vi.fn(),
     resolveView: vi.fn(),
     rewindPreview: vi.fn(),
@@ -96,6 +97,20 @@ describe('resolveChangesBridge', () => {
       missing: [method],
     });
     expect(isChangesBridgeAvailable()).toBe(false);
+  });
+
+  // BST-1161: the live-refresh subscription joined `REQUIRED_METHODS` in the
+  // same commit that added it to the preload. A pre-1161 bridge must read as
+  // MALFORMED rather than as a usable bridge that silently never refreshes.
+  it('rejects a pre-1161 bridge that is missing onInvalidated', () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    (window as unknown as { changes?: Partial<ChangesBridge> }).changes =
+      bridgeWithout('onInvalidated');
+
+    expect(resolveChangesBridge()).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
+      missing: ['onInvalidated'],
+    });
   });
 
   it('rejects and logs a bridge with a required method that is not a function', () => {

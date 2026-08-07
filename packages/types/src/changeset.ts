@@ -60,6 +60,28 @@ export interface GitInventory {
   readonly repositories: readonly GitInventoryRepository[];
 }
 
+/**
+ * One `changes:invalidated` push event (BST-1161, spec §6): the main-process
+ * git-metadata watcher observed external git activity (terminal commit, fetch,
+ * worktree add, …) on a repository. Renderer consumers refetch — the event
+ * carries identity, never payload data.
+ */
+export interface ChangesInvalidationEvent {
+  /**
+   * Monotonic per-main-process send counter. Consumers keep the highest value
+   * seen and drop stale/duplicate deliveries.
+   */
+  readonly generation: number;
+  /** The invalidated repository's git common dir (the watcher's key). */
+  readonly gitCommonDir: string;
+  /**
+   * The repository's main-worktree realpath ({@link RepositoryIdentity}), or
+   * null when the service could not map the common dir (e.g. no snapshot
+   * yet). Null means "some repository" — consumers refetch conservatively.
+   */
+  readonly repositoryRoot: string | null;
+}
+
 /** Discriminated git diff scope. Each kind carries only the fields it needs (spec §3). */
 export type GitScope =
   | {

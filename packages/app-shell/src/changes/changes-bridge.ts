@@ -24,6 +24,7 @@ import { createLogger } from '@brainstrike/logging';
 import type {
   Changeset,
   ChangesetView,
+  ChangesInvalidationEvent,
   GitInventory,
   GitResult,
   StructuredFileDiff,
@@ -32,6 +33,7 @@ import type {
 export type {
   Changeset,
   ChangesetView,
+  ChangesInvalidationEvent,
   GitInventory,
   GitResult,
   StructuredFileDiff,
@@ -96,6 +98,13 @@ export interface ChangesBridge {
    * rather than silently degrading.
    */
   inventory: () => Promise<GitResult<GitInventory>>;
+  /**
+   * Live-refresh push channel (BST-1161, spec §6): subscribe to
+   * `changes:invalidated` events fired when the main-process git-metadata
+   * watcher observes external git activity on a repository. Returns the
+   * unsubscribe function (terminal `onData` precedent).
+   */
+  onInvalidated: (listener: (event: ChangesInvalidationEvent) => void) => () => void;
   /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
   redoRewind: (payload: RewindRedoPayload) => Promise<GitResult<AssistantRewindRedoResult>>;
   resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
@@ -115,6 +124,7 @@ const CHANGES_BRIDGE_REQUIRED_METHOD_SET = {
   fileDiff: true,
   finalizeRewinds: true,
   inventory: true,
+  onInvalidated: true,
   redoRewind: true,
   resolveView: true,
   rewindPreview: true,

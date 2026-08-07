@@ -255,6 +255,7 @@ function installChangesBridge(bridge: Partial<ChangesBridge>): ChangesBridge {
     fileDiff: vi.fn(async () => ok(makeStructuredFileDiff())),
     finalizeRewinds: vi.fn(async () => rewindNotStubbed('finalizeRewinds')),
     inventory: vi.fn(async () => ok({ errors: [], repositories: [] })),
+    onInvalidated: vi.fn(() => () => {}),
     redoRewind: vi.fn(async () => rewindNotStubbed('redoRewind')),
     resolveView: vi.fn(
       async (_rootId: string, changeset: Changeset): Promise<GitResult<ChangesetView>> =>
