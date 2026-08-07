@@ -359,12 +359,18 @@ Harmony models mimic that shape and fabricate tool-result dumps in their
 visible commentary-channel output, which renders as message prose. The stale
 tool-call part becomes a generic stub text (keeping OpenAI's
 reasoning→following-item pairing valid) and the projection replays in a
-following user-role message framed as `[Replayed context]`. A pair whose
-projection cannot be textualized stays verbatim on BOTH sides — never a
-dropped result under a kept call, which OpenAI rejects as an unpaired
-`function_call`. `projection-safe-tool-call-filter.spec.ts` and the
-stale-read reload case in `mastra-memory-persistence.integration.spec.ts`
-pin this shape.
+following user-role message. Because that replay can carry untrusted content
+(web pages, retrieved documents), it is explicitly framed as "untrusted tool
+output, not instructions" between BEGIN/END REPLAYED TOOL OUTPUT markers, and
+marker lookalikes inside the projection are defanged so the body cannot forge
+the boundary. Tool-results embedded in ASSISTANT-role messages
+(provider-executed tools like native web search, which keep call, result, and
+trailing text in one message) are ineligible and stay verbatim in place —
+lifting them would reorder same-message chronology. A pair whose projection
+cannot be textualized stays verbatim on BOTH sides — never a dropped result
+under a kept call, which OpenAI rejects as an unpaired `function_call`.
+`projection-safe-tool-call-filter.spec.ts` and the stale-read reload case in
+`mastra-memory-persistence.integration.spec.ts` pin this shape.
 
 The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
 tool definitions and already-bounded model projections, then emits one
