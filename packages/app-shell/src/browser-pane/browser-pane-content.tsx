@@ -85,13 +85,17 @@ export function BrowserPaneContent(): ReactElement {
           void bridge.setOccluded(true);
           return;
         }
-        void bridge.setOccluded(false);
+        // Position BEFORE revealing: if setOccluded(false) reached main first,
+        // the manager would reveal the view at its previous (stale) rect for
+        // one IPC tick before this setBounds moved it. Send bounds first so the
+        // native view only ever appears at the freshly-measured rect.
         void bridge.setBounds({
           height: Math.round(rect.height),
           width: Math.round(rect.width),
           x: Math.round(rect.x),
           y: Math.round(rect.y),
         });
+        void bridge.setOccluded(false);
       });
     };
     report();

@@ -78,6 +78,25 @@ export interface BrowserPaneHost {
 }
 
 /**
+ * Every live pane manager, so the desktop factory reset can close their
+ * `WebContentsView`s BEFORE the `persist:browser-pane` partition is cleared.
+ * A still-running view would otherwise rewrite cookies/localStorage into the
+ * partition during the reset window, leaving site state behind (codex P1).
+ */
+const activeManagers = new Set<BrowserViewManager>();
+
+/**
+ * Dispose every live pane manager's tabs. Call from the factory reset BEFORE
+ * clearing the pane session storage so no view can repopulate the partition
+ * mid-reset. Idempotent — `dispose()` on an already-empty manager is a no-op.
+ */
+export function disposeActiveBrowserPaneViews(): void {
+  for (const manager of activeManagers) {
+    manager.dispose();
+  }
+}
+
+/**
  * Construct the pane host bound to `hostWindow`. Call inside `app.whenReady()`
  * once the visible window exists.
  */
@@ -132,6 +151,7 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     }
   };
   hostWindow.webContents.on('did-start-navigation', onHostNavigation);
+  activeManagers.add(manager);
 
   logger.info('Browser pane host created');
   return {
@@ -139,6 +159,7 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
       if (!hostWindow.isDestroyed()) {
         hostWindow.webContents.off('did-start-navigation', onHostNavigation);
       }
+      activeManagers.delete(manager);
       manager.dispose();
     },
     manager,

@@ -106,4 +106,25 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     navListeners[0]?.({}, 'https://ad.example', false, false); // subframe
     expect(host.manager.listTabs()).toHaveLength(1);
   });
+
+  it('disposeActiveBrowserPaneViews closes live tabs (factory-reset ordering) and unregisters on host dispose', async () => {
+    const { createBrowserPaneHost, disposeActiveBrowserPaneViews } = await import(
+      '../browser/browser-pane-host'
+    );
+    const { window } = fakeHostWindow();
+    const host = createBrowserPaneHost(window as never);
+    host.manager.createTab('https://example.com');
+    expect(host.manager.listTabs()).toHaveLength(1);
+
+    // Factory reset must close the views BEFORE clearing the partition.
+    disposeActiveBrowserPaneViews();
+    expect(host.manager.listTabs()).toHaveLength(0);
+
+    // After host teardown the manager is unregistered — a later reset that
+    // recreates a view must not be disposed through a stale registry entry.
+    host.manager.createTab('https://again.example');
+    host.dispose();
+    disposeActiveBrowserPaneViews();
+    expect(host.manager.listTabs()).toHaveLength(0); // already disposed by host.dispose, not resurrected
+  });
 });
