@@ -370,10 +370,10 @@ The `commit`/`range` `StructuredFileDiffParams` modes are exposed on the
 `window.changes` — the History tab's commit-diff pane calls straight
 through `window.git` (the same bridge it already uses for
 `history`/`commitFiles`) rather than adding a second bridge dependency
-(see RENDERER SURFACES below). `commitDiff` remains defined on `GitBridge`
-and wired end-to-end (preload → IPC → main → `git-history.ts`) but has
-zero call sites left in `packages/app-shell` — a tracked-but-not-yet-done
-follow-up, not a broken feature.
+(see RENDERER SURFACES below). The legacy `commitDiff` op was REMOVED
+end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
+`git-history.ts` op) once its last renderer call site was gone —
+`structuredFileDiff`'s `commit` mode is the sole historical-diff path.
 
 ## REFRESH SEAMS
 
@@ -398,15 +398,27 @@ max-worktree/max-repository count cap exists anywhere in the inventory
 pipeline — the only bounds are the discovery walk's depth (6) and
 concurrency (32).
 
-**No push-to-renderer invalidation channel exists.** The design spec (§6)
-describes a live-update channel with a monotonic generation guard so
-git-scope changesets refresh without polling; as shipped, the `changes`
-domain has no `webContents.send` anywhere — the git-metadata watcher only
-invalidates the **main-process service's own cache**. `useChangeset`/
-`useGitInventory` load once on mount (or on `rootId`/`changeset` change)
-and otherwise only refetch via an explicit `refresh()` call (e.g. a Retry
-button). The "agent-run changesets refresh on `onRunFinished`" acceptance
-criterion is similarly not wired to the real UI today:
+**Push-to-renderer invalidation channel (`changes:invalidated`, BST-1161 —
+spec §6 completion).** Each git-metadata watcher invalidation now ALSO
+broadcasts one `ChangesInvalidationEvent` (`{ generation, gitCommonDir,
+repositoryRoot }`, `packages/types/src/changeset.ts`) to every live window,
+via `GitInventoryServiceDeps.onInvalidate` (the service resolves
+`repositoryRoot` from its cached snapshot's identity map and stays
+Electron-free; main.ts owns the `BrowserWindow.getAllWindows()` send and
+the monotonic `generation` counter — wiring pinned by
+`scripts/__tests__/git-inventory-main-wiring-contract.test.mjs`). Renderer
+side: `use-changes-live-refresh.ts` holds ONE refcounted
+`bridge.onInvalidated` subscription feeding
+`changes-live-refresh-store.ts` (wire-generation guard drops
+stale/duplicate deliveries; registered in factory reset). `useGitInventory`
+refetches on ANY accepted event (a deferred instance only once a load has
+been requested); `useChangeset` re-resolves a `git-scope` changeset only on
+ITS OWN repository's nonce (`selectGitScopeRefreshNonce`; an event the
+service could not map counts for every repo, conservatively) — snapshot
+changesets (`agent-run`/`run-range`) never refetch on git activity. The
+watcher's 300ms/2000ms debounce is the only batching; the store adds no
+extra throttle. The "agent-run changesets refresh on `onRunFinished`" acceptance
+criterion, by contrast, is STILL not wired to the real UI today:
 `assistant-ui-panel-wrapper.tsx` does call `useChangeset(mainRootId,
 null).refresh` from `handleRunFinished`/`handleRunFailed`, but its own
 comment states the changeset is "hardcoded null" pending a real selection
@@ -539,6 +551,27 @@ the current card. `use-git-panel.ts`'s `loadDiff` (the old
 `loadCommitFiles`. Guarded by `git-panel.test.tsx`'s `'never lets a late
 historical diff replace the current commit diff'`.
 
+**Canvas tab tenancy in the changes-navigation store (BST-1173).** The
+workspace panel gained a third tab, and `changes-navigation-store` — which
+already owned the generic panel-tab state — now also owns the Canvas surface's
+navigation facts: `WorkspacePanelTab` includes `'canvas'`, `canvasTabMounted`
+mirrors `changesTabMounted`'s sticky keep-mounted contract (the sandboxed
+iframe must not reload on tab switches), `openCanvasPanel()` is the external
+entry point (same unconditional-write reasoning as `openChangeset`), and
+`canvasRefreshNonce` / `requestCanvasRefresh()` is the Canvas panel's
+re-resolve trigger — the same re-resolve-not-push design as
+`liveRefreshNonce`, bumped by `use-wrapper-rewind-wiring`'s
+`handleRunEditActivity` when a completed edit-activity event's tool name
+denormalizes to `brainstrike.manageCanvas` (canvas mutations are edit-risk, so
+they already ride that stream; the canvas bump is unthrottled and then falls
+through to the guarded Changes refresh). All of these reset with the store's
+existing factory-reset registration. `WorkspacePanelTabs`' capability gate is
+now PER-TAB: any subset of {Changes, Canvas} may be present; chrome renders
+only when more than one tab exists. Web passes NO `canvasPanelContent` —
+nothing can write `brainstrike_canvas_versions` there (desktop-only tool, no
+sync) and a permanently-empty tab would violate the omit-don't-stub
+convention.
+
 **Worktree dropdown** (`git-workbench-header.tsx`): each entry publishes a
 `git-scope` changeset (`scope: { kind: 'uncommitted' }`) via
 `useChangesNavigationStore.openChangeset` — which itself sets
@@ -635,6 +668,6 @@ pipeline.
   (computed by `foldJournalRecords`/`isEntryRevertible`) ships.
 - **`WorktreeProvenance`'s `'agent-reported'`/`'both'` values are never
   produced.** Only `'scanned'` — see SERVICES above.
-- **No live push-to-renderer refresh exists**, despite the design spec's
-  §6 promise of one event channel + generation guard. See REFRESH SEAMS
-  above for exactly what does and doesn't refresh today.
+- ~~**No live push-to-renderer refresh exists**~~ — CLOSED by BST-1161:
+  `changes:invalidated` + the renderer generation guard now exist. See
+  REFRESH SEAMS above for exactly what refreshes on it.

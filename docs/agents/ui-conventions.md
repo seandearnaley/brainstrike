@@ -194,7 +194,10 @@ legacy pattern; it was removed from the collection browser).
 Layers:
 - Headless core: packages/context-actions — ContextTarget union, ContextAction,
   createActionRegistry, ClipboardService, path helpers. No React rendering, no
-  Electron imports.
+  Electron imports. The command registry (⌘K palette commands + the one-way
+  bridgeActionToCommand projection) lives in the same package under the
+  `@brainstrike/context-actions/commands` subpath export (folded from the
+  former @brainstrike/commands package, BST-1004).
 - Renderer: packages/ui/src/context-menu — Radix ContextMenu wrapper +
   ActionRegistryProvider + ActionContextMenu + useContextMenuTarget.
 - Composition: packages/app-shell/src/context-action-registry.ts builds the

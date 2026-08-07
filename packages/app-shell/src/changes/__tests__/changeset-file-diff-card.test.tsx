@@ -159,6 +159,62 @@ describe('ChangesetFileDiffCard', () => {
     expect(screen.queryByTestId('diff-view-stub')).not.toBeInTheDocument();
   });
 
+  it('re-runs an already-started load when reloadToken changes (BST-1161 live refresh)', async () => {
+    const loadFileDiff = vi.fn(
+      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+    );
+    const { rerender } = render(
+      <ChangesetFileDiffCard
+        changesetKind="git-scope"
+        entry={makeEntry()}
+        loadFileDiff={loadFileDiff}
+        reloadToken={0}
+      />
+    );
+    await screen.findByTestId('diff-view-stub');
+    expect(loadFileDiff).toHaveBeenCalledTimes(1);
+
+    // External git activity re-resolved the view; the SAME mounted card must
+    // reload its diff body rather than latching the pre-invalidation content.
+    rerender(
+      <ChangesetFileDiffCard
+        changesetKind="git-scope"
+        entry={makeEntry()}
+        loadFileDiff={loadFileDiff}
+        reloadToken={1}
+      />
+    );
+    await waitFor(() => expect(loadFileDiff).toHaveBeenCalledTimes(2));
+  });
+
+  it('a reloadToken change before the first intersection does NOT force an eager load (stays lazy)', () => {
+    vi.stubGlobal('IntersectionObserver', ManualIntersectionObserver);
+    const loadFileDiff = vi.fn(
+      async (): Promise<GitResult<StructuredFileDiff>> => ({ ok: true, value: makeFullDiff() })
+    );
+    const { rerender } = render(
+      <ChangesetFileDiffCard
+        changesetKind="git-scope"
+        entry={makeEntry()}
+        loadFileDiff={loadFileDiff}
+        reloadToken={0}
+      />
+    );
+    expect(loadFileDiff).not.toHaveBeenCalled();
+
+    rerender(
+      <ChangesetFileDiffCard
+        changesetKind="git-scope"
+        entry={makeEntry()}
+        loadFileDiff={loadFileDiff}
+        reloadToken={1}
+      />
+    );
+    // Never intersected: the offscreen card owes nothing yet — its eventual
+    // first load will fetch fresh content anyway.
+    expect(loadFileDiff).not.toHaveBeenCalled();
+  });
+
   it('renders the binary explanation for binary content, not an empty diff', async () => {
     const loadFileDiff = vi.fn(
       async (): Promise<GitResult<StructuredFileDiff>> => ({

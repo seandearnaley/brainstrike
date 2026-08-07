@@ -529,6 +529,7 @@ describe('assistant runtime helpers', () => {
       startedAt: input.startedAt ?? new Date('2026-01-01T00:00:00Z'),
       status: input.status ?? 'running',
       threadId: input.threadId,
+      turnMessageId: input.turnMessageId ?? null,
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     }));
     const modelSettings = {
@@ -548,6 +549,7 @@ describe('assistant runtime helpers', () => {
       resolvedModelName: 'gpt-5.2',
       selectedMemoryThreadId: 'thread-1',
       selectedProvider: 'openai',
+      turnMessageId: 'msg-user-7',
     });
 
     expect(runId).toMatch(/^run-/);
@@ -560,6 +562,8 @@ describe('assistant runtime helpers', () => {
         resourceId: 'workspace-a',
         runtimeKind: 'hosted',
         threadId: 'thread-1',
+        // BST-1163: the run-turn link rides the sole-runId-producer seam.
+        turnMessageId: 'msg-user-7',
       })
     );
   });
@@ -574,6 +578,7 @@ describe('assistant runtime helpers', () => {
         resolvedModelName: 'gpt-5.2',
         selectedMemoryThreadId: 'thread-1',
         selectedProvider: 'openai',
+        turnMessageId: null,
       })
     ).toThrow('Assistant run records require an active memory thread.');
   });

@@ -48,8 +48,9 @@ export function createCspQualifiedEvalWarningFilter(): NonNullable<Rolldown.Inpu
 /**
  * Co-locate the whole context-action / command system into ONE chunk.
  *
- * `defineContextAction` (packages/context-actions) and `defineCommand`
- * (packages/commands) are pure identity helpers, but the feature
+ * `defineContextAction` and the command registry (both in
+ * packages/context-actions, the latter under its `./commands` subpath) are
+ * pure identity helpers, but the feature
  * `*​/context-actions` modules CALL them at MODULE-INIT to build their action
  * arrays (e.g. `const actions = [defineContextAction({ id: 'file.copy-name' })]`).
  * Rolldown's default chunking hoists the shared helper into its own chunk,
@@ -74,10 +75,10 @@ export function isContextActionSystemModule(id: string): boolean {
   if (id.includes('node_modules')) {
     return false;
   }
-  // Matches the core package (…/context-actions/src/…), every feature
-  // …/src/context-actions/… module that calls defineContextAction at init, and
-  // the commands registry that shares the same define-at-init pattern.
-  return /[\\/]context-actions[\\/]/.test(id) || /[\\/]packages[\\/]commands[\\/]/.test(id);
+  // Matches the core package (…/context-actions/src/…, which also hosts the
+  // commands registry under src/commands/) and every feature
+  // …/src/context-actions/… module that calls defineContextAction at init.
+  return /[\\/]context-actions[\\/]/.test(id);
 }
 
 /**
@@ -184,7 +185,7 @@ const moduleDir =
 // workspace source entries so Vite owns the emitted lazy chunks. Do not repurpose this
 // for published/node_modules consumption without reworking the path contract.
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
-const uiDir = path.resolve(moduleDir, '..', '..', 'ui', 'src');
+const assistantUiDir = path.resolve(moduleDir, '..', '..', 'assistant-ui', 'src');
 const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
 
 export function getAssistantOptimizeDepsInclude(): readonly string[] {
@@ -214,8 +215,8 @@ export function getLazySurfaceOptimizeDepsEntries(
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper-lazy.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper.tsx'),
     path.resolve(appShellDir, 'database-tab.tsx'),
-    path.resolve(uiDir, 'assistant-ui-panel', 'assistant-ui-panel.tsx'),
-    path.resolve(uiDir, 'assistant-ui-panel', 'markdown-text.tsx'),
+    path.resolve(assistantUiDir, 'assistant-ui-panel.tsx'),
+    path.resolve(assistantUiDir, 'markdown-text.tsx'),
     path.resolve(appShellDir, 'database-tab-chunk.tsx'),
     path.resolve(dbExplorerDir, 'database-demo-panel.tsx'),
   ].map(toVitePath);

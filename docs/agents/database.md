@@ -133,6 +133,13 @@ thread-deletion cleanup, and all three table-enumerating reset paths. Full
 contract: `docs/agents/assistant-persistence.md` § RUN ERROR PROVIDER
 FORENSICS.
 
+Migration 082 owns the FK-less `brainstrike_canvas_versions` ledger. Register
+it in both the numbered runner and Drizzle's append-only custom ledger, mirror
+its DDL in the renderer-lazy assistant bootstrap, and keep thread-delete plus
+factory-reset ownership explicit. A Canvas document is the rows sharing one
+app-side uuidv7 `canvas_id`; greatest `version` is current. Full contract:
+`docs/agents/assistant-persistence.md` § CANVAS DOCUMENT VERSIONS.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

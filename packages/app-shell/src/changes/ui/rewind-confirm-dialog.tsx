@@ -26,6 +26,9 @@ import type {
   AssistantRewindConflict,
   AssistantRewindMode,
 } from '@brainstrike/assistant-contract';
+// Deep subpath, not the `assistant-ui-panel` barrel: that barrel pulls the
+// whole assistant panel (and `@assistant-ui/react`) into the Changes chunk.
+import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import {
   Button,
   Dialog,
@@ -37,9 +40,6 @@ import {
   ToastAction,
   useToast,
 } from '@brainstrike/ui';
-// Deep subpath, not the `assistant-ui-panel` barrel: that barrel pulls the
-// whole assistant panel (and `@assistant-ui/react`) into the Changes chunk.
-import { useRewindComposerStore } from '@brainstrike/ui/assistant-ui-panel/rewind-composer-store';
 import { Loader2 } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 import { type RewindRequest, useRewindStore } from '../rewind-store';

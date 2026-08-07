@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
+  CANVAS_VERSIONS_TABLE,
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
@@ -39,8 +40,8 @@ import {
   type RediscoveredToolSuspend,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-ui';
 import type { DbHandle } from '@brainstrike/db/react';
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
 
 export interface AssistantMemoryThread {
@@ -111,6 +112,15 @@ export interface AssistantThreadRunRecord {
   readonly startedAt: Date;
   readonly status: AssistantThreadRunStatus;
   readonly threadId: string;
+  /**
+   * The user message whose turn this run belongs to (BST-1163). Written at
+   * run creation — every leg of one turn (initial send, approval/suspend
+   * resumes) carries the SAME triggering user message id, so rewind range
+   * resolution can group runs by turn instead of guessing from timestamps.
+   * `null` for rows that predate the column (readers fall back to the
+   * completed_at rule) and for callers with no message in hand.
+   */
+  readonly turnMessageId: string | null;
   readonly updatedAt: Date;
 }
 
@@ -127,6 +137,8 @@ export interface CreateAssistantThreadRunInput {
   readonly startedAt?: Date;
   readonly status?: AssistantThreadRunStatus;
   readonly threadId: string;
+  /** See {@link AssistantThreadRunRecord.turnMessageId}. Omitted ⇒ NULL. */
+  readonly turnMessageId?: string | null;
 }
 
 export interface CompleteAssistantThreadRunInput {
@@ -740,6 +752,30 @@ CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_thread_idx
 CREATE INDEX IF NOT EXISTS brainstrike_workspace_snapshots_root_idx
   ON ${WORKSPACE_SNAPSHOTS_TABLE} (root_id);
 
+-- Persisted Canvas document versions (BST-1173). Bootstrapped here AND
+-- created by migration 082 — keep the shape byte-identical to 082. Mirrored
+-- because the thread-delete cascade references every sidecar unconditionally.
+-- ids are app-side uuidv7 values; creator is a closed vocabulary; the newest
+-- version for one canvas is its current content.
+CREATE TABLE IF NOT EXISTS ${CANVAS_VERSIONS_TABLE} (
+  id text PRIMARY KEY,
+  canvas_id text NOT NULL,
+  thread_id text NOT NULL,
+  resource_id text NOT NULL,
+  title text NOT NULL,
+  html text NOT NULL,
+  version integer NOT NULL CHECK (version >= 1),
+  created_by text NOT NULL CHECK (created_by IN ('assistant', 'user')),
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (canvas_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_thread_idx
+  ON ${CANVAS_VERSIONS_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_canvas_version_idx
+  ON ${CANVAS_VERSIONS_TABLE} (canvas_id, version DESC);
+
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,
   resource_id text NOT NULL,
@@ -754,8 +790,17 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   started_at timestamptz NOT NULL,
   completed_at timestamptz,
   created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  turn_message_id text
 );
+
+-- Run↔turn link (BST-1163): the user message whose turn the run belongs to,
+-- written at run creation. Nullable — pre-1163 rows stay NULL and readers
+-- fall back to the completed_at timestamp rule. Upgrade path for existing
+-- installs (this table is bootstrap-only; no numbered migration exists or
+-- may be added — see assistant-persistence.md).
+ALTER TABLE ${ASSISTANT_THREAD_RUNS_TABLE}
+  ADD COLUMN IF NOT EXISTS turn_message_id text;
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_resource_idx
   ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id);
@@ -1524,6 +1569,7 @@ function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunReco
     startedAt: normalizeDate(getRowValue(row, 'startedAt', 'started_at')),
     status: requireRunStatus(row['status']),
     threadId: requireString(getRowValue(row, 'threadId', 'thread_id'), 'threadId'),
+    turnMessageId: nullableString(getRowValue(row, 'turnMessageId', 'turn_message_id')),
     updatedAt: normalizeDate(getRowValue(row, 'updatedAt', 'updated_at')),
     ...(modelSettings ? { modelSettings } : {}),
     ...(providerOptions ? { providerOptions } : {}),
@@ -2579,7 +2625,8 @@ export function createPgliteAssistantThreadRepository(
           started_at AS "startedAt",
           completed_at AS "completedAt",
           created_at AS "createdAt",
-          updated_at AS "updatedAt"
+          updated_at AS "updatedAt",
+          turn_message_id AS "turnMessageId"
        FROM ${ASSISTANT_THREAD_RUNS_TABLE}
        WHERE resource_id = $1
        ORDER BY thread_id, started_at DESC, id DESC`,
@@ -2804,6 +2851,7 @@ export function createPgliteAssistantThreadRepository(
         startedAt,
         status: input.status ?? 'running',
         threadId: input.threadId,
+        turnMessageId: input.turnMessageId ?? null,
         updatedAt: now,
         ...(input.modelSettings ? { modelSettings: { ...input.modelSettings } } : {}),
         ...(input.providerOptions ? { providerOptions: { ...input.providerOptions } } : {}),
@@ -2824,9 +2872,10 @@ export function createPgliteAssistantThreadRepository(
             started_at,
             completed_at,
             created_at,
-            updated_at
+            updated_at,
+            turn_message_id
           )
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           record.id,
           record.resourceId,
@@ -2842,6 +2891,7 @@ export function createPgliteAssistantThreadRepository(
           record.completedAt,
           record.createdAt,
           record.updatedAt,
+          record.turnMessageId,
         ]
       );
       return record;

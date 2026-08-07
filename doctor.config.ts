@@ -78,6 +78,23 @@ export default {
         files: ['src/db-provider.tsx'],
         rules: ['react-doctor/async-parallel'],
       },
+      {
+        // BST-981 moved these files verbatim from packages/ui/src/assistant-ui-panel/
+        // (two of the three are byte-identical to their pre-move blobs; the third
+        // changed only import specifiers). The findings pre-exist on main — a full
+        // scan of packages/ui there reports the same "Ref mutated during render"
+        // hits at the old paths — but 0.9.3's rename-aware baseline failed to pair
+        // them across this PR's ~200-file rename set, reclassifying old debt as
+        // "new" and tripping the error gate. Suppressed narrowly (file + rule) so
+        // the move stays behavior-preserving; BST-1182 tracks fixing the ref
+        // mutations for real and REMOVING these three entries.
+        files: [
+          'src/data-stream-runtime.ts',
+          'src/run-lifecycle-notifications.ts',
+          'src/use-stable-record.ts',
+        ],
+        rules: ['react-doctor/no-ref-current-in-render'],
+      },
     ],
   },
 

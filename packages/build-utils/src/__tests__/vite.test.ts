@@ -193,8 +193,8 @@ describe('assistant vite helpers', () => {
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
-      expect.stringContaining('/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx'),
-      expect.stringContaining('/packages/ui/src/assistant-ui-panel/markdown-text.tsx'),
+      expect.stringContaining('/packages/assistant-ui/src/assistant-ui-panel.tsx'),
+      expect.stringContaining('/packages/assistant-ui/src/markdown-text.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
       expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
     ]);
@@ -221,7 +221,11 @@ describe('assistant vite helpers', () => {
     expect(
       isContextActionSystemModule('/workspace/packages/db-explorer/src/context-actions/actions.ts')
     ).toBe(true);
-    expect(isContextActionSystemModule('/workspace/packages/commands/src/registry.ts')).toBe(true);
+    expect(
+      isContextActionSystemModule(
+        '/workspace/packages/context-actions/src/commands/command-registry.ts'
+      )
+    ).toBe(true);
     // node_modules and unrelated app code stay under default chunking.
     expect(isContextActionSystemModule('/workspace/node_modules/context-actions/index.js')).toBe(
       false

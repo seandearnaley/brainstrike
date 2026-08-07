@@ -27,7 +27,6 @@ const OVERRIDES = new Map([
   ['@brainstrike/desktop', { branches: 60, functions: 70, lines: 90, statements: 70 }],
   // Configuration and utility package thresholds recalibrated in 2026-03.
   ['@brainstrike/config', { branches: 80, functions: 98, lines: 98, statements: 98 }],
-  ['@brainstrike/tailwind-config', { branches: 0, functions: 0, lines: 10, statements: 10 }],
   ['@brainstrike/types', { branches: 0, functions: 50, lines: 20, statements: 20 }],
   // File system — measured 2026-03: L 88.65% | F 89.52% | B 71.18% | S 78.31%
   // Ratcheted after utils-browser and path-validation branch test additions.
@@ -63,11 +62,13 @@ const OVERRIDES = new Map([
   ['@brainstrike/file-tree-worker', { branches: 68, functions: 90, lines: 92, statements: 84 }],
   // File import thresholds ratcheted in 2026-03 after worker initialization/timeout edge-case tests.
   ['@brainstrike/file-import', { branches: 61, functions: 83, lines: 95, statements: 79 }],
-  // UI package — measured 2026-04 after the Gemma local-runtime assistant-panel expansion
-  // and fresh uncached coverage regeneration: L 93.84% | F 69.35% | B 59.68% | S 79.03%.
-  // Previous function/branch thresholds were being masked by stale coverage artifacts.
-  // Follow-up BST-492 tracks restoring stricter UI package coverage.
-  ['@brainstrike/ui', { branches: 59, functions: 69, lines: 92, statements: 77 }],
+  // UI package — measured L 93.27% | F 94.86% | B 84.94% | S 93.33%.
+  // Recalibrated 2026-08 after assistant-ui extraction (BST-981).
+  ['@brainstrike/ui', { branches: 83, functions: 93, lines: 92, statements: 92 }],
+  // Assistant UI feature package — measured 2026-08 at extraction (BST-981):
+  // L 90.39% | F 92.20% | B 82.97% | S 90.49%. Pinned so the moved panel code
+  // keeps a floor near what ui's override held it to, not the workspace default.
+  ['@brainstrike/assistant-ui', { branches: 81, functions: 91, lines: 89, statements: 89 }],
   // Token cache — elevated after token-utils-lite branch/path coverage improvements
   ['@brainstrike/token-cache', { branches: 62, functions: 92, lines: 92, statements: 82 }],
   // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.

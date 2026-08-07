@@ -1,0 +1,150 @@
+import { ActionBarPrimitive, MessagePrimitive, useAui, useAuiState } from '@assistant-ui/react';
+import { TooltipIconButton, useCopyToClipboard } from '@brainstrike/ui';
+import { CheckIcon, CopyIcon, PencilIcon } from 'lucide-react';
+import { type ReactNode, use } from 'react';
+import { ActiveThreadKeyContext } from './active-thread-key-context';
+import {
+  ApprovalActionChip,
+  fromApprovalActionChipKey,
+  readApprovalActionChipProps,
+  toApprovalActionChipKey,
+} from './approval-action-chip';
+import { UserMessageText } from './assistant-message-text';
+import { BranchPicker } from './branch-picker';
+import { UserMessageAttachments } from './composer-attachments';
+import { ExpandableMessageContent } from './expandable-message-content';
+import { MessageRewindAction } from './message-rewind-action';
+
+// Extracted from assistant-ui-panel.tsx (the panel-root source-file budget in
+// __tests__/assistant-ui-panel-architecture.test.ts). Imports only sibling
+// modules — never the panel root — so the extraction cannot re-enter the
+// module-scope chunk-init cycle class.
+
+// Exported (rather than kept module-private) so tests can mount it directly
+// against a real assistant-ui local runtime -- see
+// __tests__/assistant-chat-polish.browser.test.tsx (BST-898 hover-float
+// geometry) alongside __tests__/user-action-bar-copy.test.tsx.
+export const UserMessage = () => {
+  const threadKey = use(ActiveThreadKeyContext);
+  // Approval action messages ("Approved <tool>.") are transport bookkeeping —
+  // kept in thread state (outcome locking + resume runConfig ride on them,
+  // and they are excluded from every outbound payload at the transport seam)
+  // but rendered as a compact outcome chip, never a prompt bubble. The
+  // selector returns a stable string key (same pattern as the approval
+  // notice's outcome key) so the store snapshot stays referentially stable.
+  const approvalChipKey = useAuiState((state) =>
+    toApprovalActionChipKey(readApprovalActionChipProps(state.message))
+  );
+  if (approvalChipKey) {
+    const chipProps = fromApprovalActionChipKey(approvalChipKey);
+    return (
+      <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+        <ApprovalActionChip {...chipProps} />
+      </MessagePrimitive.Root>
+    );
+  }
+  return (
+    <MessagePrimitive.Root className="aui-user-message-root relative grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-2 [&:where(>*)]:col-start-2">
+      <UserActionBar />
+
+      <ExpandableMessageContent
+        className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2"
+        testId="assistant-user-message-content"
+      >
+        <UserMessageAttachments />
+        <MessagePrimitive.Parts
+          components={{
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
+            Text: UserMessageText,
+          }}
+        />
+      </ExpandableMessageContent>
+
+      <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
+
+      {/* "Restore to before this message" — null without a RewindProvider
+          binding (web / no changes bridge) or while a run is in flight. */}
+      <MessageRewindAction threadId={threadKey} />
+    </MessagePrimitive.Root>
+  );
+};
+
+// BST-898: floats on hover instead of mounting in flow (BranchPicker is a
+// SEPARATE row -- row-start-3 -- so unlike AssistantActionBar there's no
+// branch count where in-flow mounting is "free"; `autohideFloat="always"`,
+// not "single-branch"). `relative` on the UserMessage root makes it the
+// containing block once floating.
+//
+// Geometry, empirically verified in assistant-chat-polish.browser.test.tsx
+// (measured rects, not spec-assumed): col-end-2/row-end-3 are required --
+// for an abspos item an `auto` END line resolves to the grid CONTAINER's
+// padding edge, not "span 1" (CSS Grid SS10.1), so without them the
+// containing block balloons past col 1/row 2. `justify-self-end`/`-stretch`
+// were tried and rejected (abspos `justify-self: normal` computes to
+// `start`, and explicit `stretch` still measured shrink-to-fit in
+// Chromium); `inset-x-0` is what reproduces the in-flow box's width. No
+// vertical override needed: block-axis `start` matches the in-flow `mt-2`.
+export const USER_ACTION_BAR_CLASSNAME =
+  'col-start-1 col-end-2 row-start-2 row-end-3 mt-2 mr-3 flex flex-col items-end data-[floating]:absolute data-[floating]:inset-x-0';
+
+// Exported so tests can mount it directly against a real assistant-ui local
+// runtime -- see __tests__/user-action-bar-copy.test.tsx. AssistantActionBar is
+// exported from its own module for the same reason.
+export const UserActionBar = () => {
+  const aui = useAui();
+  const { copyToClipboard, isCopied, isFailed } = useCopyToClipboard();
+
+  // Routed through the shared clipboard service (useCopyToClipboard), NOT
+  // ActionBarPrimitive.Copy's built-in navigator.clipboard.writeText --
+  // that call swallows write rejections, so a broken Electron bridge would
+  // silently do nothing (no-silent-fallbacks rule). aui.message().getCopyText()
+  // is the same message-text extraction assistant-ui's own copy hook uses
+  // internally (join of the message's text parts).
+  const onCopy = () => {
+    if (isCopied) {
+      return;
+    }
+    copyToClipboard(aui.message().getCopyText());
+  };
+
+  let tooltip = 'Copy';
+  if (isCopied) {
+    tooltip = 'Copied!';
+  } else if (isFailed) {
+    tooltip = 'Copy failed';
+  }
+
+  let copyIcon: ReactNode;
+  if (isCopied) {
+    copyIcon = <CheckIcon className="size-4" />;
+  } else if (isFailed) {
+    copyIcon = <CopyIcon className="size-4 text-destructive" />;
+  } else {
+    copyIcon = <CopyIcon className="size-4" />;
+  }
+
+  return (
+    <ActionBarPrimitive.Root
+      autohide="not-last"
+      autohideFloat="always"
+      className={USER_ACTION_BAR_CLASSNAME}
+      data-testid="user-action-bar"
+      hideWhenRunning
+    >
+      <TooltipIconButton aria-label="Copy message" onClick={onCopy} tooltip={tooltip}>
+        {copyIcon}
+      </TooltipIconButton>
+      {/* Proactively announce a broken clipboard to screen readers -- the
+          tooltip alone is not announced (no-silent-fallbacks). Mirrors
+          CodeBlockHeader / CopyTextButton. */}
+      <span aria-live="polite" className="sr-only" role="status">
+        {isFailed ? 'Copy failed' : null}
+      </span>
+      <ActionBarPrimitive.Edit asChild>
+        <TooltipIconButton aria-label="Edit message" tooltip="Edit">
+          <PencilIcon className="size-4" />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Edit>
+    </ActionBarPrimitive.Root>
+  );
+};

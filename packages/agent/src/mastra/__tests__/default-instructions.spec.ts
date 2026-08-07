@@ -100,6 +100,25 @@ describe('manageTaskList advertisement', () => {
   });
 });
 
+describe('manageCanvas advertisement', () => {
+  it('advertises the versioned canvas verbs only when the tool is registered', () => {
+    const withTool = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_manageCanvas', 'brainstrike.manageCanvas']])
+    );
+    expect(withTool).toContain('brainstrike_manageCanvas');
+    expect(withTool).toContain('create');
+    expect(withTool).toContain('update');
+    expect(withTool).toContain('rewrite');
+    expect(withTool).toContain('list');
+
+    const withoutTool = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
+    );
+    expect(withoutTool).not.toContain('manageCanvas');
+    expect(withoutTool).not.toContain('canvas documents');
+  });
+});
+
 describe('lspInspect advertisement', () => {
   it('teaches the cursor contract only when the tool is registered', () => {
     const withTool = buildDefaultInstructions(

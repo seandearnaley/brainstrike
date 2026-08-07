@@ -55,10 +55,12 @@ CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_runs (
   model text NOT NULL,
   runtime_kind text NOT NULL,
   status text NOT NULL,
+  error text,
   started_at timestamptz NOT NULL,
   completed_at timestamptz,
   created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  turn_message_id text
 );
 `;
 
@@ -147,14 +149,16 @@ export async function insertRun(
     startedAt: string;
     status?: 'cancelled' | 'completed' | 'failed' | 'running';
     threadId?: string;
+    /** The run↔turn link (BST-1163). Omitted seeds a legacy NULL-link row. */
+    turnMessageId?: string;
   }
 ): Promise<void> {
   await db.query(
     `INSERT INTO brainstrike_assistant_thread_runs
        (id, resource_id, thread_id, provider, model, runtime_kind, status,
-        started_at, completed_at, created_at, updated_at)
+        started_at, completed_at, created_at, updated_at, turn_message_id)
      VALUES ($1, $2, $3, 'anthropic', 'test-model', 'hosted', $5,
-             $4::timestamptz, $6::timestamptz, $4::timestamptz, $4::timestamptz)`,
+             $4::timestamptz, $6::timestamptz, $4::timestamptz, $4::timestamptz, $7)`,
     [
       args.id,
       RESOURCE_ID,
@@ -162,6 +166,7 @@ export async function insertRun(
       args.startedAt,
       args.status ?? 'completed',
       args.completedAt ?? null,
+      args.turnMessageId ?? null,
     ]
   );
 }

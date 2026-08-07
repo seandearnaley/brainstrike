@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
 import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
 import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
 import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
@@ -214,9 +215,21 @@ describe('preload runtime contract', () => {
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextSelectionUpdate,
       ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT:
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextTapestryUpdate,
+      BROWSER_CLOSE_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.closeTab,
+      BROWSER_CREATE_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.createTab,
+      BROWSER_GO_BACK_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.goBack,
+      BROWSER_GO_FORWARD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.goForward,
+      BROWSER_LIST_TABS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.listTabs,
+      BROWSER_NAVIGATE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.navigate,
+      BROWSER_RELOAD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.reload,
+      BROWSER_SELECT_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.selectTab,
+      BROWSER_SET_BOUNDS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.setBounds,
+      BROWSER_SET_OCCLUDED_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.setOccluded,
+      BROWSER_TABS_CHANGED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.browser.tabsChanged,
       CHANGES_APPLY_REWIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.applyRewind,
       CHANGES_FILE_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.fileDiff,
       CHANGES_FINALIZE_REWINDS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.finalizeRewinds,
+      CHANGES_INVALIDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.changes.invalidated,
       CHANGES_INVENTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.inventory,
       CHANGES_REDO_REWIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.redoRewind,
       CHANGES_RESOLVE_VIEW_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.resolveView,
@@ -262,7 +275,6 @@ describe('preload runtime contract', () => {
       FILE_SYSTEM_WATCH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.files.watchEvent,
       GIT_AHEAD_BEHIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.aheadBehind,
       GIT_COMMIT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commit,
-      GIT_COMMIT_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commitDiff,
       GIT_COMMIT_FILES_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commitFiles,
       GIT_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.diff,
       GIT_FETCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.fetch,
@@ -337,6 +349,7 @@ describe('preload runtime contract', () => {
     // required method is missing from the preload surface, so the exposed key
     // set must match the resolver's required-method list exactly.
     const expectedBridgeMethods: Record<string, readonly string[]> = {
+      browser: BROWSER_BRIDGE_REQUIRED_METHODS,
       changes: CHANGES_BRIDGE_REQUIRED_METHODS,
       commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
       git: GIT_BRIDGE_REQUIRED_METHODS,

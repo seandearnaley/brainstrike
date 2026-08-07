@@ -29,7 +29,7 @@
  * the diff PANE moved.
  *
  * RENAME PARITY (verified, not assumed — BST-1116 W6 Task B): the old path
- * passed `file.originalPath` to `commitDiff` as an explicit `originalPath`
+ * used to ride the retired `commitDiff` op's explicit `originalPath`
  * pathspec. `StructuredFileDiffParams`'s `commit` mode has no such field —
  * only `path`. Reading `git-structured-diff.ts`'s `structuredRefDiff`
  * (shared, unmodified, between `commit` and `range` mode) confirms the

@@ -77,6 +77,7 @@ interface ModelFacingToolNames {
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
   lspInspect: string | null;
+  manageCanvas: string | null;
   manageTaskList: string | null;
   queryEmbeddingSpace: string | null;
   readWorkspaceContext: string | null;
@@ -141,6 +142,7 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
       NATIVE_TOOL_ID.listWorkspaceContext
     ),
     lspInspect: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.lspInspect),
+    manageCanvas: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.manageCanvas),
     manageTaskList: resolveModelFacingToolName(
       originalToModelFacing,
       NATIVE_TOOL_ID.manageTaskList
@@ -373,6 +375,13 @@ function buildTaskListInstruction(names: ModelFacingToolNames): string {
   return `For non-trivial multi-step work, maintain a plan with ${names.manageTaskList}. Every call replaces the FULL list; keep exactly one task in_progress and mark finished tasks completed. Statuses: pending/in_progress/completed.`;
 }
 
+function buildCanvasInstruction(names: ModelFacingToolNames): string {
+  if (!names.manageCanvas) {
+    return '';
+  }
+  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
+}
+
 /** The persona shape the delegation guidance needs (ids/labels/descriptions only). */
 export type DelegationPersonaSummary = Pick<
   AssistantPersonaDefinition,
@@ -529,6 +538,7 @@ export function buildDefaultInstructions(
   const executeCommandInstruction = buildExecuteCommandInstruction(names);
   const webSearchInstruction = buildWebSearchInstruction(names);
   const taskListInstruction = buildTaskListInstruction(names);
+  const canvasInstruction = buildCanvasInstruction(names);
   const curationInstruction =
     names.queryEmbeddingSpace &&
     names.updateWorkspaceContextSelection &&
@@ -599,6 +609,7 @@ export function buildDefaultInstructions(
     toolDiscoveryInstruction,
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
+    canvasInstruction,
     taskListInstruction,
     askUserInstruction,
     delegationInstruction,

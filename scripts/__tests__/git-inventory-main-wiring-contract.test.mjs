@@ -59,6 +59,26 @@ test('git-inventory shutdown step runs before the database shutdown step', () =>
   );
 });
 
+test('the changes:invalidated broadcast is wired into the service construction (BST-1161)', () => {
+  const constructIndex = requireIndexOf(
+    'gitInventoryService = createGitInventoryService(',
+    'the gitInventoryService construction site'
+  );
+  const onInvalidateIndex = requireIndexOf(
+    'onInvalidate: broadcastChangesInvalidation',
+    'the onInvalidate dep wiring the changes:invalidated broadcast'
+  );
+  requireIndexOf(
+    'DESKTOP_IPC_CHANNELS.changes.invalidated',
+    'the changes.invalidated channel send inside broadcastChangesInvalidation'
+  );
+  assert.ok(
+    Math.abs(onInvalidateIndex - constructIndex) < 3000,
+    'the onInvalidate dep must be part of the gitInventoryService construction — a service ' +
+      'constructed without it silently reverts the changes domain to manual-refresh-only'
+  );
+});
+
 test('gitInventoryService is constructed and started inside app.whenReady(), never at module scope', () => {
   const whenReadyIndex = requireIndexOf(
     'app.whenReady().then(',

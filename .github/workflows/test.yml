@@ -614,8 +614,8 @@ jobs:
   browser-tests:
     name: Browser tests
     # Vitest 4 browser-mode suites (real Chromium): packages/db PGlite WASM
-    # semantics (BST-64/BST-994 — unskipped after eight months), packages/ui
-    # assistant browser suites, packages/storage web adapter. Before this job
+    # semantics (BST-64/BST-994 — unskipped after eight months), packages/ui,
+    # packages/assistant-ui assistant browser suites, packages/storage web adapter. Before this job
     # existed, `test:browser` ran NOWHERE in CI — only in the local `pnpm
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     # Not (yet) a required check: branch protection is Sean's call; this lane
@@ -661,7 +661,7 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
-      # `test:browser` dependsOn build, so the (pure-TS) db/ui/storage closure
+      # `test:browser` dependsOn build, so the pure-TS db/ui/assistant-ui/storage closure
       # builds in-job. The remote Turbo cache carries most of it; this local
       # .turbo layer is the same outage hedge the setup-workspace composite
       # provides (same key scheme — the composite itself can't be used here
@@ -677,7 +677,7 @@ jobs:
 
       - name: Install dependencies
         # Same exclusions as Web E2E: this pwuser container has no C toolchain
-        # or sudo; the browser-test packages (db, ui, storage) and their
+        # or sudo; the browser-test packages (db, ui, assistant-ui, storage) and their
         # dependency closures are pure TS, so the two desktop-only native
         # projects are excluded from install.
         run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
@@ -687,12 +687,12 @@ jobs:
         # `pnpm test:browser` puts all 47 workspace packages in turbo scope and
         # builds both desktop native addons, which this toolchain-less pwuser
         # container cannot compile (proven by this lane's first run). The
-        # filtered scope is the three packages + their pure-TS closure.
+        # filtered scope is the four packages + their pure-TS closure.
         # KEEP IN SYNC with packages defining a test:browser script —
         # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
         # `pnpm test:scripts` (Static job) if a package gains test:browser
         # without being added here.
-        run: pnpm test:browser --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui
+        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui
 
       - name: Upload browser test artifacts
         if: failure()
@@ -701,9 +701,11 @@ jobs:
           name: browser-test-results
           path: |
             packages/db/test-results/
+            packages/assistant-ui/test-results/
             packages/ui/test-results/
             packages/storage/test-results/
             packages/db/**/__screenshots__/
+            packages/assistant-ui/**/__screenshots__/
             packages/ui/**/__screenshots__/
             packages/storage/**/__screenshots__/
           retention-days: 1

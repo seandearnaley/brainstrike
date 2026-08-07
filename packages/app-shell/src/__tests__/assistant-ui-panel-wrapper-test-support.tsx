@@ -735,7 +735,7 @@ vi.mock('../use-assistant-slash-commands', () => ({
 }));
 
 // Mock the AssistantUiPanel component
-vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
+vi.mock('@brainstrike/assistant-ui', () => ({
   AssistantUiPanel: ({
     composerDraftCommand,
     providerGroups = [],

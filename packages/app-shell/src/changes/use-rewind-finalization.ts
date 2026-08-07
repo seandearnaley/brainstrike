@@ -56,7 +56,10 @@ import { resolveChangesBridge } from './changes-bridge';
 
 const logger = createLogger('RewindFinalization');
 
-type PrepareRequestData = (abortSignal?: AbortSignal) => Promise<Record<string, unknown>>;
+type PrepareRequestData = (
+  abortSignal?: AbortSignal,
+  turnAnchorMessageId?: string | null
+) => Promise<Record<string, unknown>>;
 
 export interface UseRewindFinalizationArgs {
   /** The wrapper's raw run-creation seam. Returned wrapped, never replaced. */
@@ -127,8 +130,8 @@ export function useRewindFinalization({
   }, [bridge, threadId]);
 
   const prepareRequestDataAndFinalize = useCallback<PrepareRequestData>(
-    async (abortSignal) => {
-      const prepared = await prepareRequestData(abortSignal);
+    async (abortSignal, turnAnchorMessageId) => {
+      const prepared = await prepareRequestData(abortSignal, turnAnchorMessageId);
       // An abort that lands AFTER the run row exists still aborts the send:
       // `prepareRequest` throws the reason once this resolves. No message was
       // authored, so nothing finalizes; the arming flag stays set and the retry

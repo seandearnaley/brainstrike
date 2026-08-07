@@ -108,6 +108,23 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/assistant-ui": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "**/*.stories.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        // Configuration/test-only imports are outside this project's production glob.
+        "@brainstrike/config",
+        "@brainstrike/context-actions",
+        "react-shiki"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/hooks": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
@@ -227,13 +244,6 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/server-config": {
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
     "packages/test-utils": {
       "entry": [
         "src/test-timeouts.ts", // Used by vitest configs across the monorepo
@@ -266,13 +276,6 @@
         "vitest.mutation.config.ts", // Used by Stryker mutation testing
         "stryker.config.js" // Mutation testing config
       ],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
-    "packages/tailwind-config": {
-      "project": ["**/*.{js,ts}"],
-      "ignore": [],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -376,13 +379,6 @@
         // file (apps/web + apps/desktop vite.config.mts) — knip cannot follow the alias
         "src/vite.ts"
       ],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
-    "packages/commands": {
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
