@@ -23,9 +23,54 @@ interface AxTreeResult {
   readonly nodes?: readonly unknown[];
 }
 
-/** A well-formed AX node minimally has a string `nodeId`. */
+/** An `AXValue` the formatter reads: an object whose `value` (if present) is a primitive. */
+function isAxValue(candidate: unknown): boolean {
+  if (typeof candidate !== 'object' || candidate === null) {
+    return false;
+  }
+  const { value } = candidate as { value?: unknown };
+  return (
+    value === undefined ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+function isStringArray(candidate: unknown): boolean {
+  return Array.isArray(candidate) && candidate.every((item) => typeof item === 'string');
+}
+
+/**
+ * A well-formed AX node: a string `nodeId` AND every OTHER field the formatter
+ * consumes must, when present, have the right type — a `backendDOMNodeId` that
+ * is a string would otherwise become a string-valued ref, and a malformed
+ * `role` would silently drop content. NO SILENT FALLBACKS: any mismatch means a
+ * broken transport, so the caller rejects rather than degrading.
+ */
 function isAxNode(node: unknown): node is AxSnapshotNode {
-  return typeof (node as { nodeId?: unknown } | null)?.nodeId === 'string';
+  if (typeof node !== 'object' || node === null) {
+    return false;
+  }
+  const n = node as Record<string, unknown>;
+  if (typeof n['nodeId'] !== 'string') {
+    return false;
+  }
+  const backendId = n['backendDOMNodeId'];
+  if (backendId !== undefined && typeof backendId !== 'number') {
+    return false;
+  }
+  const ignored = n['ignored'];
+  if (ignored !== undefined && typeof ignored !== 'boolean') {
+    return false;
+  }
+  const childIds = n['childIds'];
+  if (childIds !== undefined && !isStringArray(childIds)) {
+    return false;
+  }
+  const role = n['role'];
+  const name = n['name'];
+  return (role === undefined || isAxValue(role)) && (name === undefined || isAxValue(name));
 }
 
 interface CaptureScreenshotResult {

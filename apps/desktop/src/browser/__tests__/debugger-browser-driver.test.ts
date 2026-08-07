@@ -74,6 +74,15 @@ describe('DebuggerBrowserDriver', () => {
     );
   });
 
+  it('throws when a consumed AX field has the wrong type (e.g. non-number backendDOMNodeId)', async () => {
+    // A string backendDOMNodeId would otherwise become a string-valued ref.
+    const bad = { backendDOMNodeId: 'bad', nodeId: '1', role: { value: 'button' } };
+    const session = new FakeCdpSession({ 'Accessibility.getFullAXTree': { nodes: [bad] } });
+    await expect(driverWith(session).snapshot({ filter: 'all', maxChars: 100 })).rejects.toThrow(
+      'malformed node'
+    );
+  });
+
   it('accepts a genuinely empty page (empty string is valid, not malformed)', async () => {
     const session = new FakeCdpSession({ 'Runtime.evaluate': { result: { value: '' } } });
     const result = await driverWith(session).getPageText(10);
