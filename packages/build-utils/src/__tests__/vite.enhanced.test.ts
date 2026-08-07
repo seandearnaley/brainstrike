@@ -211,8 +211,10 @@ describe('isContextActionSystemModule', () => {
     ).toBe(true);
   });
 
-  it('matches the commands registry package', () => {
-    expect(isContextActionSystemModule('/workspace/packages/commands/src/define.ts')).toBe(true);
+  it('matches the commands registry at its context-actions subpath home', () => {
+    expect(
+      isContextActionSystemModule('/workspace/packages/context-actions/src/commands/define.ts')
+    ).toBe(true);
   });
 
   it('never matches node_modules', () => {

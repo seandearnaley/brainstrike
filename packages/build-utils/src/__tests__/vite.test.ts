@@ -221,7 +221,11 @@ describe('assistant vite helpers', () => {
     expect(
       isContextActionSystemModule('/workspace/packages/db-explorer/src/context-actions/actions.ts')
     ).toBe(true);
-    expect(isContextActionSystemModule('/workspace/packages/commands/src/registry.ts')).toBe(true);
+    expect(
+      isContextActionSystemModule(
+        '/workspace/packages/context-actions/src/commands/command-registry.ts'
+      )
+    ).toBe(true);
     // node_modules and unrelated app code stay under default chunking.
     expect(isContextActionSystemModule('/workspace/node_modules/context-actions/index.js')).toBe(
       false
