@@ -357,6 +357,31 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 ---
 
+## TanStack Table (`@tanstack/react-table` 8.21.3 → 9.0.0) — completed
+
+**Status:** Catalog bumped `^8.21.3` → `^9.0.0`, 2026-08-06 on `chore/deps-react-table-9` (v9.0.0 stable shipped 2026-08-04). Blast radius was exactly the settings-ui log viewer (`packages/settings-ui/src/settings/system/log-viewer-components/`, 4 files + 1 new).
+
+**v9's architectural change:** every non-core capability is an explicit opt-in plugin registered through `tableFeatures()` (which also carries row-model factories and sort/filter-fn registries), `useReactTable(options)` becomes `useTable({ features, ...options })`, and the `TFeatures` generic threads through `Table`/`Row`/`ColumnDef`/`CellContext`. `table.getState()`/top-level `onStateChange` are removed in favor of TanStack Store atoms — this repo never used either (per-slice `on*Change` handlers, which survive unchanged, were already the pattern).
+
+**What the migration actually touched here:**
+
+- New `log-table-features.ts`: module-scope `tableFeatures({ columnSizingFeature, columnVisibilityFeature, paginatedRowModel: createPaginatedRowModel(), rowPaginationFeature, rowSortingFeature, sortedRowModel: createSortedRowModel() })` + exported `LogTableFeatures` type. `columnSizingFeature` is required because v9 gates the per-column `size` option AND `column.getSize()` (log-list's header widths) behind it — the compiler catches the option (`TS2353`), but `getSize()` alone would be a runtime gap.
+- `log-viewer.tsx`: `useTable({ features: logTableFeatures, ... })`, row-model factories dropped from options (core row model is automatic in v9), `getPrePaginationRowModel()` → `getPrePaginatedRowModel()`, `VisibilityState` → `ColumnVisibilityState`, `ColumnDef`/`CellContext` gain the `LogTableFeatures` first generic.
+- `log-list.tsx` / `log-toolbar.tsx` / `log-row.tsx`: `Table<TData>`/`Row<TData>` → `Table<LogTableFeatures, TData>`/`Row<LogTableFeatures, TData>`.
+- **No `sortFns` registry needed:** the only sortable column (`timestamp`) is numeric, and v9's `'auto'` resolution falls back to the built-in `sortFn_basic` for non-string, non-Date values (verified in `rowSortingFeature.utils.js`). A string-sorted column would need `sortFns: { text: sortFn_text, ... }` registered or it warns and falls back.
+
+**v9 traps checked and NOT present in this code:** no destructured instance methods (they moved to prototypes and lose binding), no row selection (`getIsSomeRowsSelected()` semantics changed), no pinning (left/right → start/end renames), no `table.getState()`/`onStateChange`, no underscore-internal APIs, no CJS consumer of the now-ESM-only package (settings-ui is renderer/browser-bundled only).
+
+**Validation:** settings-ui 509 unit tests, desktop 2353, web 396, full workspace type-check, and settings-ui/desktop/web production builds all green in the same run.
+
+**Pointers**
+
+- Migration guide: [Migrating to v9](https://tanstack.com/table/latest/docs/framework/react/guide/migrating).
+- Upstream agent skill used for this migration: [migrate-v8-to-v9 SKILL.md](https://github.com/TanStack/table/blob/main/packages/table-core/skills/migrate-v8-to-v9/SKILL.md).
+- Announcement: [TanStack Table v9](https://tanstack.com/blog/tanstack-table-v9-taking-form).
+
+---
+
 ## Turborepo (`turbo` 2.8.x → 2.9.x)
 
 **Why it matters:** Minor releases add features and sometimes deprecations ahead of v3.

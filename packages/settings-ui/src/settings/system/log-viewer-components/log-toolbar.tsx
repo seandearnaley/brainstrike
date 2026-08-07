@@ -18,6 +18,7 @@ import { Download, RefreshCw, Settings2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SettingsSearchIcon } from '../../settings-search-icon';
 import { SETTINGS_SEARCH_INPUT_STYLE } from '../../settings-search-layout';
+import type { LogTableFeatures } from './log-table-features';
 import type { LogRecordRow } from './log-utils';
 
 interface LogToolbarProps {
@@ -46,7 +47,7 @@ interface LogToolbarProps {
   scopeFilter: string;
   scopeItems: ReactNode;
   sortNewestFirst: boolean;
-  table: ReactTableInstance<LogRecordRow>;
+  table: ReactTableInstance<LogTableFeatures, LogRecordRow>;
   wrapLines: boolean;
 }
 

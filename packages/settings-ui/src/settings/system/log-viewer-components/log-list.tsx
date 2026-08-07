@@ -11,6 +11,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { LogRow } from './log-row';
+import type { LogTableFeatures } from './log-table-features';
 import type { LogRecordRow } from './log-utils';
 
 interface LogListProps {
@@ -18,8 +19,8 @@ interface LogListProps {
   autoScrollAnchor: 'start' | 'end';
   emptyStateText?: string;
   logsLoading: boolean;
-  rows: Row<LogRecordRow>[];
-  table: ReactTableInstance<LogRecordRow>;
+  rows: Row<LogTableFeatures, LogRecordRow>[];
+  table: ReactTableInstance<LogTableFeatures, LogRecordRow>;
   wrapLines: boolean;
 }
 
