@@ -190,6 +190,9 @@
       "path": "../../packages/app-shell"
     },
     {
+      "path": "../../packages/assistant-ui"
+    },
+    {
       "path": "../../packages/db"
     },
     {

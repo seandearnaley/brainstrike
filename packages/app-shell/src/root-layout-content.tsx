@@ -4,6 +4,12 @@ import {
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import {
+  type ChangesReviewContextValue,
+  ChangesReviewProvider,
+  type RewindContextValue,
+  RewindProvider,
+} from '@brainstrike/assistant-ui';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
@@ -19,12 +25,6 @@ import {
   PanelLayoutProvider,
   type PanelLayoutState,
 } from '@brainstrike/ui';
-import {
-  type ChangesReviewContextValue,
-  ChangesReviewProvider,
-  type RewindContextValue,
-  RewindProvider,
-} from '@brainstrike/ui/assistant-ui-panel';
 import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,

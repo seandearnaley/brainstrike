@@ -70,7 +70,7 @@ Public surfaces:
 Allowed dependencies:
 
 - `@brainstrike/assistant-contract` for provider metadata, local-runtime state, model settings, and memory contracts.
-- `@brainstrike/ui/assistant-ui-panel` for presentational assistant UI types/components.
+- `@brainstrike/assistant-ui` for presentational assistant UI types/components.
 - `@brainstrike/app-state` for persisted user settings and `@brainstrike/settings-ui` for settings presentation.
 - `@brainstrike/file-explorer-ui/preview` and `/shell` for workspace context and selection state.
 

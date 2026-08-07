@@ -895,9 +895,9 @@ paths — desktop `db-ipc.ts` `OptionalRelationTable` list
 (collector `collectThreadDebugBundleData` + pure formatter
 `formatThreadDebugBundle`, convenience wrapper `buildThreadDebugBundle`),
 consumed through the `DebugBundleProvider` seam
-(`packages/ui/src/assistant-ui-panel/debug-bundle-context.tsx` +
+(`packages/assistant-ui/src/debug-bundle-context.tsx` +
 `packages/app-shell/src/hooks/use-debug-bundle.ts`) by the
-`CopyDebugBundleButton` (`packages/ui/src/assistant-ui-panel/copy-debug-bundle-button.tsx`)
+`CopyDebugBundleButton` (`packages/assistant-ui/src/copy-debug-bundle-button.tsx`)
 on failed assistant messages. That footer offers two deliveries — **Copy**
 (clipboard) and **Download** (a `.md` file on disk, BST-946) — each building
 its OWN bundle: a second click re-runs `buildThreadDebugBundle` rather than
@@ -905,7 +905,7 @@ reusing the first result, so every delivery reflects the data at click time
 and there is no cache to go stale. Download is the realistic transport at this
 size: bundles run up to the 200 KB budget below, past what a chat box or issue
 comment accepts.
-Filename + save live in `packages/ui/src/assistant-ui-panel/debug-bundle-download.ts`
+Filename + save live in `packages/assistant-ui/src/debug-bundle-download.ts`
 (`formatDebugBundleFilename` / `downloadDebugBundleFile`) rather than in the
 component module, which is component-only by react-doctor's
 `only-export-components` contract. The filename is

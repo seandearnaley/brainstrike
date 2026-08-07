@@ -29,8 +29,6 @@ const FLOATING_LAYER_SOURCES = [
   'command-palette/command-palette.tsx',
   'command-palette/quick-open-palette.tsx',
   'model-picker/model-picker.tsx',
-  'assistant-ui-panel/composer-model-menu.tsx',
-  'assistant-ui-panel/composer-effort-control.tsx',
 ] as const;
 
 /**

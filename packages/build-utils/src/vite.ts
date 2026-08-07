@@ -185,7 +185,7 @@ const moduleDir =
 // workspace source entries so Vite owns the emitted lazy chunks. Do not repurpose this
 // for published/node_modules consumption without reworking the path contract.
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
-const uiDir = path.resolve(moduleDir, '..', '..', 'ui', 'src');
+const assistantUiDir = path.resolve(moduleDir, '..', '..', 'assistant-ui', 'src');
 const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
 
 export function getAssistantOptimizeDepsInclude(): readonly string[] {
@@ -215,8 +215,8 @@ export function getLazySurfaceOptimizeDepsEntries(
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper-lazy.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper.tsx'),
     path.resolve(appShellDir, 'database-tab.tsx'),
-    path.resolve(uiDir, 'assistant-ui-panel', 'assistant-ui-panel.tsx'),
-    path.resolve(uiDir, 'assistant-ui-panel', 'markdown-text.tsx'),
+    path.resolve(assistantUiDir, 'assistant-ui-panel.tsx'),
+    path.resolve(assistantUiDir, 'markdown-text.tsx'),
     path.resolve(appShellDir, 'database-tab-chunk.tsx'),
     path.resolve(dbExplorerDir, 'database-demo-panel.tsx'),
   ].map(toVitePath);

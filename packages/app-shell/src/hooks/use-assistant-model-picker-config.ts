@@ -9,7 +9,7 @@ import type {
   ModelPickerModel,
   ModelPickerProvider,
   ProviderGroupConfig,
-} from '@brainstrike/ui/assistant-ui-panel';
+} from '@brainstrike/assistant-ui';
 import { useMemo } from 'react';
 import type { LlmProviderModelDefinition } from '../assistant-ui-panel-wrapper-runtime';
 

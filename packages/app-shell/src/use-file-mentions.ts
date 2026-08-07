@@ -1,4 +1,5 @@
 import { encodeFileMentionId } from '@brainstrike/assistant-contract';
+import type { FileMention } from '@brainstrike/assistant-ui';
 import {
   QUICK_OPEN_MAX_LIMIT,
   QUICK_OPEN_NAME_SEARCH_SQL,
@@ -7,7 +8,6 @@ import {
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
 import { useMemo } from 'react';
 import { type RootIdentity, useOptionalRootIdentity } from './roots/root-identity-context';
 import { useDebouncedQuery } from './use-debounced-query';

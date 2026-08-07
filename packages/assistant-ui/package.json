@@ -1,0 +1,88 @@
+{
+  "name": "@brainstrike/assistant-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@assistant-ui/react": "catalog:",
+    "@assistant-ui/react-markdown": "catalog:",
+    "@assistant-ui/styles": "catalog:",
+    "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/assistant-wire": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "@radix-ui/react-dropdown-menu": "^2.1.19",
+    "@tanstack/react-virtual": "catalog:",
+    "assistant-stream": "0.3.25",
+    "lucide-react": "catalog:",
+    "remark-gfm": "catalog:",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@brainstrike/config": "workspace:*",
+    "@brainstrike/context-actions": "workspace:*",
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "react-shiki": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./context-usage-store": {
+      "types": "./dist/context-usage-store.d.ts",
+      "import": "./dist/context-usage-store.js"
+    },
+    "./follow-up-queue-store": {
+      "types": "./dist/follow-up-queue-store.d.ts",
+      "import": "./dist/follow-up-queue-store.js"
+    },
+    "./rewind-composer-store": {
+      "types": "./dist/rewind-composer-store.d.ts",
+      "import": "./dist/rewind-composer-store.js"
+    },
+    "./styles.css": "./styles.css"
+  },
+  "files": [
+    "dist",
+    "styles.css"
+  ],
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && node ../../scripts/copy-files.mjs src/overrides.css dist/overrides.css",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "lint": "pnpm -w lint",
+    "test": "vitest run --project unit",
+    "test:browser": "vitest run --project browser",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  }
+}

@@ -154,6 +154,9 @@
       "path": "../assistant-contract"
     },
     {
+      "path": "../assistant-ui"
+    },
+    {
       "path": "../types"
     },
     {

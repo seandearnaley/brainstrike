@@ -76,6 +76,7 @@ export * from './toast';
 export * from './toaster';
 export * from './tool-approval-dialog';
 export * from './tooltip';
+export * from './tooltip-icon-button';
 export * from './tree-table';
 // Export types
 export * from './types';

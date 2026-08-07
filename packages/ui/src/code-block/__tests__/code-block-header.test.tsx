@@ -12,8 +12,8 @@ vi.mock('@brainstrike/context-actions', () => ({
 }));
 
 // Same module the chat pipeline mocks (markdown-text.test.tsx) — the header
-// MUST import ../assistant-ui-panel/tooltip-icon-button for that seam to hold.
-vi.mock('../../assistant-ui-panel/tooltip-icon-button', () => ({
+// MUST import ../../tooltip-icon-button for that seam to hold.
+vi.mock('../../tooltip-icon-button', () => ({
   TooltipIconButton: ({
     children,
     onClick,
