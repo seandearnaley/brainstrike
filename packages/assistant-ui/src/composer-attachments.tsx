@@ -3,8 +3,8 @@ import {
   AttachmentPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
-  useAttachment,
   useAuiEvent,
+  useAuiState,
 } from '@assistant-ui/react';
 import { XIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -37,7 +37,7 @@ function useAttachmentPreviewUrl(attachment: Attachment): string | undefined {
 }
 
 const ComposerAttachmentChip = () => {
-  const attachment = useAttachment();
+  const attachment = useAuiState((s) => s.attachment);
   const previewUrl = useAttachmentPreviewUrl(attachment);
   return (
     <AttachmentPrimitive.Root className="bs-composer-attachment relative inline-flex overflow-hidden rounded-lg border border-border">
@@ -125,7 +125,7 @@ export const ComposerAttachmentsBar = () => (
 );
 
 const UserMessageAttachmentImage = () => {
-  const attachment = useAttachment();
+  const attachment = useAuiState((s) => s.attachment);
   const previewUrl = useAttachmentPreviewUrl(attachment);
   if (!previewUrl) {
     return null;

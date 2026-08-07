@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Export-existence guard for the `@assistant-ui/react` "Unstable_" slash-command
- * API the composer's "/" menu depends on. The package is pinned to `~0.14.26`
- * (tilde — patches allowed, a future minor that could drop the unstable API is
- * blocked). If a future bump removes any of these exports, this test fails
- * LOUDLY at CI time instead of silently shipping a broken composer
+ * API the composer's "/" menu depends on. The package is pinned EXACT
+ * (`0.15.8` — no range at all) because a pnpm patch is keyed to that version;
+ * a floated bump would ship unpatched (see the patchedDependencies comment in
+ * pnpm-workspace.yaml), and it also can't drop these unstable exports
+ * unnoticed. If a future bump removes any of them, this test fails LOUDLY at
+ * CI time instead of silently shipping a broken composer
  * (no-silent-fallbacks).
  *
  * `Unstable_SlashCommandRoot` and `Unstable_TriggerPopoverPopover` (asserted

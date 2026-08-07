@@ -245,7 +245,7 @@ Only a non-empty raw value outside the SDK/Brainstrike union becomes the
 internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
 "unrecognized finish reason" message, and persists `thread_runs` as failed.
 Before data-stream serialization, internal `absent` becomes assistant-stream
-0.3.25's completed wire value `unknown`; internal `unrecognized` becomes the
+0.3.34's completed wire value (behavior verified at 0.3.25, unchanged by the 0.3.34 lockstep bump) `unknown`; internal `unrecognized` becomes the
 terminal wire value `error`. Intermediate steps start as `absent`, never as the
 SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
 protocol and never infer provider failure from the AI SDK `unknown` value.
@@ -487,7 +487,7 @@ while a text/reasoning part is streaming and flushes them at the next boundary
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
 
 Open tool-call args streams have the SAME contract with a harder failure mode
-(BST-962): assistant-stream 0.3.25's `DataStreamDecoder` closes the ACTIVE
+(BST-962): assistant-stream 0.3.34's `DataStreamDecoder` closes the ACTIVE
 call's argsText controller on every frame in its `TOOL_CALL_ARGS_CLOSING_CHUNKS`
 set (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/`aui-text-delta`/`aui-reasoning-delta`/
 `aui-data`), so ANY such frame between a call's `b` and its `9` makes the next
@@ -519,7 +519,7 @@ args, so only the tracked id moves forward (see `openArgsCallId` doc comment).
 Proof: the BST-962 describe block in data-stream-text-continuity.spec.ts,
 including the `expectDecoderSafeArgsStream` invariant sweep. The renderer's
 data-stream runtime also defers assistant-stream's decoded `message-finish` until
-decoder flush: assistant-stream 0.3.25 emits that marker before its trailing
+decoder flush: assistant-stream 0.3.34 emits that marker before its trailing
 `part-finish`, and exposing completion early lets an immediate next turn abort a
 still-draining text controller. Aborted runs propagate the authoritative abort
 reason without surfacing cancellation teardown as a new assistant error; server
@@ -575,7 +575,7 @@ activity UI, but user expansion must show accumulated text before, during, and
 after intervening tool calls; the active icon clears only on a real terminal
 part.
 
-Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.25's
+Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.34's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,
 tool-call sub-streams) whose settlement paths (`setResponse`, detached
 part-finish continuations) enqueue with NO cancellation guard — if downstream
@@ -781,32 +781,46 @@ regression; do not narrow that margin merely to shorten the integration lane.
 
 ## THREAD SCROLLING (STICK-TO-BOTTOM + JUMP-TO-LATEST)
 
-Scroll position is owned by @assistant-ui's viewport store, never by panel
-state. `ThreadPrimitive.Viewport` runs with `autoScroll`, so a thread pinned at
-the bottom follows streaming growth; the moment the user scrolls up,
-`isAtBottom` flips false and the library stops writing `scrollTop` — streaming
-can never steal the reading position back. Re-engaging is an explicit user act.
+Scroll position is owned by the REPO's follow engine
+(`packages/assistant-ui/src/thread-scroll-follow.tsx`), never by panel state
+and — since the 0.15 upgrade — never by @assistant-ui. The tier-1 scroller is
+a PLAIN div wired to `ThreadScrollFollow` (one engine per panel via
+`ThreadScrollFollowProvider` in ChatThreadUI): a thread pinned at the bottom
+follows streaming growth; the moment the user scrolls up, `isAtBottom` flips
+false and the engine stops writing `scrollTop` — streaming can never steal the
+reading position back. Re-engaging is an explicit user act.
 
-The viewport, the message list and the button are one owned module —
-`packages/assistant-ui/src/assistant-thread-messages.tsx`
-(`ThreadMessagesRegion`, `ThreadScrollRegion`, `ThreadScrollToBottom`, all
-re-exported from assistant-ui-panel.tsx). The panel only composes it and hands
-it the message components.
+**Why repo-owned:** the library's `useThreadViewportAutoScroll` broke twice
+upstream (0.14.28 and 0.15.x tear down its ResizeObserver on every `isRunning`
+flip, silently unpinning follow on every send), and the failure is not
+workable at its public API — the scrollTop clamp misread is indistinguishable
+from a real user scroll from outside (two app-level workarounds were built and
+failed the BST-1039 test; see dependency-updates-breaking-changes.md). The
+engine is a parity port of the library's algorithm with a STABLE observer
+lifecycle (attached once per scroller element, never re-created by renders) —
+the stable lifecycle is the fix. `ThreadPrimitive.Viewport` must not return:
+`assistant-ui-panel-architecture.test.ts` pins the plain-div scroller.
 
-- **Jump-to-latest** (`ThreadScrollToBottom`) wraps
-  `ThreadPrimitive.ScrollToBottom`: the primitive is the behavior (DISABLED
-  while at bottom, scroll + re-engage when clicked), we only style it
+The scroller, the message list, the button and the engine are one owned
+module pair — `assistant-thread-messages.tsx` (`ThreadMessagesRegion`,
+`ThreadScrollRegion`, `ThreadScrollToBottom`) + `thread-scroll-follow.tsx`,
+re-exported from assistant-ui-panel.tsx. The panel only composes them and
+hands over the message components.
+
+- **Jump-to-latest** (`ThreadScrollToBottom`) is the follow engine's button
+  (`ThreadStaticScrollToBottom`): DISABLED
+  while at bottom, scroll + re-engage when clicked; we style it
   (`.bs-scroll-to-bottom`, hidden via `:disabled { opacity: 0 }` — no layout
   shift either way). It mounts inside `ThreadScrollRegion` as a SIBLING of the
   scroller, not a child, so it stays anchored ~1rem above the composer instead
-  of scrolling away; that works outside the viewport element because
-  `AssistantRuntimeProvider` mounts an outer viewport store which mirrors
-  `isAtBottom` up and forwards `scrollToBottom` down.
-- **No explicit `behavior`.** An explicit option bypasses CSS
-  `scroll-behavior`, and therefore the global `prefers-reduced-motion` override
-  in globals.css. The default routes through the store's `'auto'`, which defers
-  to CSS (library `smooth`, forced to `auto` under reduced motion). It would be
-  inert regardless — the outer→inner viewport forwarding drops the option.
+  of scrolling away; that works outside the scroller element because the
+  follow engine lives in `ThreadScrollFollowProvider` context above both.
+- **No explicit `behavior` on explicit scrolls.** An explicit option bypasses
+  CSS `scroll-behavior`, and therefore the global `prefers-reduced-motion`
+  override in globals.css — the engine's `scrollToBottom()` deliberately omits
+  it so `scrollTo`'s default routes through CSS. Streaming growth follow is the
+  exception: `'instant'`, because CSS smooth cannot keep up with per-token
+  growth (same stance the library took).
 - **`overflow-anchor: none` is SCOPED to the pinned state** via `data-pinned`
   on `.bs-thread-scroll-region` (mirroring `isAtBottom`). Pinned, JS owns
   `scrollTop` and native scroll anchoring would double-adjust. Scrolled up, the
@@ -815,28 +829,34 @@ it the message components.
   images resolving, tool cards or chain-of-thought folds collapsing, edit
   composers swapping in). Disabling it unconditionally makes the text jump —
   do not "simplify" this back to a blanket rule.
-- **`scrollToBottomOnInitialize` / `scrollToBottomOnRunStart` stay `false`** —
-  that is the reload-hydration stance in assistant-persistence.md: reopening a
-  thread restores its position instead of jumping to the newest message.
+- **No jump on attach or run start** (the library's
+  `scrollToBottomOnInitialize`/`scrollToBottomOnRunStart` equivalents) — that
+  is the reload-hydration stance in assistant-persistence.md: reopening a
+  thread restores its position instead of jumping to the newest message. The
+  ONE navigation jump is the thread SWITCH (`switchKeyRef` in
+  ThreadMessagesRegion → `jumpToBottomInstant()`), parity with the library's
+  `scrollToBottomOnThreadSwitch`; it requires a `threadKey` prop and never
+  routes through the explicit-request listeners.
 - There is deliberately NO collapsed-history affordance (removed in BST-896):
   every message renders. Which messages MOUNT is the render tier's business —
   see below.
 - **Follow-up queue dispatch re-pins explicitly when the thread was pinned**
   (BST-1039). The flush unmounts the composer's chip row, and the browser's
-  resulting `scrollTop` clamp can be misread as a user scroll by the library's
-  auto-scroll bookkeeping — silently unpinning follow with no user act. The
-  dispatch in `follow-up-queue.tsx` captures `isAtBottom` BEFORE the flush and
-  fires the outer store's `scrollToBottom` after appending; a reader who
+  resulting `scrollTop` clamp can be misread as a user scroll by the follow
+  engine's bookkeeping — silently unpinning follow with no user act. The
+  dispatch in `follow-up-queue.tsx` captures `getIsAtBottom()` BEFORE the
+  flush and fires the engine's `scrollToBottom` after appending; a reader who
   scrolled up is never yanked. Do not "simplify" this away as redundant with
-  the library's own resize re-stick — that path loses the clamp-ordering race.
+  the engine's own resize re-stick — that path loses the clamp-ordering race.
 
-Paired tests: `packages/ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
-(real Chromium: pinned/unpinned button states, click-to-bottom, growth below vs
-ABOVE the reading position, anchor scoping), the BST-896 case in
-`assistant-ui-panel-architecture.test.ts`, which pins the mount site, the
-absent `behavior`, and the scoped CSS rule, and
-`follow-up-queue-repin.browser.test.tsx` (BST-1039: real chips + real bridge —
-pinned dispatch requests the explicit re-pin, scrolled-up dispatch never does).
+Paired tests: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
+(real Chromium against the real follow engine: pinned/unpinned button states,
+click-to-bottom, growth below vs ABOVE the reading position, anchor scoping),
+the BST-896 case in `assistant-ui-panel-architecture.test.ts`, which pins the
+plain-div scroller, the engine wiring, the absent `behavior`, and the scoped
+CSS rule, and `follow-up-queue-repin.browser.test.tsx` (BST-1039: real chips +
+real bridge — pinned dispatch requests the explicit re-pin, scrolled-up
+dispatch never does).
 
 ### Render tiers (BST-897)
 

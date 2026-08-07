@@ -16,7 +16,7 @@
     "@brainstrike/utils": "workspace:*",
     "@radix-ui/react-dropdown-menu": "^2.1.19",
     "@tanstack/react-virtual": "catalog:",
-    "assistant-stream": "0.3.25",
+    "assistant-stream": "0.3.34",
     "lucide-react": "catalog:",
     "remark-gfm": "catalog:",
     "zustand": "catalog:"

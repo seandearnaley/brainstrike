@@ -264,38 +264,48 @@ describe('assistant UI panel architecture', () => {
     // renderer owns the viewport, the message list and the jump button); the
     // panel keeps only the composition site. These invariants moved with it.
     const regionSource = readSource('assistant-thread-messages.tsx');
+    const followSource = readSource('thread-scroll-follow.tsx');
     const cssSource = readSource('overrides.css');
 
     expect(panelSource).toContain("from './assistant-thread-messages'");
     expect(panelSource).toContain('<ThreadMessagesRegion');
 
     // Persistence contract (docs/agents/assistant-persistence.md): reopening a
-    // thread restores its scroll position — it must never jump on initialize
-    // or when a run starts.
-    expect(regionSource).toContain('scrollToBottomOnInitialize={false}');
-    expect(regionSource).toContain('scrollToBottomOnRunStart={false}');
+    // thread restores its scroll position — the follow engine must never jump
+    // on attach (only thread SWITCHES jump; initial mount is a restore).
+    expect(followSource).toContain('attach: (el) =>');
+    expect(followSource).not.toContain('scrollToBottomOnInitialize');
+    expect(regionSource).toContain('switchKeyRef.current === threadKey');
+
+    // The scroller is a PLAIN div wired to the repo-owned follow engine —
+    // never ThreadPrimitive.Viewport, whose auto-scroll broke upstream twice
+    // (0.14.28, 0.15.x) and is deliberately out of the loop on both tiers.
+    expect(regionSource).not.toContain('<ThreadPrimitive.Viewport');
+    expect(regionSource).toContain('follow.attach(el)');
 
     // The button is a SIBLING of the scroller inside the positioned scroll
     // region, so it stays put instead of scrolling away with the messages.
     const regionStart = regionSource.indexOf('<ThreadScrollRegion>');
-    const viewportStart = regionSource.indexOf('<ThreadPrimitive.Viewport');
+    const viewportStart = regionSource.indexOf('data-testid="assistant-ui-viewport"');
     const buttonStart = regionSource.indexOf('<ThreadScrollToBottom');
     expect(regionStart).toBeGreaterThan(-1);
     expect(regionStart).toBeLessThan(viewportStart);
-    expect(buttonStart).toBeGreaterThan(regionSource.indexOf('</ThreadPrimitive.Viewport>'));
-    expect(regionSource).toContain('ThreadPrimitive.ScrollToBottom');
+    expect(buttonStart).toBeGreaterThan(viewportStart);
+    expect(regionSource).toContain('ThreadStaticScrollToBottom');
     // BST-897: the button's chrome (class, icon, label, test id) is declared
     // ONCE and shared by both tiers — only the behaviour differs.
     expect(regionSource).toContain("'data-testid': 'assistant-scroll-to-bottom'");
     expect(regionSource.match(/JUMP_TO_LATEST_PROPS/g)?.length).toBeGreaterThanOrEqual(3);
 
-    // Reduced motion: an explicit `behavior` option would bypass CSS
-    // scroll-behavior and therefore globals.css's prefers-reduced-motion
-    // override, so the primitive must NOT carry one. (BST-897's virtualized
-    // tier is the documented exception — there the behavior drives the
-    // virtualizer's scroll state machine, so it checks the media query itself.)
+    // Reduced motion: an explicit `behavior` on the tier-1 jump would bypass
+    // CSS scroll-behavior and therefore globals.css's prefers-reduced-motion
+    // override, so the engine's explicit scrollToBottom omits it. (BST-897's
+    // virtualized tier is the documented exception — there the behavior drives
+    // the virtualizer's scroll state machine, so it checks the media query
+    // itself.)
     expect(regionSource).not.toContain('behavior="smooth"');
     expect(regionSource).toContain('prefersReducedMotion()');
+    expect(followSource).toContain('el.scrollTo({ top: el.scrollHeight })');
 
     // Scroll anchoring is opted OUT only while pinned (JS owns scrollTop
     // there); scrolled up it is the reader's only protection against content
@@ -323,6 +333,7 @@ describe('assistant UI panel architecture', () => {
 
   it('renders threads through an explicit two-tier renderer (BST-897)', () => {
     const regionSource = readSource('assistant-thread-messages.tsx');
+    const followSource = readSource('thread-scroll-follow.tsx');
     const cssSource = readSource('overrides.css');
 
     // The switch point is a single exported constant — never a magic number
@@ -352,20 +363,24 @@ describe('assistant UI panel architecture', () => {
     expect(regionSource).toContain("anchorTo: 'end'");
     expect(regionSource).toContain('followOnAppend');
 
-    // One scroll owner per tier: the library auto-scrolls only on the static
-    // tier; on the virtual tier the virtualizer owns scrollTop outright.
-    expect(regionSource).toContain("autoScroll={tier === 'static'}");
-    expect(regionSource).toContain("scrollToBottomOnThreadSwitch={tier === 'static'}");
+    // One scroll owner per tier: the follow engine attaches only on the
+    // static tier; on the virtual tier the virtualizer owns scrollTop
+    // outright and the engine idles with no element. The engine itself never
+    // grows a second attach site.
+    expect(regionSource).toContain("if (!el || tier !== 'static')");
+    expect(followSource.match(/new ResizeObserver/g)?.length).toBe(1);
+    expect(regionSource).toContain("if (tier === 'static') {");
 
     // Live-region announcements fork per tier: on the virtual tier rows mount
     // and unmount as the user SCROLLS, and each insertion would be announced.
     expect(regionSource).toContain("aria-live={tier === 'static' ? 'polite' : 'off'}");
 
-    // Pinnedness at the tier switch is RECORDED from the library's own signal
-    // while the static tier is still mounted — measuring the viewport after the
-    // swap reads the virtualizer's estimated size, not the static geometry.
+    // Pinnedness at the tier switch is RECORDED from the follow engine's own
+    // signal while the static tier is still mounted — measuring the viewport
+    // after the swap reads the virtualizer's estimated size, not the static
+    // geometry.
     expect(regionSource).toContain('pinnedWhileStatic');
-    expect(regionSource).toContain('useThreadViewport((state) => state.isAtBottom)');
+    expect(regionSource).toContain('useThreadFollowIsAtBottom()');
 
     // Tier 1 containment: applied to message roots but NEVER to the last
     // (streaming) row, and never on the virtualized tier.

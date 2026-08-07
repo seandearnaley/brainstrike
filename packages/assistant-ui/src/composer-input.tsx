@@ -1,4 +1,4 @@
-import { ComposerPrimitive, ThreadPrimitive, useComposerRuntime } from '@assistant-ui/react';
+import { ComposerPrimitive, ThreadPrimitive, useAui } from '@assistant-ui/react';
 import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
 import type { ClipboardEvent, ReactNode } from 'react';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
@@ -166,7 +166,7 @@ const PlainInputFrame = ({ children }: { children: ReactNode }) => (
 
 /**
  * The composer frame variant with image-paste support. A SEPARATE component
- * (mounted only when attachments are enabled) so `useComposerRuntime` is not
+ * (mounted only when attachments are enabled) so the composer client is not
  * pulled in on the attachment-less path. Pasted images become composer
  * attachments (validated by the attachment adapter); non-image clipboard
  * content keeps the default paste behavior. Rejections are surfaced by the
@@ -175,7 +175,7 @@ const PlainInputFrame = ({ children }: { children: ReactNode }) => (
  * duplicate report.
  */
 const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
-  const composerRuntime = useComposerRuntime();
+  const aui = useAui();
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
     const files = collectImageFilesFromClipboard(Array.from(event.clipboardData?.files ?? []));
@@ -184,9 +184,12 @@ const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
     }
     event.preventDefault();
     for (const file of files) {
-      composerRuntime.addAttachment(file).catch(() => {
-        /* reported via composer.attachmentAddError */
-      });
+      aui
+        .composer()
+        .addAttachment(file)
+        .catch(() => {
+          /* reported via composer.attachmentAddError */
+        });
     }
   };
 

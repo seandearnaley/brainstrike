@@ -143,7 +143,12 @@ const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
   return <ToolFallback {...props} />;
 };
 
-export const CHAIN_OF_THOUGHT_TOOL_COMPONENTS = {
+export const CHAIN_OF_THOUGHT_TOOL_COMPONENTS: {
+  /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
+  by_name: Record<string, ToolCallMessagePartComponent>;
+  /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
+  Fallback: ToolCallMessagePartComponent;
+} = {
   /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
   by_name: {
     [NATIVE_TOOL_ID.manageTaskList.replaceAll('.', '_')]: TaskListToolCard,

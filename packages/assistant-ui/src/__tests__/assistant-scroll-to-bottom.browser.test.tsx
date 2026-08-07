@@ -10,6 +10,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ThreadScrollRegion, ThreadScrollToBottom } from '../assistant-ui-panel';
+import { ThreadScrollFollowProvider, useThreadFollowScrollerRef } from '../thread-scroll-follow';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 
@@ -19,10 +20,11 @@ import '../overrides.css';
  * up (streaming must NEVER steal the viewport back), and offers a floating
  * "jump to latest" button that is visible ONLY while scrolled up.
  *
- * These assertions run against the REAL @assistant-ui viewport store (real
- * scroll events, real ResizeObserver) and the REAL overrides.css rules in
- * real Chromium — the hidden/visible states are computed styles, not class
- * names (this package never compiles Tailwind; see assistant-chat-polish).
+ * These assertions run against the REPO-OWNED follow engine
+ * (thread-scroll-follow.tsx — real scroll events, real ResizeObserver /
+ * MutationObserver) and the REAL overrides.css rules in real Chromium — the
+ * hidden/visible states are computed styles, not class names (this package
+ * never compiles Tailwind; see assistant-chat-polish).
  */
 
 const MESSAGE_HEIGHT_PX = 90;
@@ -55,14 +57,22 @@ const GROWTH_HEIGHT_PX = 400;
 
 /**
  * Mirrors the panel's thread layout, using the panel's OWN scroll region (which
- * publishes `data-pinned`) and button. The two `scrollToBottomOn*` props are the
- * persistence contract (reopening a thread restores position instead of
- * jumping) and are pinned here too.
+ * publishes `data-pinned`), follow engine, and button — the same real wiring
+ * ThreadMessagesRegion uses (useThreadFollowScrollerRef).
  *
  * `growth` injects a block either BELOW the messages (streaming a reply) or
  * ABOVE them (async markdown/Shiki, images, folding tool cards) — the two
  * directions have different correct behaviors while the user is scrolled up.
  */
+function ScrollerWithFollow({ children }: { children: React.ReactNode }) {
+  const scrollerRef = useThreadFollowScrollerRef();
+  return (
+    <div className="aui-thread-viewport" data-testid="assistant-ui-viewport" ref={scrollerRef}>
+      {children}
+    </div>
+  );
+}
+
 function ScrollHarness({ growth }: { growth: 'above' | 'below' | 'none' }) {
   const runtime = useLocalRuntime(idleModel, { initialMessages });
   const growthBlock = (
@@ -71,34 +81,30 @@ function ScrollHarness({ growth }: { growth: 'above' | 'below' | 'none' }) {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <div className="assistant-ui-panel">
-        <div
-          className="bs-thread"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: VIEWPORT_HEIGHT_PX,
-            width: 420,
-          }}
-        >
-          <ThreadScrollRegion>
-            <ThreadPrimitive.Viewport
-              autoScroll
-              className="aui-thread-viewport"
-              data-testid="assistant-ui-viewport"
-              scrollToBottomOnInitialize={false}
-              scrollToBottomOnRunStart={false}
-            >
-              {growth === 'above' ? growthBlock : null}
-              <ThreadPrimitive.Messages
-                components={{ AssistantMessage: TallMessage, UserMessage: TallMessage }}
-              />
-              {growth === 'below' ? growthBlock : null}
-            </ThreadPrimitive.Viewport>
-            <ThreadScrollToBottom />
-          </ThreadScrollRegion>
+      <ThreadScrollFollowProvider>
+        <div className="assistant-ui-panel">
+          <div
+            className="bs-thread"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: VIEWPORT_HEIGHT_PX,
+              width: 420,
+            }}
+          >
+            <ThreadScrollRegion>
+              <ScrollerWithFollow>
+                {growth === 'above' ? growthBlock : null}
+                <ThreadPrimitive.Messages
+                  components={{ AssistantMessage: TallMessage, UserMessage: TallMessage }}
+                />
+                {growth === 'below' ? growthBlock : null}
+              </ScrollerWithFollow>
+              <ThreadScrollToBottom />
+            </ThreadScrollRegion>
+          </div>
         </div>
-      </div>
+      </ThreadScrollFollowProvider>
     </AssistantRuntimeProvider>
   );
 }
