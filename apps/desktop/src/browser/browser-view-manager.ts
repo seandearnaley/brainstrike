@@ -111,7 +111,11 @@ export class BrowserViewManager {
     try {
       this.deps.hostWindow.contentView.addChildView(view);
     } catch (error) {
-      view.webContents.close();
+      try {
+        view.webContents.close();
+      } catch {
+        // Best-effort orphan cleanup; never mask the attach failure.
+      }
       throw error;
     }
     this.tabs.set(tabId, { tabId, view });

@@ -54,6 +54,17 @@ const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
 export type ManageCanvasInput = z.infer<typeof ManageCanvasActionInputSchema>;
 
 /**
+ * Narrow an envelope-validated input to its clean action-branch shape,
+ * STRIPPING tolerated cross-action extras so the executor and repository
+ * receive exactly the union type they're written against — no `as` cast, no
+ * extras flowing into repository inputs. The envelope's superRefine already
+ * proved this parse succeeds; a failure here is a wiring bug and throws.
+ */
+export function normalizeManageCanvasInput(input: unknown): ManageCanvasInput {
+  return ManageCanvasActionInputSchema.parse(input);
+}
+
+/**
  * Provider schemas must be root JSON objects; a raw Zod discriminated union
  * serializes as a root `oneOf` and is rejected by the native-tool prompt
  * contract. Keep the provider envelope strict and delegate its conditional

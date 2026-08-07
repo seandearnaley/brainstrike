@@ -16,6 +16,7 @@ import {
   type ManageCommandSessionInput,
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
+  normalizeManageCanvasInput,
   projectToolOutputArtifactPage,
   type QueryDiagnosticsInput,
   type QueryEmbeddingSpaceInput,
@@ -641,10 +642,12 @@ export function buildDesktopAssistantTools(
           [NATIVE_TOOL_ID.manageCanvas]: {
             description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas],
             execute: async (input: ToolExecuteInput<ManageCanvasInput>) => {
-              const resolvedInput = parseToolExecuteInput(
-                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas],
-                input
-              ) as ManageCanvasInput;
+              // Envelope-validate, then narrow to the clean action branch —
+              // tolerated cross-action extras are stripped here so the
+              // executor/repository receive exactly ManageCanvasInput.
+              const resolvedInput = normalizeManageCanvasInput(
+                parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas], input)
+              );
               try {
                 return await runManageCanvas(resolvedInput, runtimeData);
               } catch (error) {

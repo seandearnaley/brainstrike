@@ -119,6 +119,19 @@ describe('native tool input schema catalog', () => {
       }).success
     ).toBe(true);
 
+    // The executor-side normalizer strips tolerated extras down to the clean
+    // action-branch shape (no cross-action keys reach the repository).
+    expect(
+      toolSchemas.normalizeManageCanvasInput({
+        action: 'create',
+        canvasId: 'redundant',
+        html: '<h1>R</h1>',
+        newString: 'b',
+        oldString: 'a',
+        title: 'Report',
+      })
+    ).toEqual({ action: 'create', html: '<h1>R</h1>', title: 'Report' });
+
     // Missing REQUIRED fields for the chosen action still fail…
     expect(
       schema.safeParse({ action: 'update', canvasId: 'canvas-1', oldString: 'old' }).success

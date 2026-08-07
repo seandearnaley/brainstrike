@@ -165,16 +165,12 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
       return ok(undefined);
     },
   };
-  return {
-    closeTab: guard('closeTab', handlers.closeTab),
-    createTab: guard('createTab', handlers.createTab),
-    goBack: guard('goBack', handlers.goBack),
-    goForward: guard('goForward', handlers.goForward),
-    listTabs: guard('listTabs', handlers.listTabs),
-    navigate: guard('navigate', handlers.navigate),
-    reload: guard('reload', handlers.reload),
-    selectTab: guard('selectTab', handlers.selectTab),
-    setBounds: guard('setBounds', handlers.setBounds),
-    setOccluded: guard('setOccluded', handlers.setOccluded),
-  };
+  // Wrap BY CONSTRUCTION — every key of the implementation object is guarded,
+  // so a future handler cannot ship unwrapped (a hand-maintained re-listing
+  // type-checks even when a key is wired through bare).
+  const wrapped = {} as Record<keyof BrowserIpcHandlers, unknown>;
+  for (const key of Object.keys(handlers) as (keyof BrowserIpcHandlers)[]) {
+    wrapped[key] = guard(key, handlers[key] as (...args: unknown[]) => BrowserResult<unknown>);
+  }
+  return wrapped as BrowserIpcHandlers;
 }

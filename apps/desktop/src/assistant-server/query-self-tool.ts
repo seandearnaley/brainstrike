@@ -407,8 +407,9 @@ async function runRowsQuery(
  * Converts an input-schema validation failure into a message the model can act
  * on.
  *
- * `parseToolExecuteInput` throws a `ZodError` before `runQuerySelf` is reached,
- * and without this the model receives only the generic
+ * `parseToolExecuteInput` throws a `ToolInputValidationError` (compact
+ * single-line message, raw Zod `issues` attached) before `runQuerySelf` is
+ * reached, and without this the model receives only the generic
  * "The tool did not complete successfully" envelope. For a tool whose entire
  * value is that the model authors the input, that is a dead end — observed
  * live, the model retried the identical malformed call and then abandoned the
