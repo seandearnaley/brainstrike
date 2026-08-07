@@ -12,8 +12,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/logging';
-import { type BrowserWindow, WebContentsView } from 'electron';
+import { type BrowserWindow, type WebContents, WebContentsView } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import type { BrowserDriver, CdpSession, CdpSessionResolver } from './browser-driver';
 import { BROWSER_PANE_PARTITION, getBrowserPaneSession } from './browser-session';
 import {
   type BrowserHostWindow,
@@ -22,6 +23,8 @@ import {
   BrowserViewManager,
   type PaneWebContents,
 } from './browser-view-manager';
+import { DebuggerBrowserDriver } from './debugger-browser-driver';
+import { createDebuggerCdpSession, type DebuggerLike } from './debugger-cdp-session';
 
 const logger = createLogger('BrowserPaneHost');
 
@@ -36,7 +39,13 @@ const logger = createLogger('BrowserPaneHost');
  * Electron overload union is not assignable to the narrow `on(event, listener)`
  * shape).
  */
-function createPaneView(partition: string): BrowserPaneView {
+interface BuiltPaneView {
+  readonly view: BrowserPaneView;
+  /** The real Electron WebContents — the CDP driver attaches its debugger. */
+  readonly webContents: WebContents;
+}
+
+function createPaneView(partition: string): BuiltPaneView {
   const view = new WebContentsView({
     webPreferences: {
       allowRunningInsecureContent: false,
@@ -66,14 +75,19 @@ function createPaneView(partition: string): BrowserPaneView {
     setWindowOpenHandler: (handler) => webContents.setWindowOpenHandler(handler),
   };
   return {
-    setBounds: (rect) => view.setBounds(rect),
-    setVisible: (visible) => view.setVisible(visible),
-    webContents: paneWebContents,
+    view: {
+      setBounds: (rect) => view.setBounds(rect),
+      setVisible: (visible) => view.setVisible(visible),
+      webContents: paneWebContents,
+    },
+    webContents,
   };
 }
 
 export interface BrowserPaneHost {
   dispose(): void;
+  /** Agent-facing CDP driver for the active tab (BST-1176). */
+  readonly driver: BrowserDriver;
   readonly manager: BrowserViewManager;
 }
 
@@ -123,8 +137,29 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     },
   };
 
+  // Registries for the CDP driver: the real WebContents (to attach a debugger)
+  // and one cached CDP session per tab (attach once, reuse; detach on close).
+  const webContentsById = new Map<number, WebContents>();
+  const sessionsById = new Map<number, CdpSession>();
+
+  const createView = (partition: string): BrowserPaneView => {
+    const built = createPaneView(partition);
+    const { id } = built.webContents;
+    webContentsById.set(id, built.webContents);
+    built.webContents.once('destroyed', () => {
+      try {
+        sessionsById.get(id)?.detach();
+      } catch {
+        // The WebContents is already gone; there is nothing left to detach.
+      }
+      sessionsById.delete(id);
+      webContentsById.delete(id);
+    });
+    return built.view;
+  };
+
   const manager = new BrowserViewManager({
-    createView: createPaneView,
+    createView,
     hostWindow: host,
     // Ephemeral session ids — never persisted, so a plain uuid suffices.
     mintTabId: () => randomUUID(),
@@ -132,6 +167,26 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     onTabsChanged: pushTabs,
     partition: BROWSER_PANE_PARTITION,
   });
+
+  // The driver always targets whichever tab is active NOW: resolve the active
+  // tab's WebContents, then reuse (or lazily attach) its in-process CDP session.
+  const resolveSession: CdpSessionResolver = () => {
+    const id = manager.getActiveWebContentsId();
+    if (id === null) {
+      return Promise.reject(new Error('No active browser tab to drive'));
+    }
+    const webContents = webContentsById.get(id);
+    if (!webContents) {
+      return Promise.reject(new Error(`No WebContents registered for active tab ${id}`));
+    }
+    let session = sessionsById.get(id);
+    if (!session) {
+      session = createDebuggerCdpSession(webContents.debugger as unknown as DebuggerLike);
+      sessionsById.set(id, session);
+    }
+    return Promise.resolve(session);
+  };
+  const driver = new DebuggerBrowserDriver(resolveSession);
 
   // When the VISIBLE renderer itself navigates/reloads (Reload menu, crash
   // recovery, or a factory reset's `window.location.reload()`), the old
@@ -160,8 +215,21 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
         hostWindow.webContents.off('did-start-navigation', onHostNavigation);
       }
       activeManagers.delete(manager);
+      for (const session of sessionsById.values()) {
+        // A detach can throw ("Object has been destroyed") when the WebContents
+        // was already torn down out-of-band; it must never abort the teardown
+        // before manager.dispose() runs.
+        try {
+          session.detach();
+        } catch (error) {
+          logger.debug('Pane CDP session detach during dispose failed', { error });
+        }
+      }
+      sessionsById.clear();
+      webContentsById.clear();
       manager.dispose();
     },
+    driver,
     manager,
   };
 }

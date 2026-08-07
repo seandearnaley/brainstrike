@@ -235,6 +235,17 @@ export class BrowserViewManager {
     return [...this.tabs.values()].map((tab) => this.toState(tab));
   }
 
+  /**
+   * The active tab's `webContents` id, or null when no tab is open. The CDP
+   * driver's session resolver uses this to always target whichever tab is
+   * active NOW — the manager stays Electron-agnostic and only surfaces the id
+   * it already tracks.
+   */
+  getActiveWebContentsId(): number | null {
+    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+    return active ? active.view.webContents.id : null;
+  }
+
   dispose(): void {
     for (const tab of this.tabs.values()) {
       this.deps.hostWindow.contentView.removeChildView(tab.view);

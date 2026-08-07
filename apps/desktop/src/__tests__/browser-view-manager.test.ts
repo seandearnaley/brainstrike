@@ -371,6 +371,18 @@ describe('BrowserViewManager', () => {
     expect(manager.listTabs()).toEqual([]);
   });
 
+  it('getActiveWebContentsId returns the active tab webContents id, null when empty', () => {
+    const { manager } = setup();
+    expect(manager.getActiveWebContentsId()).toBeNull();
+    manager.createTab('a.com'); // view 1
+    manager.createTab('b.com'); // view 2, now active
+    expect(manager.getActiveWebContentsId()).toBe(2);
+    manager.selectTab(manager.listTabs()[0]?.tabId ?? '');
+    expect(manager.getActiveWebContentsId()).toBe(1);
+    manager.dispose();
+    expect(manager.getActiveWebContentsId()).toBeNull();
+  });
+
   it('dispose resets geometry so a reused manager never reveals a new tab at the stale rect', () => {
     // The manager instance is reused across a renderer reload / factory reset:
     // dispose() runs, then the SAME manager serves the fresh renderer. A tab
