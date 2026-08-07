@@ -48,19 +48,32 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     Readonly<Record<string, VersionSelection>>
   >({});
   const [loadedVersion, setLoadedVersion] = useState<CanvasPanelVersion | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
   const [shellFailure, setShellFailure] = useState<string | null>(null);
 
   useEffect(() => {
+    // Clear synchronously on every re-query trigger: a thread switch must
+    // never display the PREVIOUS thread's canvases while the new read is in
+    // flight (or forever, if it fails).
+    setSummaries([]);
     if (!(database && threadId)) {
-      setSummaries([]);
       return;
     }
     let cancelled = false;
-    void listThreadCanvasSummaries(database, threadId).then((rows) => {
-      if (!cancelled) {
-        setSummaries(rows);
-      }
-    });
+    listThreadCanvasSummaries(database, threadId)
+      .then((rows) => {
+        if (!cancelled) {
+          setQueryError(null);
+          setSummaries(rows);
+        }
+      })
+      .catch((error: unknown) => {
+        // NO SILENT FALLBACKS: a failed read must never masquerade as the
+        // "no canvases yet" empty state.
+        if (!cancelled) {
+          setQueryError(`Canvas list failed: ${String(error)}`);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -82,25 +95,51 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
       : Math.min(selection, activeSummary.latestVersion)
     : null;
 
+  const activeCanvasId = activeSummary?.canvasId ?? null;
   useEffect(() => {
-    if (!(database && activeSummary && shownVersion)) {
-      setLoadedVersion(null);
+    // Clear synchronously so a canvas/version switch never shows the previous
+    // document under the new header while the read is in flight.
+    setLoadedVersion(null);
+    if (!(database && activeCanvasId && shownVersion)) {
       return;
     }
     let cancelled = false;
-    void getCanvasVersion(database, activeSummary.canvasId, shownVersion).then((row) => {
-      if (!cancelled) {
-        setLoadedVersion(row);
-      }
-    });
+    getCanvasVersion(database, activeCanvasId, shownVersion)
+      .then((row) => {
+        if (cancelled) {
+          return;
+        }
+        if (row) {
+          setQueryError(null);
+          setLoadedVersion(row);
+          return;
+        }
+        // A version the summary advertised but the read cannot find is a real
+        // inconsistency (reset race, deleted rows) — surface it.
+        setQueryError(`Canvas version v${shownVersion} not found.`);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setQueryError(`Canvas read failed: ${String(error)}`);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [activeSummary, database, shownVersion]);
+  }, [activeCanvasId, database, shownVersion]);
 
   if (!threadId) {
     return (
       <CanvasPanelEmptyState message="Canvas documents the assistant creates in a thread appear here." />
+    );
+  }
+  if (queryError && !activeSummary) {
+    return (
+      <div className="flex h-full items-center justify-center p-4">
+        <p className="max-w-72 text-center text-destructive text-xs" data-testid="canvas-error">
+          {queryError}
+        </p>
+      </div>
     );
   }
   if (!activeSummary) {
@@ -174,6 +213,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
         {loadedVersion ? (
           <CanvasFrame
             html={loadedVersion.html}
+            onShellReady={() => setShellFailure(null)}
             onShellTimeout={({ shellSrc: failedSrc }) =>
               setShellFailure(`Canvas shell failed to load (${failedSrc}).`)
             }
@@ -182,8 +222,19 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
           />
         ) : null}
       </div>
+      {queryError ? (
+        <p
+          className="shrink-0 border-border border-t px-2 py-1 text-destructive text-xs"
+          data-testid="canvas-error"
+        >
+          {queryError}
+        </p>
+      ) : null}
       {shellFailure ? (
-        <p className="shrink-0 border-border border-t px-2 py-1 text-destructive text-xs">
+        <p
+          className="shrink-0 border-border border-t px-2 py-1 text-destructive text-xs"
+          data-testid="canvas-shell-failure"
+        >
           {shellFailure}
         </p>
       ) : null}

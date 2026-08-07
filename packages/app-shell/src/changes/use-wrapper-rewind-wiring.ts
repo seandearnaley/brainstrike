@@ -15,23 +15,27 @@
  * It composes the sibling `changes/` modules only — it must NEVER import the
  * wrapper back (module-scope chunk-init cycle class; bitten four times).
  */
-import { type AssistantRunEvent, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  type AssistantRunEvent,
+  denormalizeNativeToolName,
+  NATIVE_TOOL_ID,
+} from '@brainstrike/assistant-contract';
 import { useCallback, useEffect, useRef } from 'react';
 import { useChangesNavigationStore } from './changes-navigation-store';
+import { useRewindStore } from './rewind-store';
 
 /**
- * Matches the manageCanvas tool in BOTH wire forms: the dotted id on the live
- * stream and the Mastra-sanitized underscore form on persisted parts (same
- * dual-form handling as `denormalizeNativeToolName` in run-lifecycle).
+ * Matches the manageCanvas tool in BOTH wire forms — the dotted id on the
+ * live stream and the Mastra-sanitized form on persisted parts — via the
+ * CANONICAL denormalizer (the same one the upstream edit-activity producer
+ * uses), not a hand-rolled copy that could drift from the sanitizer.
  */
 function isManageCanvasToolName(value: unknown): boolean {
   return (
-    value === NATIVE_TOOL_ID.manageCanvas ||
-    value === NATIVE_TOOL_ID.manageCanvas.replaceAll('.', '_')
+    typeof value === 'string' && denormalizeNativeToolName(value) === NATIVE_TOOL_ID.manageCanvas
   );
 }
 
-import { useRewindStore } from './rewind-store';
 import { type UseRewindFinalizationArgs, useRewindFinalization } from './use-rewind-finalization';
 
 /**

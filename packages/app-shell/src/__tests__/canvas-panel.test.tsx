@@ -6,8 +6,13 @@ import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 
 const queryMock = vi.fn();
 
+// IDENTITY-STABLE handle, like the real usePGliteDatabase (a context value):
+// a fresh object per render would re-run every database-keyed effect on every
+// render and spin the panel's clear-then-refetch cycle into an OOM loop.
+const stableDatabaseHandle = { query: queryMock };
+
 vi.mock('@brainstrike/db/react', () => ({
-  usePGliteDatabase: () => ({ query: queryMock }),
+  usePGliteDatabase: () => stableDatabaseHandle,
 }));
 
 const SUMMARIES = [
@@ -80,7 +85,7 @@ describe('CanvasPanel', () => {
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v3 / 3');
     });
-    const frame = screen.getByTitle<HTMLIFrameElement>('Canvas');
+    const frame = await screen.findByTitle<HTMLIFrameElement>('Canvas');
     expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
     expect(frame.src.startsWith('https://shell.invalid/canvas-frame.html#nonce=')).toBe(true);
     // Latest ⇒ forward stepping disabled, backward enabled.
@@ -107,6 +112,44 @@ describe('CanvasPanel', () => {
       expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v1 / 3');
     });
     expect(screen.getByTestId('canvas-version-previous')).toBeDisabled();
+  });
+
+  it('surfaces a failed summaries read as a visible error, never the empty-state lie', async () => {
+    queryMock.mockRejectedValue(new Error('relation gone'));
+    useChangesNavigationStore
+      .getState()
+      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    renderPanel();
+
+    expect(await screen.findByTestId('canvas-error')).toHaveTextContent(/Canvas list failed/);
+    expect(screen.queryByText(/No canvases in this thread/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces a failed version read under the header instead of silently keeping stale content', async () => {
+    let failVersionReads = false;
+    queryMock.mockImplementation((sql: string, params?: readonly unknown[]) => {
+      if (/DISTINCT ON/i.test(sql)) {
+        return Promise.resolve({ rows: [...SUMMARIES] });
+      }
+      if (failVersionReads) {
+        return Promise.reject(new Error('db closed'));
+      }
+      return Promise.resolve({ rows: [versionRow(Number(params?.[1]))] });
+    });
+    useChangesNavigationStore
+      .getState()
+      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v3 / 3');
+    });
+
+    failVersionReads = true;
+    fireEvent.click(screen.getByTestId('canvas-version-previous'));
+
+    expect(await screen.findByTestId('canvas-error')).toHaveTextContent(/Canvas read failed/);
+    // The stale v3 document was cleared, not left rendering under the v2 label.
+    expect(screen.queryByTitle('Canvas')).not.toBeInTheDocument();
   });
 
   it('re-queries when a manageCanvas completion bumps the refresh nonce', async () => {
