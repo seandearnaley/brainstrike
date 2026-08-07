@@ -370,4 +370,21 @@ describe('BrowserViewManager', () => {
     expect(removed).toHaveLength(2);
     expect(manager.listTabs()).toEqual([]);
   });
+
+  it('dispose resets geometry so a reused manager never reveals a new tab at the stale rect', () => {
+    // The manager instance is reused across a renderer reload / factory reset:
+    // dispose() runs, then the SAME manager serves the fresh renderer. A tab
+    // created before the new renderer reports geometry must stay hidden, not
+    // paint at the pre-dispose rect.
+    const { created, manager } = setup(); // seeds bounds 400×300
+    manager.createTab('a.com');
+    expect(created[0]?.calls.visible.at(-1)).toBe(true); // shown at seeded bounds
+
+    manager.dispose();
+    manager.createTab('b.com'); // before any new setBounds/setOccluded
+
+    const reused = created.at(-1);
+    expect(reused?.calls.visible).not.toContain(true);
+    expect(reused?.calls.visible.at(-1)).toBe(false);
+  });
 });

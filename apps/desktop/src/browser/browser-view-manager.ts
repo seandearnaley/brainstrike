@@ -242,6 +242,15 @@ export class BrowserViewManager {
     }
     this.tabs.clear();
     this.activeTabId = null;
+    // Reset geometry to a SAFE hidden state. This manager instance is REUSED
+    // across a renderer reload / factory reset (dispose runs, then the same
+    // manager serves the fresh renderer). Retaining the pre-dispose nonzero
+    // `bounds`/`occluded` would let a tab created before the new renderer
+    // reports geometry reveal a native view at the STALE rect, painting over
+    // unrelated chrome. Zero rect + occluded keeps `showActive` hidden until
+    // real bounds/occlusion arrive.
+    this.bounds = ZERO_RECT;
+    this.occluded = true;
     // Tell the renderer the pane is now empty, so a disposed-then-recreated
     // host never leaves phantom tabs in the strip.
     this.emitTabs();
