@@ -35,14 +35,11 @@ export function BrowserPaneContent(): ReactElement {
   const routeActive = activeShellTab === 'browser';
   const occluded = !routeActive || settingsOpen || paletteOpen;
 
-  const [urlDraft, setUrlDraft] = useState('');
-  // The URL input follows the active tab's url UNLESS the user is editing.
-  const [editing, setEditing] = useState(false);
-  useEffect(() => {
-    if (!editing) {
-      setUrlDraft(activeTab?.url ?? '');
-    }
-  }, [activeTab?.url, editing]);
+  // The URL input follows the active tab's url unless the user is editing.
+  // `draft === null` means "follow the active tab" (derived, no sync effect);
+  // any string is the user's in-progress edit. Cleared to null on submit/blur.
+  const [draft, setDraft] = useState<string | null>(null);
+  const displayedUrl = draft ?? activeTab?.url ?? '';
 
   // Subscribe to main's tab-state pushes, then seed from the current list.
   // Subscribe FIRST and skip the seed if a push already populated the store,
@@ -105,8 +102,8 @@ export function BrowserPaneContent(): ReactElement {
   const handleNavigate = useCallback(
     (event: FormEvent) => {
       event.preventDefault();
-      setEditing(false);
-      const trimmed = urlDraft.trim();
+      const trimmed = displayedUrl.trim();
+      setDraft(null); // back to following the active tab
       if (!(bridge && trimmed)) {
         return;
       }
@@ -116,7 +113,7 @@ export function BrowserPaneContent(): ReactElement {
         void bridge.createTab(trimmed);
       }
     },
-    [activeTab, bridge, urlDraft]
+    [activeTab, bridge, displayedUrl]
   );
 
   if (!bridge) {
@@ -198,13 +195,10 @@ export function BrowserPaneContent(): ReactElement {
             aria-label="Address"
             className="h-6 text-xs"
             data-testid="browser-url-input"
-            onBlur={() => setEditing(false)}
-            onChange={(event) => {
-              setEditing(true);
-              setUrlDraft(event.target.value);
-            }}
+            onBlur={() => setDraft(null)}
+            onChange={(event) => setDraft(event.target.value)}
             placeholder="Search or enter address"
-            value={urlDraft}
+            value={displayedUrl}
           />
         </form>
       </div>
