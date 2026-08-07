@@ -29,6 +29,12 @@ export interface OpenRouterAutoProfileModel {
     readonly mandatory?: boolean;
     readonly supportedEfforts?: readonly OpenAiReasoningEffort[];
     readonly supportsMaxTokens?: boolean;
+    /**
+     * Vendor-documented completion window sized for thinking + answer.
+     * Catalog-only, like `autoEffort` — OpenRouter does not publish it. See
+     * `resolveOpenRouterOutputWindow` (BST-1170).
+     */
+    readonly vendorDefaultOutputTokens?: number;
   };
 }
 
@@ -56,6 +62,62 @@ export function resolveOpenRouterCodingMaxOutputTokens(modelMaxOutputTokens?: nu
 }
 
 /**
+ * Whether the request that will actually reach OpenRouter reasons. An explicit
+ * effort choice wins outright; otherwise the model's declared Auto resolution
+ * decides (`defaultEnabled`, with `autoEffort: 'none'` as the recorded off
+ * switch). Mirrors `buildOpenRouterOptions`' effort resolution so the output
+ * window is sized for the same request it accompanies.
+ */
+export function resolveOpenRouterReasoningActive(
+  model: OpenRouterAutoProfileModel,
+  explicitEffort?: OpenAiReasoningEffort
+): boolean {
+  if (explicitEffort !== undefined) {
+    return explicitEffort !== 'none';
+  }
+  const reasoning = model.reasoning;
+  if (!reasoning?.defaultEnabled) {
+    return false;
+  }
+  return reasoning.autoEffort !== 'none';
+}
+
+/**
+ * Effective `max_tokens` for an OpenRouter request (BST-1170).
+ *
+ * OpenRouter documents that reasoning tokens ARE output tokens and that a
+ * requested effort allocates a share OF `max_tokens` for reasoning (high ≈
+ * 80%, max/xhigh ≈ 95%) — so the 32K coding ceiling does not protect the
+ * final answer on reasoning runs; it shrinks the whole thinking+answer
+ * window. When reasoning is active and the catalog records the vendor's own
+ * documented completion window (`vendorDefaultOutputTokens`), that window is
+ * used instead, capped only by a declared model completion limit. Models
+ * without the recorded fact keep the coding ceiling — sizing beyond the
+ * ceiling requires a vendor-documented number, never an inference.
+ */
+export function resolveOpenRouterOutputWindow(
+  model: OpenRouterAutoProfileModel,
+  reasoningActive: boolean
+): number {
+  const ceiling = resolveOpenRouterCodingMaxOutputTokens(model.maxOutputTokens);
+  if (!reasoningActive) {
+    return ceiling;
+  }
+  const vendorWindow = model.reasoning?.vendorDefaultOutputTokens;
+  if (vendorWindow === undefined) {
+    return ceiling;
+  }
+  if (!(Number.isSafeInteger(vendorWindow) && vendorWindow > 0)) {
+    throw new Error(
+      `${model.id}: reasoning.vendorDefaultOutputTokens must be a positive integer, got ${vendorWindow}`
+    );
+  }
+  return model.maxOutputTokens === undefined
+    ? vendorWindow
+    : Math.min(vendorWindow, model.maxOutputTokens);
+}
+
+/**
  * Overlay our catalog's Auto override onto a live metadata snapshot.
  *
  * `autoEffort` is OURS — OpenRouter does not publish it, so
@@ -75,15 +137,25 @@ export function mergeOpenRouterAutoProfileModel(
   if (!live) {
     return catalog;
   }
-  const catalogAutoEffort = catalog?.reasoning?.autoEffort;
-  // No override to carry, or live says this model does not reason at all —
-  // in which case the override is moot and live remains authoritative.
-  if (!(catalogAutoEffort && live.reasoning)) {
+  const catalogReasoning = catalog?.reasoning;
+  // The catalog-only facts OpenRouter structurally cannot publish. Vendor
+  // facts still win; only these overlays are merged in.
+  const catalogOnly = {
+    ...(catalogReasoning?.autoEffort === undefined
+      ? {}
+      : { autoEffort: catalogReasoning.autoEffort }),
+    ...(catalogReasoning?.vendorDefaultOutputTokens === undefined
+      ? {}
+      : { vendorDefaultOutputTokens: catalogReasoning.vendorDefaultOutputTokens }),
+  };
+  // Nothing to carry, or live says this model does not reason at all — in
+  // which case the overlays are moot and live remains authoritative.
+  if (!(Object.keys(catalogOnly).length > 0 && live.reasoning)) {
     return live;
   }
   return {
     ...live,
-    reasoning: { ...live.reasoning, autoEffort: catalogAutoEffort },
+    reasoning: { ...live.reasoning, ...catalogOnly },
   };
 }
 
@@ -91,8 +163,13 @@ export function resolveOpenRouterAutoRuntimeProfile<TModel extends OpenRouterAut
   model: TModel,
   configuredMaxOutputTokens?: number
 ): OpenRouterAutoRuntimeProfile {
+  // The window is sized for the same reasoning resolution this profile sends:
+  // an active-reasoning Auto request gets the vendor-documented window when
+  // the catalog records one (BST-1170). An explicit configured limit stays
+  // authoritative.
   const baselineOutputTokens =
-    configuredMaxOutputTokens ?? resolveOpenRouterCodingMaxOutputTokens(model.maxOutputTokens);
+    configuredMaxOutputTokens ??
+    resolveOpenRouterOutputWindow(model, resolveOpenRouterReasoningActive(model));
   if (
     configuredMaxOutputTokens !== undefined &&
     !(Number.isSafeInteger(configuredMaxOutputTokens) && configuredMaxOutputTokens > 0)

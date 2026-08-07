@@ -1500,9 +1500,118 @@ describe('buildEffectiveModelSettings', () => {
   it('does not inject OpenRouter defaults into other providers', () => {
     expect(buildEffectiveModelSettings('anthropic', undefined)).toBeUndefined();
   });
+
+  it('opens the vendor window for Kimi K3 whenever its reasoning is active (BST-1170)', () => {
+    const model = { contextWindow: 1_048_576 };
+    // Auto: the catalog's recorded low effort still reasons, so the window is
+    // Moonshot's documented 131,072 — the 32K ceiling starved thinking+answer
+    // and killed runs at `finishReason: length`.
+    expect(
+      buildEffectiveModelSettings('openrouter', undefined, model, undefined, 'moonshotai/kimi-k3')
+    ).toEqual({ maxOutputTokens: 131_072 });
+    // An explicit effort must size the same window — the run that motivated
+    // this fix sent effort high with a 32,000 window.
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        model,
+        undefined,
+        'moonshotai/kimi-k3',
+        'high'
+      )
+    ).toEqual({ maxOutputTokens: 131_072 });
+  });
+
+  it('keeps the coding ceiling when Kimi K3 reasoning is explicitly off', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        { contextWindow: 1_048_576 },
+        undefined,
+        'moonshotai/kimi-k3',
+        'none'
+      )
+    ).toEqual({ maxOutputTokens: 32_000 });
+  });
+
+  it('merges the catalog vendor window over a live snapshot that cannot carry it', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        { contextWindow: 1_048_576 },
+        {
+          checkedAt: 42,
+          contextWindow: 1_048_576,
+          id: 'moonshotai/kimi-k3',
+          reasoning: {
+            defaultEffort: 'max',
+            defaultEnabled: true,
+            mandatory: false,
+            supportedEfforts: ['max', 'high', 'low'],
+            supportsMaxTokens: false,
+          },
+          source: 'openrouter-models-api',
+          supportedParameters: ['reasoning', 'max_tokens'],
+        },
+        'moonshotai/kimi-k3',
+        'high'
+      )
+    ).toEqual({ maxOutputTokens: 131_072 });
+  });
+
+  it('still honours an explicit output limit over the vendor window', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        { maxOutputTokens: 48_000 },
+        { contextWindow: 1_048_576 },
+        undefined,
+        'moonshotai/kimi-k3',
+        'high'
+      )
+    ).toEqual({ maxOutputTokens: 48_000 });
+  });
 });
 
 describe('resolveOpenRouterMetadataDisabledReason', () => {
+  it('reserves the reasoning window when validating the input budget (BST-1170)', () => {
+    // Kimi K3: context 1,048,576, margin 52,429, vendor window 131,072 when
+    // reasoning is active → effective input budget 865,075. Against the old
+    // 32K reservation this input limit (900,000) would have passed, silently
+    // promising context the run cannot actually use.
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { agentInputTokenLimit: 900_000, reasoningEffort: 'high' },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_048_576,
+              id: 'moonshotai/kimi-k3',
+              reasoning: {
+                defaultEffort: 'max',
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['max', 'high', 'low'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning', 'max_tokens'],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toBe(
+      'Configured input limit 900,000 exceeds OpenRouter live effective input budget 865,075.'
+    );
+  });
+
   it('blocks an explicitly configured output limit above the live model maximum', () => {
     expect(
       resolveOpenRouterMetadataDisabledReason(

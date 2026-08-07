@@ -126,6 +126,16 @@ export interface LlmModelDefinition extends BaseModelDefinition {
     defaultEnabled?: boolean;
     mandatory: boolean;
     supportedEfforts: readonly OpenAiReasoningEffort[];
+    /**
+     * Vendor-documented completion window sized for thinking + answer, for
+     * models whose reasoning tokens stream into the output budget. Recorded
+     * from the vendor's official docs (cite them at the model entry) — never
+     * derived, and catalog-only: OpenRouter does not publish it, so it must
+     * survive live-metadata merges (`mergeOpenRouterAutoProfileModel`). Used
+     * in place of the coding output ceiling whenever reasoning is active —
+     * see `resolveOpenRouterOutputWindow` (BST-1170).
+     */
+    vendorDefaultOutputTokens?: number;
   };
   /**
    * Some providers restrict streaming; surface this so the UI can badge support.
@@ -762,6 +772,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         contextWindow: 1_048_576,
         id: 'moonshotai/kimi-k3',
         label: 'Kimi K3 (OpenRouter)',
+        // Official maximum max_completion_tokens (platform.kimi.ai K3
+        // quickstart, verified 2026-08-05). OpenRouter publishes none.
+        maxOutputTokens: 1_048_576,
         pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         reasoning: {
           // Auto deliberately runs below the vendor default: Kimi's `max` spends
@@ -771,6 +784,18 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           defaultEnabled: true,
           mandatory: false,
           supportedEfforts: ['max', 'high', 'low'],
+          // Official K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,
+          // verified 2026-08-05): max_completion_tokens defaults to 131,072
+          // (max 1,048,576) — the vendor's operating point for thinking +
+          // answer. Moonshot's FIRST-PARTY API cannot disable thinking, but
+          // the OpenRouter route declares reasoning optional (mandatory:
+          // false, multiple hosts serve this open-weight model); an explicit
+          // Off maps to `reasoning.enabled: false` under
+          // `provider.require_parameters`, which narrows routing to endpoints
+          // honouring it — so a reasoning-off request correctly keeps the
+          // coding ceiling instead of this window. OpenRouter publishes no
+          // max completion for this route, so the fact lives here (BST-1170).
+          vendorDefaultOutputTokens: 131_072,
         },
         supportsStreaming: true,
         type: 'llm',

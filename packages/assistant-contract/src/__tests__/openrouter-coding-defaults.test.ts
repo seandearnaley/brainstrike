@@ -5,6 +5,8 @@ import {
   OPENROUTER_RECOMMENDED_CODING_MODEL_IDS,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
 } from '../openrouter-coding-defaults';
 import { listProviderLlmModels } from '../provider-registry';
 
@@ -333,6 +335,231 @@ describe('a malformed Auto override fails at its source, not on the wire', () =>
   });
 });
 
+describe('reasoning-aware OpenRouter output window (BST-1170)', () => {
+  // OpenRouter documents that reasoning tokens ARE output tokens and that a
+  // requested effort allocates a share OF max_tokens for reasoning (high ≈
+  // 80%, max/xhigh ≈ 95%) — so the 32K coding ceiling never protected the
+  // final answer on reasoning runs; it shrank the whole thinking+answer
+  // window and Kimi K3 died at `finishReason: length`. A model whose vendor
+  // documents a completion window sized for always-on thinking records it in
+  // the catalog as `reasoning.vendorDefaultOutputTokens`.
+  const registryKimi = () =>
+    listProviderLlmModels('openrouter').find(({ id }) => id === 'moonshotai/kimi-k3');
+
+  it('records the official Moonshot K3 completion window in the catalog', () => {
+    // platform.kimi.ai K3 quickstart (verified 2026-08-05):
+    // max_completion_tokens defaults to 131,072 and thinking cannot be
+    // disabled — the vendor's own operating point for thinking + answer.
+    expect(registryKimi()?.reasoning?.vendorDefaultOutputTokens).toBe(131_072);
+  });
+
+  it('opens the vendor window when reasoning is active on Kimi K3', () => {
+    const kimi = registryKimi();
+    expect(kimi).toBeDefined();
+    expect(resolveOpenRouterOutputWindow(kimi!, true)).toBe(131_072);
+  });
+
+  it('keeps the coding ceiling when reasoning is inactive', () => {
+    const kimi = registryKimi();
+    expect(kimi).toBeDefined();
+    expect(resolveOpenRouterOutputWindow(kimi!, false)).toBe(32_000);
+  });
+
+  it('keeps the coding ceiling for reasoning models with no recorded vendor window', () => {
+    expect(
+      resolveOpenRouterOutputWindow(
+        {
+          id: 'z-ai/glm-5.2',
+          maxOutputTokens: 131_072,
+          reasoning: {
+            defaultEffort: 'high',
+            defaultEnabled: true,
+            mandatory: false,
+            supportedEfforts: ['xhigh', 'high'],
+          },
+        },
+        true
+      )
+    ).toBe(32_000);
+  });
+
+  it('caps the vendor window at a smaller declared model completion limit', () => {
+    expect(
+      resolveOpenRouterOutputWindow(
+        {
+          id: 'vendor/thinker',
+          maxOutputTokens: 65_536,
+          reasoning: {
+            defaultEnabled: true,
+            mandatory: false,
+            vendorDefaultOutputTokens: 131_072,
+          },
+        },
+        true
+      )
+    ).toBe(65_536);
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects a malformed recorded vendor window %s at its source', (vendorDefaultOutputTokens) => {
+    expect(() =>
+      resolveOpenRouterOutputWindow(
+        {
+          id: 'bad/entry',
+          reasoning: { defaultEnabled: true, mandatory: false, vendorDefaultOutputTokens },
+        },
+        true
+      )
+    ).toThrow(/vendorDefaultOutputTokens must be a positive integer/);
+  });
+});
+
+describe('resolveOpenRouterReasoningActive', () => {
+  const kimiLike = {
+    id: 'moonshotai/kimi-k3',
+    reasoning: {
+      autoEffort: 'low' as const,
+      defaultEffort: 'max' as const,
+      defaultEnabled: true,
+      mandatory: false,
+      supportedEfforts: ['max', 'high', 'low'] as const,
+    },
+  };
+
+  it('treats any explicit effort except none as active', () => {
+    expect(resolveOpenRouterReasoningActive(kimiLike, 'high')).toBe(true);
+    expect(resolveOpenRouterReasoningActive(kimiLike, 'max')).toBe(true);
+    expect(resolveOpenRouterReasoningActive(kimiLike, 'none')).toBe(false);
+  });
+
+  it('follows the declared Auto resolution when no explicit effort is chosen', () => {
+    expect(resolveOpenRouterReasoningActive(kimiLike)).toBe(true);
+    expect(
+      resolveOpenRouterReasoningActive({
+        id: 'budget/sensitive',
+        reasoning: {
+          autoEffort: 'none',
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['high'],
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('is inactive for models that do not reason by default', () => {
+    expect(resolveOpenRouterReasoningActive({ id: 'plain/model' })).toBe(false);
+    expect(
+      resolveOpenRouterReasoningActive({
+        id: 'plain/model',
+        reasoning: { defaultEffort: 'high', mandatory: false, supportedEfforts: ['high'] },
+      })
+    ).toBe(false);
+  });
+
+  it('stays active when reasoning is enabled by default with no declared effort', () => {
+    // No effort parameter is sent, but the provider still applies its own
+    // default — the window must be sized for thinking.
+    expect(
+      resolveOpenRouterReasoningActive({
+        id: 'qwen/qwen3.7-max',
+        reasoning: { defaultEnabled: true, mandatory: false },
+      })
+    ).toBe(true);
+  });
+});
+
+describe('Auto profile sizes the window for its own reasoning resolution (BST-1170)', () => {
+  it('resolves the registry Kimi K3 to its vendor window at the recorded low effort', () => {
+    const kimi = listProviderLlmModels('openrouter').find(({ id }) => id === 'moonshotai/kimi-k3');
+    expect(kimi).toBeDefined();
+    expect(resolveOpenRouterAutoRuntimeProfile(kimi!)).toEqual({
+      maxOutputTokens: 131_072,
+      reasoningEffort: 'low',
+    });
+  });
+
+  it('keeps the coding ceiling when the catalog deliberately switches Auto off', () => {
+    expect(
+      resolveOpenRouterAutoRuntimeProfile({
+        id: 'budget/sensitive',
+        reasoning: {
+          autoEffort: 'none',
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['high'],
+          vendorDefaultOutputTokens: 131_072,
+        },
+      })
+    ).toEqual({ maxOutputTokens: 32_000, reasoningEffort: 'none' });
+  });
+
+  it('never overrides an explicitly configured output limit', () => {
+    const kimi = listProviderLlmModels('openrouter').find(({ id }) => id === 'moonshotai/kimi-k3');
+    expect(resolveOpenRouterAutoRuntimeProfile(kimi!, 48_000)).toEqual({
+      maxOutputTokens: 48_000,
+      reasoningEffort: 'low',
+    });
+  });
+});
+
+describe('catalog vendor window survives live metadata (BST-1170)', () => {
+  // OpenRouter publishes NO max_completion_tokens for Kimi K3 (null as of
+  // 2026-08-05), so `vendorDefaultOutputTokens` is catalog-only — exactly like
+  // `autoEffort`, it must be merged back over a live snapshot.
+  const liveKimi = {
+    checkedAt: 42,
+    contextWindow: 1_048_576,
+    id: 'moonshotai/kimi-k3',
+    reasoning: {
+      defaultEffort: 'max' as const,
+      defaultEnabled: true,
+      mandatory: false,
+      supportedEfforts: ['max', 'high', 'low'] as const,
+      supportsMaxTokens: false,
+    },
+    source: 'openrouter-models-api' as const,
+    supportedParameters: ['reasoning', 'max_tokens'],
+  };
+  const catalogKimi = {
+    id: 'moonshotai/kimi-k3',
+    reasoning: {
+      autoEffort: 'low' as const,
+      defaultEffort: 'max' as const,
+      defaultEnabled: true,
+      mandatory: false,
+      supportedEfforts: ['max', 'high', 'low'] as const,
+      vendorDefaultOutputTokens: 131_072,
+    },
+  };
+
+  it('merges the recorded vendor window onto the live snapshot', () => {
+    const merged = mergeOpenRouterAutoProfileModel(liveKimi, catalogKimi);
+    expect(merged?.reasoning?.vendorDefaultOutputTokens).toBe(131_072);
+    expect(resolveOpenRouterOutputWindow(merged!, true)).toBe(131_072);
+  });
+
+  it('keeps the Auto profile at the vendor window after the merge', () => {
+    const merged = mergeOpenRouterAutoProfileModel(liveKimi, catalogKimi);
+    expect(resolveOpenRouterAutoRuntimeProfile(merged!)).toEqual({
+      maxOutputTokens: 131_072,
+      reasoningEffort: 'low',
+    });
+  });
+
+  it('still respects live metadata that reports no reasoning at all', () => {
+    const noReasoning = { id: 'moonshotai/kimi-k3' };
+    expect(mergeOpenRouterAutoProfileModel(noReasoning, catalogKimi)).toBe(noReasoning);
+  });
+});
+
 describe('every catalogued OpenRouter model resolves a valid Auto profile', () => {
   // Registry-wide invariant: the resolver throws on a malformed override, so
   // running it across the catalog catches a bad entry in CI rather than at the
@@ -343,6 +570,13 @@ describe('every catalogued OpenRouter model resolves a valid Auto profile', () =
     expect(models.length).toBeGreaterThan(0);
     for (const model of models) {
       expect(() => resolveOpenRouterAutoRuntimeProfile(model), model.id).not.toThrow();
+    }
+  });
+
+  it('resolves an output window for all OpenRouter LLM entries in both reasoning states', () => {
+    for (const model of listProviderLlmModels('openrouter')) {
+      expect(() => resolveOpenRouterOutputWindow(model, true), model.id).not.toThrow();
+      expect(() => resolveOpenRouterOutputWindow(model, false), model.id).not.toThrow();
     }
   });
 

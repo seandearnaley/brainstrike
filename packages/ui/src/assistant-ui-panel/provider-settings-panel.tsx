@@ -2,9 +2,12 @@ import {
   deriveEffectiveInputBudget,
   getProviderDefinition,
   type LlmModelDefinition,
+  mergeOpenRouterAutoProfileModel,
+  type OpenRouterAutoProfileModel,
   type OpenRouterModelMetadataLookup,
-  resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
   resolveReasoningVisible,
 } from '@brainstrike/assistant-contract';
 import type {
@@ -101,6 +104,23 @@ function resolveOpenRouterSourceLabel(lookup: OpenRouterModelMetadataLookup | un
   }
 }
 
+function resolveOpenRouterOutputReservation(
+  settings: AssistantProviderSettings,
+  profileModel: OpenRouterAutoProfileModel | undefined,
+  maxOutputTokens: number | undefined
+): number {
+  if (typeof settings.maxOutputTokens === 'number') {
+    return Math.max(1, Math.floor(settings.maxOutputTokens));
+  }
+  if (!profileModel) {
+    return resolveOpenRouterCodingMaxOutputTokens(maxOutputTokens);
+  }
+  return resolveOpenRouterOutputWindow(
+    profileModel,
+    resolveOpenRouterReasoningActive(profileModel, settings.reasoningEffort || undefined)
+  );
+}
+
 function resolveOpenRouterModelLimits(
   modelName: string | undefined,
   settings: AssistantProviderSettings,
@@ -124,15 +144,18 @@ function resolveOpenRouterModelLimits(
   if (contextWindow === undefined) {
     return;
   }
-  const maxOutputTokens = liveMetadata
-    ? liveMetadata.maxOutputTokens
-    : staticModel?.maxOutputTokens;
-  const outputReservation =
-    typeof settings.maxOutputTokens === 'number'
-      ? Math.max(1, Math.floor(settings.maxOutputTokens))
-      : liveMetadata
-        ? resolveOpenRouterAutoRuntimeProfile(liveMetadata).maxOutputTokens
-        : resolveOpenRouterCodingMaxOutputTokens(maxOutputTokens);
+  // A live snapshot that publishes no max completion is not an assertion of
+  // absence — fall back to the catalog's vendor-documented maximum so the
+  // output control keeps a real bound (BST-1170).
+  const maxOutputTokens = liveMetadata?.maxOutputTokens ?? staticModel?.maxOutputTokens;
+  const outputReservation = resolveOpenRouterOutputReservation(
+    settings,
+    // Same merge and reasoning resolution as the request builder: the
+    // displayed Auto reservation must be the window the run actually sends
+    // (BST-1170).
+    mergeOpenRouterAutoProfileModel(liveMetadata, staticModel),
+    maxOutputTokens
+  );
   const sourceLabel = resolveOpenRouterSourceLabel(lookup);
   let effectiveInputBudget: number | undefined;
   try {

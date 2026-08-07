@@ -9,8 +9,10 @@ import {
   type HookTrustRequest,
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
+  listProviderLlmModels,
   mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
+  type OpenRouterAutoProfileModel,
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
@@ -19,6 +21,8 @@ import {
   type RuntimeData,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
   resolveReasoningVisible,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
@@ -1237,12 +1241,37 @@ export function buildModelSettings(
   return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
 }
 
+function findOpenRouterCatalogModel(modelId: string): OpenRouterAutoProfileModel | undefined {
+  return listProviderLlmModels('openrouter').find(({ id }) => id === modelId);
+}
+
+/**
+ * The model the output-window resolution reasons about: the live snapshot with
+ * the catalog-only facts (`autoEffort`, `vendorDefaultOutputTokens`) merged
+ * back in, or the static catalog entry while metadata is pending. The catalog
+ * overlay only applies when the snapshot identity matches the selected model.
+ */
+function resolveAutoProfileModel(
+  openRouterMetadata: OpenRouterModelMetadata | undefined,
+  modelName: string | undefined
+): OpenRouterAutoProfileModel | undefined {
+  if (openRouterMetadata) {
+    const catalogModel =
+      modelName !== undefined && openRouterMetadata.id === modelName
+        ? findOpenRouterCatalogModel(modelName)
+        : undefined;
+    return mergeOpenRouterAutoProfileModel(openRouterMetadata, catalogModel);
+  }
+  return modelName === undefined ? undefined : getLlmModelDefinition('openrouter', modelName);
+}
+
 export function buildEffectiveModelSettings(
   providerId: string | null | undefined,
   configuredSettings: RuntimeData['modelSettings'] | undefined,
   selectedModelDef?: SelectedModelBudgetDef,
   openRouterMetadata?: OpenRouterModelMetadata,
-  modelName?: string
+  modelName?: string,
+  reasoningEffort?: AssistantProviderSettings['reasoningEffort']
 ): RuntimeData['modelSettings'] | undefined {
   if (providerId !== 'openrouter') {
     return configuredSettings;
@@ -1250,13 +1279,18 @@ export function buildEffectiveModelSettings(
   if (configuredSettings?.maxOutputTokens !== undefined) {
     return configuredSettings;
   }
-  const autoProfileModel =
-    openRouterMetadata ??
-    (modelName === undefined ? undefined : getLlmModelDefinition('openrouter', modelName));
+  const autoProfileModel = resolveAutoProfileModel(openRouterMetadata, modelName);
   if (autoProfileModel) {
+    // Sized for the request's reasoning state (BST-1170): an active-reasoning
+    // request on a model with a vendor-documented completion window gets that
+    // window — the 32K coding ceiling starved thinking+answer and killed runs
+    // at `finishReason: length`.
     return {
       ...configuredSettings,
-      maxOutputTokens: resolveOpenRouterAutoRuntimeProfile(autoProfileModel).maxOutputTokens,
+      maxOutputTokens: resolveOpenRouterOutputWindow(
+        autoProfileModel,
+        resolveOpenRouterReasoningActive(autoProfileModel, reasoningEffort)
+      ),
     };
   }
   return {
@@ -1285,9 +1319,11 @@ export function resolveOpenRouterMetadataDisabledReason(
   if (configuredOutput && maximum && configuredOutput > maximum) {
     return `Configured output limit ${openRouterLimitFormatter.format(configuredOutput)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
   }
+  const profileModel =
+    mergeOpenRouterAutoProfileModel(metadata, findOpenRouterCatalogModel(metadata.id)) ?? metadata;
   if (settings?.reasoningEffort === undefined) {
     try {
-      resolveOpenRouterAutoRuntimeProfile(metadata, configuredOutput);
+      resolveOpenRouterAutoRuntimeProfile(profileModel, configuredOutput);
     } catch (error) {
       return error instanceof Error
         ? error.message
@@ -1295,7 +1331,16 @@ export function resolveOpenRouterMetadataDisabledReason(
     }
   }
 
-  const outputReservation = configuredOutput ?? resolveOpenRouterCodingMaxOutputTokens(maximum);
+  // Reserve the same window the run will actually send (BST-1170): an
+  // active-reasoning request on a model with a vendor-documented completion
+  // window reserves that window, not the coding ceiling — otherwise the input
+  // validation promises context the run cannot use.
+  const outputReservation =
+    configuredOutput ??
+    resolveOpenRouterOutputWindow(
+      profileModel,
+      resolveOpenRouterReasoningActive(profileModel, settings?.reasoningEffort || undefined)
+    );
   let effectiveInputBudget: number;
   try {
     effectiveInputBudget = deriveEffectiveInputBudget(metadata.contextWindow, outputReservation);
