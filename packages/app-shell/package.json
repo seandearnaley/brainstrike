@@ -7,6 +7,7 @@
     "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",

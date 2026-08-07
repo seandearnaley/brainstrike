@@ -33,6 +33,19 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  type AssistantProviderSettingsUpdate,
+  type AssistantToolMenuItem,
+  AssistantUiPanel,
+  BudgetGuardrailProvider,
+  DebugBundleProvider,
+  EditCheckpointProvider,
+  hasDesktopLlmHost,
+  RunVerdictProvider,
+  type ToolApprovalGrantHandlers,
+  ToolApprovalGrantProvider,
+  useContextUsageStore,
+} from '@brainstrike/assistant-ui';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
@@ -48,19 +61,6 @@ import type {
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
-import {
-  type AssistantProviderSettingsUpdate,
-  type AssistantToolMenuItem,
-  AssistantUiPanel,
-  BudgetGuardrailProvider,
-  DebugBundleProvider,
-  EditCheckpointProvider,
-  hasDesktopLlmHost,
-  RunVerdictProvider,
-  type ToolApprovalGrantHandlers,
-  ToolApprovalGrantProvider,
-  useContextUsageStore,
-} from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {

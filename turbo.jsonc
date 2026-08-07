@@ -315,6 +315,7 @@
         "@brainstrike/utils#dev", // Run the 'dev' script from the @brainstrike/utils package
         "@brainstrike/hooks#dev", // Run the 'dev' script from the @brainstrike/hooks package
         "@brainstrike/file-explorer#dev", // Run the 'dev' script from the @brainstrike/file-explorer package
+        "@brainstrike/assistant-ui#dev", // Run the assistant panel feature package in watch mode
         "@brainstrike/ui#dev", // Run the 'dev' script from the @brainstrike/ui package
         "@brainstrike/file-explorer-hooks#dev", // Run the 'dev' script from the @brainstrike/file-explorer-hooks package
         "@brainstrike/test-utils#dev", // Run the 'dev' script from the @brainstrike/test-utils package

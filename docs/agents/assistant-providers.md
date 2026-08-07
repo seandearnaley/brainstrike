@@ -487,7 +487,7 @@
 - Reasoning-control placement: effort/level selection and the primary Thinking
   toggle live in the always-visible ComposerEffortControl chip beside the
   model picker in the composer control dock (packages/ui/src/
-  assistant-ui-panel/composer-effort-control.tsx, backed by
+  packages/assistant-ui/src/composer-effort-control.tsx, backed by
   reasoning-effort-controls.tsx). The chip's trigger doubles as the readout
   ("Effort High" / "Thinking Off") so the active reasoning config is legible
   without opening anything (BST-948); the model menu itself is selection-only.

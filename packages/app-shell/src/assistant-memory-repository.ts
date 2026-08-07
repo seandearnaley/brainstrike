@@ -39,8 +39,8 @@ import {
   type RediscoveredToolSuspend,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
+import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-ui';
 import type { DbHandle } from '@brainstrike/db/react';
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
 
 export interface AssistantMemoryThread {

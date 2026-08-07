@@ -1143,6 +1143,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/assistant-ui':
+        specifier: workspace:*
+        version: link:../assistant-ui
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -1387,6 +1390,103 @@ importers:
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
+  packages/assistant-ui:
+    dependencies:
+      '@assistant-ui/react':
+        specifier: 'catalog:'
+        version: 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@10.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+      '@assistant-ui/react-markdown':
+        specifier: 'catalog:'
+        version: 0.14.5(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@10.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@10.2.2)
+      '@assistant-ui/styles':
+        specifier: 'catalog:'
+        version: 0.3.7
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+      '@brainstrike/assistant-wire':
+        specifier: workspace:*
+        version: link:../assistant-wire
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+      '@brainstrike/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@radix-ui/react-dropdown-menu':
+        specifier: ^2.1.19
+        version: 2.1.19(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@tanstack/react-virtual':
+        specifier: 'catalog:'
+        version: 3.14.9(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      assistant-stream:
+        specifier: 0.3.25
+        version: 0.3.25
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.23.0(react@19.2.7)
+      react:
+        specifier: ^19.2.4
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.4
+        version: 19.2.7(react@19.2.7)
+      remark-gfm:
+        specifier: 'catalog:'
+        version: 4.0.1(supports-color@10.2.2)
+      zustand:
+        specifier: 'catalog:'
+        version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+    devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@testing-library/user-event':
+        specifier: 'catalog:'
+        version: 14.6.1(@testing-library/dom@10.4.1)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      '@vitejs/plugin-react':
+        specifier: 'catalog:'
+        version: 6.0.3(@rolldown/plugin-babel@0.2.3(@babel/core@8.0.1)(@babel/plugin-transform-runtime@8.0.1(@babel/core@8.0.1))(@babel/runtime@8.0.0)(rolldown@1.1.5)(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0)))(babel-plugin-react-compiler@1.0.0)(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      react-shiki:
+        specifier: 'catalog:'
+        version: 0.10.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@10.2.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2810,21 +2910,6 @@ importers:
 
   packages/ui:
     dependencies:
-      '@assistant-ui/react':
-        specifier: 'catalog:'
-        version: 0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@10.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
-      '@assistant-ui/react-markdown':
-        specifier: 'catalog:'
-        version: 0.14.5(@assistant-ui/react@0.14.26(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@10.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7)))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@10.2.2)
-      '@assistant-ui/styles':
-        specifier: 'catalog:'
-        version: 0.3.7
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../assistant-contract
-      '@brainstrike/assistant-wire':
-        specifier: workspace:*
-        version: link:../assistant-wire
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -2837,9 +2922,6 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
-      '@brainstrike/tokenization':
-        specifier: workspace:*
-        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2915,9 +2997,6 @@ importers:
       '@tanstack/react-virtual':
         specifier: 'catalog:'
         version: 3.14.9(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      assistant-stream:
-        specifier: 0.3.25
-        version: 0.3.25
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -2972,9 +3051,6 @@ importers:
       yaml:
         specifier: 'catalog:'
         version: 2.9.0
-      zustand:
-        specifier: 'catalog:'
-        version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
     devDependencies:
       '@brainstrike/config':
         specifier: workspace:*

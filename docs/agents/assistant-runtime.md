@@ -8,7 +8,7 @@ The assistant tool→stream chain must never freeze the thread. The renderer saf
 net, the two server-side resilience layers, and the Mastra error-processor layer
 below are LIVE.
 
-1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
+1. **Renderer safety net (LIVE)** — `packages/assistant-ui/src/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
    the runtime). The data-stream adapter surfaces transport errors via `onError`
    and rethrow (never swallows). A run rejected BEFORE any stream part (e.g.
@@ -561,7 +561,7 @@ mid-settlement, the late enqueue rejects as an unhandled renderer TypeError
 ("Cannot enqueue a chunk into a readable stream that is closed"; upstream root
 fix is unreleased assistant-ui/assistant-ui#5045, and `patchedDependencies` are
 banned — see ci-quality.md). `insulateAssistantStreamPipeline`
-(`packages/ui/src/assistant-ui-panel/stream-insulation.ts`) therefore makes
+(`packages/assistant-ui/src/stream-insulation.ts`) therefore makes
 those states STRUCTURALLY unreachable instead of racing them: the pipeline
 reads a guarded byte source that translates an expected transport abort (the
 run's AbortSignal fired) into a clean EOF, and the consumer reads through a
@@ -765,7 +765,7 @@ the bottom follows streaming growth; the moment the user scrolls up,
 can never steal the reading position back. Re-engaging is an explicit user act.
 
 The viewport, the message list and the button are one owned module —
-`packages/ui/src/assistant-ui-panel/assistant-thread-messages.tsx`
+`packages/assistant-ui/src/assistant-thread-messages.tsx`
 (`ThreadMessagesRegion`, `ThreadScrollRegion`, `ThreadScrollToBottom`, all
 re-exported from assistant-ui-panel.tsx). The panel only composes it and hands
 it the message components.
@@ -1404,7 +1404,7 @@ that blocked run_python's Gate B. Flow:
   to the live mapper's output; the existing notices + their resume seams render
   unchanged (an unregistered suspend gets the same dead-end notice as live).
   Staleness is display-only (D5) via the SHARED `RediscoveredPauseLines`
-  (`packages/ui/src/assistant-ui-panel/rediscovered-pause-lines.tsx`, used by
+  (`packages/assistant-ui/src/rediscovered-pause-lines.tsx`, used by
   both notice kinds): a muted "Pending since <relative>" line always, an amber
   advisory when `stale`, controls enabled, NO auto-decline / auto-answer.
 - Restart proofs extend the same specs: a run suspended under `openai` is

@@ -11,6 +11,18 @@
       "@brainstrike/assistant-contract/*": [
         "./packages/assistant-contract/src/*"
       ],
+      "@brainstrike/assistant-ui": [
+        "./packages/assistant-ui/src"
+      ],
+      "@brainstrike/assistant-ui/context-usage-store": [
+        "./packages/assistant-ui/src/context-usage-store.ts"
+      ],
+      "@brainstrike/assistant-ui/follow-up-queue-store": [
+        "./packages/assistant-ui/src/follow-up-queue-store.ts"
+      ],
+      "@brainstrike/assistant-ui/rewind-composer-store": [
+        "./packages/assistant-ui/src/rewind-composer-store.ts"
+      ],
       "@brainstrike/local-runtime": [
         "./packages/local-runtime/src"
       ],
@@ -199,6 +211,9 @@
   "references": [
     {
       "path": "./packages/assistant-contract"
+    },
+    {
+      "path": "./packages/assistant-ui"
     },
     {
       "path": "./packages/local-runtime"

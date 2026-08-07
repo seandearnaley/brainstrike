@@ -108,6 +108,23 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/assistant-ui": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "**/*.stories.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        // Configuration/test-only imports are outside this project's production glob.
+        "@brainstrike/config",
+        "@brainstrike/context-actions",
+        "react-shiki"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/hooks": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [

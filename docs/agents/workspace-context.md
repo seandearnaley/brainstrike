@@ -324,7 +324,7 @@ apps/desktop/src/__tests__/assistant-server/user-slash-commands-loader.test.ts +
 ipc-domains/ipc-user-commands-handlers.test.ts,
 packages/app-shell/src/__tests__/use-user-defined-slash-commands.test.tsx +
 use-assistant-slash-commands.test.ts (F4 merge), and the REAL-trigger
-packages/ui/src/assistant-ui-panel/__tests__/slash-commands.behavior.test.tsx
+packages/assistant-ui/src/__tests__/slash-commands.behavior.test.tsx
 (F1 placeholder-fill through the actual popover + adapter + write-back).
 Explicitly DEFERRED: shell expansion (never), web (no workspace-tool bridge),
 namespaced/categorized popover grouping. (Mastra skills LANDED — see AGENT
@@ -1125,7 +1125,7 @@ chrome):
   left, beside the database item): main root name (+N), popover listing every
   mounted root (path or "browser folder", Main badge, Focused marker) with a
   per-row "Set as main" → `setMainRoot`.
-- Composer chip (`packages/ui/src/assistant-ui-panel/operating-root-chip.tsx`):
+- Composer chip (`packages/assistant-ui/src/operating-root-chip.tsx`):
   "in {thread root}" at the top of the composer stack — a SIBLING of
   ThreadContextMeter (never nest it there; the meter is being reworked), fed
   by the wrapper's `operatingRoot` prop only at 2+ roots. Before a thread's first
@@ -1154,7 +1154,7 @@ zero/unavailable state, exact ids, Main/Focused priority) +
 `mastra-tool-execution.integration.spec.ts` (turn-one qualified read),
 `apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts`
 (client root inventory replacement),
-`packages/ui/src/assistant-ui-panel/__tests__/operating-root-chip.test.tsx`,
+`packages/assistant-ui/src/__tests__/operating-root-chip.test.tsx`,
 `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
 (orderWorkspaceRoots + enrichment reorder), and the
 `hooks primaryCwd follows the declared main root` describe in

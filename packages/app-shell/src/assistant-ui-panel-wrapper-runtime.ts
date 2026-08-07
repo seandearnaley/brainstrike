@@ -47,6 +47,11 @@ import {
   getNativeToolDescription,
   getToolSchemaDisplay,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import type {
+  AssistantProviderSettings,
+  AssistantToolMenuItem,
+  ComposerAttachmentsAvailability,
+} from '@brainstrike/assistant-ui';
 import {
   type TapestryRange,
   toolLineRangeToTapestryRange,
@@ -63,11 +68,6 @@ import {
   resolveTapestryColorHex,
   type TapestryColorName,
 } from '@brainstrike/types';
-import type {
-  AssistantProviderSettings,
-  AssistantToolMenuItem,
-  ComposerAttachmentsAvailability,
-} from '@brainstrike/ui/assistant-ui-panel';
 import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,

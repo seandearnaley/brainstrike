@@ -9,14 +9,6 @@ const browserProject = createBrowserProject({
 
 const workspaceAliases = [
   {
-    find: /^@brainstrike\/assistant-contract\/(.*)$/,
-    replacement: resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
-  },
-  {
-    find: '@brainstrike/assistant-contract',
-    replacement: resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
-  },
-  {
     find: /^@brainstrike\/utils\/(.*)$/,
     replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
   },
@@ -70,6 +62,9 @@ export default defineConfig({
     alias: workspaceAliases,
   },
   test: {
+    // Assistant-specific browser coverage moved to @brainstrike/assistant-ui.
+    // Keep the CI-synchronized browser command valid while ui has no specs.
+    passWithNoTests: true,
     projects: [
       {
         resolve: {

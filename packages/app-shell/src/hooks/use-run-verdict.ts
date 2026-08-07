@@ -1,4 +1,4 @@
-import type { RunVerdictContextValue } from '@brainstrike/ui/assistant-ui-panel';
+import type { RunVerdictContextValue } from '@brainstrike/assistant-ui';
 import { useMemo } from 'react';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
 

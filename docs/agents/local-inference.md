@@ -228,8 +228,8 @@ Flow:
      provider factory) and the local-OM test in mastra-memory-persistence.integration.spec.ts.
 3. Visible renderer (web local chat, and desktop status/warmup UX)
    - Files:
-     - packages/ui/src/assistant-ui-panel/local-runtime-adapter.ts
-     - packages/ui/src/assistant-ui-panel/use-local-model-loading.ts
+     - packages/assistant-ui/src/local-runtime-adapter.ts
+     - packages/assistant-ui/src/use-local-model-loading.ts
      - packages/app-shell/src/assistant-ui-panel-wrapper.tsx
    - Does NOT run the built-in local LLM directly in desktop mode.
    - Talks to the hidden host over the preload bridge (`window.llmHost`).

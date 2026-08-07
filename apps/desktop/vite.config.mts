@@ -101,6 +101,7 @@ export default defineConfig({
       '@electric-sql/pglite-pg_textsearch',
       '@brainstrike/types',
       '@brainstrike/hooks',
+      '@brainstrike/assistant-ui',
       '@brainstrike/ui',
       '@brainstrike/utils',
       '@brainstrike/indexing-contract/workspace-indexing-qos',
