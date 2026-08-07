@@ -1,4 +1,4 @@
-import type { Command, CommandContext } from '@brainstrike/commands';
+import type { Command, CommandContext } from '@brainstrike/context-actions/commands';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';

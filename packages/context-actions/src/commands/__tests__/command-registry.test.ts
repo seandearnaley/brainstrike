@@ -1,11 +1,11 @@
+import { describe, expect, it, vi } from 'vitest';
 import {
   type ActionOutcome,
   type ActionServices,
   type AnyContextAction,
   type ContextTarget,
   defineContextAction,
-} from '@brainstrike/context-actions';
-import { describe, expect, it, vi } from 'vitest';
+} from '../../index.js';
 import { bridgeActionToCommand } from '../bridge-action-to-command.js';
 import { createCommandRegistry } from '../command-registry.js';
 import { createGlobalCommands } from '../global-commands.js';

@@ -1,9 +1,4 @@
-import type {
-  ActionGroup,
-  AnyContextAction,
-  ContextTarget,
-  ContextTargetKind,
-} from '@brainstrike/context-actions';
+import type { ActionGroup, AnyContextAction, ContextTarget, ContextTargetKind } from '../index.js';
 import type { Command, CommandGroup } from './types.js';
 
 /**

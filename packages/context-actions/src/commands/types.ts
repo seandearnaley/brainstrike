@@ -1,10 +1,5 @@
-import type {
-  ActionOutcome,
-  ActionServices,
-  CapabilityKey,
-  ContextTarget,
-} from '@brainstrike/context-actions';
 import type { ComponentType } from 'react';
+import type { ActionOutcome, ActionServices, CapabilityKey, ContextTarget } from '../index.js';
 
 /**
  * Commands extend the reused context-actions capability union with surfaces

@@ -53,7 +53,9 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
       },
       {
-        find: '@brainstrike/context-actions',
+        // Anchored: a bare-string find would also capture the
+        // './commands' subpath export, which the registry spread resolves.
+        find: /^@brainstrike\/context-actions$/,
         replacement: path.resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       {

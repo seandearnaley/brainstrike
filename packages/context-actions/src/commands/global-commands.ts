@@ -1,4 +1,4 @@
-import type { ActionOutcome } from '@brainstrike/context-actions';
+import type { ActionOutcome } from '../index.js';
 import type { Command } from './types.js';
 
 /**
