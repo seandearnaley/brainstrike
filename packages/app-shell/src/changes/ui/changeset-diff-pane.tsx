@@ -57,6 +57,8 @@ export interface ChangesetDiffPaneProps {
     path: string,
     rootId: string | null
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /** Threaded straight through to `ChangesetFileDiffCard` — see its `reloadToken` doc comment (BST-1161). */
+  readonly reloadToken?: number;
 }
 
 function EmptyPaneState({
@@ -81,6 +83,7 @@ export function ChangesetDiffPane({
   changesetKind,
   files,
   loadFileDiff,
+  reloadToken,
 }: ChangesetDiffPaneProps): ReactElement {
   const selectedFileKeys = useChangesStore((selectorState) => selectorState.selectedFileKeys);
   const renderedFiles = useMemo(
@@ -115,6 +118,7 @@ export function ChangesetDiffPane({
             entry={entry}
             key={`${changesetKey}|${changedFileKey(entry)}`}
             loadFileDiff={loadFileDiff}
+            {...(reloadToken === undefined ? {} : { reloadToken })}
           />
         ))}
       </div>

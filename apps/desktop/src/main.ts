@@ -15,6 +15,7 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import type { ChangesInvalidationEvent } from '@brainstrike/types';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
@@ -1407,11 +1408,35 @@ if (singleInstanceLockAcquired) {
       // `ipc-notes-vault.ts:66-105` for the same private-adapter + inline
       // `DirectoryHandle` pattern.
       const gitInventoryWatcherAdapter = new ElectronFileSystemAdapter();
+      // BST-1161 (spec §6): each watcher invalidation is pushed to every live
+      // renderer as `changes:invalidated` so git-scope changeset views and the
+      // inventory refetch without polling. The monotonic generation lets the
+      // renderer drop stale/duplicate deliveries. Broadcast (ipc-mcp
+      // precedent): the Changes surface and git panel can live in any window.
+      let changesInvalidationGeneration = 0;
+      const broadcastChangesInvalidation = (event: {
+        gitCommonDir: string;
+        repositoryRoot: string | null;
+      }): void => {
+        changesInvalidationGeneration += 1;
+        const payload: ChangesInvalidationEvent = {
+          generation: changesInvalidationGeneration,
+          gitCommonDir: event.gitCommonDir,
+          repositoryRoot: event.repositoryRoot,
+        };
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (window.isDestroyed()) {
+            continue;
+          }
+          window.webContents.send(DESKTOP_IPC_CHANNELS.changes.invalidated, payload);
+        }
+      };
       gitInventoryService = createGitInventoryService({
         loadRoots: async () => {
           const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
           return roots.map((root) => ({ id: root.rootId, path: root.path }));
         },
+        onInvalidate: broadcastChangesInvalidation,
         run: execFileGitRunner,
         // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
         // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —

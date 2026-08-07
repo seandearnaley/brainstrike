@@ -1,7 +1,14 @@
-import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
+import type {
+  Changeset,
+  ChangesetView,
+  ChangesInvalidationEvent,
+  GitResult,
+  StructuredFileDiff,
+} from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
+import { useChangesLiveRefreshStore } from '../changes-live-refresh-store';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useRewindStore } from '../rewind-store';
 import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
@@ -23,10 +30,14 @@ function viewFixture(overrides: Partial<ChangesetView> = {}): ChangesetView {
  * (BST-1115) with inert mocks — these tests exercise `useChangeset`, which
  * never calls them, but `resolveChangesBridge` requires a FULLY formed bridge.
  */
-function stubBridge(bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'resolveView'>): void {
+function stubBridge(
+  bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'resolveView'> &
+    Partial<Pick<ChangesBridge, 'onInvalidated'>>
+): void {
   (window as unknown as { changes?: ChangesBridge }).changes = {
     applyRewind: vi.fn(),
     finalizeRewinds: vi.fn(),
+    onInvalidated: vi.fn(() => () => {}),
     redoRewind: vi.fn(),
     rewindPreview: vi.fn(),
     ...bridge,
@@ -38,6 +49,7 @@ afterEach(() => {
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   useRewindStore.getState().reset();
   useChangesNavigationStore.getState().reset();
+  useChangesLiveRefreshStore.getState().reset();
 });
 
 describe('useChangeset', () => {
@@ -125,6 +137,88 @@ describe('useChangeset', () => {
       useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-other');
     });
     await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(2));
+  });
+
+  describe('live git invalidation push (BST-1161)', () => {
+    const GIT_CHANGESET: Changeset = {
+      kind: 'git-scope',
+      repositoryRoot: '/repo-a',
+      scope: { kind: 'uncommitted' },
+      worktreePath: '/repo-a',
+    };
+
+    function stubBridgeWithInvalidations(resolveView: ChangesBridge['resolveView']): {
+      readonly emit: (event: ChangesInvalidationEvent) => void;
+      readonly onInvalidated: ReturnType<typeof vi.fn>;
+      readonly unsubscribe: ReturnType<typeof vi.fn>;
+    } {
+      const listeners: ((event: ChangesInvalidationEvent) => void)[] = [];
+      const unsubscribe = vi.fn();
+      const onInvalidated = vi.fn((listener: (event: ChangesInvalidationEvent) => void) => {
+        listeners.push(listener);
+        return unsubscribe;
+      });
+      stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), onInvalidated, resolveView });
+      return {
+        emit: (event) => {
+          for (const listener of listeners) {
+            listener(event);
+          }
+        },
+        onInvalidated,
+        unsubscribe,
+      };
+    }
+
+    it('subscribes once, re-resolves a git-scope changeset when ITS repository is invalidated, and unsubscribes on unmount', async () => {
+      const resolveView = vi.fn(
+        async (): Promise<GitResult<ChangesetView>> => ({
+          ok: true,
+          value: viewFixture({ changeset: GIT_CHANGESET }),
+        })
+      );
+      const pushed = stubBridgeWithInvalidations(resolveView);
+
+      const { unmount } = renderHook(() => useChangeset('root-1', GIT_CHANGESET));
+      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
+      expect(pushed.onInvalidated).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        pushed.emit({ generation: 1, gitCommonDir: '/repo-a/.git', repositoryRoot: '/repo-a' });
+      });
+      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(2));
+
+      // Another repo's activity must NOT churn this view.
+      act(() => {
+        pushed.emit({ generation: 2, gitCommonDir: '/repo-b/.git', repositoryRoot: '/repo-b' });
+      });
+      expect(resolveView).toHaveBeenCalledTimes(2);
+
+      // An UNMAPPED invalidation conservatively refetches every git scope.
+      act(() => {
+        pushed.emit({ generation: 3, gitCommonDir: '/mystery/.git', repositoryRoot: null });
+      });
+      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(3));
+
+      unmount();
+      expect(pushed.unsubscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('never re-resolves a snapshot-sourced (agent-run) changeset on git invalidation', async () => {
+      const resolveView = vi.fn(
+        async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
+      );
+      const pushed = stubBridgeWithInvalidations(resolveView);
+
+      renderHook(() => useChangeset('root-1', CHANGESET));
+      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        pushed.emit({ generation: 1, gitCommonDir: '/repo-a/.git', repositoryRoot: '/repo-a' });
+        pushed.emit({ generation: 2, gitCommonDir: '/mystery/.git', repositoryRoot: null });
+      });
+      expect(resolveView).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('is inert with a null changeset even when the bridge is present', async () => {

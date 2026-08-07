@@ -262,17 +262,6 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       withService(rootId, (service) =>
         service.commit({ description: params?.description, summary: params?.summary })
       ),
-    commitDiff: (
-      rootId: unknown,
-      params: { commit: string; originalPath?: string; path: string }
-    ) =>
-      withService(rootId, (service) =>
-        service.commitDiff({
-          commit: params?.commit,
-          originalPath: params?.originalPath,
-          path: params?.path,
-        })
-      ),
     commitFiles: (rootId: unknown, params: { commit: string }) =>
       withService(rootId, (service) => service.commitFiles({ commit: params?.commit })),
     diff: (rootId: unknown, params: unknown) =>

@@ -152,6 +152,13 @@ declare global {
         threadId: string;
       }) => Promise<GitResult<AssistantRewindFinalization>>;
       inventory: () => Promise<GitResult<GitInventory>>;
+      /**
+       * Live-refresh push subscription (BST-1161, spec §6): external git
+       * activity on a repository. Returns the unsubscribe function.
+       */
+      onInvalidated: (
+        callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
+      ) => () => void;
       /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
       redoRewind: (payload: {
         acknowledgeConflicts?: boolean;
@@ -328,10 +335,6 @@ declare global {
         rootId: string,
         params: { description?: string; summary: string }
       ) => Promise<GitResult<GitCommitResult>>;
-      commitDiff: (
-        rootId: string,
-        params: { commit: string; originalPath?: string; path: string }
-      ) => Promise<GitResult<GitDiff>>;
       commitFiles: (
         rootId: string,
         params: { commit: string }

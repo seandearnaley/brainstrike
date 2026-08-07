@@ -92,7 +92,6 @@ const GIT_DIFF_CHANNEL = 'git:diff' as const;
 const GIT_STAGE_CHANNEL = 'git:stage' as const;
 const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
 const GIT_COMMIT_CHANNEL = 'git:commit' as const;
-const GIT_COMMIT_DIFF_CHANNEL = 'git:commitDiff' as const;
 const GIT_COMMIT_FILES_CHANNEL = 'git:commitFiles' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
 const GIT_FETCH_CHANNEL = 'git:fetch' as const;
@@ -109,6 +108,7 @@ const CHANGES_REWIND_PREVIEW_CHANNEL = 'changes:rewindPreview' as const;
 const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
 const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
 const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
+const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1218,8 +1218,6 @@ if (shouldExposeBridge('git')) {
     aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
     commit: (rootId: string, params: { description?: string; summary: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
-    commitDiff: (rootId: string, params: { commit: string; originalPath?: string; path: string }) =>
-      ipcRenderer.invoke(GIT_COMMIT_DIFF_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
     diff: (rootId: string, params: GitDiffParams) =>
@@ -1270,6 +1268,21 @@ if (shouldExposeBridge('changes')) {
       ipcRenderer.invoke(CHANGES_FINALIZE_REWINDS_CHANNEL, payload),
     // Repository/worktree topology for the Changes surface (BST-1114 T0).
     inventory: () => ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL),
+    // One-way main→renderer live-refresh pushes (changes:invalidated,
+    // BST-1161 spec §6): external git activity on a repository. Returns the
+    // unsubscribe function (terminal onData precedent).
+    onInvalidated: (
+      callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
+    ) => {
+      const listener = (
+        _event: unknown,
+        payload: import('@brainstrike/types').ChangesInvalidationEvent
+      ) => callback(payload);
+      ipcRenderer.on(CHANGES_INVALIDATED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(CHANGES_INVALIDATED_EVENT, listener);
+      };
+    },
     redoRewind: (payload: { acknowledgeConflicts?: boolean; rewindId: string }) =>
       ipcRenderer.invoke(CHANGES_REDO_REWIND_CHANNEL, payload),
     resolveView: (rootId: string, changeset: Changeset) =>

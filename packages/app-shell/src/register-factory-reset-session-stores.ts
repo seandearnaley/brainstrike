@@ -8,6 +8,7 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
+import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
 import { useRewindStore } from './changes/rewind-store';
@@ -101,6 +102,13 @@ registerFactoryResetSessionStore(() => {
   // Selection/expansion are view-only, but a selection carried over past a
   // reset can filter every file out of a diff pane that no longer exists.
   useChangesStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // Invalidation nonces name absolute repository paths; the wire-generation
+  // guard also restarts so a post-reset main process re-numbering from 1 is
+  // not dropped (BST-1161).
+  useChangesLiveRefreshStore.getState().reset();
 });
 
 registerFactoryResetSessionStore(() => {
