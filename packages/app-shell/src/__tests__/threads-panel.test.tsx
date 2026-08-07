@@ -1,11 +1,14 @@
+import {
+  useAssistantThreadGroupsStore,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
-import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_ACTION_CLASS_NAME,
@@ -14,7 +17,6 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';

@@ -125,6 +125,13 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/assistant-data": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/hooks": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [

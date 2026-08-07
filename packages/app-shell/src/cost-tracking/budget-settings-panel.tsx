@@ -1,4 +1,5 @@
 import { useAssistantBudgetPreferencesStore } from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import {
   Card,
   CardContent,
@@ -10,7 +11,6 @@ import {
 } from '@brainstrike/ui';
 import { PiggyBank } from 'lucide-react';
 import { useId, useState } from 'react';
-import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
 
 /**
  * Strictly parse a cap input. Blank = cap off (`null`); otherwise the value

@@ -5,6 +5,7 @@ import {
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeModelCatalogState,
@@ -15,7 +16,6 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { __resetAssistantForegroundActivityForTests } from '../assistant-foreground-activity';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import { __resetConfiguredAssistantProvidersForTests } from '../hooks/use-configured-assistant-providers';

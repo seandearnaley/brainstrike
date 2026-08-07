@@ -2135,7 +2135,7 @@ every real factory registered) and
 `scripts/__tests__/suspending-tool-registry-contract.test.mjs` (the
 control-tested reverse-drift scan); the ledger-aggregation and
 run-event-hydration cases in
-`packages/app-shell/src/__tests__/assistant-memory-repository.integration.test.ts`;
+`packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`;
 the `isAlwaysVisibleRunEvent`, default-detail data-part, duration-pairing and
 `tool.started`-stays-running cases in the UI timeline specs; the streaming +
 data-part-continuity + default-instructions plan-mode specs; the desktop

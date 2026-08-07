@@ -102,7 +102,7 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   useDurableLogSource: () => undefined,
 }));
 
-vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
+vi.mock('@brainstrike/app-shell/cost-tracking-settings', () => ({
   createCostTrackingSettingsCategory: (): MockSettingsCategory => ({
     content: <div data-testid="cost-tracking-category" />,
     id: 'cost-tracking',

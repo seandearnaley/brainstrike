@@ -1,7 +1,9 @@
-import type { AssistantMemoryThread } from './assistant-memory-repository';
-import type { AssistantThreadGroup } from './assistant-thread-groups-repository';
+import type {
+  AssistantMemoryThread,
+  AssistantThreadGroup,
+  ThreadListView,
+} from '@brainstrike/assistant-data';
 import { THREAD_CONTROL_ROW_PITCH_PX } from './assistant-thread-presentation';
-import type { ThreadListView } from './thread-list-sections';
 
 export const THREAD_PANEL_INITIAL_VISIBLE_LIMIT = 50;
 export const THREAD_PANEL_DISCLOSURE_INCREMENT = 50;

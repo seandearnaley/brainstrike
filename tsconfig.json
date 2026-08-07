@@ -11,6 +11,12 @@
       "@brainstrike/assistant-contract/*": [
         "./packages/assistant-contract/src/*"
       ],
+      "@brainstrike/assistant-data": [
+        "./packages/assistant-data/src"
+      ],
+      "@brainstrike/assistant-data/cost-tracking": [
+        "./packages/assistant-data/src/cost-tracking/index.ts"
+      ],
       "@brainstrike/assistant-ui": [
         "./packages/assistant-ui/src"
       ],
@@ -211,6 +217,9 @@
   "references": [
     {
       "path": "./packages/assistant-contract"
+    },
+    {
+      "path": "./packages/assistant-data"
     },
     {
       "path": "./packages/assistant-ui"

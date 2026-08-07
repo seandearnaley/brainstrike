@@ -1,8 +1,10 @@
+import type {
+  AssistantMemoryThread,
+  AssistantThreadGroup,
+  ThreadListView,
+} from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
-import type { AssistantMemoryThread } from '../assistant-memory-repository';
-import type { AssistantThreadGroup } from '../assistant-thread-groups-repository';
 import { THREAD_CONTROL_ROW_PITCH_PX } from '../assistant-thread-presentation';
-import type { ThreadListView } from '../thread-list-sections';
 import {
   buildThreadPanelVisibleRows,
   getThreadPanelRowHeightPx,

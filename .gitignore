@@ -52,7 +52,13 @@ bower_components
 build/Release
 
 # Dependency directories
-node_modules/
+# No trailing slash: a dir-only pattern lets a node_modules SYMLINK (as
+# sandboxed agent runs create to borrow a sibling checkout's store) get
+# committed — that happened once. This form matches file, dir, and symlink.
+node_modules
+# Agent-run working artifacts (delegation specs and reports) — never commit.
+.codex-spec-*.md
+REPORT-BST-*.md
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)

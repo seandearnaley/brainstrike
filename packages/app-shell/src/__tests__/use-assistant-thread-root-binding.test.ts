@@ -1,8 +1,8 @@
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { DbHandle } from '@brainstrike/db/react';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { useAssistantThreadRootBinding } from '../hooks/use-assistant-thread-root-binding';
 
 const RESOURCE_ID = 'workspace-a';

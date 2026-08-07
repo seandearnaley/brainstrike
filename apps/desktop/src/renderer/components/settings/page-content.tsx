@@ -5,11 +5,11 @@ import {
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
 import { useAssistantAvailability } from '@brainstrike/app-shell';
-import { hasDurableAssistantUsageCapability } from '@brainstrike/app-shell/assistant-durable-usage-capability';
-import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
+import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';

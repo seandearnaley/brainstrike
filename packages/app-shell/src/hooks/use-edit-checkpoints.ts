@@ -3,10 +3,10 @@ import {
   type AssistantEditCheckpointRecord,
   isRevertibleCaptureStatus,
 } from '@brainstrike/assistant-contract';
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import type { EditCheckpointContextValue } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 
 const logger = createLogger('EditCheckpoints');
 

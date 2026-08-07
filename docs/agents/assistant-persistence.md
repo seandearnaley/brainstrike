@@ -141,7 +141,7 @@ contracts keep reloaded threads identical to live ones:
    sealing and per-step saves split ONE live assistant turn into several
    `mastra_messages` rows (progressive snapshots under fresh ids, so one
    toolCallId can appear in several rows). Hydration
-   (packages/app-shell/src/assistant-memory-repository.ts) therefore:
+   (packages/assistant-data/src/assistant-memory-repository.ts) therefore:
    - merges consecutive assistant rows into ONE assistant-ui message (id =
      last row, createdAt = first row; legacy `role: 'tool'` rows don't split
      a group),
@@ -681,7 +681,7 @@ Runtime invariants:
 
 `brainstrike_assistant_thread_runs` and `brainstrike_assistant_run_events` are
 created ONLY by the renderer's lazy `ASSISTANT_THREAD_RUNS_SCHEMA_SQL` bootstrap
-(`packages/app-shell/src/assistant-memory-repository.ts`, memoized per DB handle
+(`packages/assistant-data/src/assistant-memory-repository.ts`, memoized per DB handle
 in the `assistantThreadSchemaInitPromises` WeakMap and awaited by every
 repository method). They have NO numbered migration, and must not get one: both
 carry `ON DELETE CASCADE` FKs to parents no migration creates (the Mastra
@@ -803,7 +803,7 @@ clear the table before Mastra threads. Paired tests:
 `packages/db/__tests__/migration-076-assistant-run-errors.test.ts`,
 `packages/db/__tests__/assistant-run-error-repository.test.ts`,
 the thread-deletion cases in
-`packages/app-shell/src/__tests__/assistant-memory-repository.integration.test.ts`,
+`packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`,
 and the desktop/renderer clear integration suites.
 
 ---
@@ -983,7 +983,7 @@ finalizes the rewind.
      inflating the token budget the recall config was tuned against. The rows
      are flagged in place and cut at the first hidden one: less context, never
      fabricated context.
-  4. `app-shell assistant-memory-repository.listMessages` — the renderer
+  4. `assistant-data assistant-memory-repository.listMessages` — the renderer
      hydration window. The exclusion is INSIDE the windowing subquery so it
      applies before `limitLatest`: the window is the latest N VISIBLE
      messages. This query is also what a reload runs, which is why a rewind

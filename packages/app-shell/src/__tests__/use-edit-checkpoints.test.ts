@@ -3,9 +3,9 @@ import type {
   AssistantCheckpointRevertRunResult,
   AssistantEditCheckpointRecord,
 } from '@brainstrike/assistant-contract';
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import { useEditCheckpoints } from '../hooks/use-edit-checkpoints';
 
 type CheckpointBridge = NonNullable<Window['assistantCheckpoints']>;

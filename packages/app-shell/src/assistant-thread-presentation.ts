@@ -1,4 +1,4 @@
-import type { AssistantThreadColorId } from './assistant-memory-repository';
+import type { AssistantThreadColorId } from '@brainstrike/assistant-data';
 
 export interface AssistantThreadColorPresentation {
   readonly accentClassName: string;

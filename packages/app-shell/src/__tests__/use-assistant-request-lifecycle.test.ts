@@ -7,6 +7,7 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -14,7 +15,6 @@ import {
   ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import { useAssistantRequestLifecycle } from '../hooks/use-assistant-request-lifecycle';
 
 function createRepositoryStub(

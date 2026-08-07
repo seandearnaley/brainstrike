@@ -274,7 +274,7 @@ Today all three dispatch sites drop silently with no log and no comment:
 `data-stream-mapper.ts:318-319`,
 `tool-event-mapper.ts:102-103`. This contradicts the project's NO SILENT FALLBACKS
 rule, and contradicts the sibling read path in the same subsystem —
-`requireRunEventKind()` (`packages/app-shell/src/assistant-memory-repository.ts:1209-1217`)
+`requireRunEventKind()` (`packages/assistant-data/src/assistant-memory-repository.ts:1209-1217`)
 **throws** on an unknown run-event kind.
 
 **Ruling:** the mapper must be typed against Mastra's exported `ChunkType` union so
@@ -407,7 +407,7 @@ The run timeline is the Brainstrike contract: 31 event kinds in
 `packages/assistant-contract/src/run-events.ts:3-35`, persisted by two writers with
 byte-identical SQL (`recordDesktopAssistantRunEvent` in
 `apps/desktop/src/assistant-server/run-persistence.ts`;
-`packages/app-shell/src/assistant-memory-repository.ts:2449-2502`), read by reload
+`packages/assistant-data/src/assistant-memory-repository.ts:2449-2502`), read by reload
 hydration, the live timeline UI, and the debug bundle.
 
 **Typed suspension UIs are supported and unknown resume schemas must be rejected

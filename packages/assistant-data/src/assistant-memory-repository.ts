@@ -1,3 +1,4 @@
+import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
   ASSISTANT_EDIT_CHECKPOINT_OPS,
@@ -40,7 +41,6 @@ import {
   type RediscoveredToolSuspend,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-ui';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
 

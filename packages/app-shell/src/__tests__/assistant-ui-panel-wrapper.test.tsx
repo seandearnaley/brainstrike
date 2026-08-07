@@ -5,6 +5,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -15,8 +16,6 @@ import {
   acquireAssistantForegroundActivity,
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {

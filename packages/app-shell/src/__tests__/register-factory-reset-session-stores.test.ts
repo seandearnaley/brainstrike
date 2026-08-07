@@ -1,4 +1,5 @@
 import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
+import { useAssistantThreadGroupsStore } from '@brainstrike/assistant-data';
 import {
   resetContextUsageStore,
   useContextUsageStore,
@@ -9,7 +10,6 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
-import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';

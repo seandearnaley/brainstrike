@@ -1,7 +1,7 @@
 import './assistant-ui-panel-wrapper-test-support';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { render, screen, waitFor } from '@testing-library/react';
 import { expect, test } from 'vitest';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {

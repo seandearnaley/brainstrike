@@ -57,6 +57,10 @@ component_management:
     name: pkg-app-shell
     paths:
       - packages/app-shell/**
+  - component_id: pkg-assistant-data
+    name: pkg-assistant-data
+    paths:
+      - packages/assistant-data/**
   - component_id: pkg-build-utils
     name: pkg-build-utils
     paths:

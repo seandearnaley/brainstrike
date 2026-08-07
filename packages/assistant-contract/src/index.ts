@@ -33,6 +33,7 @@ export * from './runtime-data.js';
 export * from './secret-read-error.js';
 export * from './shell-output.js';
 export * from './skills.js';
+export * from './thread-history-adapter.js';
 export * from './tool-approval.js';
 export * from './tool-discovery.js';
 export * from './tool-metadata.js';

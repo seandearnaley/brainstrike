@@ -171,7 +171,7 @@ export default defineConfig({
       // that dist existed; B4 replaced that edge with the no-build `topo`
       // transit node, which made every unaliased dist fallback fail loudly
       // from a clean state (utils/logger, db, worker-runtime, file-system,
-      // assistant-contract, app-shell/cost-tracking, storage, queue, ui, …).
+      // assistant-contract, assistant-data/cost-tracking, storage, queue, ui, …).
       // The registry closes them all at once, exactly like the packages/*
       // lanes in B3.
       ...workspaceSrcAliases(path.resolve(import.meta.dirname, '../../packages')),

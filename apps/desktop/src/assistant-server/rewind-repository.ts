@@ -36,7 +36,7 @@ async function relationExists(db: EditCheckpointDatabase, relation: string): Pro
  * The TERMINAL `status` values of `brainstrike_assistant_thread_runs`.
  *
  * Mirrors `AssistantThreadRunStatus` in
- * `packages/app-shell/src/assistant-memory-repository.ts`, which is the sole
+ * `packages/assistant-data/src/assistant-memory-repository.ts`, which is the sole
  * writer of that column: `createThreadRun` stamps `'running'`, and
  * `completeThreadRun` takes `Exclude<AssistantThreadRunStatus, 'running'>` —
  * exactly these three. Main-process code cannot import that renderer package,

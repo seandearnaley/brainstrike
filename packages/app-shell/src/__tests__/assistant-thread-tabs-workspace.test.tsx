@@ -1,9 +1,9 @@
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
@@ -13,7 +13,6 @@ import {
   THREAD_CONTROL_TITLE_CLASS_NAME,
   UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION,
 } from '../assistant-thread-presentation';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
 
 const { assistantWrapperProps, dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(
