@@ -265,11 +265,12 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     // tool's resume payload is a plain OBJECT, because the resume transport
     // attaches the `approved: true` rider Mastra's per-leg re-check demands
     // (agent-streaming.ts, createToolResumeIteratorFromRuntime): run_python's
-    // Gate B and submitPlan qualify. askUser's bare string/array resume
-    // CANNOT carry the rider — ask-gating askUser leaves its resume exposed
-    // to the framework's denial (warned loudly at resume time,
-    // mastra_agent_resume_rider_unattachable) until it grows an object
-    // resume envelope.
+    // Gate B, submitPlan, and askUser's `{answer}` envelope
+    // (AskUserResumeData) all qualify. Only a LEGACY pre-envelope askUser
+    // resume — a bare string/array from a run suspended before the envelope
+    // migration — still cannot carry the rider and stays exposed to the
+    // framework's denial (warned loudly at resume time,
+    // mastra_agent_resume_rider_unattachable).
     if (decision === 'ask') {
       filtered[sanitizedId] = withRequireApproval(tool);
       askToolIds.add(sanitizedId);

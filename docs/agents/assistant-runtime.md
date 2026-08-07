@@ -1886,7 +1886,12 @@ see the version ceiling in mastra-boundary.md).
   and on resume returns `{status, feedback?}`. Resume vocab is the builtin-
   compatible `{action:'approved'|'rejected', feedback?}` (SubmitPlanDecision).
 - **`askUser`** (ask-user-tool.ts): `{question, options?, selectionMode?}`,
-  resumes with `string | string[]` (AskUserAnswer); multi-select joins with ", ".
+  resumes with the `{answer: string | string[]}` envelope (AskUserResumeData —
+  an OBJECT so the 1.56+ `approved: true` rider attaches when askUser is
+  ask-gated; a bare answer cannot carry the rider and would be denied by
+  Mastra). The tool still accepts the LEGACY bare `string | string[]`
+  (AskUserAnswer) so runs suspended before the envelope migration stay
+  resumable; multi-select joins with ", ".
 
 **Transport table (parallel to approval):**
 

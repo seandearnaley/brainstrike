@@ -1,6 +1,7 @@
 import {
   type AskUserAnswer,
   type AskUserPayload,
+  type AskUserResumeData,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
@@ -16,7 +17,26 @@ const AskUserSuspendSchema = z.object({
   selectionMode: z.enum(['single_select', 'multi_select']).optional(),
 });
 
-const AskUserResumeSchema = z.union([z.string(), z.array(z.string())]);
+const AskUserAnswerSchema = z.union([z.string(), z.array(z.string())]);
+
+/**
+ * Envelope-first: `{answer}` ({@link AskUserResumeData}) is the canonical
+ * resume shape — an OBJECT so the suspend-resume transport can attach the
+ * 1.56+ `approved: true` rider when askUser is ask-gated. The bare
+ * string/string[] arm is LEGACY compat for resuming runs suspended before the
+ * envelope migration; remove it once no pre-migration snapshots can remain.
+ *
+ * The rider is DECLARED rather than left to zod's strip, matching
+ * `RunPythonNetworkResumeSchema`: this schema is what Mastra advertises to the
+ * client as the pause's `resumeSchema`, so an undeclared rider would publish a
+ * shape the transport does not actually send — and the declaration is what
+ * keeps the arm safe if it is ever tightened to `.strict()`, where an
+ * undeclared `approved` flips from silently stripped to a hard resume failure.
+ */
+const AskUserResumeSchema = z.union([
+  z.object({ answer: AskUserAnswerSchema, approved: z.literal(true).optional() }),
+  AskUserAnswerSchema,
+]);
 
 const AskUserOutputSchema = z.object({ answer: z.string() });
 
@@ -29,10 +49,41 @@ export function formatAskUserAnswer(answer: AskUserAnswer): string {
   return Array.isArray(answer) ? answer.join(', ') : answer;
 }
 
+function isAskUserAnswer(value: unknown): value is AskUserAnswer {
+  return (
+    typeof value === 'string' ||
+    (Array.isArray(value) && value.every((entry) => typeof entry === 'string'))
+  );
+}
+
+/**
+ * Read the answer out of a resume payload: the canonical `{answer}` envelope
+ * (extra keys such as the transport's `approved: true` rider are ignored), or
+ * the legacy bare string/string[] from a pre-envelope suspended run. Any other
+ * shape throws — Mastra validates resumes against the tool's resumeSchema, so
+ * an unrecognized shape here is transport drift, never a user answer
+ * (no-silent-fallbacks).
+ */
+export function readAskUserResumeAnswer(resumeData: unknown): AskUserAnswer {
+  if (isAskUserAnswer(resumeData)) {
+    return resumeData;
+  }
+  if (resumeData && typeof resumeData === 'object' && !Array.isArray(resumeData)) {
+    const answer = (resumeData as Partial<AskUserResumeData>).answer;
+    if (isAskUserAnswer(answer)) {
+      return answer;
+    }
+  }
+  throw new Error(
+    'askUser resume payload matched neither the {answer} envelope nor the legacy string/string[] shape.'
+  );
+}
+
 /**
  * `askUser` — a SUSPENDING native tool. It pauses the run via `suspend()` with a
  * question (+ optional options and selection mode); the host renders free-text /
- * single-select / multi-select UI and resumes with an {@link AskUserAnswer}. The
+ * single-select / multi-select UI and resumes with an {@link AskUserResumeData}
+ * envelope (legacy bare {@link AskUserAnswer} resumes stay accepted). The
  * tool re-runs with `context.agent.resumeData` set and returns the answer to the
  * model. riskCategory is 'read' — its own suspension is the gate.
  */
@@ -40,9 +91,9 @@ export function createAskUserTool() {
   return createTool({
     description: TOOL_DESCRIPTIONS[ASK_USER_TOOL_ID],
     execute: async (input, context) => {
-      const resume = context?.agent?.resumeData as AskUserAnswer | undefined;
+      const resume = context?.agent?.resumeData;
       if (resume !== undefined) {
-        return { answer: formatAskUserAnswer(resume) };
+        return { answer: formatAskUserAnswer(readAskUserResumeAnswer(resume)) };
       }
       const resolvedSelectionMode = input.options?.length
         ? (input.selectionMode ?? 'single_select')

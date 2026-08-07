@@ -120,14 +120,14 @@ describe('AssistantToolSuspendNotice', () => {
     });
   });
 
-  it('askUser free-text appends the typed string', async () => {
+  it('askUser free-text appends the {answer} envelope (rider-attachable, never a bare string)', async () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={askFreeTextRequest} />);
     expect(screen.getByTestId('assistant-ask-user-notice')).toBeInTheDocument();
     await user.type(screen.getByLabelText(/your answer/i), 'San Francisco');
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
-    expect(lastResumeAction()?.['resumeData']).toBe('San Francisco');
+    expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'San Francisco' });
   });
 
   it('askUser single-select appends the chosen label', async () => {
@@ -144,10 +144,10 @@ describe('AssistantToolSuspendNotice', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
-    expect(lastResumeAction()?.['resumeData']).toBe('Yes');
+    expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'Yes' });
   });
 
-  it('askUser multi-select appends a string array', async () => {
+  it('askUser multi-select appends a string-array {answer} envelope', async () => {
     const user = userEvent.setup();
     render(
       <AssistantToolSuspendNotice
@@ -167,7 +167,7 @@ describe('AssistantToolSuspendNotice', () => {
     await user.click(screen.getByRole('checkbox', { name: /b/i }));
     await user.click(screen.getByRole('button', { name: /submit/i }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
-    expect(lastResumeAction()?.['resumeData']).toEqual(['a', 'b']);
+    expect(lastResumeAction()?.['resumeData']).toEqual({ answer: ['a', 'b'] });
   });
 
   it('locks the controls once a matching resume is in-flight (pending run)', () => {
@@ -265,7 +265,7 @@ describe('AssistantToolSuspendNotice', () => {
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(2));
     expect(lastResumeAction()).toMatchObject({
-      resumeData: 'Lisbon',
+      resumeData: { answer: 'Lisbon' },
       toolName: 'brainstrike.askUser',
     });
   });

@@ -3,6 +3,7 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
   AskUserOption,
   AskUserPayload,
+  AskUserResumeData,
   AssistantToolResumeAction,
   AssistantToolSuspendRequest,
   RegisteredSuspendResumeToolId,
@@ -369,6 +370,15 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
 
 function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const { submit, locked } = useSuspendResume(request);
+  // Answers resume through the {answer} OBJECT envelope (AskUserResumeData),
+  // never the legacy bare string/array: the 1.56+ suspend-resume transport can
+  // only attach the `approved: true` rider to plain-object payloads, and a
+  // bare answer to an ask-gated askUser would be denied by Mastra.
+  const submitAnswer = useCallback(
+    (answer: AskUserResumeData['answer'], summary: string) =>
+      submit({ answer } satisfies AskUserResumeData, summary),
+    [submit]
+  );
   const [freeText, setFreeText] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const payload = isRecord(request.suspendPayload)
@@ -408,7 +418,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
           />
           <Button
             disabled={locked || freeText.trim().length === 0}
-            onClick={() => submit(freeText.trim(), `Answered: ${freeText.trim()}`)}
+            onClick={() => submitAnswer(freeText.trim(), `Answered: ${freeText.trim()}`)}
             size="sm"
             variant="default"
           >
@@ -438,7 +448,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
             disabled={locked || selected.size === 0}
             onClick={() => {
               const answers = Array.from(selected);
-              submit(answers, `Answered: ${answers.join(', ')}`);
+              submitAnswer(answers, `Answered: ${answers.join(', ')}`);
             }}
             size="sm"
             variant="default"
@@ -452,7 +462,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
             <Button
               disabled={locked}
               key={option.label}
-              onClick={() => submit(option.label, `Answered: ${option.label}`)}
+              onClick={() => submitAnswer(option.label, `Answered: ${option.label}`)}
               size="sm"
               title={option.description ?? option.label}
               variant="outline"

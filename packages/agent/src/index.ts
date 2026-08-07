@@ -74,6 +74,7 @@ export {
   type AskUserAnswer,
   type AskUserOption,
   type AskUserPayload,
+  type AskUserResumeData,
   type AskUserSelectionMode,
   type AssistantToolResumeAction,
   type AssistantToolSuspendRequest,

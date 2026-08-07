@@ -446,8 +446,9 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await database.close();
   });
 
-  it('askUser SUSPENDS then resumes with a free-text answer, and again with a multi-select array', async () => {
-    // Free-text.
+  it('askUser SUSPENDS then resumes with a free-text {answer} envelope, and again with a LEGACY multi-select array', async () => {
+    // Free-text, via the canonical {answer} envelope (what the notice sends):
+    // proves REAL Mastra resumeSchema validation admits the envelope arm.
     const dbA = new PGlite();
     const memA = await makeMemory(dbA);
     const threadA = { resourceId: 'resource-ask-1', threadId: 'thread-ask-1' } as const;
@@ -479,7 +480,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     const freeResume = await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'San Francisco',
+          resumeData: { answer: 'San Francisco' },
           runId: askSuspend?.runId ?? '',
           toolCallId: askSuspend?.toolCallId ?? '',
         },
@@ -498,7 +499,9 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     expect(toolSuccessOutputs(freeResume)).toContain('San Francisco');
     await dbA.close();
 
-    // Multi-select array → comma-joined.
+    // Multi-select array → comma-joined — resumed with the LEGACY bare
+    // string[] shape on purpose: proves real Mastra validation still admits
+    // the pre-envelope arm, so runs suspended before the migration resume.
     const dbB = new PGlite();
     const memB = await makeMemory(dbB);
     const threadB = { resourceId: 'resource-ask-2', threadId: 'thread-ask-2' } as const;
@@ -550,6 +553,96 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     );
     expect(toolSuccessOutputs(multiResume)).toContain('a, b');
     await dbB.close();
+  });
+
+  it("ASK-GATED askUser: the user's answer reaches execute() through the {answer} envelope — the scenario the envelope migration exists for", async () => {
+    // THE proof for the envelope migration. Under read:'ask' the permission
+    // gate clones askUser with requireApproval, so @mastra/core 1.56+ re-checks
+    // approval on the RESUME leg too and the transport attaches the
+    // `approved: true` rider. Every other askUser test here runs UN-gated (no
+    // permissionPolicy ⇒ no rider), so none of them exercise this path, and
+    // the mock rider test in mastra-tool-approval-chunks.spec.ts can only see
+    // what we hand to resumeStream, not Mastra's verdict on it.
+    //
+    // The assertion is deliberately at the EXECUTOR (toolSuccessOutputs), never
+    // final text: the scripted model emits its text whether the tool saw the
+    // answer, a denial, or a re-raised suspension, which is exactly how a
+    // vacuous green ships.
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = { resourceId: 'resource-ask-gated', threadId: 'thread-ask-gated' } as const;
+    const policy = {
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+      riskByTool: buildNativeToolRiskMap(),
+      yolo: false,
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Thanks.',
+      input: JSON.stringify({ question: 'Which city?' }),
+      toolCallId: 'call-ask-gated',
+      toolName: 'brainstrike_askUser',
+    });
+
+    const runOptions = {
+      memory,
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+        permissionPolicy: policy,
+        provider: 'openai',
+      },
+      storage,
+      tools: { 'brainstrike.askUser': createAskUserTool() },
+    } as const;
+
+    // ── Phase 1: the pre-execution approval gate fires (askUser is risk
+    //    'read', which this policy gates to 'ask') — execute() has not run. ──
+    const approvalChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-ask-gated', parts: [{ text: 'ask me', type: 'text' }], role: 'user' }],
+        runOptions
+      )
+    );
+    const approval = findApprovalChunk(approvalChunks);
+    expect(approval?.toolName).toBe('brainstrike.askUser');
+    expect(findSuspendChunk(approvalChunks)).toBeUndefined();
+
+    // ── Phase 2: approve → execute() runs → askUser raises its own pause. ──
+    const suspendChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'brainstrike.askUser',
+        },
+        { ...runOptions, requireToolApproval: true }
+      )
+    );
+    const suspend = findSuspendChunk(suspendChunks);
+    expect(suspend?.toolName).toBe('brainstrike.askUser');
+    expect(suspend?.suspendPayload).toMatchObject({ question: 'Which city?' });
+
+    // ── Phase 3: answer it with the envelope. The tool must RETURN the answer,
+    //    not be denied and not be re-invoked as a fresh call (which would
+    //    re-ask the same question forever). ──
+    const answerChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { answer: 'San Francisco' },
+          runId: suspend?.runId ?? '',
+          toolCallId: suspend?.toolCallId ?? '',
+          toolName: 'brainstrike.askUser',
+        },
+        runOptions
+      )
+    );
+    expect(toolSuccessOutputs(answerChunks)).toContain('San Francisco');
+    // Not denied, and not re-asked: a fresh invocation would raise the pause again.
+    expect(findSuspendChunk(answerChunks)).toBeUndefined();
+
+    await database.close();
   });
 
   it('RESTART (BST-1084): listSuspendedMastraRuns rediscovers a suspend() pause WITH its payload, and a FRESH runtime resumes it', async () => {
@@ -638,7 +731,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     const resumeChunks = await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'EU West',
+          resumeData: { answer: 'EU West' },
           runId: rediscovered?.runId ?? '',
           toolCallId: rediscovered?.toolCallId ?? '',
           toolName: rediscovered?.toolName ?? '',
@@ -1457,7 +1550,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'San Francisco',
+          resumeData: { answer: 'San Francisco' },
           runId: askSuspend?.runId ?? '',
           toolCallId: askSuspend?.toolCallId ?? '',
         },
