@@ -1660,6 +1660,9 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7(react@19.2.7)
     devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -2714,6 +2717,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
