@@ -29,8 +29,8 @@ export const BrowserReadPageInputSchema = z.strictObject({
     .number()
     .int()
     .min(500)
-    .max(200_000)
-    .default(24_000)
+    .max(30_000)
+    .default(6000)
     .describe('Maximum characters of tree text to return'),
 });
 
@@ -41,8 +41,8 @@ export const BrowserGetPageTextInputSchema = z.strictObject({
     .number()
     .int()
     .min(100)
-    .max(200_000)
-    .default(20_000)
+    .max(30_000)
+    .default(6000)
     .describe('Maximum characters to return'),
 });
 

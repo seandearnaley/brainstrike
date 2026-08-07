@@ -20,7 +20,12 @@ import type {
 import { createLogger } from '@brainstrike/logging';
 import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
 import type { BrowserDriver } from '../browser/browser-driver';
-import type { BrowserTabState } from '../browser/browser-view-manager';
+import {
+  type BrowserTabState,
+  isNavigableUrl,
+  normalizeUrl,
+} from '../browser/browser-view-manager';
+import { refuseExtractUrl } from './web-extract-tool';
 
 const logger = createLogger('BrowserAgentTools');
 
@@ -30,13 +35,20 @@ export interface BrowserPaneHostLike {
   readonly manager: {
     createTab(url?: string): string;
     getActiveWebContentsId(): number | null;
+    getNavigationError(tabId: string): string | null;
     listTabs(): readonly BrowserTabState[];
     navigate(tabId: string, url: string): boolean;
   };
 }
 
 export interface BrowserToolFailure {
-  readonly error: 'browser_unavailable' | 'driver_failed' | 'load_timeout' | 'navigate_failed';
+  readonly error:
+    | 'blocked_url'
+    | 'browser_unavailable'
+    | 'driver_failed'
+    | 'load_failed'
+    | 'load_timeout'
+    | 'navigate_failed';
   readonly hint: string;
   readonly ok: false;
 }
@@ -77,6 +89,14 @@ function activeTab(host: BrowserPaneHostLike): BrowserTabState | undefined {
   return host.manager.listTabs().find((tab) => tab.active);
 }
 
+/**
+ * How long a stable not-loading state is trusted as "the load settled" when
+ * neither a loading transition nor a url change was observed. Covers the
+ * loadURL-initiation gap (the first polls can run before `isLoading` flips)
+ * without hanging same-url re-navigations until the timeout.
+ */
+const SETTLE_GRACE_MS = 600;
+
 export async function runBrowserNavigate(
   input: BrowserNavigateInput,
   host: BrowserPaneHostLike | null,
@@ -88,28 +108,71 @@ export async function runBrowserNavigate(
   const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  // AGENT-initiated navigation gets webExtract's host guard, not just the
+  // pane's scheme gate: with requiresApproval false, an unguarded navigate
+  // could read cloud metadata endpoints / RFC1918 / loopback in one turn.
+  // The USER's own URL bar is unaffected. (BST-1175/1178 add scoped, approved
+  // paths for dev-server preview.) Normalize FIRST so the gate sees exactly
+  // what the pane would load — including the search fallback.
+  const normalized = normalizeUrl(input.url);
+  const refusal = isNavigableUrl(normalized)
+    ? refuseExtractUrl(normalized)
+    : `refused: only http(s) pages can be opened by the agent (got "${normalized}")`;
+  if (refusal) {
+    return { error: 'blocked_url', hint: refusal, ok: false };
+  }
+
+  // Pin the TARGET tab now — polling "the active tab" would report whatever
+  // tab the user (or a popup interception) activated mid-wait as the result
+  // of this navigation.
   const existing = activeTab(host);
-  if (existing) {
-    if (!host.manager.navigate(existing.tabId, input.url)) {
+  const targetTabId = existing?.tabId ?? host.manager.createTab(normalized);
+  const preNavUrl = existing?.url ?? null;
+  if (existing && !host.manager.navigate(existing.tabId, normalized)) {
+    return {
+      error: 'navigate_failed',
+      hint: `Tab ${existing.tabId} vanished mid-call; retry to open a fresh tab.`,
+      ok: false,
+    };
+  }
+
+  // Settle discipline: accept a stable not-loading state only once we have
+  // EVIDENCE the navigation ran — a loading transition was observed, or the
+  // url changed from the pre-navigation url — or after the grace window (the
+  // same-url case, where neither signal can fire).
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let sawLoading = false;
+  while (Date.now() < deadline) {
+    await delay(pollMs);
+    const tab = host.manager.listTabs().find((candidate) => candidate.tabId === targetTabId);
+    if (!tab) {
       return {
         error: 'navigate_failed',
-        hint: `Tab ${existing.tabId} vanished mid-call; retry to open a fresh tab.`,
+        hint: 'The navigated tab was closed before the load settled.',
         ok: false,
       };
     }
-  } else {
-    host.manager.createTab(input.url);
-  }
-
-  // Wait for the load to settle: poll the pane's own tab state (which already
-  // carries isLoading/url/title) rather than adding a second event channel.
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await delay(pollMs);
-    const tab = activeTab(host);
-    if (tab && !tab.isLoading) {
-      return { ok: true, title: tab.title, url: tab.url };
+    if (tab.isLoading) {
+      sawLoading = true;
+      continue;
     }
+    const urlChanged = preNavUrl !== null && tab.url !== preNavUrl;
+    const gracePassed = Date.now() - startedAt >= SETTLE_GRACE_MS;
+    if (!(sawLoading || urlChanged || preNavUrl === null || gracePassed)) {
+      continue;
+    }
+    // A blocked scheme or a failed load (ERR_NAME_NOT_RESOLVED, refused
+    // connection) must never read as an ok blank page — NO SILENT FALLBACKS.
+    const navigationError = host.manager.getNavigationError(targetTabId);
+    if (navigationError) {
+      return {
+        error: 'load_failed',
+        hint: navigationError,
+        ok: false,
+      };
+    }
+    return { ok: true, title: tab.title, url: tab.url };
   }
   return {
     error: 'load_timeout',
@@ -118,13 +181,32 @@ export async function runBrowserNavigate(
   };
 }
 
-/** Last a11y snapshot's ref map per webContents id (PR3 resolves eN → node). */
+/**
+ * Last a11y snapshot's ref map per webContents id. Bounded (closed tabs never
+ * unregister here), keyed by the id captured BEFORE the snapshot await — the
+ * driver resolves the active tab's session at call time, so a mid-await tab
+ * switch must not file tab A's node ids under tab B. PR3's act-by-ref MUST
+ * additionally validate the document is unchanged before resolving a handle
+ * (backendDOMNodeIds are per-document; navigation silently invalidates them).
+ */
+const SNAPSHOT_REF_CACHE_MAX_ENTRIES = 8;
 const snapshotRefsByWebContentsId = new Map<number, AccessibilitySnapshot['refs']>();
 
 export function getCachedSnapshotRefs(
   webContentsId: number
 ): AccessibilitySnapshot['refs'] | undefined {
   return snapshotRefsByWebContentsId.get(webContentsId);
+}
+
+function cacheSnapshotRefs(webContentsId: number, refs: AccessibilitySnapshot['refs']): void {
+  snapshotRefsByWebContentsId.delete(webContentsId); // refresh insertion order
+  snapshotRefsByWebContentsId.set(webContentsId, refs);
+  for (const key of snapshotRefsByWebContentsId.keys()) {
+    if (snapshotRefsByWebContentsId.size <= SNAPSHOT_REF_CACHE_MAX_ENTRIES) {
+      break;
+    }
+    snapshotRefsByWebContentsId.delete(key);
+  }
 }
 
 export async function runBrowserReadPage(
@@ -134,14 +216,16 @@ export async function runBrowserReadPage(
   if (!host) {
     return UNAVAILABLE;
   }
+  // Captured BEFORE the await: this is the tab the driver's session resolver
+  // will target, regardless of what becomes active while the snapshot runs.
+  const webContentsId = host.manager.getActiveWebContentsId();
   try {
     const snapshot = await host.driver.snapshot({
       filter: input.filter,
       maxChars: input.maxChars,
     });
-    const webContentsId = host.manager.getActiveWebContentsId();
     if (webContentsId !== null) {
-      snapshotRefsByWebContentsId.set(webContentsId, snapshot.refs);
+      cacheSnapshotRefs(webContentsId, snapshot.refs);
     }
     return { ok: true, tree: snapshot.text, truncated: snapshot.truncated };
   } catch (error) {

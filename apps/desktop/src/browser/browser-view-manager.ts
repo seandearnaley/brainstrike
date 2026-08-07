@@ -89,6 +89,8 @@ export interface BrowserViewManagerDeps {
 }
 
 interface TrackedTab {
+  /** Last load failure for this tab (cleared when a new load starts). */
+  navigationError: string | null;
   readonly tabId: string;
   readonly view: BrowserPaneView;
 }
@@ -121,8 +123,9 @@ export class BrowserViewManager {
       }
       throw error;
     }
-    this.tabs.set(tabId, { tabId, view });
-    this.load(view, normalizeUrl(url));
+    const tab: TrackedTab = { navigationError: null, tabId, view };
+    this.tabs.set(tabId, tab);
+    this.load(tab, normalizeUrl(url));
     this.setActiveTab(tabId);
     return tabId;
   }
@@ -170,7 +173,7 @@ export class BrowserViewManager {
     if (!tab) {
       return false;
     }
-    this.load(tab.view, normalizeUrl(url));
+    this.load(tab, normalizeUrl(url));
     return true;
   }
 
@@ -217,16 +220,30 @@ export class BrowserViewManager {
    * superseded, ERR_NAME_NOT_RESOLVED on a bad host, …) so they never surface
    * as unhandled promise rejections.
    */
-  private load(view: BrowserPaneView, url: string): void {
+  private load(tab: TrackedTab, url: string): void {
+    tab.navigationError = null;
     if (!isNavigableUrl(url)) {
       // A blocked scheme is shown as about:blank rather than reaching the web
-      // engine; the renderer's tab state reflects the real (blank) url.
-      void view.webContents.loadURL('about:blank').catch(() => undefined);
+      // engine; the renderer's tab state reflects the real (blank) url, and
+      // the refusal is queryable so an agent-initiated navigate never reads
+      // as a silent success.
+      tab.navigationError = `blocked scheme: ${url}`;
+      void tab.view.webContents.loadURL('about:blank').catch(() => undefined);
       return;
     }
-    view.webContents.loadURL(url).catch((error: unknown) => {
+    tab.view.webContents.loadURL(url).catch((error: unknown) => {
+      tab.navigationError = String(error);
       this.deps.onNavigationError?.({ error: String(error), url });
     });
+  }
+
+  /**
+   * The tab's last load failure (`ERR_NAME_NOT_RESOLVED`, a blocked scheme, …)
+   * or null after a clean load. Cleared when a new load starts. Lets the agent
+   * navigate tool report `load_failed` instead of an ok-looking blank page.
+   */
+  getNavigationError(tabId: string): string | null {
+    return this.tabs.get(tabId)?.navigationError ?? null;
   }
 
   /** Renderer reports the pane's on-screen rect (ResizeObserver → IPC). */
@@ -324,8 +341,16 @@ export class BrowserViewManager {
       }
       return { action: 'deny' };
     });
-    // Navigation/title/loading changes re-emit tab state to the renderer.
-    for (const event of ['did-navigate', 'did-navigate-in-page', 'page-title-updated']) {
+    // Navigation, title, AND load-state transitions re-emit tab state to the
+    // renderer — did-stop-loading is what flips the pushed `isLoading` back to
+    // false (did-navigate alone fires while the document is still loading).
+    for (const event of [
+      'did-navigate',
+      'did-navigate-in-page',
+      'did-start-loading',
+      'did-stop-loading',
+      'page-title-updated',
+    ]) {
       view.webContents.on(event, () => {
         if (this.tabs.has(tabId)) {
           this.emitTabs();

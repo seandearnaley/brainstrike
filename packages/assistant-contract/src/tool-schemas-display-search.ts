@@ -13,9 +13,9 @@ export const SEARCH_TOOL_SCHEMAS = {
     description: "Read the visible text of the browser pane's current page (active tab).",
     parameters: [
       {
-        default: 20_000,
+        default: 6000,
         description: 'Maximum characters to return',
-        max: 200_000,
+        max: 30_000,
         min: 100,
         name: 'maxChars',
         required: false,
@@ -53,9 +53,9 @@ export const SEARCH_TOOL_SCHEMAS = {
         type: 'string',
       },
       {
-        default: 24_000,
+        default: 6000,
         description: 'Maximum characters of tree text to return',
-        max: 200_000,
+        max: 30_000,
         min: 500,
         name: 'maxChars',
         required: false,

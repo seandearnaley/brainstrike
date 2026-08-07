@@ -1,27 +1,33 @@
 /**
- * Registry of the ACTIVE browser pane host (BST-1176 PR2).
+ * Registry of live browser pane hosts (BST-1176 PR2).
  *
- * The pane host is created per visible window in main.ts; the assistant
- * server's browser tools need to reach it without threading it through every
- * layer. One live host at a time (single visible window today) — a new window
- * replaces the registration and window close clears it.
+ * Pane hosts are created per visible window in main.ts; the assistant
+ * server's browser tools reach the CURRENT one through here without threading
+ * it through every layer. Kept as a small stack rather than a single slot so
+ * closing a newer window falls back to an older still-live host instead of
+ * reporting `browser_unavailable` while a pane is visibly open (single
+ * visible window is today's normal case, not an enforced invariant).
  */
 import type { BrowserPaneHost } from './browser-pane-host';
 
-let activeHost: BrowserPaneHost | null = null;
+const liveHosts: BrowserPaneHost[] = [];
 
 export function setActiveBrowserPaneHost(host: BrowserPaneHost): void {
-  activeHost = host;
+  const index = liveHosts.indexOf(host);
+  if (index !== -1) {
+    liveHosts.splice(index, 1);
+  }
+  liveHosts.push(host);
 }
 
-/** Clear only when `host` is still the registered one (close-vs-recreate race). */
 export function clearActiveBrowserPaneHost(host: BrowserPaneHost): void {
-  if (activeHost === host) {
-    activeHost = null;
+  const index = liveHosts.indexOf(host);
+  if (index !== -1) {
+    liveHosts.splice(index, 1);
   }
 }
 
-/** Null when no visible window exists yet (or it closed). Callers surface that. */
+/** The most recently registered still-live host; null when none exists. */
 export function getActiveBrowserPaneHost(): BrowserPaneHost | null {
-  return activeHost;
+  return liveHosts.at(-1) ?? null;
 }
