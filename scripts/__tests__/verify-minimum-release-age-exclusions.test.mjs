@@ -6,14 +6,17 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  EXCLUSION_GRACE_DAYS,
   EXCLUSION_LEDGER_PATH,
   exclusionAgeDays,
   findExclusionProblems,
   formatExclusionProblems,
   MAX_EXCLUSION_AGE_DAYS,
+  maxExclusionAgeDays,
   readExclusionEntries,
   readExclusionLedger,
   readMinimumReleaseAgeFloorDays,
+  UNFLOORED_MAX_EXCLUSION_AGE_DAYS,
 } from '../verify-minimum-release-age-exclusions.mjs';
 
 /**
@@ -315,24 +318,6 @@ test('a legacy mixed-case package name is accepted', () => {
   );
 });
 
-test('MAX_EXCLUSION_AGE_DAYS must stay above any configured minimumReleaseAge floor', () => {
-  // The "delete it, the floor would admit it anyway" remedy is only true while
-  // the floor is the SHORTER window. A 30-day floor inverts it: the guard would
-  // order deletion of entries pnpm still needs.
-  withFixture(
-    {
-      exclusionsYaml: 'minimumReleaseAge: 43200\nminimumReleaseAgeExclude: []\n',
-      ledger: {},
-    },
-    (dir) => {
-      assert.throws(
-        () => findExclusionProblems({ now: NOW, repoRoot: dir }),
-        /not shorter than MAX_EXCLUSION_AGE_DAYS/
-      );
-    }
-  );
-});
-
 test('a floor shorter than the window is fine, and does not match the Exclude key', () => {
   withFixture(
     {
@@ -352,13 +337,78 @@ test('the real repo configures a minimumReleaseAge floor, and it clears the expi
   // BST-1183 switched the floor on. Asserting the concrete value keeps the
   // supply-chain policy from being silently relaxed or removed — and the
   // relational assertion is the one the guard's own remedy depends on.
+  // A LOWER BOUND, not equality: the intent is to stop the floor being silently
+  // relaxed or removed. Equality would also fail when someone STRENGTHENS the
+  // policy, and the failure message would tell them to undo a change that makes
+  // the repo safer. Removal fails too — readMinimumReleaseAgeFloorDays returns
+  // null, and `null >= 3` is false.
   const floorDays = readMinimumReleaseAgeFloorDays(repoRoot);
-  assert.equal(floorDays, 3, 'pnpm-workspace.yaml must keep minimumReleaseAge: 4320 (3 days)');
   assert.ok(
-    floorDays < MAX_EXCLUSION_AGE_DAYS,
-    `the floor (${floorDays}d) must stay below MAX_EXCLUSION_AGE_DAYS (${MAX_EXCLUSION_AGE_DAYS}d): the guard ` +
-      'tells maintainers to delete aged exclusions because the floor would admit them anyway, which is only ' +
-      'true while the floor is the shorter window.'
+    floorDays >= 3,
+    `pnpm-workspace.yaml must keep a minimumReleaseAge floor of at least 3 days (read ${floorDays}). Raising it ` +
+      'is fine; lowering or removing it is a supply-chain relaxation that has to be re-decided here.'
+  );
+  // The window is DERIVED from the floor, so the inversion this used to assert
+  // against is impossible by construction — assert the derivation instead.
+  assert.equal(
+    maxExclusionAgeDays(repoRoot),
+    floorDays + EXCLUSION_GRACE_DAYS,
+    'the expiry window must track the configured floor, not a hard-coded constant'
+  );
+});
+
+test('the expiry window is derived from the floor, not left at the unfloored placeholder', () => {
+  // BST-1183 review: a 30-day window guarding a 3-day exception leaves 27 days
+  // of dead exemption — the same shape as the bug the guard was written for.
+  withFixture(
+    { exclusionsYaml: 'minimumReleaseAge: 4320\nminimumReleaseAgeExclude: []\n', ledger: {} },
+    (dir) => {
+      assert.equal(maxExclusionAgeDays(dir), 3 + EXCLUSION_GRACE_DAYS);
+    }
+  );
+  withFixture({ exclusionsYaml: 'minimumReleaseAgeExclude: []\n', ledger: {} }, (dir) => {
+    assert.equal(
+      maxExclusionAgeDays(dir),
+      UNFLOORED_MAX_EXCLUSION_AGE_DAYS,
+      'with no floor there is nothing to derive from, so the placeholder applies'
+    );
+  });
+});
+
+test('MONEY TEST: the derived window expires an entry the old 30-day one would have kept', () => {
+  // 12 days old under a 3-day floor: dead for 9 days. The unfloored window would
+  // still call this fine, which is exactly the gap the derivation closes.
+  withFixture(
+    {
+      exclusionsYaml: "minimumReleaseAge: 4320\nminimumReleaseAgeExclude:\n  - 'left-pad@1.3.0'\n",
+      ledger: {
+        'left-pad@1.3.0': {
+          publishedAt: daysBefore(NOW, 12),
+          reason: 'long since admitted by the floor',
+        },
+      },
+    },
+    (dir) => {
+      const problems = findExclusionProblems({ now: NOW, repoRoot: dir });
+      assert.equal(problems.length, 1);
+      assert.equal(problems[0].kind, 'expired');
+      assert.equal(problems[0].maxAgeDays, 10);
+      assert.ok(UNFLOORED_MAX_EXCLUSION_AGE_DAYS > 12, 'the old window would have passed this');
+    }
+  );
+});
+
+test('a floor at or above the old placeholder no longer inverts anything', () => {
+  // The previous assertMaxAgeClearsFloor() existed to catch floor >= window.
+  // With derivation that state cannot occur: the window always exceeds the floor.
+  withFixture(
+    { exclusionsYaml: 'minimumReleaseAge: 86400\nminimumReleaseAgeExclude: []\n', ledger: {} },
+    (dir) => {
+      const floorDays = readMinimumReleaseAgeFloorDays(dir);
+      assert.equal(floorDays, 60);
+      assert.ok(maxExclusionAgeDays(dir) > floorDays);
+      assert.deepEqual(findExclusionProblems({ now: NOW, repoRoot: dir }), []);
+    }
   );
 });
 
