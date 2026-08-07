@@ -164,7 +164,6 @@
         "@brainstrike/platform-utils",
         "@brainstrike/secure-fs-native",
         "@brainstrike/server-config",
-        "@brainstrike/tailwind-config",
         "@brainstrike/windows-job-native"
       ],
       "mayDependOn": []

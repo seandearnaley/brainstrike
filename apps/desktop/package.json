@@ -113,7 +113,6 @@
     "@brainstrike/config": "workspace:*",
     "@brainstrike/e2e-test-utils": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
-    "@brainstrike/tailwind-config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
     "@modelcontextprotocol/server-filesystem": "^2026.7.4",

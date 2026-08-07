@@ -48,7 +48,6 @@
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/e2e-test-utils": "workspace:*",
-    "@brainstrike/tailwind-config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@codecov/vite-plugin": "^2.0.1",
     "@playwright/test": "catalog:",
