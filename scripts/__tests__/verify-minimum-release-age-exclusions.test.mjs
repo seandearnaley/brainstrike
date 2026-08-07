@@ -13,6 +13,7 @@ import {
   MAX_EXCLUSION_AGE_DAYS,
   readExclusionEntries,
   readExclusionLedger,
+  readMinimumReleaseAgeFloorDays,
 } from '../verify-minimum-release-age-exclusions.mjs';
 
 /**
@@ -195,11 +196,160 @@ test('a populated inline flow sequence THROWS instead of parsing as empty', () =
     (dir) => {
       assert.throws(
         () => readExclusionEntries(dir),
-        /non-block minimumReleaseAgeExclude declaration/,
+        /declaration it does not model/,
         'a populated flow sequence must not be silently read as an empty list'
       );
     }
   );
+});
+
+test('BLIND SPOT: alternate YAML spellings of the key are REFUSED, not read as empty', () => {
+  // All three are valid YAML that pnpm reads as the same key (verified against
+  // the `yaml` parser: each yields {minimumReleaseAgeExclude: ['left-pad@1.3.0']}).
+  // A literal `^minimumReleaseAgeExclude:` match misses every one of them and
+  // returns "no exclusions" — entries would bypass ledger matching AND expiry
+  // while lint stays green, which is the exact hole this guard exists to close.
+  for (const spelling of [
+    'minimumReleaseAgeExclude :',
+    "'minimumReleaseAgeExclude':",
+    '"minimumReleaseAgeExclude":',
+  ]) {
+    withFixture({ exclusionsYaml: `${spelling}\n  - 'left-pad@1.3.0'\n`, ledger: {} }, (dir) => {
+      assert.throws(
+        () => readExclusionEntries(dir),
+        /minimumReleaseAgeExclude/,
+        `"${spelling}" must not be silently read as an empty list`
+      );
+    });
+  }
+});
+
+test('a duplicated exclusion key is REFUSED rather than half-read', () => {
+  // Only the first block would be scanned, so entries under the second would be
+  // invisible to the guard while pnpm still honours one of them.
+  withFixture(
+    {
+      exclusionsYaml:
+        "minimumReleaseAgeExclude:\n  - 'left-pad@1.3.0'\nminimumReleaseAgeExclude:\n  - 'right-pad@2.0.0'\n",
+      ledger: {},
+    },
+    (dir) => {
+      assert.throws(() => readExclusionEntries(dir), /more than once/);
+    }
+  );
+});
+
+test('BLIND SPOT: a calendar-invalid publishedAt is REFUSED, not silently un-ageable', () => {
+  // Shape-valid but impossible timestamps. `2026-13-01` and `25:00:00` make
+  // Date.parse return NaN, so BOTH `age < 0` and `age > 30` are false and the
+  // entry stays green forever. `2026-02-31` is worse than NaN: V8 silently ROLLS
+  // IT OVER to 2026-03-03, so the entry ages from a date nobody wrote.
+  for (const publishedAt of [
+    '2026-13-01T00:00:00Z',
+    '2026-02-31T00:00:00Z',
+    '2026-07-06T25:00:00Z',
+    '2026-00-10T00:00:00Z',
+  ]) {
+    withFixture(
+      {
+        exclusionsYaml: "minimumReleaseAgeExclude:\n  - 'left-pad@1.3.0'\n",
+        ledger: { 'left-pad@1.3.0': { publishedAt, reason: 'typo or fabrication' } },
+      },
+      (dir) => {
+        assert.throws(
+          () => findExclusionProblems({ now: NOW, repoRoot: dir }),
+          /real UTC instant/,
+          `${publishedAt} is not a real instant and must be rejected`
+        );
+      }
+    );
+  }
+});
+
+test('exclusionAgeDays refuses to return NaN for an unparseable timestamp', () => {
+  // Guards the invariant locally instead of relying on validation having run
+  // first: a NaN age silently satisfies neither comparison in findExclusionProblems.
+  assert.throws(() => exclusionAgeDays('2026-13-01T00:00:00Z', NOW), /real UTC instant/);
+});
+
+test('BLIND SPOT: a zero-indented block sequence is READ, not silently dropped', () => {
+  // YAML allows sequence items at the same indentation as their parent key.
+  // Treating every non-indented line as the next top-level key made this parse
+  // as an empty list, so a live exclusion printed "OK (0 entries)" — verified
+  // against this script before the fix.
+  withFixture(
+    {
+      exclusionsYaml: "minimumReleaseAgeExclude:\n- '@mastra/core@1.50.0'\n",
+      ledger: {},
+    },
+    (dir) => {
+      assert.deepEqual(readExclusionEntries(dir), ['@mastra/core@1.50.0']);
+      const problems = findExclusionProblems({ now: NOW, repoRoot: dir });
+      assert.equal(problems.length, 1, 'the entry must reach the checks, not vanish');
+      assert.equal(problems[0].kind, 'missing-ledger-record');
+    }
+  );
+});
+
+test('a zero-indented block sequence still ends at the next top-level key', () => {
+  withFixture(
+    {
+      exclusionsYaml:
+        "minimumReleaseAgeExclude:\n- 'left-pad@1.3.0'\nonlyBuiltDependencies:\n  - esbuild\n",
+      ledger: {},
+    },
+    (dir) => {
+      assert.deepEqual(readExclusionEntries(dir), ['left-pad@1.3.0']);
+    }
+  );
+});
+
+test('a legacy mixed-case package name is accepted', () => {
+  // npm still hosts pre-lowercase-rule names. Rejecting them would fail with a
+  // message about version globs, which misdiagnoses the problem.
+  withFixture(
+    { exclusionsYaml: "minimumReleaseAgeExclude:\n  - 'JSONStream@1.3.5'\n", ledger: {} },
+    (dir) => {
+      assert.deepEqual(readExclusionEntries(dir), ['JSONStream@1.3.5']);
+    }
+  );
+});
+
+test('MAX_EXCLUSION_AGE_DAYS must stay above any configured minimumReleaseAge floor', () => {
+  // The "delete it, the floor would admit it anyway" remedy is only true while
+  // the floor is the SHORTER window. A 30-day floor inverts it: the guard would
+  // order deletion of entries pnpm still needs.
+  withFixture(
+    {
+      exclusionsYaml: 'minimumReleaseAge: 43200\nminimumReleaseAgeExclude: []\n',
+      ledger: {},
+    },
+    (dir) => {
+      assert.throws(
+        () => findExclusionProblems({ now: NOW, repoRoot: dir }),
+        /not shorter than MAX_EXCLUSION_AGE_DAYS/
+      );
+    }
+  );
+});
+
+test('a floor shorter than the window is fine, and does not match the Exclude key', () => {
+  withFixture(
+    {
+      exclusionsYaml: "minimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - 'left-pad@1.3.0'\n",
+      ledger: {
+        'left-pad@1.3.0': { publishedAt: daysBefore(NOW, 2), reason: 'fresh, floor is 1 day' },
+      },
+    },
+    (dir) => {
+      assert.equal(readMinimumReleaseAgeFloorDays(dir), 1);
+      assert.deepEqual(findExclusionProblems({ now: NOW, repoRoot: dir }), []);
+    }
+  );
+});
+
+test('the real repo configures no minimumReleaseAge floor (the premise of the 30-day window)', () => {
+  assert.equal(readMinimumReleaseAgeFloorDays(repoRoot), null);
 });
 
 test('the empty flow sequence is the accepted steady state', () => {
@@ -240,7 +390,7 @@ test('a malformed ledger THROWS rather than reading as empty', () => {
   const cases = [
     ['not json at all', /could not parse/],
     ['[]', /must be a JSON object/],
-    ['{"left-pad@1.3.0": {"reason": "no date"}}', /not a UTC ISO-8601 timestamp/],
+    ['{"left-pad@1.3.0": {"reason": "no date"}}', /not a real UTC instant/],
     ['{"left-pad@1.3.0": {"publishedAt": "2026-07-01T00:00:00.000Z"}}', /has no "reason"/],
     ['{"left-pad": {"publishedAt": "2026-07-01T00:00:00.000Z", "reason": "x"}}', /exact version/],
   ];

@@ -52,6 +52,11 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
  * (pnpm's own default when enabled is 1440 minutes — one day), so the guard
  * never fires while an exemption could still be load-bearing. It only fires once
  * the entry is provably inert.
+ *
+ * That justification is about a DIFFERENT setting, and this repo has not yet
+ * decided whether to configure it — so assertMaxAgeClearsFloor() checks it
+ * mechanically rather than leaving it as prose. Writing an unenforced note and
+ * trusting it is the exact failure this whole guard exists to correct.
  */
 export const MAX_EXCLUSION_AGE_DAYS = 30;
 
@@ -63,12 +68,71 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /**
  * `name@version` with an EXACT version. Ranges, globs and bare package names are
  * rejected by design — see readExclusionEntries().
+ *
+ * `A-Z` is included because npm still hosts legacy mixed-case packages that
+ * predate the lowercase rule (`JSONStream`, `Base64`) and remain installable.
+ * Rejecting them here would fail with "not a `name@version` pin with an exact
+ * version" — a message that misdiagnoses the problem and sends the reader
+ * hunting for a version glob that is not there.
  */
 const EXCLUSION_ENTRY_RE =
-  /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*@\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)*$/;
+  /^(?:@[a-zA-Z0-9-~][a-zA-Z0-9-._~]*\/)?[a-zA-Z0-9-~][a-zA-Z0-9-._~]*@\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)*$/;
 
 /** The UTC timestamp shape npm's registry `time` map uses, copied verbatim. */
-const PUBLISHED_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+const PUBLISHED_AT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
+
+/**
+ * Every top-level spelling of the exclusion key that YAML treats as the same
+ * key. `minimumReleaseAgeExclude :` (space before the colon) and a quoted key
+ * are both valid YAML, and pnpm reads all of them — verified against the `yaml`
+ * parser, where each yields `{ minimumReleaseAgeExclude: [...] }`.
+ *
+ * Anchored at column 0 so it cannot match the policy comment above the block
+ * (comment lines start with `#`) or an indented key inside some other mapping.
+ */
+const EXCLUSION_KEY_DECLARATION_RE =
+  /^(?:minimumReleaseAgeExclude|'minimumReleaseAgeExclude'|"minimumReleaseAgeExclude")\s*:/;
+
+/**
+ * Epoch milliseconds for a publish timestamp, or `null` when the string is not
+ * a REAL UTC instant.
+ *
+ * A shape check alone is not enough, and in two different ways:
+ *   - `2026-13-01T00:00:00Z` / `2026-07-06T25:00:00Z` match the shape but
+ *     `Date.parse` returns NaN. Every comparison against NaN is false, so such
+ *     an entry is neither "expired" nor "future" — it stays green forever, which
+ *     is precisely the silent exemption this guard exists to prevent.
+ *   - `2026-02-31T00:00:00Z` is worse than NaN: V8 accepts it and ROLLS IT OVER
+ *     to 2026-03-03, so the entry silently ages from a date nobody wrote.
+ *
+ * Hence the round trip: re-read the parsed instant's UTC components and require
+ * them to equal what was written. NaN fails the finiteness check; a rolled-over
+ * date fails the component comparison.
+ */
+function parsePublishedAt(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const parts = PUBLISHED_AT_RE.exec(value);
+  if (!parts) {
+    return null;
+  }
+  const epoch = Date.parse(value);
+  if (!Number.isFinite(epoch)) {
+    return null;
+  }
+  const instant = new Date(epoch);
+  const written = parts.slice(1, 7).map(Number);
+  const roundTripped = [
+    instant.getUTCFullYear(),
+    instant.getUTCMonth() + 1,
+    instant.getUTCDate(),
+    instant.getUTCHours(),
+    instant.getUTCMinutes(),
+    instant.getUTCSeconds(),
+  ];
+  return written.every((part, i) => part === roundTripped[i]) ? epoch : null;
+}
 
 /**
  * Parse the `minimumReleaseAgeExclude:` block from pnpm-workspace.yaml.
@@ -86,24 +150,39 @@ export function readExclusionEntries(repoRoot) {
   const yaml = readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
   const lines = yaml.split('\n');
 
-  // NO SILENT FALLBACK: a POPULATED flow form (`minimumReleaseAgeExclude:
-  // ['a@1.0.0']`) does not match the block-header regex below, so it would parse
-  // as "no exclusions" and every entry inside it would escape the expiry rule.
+  // NO SILENT FALLBACK, and the detection has to be WIDER than the accepted
+  // form. Anything YAML resolves to this key but that this parser does not model
+  // — a populated flow sequence (`minimumReleaseAgeExclude: ['a@1.0.0']`), a
+  // space before the colon, a quoted key, a second declaration — would otherwise
+  // fall through as "no exclusions" and let every entry inside it escape both
+  // ledger matching and the expiry rule while lint stayed green. So: detect
+  // every spelling, accept only the two canonical ones, and throw on the rest.
+  //
   // The EMPTY flow form is accepted precisely because nothing can hide in it —
   // and it is what this repo writes in the steady state, so the key stays
   // visible (with its policy comment) instead of vanishing whenever the list
   // empties out.
-  const header = lines.find((line) => /^minimumReleaseAgeExclude:/.test(line));
+  const declarations = lines.filter((line) => EXCLUSION_KEY_DECLARATION_RE.test(line));
+  if (declarations.length > 1) {
+    throw new Error(
+      'pnpm-workspace.yaml declares minimumReleaseAgeExclude more than once:\n' +
+        declarations.map((line) => `  ${line}`).join('\n') +
+        '\nYAML keeps only one of them, and this parser reads only the first, so entries under the others would ' +
+        'be invisible to this guard. Merge them into a single block.'
+    );
+  }
+  const [header] = declarations;
   if (header !== undefined && /^minimumReleaseAgeExclude:\s*\[\s*\]\s*$/.test(header)) {
     return [];
   }
   if (header !== undefined && !/^minimumReleaseAgeExclude:\s*$/.test(header)) {
     throw new Error(
-      'verify-minimum-release-age-exclusions.mjs found a non-block minimumReleaseAgeExclude declaration in ' +
-        `pnpm-workspace.yaml:\n  ${header}\n` +
+      'verify-minimum-release-age-exclusions.mjs found a minimumReleaseAgeExclude declaration it does not model ' +
+        `in pnpm-workspace.yaml:\n  ${header}\n` +
         'Only the block-sequence form (`minimumReleaseAgeExclude:` followed by indented `- name@version` items) ' +
-        'and the empty flow sequence (`minimumReleaseAgeExclude: []`) are supported. A populated inline flow ' +
-        'sequence would parse as an empty list and silently exempt every entry inside it from the expiry rule.'
+        'and the empty flow sequence (`minimumReleaseAgeExclude: []`) are supported — write the key unquoted, ' +
+        'with no space before the colon. pnpm reads the other spellings just fine, so a form this parser skipped ' +
+        'would silently exempt every entry under it from the expiry rule.'
     );
   }
 
@@ -120,10 +199,17 @@ export function readExclusionEntries(repoRoot) {
     if (rawLine.trim() === '' || /^\s*#/.test(rawLine)) {
       continue;
     }
-    if (/^\S/.test(rawLine)) {
+    // YAML permits block-sequence items at the SAME indentation as their parent
+    // key, so `- 'a@1.0.0'` at column 0 is a real entry, not the next top-level
+    // key. Treating every non-indented line as a terminator made that form parse
+    // as an empty list — a live exclusion reporting `OK (0 entries)`, verified
+    // against this script. The terminator must therefore exclude sequence items,
+    // and the item regex must accept zero indentation so they reach the loud
+    // parser below rather than being dropped.
+    if (/^\S/.test(rawLine) && !/^-\s/.test(rawLine)) {
       break; // next top-level key ends the block
     }
-    const item = rawLine.match(/^\s+-\s+(?:'([^']+)'|"([^"]+)"|(\S+))\s*$/);
+    const item = rawLine.match(/^\s*-\s+(?:'([^']+)'|"([^"]+)"|(\S+))\s*$/);
     if (!item) {
       // NO SILENT FALLBACK: an unparsed line inside the block would drop an
       // exclusion from the checked set and fake a green for it.
@@ -211,11 +297,13 @@ function validateLedgerRecord(entry, record) {
       `${EXCLUSION_LEDGER_PATH} record for "${entry}" must be an object with "publishedAt" and "reason".`
     );
   }
-  if (typeof record.publishedAt !== 'string' || !PUBLISHED_AT_RE.test(record.publishedAt)) {
+  if (parsePublishedAt(record.publishedAt) === null) {
     throw new Error(
       `${EXCLUSION_LEDGER_PATH} record for "${entry}" has publishedAt ${JSON.stringify(record.publishedAt)}, ` +
-        'which is not a UTC ISO-8601 timestamp (e.g. "2026-07-06T17:29:36.461Z"). Copy the value verbatim from ' +
-        `the npm registry metadata: \`curl -s https://registry.npmjs.org/<name> | jq '.time["<version>"]'\`.`
+        'which is not a real UTC instant in ISO-8601 form (e.g. "2026-07-06T17:29:36.461Z"). A shape-valid but ' +
+        'impossible date would leave the entry un-expirable (every comparison against NaN is false) or age it ' +
+        'from a silently rolled-over day. Copy the value verbatim from the npm registry metadata: ' +
+        `\`curl -s https://registry.npmjs.org/<name> | jq '.time["<version>"]'\`.`
     );
   }
   if (typeof record.reason !== 'string' || record.reason.trim() === '') {
@@ -226,9 +314,77 @@ function validateLedgerRecord(entry, record) {
   }
 }
 
-/** Whole days elapsed between `publishedAt` and `now`, as a fractional number. */
+/**
+ * Days elapsed between `publishedAt` and `now`, as a fractional number.
+ *
+ * Throws rather than returning NaN for an unreal instant. The invariant is
+ * enforced here, not merely at ledger-validation time, because a NaN age
+ * satisfies NEITHER comparison in findExclusionProblems() — the entry would
+ * silently report no problem at all, which is the failure mode this whole guard
+ * is about.
+ */
 export function exclusionAgeDays(publishedAt, now) {
-  return (now.getTime() - Date.parse(publishedAt)) / MS_PER_DAY;
+  const epoch = parsePublishedAt(publishedAt);
+  if (epoch === null) {
+    throw new Error(
+      `exclusionAgeDays: ${JSON.stringify(publishedAt)} is not a real UTC instant, so no age can be computed. ` +
+        'Refusing to return NaN: it would compare false against every threshold and silently spare the entry.'
+    );
+  }
+  return (now.getTime() - epoch) / MS_PER_DAY;
+}
+
+/**
+ * The configured `minimumReleaseAge` floor in DAYS, or `null` when the setting
+ * is absent (the state this repo is in today). pnpm expresses it in minutes.
+ *
+ * The key regex stops at `\s*:`, so `minimumReleaseAgeExclude:` — which shares
+ * the prefix — cannot match it.
+ */
+export function readMinimumReleaseAgeFloorDays(repoRoot) {
+  const yaml = readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
+  const declaration = yaml
+    .split('\n')
+    .find((line) =>
+      /^(?:minimumReleaseAge|'minimumReleaseAge'|"minimumReleaseAge")\s*:/.test(line)
+    );
+  if (declaration === undefined) {
+    return null;
+  }
+  const value = declaration.match(/:\s*(\d+)\s*$/);
+  if (!value) {
+    throw new Error(
+      `verify-minimum-release-age-exclusions.mjs could not read the minimumReleaseAge value from:\n  ${declaration}\n` +
+        'Only a plain integer number of minutes is supported. This guard compares MAX_EXCLUSION_AGE_DAYS against ' +
+        'that floor, so an unreadable value would leave the comparison unmade.'
+    );
+  }
+  return Number(value[1]) / (60 * 24);
+}
+
+/**
+ * Throw when a configured `minimumReleaseAge` floor has caught up with
+ * MAX_EXCLUSION_AGE_DAYS.
+ *
+ * The whole "delete it, it is inert" premise depends on the floor being SHORTER
+ * than this guard's window: only then has any excluded version already aged past
+ * the floor by the time deletion is demanded. If someone later sets
+ * `minimumReleaseAge: 43200` (30 days), the invariant inverts — the guard would
+ * order deletion of an entry pnpm still needs, and following that instruction
+ * would break `pnpm install`. Nothing else in this repo reads both values, so
+ * that would land silently.
+ */
+function assertMaxAgeClearsFloor(repoRoot) {
+  const floorDays = readMinimumReleaseAgeFloorDays(repoRoot);
+  if (floorDays !== null && floorDays >= MAX_EXCLUSION_AGE_DAYS) {
+    throw new Error(
+      `pnpm-workspace.yaml configures a minimumReleaseAge floor of ${floorDays} day(s), which is not shorter than ` +
+        `MAX_EXCLUSION_AGE_DAYS (${MAX_EXCLUSION_AGE_DAYS}). This guard's remedy — "delete the entry, the floor ` +
+        'would admit it anyway" — is only true while the floor is the shorter of the two. As configured, the ' +
+        'guard would demand deletion of exclusions pnpm still needs and break `pnpm install`. Raise ' +
+        'MAX_EXCLUSION_AGE_DAYS above the new floor (and re-read its rationale) before landing that floor.'
+    );
+  }
 }
 
 /**
@@ -246,6 +402,7 @@ export function exclusionAgeDays(publishedAt, now) {
  * @param {{ repoRoot: string, now?: Date }} options
  */
 export function findExclusionProblems({ repoRoot, now = new Date() }) {
+  assertMaxAgeClearsFloor(repoRoot);
   const entries = readExclusionEntries(repoRoot);
   const ledger = readExclusionLedger(repoRoot);
   const problems = [];
