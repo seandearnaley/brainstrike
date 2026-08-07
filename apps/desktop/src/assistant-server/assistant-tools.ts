@@ -1,4 +1,7 @@
 import {
+  type BrowserGetPageTextInput,
+  type BrowserNavigateInput,
+  type BrowserReadPageInput,
   createAskUserTool,
   createRunPythonTool,
   createSubmitPlanTool,
@@ -46,8 +49,14 @@ import {
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveDesktopPythonExecutable } from '../python-runtime';
+import {
+  runBrowserGetPageText,
+  runBrowserNavigate,
+  runBrowserReadPage,
+} from './browser-agent-tools';
 import type { CommandSessionManager } from './command-session-manager';
 import {
   INSPECT_COMMAND_SESSIONS_TRANSFORM,
@@ -639,6 +648,49 @@ export function buildDesktopAssistantTools(
             },
           }),
           [NATIVE_TOOL_ID.submitPlan]: createSubmitPlanTool(),
+          // Browser pane read tools (BST-1176 PR2). The active pane host is
+          // resolved PER CALL from the registry — a window opened after the
+          // stream started still serves, and a closed window returns the
+          // structured browser_unavailable failure instead of a stale handle.
+          [NATIVE_TOOL_ID.browserGetPageText]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserGetPageText],
+            execute: (input: ToolExecuteInput<BrowserGetPageTextInput>) =>
+              runBrowserGetPageText(
+                parseToolExecuteInput(
+                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
+                  input
+                ),
+                getActiveBrowserPaneHost()
+              ),
+            id: NATIVE_TOOL_ID.browserGetPageText,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
+          },
+          [NATIVE_TOOL_ID.browserNavigate]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserNavigate],
+            execute: (input: ToolExecuteInput<BrowserNavigateInput>) =>
+              runBrowserNavigate(
+                parseToolExecuteInput(
+                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
+                  input
+                ),
+                getActiveBrowserPaneHost()
+              ),
+            id: NATIVE_TOOL_ID.browserNavigate,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
+          },
+          [NATIVE_TOOL_ID.browserReadPage]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserReadPage],
+            execute: (input: ToolExecuteInput<BrowserReadPageInput>) =>
+              runBrowserReadPage(
+                parseToolExecuteInput(
+                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
+                  input
+                ),
+                getActiveBrowserPaneHost()
+              ),
+            id: NATIVE_TOOL_ID.browserReadPage,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
+          },
           [NATIVE_TOOL_ID.manageCanvas]: {
             description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas],
             execute: async (input: ToolExecuteInput<ManageCanvasInput>) => {

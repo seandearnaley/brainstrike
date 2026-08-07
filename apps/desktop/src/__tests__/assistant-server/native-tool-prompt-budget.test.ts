@@ -103,8 +103,18 @@ vi.mock('../../db-main', () => ({
 // eager aggregate to 8593 while retaining exact create/update/rewrite/list
 // validation. The description and field prose now contain only the verb,
 // required-field, exact-match, and versioning facts the model needs.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9430;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9130;
+// BST-1176 RAISE (+380/+380, band width 300 preserved). Three NEW browser-pane
+// tools — browserNavigate / browserReadPage / browserGetPageText — make the
+// embedded pane agent-drivable (navigate, a11y-tree seeing, page text), moving
+// the measured full surface 9278 → 9662. Genuine new capability, not bloat.
+// Trim-first was applied: the bare-host/search normalization prose is stated
+// ONCE in the navigate tool description (the url field describe was cut to
+// three words), field describes are single-clause, and the a11y ref MAP is
+// never serialized to the model (only the [ref=eN] handles inside the tree
+// text). Ceiling keeps ~150 headroom above the measurement; the floor moves
+// with it so a silent drop still fails.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9810;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9510;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -483,12 +493,14 @@ describe('desktop native tool provider prompt budget', () => {
     // only move when THAT tool's authored text moves — record the trade).
     const eagerDefinitionTokens = countO200kTokens(JSON.stringify(eagerProviderTools));
     const criticalDefinitionTokens = countO200kTokens(JSON.stringify(criticalProviderTools));
+    // BST-1176: +400/+400 with the three browser-pane tools (measured 8977;
+    // ~150 headroom, width 300 — same doctrine as the authored pair above).
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8443);
+    ).toBeGreaterThanOrEqual(8843);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      8743
+      9143
     );
     expect(
       criticalDefinitionTokens,
@@ -540,7 +552,7 @@ describe('desktop native tool provider prompt budget', () => {
       // Recorded aggregates after BST-1173: eager 8593, critical
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
-      eagerToolCount: 34,
+      eagerToolCount: 37,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns

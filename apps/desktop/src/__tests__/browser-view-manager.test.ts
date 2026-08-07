@@ -55,6 +55,7 @@ function createFakeView(id: number): FakeView {
       goBack: vi.fn(),
       goForward: vi.fn(),
       id,
+      isLoading: () => false,
       loadURL: (url) => {
         calls.loaded.push(url);
         navState.url = url;

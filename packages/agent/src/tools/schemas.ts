@@ -8,6 +8,11 @@ import {
 import type { z } from 'zod';
 import { ReadToolOutputArtifactCursorInputSchema } from '../mastra/tool-output-artifact-reader';
 import {
+  BrowserGetPageTextInputSchema,
+  BrowserNavigateInputSchema,
+  BrowserReadPageInputSchema,
+} from './schemas-browser';
+import {
   ListEmbeddingSetsInputSchema,
   QueryDiagnosticsInputSchema,
   QuerySelfInputSchema,
@@ -48,6 +53,7 @@ import {
   WriteWorkspaceFileInputSchema,
 } from './schemas-workspace';
 
+export * from './schemas-browser';
 export * from './schemas-diagnostics';
 export * from './schemas-execution';
 export * from './schemas-search';
@@ -56,6 +62,9 @@ export * from './schemas-workspace';
 
 export const NATIVE_TOOL_INPUT_SCHEMAS = {
   [NATIVE_TOOL_ID.askUser]: AskUserInputSchema,
+  [NATIVE_TOOL_ID.browserGetPageText]: BrowserGetPageTextInputSchema,
+  [NATIVE_TOOL_ID.browserNavigate]: BrowserNavigateInputSchema,
+  [NATIVE_TOOL_ID.browserReadPage]: BrowserReadPageInputSchema,
   [NATIVE_TOOL_ID.deleteWorkspaceFile]: DeleteWorkspaceFileInputSchema,
   [NATIVE_TOOL_ID.executeCommand]: ExecuteCommandInputSchema,
   [NATIVE_TOOL_ID.findWorkspaceSymbol]: FindWorkspaceSymbolInputSchema,

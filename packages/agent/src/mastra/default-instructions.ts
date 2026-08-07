@@ -68,6 +68,9 @@ const HARNESS_FRAMING =
 
 interface ModelFacingToolNames {
   askUser: string | null;
+  browserGetPageText: string | null;
+  browserNavigate: string | null;
+  browserReadPage: string | null;
   deleteWorkspaceFile: string | null;
   executeCommand: string | null;
   findWorkspaceSymbol: string | null;
@@ -118,6 +121,18 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
     askUser: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.askUser),
+    browserGetPageText: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.browserGetPageText
+    ),
+    browserNavigate: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.browserNavigate
+    ),
+    browserReadPage: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.browserReadPage
+    ),
     deleteWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       NATIVE_TOOL_ID.deleteWorkspaceFile
@@ -382,6 +397,13 @@ function buildCanvasInstruction(names: ModelFacingToolNames): string {
   return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
 }
 
+function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {
+  if (!(names.browserNavigate && names.browserReadPage && names.browserGetPageText)) {
+    return '';
+  }
+  return `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in it (creates a tab when none is open) and waits for the load; then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
+}
+
 /** The persona shape the delegation guidance needs (ids/labels/descriptions only). */
 export type DelegationPersonaSummary = Pick<
   AssistantPersonaDefinition,
@@ -610,6 +632,7 @@ export function buildDefaultInstructions(
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
     canvasInstruction,
+    buildBrowserPaneInstruction(names),
     taskListInstruction,
     askUserInstruction,
     delegationInstruction,

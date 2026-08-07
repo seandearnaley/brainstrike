@@ -42,6 +42,7 @@ export interface PaneWebContents {
   goBack(): void;
   goForward(): void;
   readonly id: number;
+  isLoading(): boolean;
   loadURL(url: string): Promise<void>;
   on(event: string, listener: (...args: unknown[]) => void): void;
   reload(): void;
@@ -67,6 +68,8 @@ export interface BrowserTabState {
   readonly active: boolean;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
+  /** True while the tab's main frame is loading — agent navigate polls this. */
+  readonly isLoading: boolean;
   readonly tabId: string;
   readonly title: string;
   readonly url: string;
@@ -336,6 +339,7 @@ export class BrowserViewManager {
       active: tab.tabId === this.activeTabId,
       canGoBack: tab.view.webContents.canGoBack(),
       canGoForward: tab.view.webContents.canGoForward(),
+      isLoading: tab.view.webContents.isLoading(),
       tabId: tab.tabId,
       title: tab.view.webContents.getTitle(),
       url: tab.view.webContents.getURL(),

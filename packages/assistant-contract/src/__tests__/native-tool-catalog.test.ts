@@ -6,6 +6,9 @@ import { NATIVE_TOOL_SCHEMAS } from '../tool-schemas-display';
 
 const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.askUser',
+  'brainstrike.browserGetPageText',
+  'brainstrike.browserNavigate',
+  'brainstrike.browserReadPage',
   'brainstrike.deleteWorkspaceFile',
   'brainstrike.executeCommand',
   'brainstrike.findWorkspaceSymbol',
@@ -78,7 +81,7 @@ describe('native tool catalog', () => {
       sorted([...EXPECTED_DESKTOP_NATIVE_TOOL_IDS, ...EXPECTED_SKILL_NATIVE_TOOL_IDS])
     );
     expect(new Set(nativeIds).size).toBe(nativeIds.length);
-    expect(desktopIds).toHaveLength(31);
+    expect(desktopIds).toHaveLength(34);
     expect(skillIds).toHaveLength(3);
     expect(nonDurableOutputIds).toEqual([
       'brainstrike.inspectCommandSessions',
@@ -87,6 +90,9 @@ describe('native tool catalog', () => {
     expect(webIds).toEqual(
       desktopIds.filter(
         (id) =>
+          id !== 'brainstrike.browserGetPageText' &&
+          id !== 'brainstrike.browserNavigate' &&
+          id !== 'brainstrike.browserReadPage' &&
           id !== 'brainstrike.inspectCommandSessions' &&
           id !== 'brainstrike.manageCanvas' &&
           id !== 'brainstrike.manageCommandSession' &&

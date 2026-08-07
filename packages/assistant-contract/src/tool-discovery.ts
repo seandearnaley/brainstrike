@@ -80,8 +80,15 @@ export const NATIVE_TOOL_DISCOVERY_NAMESPACES = {
     ],
   },
   web: {
-    summary: 'Search the public web and extract readable page content.',
-    toolIds: [NATIVE_TOOL_ID.webExtract, NATIVE_TOOL_ID.webSearch],
+    summary:
+      "Search the public web, extract readable page content, and drive the app's embedded browser pane: navigate it and read the live page as text or an accessibility tree.",
+    toolIds: [
+      NATIVE_TOOL_ID.browserGetPageText,
+      NATIVE_TOOL_ID.browserNavigate,
+      NATIVE_TOOL_ID.browserReadPage,
+      NATIVE_TOOL_ID.webExtract,
+      NATIVE_TOOL_ID.webSearch,
+    ],
   },
   workspace: {
     summary: 'Perform specialist workspace mutations and maintain Canvas documents or tasks.',

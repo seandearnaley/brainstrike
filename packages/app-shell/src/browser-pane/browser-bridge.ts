@@ -26,6 +26,8 @@ export interface BrowserTab {
   readonly active: boolean;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
+  /** True while the tab's main frame is loading. */
+  readonly isLoading: boolean;
   readonly tabId: string;
   readonly title: string;
   readonly url: string;

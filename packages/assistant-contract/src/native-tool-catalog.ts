@@ -8,6 +8,9 @@
  */
 const DESKTOP_NATIVE_TOOL_ID = {
   askUser: 'brainstrike.askUser',
+  browserGetPageText: 'brainstrike.browserGetPageText',
+  browserNavigate: 'brainstrike.browserNavigate',
+  browserReadPage: 'brainstrike.browserReadPage',
   deleteWorkspaceFile: 'brainstrike.deleteWorkspaceFile',
   executeCommand: 'brainstrike.executeCommand',
   findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
@@ -57,6 +60,9 @@ export type SkillNativeToolId = (typeof SKILL_NATIVE_TOOL_ID)[keyof typeof SKILL
 export type NativeToolId = DesktopNativeToolId | SkillNativeToolId;
 export type WebNativeToolId = Exclude<
   DesktopNativeToolId,
+  | typeof NATIVE_TOOL_ID.browserGetPageText
+  | typeof NATIVE_TOOL_ID.browserNavigate
+  | typeof NATIVE_TOOL_ID.browserReadPage
   | typeof NATIVE_TOOL_ID.inspectCommandSessions
   | typeof NATIVE_TOOL_ID.manageCanvas
   | typeof NATIVE_TOOL_ID.manageCommandSession
@@ -96,6 +102,9 @@ export const DESKTOP_NATIVE_TOOL_IDS: readonly DesktopNativeToolId[] = Object.fr
 export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
   DESKTOP_NATIVE_TOOL_IDS.filter(
     (id): id is WebNativeToolId =>
+      id !== NATIVE_TOOL_ID.browserGetPageText &&
+      id !== NATIVE_TOOL_ID.browserNavigate &&
+      id !== NATIVE_TOOL_ID.browserReadPage &&
       id !== NATIVE_TOOL_ID.inspectCommandSessions &&
       id !== NATIVE_TOOL_ID.manageCanvas &&
       id !== NATIVE_TOOL_ID.manageCommandSession &&
