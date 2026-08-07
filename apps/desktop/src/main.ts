@@ -37,6 +37,7 @@ import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
 import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
+import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
@@ -511,6 +512,12 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
+
+// Captured at module evaluation — BEFORE app.whenReady() and therefore before
+// any renderer (the only run-row minter) can exist. The thread-run startup
+// reaper's evidence rule compares run started_at stamps against this instant;
+// see assistant-server/thread-run-startup-reaper.ts.
+const mainProcessStartedAt = new Date();
 configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });
 logger.debug('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 3000 });
@@ -1483,6 +1490,27 @@ if (singleInstanceLockAcquired) {
       void (async () => {
         try {
           const database = await getDatabase();
+          // BST-1162: unstick rewind's in-flight gate. Rows a previous
+          // process left in 'running' are provably dead (see the reaper's
+          // evidence rule); marking them failed here is what re-enables
+          // Conversation Rewind on their threads. Runs before the snapshot
+          // GC on purpose (its retention floor walks run ranges), but in its
+          // OWN try/catch: a reap failure must neither skip the orphan sweep
+          // and GC below nor report itself under their step name.
+          try {
+            const reapReport = await reapOrphanedThreadRuns(
+              database as unknown as EditCheckpointDatabase,
+              mainProcessStartedAt
+            );
+            if (reapReport.runsTableMissing || reapReport.reaped.length > 0) {
+              logger.info('Startup thread-run reap completed', {
+                reapedRunIds: reapReport.reaped.map((row) => row.id),
+                runsTableMissing: reapReport.runsTableMissing,
+              });
+            }
+          } catch (reapError) {
+            logger.error('Startup thread-run reap failed', { error: reapError });
+          }
           const rootRows = await database.query<{ id: string; path: string }>(
             'SELECT id, path FROM roots'
           );

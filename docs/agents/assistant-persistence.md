@@ -694,7 +694,7 @@ Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which IS
 migration-backed (062, registered in both runners) *and* mirrored in the
 bootstrap SQL.
 
-The desktop MAIN process has THREE writers against these relations, none of
+The desktop MAIN process has FOUR writers against these relations, none of
 which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all reached
 through injected handles rather than a module-level import —
 `recordDesktopAssistantRunEvent` and `completeDesktopAssistantThreadRun` take a
@@ -710,6 +710,7 @@ handle (BST-972 A1/A2) — and all gated on `if (runId)`):
 | `recordDesktopAssistantRunEvent` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
 | `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
 | `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
+| `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | `to_regclass` probe → `runsTableMissing: true`, no-op |
 
 That is safe, and the reason is **runId provenance — NOT startup ordering**:
 
@@ -742,7 +743,16 @@ propagates it:
 - `recordDesktopAssistantThreadRunStatus` (same module) wraps
   `completeDesktopAssistantThreadRun` in a `try/catch` that only logs. A
   `42P01` on the run-status `UPDATE` is SWALLOWED; the run row simply never
-  reaches a terminal status.
+  reaches a terminal status. Rows stranded in `'running'` this way (or by a
+  crash/quit killing both status writers) are recovered at the NEXT app
+  start by `reapOrphanedThreadRuns`
+  (`apps/desktop/src/assistant-server/thread-run-startup-reaper.ts`, wired
+  into main.ts's startup fire-and-forget sweep, BST-1162): boot-time
+  evidence (`started_at < mainProcessStartedAt` — no renderer exists before
+  whenReady, so a row this boot minted can never match) marks them `failed`
+  with a visible error, un-sticking `hasInFlightThreadRun`'s rewind gate
+  without weakening it — live runs and unknown statuses still refuse.
+  Paired test: `thread-run-startup-reaper.integration.test.ts`.
 
 Neither carve-out is a regression introduced alongside this ruling, and neither
 is currently worth runtime machinery — but they are why the provenance invariant
