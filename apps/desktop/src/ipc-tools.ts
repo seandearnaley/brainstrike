@@ -468,7 +468,10 @@ async function tryExecuteAssistantRuntimeTool(
   const assistantTool = buildDesktopAssistantTools(runtimeData, {
     embeddingHostManager: dependencies.embeddingHostManager,
   })[toolId];
-  if (!assistantTool?.execute) {
+  // @mastra/core 1.55 widened ToolsInput[string] with members that carry no
+  // `execute` (provider-defined tools, web-search placeholders) — narrow
+  // structurally before invoking.
+  if (!(assistantTool && 'execute' in assistantTool && assistantTool.execute)) {
     return null;
   }
 

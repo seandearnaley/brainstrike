@@ -210,12 +210,24 @@ function createDocumentationOnlyMcpOutputSchema(
   };
 }
 
+/**
+ * The slice of Mastra's ToolExecutionContext this client actually reads.
+ * @mastra/core 1.55 made `observe` a required member of the full interface,
+ * while the value createTool's execute callback receives is statically typed
+ * as only `{ requestContext }` — so the full interface can no longer describe
+ * the inbound context. `requestContext` stays in the slice so the callback's
+ * context type shares a property with this weak type.
+ */
+type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & {
+  requestContext?: unknown;
+};
+
 async function executeMcpTool(
   client: OfficialSdkMcpClientLike,
   serverName: string,
   toolName: string,
   input: Record<string, unknown>,
-  context: ToolExecutionContext
+  context: McpExecuteContext
 ): Promise<unknown> {
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
@@ -285,8 +297,8 @@ async function executeMcpTool(
   return result.structuredContent;
 }
 
-function readToolCallMeta(context: ToolExecutionContext): Record<string, unknown> | undefined {
-  const meta = (context as ToolExecutionContext & { _meta?: unknown })._meta;
+function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {
+  const meta = (context as McpExecuteContext & { _meta?: unknown })._meta;
   if (!(meta && typeof meta === 'object' && !Array.isArray(meta))) {
     return;
   }
