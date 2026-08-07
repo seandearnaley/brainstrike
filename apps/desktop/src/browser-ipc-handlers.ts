@@ -100,7 +100,25 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
     // surface it (NO SILENT FALLBACKS) so the renderer can resync.
     return run(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
   };
-  return {
+  // The structured-result contract holds in BOTH directions: validation
+  // failures AND executor throws (live 2026-08-07: a native attach TypeError
+  // propagated to the renderer as a raw invoke rejection). Errors stay fully
+  // visible — logged + returned — never swallowed.
+  const guard =
+    <A extends unknown[], T>(
+      verb: string,
+      handler: (...args: A) => BrowserResult<T>
+    ): ((...args: A) => BrowserResult<T>) =>
+    (...args) => {
+      try {
+        return handler(...args);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('browser IPC handler threw', { error, verb });
+        return { error: `${verb} failed: ${message}`, ok: false };
+      }
+    };
+  const handlers: BrowserIpcHandlers = {
     closeTab(tabId) {
       return tabAction(tabId, 'closeTab', (id) => manager.closeTab(id));
     },
@@ -147,4 +165,12 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
       return ok(undefined);
     },
   };
+  // Wrap BY CONSTRUCTION — every key of the implementation object is guarded,
+  // so a future handler cannot ship unwrapped (a hand-maintained re-listing
+  // type-checks even when a key is wired through bare).
+  const wrapped = {} as Record<keyof BrowserIpcHandlers, unknown>;
+  for (const key of Object.keys(handlers) as (keyof BrowserIpcHandlers)[]) {
+    wrapped[key] = guard(key, handlers[key] as (...args: unknown[]) => BrowserResult<unknown>);
+  }
+  return wrapped as BrowserIpcHandlers;
 }

@@ -40,6 +40,8 @@ const logger = createLogger('BrowserPaneHost');
  * shape).
  */
 interface BuiltPaneView {
+  /** The real WebContentsView — the ONLY object native add/removeChildView accepts. */
+  readonly nativeView: WebContentsView;
   readonly view: BrowserPaneView;
   /** The real Electron WebContents — the CDP driver attaches its debugger. */
   readonly webContents: WebContents;
@@ -75,6 +77,7 @@ function createPaneView(partition: string): BuiltPaneView {
     setWindowOpenHandler: (handler) => webContents.setWindowOpenHandler(handler),
   };
   return {
+    nativeView: view,
     view: {
       setBounds: (rect) => view.setBounds(rect),
       setVisible: (visible) => view.setVisible(visible),
@@ -125,27 +128,37 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     hostWindow.webContents.send(DESKTOP_IPC_CHANNELS.browser.tabsChanged, tabs);
   };
 
-  // A real BrowserWindow's `contentView` satisfies addChildView/removeChildView
-  // over the narrow BrowserPaneView; the cast is only to bridge Electron's View
-  // param type to the interface.
-  const host: BrowserHostWindow = {
-    contentView: {
-      addChildView: (view) =>
-        hostWindow.contentView.addChildView(view as unknown as WebContentsView),
-      removeChildView: (view) =>
-        hostWindow.contentView.removeChildView(view as unknown as WebContentsView),
-    },
-  };
-
-  // Registries for the CDP driver: the real WebContents (to attach a debugger)
-  // and one cached CDP session per tab (attach once, reuse; detach on close).
+  // Registries: the real WebContents (to attach a CDP debugger), one cached
+  // CDP session per tab, and the wrapper→native-View mapping the host adapter
+  // unwraps below.
   const webContentsById = new Map<number, WebContents>();
   const sessionsById = new Map<number, CdpSession>();
+  const nativeViewByWrapper = new WeakMap<BrowserPaneView, WebContentsView>();
+
+  // Native `contentView.addChildView`/`removeChildView` accept ONLY a real
+  // View instance — they reject the manager's plain-object wrapper at the
+  // binding layer ("conversion failure", the 2026-08-07 live regression, which
+  // an `as unknown as` cast had smuggled past the compiler). Resolve the real
+  // view; an unregistered wrapper is a wiring bug and throws loudly.
+  const resolveNativeView = (view: BrowserPaneView): WebContentsView => {
+    const native = nativeViewByWrapper.get(view);
+    if (!native) {
+      throw new Error('BrowserPaneView wrapper has no registered native WebContentsView');
+    }
+    return native;
+  };
+  const host: BrowserHostWindow = {
+    contentView: {
+      addChildView: (view) => hostWindow.contentView.addChildView(resolveNativeView(view)),
+      removeChildView: (view) => hostWindow.contentView.removeChildView(resolveNativeView(view)),
+    },
+  };
 
   const createView = (partition: string): BrowserPaneView => {
     const built = createPaneView(partition);
     const { id } = built.webContents;
     webContentsById.set(id, built.webContents);
+    nativeViewByWrapper.set(built.view, built.nativeView);
     built.webContents.once('destroyed', () => {
       try {
         sessionsById.get(id)?.detach();

@@ -1542,12 +1542,20 @@ if (singleInstanceLockAcquired) {
           for (const failure of gcReport.failures) {
             logger.error('Workspace snapshot GC item failed', { failure });
           }
+          if (gcReport.skippedInaccessibleRoots.length > 0) {
+            // Expected condition (deleted directory / unmounted volume), so a
+            // single warn — not one error per boot forever.
+            logger.warn('Workspace snapshot GC skipped inaccessible roots', {
+              roots: gcReport.skippedInaccessibleRoots,
+            });
+          }
           logger.info('Workspace snapshot startup GC completed', {
             deadThreadsPruned: gcReport.deadThreadsPruned.length,
             failures: gcReport.failures.length,
             historyPrunedRoots: gcReport.historyPrunedRoots,
             refOnlyPruned: gcReport.refOnlyPruned.length,
             ringTrimmed: gcReport.ringTrimmed,
+            skippedInaccessibleRoots: gcReport.skippedInaccessibleRoots.length,
             threadsTableMissing: gcReport.threadsTableMissing,
           });
         } catch (error) {

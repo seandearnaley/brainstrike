@@ -74,7 +74,7 @@ describe('native tool input schema catalog', () => {
     expect(schema.safeParse({ cursor, root: 'other-root' }).success).toBe(false);
   });
 
-  it('validates the manageCanvas action union without accepting cross-action fields', () => {
+  it('validates the manageCanvas action union, tolerating cross-action extras (model-idiomatic)', () => {
     const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.manageCanvas'];
 
     expect(
@@ -92,14 +92,56 @@ describe('native tool input schema catalog', () => {
       true
     );
     expect(schema.safeParse({ action: 'list' }).success).toBe(true);
+
+    // Cross-action EXTRAS among the six declared keys are tolerated: `action`
+    // fully determines semantics, and real models bundle fields (observed live
+    // with gpt-5.6 on 2026-08-07 — both payloads below are verbatim from the
+    // production failure). Rejecting them broke the feature and burned retry
+    // tokens.
     expect(
-      schema.safeParse({ action: 'create', canvasId: 'not-allowed', html: '', title: 'x' }).success
-    ).toBe(false);
+      schema.safeParse({
+        action: 'create',
+        canvasId: 'redundant',
+        html: '<h1>Report</h1>',
+        newString: 'b',
+        oldString: 'a',
+        title: 'Report',
+      }).success
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        action: 'list',
+        canvasId: 'c',
+        html: 'x',
+        newString: 'n',
+        oldString: 'o',
+        title: 't',
+      }).success
+    ).toBe(true);
+
+    // The executor-side normalizer strips tolerated extras down to the clean
+    // action-branch shape (no cross-action keys reach the repository).
+    expect(
+      toolSchemas.normalizeManageCanvasInput({
+        action: 'create',
+        canvasId: 'redundant',
+        html: '<h1>R</h1>',
+        newString: 'b',
+        oldString: 'a',
+        title: 'Report',
+      })
+    ).toEqual({ action: 'create', html: '<h1>R</h1>', title: 'Report' });
+
+    // Missing REQUIRED fields for the chosen action still fail…
     expect(
       schema.safeParse({ action: 'update', canvasId: 'canvas-1', oldString: 'old' }).success
     ).toBe(false);
-    expect(schema.safeParse({ action: 'list', title: 'not-allowed' }).success).toBe(false);
+    // …as do unknown actions and genuinely unknown keys (hallucinated API —
+    // the strict envelope still catches those).
     expect(schema.safeParse({ action: 'unknown' }).success).toBe(false);
+    expect(
+      schema.safeParse({ action: 'create', content: 'nope', html: '', title: 'x' }).success
+    ).toBe(false);
   });
 
   it('keeps command-session inspection separate from execute-risk management', () => {

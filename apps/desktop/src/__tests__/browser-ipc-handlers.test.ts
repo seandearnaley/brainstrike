@@ -144,6 +144,47 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
     expect(result.ok && result.value).toHaveLength(1);
   });
 
+  it('converts an executor THROW into a structured failure for EVERY handler', () => {
+    // Live regression 2026-08-07: manager.createTab threw (native attach
+    // failure) and the raw TypeError propagated to the renderer as an
+    // "Error invoking remote method" rejection. The contract is structured
+    // results in BOTH directions — validation failures AND executor throws —
+    // and it must hold for all ten verbs, not just the one that failed live.
+    const throwingManager = Object.fromEntries(
+      Object.keys(fakeManager())
+        .filter((key) => key !== 'calls')
+        .map((key) => [
+          key,
+          () => {
+            throw new TypeError('conversion failure');
+          },
+        ])
+    ) as unknown as ReturnType<typeof fakeManager>;
+    const handlers = createBrowserIpcHandlers(throwingManager);
+    const validArgs: Record<string, unknown[]> = {
+      closeTab: ['tab-1'],
+      createTab: ['https://x'],
+      goBack: ['tab-1'],
+      goForward: ['tab-1'],
+      listTabs: [],
+      navigate: ['tab-1', 'x.com'],
+      reload: ['tab-1'],
+      selectTab: ['tab-1'],
+      setBounds: [{ height: 10, width: 20, x: 0, y: 0 }],
+      setOccluded: [true],
+    };
+    for (const [verb, args] of Object.entries(validArgs)) {
+      const run = handlers[verb as keyof typeof handlers] as (...a: unknown[]) => unknown;
+      expect(() => run(...args), verb).not.toThrow();
+      expect(run(...args), verb).toMatchObject({
+        error: expect.stringContaining('conversion failure'),
+        ok: false,
+      });
+    }
+    // The arg map and the handler surface must not drift apart.
+    expect(Object.keys(validArgs).sort()).toEqual(Object.keys(handlers).sort());
+  });
+
   it('never throws for malformed input — always a structured result', () => {
     const handlers = createBrowserIpcHandlers(fakeManager());
     for (const call of [

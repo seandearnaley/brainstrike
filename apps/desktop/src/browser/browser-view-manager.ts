@@ -105,8 +105,20 @@ export class BrowserViewManager {
     const tabId = this.deps.mintTabId();
     const view = this.deps.createView(this.deps.partition);
     this.wireView(tabId, view);
+    // Attach BEFORE registering: if the host rejects the view, no phantom tab
+    // may remain for a later listTabs() resync to paint (2026-08-07 live
+    // regression), and the orphaned view's page process must not keep running.
+    try {
+      this.deps.hostWindow.contentView.addChildView(view);
+    } catch (error) {
+      try {
+        view.webContents.close();
+      } catch {
+        // Best-effort orphan cleanup; never mask the attach failure.
+      }
+      throw error;
+    }
     this.tabs.set(tabId, { tabId, view });
-    this.deps.hostWindow.contentView.addChildView(view);
     this.load(view, normalizeUrl(url));
     this.setActiveTab(tabId);
     return tabId;

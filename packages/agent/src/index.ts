@@ -570,6 +570,7 @@ export {
   type ManageTaskListInput,
   ManageTaskListInputSchema,
   NATIVE_TOOL_INPUT_SCHEMAS,
+  normalizeManageCanvasInput,
   type QueryDiagnosticsInput,
   QueryDiagnosticsInputSchema,
   type QueryEmbeddingSpaceInput,

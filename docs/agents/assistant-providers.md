@@ -1216,7 +1216,12 @@ tool with an `action` discriminated union (`create`, `update`, `rewrite`,
 `list`) and explicit `read` risk: updates are DB-backed, versioned, and
 reversible, not workspace-file edits, so they must not enter the live Changes
 refresh stream. Web has no remote fallback. Conditional instructions advertise
-the verbs only when the tool is registered.
+the verbs only when the tool is registered. Settled ruling (2026-08-07, live
+gpt-5.6 failure — do not relitigate): the union branches TOLERATE cross-action
+extras among the six declared envelope keys (`action` fully determines
+semantics; real models bundle fields, and rejecting them broke the feature and
+burned retry tokens). Only genuinely unknown keys fail, at the strict provider
+envelope.
 
 `brainstrike.queryDiagnostics` is a desktop-only, explicit `read`-risk native
 tool over `brainstrike_diagnostic_events`. Its `mode` is required:

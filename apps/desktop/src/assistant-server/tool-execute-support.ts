@@ -78,8 +78,44 @@ export function resolveToolExecuteInputCandidate<T>(
   return input;
 }
 
+/** Hard cap so a pathological many-issue error can't flood the model context. */
+const TOOL_INPUT_ERROR_MAX_CHARS = 600;
+
+/**
+ * Input-validation failure with a compact single-line `message` (the model
+ * reads it verbatim) that still carries the raw Zod `issues`, so per-tool
+ * enrichers that duck-type on `.issues` (e.g. `toQuerySelfInputError`) keep
+ * working.
+ */
+export class ToolInputValidationError extends Error {
+  constructor(
+    message: string,
+    readonly issues: z.ZodError['issues']
+  ) {
+    super(message);
+    this.name = 'ToolInputValidationError';
+  }
+}
+
 export function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<T>): T {
-  return schema.parse(resolveToolExecuteInputCandidate(schema, input));
+  const result = schema.safeParse(resolveToolExecuteInputCandidate(schema, input));
+  if (result.success) {
+    return result.data;
+  }
+  // The model reads this text verbatim on every failed call — a raw ZodError
+  // serializes as a multi-line JSON blob. Compact it to one dense line with
+  // the same information (field path + message per issue), capped.
+  const issueText = result.error.issues
+    .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : 'input'}: ${issue.message}`)
+    .join('; ')
+    .replace(/\s+/g, ' ');
+  const message = `invalid tool input — ${issueText}`;
+  throw new ToolInputValidationError(
+    message.length > TOOL_INPUT_ERROR_MAX_CHARS
+      ? `${message.slice(0, TOOL_INPUT_ERROR_MAX_CHARS - 1)}…`
+      : message,
+    result.error.issues
+  );
 }
 
 /** A verbatim-chunk stream writer, in either shape Mastra exposes. */
