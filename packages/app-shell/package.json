@@ -75,6 +75,10 @@
       "types": "./dist/browser-pane/availability.d.ts",
       "import": "./dist/browser-pane/availability.js"
     },
+    "./browser-pane/browser-pane-content": {
+      "types": "./dist/browser-pane/browser-pane-content.d.ts",
+      "import": "./dist/browser-pane/browser-pane-content.js"
+    },
     "./changes": {
       "types": "./dist/changes/index.d.ts",
       "import": "./dist/changes/index.js"

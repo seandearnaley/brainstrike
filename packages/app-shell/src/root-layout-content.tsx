@@ -150,6 +150,12 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 
 export interface RootLayoutContentProps {
   /**
+   * Optional embedded browser pane surface (BST-1174), presence-gated on the
+   * desktop `window.browser` bridge (absent on web — no stub). Its own
+   * component reports native-view bounds/occlusion.
+   */
+  readonly browserPageContent?: ReactNode;
+  /**
    * Optional Canvas surface (BST-1173), presence-gated like
    * `changesPageContent`. Each app constructs it with its platform-specific
    * shell URL; available on both targets.
@@ -208,6 +214,7 @@ export interface RootLayoutContentProps {
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
+  '/browser': 'browser',
   '/git': 'git',
   '/notes': 'notes',
   '/settings': 'settings',
@@ -524,6 +531,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 });
 
 export function RootLayoutContent({
+  browserPageContent,
   canvasPanelContent,
   changesPageContent,
   contextExplorerPageContent,
@@ -714,6 +722,15 @@ export function RootLayoutContent({
                     mountedTabs={mountedTabs}
                     shellTab={shellTab}
                     tab="notes"
+                  />
+                  {/* Embedded browser pane (BST-1174). The native
+                    WebContentsView follows this route's show/hide via the
+                    surface's own occlusion reporting — see BrowserPaneContent. */}
+                  <KeepMountedRoute
+                    content={browserPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="browser"
                   />
                 </SearchEmbedderProvider>
               </EmbeddingRuntimeProvider>

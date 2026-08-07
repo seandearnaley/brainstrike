@@ -24,7 +24,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
  * tab INSIDE the workspace panel on the `'explorer'` route instead of its own
  * nav-rail page; see `packages/app-shell/src/workspace-panel-tabs.tsx`.
  */
-export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes';
+export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes' | 'browser';
 
 export interface PanelLayoutStoreState {
   // Root tabs

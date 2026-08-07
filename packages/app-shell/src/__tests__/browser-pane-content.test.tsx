@@ -1,0 +1,124 @@
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';
+import { BrowserPaneContent } from '../browser-pane/browser-pane-content';
+import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
+import { useCommandPaletteStore } from '../stores/command-palette-store';
+
+let tabsListener: ((tabs: readonly BrowserTab[]) => void) | null = null;
+const bridge = {
+  closeTab: vi.fn(() => Promise.resolve()),
+  createTab: vi.fn(() => Promise.resolve('tab-new')),
+  listTabs: vi.fn(() => Promise.resolve([] as BrowserTab[])),
+  navigate: vi.fn(() => Promise.resolve()),
+  onTabsChanged: vi.fn((listener: (tabs: readonly BrowserTab[]) => void) => {
+    tabsListener = listener;
+    return () => {
+      tabsListener = null;
+    };
+  }),
+  selectTab: vi.fn(() => Promise.resolve()),
+  setBounds: vi.fn(() => Promise.resolve()),
+  setOccluded: vi.fn(() => Promise.resolve()),
+} satisfies BrowserBridge;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  tabsListener = null;
+  useBrowserTabsStore.getState().reset();
+  useCommandPaletteStore.setState({ isOpen: false });
+  usePanelLayoutStore.getState().setActiveTab('browser');
+  (window as Window & { browser?: BrowserBridge }).browser = bridge;
+  // happy-dom gives a zero-size layout; force a non-zero rect so the visible
+  // path reports bounds rather than treating the pane as hidden.
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    bottom: 400,
+    height: 300,
+    left: 100,
+    right: 700,
+    toJSON: () => ({}),
+    top: 100,
+    width: 600,
+    x: 100,
+    y: 100,
+  } as DOMRect);
+});
+
+afterEach(() => {
+  Reflect.deleteProperty(window as Window & { browser?: unknown }, 'browser');
+  vi.restoreAllMocks();
+});
+
+function tab(overrides: Partial<BrowserTab>): BrowserTab {
+  return {
+    active: false,
+    canGoBack: false,
+    canGoForward: false,
+    tabId: 't',
+    title: '',
+    url: 'about:blank',
+    ...overrides,
+  };
+}
+
+describe('BrowserPaneContent', () => {
+  it('subscribes to tab pushes and renders the tab strip', async () => {
+    render(<BrowserPaneContent />);
+    expect(bridge.onTabsChanged).toHaveBeenCalled();
+    act(() => {
+      tabsListener?.([
+        tab({ active: true, tabId: 'a', title: 'Example', url: 'https://example.com' }),
+      ]);
+    });
+    expect(await screen.findByText('Example')).toBeInTheDocument();
+  });
+
+  it('reports bounds to main when the pane is visible', async () => {
+    render(<BrowserPaneContent />);
+    await waitFor(() => {
+      expect(bridge.setBounds).toHaveBeenCalledWith({
+        height: 300,
+        width: 600,
+        x: 100,
+        y: 100,
+      });
+    });
+    expect(bridge.setOccluded).toHaveBeenLastCalledWith(false);
+  });
+
+  it('occludes the native view when the command palette opens', async () => {
+    render(<BrowserPaneContent />);
+    await waitFor(() => expect(bridge.setBounds).toHaveBeenCalled());
+    bridge.setOccluded.mockClear();
+
+    useCommandPaletteStore.setState({ isOpen: true });
+    await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
+  });
+
+  it('occludes the native view when this route is not the active shell tab', async () => {
+    render(<BrowserPaneContent />);
+    await waitFor(() => expect(bridge.setBounds).toHaveBeenCalled());
+    bridge.setOccluded.mockClear();
+
+    usePanelLayoutStore.getState().setActiveTab('explorer');
+    await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
+  });
+
+  it('navigates the active tab from the URL bar', async () => {
+    render(<BrowserPaneContent />);
+    act(() => {
+      tabsListener?.([tab({ active: true, tabId: 'a', url: 'https://a.com' })]);
+    });
+    const input = await screen.findByTestId('browser-url-input');
+    fireEvent.change(input, { target: { value: 'example.com' } });
+    fireEvent.submit(input.closest('form') ?? input);
+    expect(bridge.navigate).toHaveBeenCalledWith('a', 'example.com');
+  });
+
+  it('opens a new tab from the + button', () => {
+    render(<BrowserPaneContent />);
+    fireEvent.click(screen.getByTestId('browser-new-tab'));
+    expect(bridge.createTab).toHaveBeenCalledWith();
+  });
+});
