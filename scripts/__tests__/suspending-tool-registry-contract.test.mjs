@@ -76,9 +76,9 @@ const REGISTERED_SUSPENDING_TOOL_MODULES = [
  * never a silent widening.
  */
 const ACKNOWLEDGED_NON_DECLARING_MODULES = [
-  // READS hasSuspendSchema to fail-safe-omit a self-approving 'ask' tool whose
-  // registered form lost its suspend schema (BST-1097); declares nothing.
-  'packages/agent/src/mastra/permission-tool-gate.ts',
+  // (permission-tool-gate.ts left this list at the @mastra/core 1.56 idiom
+  // adoption: the self-approving exception it read hasSuspendSchema for is
+  // gone — every ask tool takes the requireApproval clone.)
   'packages/agent/src/mastra/plan-mode-tool-gate.ts',
 ];
 

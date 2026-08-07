@@ -958,7 +958,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await database.close();
   }, 120_000);
 
-  it("GATE A DECLINE (BST-1097): declining the approval yields the typed declined result — tool-owned now, never Mastra's generic denial — and the executor is never touched", async () => {
+  it('GATE A DECLINE (BST-1097, 1.56+ idiom): declining the framework pre-execution approval streams NO tool result, never touches the executor, and the run continues', async () => {
     const capturedPolicies: unknown[] = [];
     const stubHost = {
       fence: () => ({
@@ -1037,9 +1037,20 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
         }
       )
     );
-    expect(toolSuccessOutputs(phase2)).toContain('declined');
+    // Since the @mastra/core 1.56 approval rework, a declined pre-execution
+    // approval is FRAMEWORK-owned and never reaches the tool: no tool result
+    // streams (the approval card's "Declined" state owns the UX, identical to
+    // every other ask-gated tool — see the ordinary-decline case in
+    // mastra-tool-approval-suspend.integration.spec.ts), the executor is
+    // never touched, and the run continues to its final answer.
+    expect(toolSuccessOutputs(phase2)).toBe('');
+    expect(
+      phase2.some((chunk) => chunk.type === 'tool-event'),
+      'decline must not stream any tool event'
+    ).toBe(false);
     expect(capturedPolicies).toHaveLength(0);
     expect(finalText(phase2)).toContain('Understood.');
+    expect(phase2.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
     await database.close();
   }, 120_000);
 

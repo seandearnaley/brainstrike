@@ -77,17 +77,23 @@ describe('run_python registration', () => {
 
   it('NEVER carries the per-tool requireApproval flag — Gate A is self-raised (BST-1097)', () => {
     // The flag is what made the Gate B resume resolve as "Tool call was not
-    // approved by the user": Mastra re-checks it on every leg, including the
-    // resume that answers the tool's own network suspension. The permission
-    // gate deliberately keeps this tool UNCLONED; a registration that set the
-    // flag here would re-create the dead end upstream of the gate.
+    // approved by the user" pre-1.56. Since the @mastra/core 1.56+ idiom
+    // adoption the FLAG lives on the permission gate's clone (applied per
+    // request, downstream of registration) — the REGISTERED form must stay
+    // flagless so an un-gated posture (enforcement off) never approval-gates
+    // the tool.
     const tool = requireRunPythonTool(toolsFor());
     // createTool initializes the field to `false`; the invariant is that it is
     // never TRUE (truthy is all Mastra's approval step checks).
     expect(tool.requireApproval).not.toBe(true);
   });
 
-  it("arms Gate A from the REQUEST's permission snapshot: execute:'ask' suspends via the in-tool approval option (BST-1097)", async () => {
+  it("derives the DIRECT-invocation guard from the REQUEST's permission snapshot: execute:'ask' with no suspension channel refuses (BST-1097, 1.56+ idiom)", async () => {
+    // Inside an agent run Gate A is the permission gate's requireApproval
+    // clone (framework pre-execution approval), so execute() raises no
+    // approval suspension of its own any more. The registration-derived
+    // decision matters for DIRECT invocations: 'ask' with no way to ask must
+    // refuse, never run unprompted.
     const tools = toolsFor({
       permissionPolicyRequest: {
         enforce: true,
@@ -95,23 +101,30 @@ describe('run_python registration', () => {
       },
     } as Partial<RuntimeData>);
     const tool = requireRunPythonTool(tools);
+    const result = await tool.execute({ code: 'print(1)' }, undefined);
+    expect(result).toMatchObject({
+      kind: 'unavailable',
+      reason: 'approval_confirmation_unavailable',
+    });
+
+    // And INSIDE a run under the same 'ask' snapshot: no in-tool approval
+    // suspension — a networked call pauses at Gate B (the plain suspension)
+    // as its FIRST pause, proof the framework gate owns Gate A.
     const suspend = vi.fn<(data: unknown, options?: unknown) => Promise<void>>(
       async () => undefined
     );
-    const result = await tool.execute(
-      { code: 'print(1)' },
+    const gated = await tool.execute(
+      { allowedDomains: ['pypi.org'], code: 'print(1)' },
       {
         agent: { suspend },
       }
     );
-
-    // The approval must ride Mastra's requireToolApproval suspend option so it
-    // emits the ordinary tool-call-approval chunk (same card, same grant
-    // surface, same approve/decline transport).
     expect(suspend).toHaveBeenCalledTimes(1);
-    expect(suspend.mock.calls[0]?.[0]).toEqual({ kind: 'approval' });
-    expect(suspend.mock.calls[0]?.[1]).toMatchObject({ requireToolApproval: true });
-    expect(result).toBeUndefined();
+    expect(suspend.mock.calls[0]?.[0]).toEqual({
+      allowedDomains: ['pypi.org'],
+      kind: 'network',
+    });
+    expect(gated).toBeUndefined();
   });
 
   it('no enforced policy → no Gate A: the first suspension is Gate B, exactly as before', async () => {

@@ -280,43 +280,34 @@ stub executors) and `run-python-tool.integration.spec.ts` (integration lane,
 REAL Seatbelt/bwrap + a real interpreter). Registered by the desktop
 composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
 
-- **GATE A IS SELF-RAISED (BST-1097, LIVE) — run_python must NEVER carry
-  Mastra's per-tool `requireApproval` flag.** Mastra re-evaluates that static
-  flag on EVERY leg of a run, including the resume that answers the tool's own
-  Gate B suspension; since that resume's data has no `approved` key, the flag
-  made Mastra deny the Gate B allow as "Tool call was not approved by the
-  user" before the tool ever saw it. Mastra's own docs rule the two mechanisms
-  mutually exclusive, so the approval gate moved INTO the tool: when the
-  injected `resolveApprovalDecision()` (REQUIRED factory option; the desktop
-  derives it from the request's permission snapshot via
-  `resolveSelfApprovalDecision`, the same resolver the permission gate uses)
-  returns `'ask'`, execute() suspends FIRST with
-  `suspend({kind:'approval'}, {requireToolApproval: true})` — Mastra's in-tool
-  approval option, which emits the ORDINARY `tool-call-approval` chunk, so the
-  approval card, grant surface, and approve/decline transport are unchanged.
-  The permission gate keeps run_python UNCLONED on `'ask'` (still recorded in
-  `askTools` for the risk reason line + storage fail-safe; omitted loudly if
-  the registered form ever loses its suspendSchema), the resume-leg run-wide
-  approval gate exempts self-approving tools from its ASK-SET half — and ONLY
-  that half: re-gating an ask-set tool strips the `{approved}` resume before
-  the tool sees it (an unfinishable approval loop), but the EXPLICIT GLOBAL
-  posture (`permissionEnforced === false` + caller-requested
-  `requireToolApproval: true`) still gates them, because with no snapshot the
-  injected decision resolves `'allow'` and the in-tool gate is inert — and
-  the suspend-resume transport refuses to answer an approval pause
-  (`assertResumedCallIsSuspendPause`) so `{action:'allow'}` can never leapfrog
-  Gate A. A decline reaches the tool as `{approved:false}` and returns the
-  typed `declined` arm; an `'ask'` decision with no suspension channel refuses
-  with `approval_confirmation_unavailable`, never an unprompted run; and
-  resume data matching NEITHER gate shape refuses with `resume_unrecognized`
-  rather than mislabelling a transport drift as a user decision (`declined`
-  and `network_denied` are reserved for answers the user actually gave). The
-  registry is `SELF_APPROVING_NATIVE_TOOL_IDS` (assistant-contract
-  tool-categories). Regression proof: the GATE A + GATE B case in
-  `mastra-tool-suspend-resume.integration.spec.ts` asserts the EXECUTOR ran on
-  the approve→allow path — final-text assertions are vacuous here (the
-  scripted model prints its text regardless of the tool result, which is how
-  the defect shipped green).
+- **GATE A IS THE FRAMEWORK'S PRE-EXECUTION APPROVAL (BST-1097, re-based at
+  the @mastra/core ^1.57 adoption).** Under an `'ask'` policy the permission
+  gate registers run_python as an ordinary `requireApproval` clone — the same
+  idiom as every other ask tool — and Mastra collects the approval BEFORE
+  `execute()` runs (same `tool-call-approval` chunk, card, grant surface, and
+  approve/decline transport as always). Approve is consumed by the framework
+  and the tool runs once; decline never reaches the tool and streams NO tool
+  result (the approval card's "Declined" state owns the UX, identical to every
+  other ask tool — the tool's typed `declined` result arm is legacy, kept only
+  for pre-rework persisted threads). The pre-1.56 design (self-raised in-tool
+  approval suspension; the flag forbidden) is DEAD: 1.56's approval rework
+  consumes `{approved}` resumes before the tool can read them, and the same
+  rework is what makes the flag safe — the suspend-resume transport now
+  attaches the `approved: true` rider Mastra's per-leg re-check demands, so
+  the flag no longer kills the tool's own Gate B resume
+  (`createToolResumeIteratorFromRuntime`, agent-streaming.ts). The injected
+  `resolveApprovalDecision()` (REQUIRED factory option; the desktop derives it
+  from the request's permission snapshot via `resolveSelfApprovalDecision`,
+  the same resolver the permission gate uses) now arms ONLY the
+  direct-invocation guard: `'ask'` with no suspension channel refuses with
+  `approval_confirmation_unavailable`, never an unprompted run. Resume data
+  matching no known shape still refuses with `resume_unrecognized` rather
+  than mislabelling transport drift as a user decision (`network_denied` is
+  reserved for answers the user actually gave). Regression proof: the GATE A
+  + GATE B case in `mastra-tool-suspend-resume.integration.spec.ts` asserts
+  the EXECUTOR ran on the approve→allow path — final-text assertions are
+  vacuous here (the scripted model prints its text regardless of the tool
+  result, which is how the original defect shipped green).
 - **NETWORK IS EXPRESSIBLE ONLY THROUGH GATE B (BST-1070, LIVE).** The input
   schema accepts `allowedDomains` (validated by the seam's exported
   `policyDomainSchema` — a bare `*` and single-label wildcards never parse),
@@ -393,17 +384,17 @@ composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
 
 ## Permission engine relationship
 
-Approval/permission gating happens ABOVE this seam — with ONE deliberate
-exception. run_python is an execute-risk native tool whose allow/ask/deny
-DECISION still comes from the existing permission engine
-(docs/agents/assistant-runtime.md § PERMISSION ENGINE), but since BST-1097 the
-`'ask'` decision's ENFORCEMENT lives inside `execute()` (the self-raised Gate A
-above) rather than on Mastra's per-tool `requireApproval` flag: a tool that
-also suspends cannot carry that flag without its own suspend-resume leg being
-denied. `'deny'` still omits the tool from the map before any call, and every
-other execute-risk tool keeps the flag mechanism unchanged. The seam never
-re-implements or bypasses the decision, and executor errors never auto-approve
-or auto-decline anything.
+Approval/permission gating happens ABOVE this seam. run_python is an
+execute-risk native tool whose allow/ask/deny DECISION comes from the existing
+permission engine (docs/agents/assistant-runtime.md § PERMISSION ENGINE), and
+since the @mastra/core ^1.57 adoption its `'ask'` ENFORCEMENT is the same
+per-tool `requireApproval` clone every other execute-risk tool uses (the
+1.56-era `approved: true` resume rider is what lets the flag coexist with the
+tool's Gate B suspension — see the Gate A section above). The one in-tool
+remnant is the DIRECT-invocation guard: outside an agent run, `'ask'` refuses
+rather than running unprompted. `'deny'` still omits the tool from the map
+before any call. The seam never re-implements or bypasses the decision, and
+executor errors never auto-approve or auto-decline anything.
 
 The UX design for that gating — the pre-run approval card, the network
 escalation, the result surface, and the remember-choice scope — is specified in

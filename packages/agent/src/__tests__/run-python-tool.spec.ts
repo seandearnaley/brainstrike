@@ -737,7 +737,7 @@ describe('Gate B hardening (#2225 review)', () => {
   });
 });
 
-describe('Gate A self-raised approval (BST-1097)', () => {
+describe('Gate A framework pre-execution approval (BST-1097, 1.56+ idiom)', () => {
   function askTool(stub: StubExecutor, decision: 'allow' | 'ask' = 'ask') {
     return createRunPythonTool({
       resolveApprovalDecision: () => decision,
@@ -745,45 +745,27 @@ describe('Gate A self-raised approval (BST-1097)', () => {
     });
   }
 
-  it("decision 'ask' with no resume suspends via the IN-TOOL approval option before any executor work", async () => {
-    const stub = stubFence(async () => execResult());
-    let resolveCalled = false;
-    const tool = createRunPythonTool({
-      resolveApprovalDecision: () => 'ask',
-      resolveHost: async () => {
-        resolveCalled = true;
-        return hostWith(stub);
-      },
-    });
-    const suspend = vi.fn(async () => undefined);
-    const result = await tool.execute({ code: 'print(1)' }, { agent: { suspend } } as never);
-
-    // The approval suspension must ride Mastra's requireToolApproval option so
-    // it emits the ORDINARY tool-call-approval chunk (same card, same grant
-    // surface) — a plain suspension here would surface as a resume notice with
-    // no approve/decline transport.
-    expect(suspend).toHaveBeenCalledTimes(1);
-    expect(suspend.mock.calls[0]?.[0]).toEqual({ kind: 'approval' });
-    expect(suspend.mock.calls[0]?.[1]).toMatchObject({ requireToolApproval: true });
-    expect(resolveCalled).toBe(false);
-    expect(stub.inputs).toHaveLength(0);
-    expect(result).toBeUndefined();
-  });
-
-  it('APPROVED resume runs an offline script', async () => {
+  it("decision 'ask' INSIDE an agent run executes without any in-tool approval suspension (the framework gate already settled)", async () => {
+    // Since the @mastra/core 1.56 approval rework, reaching execute() inside
+    // an agent run means the permission gate's requireApproval clone already
+    // collected the approval BEFORE this code ran — the tool must NOT ask
+    // again (the 1.56 interception made the old in-tool suspension an
+    // unfinishable loop).
     const stub = stubFence(async () => execResult({ exitCode: 0, stdout: 'ok\n' }));
+    const suspend = vi.fn(async () => undefined);
     const result = await askTool(stub).execute({ code: 'print(1)' }, {
-      agent: { resumeData: { approved: true } },
+      agent: { suspend },
     } as never);
+    expect(suspend).not.toHaveBeenCalled();
     expect(result).toMatchObject({ kind: 'completed' });
     expect(stub.inputs[0]?.policy.allowedDomains).toEqual([]);
   });
 
-  it('APPROVED resume on a networked call proceeds to Gate B on the SAME leg — approval never implies a network grant', async () => {
+  it('a networked call under ask proceeds straight to Gate B — the framework approval never implies a network grant', async () => {
     const stub = stubFence(async () => execResult());
     const suspend = vi.fn(async () => undefined);
     const result = await askTool(stub).execute({ allowedDomains: ['pypi.org'], code: 'print(1)' }, {
-      agent: { resumeData: { approved: true }, suspend },
+      agent: { suspend },
     } as never);
     expect(suspend).toHaveBeenCalledTimes(1);
     expect(suspend.mock.calls[0]?.[0]).toEqual({ allowedDomains: ['pypi.org'], kind: 'network' });
@@ -791,12 +773,17 @@ describe('Gate A self-raised approval (BST-1097)', () => {
     expect(result).toBeUndefined();
   });
 
-  it('DECLINED resume returns the declined arm and never touches the executor', async () => {
+  it('a bare {approved} resume is a DRIFTED shape now — refused as resume_unrecognized, never a silent run', async () => {
+    // The framework consumes approval resumes before execute() since 1.56;
+    // one arriving in-tool means schema drift or a hand-crafted resume.
     const stub = stubFence(async () => execResult());
     const result = await askTool(stub).execute({ code: 'print(1)' }, {
-      agent: { resumeData: { approved: false } },
+      agent: { resumeData: { approved: true } },
     } as never);
-    expect(result).toEqual({ kind: 'declined' });
+    // The resume schema (network-only since the rework) rejects it before
+    // execute() even dispatches — loud, typed, and the executor is untouched.
+    expect(result).toMatchObject({ error: true });
+    expect((result as { message?: string }).message).toContain('validation failed');
     expect(stub.inputs).toHaveLength(0);
   });
 

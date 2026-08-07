@@ -547,48 +547,6 @@ export function getTierInfo(tier: ToolLoadingTier): ToolLoadingTierInfo {
 }
 
 /**
- * Native tools that raise their OWN Gate A approval from inside `execute()` —
- * via Mastra's in-tool approval suspension (`suspend(payload,
- * { requireToolApproval: true })`, the same `tool-call-approval` chunk the
- * flag-based path emits) — instead of the permission gate's per-tool
- * `requireApproval` clone.
- *
- * WHY (BST-1097): Mastra re-evaluates the static per-tool `requireApproval`
- * flag on EVERY leg of a run, including a resume that answers the tool's own
- * `suspend()` pause. For a tool that both requires approval AND suspends
- * (run_python: Gate A + the Gate B network escalation), the flag makes the
- * Gate B resume — whose resumeData has no `approved` key — resolve as "Tool
- * call was not approved by the user" before the decision ever reaches the
- * tool. Mastra documents the two mechanisms as mutually exclusive (its
- * "Approval using `suspend()`" form is explicit that neither the agent nor
- * the tool uses `requireApproval`), so a suspending tool that needs an
- * approval gate must raise that gate on the suspension channel itself. The
- * permission gate still computes the SAME allow/ask/deny decision and still
- * records the ask metadata (risk reason line, storage fail-safe, resume
- * posture); only the ENFORCEMENT mechanism moves into the tool.
- *
- * Membership contract: every id here MUST also be registered in
- * `REGISTERED_SUSPEND_RESUME_TOOL_IDS` (tool-suspend.ts) and its factory MUST
- * receive the resolved permission decision (the tool cannot read the policy
- * itself). The permission gate fail-safe-OMITS a self-approving 'ask' tool
- * whose registered form lost its suspendSchema — such a tool could not raise
- * Gate A, so keeping it in the map would run it unprompted.
- */
-export const SELF_APPROVING_NATIVE_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.runPython,
-]);
-
-/**
- * True when `toolName` (the ORIGINAL dotted native id) names a tool that
- * raises its own approval gate from inside `execute()` — see
- * {@link SELF_APPROVING_NATIVE_TOOL_IDS}. Callers holding a Mastra-registered
- * (sanitized) id must denormalize first (`denormalizeNativeToolName`).
- */
-export function isSelfApprovingNativeTool(toolName: string): boolean {
-  return SELF_APPROVING_NATIVE_TOOL_IDS.has(toolName);
-}
-
-/**
  * Compare tools by their category load priority.
  * Lower priority values load first.
  */

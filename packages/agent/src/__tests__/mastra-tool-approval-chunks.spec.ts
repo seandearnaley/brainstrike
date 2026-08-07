@@ -651,12 +651,12 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     });
   });
 
-  it('exempts a self-approving ask tool from the resume gate under an ENFORCED policy — while ordinary ask tools stay gated (BST-1097)', async () => {
-    // Under an enforced ask set the self-approving tool raises Gate A inside
-    // execute(); re-gating it here would make Mastra consume the {approved}
-    // resume before the tool sees it (an unfinishable approval loop). The
-    // exemption is scoped to THIS posture — the explicit-global case above
-    // pins the opposite direction.
+  it('re-gates EVERY enforced ask-set tool on the resume leg — run_python included (BST-1097, 1.56+ idiom)', async () => {
+    // Since the @mastra/core 1.56 approval rework there is no self-approving
+    // exemption: run_python is an ordinary ask-set tool whose Gate A is the
+    // permission gate's requireApproval clone, so re-gating it on a resumed
+    // leg matches the framework's own idiom — the approval is consumed
+    // pre-execution and the tool runs once, never a loop.
     const storage = { id: 'workflow-storage' };
     setMockStreamParts([
       { textDelta: 'ok', type: 'text-delta' },
@@ -703,10 +703,12 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         | undefined
     )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
     expect(typeof enforcedGate).toBe('function');
-    // Self-approving + in the enforced ask set → exempt (self-gates in-tool).
-    expect(enforcedGate({ toolName: 'brainstrike_runPython' })).toBe(false);
+    // run_python is an ordinary ask-set tool now — gated like everything else.
+    expect(enforcedGate({ toolName: 'brainstrike_runPython' })).toBe(true);
     // Ordinary ask tool on the same leg stays gated.
     expect(enforcedGate({ toolName: 'workspace_writeFile' })).toBe(true);
+    // Mastra-internal working-memory bookkeeping stays exempt (D4).
+    expect(enforcedGate({ toolName: 'updateWorkingMemory' })).toBe(false);
   });
 
   it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {
@@ -789,6 +791,183 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(chunks).toContainEqual(
       expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
     );
+  });
+
+  it("attaches the 1.56+ approved rider to an ask-gated tool's OBJECT resume payload (BST-1097 idiom)", async () => {
+    // A plain suspension can only be raised from inside execute(), which the
+    // framework only reaches after the call's pre-execution gate settled — the
+    // rider states that historical fact so Mastra's per-leg re-check cannot
+    // convert the resume into a denial.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'tool-call-rider-1',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { action: 'allow' },
+        runId: 'run-rider-1',
+        toolCallId: 'tool-call-rider-1',
+        toolName: 'brainstrike.runPython',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+            riskByTool: { 'brainstrike.runPython': 'execute' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({
+      action: 'allow',
+      approved: true,
+    });
+  });
+
+  it('passes a NON-OBJECT resume payload through untouched even for an ask-gated tool — never mangled into an index map', async () => {
+    // askUser's resume is a bare string/array; spreading it would corrupt it.
+    // The rider is skipped (loud warn at the transport), and the payload
+    // reaches Mastra byte-identical.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-2',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Proceed?' },
+            toolCallId: 'tool-call-rider-2',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: 'yes, proceed',
+        runId: 'run-rider-2',
+        toolCallId: 'tool-call-rider-2',
+        toolName: 'brainstrike.askUser',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+            riskByTool: { 'brainstrike.askUser': 'read' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.askUser': {
+            execute: async () => ({}),
+            id: 'brainstrike.askUser',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toBe('yes, proceed');
+  });
+
+  it("leaves an un-gated tool's object resume payload rider-free — Mastra will not re-check it", async () => {
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-3',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'tool-call-rider-3',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { action: 'allow' },
+        runId: 'run-rider-3',
+        toolCallId: 'tool-call-rider-3',
+        toolName: 'brainstrike.runPython',
+      },
+      {
+        // No permission policy → nothing is ask-gated → no re-check, no rider.
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({ action: 'allow' });
   });
 
   it('REFUSES to resume an APPROVAL pause through the suspend-resume transport (BST-1097)', async () => {

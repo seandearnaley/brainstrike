@@ -28,10 +28,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
-import {
-  denormalizeNativeToolName,
-  isSelfApprovingNativeTool,
-} from '@brainstrike/assistant-contract/tool-metadata';
+import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
@@ -1395,24 +1392,14 @@ function resolveResumeApprovalGate(
   // all-allowed posture: the function below then gates nothing (askTools.has is
   // always false), honoring "Allow all tools this session".
   const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
-  // SELF-APPROVING suspending tools (BST-1097) are exempt from the ASK-SET
-  // half of this run-wide gate: under an enforced policy they raise Gate A
-  // themselves inside execute(), and re-gating one here would make Mastra
-  // consume the {approved} resume before the tool sees it — the tool then
-  // re-runs with NO resume data and suspends Gate A again, an approval loop
-  // that can never complete. The exemption deliberately does NOT extend to
-  // the EXPLICIT GLOBAL posture: there `permissionEnforced === false`, so the
-  // tool's injected decision resolves 'allow' and its in-tool gate is inert —
-  // exempting it would make run_python the one execute-risk tool the global
-  // request never prompts for. Gating it globally is loop-free precisely
-  // because the inert self-gate never re-suspends after the framework
-  // consumes the approval. `toolName` is the Mastra-REGISTERED (sanitized)
-  // id; the self-approving registry is keyed by dotted NATIVE ids, which the
-  // static reverse map covers exactly.
+  // Since the @mastra/core 1.56 approval rework there is no self-approving
+  // exemption: run_python is an ordinary ask-set tool (the permission gate's
+  // `requireApproval` clone is its Gate A), so re-gating it on a resumed leg
+  // is exactly the framework's own idiom — approve is consumed pre-execution
+  // and the tool runs once, never a loop. Only Mastra-INTERNAL bookkeeping
+  // tools stay exempt (the D4 defect).
   return ({ toolName }: { toolName: string }): boolean =>
-    !isApprovalExemptInternalTool(toolName) &&
-    (isExplicitGlobalApproval ||
-      (askTools.has(toolName) && !isSelfApprovingNativeTool(denormalizeNativeToolName(toolName))));
+    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
 
 async function readResumedApprovalToolCall(
@@ -1932,7 +1919,7 @@ async function assertResumedCallIsSuspendPause(
   runtime: MastraAgentRuntime,
   runtimeData: RuntimeData | undefined,
   action: AssistantToolResumeAction
-): Promise<void> {
+): Promise<{ readonly toolName: string }> {
   const memoryContext = runtimeData?.memory;
   const { runs } = await runtime.agent.listSuspendedRuns(
     memoryContext
@@ -1954,6 +1941,17 @@ async function assertResumedCallIsSuspendPause(
         'The requested tool call is suspended for APPROVAL; answer it through the approval transport, not the suspend-resume transport.',
     });
   }
+  if (!toolCall.toolName) {
+    // The rider decision below keys on the tool's ask registration; a
+    // snapshot with no tool name cannot be classified — refuse rather than
+    // guessing (a wrong guess either denies a valid resume or widens a
+    // payload the tool's schema will reject).
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      context: { runId: action.runId, toolCallId: action.toolCallId },
+      detail: 'Suspended tool snapshot has no tool name for the requested tool call.',
+    });
+  }
+  return { toolName: toolCall.toolName };
 }
 
 async function createToolResumeIteratorFromRuntime({
@@ -1966,8 +1964,51 @@ async function createToolResumeIteratorFromRuntime({
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
   try {
     validateToolResumeAction(action);
-    await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
+    const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
+    // 1.56+ RIDER: Mastra re-checks an approval-gated tool's `requireApproval`
+    // on EVERY leg, including the resume of a plain (Gate B-style) suspension,
+    // and converts a resume without `approved: true` into its generic denial
+    // BEFORE execute() runs.
+    //
+    // The rider states a HISTORICAL fact, and the evidence is structural, not
+    // the current policy: `assertResumedCallIsSuspendPause` above proved this
+    // pause is a PLAIN suspension, and a plain suspension can only be raised
+    // from inside execute() — which the framework only reaches after the
+    // call's pre-execution gate settled under the policy in force at
+    // invocation ('ask' ⇒ an approval was collected; 'allow' ⇒ none was
+    // required). A policy tightened mid-suspension does not retroactively
+    // un-settle that gate, and the resume itself is an explicit user decision
+    // on this very call. `askTools.has` below only answers "will the REBUILT
+    // runtime re-check this tool at all" — when it will not, the payload
+    // passes through untouched.
+    //
+    // Scope: plain-OBJECT payloads only. Spreading a string/array resume
+    // (askUser's bare answer shape) would mangle it into an index map, so a
+    // non-object payload is passed through unchanged — and if the tool is
+    // ask-gated, that resume may hit the framework's denial. Loud, not
+    // silent: the warn below names the tool and the fix (an object resume
+    // envelope). Pinned by unit tests in mastra-tool-approval-chunks.spec.ts.
+    const isPlainObjectResume =
+      typeof action.resumeData === 'object' &&
+      action.resumeData !== null &&
+      !Array.isArray(action.resumeData);
+    const toolIsReChecked = runtime.askTools.has(suspendedCall.toolName);
+    if (toolIsReChecked && !isPlainObjectResume) {
+      logger.warn(
+        'Ask-gated suspending tool has a non-object resume payload; the 1.56+ approval rider cannot be attached and Mastra may deny the resume. Give the tool an object resume envelope to make it ask-compatible.',
+        {
+          code: 'mastra_agent_resume_rider_unattachable',
+          runId: action.runId,
+          toolCallId: action.toolCallId,
+          toolName: suspendedCall.toolName,
+        }
+      );
+    }
+    const resumeData =
+      toolIsReChecked && isPlainObjectResume
+        ? { ...(action.resumeData as Record<string, unknown>), approved: true }
+        : action.resumeData;
     const delegationUsage =
       runtime.personasById.size > 0
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
@@ -1997,7 +2038,7 @@ async function createToolResumeIteratorFromRuntime({
 
     // resumeData is validated by Mastra against the suspended tool's resumeSchema.
     const streamResult = await runtime.agent.resumeStream(
-      action.resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
+      resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
       resumeOptions as AgentResumeStreamOptions
     );
 

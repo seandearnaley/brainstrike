@@ -10,12 +10,13 @@
  * - `'allow'`→ tool KEPT, NOT in `askToolIds`.
  * - a session grant / YOLO downgrades `'ask'`→`'allow'`, so the tool is kept but
  *   NOT recorded as ask (it runs free, no approval).
- * - a SELF-APPROVING suspending tool (BST-1097) gated to `'ask'` is kept
- *   UNCLONED — no `requireApproval` flag, ever — while still recorded as ask;
- *   if its registered form lost the suspendSchema it is fail-safe omitted.
+ * - a SUSPENDING tool gated to `'ask'` (BST-1097, 1.56+ idiom) takes the SAME
+ *   `requireApproval` clone as every other ask tool — the framework's
+ *   pre-execution approval is Gate A, and the resume transport's
+ *   `approved: true` rider keeps its own suspensions resumable under the flag.
  */
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
@@ -194,7 +195,7 @@ describe('filterToolsByPermissionWithMetadata', () => {
   });
 });
 
-describe('self-approving suspending tools (BST-1097)', () => {
+describe('ask-gated suspending tools (BST-1097, 1.56+ idiom)', () => {
   const RUN_PYTHON_NAME_MAP: ReadonlyMap<string, string> = new Map([
     ['brainstrike_runPython', 'brainstrike.runPython'],
   ]);
@@ -203,10 +204,12 @@ describe('self-approving suspending tools (BST-1097)', () => {
     return snapshot({ riskByTool: { 'brainstrike.runPython': 'execute' } });
   }
 
-  it("keeps run_python UNCLONED on 'ask' — no requireApproval flag, ever — while still recording ask metadata", () => {
-    // The flag is the BST-1097 defect: Mastra re-checks it on the Gate B
-    // resume leg and denies a resume whose data has no `approved` key. The
-    // tool raises Gate A itself, so the gate must keep the ORIGINAL object.
+  it("clones run_python with requireApproval on 'ask' — the framework pre-execution gate is Gate A (1.56+ idiom)", () => {
+    // Since the @mastra/core 1.56 approval rework, run_python takes the SAME
+    // requireApproval clone as every other ask tool: the framework collects
+    // the approval BEFORE execute() runs, and the resume transport's
+    // `approved: true` rider keeps its Gate B suspension resumable
+    // (agent-streaming.ts). The old self-approving exception is gone.
     const tool = { id: 'brainstrike.runPython', suspendSchema: { kind: 'union' } };
     const result = filterToolsByPermissionWithMetadata(
       { brainstrike_runPython: tool },
@@ -215,10 +218,14 @@ describe('self-approving suspending tools (BST-1097)', () => {
       noopLogger()
     );
 
-    expect(result.tools['brainstrike_runPython']).toBe(tool);
-    expect(
-      (result.tools['brainstrike_runPython'] as { requireApproval?: unknown }).requireApproval
-    ).toBeUndefined();
+    const gated = result.tools['brainstrike_runPython'] as {
+      requireApproval?: unknown;
+      suspendSchema?: unknown;
+    };
+    expect(gated).not.toBe(tool);
+    expect(gated.requireApproval).toBe(true);
+    // The clone preserves the suspension surface — Gate B still works.
+    expect(gated.suspendSchema).toBe(tool.suspendSchema);
     // Still an ask tool: the approval chunk's risk metadata and the
     // no-storage fail-safe both key on this record.
     expect(result.askToolIds.has('brainstrike_runPython')).toBe(true);
@@ -226,28 +233,6 @@ describe('self-approving suspending tools (BST-1097)', () => {
       originalName: 'brainstrike.runPython',
       riskCategory: 'execute',
     });
-  });
-
-  it('fail-safe OMITS a self-approving ask tool whose registered form lost its suspendSchema', () => {
-    // Without a suspendSchema the tool cannot raise Gate A; keeping it would
-    // run it unprompted, and re-arming the flag would re-create the Gate B
-    // dead end. Omission is the only safe shape, and it must be loud.
-    const warn = vi.fn();
-    const result = filterToolsByPermissionWithMetadata(
-      { brainstrike_runPython: { id: 'brainstrike.runPython' } },
-      runPythonSnapshot(),
-      RUN_PYTHON_NAME_MAP,
-      { info: () => {}, warn }
-    );
-
-    expect(result.tools).not.toHaveProperty('brainstrike_runPython');
-    expect(result.askToolIds.size).toBe(0);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('no suspendSchema'),
-      expect.objectContaining({
-        code: 'permission_tool_gate_self_approving_missing_suspend_schema',
-      })
-    );
   });
 
   it("still resolves 'allow'/'deny' for run_python exactly like any other tool", () => {
