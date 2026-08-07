@@ -3,6 +3,7 @@ import {
   type BrowserPaneView,
   type BrowserTabState,
   BrowserViewManager,
+  isNavigableUrl,
   normalizeUrl,
   type PaneRect,
 } from '../browser/browser-view-manager';
@@ -97,13 +98,38 @@ function setup() {
 }
 
 describe('normalizeUrl', () => {
-  it('defaults blank to about:blank, keeps schemes, adds https to bare hosts', () => {
+  it('defaults blank to about:blank and preserves http/https/about/data', () => {
     expect(normalizeUrl(undefined)).toBe('about:blank');
     expect(normalizeUrl('  ')).toBe('about:blank');
     expect(normalizeUrl('https://example.com')).toBe('https://example.com');
-    expect(normalizeUrl('localhost:3000')).toBe('https://localhost:3000');
+    expect(normalizeUrl('http://x.test/a?b=c')).toBe('http://x.test/a?b=c');
     expect(normalizeUrl('data:text/html,<p>hi</p>')).toBe('data:text/html,<p>hi</p>');
     expect(normalizeUrl('about:blank')).toBe('about:blank');
+  });
+
+  it('adds https to bare hosts, incl. host:port and localhost', () => {
+    expect(normalizeUrl('example.com')).toBe('https://example.com');
+    expect(normalizeUrl('localhost:3000')).toBe('https://localhost:3000');
+    expect(normalizeUrl('sub.example.co.uk/path')).toBe('https://sub.example.co.uk/path');
+  });
+
+  it('treats scheme-less, host-less input as a search query (not a broken URL)', () => {
+    expect(normalizeUrl('what is rust')).toBe('https://duckduckgo.com/?q=what%20is%20rust');
+    // A ":// substring" in a search phrase must NOT be mistaken for a scheme.
+    expect(normalizeUrl('what does :// mean')).toBe(
+      'https://duckduckgo.com/?q=what%20does%20%3A%2F%2F%20mean'
+    );
+  });
+
+  it('does NOT preserve dangerous schemes as URLs — they become searches', () => {
+    // normalizeUrl no longer whitelists file/devtools/chrome; isNavigableUrl is
+    // the final gate, but even here they are not treated as navigable URLs.
+    expect(isNavigableUrl('file:///etc/passwd')).toBe(false);
+    expect(isNavigableUrl('devtools://devtools/bundled/devtools_app.html')).toBe(false);
+    expect(isNavigableUrl('chrome://settings')).toBe(false);
+    expect(isNavigableUrl('blob:https://x/uuid')).toBe(false);
+    expect(isNavigableUrl('https://ok.test')).toBe(true);
+    expect(isNavigableUrl('about:blank')).toBe(true);
   });
 });
 
@@ -171,7 +197,7 @@ describe('BrowserViewManager', () => {
     expect(created[1]?.calls.visible.at(-1)).toBe(false);
   });
 
-  it('turns popups into new tabs instead of OS windows', () => {
+  it('turns http/https popups into new tabs instead of OS windows', () => {
     const { added, created, manager } = setup();
     manager.createTab('a.com');
     const handler = (
@@ -183,6 +209,58 @@ describe('BrowserViewManager', () => {
     expect(manager.listTabs()).toHaveLength(2);
     expect(added).toHaveLength(2);
     expect(created[1]?.calls.loaded).toEqual(['https://popup.example']);
+  });
+
+  it('drops a dangerous-scheme popup (window.open("file:///...")) — no new tab', () => {
+    const { manager, created } = setup();
+    manager.createTab('a.com');
+    const handler = (
+      created[0] as unknown as { __openHandler: (d: { url: string }) => { action: string } }
+    ).__openHandler;
+    const result = handler({ url: 'file:///Users/me/.aws/credentials' });
+    expect(result.action).toBe('deny');
+    expect(manager.listTabs()).toHaveLength(1);
+  });
+
+  it('refuses to load a blocked scheme, showing about:blank instead', () => {
+    const { created, manager } = setup();
+    const tabId = manager.createTab('a.com');
+    manager.navigate(tabId, 'file:///etc/passwd');
+    expect(created[0]?.calls.loaded.at(-1)).toBe('about:blank');
+  });
+
+  it('reports (not throws) a navigation load rejection', async () => {
+    const errors: Array<{ error: string; url: string }> = [];
+    const created: FakeView[] = [];
+    let counter = 0;
+    const manager = new BrowserViewManager({
+      createView: () => {
+        const view = createFakeView(1);
+        // Make loadURL reject like a real bad-host navigation.
+        view.webContents.loadURL = () => Promise.reject(new Error('ERR_NAME_NOT_RESOLVED'));
+        created.push(view);
+        return view;
+      },
+      hostWindow: {
+        contentView: { addChildView: () => undefined, removeChildView: () => undefined },
+      },
+      mintTabId: () => `tab-${++counter}`,
+      onNavigationError: (event) => errors.push(event),
+      onTabsChanged: () => undefined,
+      partition: 'persist:test',
+    });
+    manager.createTab('bad.example');
+    await Promise.resolve();
+    expect(errors.at(-1)?.error).toContain('ERR_NAME_NOT_RESOLVED');
+  });
+
+  it('returns false for tab-targeting ops on an unknown tab id', () => {
+    const { manager } = setup();
+    manager.createTab('a.com');
+    expect(manager.closeTab('nope')).toBe(false);
+    expect(manager.selectTab('nope')).toBe(false);
+    expect(manager.navigate('nope', 'x.com')).toBe(false);
+    expect(manager.closeTab(manager.listTabs()[0]?.tabId ?? '')).toBe(true);
   });
 
   it('navigates: loads urls, and only goes back/forward when history allows', () => {

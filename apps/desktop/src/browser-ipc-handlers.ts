@@ -19,13 +19,17 @@ export type BrowserResult<T = void> =
   | { readonly ok: true; readonly value: T }
   | { readonly error: string; readonly ok: false };
 
-/** The manager surface these handlers drive (subset of BrowserViewManager). */
+/**
+ * The manager surface these handlers drive (subset of BrowserViewManager).
+ * The tab-targeting methods return `false` for an unknown tab id so the
+ * handler can surface a structured failure instead of a silent success.
+ */
 export interface BrowserManagerLike {
-  closeTab(tabId: string): void;
+  closeTab(tabId: string): boolean;
   createTab(url?: string): string;
   listTabs(): readonly BrowserTabState[];
-  navigate(tabId: string, target: string): void;
-  selectTab(tabId: string): void;
+  navigate(tabId: string, target: string): boolean;
+  selectTab(tabId: string): boolean;
   setBounds(rect: PaneRect): void;
   setOccluded(occluded: boolean): void;
 }
@@ -57,7 +61,10 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-/** A rect is 4 finite, non-negative numbers and nothing else. */
+/**
+ * A rect is 4 finite numbers with non-negative width/height and nothing else.
+ * `x`/`y` MAY be negative — a partially scrolled-offscreen pane is valid.
+ */
 function validateRect(value: unknown): PaneRect | null {
   if (typeof value !== 'object' || value === null) {
     return null;
@@ -89,8 +96,9 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
       if (!isNonEmptyString(tabId)) {
         return fail('closeTab requires a non-empty tabId');
       }
-      manager.closeTab(tabId);
-      return ok(undefined);
+      // A well-formed but UNKNOWN tab id is a real desync, not a success —
+      // surface it (NO SILENT FALLBACKS) so the renderer can resync.
+      return manager.closeTab(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
     },
     createTab(url) {
       if (url !== undefined && typeof url !== 'string') {
@@ -109,20 +117,18 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
       if (!validTarget) {
         return fail('navigate requires a url or "back"/"forward"');
       }
-      manager.navigate(tabId, validTarget);
-      return ok(undefined);
+      return manager.navigate(tabId, validTarget) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
     },
     selectTab(tabId) {
       if (!isNonEmptyString(tabId)) {
         return fail('selectTab requires a non-empty tabId');
       }
-      manager.selectTab(tabId);
-      return ok(undefined);
+      return manager.selectTab(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
     },
     setBounds(rect) {
       const validated = validateRect(rect);
       if (!validated) {
-        return fail('setBounds requires {x,y,width,height} finite non-negative numbers');
+        return fail('setBounds requires finite x/y and non-negative width/height');
       }
       manager.setBounds(validated);
       return ok(undefined);

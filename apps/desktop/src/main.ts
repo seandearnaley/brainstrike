@@ -1850,6 +1850,21 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+
+        // Embedded browser pane (BST-1174): each window owns its OWN pane host
+        // + IPC registration, so a macOS close→dock-reopen cycle (which calls
+        // createMainWindow again without quitting) rebinds the pane to the new
+        // window instead of leaving `window.browser` calls hitting a disposed
+        // host. The manager attaches views to THIS window's contentView.
+        const browserPaneHost = createBrowserPaneHost(win);
+        unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
+          createBrowserIpcHandlers(browserPaneHost.manager)
+        );
+        win.once('closed', () => {
+          browserPaneHost.dispose();
+          unregisterBrowserIpcHandlers?.();
+          unregisterBrowserIpcHandlers = null;
+        });
         return win;
       };
 
@@ -2017,20 +2032,6 @@ if (singleInstanceLockAcquired) {
         // Delay to let GPU contexts re-initialize after WindowServer hands
         // back the display, matching the resume delay.
         schedulePowerResume();
-      });
-
-      // Embedded browser pane (BST-1174): construct the WebContentsView host
-      // bound to the visible window, register its IPC domain, and tear both
-      // down when the window closes. The manager attaches views to
-      // mainWindow.contentView, so it must be created AFTER the window exists.
-      const browserPaneHost = createBrowserPaneHost(mainWindow);
-      unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
-        createBrowserIpcHandlers(browserPaneHost.manager)
-      );
-      mainWindow.once('closed', () => {
-        browserPaneHost.dispose();
-        unregisterBrowserIpcHandlers?.();
-        unregisterBrowserIpcHandlers = null;
       });
 
       // Window focus/blur: throttle IPC traffic when backgrounded

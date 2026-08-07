@@ -1,11 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { type BrowserManagerLike, createBrowserIpcHandlers } from '../browser-ipc-handlers';
 
+/** Tab-targeting methods return `true` only for the known id `tab-1`. */
 function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
   const calls: string[] = [];
+  const known = (tabId: string) => tabId === 'tab-1';
   return {
     calls,
-    closeTab: (tabId) => calls.push(`close:${tabId}`),
+    closeTab: (tabId) => {
+      calls.push(`close:${tabId}`);
+      return known(tabId);
+    },
     createTab: (url) => {
       calls.push(`create:${url ?? ''}`);
       return 'tab-1';
@@ -23,8 +28,14 @@ function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
         },
       ];
     },
-    navigate: (tabId, target) => calls.push(`nav:${tabId}:${target}`),
-    selectTab: (tabId) => calls.push(`select:${tabId}`),
+    navigate: (tabId, target) => {
+      calls.push(`nav:${tabId}:${target}`);
+      return known(tabId);
+    },
+    selectTab: (tabId) => {
+      calls.push(`select:${tabId}`);
+      return known(tabId);
+    },
     setBounds: (rect) => calls.push(`bounds:${rect.x},${rect.y},${rect.width},${rect.height}`),
     setOccluded: (occluded) => calls.push(`occl:${occluded}`),
   };
@@ -49,6 +60,16 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
     expect(manager.calls).toEqual(['close:tab-1']);
   });
 
+  it('surfaces a structured failure for a well-formed but UNKNOWN tab id (no silent success)', () => {
+    const handlers = createBrowserIpcHandlers(fakeManager());
+    expect(handlers.closeTab('no-such-tab')).toMatchObject({
+      error: expect.stringContaining('unknown tab'),
+      ok: false,
+    });
+    expect(handlers.selectTab('no-such-tab')).toMatchObject({ ok: false });
+    expect(handlers.navigate('no-such-tab', 'x.com')).toMatchObject({ ok: false });
+  });
+
   it('navigate requires a tabId and a non-empty target', () => {
     const manager = fakeManager();
     const handlers = createBrowserIpcHandlers(manager);
@@ -56,6 +77,15 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
     expect(handlers.navigate('', 'back')).toMatchObject({ ok: false });
     expect(handlers.navigate('tab-1', 'back')).toEqual({ ok: true, value: undefined });
     expect(manager.calls).toEqual(['nav:tab-1:back']);
+  });
+
+  it('accepts x/y being negative (partially offscreen pane) but rejects negative width/height', () => {
+    const handlers = createBrowserIpcHandlers(fakeManager());
+    expect(handlers.setBounds({ height: 10, width: 20, x: -5, y: -8 })).toEqual({
+      ok: true,
+      value: undefined,
+    });
+    expect(handlers.setBounds({ height: 10, width: -1, x: 0, y: 0 })).toMatchObject({ ok: false });
   });
 
   it('setBounds requires 4 finite non-negative numbers and rejects extra keys', () => {
@@ -102,7 +132,5 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
       expect(() => call()).not.toThrow();
       expect(call()).toMatchObject({ ok: false });
     }
-    // Silence the expected warn logs from the rejections above.
-    vi.restoreAllMocks();
   });
 });

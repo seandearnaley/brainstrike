@@ -76,6 +76,8 @@ export interface BrowserViewManagerDeps {
   readonly hostWindow: BrowserHostWindow;
   /** Injected id minter (uuidv7) so tests get deterministic ids. */
   readonly mintTabId: () => string;
+  /** Optional: a navigation load rejected (bad host, aborted, blocked). */
+  readonly onNavigationError?: (event: { readonly error: string; readonly url: string }) => void;
   /** Notifies the renderer that tab state changed (list/nav/title). */
   readonly onTabsChanged: (tabs: readonly BrowserTabState[]) => void;
   /** Dedicated non-default session partition (clean profile). */
@@ -104,15 +106,16 @@ export class BrowserViewManager {
     this.wireView(tabId, view);
     this.tabs.set(tabId, { tabId, view });
     this.deps.hostWindow.contentView.addChildView(view);
-    void view.webContents.loadURL(normalizeUrl(url));
+    this.load(view, normalizeUrl(url));
     this.setActiveTab(tabId);
     return tabId;
   }
 
-  closeTab(tabId: string): void {
+  /** @returns `false` when `tabId` names no open tab. */
+  closeTab(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) {
-      return;
+      return false;
     }
     this.tabs.delete(tabId);
     this.deps.hostWindow.contentView.removeChildView(tab.view);
@@ -122,36 +125,62 @@ export class BrowserViewManager {
       const next = [...this.tabs.keys()].at(-1) ?? null;
       this.activeTabId = null;
       if (next) {
+        // setActiveTab emits; the empty-list case emits below.
         this.setActiveTab(next);
+        return true;
       }
     }
     this.emitTabs();
+    return true;
   }
 
-  selectTab(tabId: string): void {
-    if (this.tabs.has(tabId)) {
-      this.setActiveTab(tabId);
+  /** @returns `false` when `tabId` names no open tab. */
+  selectTab(tabId: string): boolean {
+    if (!this.tabs.has(tabId)) {
+      return false;
     }
+    this.setActiveTab(tabId);
+    return true;
   }
 
-  navigate(tabId: string, target: string): void {
+  /** @returns `false` when `tabId` names no open tab. */
+  navigate(tabId: string, target: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) {
-      return;
+      return false;
     }
     if (target === 'back') {
       if (tab.view.webContents.canGoBack()) {
         tab.view.webContents.goBack();
       }
-      return;
+      return true;
     }
     if (target === 'forward') {
       if (tab.view.webContents.canGoForward()) {
         tab.view.webContents.goForward();
       }
+      return true;
+    }
+    this.load(tab.view, normalizeUrl(target));
+    return true;
+  }
+
+  /**
+   * Load a URL, refusing dangerous schemes and swallowing the routine
+   * navigation rejections a browser produces (ERR_ABORTED when a load is
+   * superseded, ERR_NAME_NOT_RESOLVED on a bad host, …) so they never surface
+   * as unhandled promise rejections.
+   */
+  private load(view: BrowserPaneView, url: string): void {
+    if (!isNavigableUrl(url)) {
+      // A blocked scheme is shown as about:blank rather than reaching the web
+      // engine; the renderer's tab state reflects the real (blank) url.
+      void view.webContents.loadURL('about:blank').catch(() => undefined);
       return;
     }
-    void tab.view.webContents.loadURL(normalizeUrl(target));
+    view.webContents.loadURL(url).catch((error: unknown) => {
+      this.deps.onNavigationError?.({ error: String(error), url });
+    });
   }
 
   /** Renderer reports the pane's on-screen rect (ResizeObserver → IPC). */
@@ -182,6 +211,9 @@ export class BrowserViewManager {
     }
     this.tabs.clear();
     this.activeTabId = null;
+    // Tell the renderer the pane is now empty, so a disposed-then-recreated
+    // host never leaves phantom tabs in the strip.
+    this.emitTabs();
   }
 
   private setActiveTab(tabId: string): void {
@@ -214,8 +246,12 @@ export class BrowserViewManager {
 
   private wireView(tabId: string, view: BrowserPaneView): void {
     view.webContents.setWindowOpenHandler(({ url }) => {
-      // Popups become new tabs, never OS windows.
-      this.createTab(url);
+      // Popups become new tabs, never OS windows — but the url here is fully
+      // attacker-controlled (a page can `window.open('file:///…')`), so it is
+      // scheme-filtered exactly like a navigation. A blocked popup is dropped.
+      if (isNavigableUrl(url)) {
+        this.createTab(url);
+      }
       return { action: 'deny' };
     });
     // Navigation/title/loading changes re-emit tab state to the renderer.
@@ -244,22 +280,48 @@ export class BrowserViewManager {
   }
 }
 
-/**
- * Non-hierarchical / no-authority schemes a user can type directly and that
- * must be preserved verbatim. Anything else without an explicit `://`
- * authority is treated as a bare host (incl. `localhost:3000`, whose `:3000`
- * is a PORT, not a scheme) and gets `https://`.
- */
-const PRESERVED_SCHEME = /^(about|data|blob|file|view-source|chrome|devtools):/i;
+/** Explicit `scheme://authority` at the START of the string (not a substring). */
+const HIERARCHICAL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
+/** `about:` / `data:` a user may type; NO `file:`/`devtools:`/`chrome:`/`blob:`. */
+const PRESERVED_SCHEME = /^(about|data):/i;
+/** A bare host: a dotted name, `localhost`, or an explicit `host:port`. */
+const BARE_HOST = /^(localhost|[^\s/]+\.[^\s/]+|[^\s/]+:\d+)(\/|$|\?|#)/i;
+/** DuckDuckGo query fallback for input that is neither a URL nor a host. */
+const SEARCH_PREFIX = 'https://duckduckgo.com/?q=';
 
-/** Blank tabs open to `about:blank`; a bare host gets `https://`. */
+/**
+ * Normalize URL-bar / popup input to a loadable URL:
+ * - blank → `about:blank`
+ * - explicit `scheme://…` or `about:`/`data:` → preserved
+ * - a bare host (`example.com`, `localhost:3000`) → `https://…`
+ * - anything else (`what is rust`) → a search query
+ *
+ * Dangerous schemes (`file:`, `devtools:`, `chrome:`, `blob:`, `view-source:`)
+ * are deliberately NOT preserved — {@link isNavigableUrl} is the final gate.
+ */
 export function normalizeUrl(url: string | undefined): string {
   const trimmed = url?.trim();
   if (!trimmed) {
     return 'about:blank';
   }
-  if (trimmed.includes('://') || PRESERVED_SCHEME.test(trimmed)) {
+  if (HIERARCHICAL_SCHEME.test(trimmed) || PRESERVED_SCHEME.test(trimmed)) {
     return trimmed;
   }
-  return `https://${trimmed}`;
+  if (BARE_HOST.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return `${SEARCH_PREFIX}${encodeURIComponent(trimmed)}`;
+}
+
+/** Schemes the pane will actually load — everything else is refused. */
+const NAVIGABLE_SCHEME = /^(https?|about|data):/i;
+
+/**
+ * Final navigation gate (also applied to attacker-controlled popup urls). Only
+ * http/https/about/data reach the web engine; `file:`, `devtools:`, `chrome:`,
+ * `blob:`, `chrome-extension:` and anything else are refused, so a page can
+ * never pivot the pane into reading the local filesystem or privileged UIs.
+ */
+export function isNavigableUrl(url: string): boolean {
+  return NAVIGABLE_SCHEME.test(url.trim());
 }

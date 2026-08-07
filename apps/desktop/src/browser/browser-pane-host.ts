@@ -16,9 +16,11 @@ import { type BrowserWindow, WebContentsView } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { BROWSER_PANE_PARTITION, getBrowserPaneSession } from './browser-session';
 import {
+  type BrowserHostWindow,
   type BrowserPaneView,
   type BrowserTabState,
   BrowserViewManager,
+  type PaneWebContents,
 } from './browser-view-manager';
 
 const logger = createLogger('BrowserPaneHost');
@@ -26,6 +28,13 @@ const logger = createLogger('BrowserPaneHost');
 /**
  * Build a `WebContentsView` on the pane session partition, adapted to the
  * manager's narrow {@link BrowserPaneView} interface.
+ *
+ * Every method is mapped EXPLICITLY rather than blanket-cast, so TypeScript
+ * confirms each interface method actually exists on the real Electron types —
+ * the one guard against a `WebContentsView`/`WebContents` API drift silently
+ * shipping a broken pane. Only `webContents.on` needs a local cast (its
+ * Electron overload union is not assignable to the narrow `on(event, listener)`
+ * shape).
  */
 function createPaneView(partition: string): BrowserPaneView {
   const view = new WebContentsView({
@@ -39,7 +48,27 @@ function createPaneView(partition: string): BrowserPaneView {
       webSecurity: true,
     },
   });
-  return view as unknown as BrowserPaneView;
+  const { webContents } = view;
+  const paneWebContents: PaneWebContents = {
+    canGoBack: () => webContents.navigationHistory.canGoBack(),
+    canGoForward: () => webContents.navigationHistory.canGoForward(),
+    close: () => webContents.close(),
+    getTitle: () => webContents.getTitle(),
+    getURL: () => webContents.getURL(),
+    goBack: () => webContents.navigationHistory.goBack(),
+    goForward: () => webContents.navigationHistory.goForward(),
+    id: webContents.id,
+    loadURL: (url) => webContents.loadURL(url),
+    on: (event, listener) => {
+      (webContents.on as (e: string, l: (...args: unknown[]) => void) => void)(event, listener);
+    },
+    setWindowOpenHandler: (handler) => webContents.setWindowOpenHandler(handler),
+  };
+  return {
+    setBounds: (rect) => view.setBounds(rect),
+    setVisible: (visible) => view.setVisible(visible),
+    webContents: paneWebContents,
+  };
 }
 
 export interface BrowserPaneHost {
@@ -62,11 +91,24 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     hostWindow.webContents.send(DESKTOP_IPC_CHANNELS.browser.tabsChanged, tabs);
   };
 
+  // A real BrowserWindow's `contentView` satisfies addChildView/removeChildView
+  // over the narrow BrowserPaneView; the cast is only to bridge Electron's View
+  // param type to the interface.
+  const host: BrowserHostWindow = {
+    contentView: {
+      addChildView: (view) =>
+        hostWindow.contentView.addChildView(view as unknown as WebContentsView),
+      removeChildView: (view) =>
+        hostWindow.contentView.removeChildView(view as unknown as WebContentsView),
+    },
+  };
+
   const manager = new BrowserViewManager({
     createView: createPaneView,
-    hostWindow: hostWindow as unknown as BrowserPaneHostWindow,
+    hostWindow: host,
     // Ephemeral session ids — never persisted, so a plain uuid suffices.
     mintTabId: () => randomUUID(),
+    onNavigationError: ({ error, url }) => logger.debug('Pane navigation failed', { error, url }),
     onTabsChanged: pushTabs,
     partition: BROWSER_PANE_PARTITION,
   });
@@ -79,7 +121,3 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     manager,
   };
 }
-
-// The manager's structural host-window interface; a real BrowserWindow's
-// `contentView` satisfies `addChildView`/`removeChildView`.
-type BrowserPaneHostWindow = ConstructorParameters<typeof BrowserViewManager>[0]['hostWindow'];
