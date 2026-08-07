@@ -111,6 +111,29 @@ describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
     );
   });
 
+  it('the timestamp fallback resolves to a USER message, never an assistant upsert (PR #2291 review)', async () => {
+    const { db } = await seedLinkedResumedTurnThread('turn-link-inverse-role');
+    const handle = db as unknown as EditCheckpointDatabase;
+    // An assistant snapshot row lands between this legacy run's start and the
+    // next user message. Resolving to it would feed the range resolver a
+    // boundary that sorts AFTER the turn's own user-message anchor, making
+    // the conversation and file halves disagree about the turn.
+    await insertMessage(db, {
+      createdAt: '2026-01-01T00:02:40Z',
+      id: 'msg-assistant-late',
+      role: 'assistant',
+    });
+    await insertRun(db, {
+      completedAt: '2026-01-01T00:02:50Z',
+      id: 'run-legacy',
+      startedAt: '2026-01-01T00:02:30Z',
+    });
+
+    await expect(resolveRewindMessageForRun(handle, THREAD_ID, 'run-legacy')).resolves.toBe(
+      'msg-c'
+    );
+  });
+
   it('a link pointing at a DELETED message falls back to the timestamp rule instead of answering null', async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-inverse-deleted');
     const handle = db as unknown as EditCheckpointDatabase;
@@ -124,6 +147,37 @@ describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
     await expect(resolveRewindMessageForRun(handle, THREAD_ID, 'run-orphan-link')).resolves.toBe(
       'msg-c'
     );
+  });
+});
+
+describe('pre-1163 runs table — the COLUMN probe, not just the table probe (PR #2291 review)', () => {
+  /** A genuine pre-link install: the table exists, the column does not. The
+   * renderer bootstrap is the ONLY thing that adds it, and main-process
+   * rewind reads (Changes surface) can land first. */
+  async function seedLegacyRunsTable(databaseName: string): Promise<RewindFixture> {
+    const fixture = await seedLinkedResumedTurnThread(databaseName);
+    // Rebuild the timeline's rows without the column rather than dropping it
+    // mid-flight: DROP loses the links, which is exactly the point.
+    await fixture.db.exec(
+      'ALTER TABLE brainstrike_assistant_thread_runs DROP COLUMN turn_message_id'
+    );
+    return fixture;
+  }
+
+  it('resolveRewindRunRange answers via the completed_at rule without raising 42703', async () => {
+    const { db } = await seedLegacyRunsTable('turn-link-legacy-range');
+    const handle = db as unknown as EditCheckpointDatabase;
+
+    const toC = await resolveRewindRunRange(handle, await targetFor(handle, 'msg-c'));
+    // The pre-link rule: runs not yet finished when msg-c was sent.
+    expect(toC).toEqual({ fromRunId: 'run-b1', kind: 'runs', runIds: ['run-b1'] });
+  });
+
+  it('resolveRewindMessageForRun answers via the timestamp rule without raising 42703', async () => {
+    const { db } = await seedLegacyRunsTable('turn-link-legacy-inverse');
+    const handle = db as unknown as EditCheckpointDatabase;
+
+    await expect(resolveRewindMessageForRun(handle, THREAD_ID, 'run-a2')).resolves.toBe('msg-c');
   });
 });
 

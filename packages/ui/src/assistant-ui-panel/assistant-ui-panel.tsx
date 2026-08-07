@@ -95,7 +95,11 @@ import {
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
-import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import {
+  type AssistantUsage,
+  type PrepareRequestBodyContext,
+  useBrainstrikeDataStreamRuntime,
+} from './data-stream-runtime';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
@@ -1027,7 +1031,7 @@ const DataStreamRuntimeChat = ({
     ...(serverRunSession.prepareRequestWarmup
       ? { prepareRequestWarmup: serverRunSession.prepareRequestWarmup }
       : {}),
-    body: async (abortSignal: AbortSignal, context?: { turnAnchorMessageId: string | null }) => {
+    body: async (abortSignal: AbortSignal, context?: PrepareRequestBodyContext) => {
       const preparedRequestData = await serverRunSession.prepareRequest(
         abortSignal,
         // Absent context (a caller predating the BST-1163 signature, incl.

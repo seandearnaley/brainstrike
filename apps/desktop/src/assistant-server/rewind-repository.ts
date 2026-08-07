@@ -70,6 +70,30 @@ const TERMINAL_RUN_STATUSES = ['cancelled', 'completed', 'failed'] as const;
  * An absent runs table is `false`, not a fallback: a profile with no runs table
  * has recorded no runs at all, so none of them can be in flight.
  */
+/**
+ * Whether the runs table carries `turn_message_id` (BST-1163). The renderer's
+ * lazy bootstrap is the ONLY thing that adds the column (no numbered
+ * migration), and main-process rewind reads — reachable from the Changes
+ * surface — can land before the renderer's first repository call on an
+ * upgraded install. Referencing the column then raises 42703, and a caught
+ * error inside a transaction leaves it aborted, so it is PROBED via
+ * information_schema (the `job-queue.ts` precedent), never try/caught.
+ * Deliberately NOT latched: the column appears mid-session the moment the
+ * renderer bootstrap runs, and one probe per rewind interaction is cheap.
+ */
+async function runsTurnLinkColumnExists(db: EditCheckpointDatabase): Promise<boolean> {
+  const result = await db.query<{ present: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = 'turn_message_id'
+     ) AS present`,
+    [RUNS_TABLE]
+  );
+  return result.rows[0]?.present === true;
+}
+
 export async function hasInFlightThreadRun(
   db: EditCheckpointDatabase,
   threadId: string
@@ -220,21 +244,30 @@ export async function resolveRewindRunRange(
   // (finalized rewind hard-deleted it) — keeps the original `completed_at`
   // fallback: "had not finished when the target message was sent". Never a
   // silent drop from the range.
-  const result = await db.query<{ id: string }>(
-    `SELECT r.id AS "id"
-     FROM ${RUNS_TABLE} r
-     LEFT JOIN ${MASTRA_MEMORY_TABLES.messages} m
-       ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
-     WHERE r.thread_id = $1
-       AND (
-         CASE WHEN m.id IS NOT NULL
-           THEN (m."createdAt", m.id) >= ($2::timestamptz, $3)
-           ELSE (r.completed_at IS NULL OR r.completed_at > $2::timestamptz)
-         END
-       )
-     ORDER BY r.started_at ASC, r.id ASC`,
-    [target.threadId, target.createdAt, target.messageId]
-  );
+  const result = (await runsTurnLinkColumnExists(db))
+    ? await db.query<{ id: string }>(
+        `SELECT r.id AS "id"
+         FROM ${RUNS_TABLE} r
+         LEFT JOIN ${MASTRA_MEMORY_TABLES.messages} m
+           ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
+         WHERE r.thread_id = $1
+           AND (
+             CASE WHEN m.id IS NOT NULL
+               THEN (m."createdAt", m.id) >= ($2::timestamptz, $3)
+               ELSE (r.completed_at IS NULL OR r.completed_at > $2::timestamptz)
+             END
+           )
+         ORDER BY r.started_at ASC, r.id ASC`,
+        [target.threadId, target.createdAt, target.messageId]
+      )
+    : // Pre-link table (the column arrives with the renderer bootstrap): the
+      // original completed_at rule, with the column never referenced at all.
+      await db.query<{ id: string }>(
+        `SELECT id AS "id" FROM ${RUNS_TABLE}
+         WHERE thread_id = $1 AND (completed_at IS NULL OR completed_at > $2::timestamptz)
+         ORDER BY started_at ASC, id ASC`,
+        [target.threadId, target.createdAt]
+      );
   const runIds = result.rows.map((row) => row.id);
   const fromRunId = runIds[0];
   if (!fromRunId) {
@@ -296,17 +329,19 @@ export async function resolveRewindMessageForRun(
   // link whose message was hard-deleted (finalized rewind) falls back to the
   // timestamp rule below rather than answering a message the rewind API
   // would refuse.
-  const linkedResult = await db.query<{ id: string }>(
-    `SELECT r.turn_message_id AS "id"
-     FROM ${RUNS_TABLE} r
-     JOIN ${MASTRA_MEMORY_TABLES.messages} m
-       ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
-     WHERE r.id = $1 AND r.thread_id = $2 AND r.turn_message_id IS NOT NULL`,
-    [runId, threadId]
-  );
-  const linkedMessageId = linkedResult.rows[0]?.id;
-  if (linkedMessageId !== undefined) {
-    return linkedMessageId;
+  if (await runsTurnLinkColumnExists(db)) {
+    const linkedResult = await db.query<{ id: string }>(
+      `SELECT r.turn_message_id AS "id"
+       FROM ${RUNS_TABLE} r
+       JOIN ${MASTRA_MEMORY_TABLES.messages} m
+         ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
+       WHERE r.id = $1 AND r.thread_id = $2 AND r.turn_message_id IS NOT NULL`,
+      [runId, threadId]
+    );
+    const linkedMessageId = linkedResult.rows[0]?.id;
+    if (linkedMessageId !== undefined) {
+      return linkedMessageId;
+    }
   }
   const runResult = await db.query<{ startedAt: string }>(
     `SELECT started_at::text AS "startedAt" FROM ${RUNS_TABLE} WHERE id = $1 AND thread_id = $2`,
@@ -316,10 +351,15 @@ export async function resolveRewindMessageForRun(
   if (startedAt === undefined) {
     return null;
   }
+  // USER messages only (PR #2291 review): resolving to an assistant snapshot
+  // row would hand the range resolver a boundary that sorts AFTER the same
+  // turn's user-message anchor, making the conversation and file halves
+  // disagree about that turn. Rewind targets are user messages everywhere
+  // else in the flow.
   const messageResult = await db.query<{ id: string }>(
     `SELECT id AS "id"
      FROM ${MASTRA_MEMORY_TABLES.messages}
-     WHERE thread_id = $1 AND "createdAt" > $2::timestamptz
+     WHERE thread_id = $1 AND "createdAt" > $2::timestamptz AND role = 'user'
      ORDER BY "createdAt" ASC, id ASC
      LIMIT 1`,
     [threadId, startedAt]
