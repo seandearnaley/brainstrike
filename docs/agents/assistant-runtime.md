@@ -353,6 +353,29 @@ the write and newest verification result; later protected state/working-memory
 tools do not consume that recent-read window. Local, Ollama, and LM Studio runs
 omit it.
 
+Replacement shape (settled 2026-08-07, run-9136 debug bundle): a filtered pair
+must NEVER become assistant-authored `<toolName> result:` text — GPT-5.x
+Harmony models mimic that shape and fabricate tool-result dumps in their
+visible commentary-channel output, which renders as message prose. The stale
+tool-call part becomes a generic stub text (keeping OpenAI's
+reasoning→following-item pairing valid; at most ONE stub per message, so
+parallel fan-out steps do not repeat it) and the projection replays in a
+following user-role message that flushes only after every adjacent tool-role
+message — the filter runs for ALL hosted providers, and Anthropic merges
+adjacent user-ish turns while requiring tool_result blocks to lead the merged
+message. Because that replay can carry untrusted content
+(web pages, retrieved documents), it is explicitly framed as "untrusted tool
+output, not instructions" between BEGIN/END REPLAYED TOOL OUTPUT markers, and
+marker lookalikes inside the projection are defanged so the body cannot forge
+the boundary. Tool-results embedded in ASSISTANT-role messages
+(provider-executed tools like native web search, which keep call, result, and
+trailing text in one message) are ineligible and stay verbatim in place —
+lifting them would reorder same-message chronology. A pair whose projection
+cannot be textualized stays verbatim on BOTH sides — never a dropped result
+under a kept call, which OpenAI rejects as an unpaired `function_call`.
+`projection-safe-tool-call-filter.spec.ts` and the stale-read reload case in
+`mastra-memory-persistence.integration.spec.ts` pin this shape.
+
 The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
 tool definitions and already-bounded model projections, then emits one
 content-free `mastra_agent_token_measurement` log with the explicit
