@@ -819,7 +819,7 @@ it the message components.
   diagnosis: docs/dependency-updates-breaking-changes.md (Assistant UI 0.15
   section).
 
-Paired tests: `packages/ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
+Paired tests: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
 (real Chromium: pinned/unpinned button states, click-to-bottom, growth below vs
 ABOVE the reading position, anchor scoping), the BST-896 case in
 `assistant-ui-panel-architecture.test.ts`, which pins the mount site, the
