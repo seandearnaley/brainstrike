@@ -18,7 +18,7 @@ import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
-import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
+import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import {
   configureDesktopCommandSessionManager,
@@ -39,6 +39,7 @@ import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
+import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -125,6 +126,7 @@ import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
+import { registerPrivilegedSchemes } from './privileged-schemes';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -144,9 +146,10 @@ const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
   process.argv
 );
 
-// MUST run before app.whenReady(): privileged scheme registration is only
-// honored if it happens before the app is ready.
-registerAssetProtocolPrivileges();
+// MUST run before app.whenReady(), and exactly once for ALL privileged
+// schemes: Electron honors a single registerSchemesAsPrivileged call per
+// launch (see privileged-schemes.ts).
+registerPrivilegedSchemes();
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
@@ -1376,6 +1379,10 @@ if (singleInstanceLockAcquired) {
       // renderer-supplied paths against the DB `roots` table — the SAME source
       // the git/read/search tools use — resolving the DB lazily per request.
       registerAssetProtocol(createDatabaseRootResolver(getDatabase));
+
+      // Static Canvas sandbox shell (BST-1173); no DB dependency, serves one
+      // reviewed document with its own CSP header (see canvas-protocol.ts).
+      registerCanvasProtocol();
 
       // BST-1112: cross-workspace git worktree inventory service. Constructed
       // and started HERE, inside app.whenReady() — never at module scope.

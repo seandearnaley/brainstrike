@@ -11,6 +11,7 @@ export { default as icon512 } from '../icons/icon-512x512.png?url';
 export * from './accordion';
 export * from './badge';
 export * from './button';
+export * from './canvas-surface';
 export * from './card';
 export * from './checkbox';
 export * from './code-surface';

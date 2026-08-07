@@ -13,6 +13,7 @@
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/logging": "workspace:*",
+    "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
