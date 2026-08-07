@@ -44,12 +44,21 @@ function createFakeDb(): CanvasDatabase & { readonly versions: StoredVersion[] }
             latest.set(row.canvasId, row);
           }
         }
-        return { rows: [...latest.values()] as T[] };
+        // Summary shape mirrors the real list SQL: no html, no ids beyond canvasId.
+        return {
+          rows: [...latest.values()].map((row) => ({
+            canvasId: row.canvasId,
+            createdAt: row.createdAt,
+            title: row.title,
+            version: row.version,
+          })) as T[],
+        };
       }
       if (/FROM brainstrike_canvas_versions/i.test(sql)) {
         const canvasId = String(params?.[0]);
+        const threadId = String(params?.[1]);
         const latest = versions
-          .filter((candidate) => candidate.canvasId === canvasId)
+          .filter((candidate) => candidate.canvasId === canvasId && candidate.threadId === threadId)
           .sort((left, right) => right.version - left.version)[0];
         return { rows: (latest ? [latest] : []) as T[] };
       }
@@ -107,19 +116,38 @@ describe('runManageCanvas', () => {
     ).resolves.toEqual({ canvasId: created.canvasId, version: 3 });
 
     const listed = await run(db, { action: 'list' });
-    expect(listed).toMatchObject({
+    expect(listed).toEqual({
       canvases: [
         {
           canvasId: created.canvasId,
-          createdBy: 'assistant',
-          html: '<p>Final</p>',
-          resourceId: 'resource-1',
-          threadId: 'thread-1',
+          createdAt: expect.any(String),
           title: 'Draft',
           version: 3,
         },
       ],
+      truncated: false,
     });
+    // Listings must never inline canvas html into model context.
+    expect(JSON.stringify(listed)).not.toContain('<p>Final</p>');
+  });
+
+  it('scopes mutations to the calling thread: a foreign canvas id is uniformly not_found', async () => {
+    const db = createFakeDb();
+    const created = await run(db, { action: 'create', html: '<p>Mine</p>', title: 'Mine' });
+    if (!('canvasId' in created)) {
+      throw new Error('expected create result');
+    }
+
+    await expect(
+      run(
+        db,
+        { action: 'rewrite', canvasId: created.canvasId, html: '<p>Stolen</p>' },
+        runtimeWithThread('other-thread', 'other-resource')
+      )
+    ).resolves.toEqual({ error: 'not_found', ok: false });
+    // The other thread's write never landed.
+    expect(db.versions).toHaveLength(1);
+    expect(db.versions[0]?.html).toBe('<p>Mine</p>');
   });
 
   it('propagates structured no-match and ambiguous-match results', async () => {
@@ -150,7 +178,8 @@ describe('runManageCanvas', () => {
   it('returns a structured error when there is no active thread or resource', async () => {
     const db = createFakeDb();
     await expect(run(db, { action: 'list' }, {} as RuntimeData)).resolves.toEqual({
-      error: expect.stringContaining('thread'),
+      error: 'no_active_thread',
+      hint: expect.stringContaining('thread'),
       ok: false,
     });
     expect(db.versions).toEqual([]);

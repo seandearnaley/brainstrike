@@ -198,10 +198,10 @@ describe('buildNativeToolRiskMap', () => {
     expect(buildNativeToolRiskMap()['brainstrike.manageTaskList']).toBe('read');
   });
 
-  it("classifies manageCanvas as 'read' so versioned DB updates avoid the live Changes stream", () => {
+  it("classifies manageCanvas as 'edit': durable writes must not be plan-mode/default-allow (PR #2294)", () => {
     expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageCanvas']?.category).toBe('action');
     expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageCanvas']?.requiresApproval).toBe(false);
-    expect(buildNativeToolRiskMap()['brainstrike.manageCanvas']).toBe('read');
+    expect(buildNativeToolRiskMap()['brainstrike.manageCanvas']).toBe('edit');
   });
 });
 

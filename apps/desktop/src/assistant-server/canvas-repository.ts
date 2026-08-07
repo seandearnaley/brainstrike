@@ -33,14 +33,21 @@ export interface ApplyCanvasUpdateInput {
   readonly canvasId: string;
   readonly newString: string;
   readonly oldString: string;
+  /** Mutations are scoped to the calling thread — see {@link getLatestVersionForThread}. */
+  readonly threadId: string;
 }
 
 export interface RewriteCanvasInput {
   readonly canvasId: string;
   readonly html: string;
+  readonly threadId: string;
 }
 
-export type CanvasRepositoryError = 'ambiguous_match' | 'no_match' | 'not_found';
+export type CanvasRepositoryError =
+  | 'ambiguous_match'
+  | 'no_match'
+  | 'not_found'
+  | 'version_conflict';
 export interface CanvasRepositoryFailure {
   readonly error: CanvasRepositoryError;
   readonly ok: false;
@@ -110,24 +117,36 @@ async function insertVersion(
     readonly title: string;
     readonly version: number;
   }
-): Promise<CanvasMutationSuccess> {
+): Promise<CanvasMutationResult> {
   const id = generateWorkspaceSnapshotId();
-  const result = await db.query<CanvasMutationSuccess>(
-    `INSERT INTO ${CANVAS_VERSIONS_TABLE}
-       (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING canvas_id AS "canvasId", version AS "version"`,
-    [
-      id,
-      input.canvasId,
-      input.threadId,
-      input.resourceId,
-      input.title,
-      input.html,
-      input.version,
-      input.createdBy,
-    ]
-  );
+  let result: { rows: CanvasMutationSuccess[] };
+  try {
+    result = await db.query<CanvasMutationSuccess>(
+      `INSERT INTO ${CANVAS_VERSIONS_TABLE}
+         (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING canvas_id AS "canvasId", version AS "version"`,
+      [
+        id,
+        input.canvasId,
+        input.threadId,
+        input.resourceId,
+        input.title,
+        input.html,
+        input.version,
+        input.createdBy,
+      ]
+    );
+  } catch (error) {
+    // Parallel tool calls can both read version N and race to insert N+1; the
+    // UNIQUE (canvas_id, version) constraint makes the loser fail here. That
+    // is an EXPECTED concurrency outcome, so it returns the structured
+    // version_conflict (retryable) instead of surfacing a raw driver throw.
+    if (isUniqueViolation(error)) {
+      return { error: 'version_conflict', ok: false };
+    }
+    throw error;
+  }
   const row = result.rows[0];
   if (!row) {
     throw new Error('canvas version INSERT returned no row');
@@ -135,25 +154,48 @@ async function insertVersion(
   return row;
 }
 
+/** PGlite surfaces Postgres error 23505 (unique_violation) on the thrown error. */
+function isUniqueViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code === '23505') {
+    return true;
+  }
+  return (
+    typeof candidate.message === 'string' &&
+    candidate.message.includes('duplicate key value violates unique constraint')
+  );
+}
+
 export async function createCanvas(
   db: CanvasDatabase,
   input: CreateCanvasInput
-): Promise<CanvasMutationSuccess> {
+): Promise<CanvasMutationResult> {
   const canvasId = generateWorkspaceSnapshotId();
   return await insertVersion(db, { ...input, canvasId, version: 1 });
 }
 
-export async function getLatestVersion(
+/**
+ * Thread-scoped lookup: mutations must never cross threads. A canvas that
+ * exists in ANOTHER thread returns the same `not_found` as a canvas that does
+ * not exist at all — a distinct error would let a leaked id be used as a
+ * cross-thread existence oracle (same uniform-response reasoning as the
+ * brainstrike-asset protocol's 404s).
+ */
+export async function getLatestVersionForThread(
   db: CanvasDatabase,
-  canvasId: string
+  canvasId: string,
+  threadId: string
 ): Promise<GetLatestCanvasResult> {
   const result = await db.query<CanvasSqlRow>(
     `SELECT ${ROW_SELECT}
        FROM ${CANVAS_VERSIONS_TABLE}
-      WHERE canvas_id = $1
+      WHERE canvas_id = $1 AND thread_id = $2
       ORDER BY version DESC
       LIMIT 1`,
-    [canvasId]
+    [canvasId, threadId]
   );
   const row = result.rows[0];
   if (!row) {
@@ -172,7 +214,7 @@ export async function applyUpdate(
   db: CanvasDatabase,
   input: ApplyCanvasUpdateInput
 ): Promise<CanvasMutationResult> {
-  const latest = await getLatestVersion(db, input.canvasId);
+  const latest = await getLatestVersionForThread(db, input.canvasId, input.threadId);
   if (isCanvasRepositoryFailure(latest)) {
     return latest;
   }
@@ -204,7 +246,7 @@ export async function rewriteCanvas(
   db: CanvasDatabase,
   input: RewriteCanvasInput
 ): Promise<CanvasMutationResult> {
-  const latest = await getLatestVersion(db, input.canvasId);
+  const latest = await getLatestVersionForThread(db, input.canvasId, input.threadId);
   if (isCanvasRepositoryFailure(latest)) {
     return latest;
   }
@@ -219,16 +261,56 @@ export async function rewriteCanvas(
   });
 }
 
+export interface CanvasSummary {
+  readonly canvasId: string;
+  readonly createdAt: string;
+  readonly title: string;
+  readonly version: number;
+}
+
+/** Newest-first cap on listings; exhaustion is reported, never silent. */
+export const CANVAS_LIST_LIMIT = 50;
+
+export interface CanvasListResult {
+  readonly canvases: readonly CanvasSummary[];
+  /** True when more canvases exist beyond {@link CANVAS_LIST_LIMIT}. */
+  readonly truncated: boolean;
+}
+
+/**
+ * Listings return SUMMARIES only — never `html`. A list that inlined every
+ * canvas's full document would stream unbounded HTML into model context
+ * (there is no per-tool output budget wired for this tool); readers fetch a
+ * specific canvas when they need its content.
+ */
 export async function listCanvasesForThread(
   db: CanvasDatabase,
   threadId: string
-): Promise<readonly CanvasVersion[]> {
-  const result = await db.query<CanvasSqlRow>(
-    `SELECT DISTINCT ON (canvas_id) ${ROW_SELECT}
+): Promise<CanvasListResult> {
+  interface CanvasSummaryRow {
+    canvasId: string;
+    createdAt: string;
+    title: string;
+    version: number;
+  }
+  const result = await db.query<CanvasSummaryRow>(
+    `SELECT * FROM (
+       SELECT DISTINCT ON (canvas_id)
+         canvas_id AS "canvasId",
+         title AS "title",
+         version AS "version",
+         created_at::text AS "createdAt"
        FROM ${CANVAS_VERSIONS_TABLE}
       WHERE thread_id = $1
-      ORDER BY canvas_id, version DESC`,
+      ORDER BY canvas_id, version DESC
+     ) AS latest
+     ORDER BY latest."createdAt" DESC
+     LIMIT ${CANVAS_LIST_LIMIT + 1}`,
     [threadId]
   );
-  return result.rows.map(toCanvasVersion);
+  const truncated = result.rows.length > CANVAS_LIST_LIMIT;
+  return {
+    canvases: result.rows.slice(0, CANVAS_LIST_LIMIT),
+    truncated,
+  };
 }

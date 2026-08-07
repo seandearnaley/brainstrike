@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyUpdate,
+  CANVAS_LIST_LIMIT,
   type CanvasDatabase,
+  type CanvasSummary,
   type CanvasVersion,
   createCanvas,
-  getLatestVersion,
+  getLatestVersionForThread,
   listCanvasesForThread,
   rewriteCanvas,
 } from '../../assistant-server/canvas-repository';
@@ -63,6 +65,9 @@ describe('canvas repository', () => {
       canvasId: expect.stringMatching(/^[0-9a-f-]+$/),
       version: 1,
     });
+    if (!('canvasId' in result)) {
+      throw new Error('expected create success');
+    }
     const params = db.calls[0]?.params;
     expect(params?.[0]).toEqual(expect.stringMatching(/^[0-9a-f-]+$/));
     expect(params?.[1]).toBe(result.canvasId);
@@ -77,26 +82,63 @@ describe('canvas repository', () => {
     ]);
   });
 
-  it('reads the latest version with a text-cast timestamp and validates created_by', async () => {
+  it('reads the latest version thread-scoped, with a text-cast timestamp and validated created_by', async () => {
     const db = createFakeDatabase(({ sql, params }) => {
       expect(sql).toContain('created_at::text AS "createdAt"');
+      expect(sql).toMatch(/WHERE canvas_id = \$1 AND thread_id = \$2/i);
       expect(sql).toMatch(/ORDER BY version DESC/i);
-      expect(params).toEqual(['canvas-1']);
+      expect(params).toEqual(['canvas-1', 'thread-1']);
       return [versionRow()];
     });
 
-    await expect(getLatestVersion(db, 'canvas-1')).resolves.toEqual(versionRow());
+    await expect(getLatestVersionForThread(db, 'canvas-1', 'thread-1')).resolves.toEqual(
+      versionRow()
+    );
 
     const corrupt = createFakeDatabase(() => [versionRow({ createdBy: 'system' as 'assistant' })]);
-    await expect(getLatestVersion(corrupt, 'canvas-1')).rejects.toThrow(/created_by|creator/i);
+    await expect(getLatestVersionForThread(corrupt, 'canvas-1', 'thread-1')).rejects.toThrow(
+      /created_by|creator/i
+    );
   });
 
-  it('returns a structured not_found result when the canvas has no versions', async () => {
+  it('returns the same uniform not_found for missing AND cross-thread canvases (no existence oracle)', async () => {
     const db = createFakeDatabase(() => []);
-    await expect(getLatestVersion(db, 'missing')).resolves.toEqual({
+    await expect(getLatestVersionForThread(db, 'missing', 'thread-1')).resolves.toEqual({
       error: 'not_found',
       ok: false,
     });
+    // A cross-thread id produces zero rows through the same thread-scoped
+    // query, hence a byte-identical result to a nonexistent id.
+    await expect(
+      applyUpdate(db, {
+        canvasId: 'other-threads-canvas',
+        newString: 'x',
+        oldString: 'y',
+        threadId: 'thread-1',
+      })
+    ).resolves.toEqual({ error: 'not_found', ok: false });
+  });
+
+  it('maps a unique-constraint race to a structured retryable version_conflict', async () => {
+    const db = createFakeDatabase((_call, index) => {
+      if (index === 0) {
+        return [versionRow({ version: 3 })];
+      }
+      throw Object.assign(
+        new Error(
+          'duplicate key value violates unique constraint "brainstrike_canvas_versions_canvas_id_version_key"'
+        ),
+        { code: '23505' }
+      );
+    });
+    await expect(
+      applyUpdate(db, {
+        canvasId: 'canvas-1',
+        newString: 'Canvas',
+        oldString: 'world',
+        threadId: 'thread-1',
+      })
+    ).resolves.toEqual({ error: 'version_conflict', ok: false });
   });
 
   it('applies an exact single replacement into a new assistant-authored version', async () => {
@@ -108,7 +150,12 @@ describe('canvas repository', () => {
     });
 
     await expect(
-      applyUpdate(db, { canvasId: 'canvas-1', newString: 'Canvas', oldString: 'world' })
+      applyUpdate(db, {
+        canvasId: 'canvas-1',
+        newString: 'Canvas',
+        oldString: 'world',
+        threadId: 'thread-1',
+      })
     ).resolves.toEqual({ canvasId: 'canvas-1', version: 4 });
 
     expect(db.calls).toHaveLength(2);
@@ -126,7 +173,12 @@ describe('canvas repository', () => {
   it('returns no_match without inserting when oldString is absent', async () => {
     const db = createFakeDatabase(() => [versionRow()]);
     await expect(
-      applyUpdate(db, { canvasId: 'canvas-1', newString: 'Canvas', oldString: 'missing' })
+      applyUpdate(db, {
+        canvasId: 'canvas-1',
+        newString: 'Canvas',
+        oldString: 'missing',
+        threadId: 'thread-1',
+      })
     ).resolves.toEqual({ error: 'no_match', ok: false });
     expect(db.calls).toHaveLength(1);
   });
@@ -134,7 +186,12 @@ describe('canvas repository', () => {
   it('returns ambiguous_match without inserting when oldString occurs more than once, including overlaps', async () => {
     const db = createFakeDatabase(() => [versionRow({ html: '<p>aaa</p>' })]);
     await expect(
-      applyUpdate(db, { canvasId: 'canvas-1', newString: 'new', oldString: 'aa' })
+      applyUpdate(db, {
+        canvasId: 'canvas-1',
+        newString: 'new',
+        oldString: 'aa',
+        threadId: 'thread-1',
+      })
     ).resolves.toEqual({ error: 'ambiguous_match', ok: false });
     expect(db.calls).toHaveLength(1);
   });
@@ -147,7 +204,7 @@ describe('canvas repository', () => {
     );
 
     await expect(
-      rewriteCanvas(db, { canvasId: 'canvas-1', html: '<p>Rewritten</p>' })
+      rewriteCanvas(db, { canvasId: 'canvas-1', html: '<p>Rewritten</p>', threadId: 'thread-1' })
     ).resolves.toEqual({ canvasId: 'canvas-1', version: 6 });
     expect(db.calls[1]?.params?.slice(1)).toEqual([
       'canvas-1',
@@ -160,17 +217,32 @@ describe('canvas repository', () => {
     ]);
   });
 
-  it('lists the latest version of each canvas for one thread', async () => {
-    const latestA = versionRow({ canvasId: 'canvas-a', version: 2 });
-    const latestB = versionRow({ canvasId: 'canvas-b', title: 'Second' });
+  it('lists thread canvases as summaries only — never html — with an explicit truncation flag', async () => {
+    const summary = (index: number): CanvasSummary => ({
+      canvasId: `canvas-${index}`,
+      createdAt: '2026-08-06 12:34:56.123456+00',
+      title: `Canvas ${index}`,
+      version: 1,
+    });
     const db = createFakeDatabase(({ sql, params }) => {
       expect(sql).toMatch(/DISTINCT ON \(canvas_id\)/i);
       expect(sql).toMatch(/WHERE thread_id = \$1/i);
-      expect(sql).toMatch(/ORDER BY canvas_id, version DESC/i);
+      expect(sql).not.toMatch(/html/i);
+      expect(sql).toContain(`LIMIT ${CANVAS_LIST_LIMIT + 1}`);
       expect(params).toEqual(['thread-1']);
-      return [latestA, latestB];
+      return [summary(1), summary(2)];
     });
 
-    await expect(listCanvasesForThread(db, 'thread-1')).resolves.toEqual([latestA, latestB]);
+    await expect(listCanvasesForThread(db, 'thread-1')).resolves.toEqual({
+      canvases: [summary(1), summary(2)],
+      truncated: false,
+    });
+
+    const overflowing = createFakeDatabase(() =>
+      Array.from({ length: CANVAS_LIST_LIMIT + 1 }, (_value, index) => summary(index))
+    );
+    const overflowResult = await listCanvasesForThread(overflowing, 'thread-1');
+    expect(overflowResult.truncated).toBe(true);
+    expect(overflowResult.canvases).toHaveLength(CANVAS_LIST_LIMIT);
   });
 });

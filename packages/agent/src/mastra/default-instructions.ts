@@ -379,7 +379,7 @@ function buildCanvasInstruction(names: ModelFacingToolNames): string {
   if (!names.manageCanvas) {
     return '';
   }
-  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents. Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
+  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
 }
 
 /** The persona shape the delegation guidance needs (ids/labels/descriptions only). */

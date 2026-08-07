@@ -11,22 +11,32 @@ const ROOT_QUALIFIER_DESCRIPTION =
 const ROOT_WRITE_GUARD_DESCRIPTION =
   'Open-folder name/id. Omit for the Focused folder; an explicit root always wins.';
 
+// Same explicit outer DoS guard as the workspace-file content fields below
+// (8 MB): canvas html is written verbatim into a text column and rendered in
+// the sandbox; unbounded payloads are a storage + context hazard.
+const CANVAS_HTML_MAX = 8_000_000;
+const CANVAS_TITLE_MAX = 500;
+
 const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
   z
     .object({
       action: z.literal('create'),
-      html: z.string().describe('Initial HTML content for version 1'),
-      title: z.string().min(1).describe('Canvas document title'),
+      html: z.string().max(CANVAS_HTML_MAX).describe('Initial HTML content for version 1'),
+      title: z.string().min(1).max(CANVAS_TITLE_MAX).describe('Canvas document title'),
     })
     .strict(),
   z
     .object({
       action: z.literal('update'),
       canvasId: z.string().min(1).describe('Canvas document id'),
-      newString: z.string().describe('Replacement HTML substring; empty deletes the match'),
+      newString: z
+        .string()
+        .max(CANVAS_HTML_MAX)
+        .describe('Replacement HTML substring; empty deletes the match'),
       oldString: z
         .string()
         .min(1)
+        .max(CANVAS_HTML_MAX)
         .describe('Exact HTML substring that must occur exactly once in the latest version'),
     })
     .strict(),
@@ -34,7 +44,7 @@ const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
     .object({
       action: z.literal('rewrite'),
       canvasId: z.string().min(1).describe('Canvas document id'),
-      html: z.string().describe('Complete HTML content for the new version'),
+      html: z.string().max(CANVAS_HTML_MAX).describe('Complete HTML content for the new version'),
     })
     .strict(),
   z.object({ action: z.literal('list') }).strict(),
@@ -52,10 +62,23 @@ export const ManageCanvasInputSchema = z
   .object({
     action: z.enum(['create', 'update', 'rewrite', 'list']).describe('Canvas operation'),
     canvasId: z.string().min(1).optional().describe('Required for update and rewrite'),
-    html: z.string().optional().describe('Complete HTML; required for create and rewrite'),
-    newString: z.string().optional().describe('Update replacement; may be empty'),
-    oldString: z.string().min(1).optional().describe('Update target; must occur exactly once'),
-    title: z.string().min(1).optional().describe('Required for create'),
+    html: z
+      .string()
+      .max(CANVAS_HTML_MAX)
+      .optional()
+      .describe('Complete HTML; required for create and rewrite'),
+    newString: z
+      .string()
+      .max(CANVAS_HTML_MAX)
+      .optional()
+      .describe('Update replacement; may be empty'),
+    oldString: z
+      .string()
+      .min(1)
+      .max(CANVAS_HTML_MAX)
+      .optional()
+      .describe('Update target; must occur exactly once'),
+    title: z.string().min(1).max(CANVAS_TITLE_MAX).optional().describe('Required for create'),
   })
   .strict()
   .superRefine((input, context) => {

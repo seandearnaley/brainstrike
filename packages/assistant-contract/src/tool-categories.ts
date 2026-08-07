@@ -247,14 +247,20 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     riskCategory: 'read',
   },
   // Like manageTaskList, this is DB-backed, versioned, and reversible rather
-  // than a workspace-file edit. Keep it in the explicit 'read' risk bucket so
-  // Canvas updates do not enter the live Changes refresh stream.
+  // than a workspace-file edit — but its create/update/rewrite actions PERSIST
+  // durable state, so it belongs in the 'edit' risk bucket (PR #2294 review):
+  // 'read' tools are allowed by default under permission enforcement and stay
+  // usable in plan mode, which would let the model write canvases while
+  // supposedly only planning. Consequences accepted: canvas completions enter
+  // the edit-activity stream (harmless refresh; the Canvas surface will want a
+  // signal anyway), and the read-only 'list' action rides the mutation
+  // classification until a split is warranted.
   [NATIVE_TOOL_ID.manageCanvas]: {
     category: 'action',
     estimatedTokens: 220,
     loadingTier: 'deferred',
     requiresApproval: false,
-    riskCategory: 'read',
+    riskCategory: 'edit',
   },
   [NATIVE_TOOL_ID.manageCommandSession]: {
     category: 'action',

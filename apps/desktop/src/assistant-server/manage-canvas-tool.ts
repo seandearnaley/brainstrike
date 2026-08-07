@@ -4,9 +4,8 @@ import { createLogger } from '@brainstrike/logging';
 import {
   applyUpdate,
   type CanvasDatabase,
+  type CanvasListResult,
   type CanvasMutationResult,
-  type CanvasRepositoryFailure,
-  type CanvasVersion,
   createCanvas,
   listCanvasesForThread,
   rewriteCanvas,
@@ -28,11 +27,21 @@ async function resolveDesktopDatabase(): Promise<CanvasDatabase> {
   return getDatabase();
 }
 
+/**
+ * Closed failure vocabulary: the tool adds exactly one failure of its own
+ * (`no_active_thread`) on top of the repository's — consumers narrowing on
+ * `result.error` keep exhaustiveness checking.
+ */
+export interface ManageCanvasNoThreadFailure {
+  readonly error: 'no_active_thread';
+  readonly hint: string;
+  readonly ok: false;
+}
+
 export type ManageCanvasToolResult =
+  | CanvasListResult
   | CanvasMutationResult
-  | CanvasRepositoryFailure
-  | { readonly canvases: readonly CanvasVersion[] }
-  | { readonly error: string; readonly ok: false };
+  | ManageCanvasNoThreadFailure;
 
 export async function runManageCanvas(
   input: ManageCanvasInput,
@@ -43,7 +52,11 @@ export async function runManageCanvas(
   const resourceId = runtimeData?.memory?.resourceId;
   if (!(threadId && resourceId)) {
     logger.warn('manageCanvas called without an active memory thread');
-    return { error: 'manageCanvas requires an active memory thread.', ok: false };
+    return {
+      error: 'no_active_thread',
+      hint: 'manageCanvas requires an active memory thread.',
+      ok: false,
+    };
   }
 
   const db = dependencies.database ?? (await resolveDesktopDatabase());
@@ -57,10 +70,13 @@ export async function runManageCanvas(
         title: input.title,
       });
     case 'update':
-      return await applyUpdate(db, input);
+      // threadId comes from runtime memory, NEVER from model input: mutations
+      // are hard-scoped to the calling thread (cross-thread ids resolve to the
+      // same uniform not_found as nonexistent ids).
+      return await applyUpdate(db, { ...input, threadId });
     case 'rewrite':
-      return await rewriteCanvas(db, input);
+      return await rewriteCanvas(db, { ...input, threadId });
     case 'list':
-      return { canvases: await listCanvasesForThread(db, threadId) };
+      return await listCanvasesForThread(db, threadId);
   }
 }
