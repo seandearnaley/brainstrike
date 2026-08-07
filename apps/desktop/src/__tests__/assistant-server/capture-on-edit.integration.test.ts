@@ -33,6 +33,7 @@ vi.mock('electron', () => ({
 }));
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_ID = 'root-1';
 const RUN_ID = 'run-abc';
@@ -50,23 +51,6 @@ function runtime(): RuntimeData {
 }
 
 const runContext = (toolCallId: string) => ({ agent: { toolCallId } });
-
-/**
- * @mastra/core 1.55 widened ToolsInput[string] with members that carry no
- * `execute` (provider-defined tools, web-search placeholders); every tool this
- * suite exercises is a Brainstrike createTool result, so a missing execute is
- * a test bug — throw, never skip.
- */
-function executeTool(
-  tool: ReturnType<typeof buildDesktopAssistantTools>[string] | undefined,
-  input: unknown,
-  context: unknown
-): Promise<unknown> {
-  if (!(tool && 'execute' in tool && typeof tool.execute === 'function')) {
-    throw new Error('expected an executable assistant tool');
-  }
-  return tool.execute(input as never, context as never) as Promise<unknown>;
-}
 
 interface CheckpointRow {
   after_hash: string | null;
@@ -119,8 +103,7 @@ describe('edit checkpoint capture on write', () => {
     // Plain-text fixture (.txt): keeps this a focused checkpoint-CONTRACT test
     // with a strict toEqual — a .ts path would additionally attach the post-edit
     // `lsp` diagnostics field (report R2), which is covered by its own tests.
-    const result = await executeTool(
-      tools['brainstrike.writeWorkspaceFile'],
+    const result = await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
       { content: 'hello\n', path: '/new.txt' },
       runContext('call-write-1')
     );
@@ -151,8 +134,7 @@ describe('edit checkpoint capture on write', () => {
     // which broke the renderer's `entriesByToolCallId` binding and hid BOTH
     // checkpoint-undo affordances.
     const tools = buildDesktopAssistantTools(runtime());
-    await executeTool(
-      tools['brainstrike.writeWorkspaceFile'],
+    await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
       { content: 'hello\n', path: '/plain.txt' },
       { toolCallId: 'call-plain-1' }
     );
@@ -169,8 +151,7 @@ describe('edit checkpoint capture on write', () => {
   it('records an "ok" checkpoint when overwriting an existing text file', async () => {
     await writeDisk('a.ts', 'OLD');
     const tools = buildDesktopAssistantTools(runtime());
-    await executeTool(
-      tools['brainstrike.writeWorkspaceFile'],
+    await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
       { content: 'NEW', path: '/a.ts' },
       runContext('call-write-2')
     );
@@ -183,8 +164,7 @@ describe('edit checkpoint capture on string_replace / delete / rename', () => {
   it('records an "ok" checkpoint for a string replace', async () => {
     await writeDisk('b.ts', 'const value = 1;\n');
     const tools = buildDesktopAssistantTools(runtime());
-    await executeTool(
-      tools['brainstrike.stringReplaceWorkspaceFile'],
+    await requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile')(
       { newStr: 'const value = 2;', oldStr: 'const value = 1;', path: '/b.ts' },
       runContext('call-sr')
     );
@@ -199,8 +179,7 @@ describe('edit checkpoint capture on string_replace / delete / rename', () => {
   it('records a checkpoint for a delete', async () => {
     await writeDisk('c.ts', 'gone soon\n');
     const tools = buildDesktopAssistantTools(runtime());
-    await executeTool(
-      tools['brainstrike.deleteWorkspaceFile'],
+    await requireToolExecute(tools, 'brainstrike.deleteWorkspaceFile')(
       { path: '/c.ts' },
       runContext('call-del')
     );
@@ -211,8 +190,7 @@ describe('edit checkpoint capture on string_replace / delete / rename', () => {
   it('records a rename checkpoint carrying from_path AND the destination content hash', async () => {
     await writeDisk('old.ts', 'x\n');
     const tools = buildDesktopAssistantTools(runtime());
-    await executeTool(
-      tools['brainstrike.renameWorkspaceFile'],
+    await requireToolExecute(tools, 'brainstrike.renameWorkspaceFile')(
       { fromPath: '/old.ts', toPath: '/new.ts' },
       runContext('call-rn')
     );
@@ -234,8 +212,7 @@ describe('capture is non-fatal and gated', () => {
   it('does not journal or throw when the database is unavailable', async () => {
     dbHolder.fail = true;
     const tools = buildDesktopAssistantTools(runtime());
-    const result = await executeTool(
-      tools['brainstrike.writeWorkspaceFile'],
+    const result = await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
       { content: 'hi', path: '/x.txt' },
       runContext('call-x')
     );
@@ -253,8 +230,7 @@ describe('capture is non-fatal and gated', () => {
       workspaceRoots: [{ displayName: 'Project', path: rootPath, rootId: ROOT_ID }],
     } as unknown as RuntimeData;
     const tools = buildDesktopAssistantTools(noMemory);
-    await executeTool(
-      tools['brainstrike.writeWorkspaceFile'],
+    await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
       { content: 'hi', path: '/y.ts' },
       runContext('call-y')
     );

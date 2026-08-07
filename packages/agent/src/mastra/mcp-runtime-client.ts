@@ -217,6 +217,13 @@ function createDocumentationOnlyMcpOutputSchema(
  * as only `{ requestContext }` — so the full interface can no longer describe
  * the inbound context. `requestContext` stays in the slice so the callback's
  * context type shares a property with this weak type.
+ *
+ * VERSION-COUPLED: every member here is optional, so nothing type-checks that
+ * Mastra still passes `agent`/`writer`/`abortSignal` at these positions — if
+ * an upgrade relocates one (e.g. `writer` under `agent`), progress streaming
+ * or cancellation degrades silently. Re-verify these three field paths against
+ * the installed `tools/types.d.ts` on every @mastra/core bump (they were
+ * verified at 1.55.0), alongside the doc's per-version surface checks.
  */
 type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & {
   requestContext?: unknown;

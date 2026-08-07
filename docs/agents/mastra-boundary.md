@@ -503,7 +503,7 @@ changes hit and fixed in this range:
   with `'execute' in tool` first (`apps/desktop/src/ipc-tools.ts`,
   `capture-on-edit.integration.test.ts`).
 
-**`@mastra/core` is pinned EXACT `1.55.0` — do not caret-float it.** 1.56.0's
+**`@mastra/core` is pinned `~1.55.0` — patches only, never a caret.** 1.56.0's
 approval-recovery work intercepts resumes of in-tool approval suspensions
 (`suspend(…, { requireToolApproval: true })`, the BST-1097 Gate A mechanism in
 `run-python-tool.ts`): approve is consumed by the framework and the tool

@@ -1832,8 +1832,10 @@ When changing this flow, update this section and the paired tests.
 
 Two SUSPENDING native tools pause the run DURING execution and resume with
 arbitrary data, on a NEW transport that PARALLELS the approval transport (it does
-not overload it). Built on `@mastra/core@1.50` tool `suspend()`/`suspendSchema`/
-`resumeSchema` + `agent.resumeStream(resumeData, {runId, toolCallId})`.
+not overload it). Built on `@mastra/core@1.55` tool `suspend()`/`suspendSchema`/
+`resumeSchema` + `agent.resumeStream(resumeData, {runId, toolCallId})`
+(re-verified at the 1.55 bump; 1.56 changes the approval half of this surface —
+see the version ceiling in mastra-boundary.md).
 
 - **`submitPlan`** (packages/agent/src/tools/submit-plan-tool.ts): takes a
   structured plan INLINE (`{title, overview, steps[], risks?, verification?}` —
@@ -1903,7 +1905,7 @@ own metadata.
 **No `tool.failed` is emitted upstream either — verified against the live loop,
 do not relitigate from the comment alone.** `data-stream-mapper.ts` carries a
 line deleting the suspended call's `pendingToolErrorTexts` entry, added in #1606
-against @mastra/core 1.50 when Mastra reported `suspend()` through the
+against @mastra/core 1.50 (behavior unchanged at the pinned 1.55) when Mastra reported `suspend()` through the
 `tool-error` path BEFORE the correlated suspension event. If that ordering still
 held, `makeToolLifecycleRunEventChunk` would convert the earlier part into a
 durable `tool.failed` and every claim in the table above would be void. It does

@@ -471,7 +471,9 @@ async function tryExecuteAssistantRuntimeTool(
   // @mastra/core 1.55 widened ToolsInput[string] with members that carry no
   // `execute` (provider-defined tools, web-search placeholders) — narrow
   // structurally before invoking.
-  if (!(assistantTool && 'execute' in assistantTool && assistantTool.execute)) {
+  if (
+    !(assistantTool && 'execute' in assistantTool && typeof assistantTool.execute === 'function')
+  ) {
     return null;
   }
 

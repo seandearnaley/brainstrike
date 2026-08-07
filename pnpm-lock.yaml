@@ -1083,7 +1083,7 @@ importers:
         specifier: 'catalog:'
         version: 4.2.0
       '@mastra/core':
-        specifier: 1.55.0
+        specifier: ~1.55.0
         version: 1.55.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3)
       '@mastra/memory':
         specifier: 1.26.0

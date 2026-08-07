@@ -773,7 +773,7 @@ rows). Capability-gated, not `isElectron()`.
   `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
   mutate → journal write is atomic against concurrent same-file edits.
   `toolCallId` comes from Mastra's 2nd `execute` arg
-  (`context.agent.toolCallId`, verified against @mastra/core@1.50.0 dist types);
+  (`context.agent.toolCallId`, verified against @mastra/core@1.55.0 dist types);
   identity (runId/threadId/resourceId) from `runtimeData.memory`. Capture is
   GATED on an active memory context and is NON-FATAL (debug on DB-absent, error
   on DB-throw) — the tool result contract is never changed.
